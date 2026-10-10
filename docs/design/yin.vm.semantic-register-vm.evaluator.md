@@ -7,8 +7,13 @@ code (`f46935ad`). The frozen document is not changed by this one: where
 the engine's reality differs from its text, §6 records a finding with a
 proposed amendment. Subordinate to [`datom.world.md`](./datom.world.md)
 and to [`yin.vm.semantic-register-vm.md`](./yin.vm.semantic-register-vm.md)
-("the frozen design" below). Review: a non-Claude Architect before any
-implementation brief.
+("the frozen design" below). Revision 2 (2026-10-10) applies the
+independent review `collab/1791540000000-architect-srvm-phase4-design-review.gpt-6.1-sol.findings.md`
+(CHANGES_REQUESTED): the trace oracle is defined by production versus
+relocation and extracts destinations explicitly (§4), the slices share
+one eligibility predicate and corrected counts (§5), the FFI-throw and
+stamp claims are restated (§2.2, §5.2), effect-boundary materialization
+is explicit (§1.8), and §6 holds the ruled amendment texts verbatim.
 
 Every section marks its content **DECIDED** (follows from frozen text or
 from code that exists) or **PROPOSED** (a design choice of this
@@ -194,9 +199,11 @@ set, not because 4b must exercise it.
 | arity and ownership | `engine/continuation-argument` (`engine.cljc:103-112`), `engine/operator-kind` `:foreign-value` (`:77-90`) | reused unchanged |
 
 **DECIDED** (frozen §2.4 "current-continuation", "`f = κ`"). `:deliver`
-on a `κ` is always `{:deliver :rd}`; it is carried so that invocation is
-one code path with §2's `:rd` arm and so that phase 6 lifts it without
-a special case.
+on a `κ` is always the full record `{:deliver :rd :rd rd}` with `rd` the
+`:current-continuation` instruction's destination; there is no
+abbreviated form and a record lacking `:rd` is not an accepted shape.
+It is carried so that invocation is one code path with §2's `:rd` arm
+and so that phase 6 lifts it without a special case.
 
 ### 1.7 The loaded image
 
@@ -217,10 +224,21 @@ one address one id) → `:control {:segment seg :pc 0}`, `:window {}`,
 `attach-image` is the same without the control reset
 (`semantic.cljc:821-846` is the template). An AST reaches the evaluator
 only through the phase-3 projection: **PROPOSED** helper
-`yin.vm.semantic-register/ast-loader` mirroring
-`yin.vm.linearize/ast-loader` (`src/cljc/yin/vm/linearize.cljc:446-471`):
+`yin.vm.semantic-register/load-ast` mirroring what
+`yin.vm.linearize/ast-loader` builds (`src/cljc/yin/vm/linearize.cljc:446-471`):
 check `vm/ast-contract`, `(:vector (linearize/project-datoms datoms))`,
 then `load-vector` under `code/contract`.
+
+**Public arities and defaults, pinned** (DECIDED for the briefs):
+
+| Function | Arities | Behaviour |
+|---|---|---|
+| `create-vm` | `[]`, `[opts]` | the option keys of `semantic.cljc:898-951`; `:vm-model :semantic-register`; `:window {}`, `:k nil`, `:control nil`, `:halted? true` |
+| `load-vector` | `[vm v stamp]`, `[vm v stamp opts]` | `stamp` compared with `code/contract` ("v4") first; `opts` is `{}` by default and admits `:id` (claim this local segment id; ignored when the address is already aliased), as `semantic/load-vector` (`:793-818`). Sets `:control {:segment seg :pc 0}`, `:window {}`, `:k nil`, `:halted? false`, `:blocked? false`, `:value nil` |
+| `attach-image` | `[vm v stamp]` | validates and attaches under a fresh id; touches no execution field |
+| `load-ast` | `[vm datoms stamp]` | `stamp` compared with `vm/ast-contract`; projects and loads under `code/contract` |
+| `register-restore` | `[base entry]`, `[base entry val]` | §2.2; the two-arity form reads `(:value entry)`, as `semantic-restore` (`:150`) |
+| `reset` (via `vm/reset`) | | `:control {:segment (:program vm) :pc 0}` or nil, **`:window {}`**, `:k nil`, `:value nil`, `:halted? (nil? (:program vm))`, `:blocked? false`; code, aliases and the scheduler tables are kept (template `semantic.cljc:853-862`, plus the window clearing the stack VM's `:stack []` corresponds to) |
 
 ### 1.8 The transitions, as code paths
 
@@ -241,13 +259,39 @@ Each row names the stack-VM arm that is the template and what changes.
 | `[:halt r]` | `:330-331` | `put-registers vm nil nil {} (engine/without-store-of E) nil` with `:value (get W r)` |
 | `[:return r]` | `:333-340` | §1.3 pop; empty K halts as `:halt` with `v = (get W r)` |
 | `[:call rd f args tail?]` | `apply-call`, `:224-263` | §1.9 |
-| `[:stream-make rd buffer]` `[:stream-cursor rd s]` `[:stream-close rd s]` | `:423-430`, `:442-448`, `:458-464` | `run-effect` with the effect's operands read from `W`; no park builders; `W[rd ← value]` |
-| `[:stream-put rd s v]` | `:432-440` | `run-effect` with `{:stream (get W s) :val (get W v)}` and the `act` builders; on `:continue` `W[rd ← value]` |
+| `[:stream-make rd buffer]` `[:stream-cursor rd s]` `[:stream-close rd s]` | `:423-430`, `:442-448`, `:458-464` | `run-effect`: **materialize** (`put-registers vm seg pc W E K`), `engine/handle-effect` with the effect's operands read from `W`; no park builders; `W[rd ← value]` on the returned state |
+| `[:stream-put rd s v]` | `:432-440` | `run-effect` with `{:stream (get W s) :val (get W v)}` and `(act-builders seg pc E W K rd (:analysis image))`; on `:continue` `W[rd ← value]`; on block, stop with `:control nil :k nil` |
 | `[:stream-next rd c]` | `:450-456` | likewise with `{:cursor (get W c)}` |
 | `[:ffi-call rd op args]` | `:466-518` | §1.10 |
 | `[:current-continuation rd]` | `:363-371` | `W[rd ← κ]`, §1.6; `saved` computed at `(inc pc)` with destination `rd` |
 | `[:park rd]` | `:373-379` | `(engine/park-continuation (put-registers …) act-payload)`, then `:control nil :k nil` |
-| `[:resume id v]` | `:381-397` | `(engine/resume-continuation (put-registers …) id (get W v) register-restore)`; the loop re-enters from the returned state's `:control :window :env :k` exactly as `:394-397` re-enters from `:control :stack :env :k`. A restored `:return`-mode record may **halt** here (§2.3 step 6); the loop must test `(:halted? vm')` before re-entering, which the stack arm never had to |
+| `[:resume id v]` | `:381-397` | materialize (`put-registers vm seg pc W E K`), then `(engine/resume-continuation vm' id (get W v) register-restore)`; the loop re-enters from the returned state's `:control :window :env :k` exactly as `:394-397` re-enters from `:control :stack :env :k`. A restored `:return`-mode record may **halt** here (§2.2 step 3, `:return` arm, empty `K`): the loop must test `(:halted? vm')` and return that state instead of re-entering, which the stack arm never had to |
+
+**The materialization rule.** **DECIDED** (template: every engine call
+in `vm-hot` is preceded by `put-registers`, `semantic.cljc:215`, `:247`,
+`:373`, `:383`, `:477`). Before **any** call into the engine from the hot
+loop — `engine/handle-effect` (the five stream instructions, `:ffi-call`'s
+`pin-refs`, every `:host-fn` effect of a `:call`), `engine/park-continuation`,
+`engine/resume-continuation` — the loop writes its locals back:
+`vm' = (put-registers vm seg pc W E K)`, and the engine is called on
+`vm'`. Three things depend on it: `engine/store-context` and
+`put-active` read `(:env state)` for the module store
+(`engine.cljc:197-224`); a `:cell/new` effect may run `engine/collect`,
+whose roots come from `module/gc-roots`, which reads `(:window vm)`
+(§3.3); and the blocked machine that `register-restore` later receives
+as `base` is exactly this materialized state (§2.2, F2). After the
+engine returns, the loop re-reads `:window :env :k` from the returned
+state before continuing (the engine may have changed `:env` through
+`put-active` only indirectly, but `:gc`, `:resources`, `:parked`,
+`:wait-set` and `:id-counter` are the engine's and must come back from
+the returned state). The pure arms (`:const :var :closure :jump
+:branch-false :define :gensym :store-get :store-put :return :halt`, a
+closure `:call`, a pure `:host-fn` value) do not materialize; `:define`,
+`:gensym`, `:store-get` and `:store-put` call `engine/put-active`,
+`engine/gensym` and `engine/active-store` on the loop's `vm` local, which
+read only `:store`, `:module-stores` and `:id-counter` and so need no
+`:env`/`:window` write-back — the stack VM does the same
+(`semantic.cljc:342-361`).
 
 ### 1.9 `apply-call` in register form
 
@@ -261,8 +305,8 @@ Inputs: `f = (get W fn-reg)`, `args = (mapv #(get W %) arg-regs)`
 | `:closure` | true | same with `K' = K`; the caller's `W` is dropped |
 | `:host-fn`, value `v` | false | `W[rd ← v]`, pc+1 |
 | `:host-fn`, value `v` | true | `return(v)` against `K` inline (§1.3 pop, or halt) — the de Bruijn register kernel does exactly this today (`src/cljc/yin/vm/debruijn/register.cljc:711-713`) |
-| `:host-fn`, effect `ε` | false | `engine/check-callee-effect!` then `engine/handle-effect` with `{:park-entry-fns (act-builders seg pc E W K rd)}`; `:blocked?` → stop with `:control nil :k nil`; else `W[rd ← value]`, pc+1 |
-| `:host-fn`, effect `ε` | true | as above with `(tail-builders seg pc K)`; not blocked → `return(value)` inline (`register.cljc:565-579` is the live precedent) |
+| `:host-fn`, effect `ε` | false | **materialize** `vm' = (put-registers vm seg pc W E K)`; `(engine/check-callee-effect! vm' f ε)`; `engine/handle-effect` on that state with `{:park-entry-fns (act-builders seg pc E W K rd (:analysis image))}`; `:blocked?` → stop with `(assoc state :control nil :k nil)`; else `W[rd ← value]`, pc+1, continuing with the returned `state` (template `semantic.cljc:243-253`) |
+| `:host-fn`, effect `ε` | true | as above with `(tail-builders seg pc K)`; not blocked → `return(value)` inline against `K` on the returned state (`register.cljc:565-579` is the live precedent) |
 | `:continuation` | any | `v = (engine/continuation-argument args)`; payload `c`; `⟨(:segment c), (:pc c), (assoc (:window c) (:rd (:deliver c)) v), (:env c), (:k c)⟩` |
 | anything else | | `engine/operator-kind` throws `:not-applicable` / `:foreign-value` (`engine.cljc:77-90`) |
 
@@ -286,7 +330,10 @@ The builders (template `call-park-entries`, `semantic.cljc:184-201`):
 `:stream/poll` needs no builder of its own: `handle-effect` falls back
 to the `:stream/next` builder (`engine.cljc:2633-2634`). The `:module/require`
 builder is handed `nil` as its result argument by `require-handler`
-(`module.cljc:549`), hence the ignored third parameter.
+(`module.cljc:549`), hence the ignored third parameter. Every call of
+`act-builders` passes the image's `:analysis` (§1.7); the stream
+instructions of §1.8 call it as `(act-builders seg pc E W K rd (:analysis
+image))` after materializing, exactly as this table's effect arm does.
 
 ### 1.10 `:ffi-call` in register form
 
@@ -333,17 +380,35 @@ seam already supports this: `handle-effect`'s `restore-fn(base, entry,
 value)` …" names the wrong function; the claim it makes is true of the
 two functions above.
 
-**No current activation is required**, verified: at both call sites
-`base` is the blocked or halted machine. A blocked stack machine has
-`:control nil :k nil` (`semantic.cljc:219`, `:493-497`, `:509-513`), and a
-restore is free to leave `:control nil :k nil :halted? true` — which
-`engine/run-loop` (`engine.cljc:2149-2163`) handles: `active?` is false,
-`:blocked?` is false, so it either pops the next ready entry or exits
-through the `:else` arm with the `:halt` snapshot. The de Bruijn
-register kernel already restores a `:return-result` entry by running its
-`return-transition` with no activation and halting on an empty
-continuation (`register.cljc:457-487`, `:403-432`); this evaluator does
-the same thing with the `tail` state. Nothing synthesizes a trampoline
+**Neither restore path requires a current activation**, verified. The
+two paths differ in what `base` is and in what is checked first:
+
+- On the **run-queue path**, `base` is the blocked machine
+  (`:control nil :k nil`, set when it blocked: `semantic.cljc:219`,
+  `:493-497`, `:509-513`), and the terminal-outcome check runs before the
+  restore. This is the only path with a terminal check.
+- On the **explicit-resume path**, `engine/resume-continuation` performs
+  **no** terminal-outcome check, and `base` is whatever state the caller
+  passes: a `:resume` instruction calls it from an **active** machine
+  whose `:control` and `:k` are those of the resuming activation
+  (materialized by `put-registers`, §1.8). The restore overwrites them
+  from the parked record; it does not depend on them.
+
+In both cases the helper reads only `entry`, `val` and `base`'s tables,
+and it may leave `:control nil :k nil :halted? true` (the empty-K halt).
+`engine/run-loop` (`engine.cljc:2149-2163`) accepts that: `active?` is
+false, `:blocked?` is false, so it pops the next ready entry or exits
+through the `:else` arm with the `:halt` snapshot. The `:resume`
+instruction's arm must likewise accept it (§1.8): after
+`resume-continuation` returns, it tests `(:halted? vm')` and returns the
+state instead of re-entering the loop. The de Bruijn register kernel's
+`write-back` (`register.cljc:457-487`, `:403-432`) is the live precedent
+that a `:return-result` restore may run a return transition and halt
+with no activation; it is **not** an identical validation precedent, as
+that kernel also checks format identity, payload defects and that the
+resume value is plain data (`:490-507`), checks this evaluator does not
+need in phase 4 (an in-process entry is the kernel's own data; the
+frame validator is phase 6). Nothing synthesizes a trampoline
 activation.
 
 ### 2.2 `register-restore [base entry val]`, the algorithm
@@ -367,8 +432,11 @@ on it; §8.6). Template `semantic-restore` (`semantic.cljc:135-181`) and
    if call-id: base := (update base :parked dissoc call-id)           ; bookkeeping removal
                val  := (ffi/call-result val call-id)                  ; may THROW: error response,
                                                                        ; malformed, miscorrelated
-   ;; order matters: the parked entry is removed BEFORE call-result can throw, so a failed
-   ;; call leaves no stranded record (semantic.cljc:172-174; ffi.cljc:170-187)
+   ;; the ORDER (remove, then decode) is kept from semantic.cljc:172-174. `base` is a local
+   ;; immutable value: when call-result throws, no machine is returned, so the caller observes
+   ;; the throw and still holds the machine it passed in, parked entry included. The order is
+   ;; not a cleanup guarantee to callers; it is what a future recoverable path would rely on.
+   ;; Delivering an error response as a value is a separate decision, not taken here.
 
 3. case (:deliver (:deliver entry))
    :rd     → rd := (:rd (:deliver entry))
@@ -394,11 +462,22 @@ seg :pc pc})`, `:window W`, `:env E`, `:k (if (seq K) K nil)`,
 when the caller supplies one (halt).
 
 **The empty-K halt's environment** (§6 F2): a `tail` entry has no `E`.
-The halted machine's `:env` is `(engine/without-store-of (:env base))`,
-where `(:env base)` is what `put-registers` wrote before the effect ran:
-the tail site's `E` (the stack VM's `:halt` arm leaves the same thing,
-`semantic.cljc:330-331`). Under `vm-eval` the engine then restores the
-initial env anyway (`engine/restore-initial-env`, `engine.cljc:251-255`).
+Two cases, deliberately not equated:
+
+- **Deferred completion** (through this helper): the halted machine's
+  `:env` is `(engine/without-store-of (:env base))`. `(:env base)` is the
+  scheduler's current env at restore time. It is often the tail site's
+  `E`, materialized by `put-registers` when that machine blocked, but
+  not necessarily: another ready entry may have run and halted in
+  between, leaving its own `:env`. The rule is stated over `base`, not
+  over the tail site.
+- **Immediate completion** (a pure primitive, or a non-parking effect,
+  in a tail `:call`, §1.9): the loop's current `E` is the tail site's
+  `E`, and the halt leaves `(engine/without-store-of E)`, as the stack
+  VM's `:halt` arm does (`semantic.cljc:330-331`).
+
+Under `vm-eval` the engine then restores the initial env anyway
+(`engine/restore-initial-env`, `engine.cljc:251-255`).
 
 ### 2.3 Per pending reason
 
@@ -434,14 +513,19 @@ way. **DECIDED** (frozen §2.4; precedent `register.cljc:573-579`).
 
 ### 2.5 Exactly-once
 
-Exactly one write of `val` happens, in step 3, into either the entry's
-own window (`:rd`) or the popped frame's window (`:return`), or into
-`:value` on halt. The entry itself leaves its table before the helper
-runs: `resume-from-run-queue` pops the ready queue (`:2249-2250`),
-`resume-continuation` dissocs `:parked` (`:2305`), step 2 dissocs the
-FFI bookkeeping. A `tail` completion therefore "never writes a register
-of a body that no longer runs" (frozen §2.4): no window of the tail
-site exists to write.
+Exactly-once means **one delivery per consumed entry and per
+continuation invocation**: each time the helper runs for an entry, or
+the `:continuation` arm runs for an invocation, `val` is written once,
+in step 3, into the entry's own window (`:rd`), the popped frame's
+window (`:return`), or `:value` on halt. The entry itself leaves its
+table before the helper runs: `resume-from-run-queue` pops the ready
+queue (`:2249-2250`), `resume-continuation` dissocs `:parked` (`:2305`),
+step 2 dissocs the FFI bookkeeping. It does **not** mean a reified
+continuation is single-use: a `κ` is a value and may be invoked any
+number of times, each invocation delivering once
+(`continuation_invoke_test.cljc:155-181` re-enters three times). A
+`tail` completion "never writes a register of a body that no longer
+runs" (frozen §2.4): no window of the tail site exists to write.
 
 ---
 
@@ -541,163 +625,223 @@ read it from `E` (`engine.cljc:205-224`). The 4b row
 fixes the procedure, which the frozen text leaves as "a trace test
 aligns walker value-producing steps with register writes").
 
-### 4.1 What a "value-producing step" is on each side
+### 4.1 One definition of an event, for both machines
+
+> An **event** is a transition that either **produces** the result of
+> an expression (the expression's own result transition) or
+> **delivers** a value to a suspended destination (a captured
+> continuation's destination, a popped caller frame, the halt result).
+> A transition that merely **relocates** a result already produced
+> into its consumer's destination — the register machine's `:return r`
+> and `:halt r`, the walker's frame pops — is **administrative** and is
+> not an event. Control routing (`:jump`, `:branch-false`, entering a
+> closure, the walker's frame pushes, `eval-test`) is administrative.
+> Blocking and parking are not events.
+
+The definition is by **semantic role**, never by value: a `:define`
+produces its own result (equal to its operand's) and that is an event
+on both machines; a repeated literal `1` is an event each time it is
+evaluated; a primitive returning a value already held elsewhere is an
+event. Nothing compares the delivered value with the machine's other
+values to decide whether a transition counts. (§6 F5 states this as
+production versus relocation in the frozen §2.5.)
 
 **Walker.** Drive `vm/step` on an `ASTWalkerVM` (`ast_walker.cljc:1066-1069`
-→ `cesk-transition`, `:298-613`). Inspect every post-state `S'`.
+→ `cesk-transition`, `:298-613`). The producing and delivering
+transitions are exactly those whose post-state `S'` has `(:control S')`
+nil and `(:blocked? S')` false; the event's value is `(:value S')`.
+Enumerated: production by `:literal :variable :lambda :vm/gensym
+:vm/store-get :vm/store-put :vm/current-continuation :stream/make`, by a
+host-function application (`handle-primitive-result`, `:179-210`), by
+the effect completions (`eval-stream-put-val` … `eval-stream-next-cursor`,
+`:399-457`), by `eval-define` (`:458-466`), by `eval-call` (`:379-388`);
+delivery by `eval-resume-val` through `resume-continuation` (`:467-475`)
+and by an abortive continuation invoke (`apply-function`, `:289-295`).
+Every administrative step leaves `:control` non-nil (an `:application`
+sets it to the operator, `:if` to the test, `eval-operator`/`eval-operand`
+to the next operand, `eval-test` to the chosen arm, a closure
+application to the body, `:vm/resume` and the four stream nodes to their
+operand, `eval-stream-put-target` to the value node, a definition to its
+value operand: `:494-612`, `:306-398`). The walker has no relocation
+step: a body's value flows to the caller through `:next k` inside the
+producing transition itself. A blocked step sets `:control` nil **and**
+`:blocked? true` and is excluded; a `:vm/park` sets `:control` nil with
+`:halted? true` and the parked record as value, and is a terminal event
+(§4.3).
 
-> A walker step is **value-producing** iff `(:control S')` is nil and
-> `(:blocked? S')` is false. Its value is `(:value S')`.
+**Register machine.** Drive `vm/step` with fuel 1. Classify by the
+**instruction executed** (`inst`, read from the image at the pre-state's
+`:control` before the step) and, for `:call`, by the operator's kind
+read from the pre-state window:
 
-Justification from the transition table: every administrative step
-leaves `:control` non-nil (an `:application` sets it to the operator,
-`:if` to the test, `eval-operator`/`eval-operand` to the next operand,
-`eval-test` to the chosen arm, a closure application to the body,
-`:vm/resume` and the four stream nodes to their operand,
-`eval-stream-put-target` to the value node, a definition to its value
-operand: `:494-612`, `:306-398`). Every step that yields a value sets
-`:control` nil with that value: `:literal :variable :lambda :vm/gensym
-:vm/store-get :vm/store-put :vm/current-continuation :stream/make`, a
-host-function application (`handle-primitive-result`, `:179-210`), the
-effect completions (`eval-stream-put-val` …`eval-stream-next-cursor`,
-`:399-457`), `eval-define` (`:458-466`), `eval-call` (`:379-388`),
-`eval-resume-val` through `resume-continuation` (`:467-475`), and an
-abortive continuation invoke (`apply-function`, `:289-295`). A blocked
-step sets `:control` nil **and** `:blocked? true` and is excluded; a
-`:vm/park` sets `:control` nil with `:halted? true` and the parked
-record as value, and is treated as a terminal event (§4.3).
+| `inst` | Role | Event? |
+|---|---|---|
+| `:const :var :closure :gensym :store-get :store-put :stream-make :stream-cursor :stream-close :current-continuation :define` | production | yes |
+| `:stream-put :stream-next :ffi-call` completing in this step | production | yes; if the step parks or blocks, no |
+| `:call`, operator a host function, non-tail, completing | production | yes |
+| `:call`, operator a host function, **tail**, completing | delivery (to the popped frame or the halt) | yes |
+| `:call`, operator a closure (tail or not) | routing | no |
+| `:call`, operator a continuation | delivery (to the captured destination) | yes |
+| `:resume` | delivery (per the parked record) | yes (4b) |
+| `:return r`, `:halt r` | relocation | **no** |
+| `:jump`, `:branch-false` | routing | no |
+| `:park`, any parking or blocking step | — | no (park is the terminal `[:park …]`) |
 
-**Register machine.** Drive `vm/step` with fuel 1. Inspect each
-transition.
-
-> A register step is **value-producing** iff it writes a register with
-> a value that was not already in a register of the machine, or
-> delivers a fresh value through `return(v)`. Concretely, the writes
-> of: `:const :var :closure :gensym :store-get :store-put :stream-make
-> :stream-cursor :stream-close :current-continuation`; `:define`'s
-> write of `rd`; a `:call` whose operator is a host function
-> returning a value (non-tail: `rd`; tail: the popped frame's `rd`, or
-> the halt result when `K` is empty); a `:stream-put`/`:stream-next`
-> that completes without parking; the delivery of a woken entry
-> (§2.2 step 3); a continuation invoke's write of the captured `rd`.
-> **Not** value-producing: `:jump`, `:branch-false`, a `:call` entering
-> a closure (tail or not), `:return r` (it relocates `(get W r)`, a value
-> already produced by the body), `:halt r` (likewise), `:park`, and any
-> step that parks or blocks.
-
-Why `:return r` is administrative: the walker has no return step. A
-body's last expression produces its value once and the frame chain
-(`:next k`) carries it; the register machine produces it once at the
-body's write and `:return` moves it into the caller's `rd`. Counting
-`:return` would misalign every closure call by one event. The same
-value does appear twice for `:define` on **both** sides (the value
-operand's step, then `eval-define`/`:define`), so `:define`'s write
-counts. (§6 F5 proposes adding this row to the frozen §2.5 table.)
+Why `:return r` is relocation: the body's last expression produced the
+value (one event, matching the walker's one producing transition for
+that expression); `:return` moves `(get W r)` into the caller's `rd`.
+Counting it would misalign every closure call by one event. `return(v)`
+of a tail primitive's result is **not** a relocation: nothing produced
+`v` before, so it is that call's production-and-delivery event, matching
+the walker's single host-fn application transition.
 
 ### 4.2 The recorded trace
 
 Each side records a vector of **events**:
 
 ```clojure
-[:value v-normalized]      ; one per value-producing step, in order
+[:value v-normalized]      ; one per event (§4.1), in order
 [:halt v-normalized]       ; the final value, once, when halted with an empty ready queue
 [:park record-normalized]  ; a :vm/park / [:park rd] halt: the record's :env and :k are dropped,
                            ; its :id kept
 [:error message]           ; the ex-message of a throw, then the trace ends
+[:fuel-exhausted n]        ; n steps taken without halting (§4.3), then the trace ends
 ```
 
-Normalisation is `yin.vm.parity-test/normalize` (`test/yin/vm/parity_test.cljc:122-134`)
-extended: a closure → `{:type :closure :params p}` (the body is an AST
-node on one side and `{:segment :entry}` on the other, so only `params`
-compare); a continuation → `:continuation`; a `:stream-ref`/`:cursor-ref`
-→ `{:type t :id id}`; a host fn → `:host-fn`; a parked record →
-`{:type :parked-continuation :id id}`; everything else as is.
+Normalisation is one function, `trace-normalize`, applied to **every**
+compared value on both sides, including the pinned `expected` column of
+the B0 corpus when the value lane reuses it (§5.1): a closure (host
+type, or the plain `{:type :closure …}` map the pinned expectations
+hold, `parity_test.cljc:76-78`) → `{:type :closure :params p}` — the
+body is an AST node on the walker side, `{:segment :entry}` on the
+register side and a literal `:body` in the pinned column, so only
+`params` compare; a continuation → `:continuation`; a
+`:stream-ref`/`:cursor-ref` → `{:type t :id id}`; a host fn →
+`:host-fn`; a parked record → `{:type :parked-continuation :id id}`;
+collections recursively; everything else as is. It extends
+`yin.vm.parity-test/normalize` (`parity_test.cljc:122-134`), which keeps
+`:body` and therefore cannot be used unchanged.
 
 ### 4.3 The algorithm
 
 ```
+FUEL := 100000                                  ; steps per program; B0 programs take < 100
+
 trace-walker(ast):
   vm := (walker/vm-load-rows (tu/create-vm) (vm/ast->semantic-bytecode ast) vm/ast-contract)
-  events := []
+  events := []; n := 0
   loop:
-    if (engine/halted-with-empty-queue? vm): events += [:halt (normalize (vm/value vm))]; stop
+    if (engine/halted-with-empty-queue? vm): events += [:halt (trace-normalize (vm/value vm))]; stop
     if (:blocked? vm): stop                      ; the trace lane runs non-blocking programs only
+    if n = FUEL: events += [:fuel-exhausted n]; stop
     vm' := try (vm/step vm) catch e: events += [:error (ex-message e)]; stop
+    n := n + 1
     if (and (nil? (:control vm')) (not (:blocked? vm')))
        if (:value vm') is a parked record: events += [:park …]; stop
-       else events += [:value (normalize (:value vm'))]
+       else events += [:value (trace-normalize (:value vm'))]
     vm := vm'
-  ;; the walker's final value-producing step sets :control nil, :k nil and :halted? true in
-  ;; one transition (cesk-return derives :halted? from the two nils), so it is recorded as
+  ;; the walker's final producing step sets :control nil, :k nil and :halted? true in one
+  ;; transition (cesk-return derives :halted? from the two nils), so it is recorded as
   ;; [:value v] here and the next iteration records [:halt v]
 
 trace-register(ast):
   vm := (sr/load-vector (sr/create-vm opts) (:vector (sr-linearize/project ast)) code/contract)
-  events := []
+  events := []; n := 0
   loop:
-    if (engine/halted-with-empty-queue? vm): events += [:halt …]; stop
+    if (engine/halted-with-empty-queue? vm): events += [:halt (trace-normalize (vm/value vm))]; stop
     if (:blocked? vm): stop
-    inst := (nth (:vector image) pc) of (:control vm)
-    vm' := try (vm/step vm) catch e: events += [:error …]; stop
-    if value-producing(inst, vm, vm') per §4.1: events += [:value (normalize (written value))]
-    if (:halted? vm') and parked: events += [:park …]; stop
+    if n = FUEL: events += [:fuel-exhausted n]; stop
+    {seg pc} := (vm/control vm)
+    inst     := (nth (:vector (get (:code vm) seg)) pc)
+    W0, K0   := (:window vm), (or (:k vm) [])          ; pre-state, for the operator and the frame
+    vm' := try (vm/step vm) catch e: events += [:error (ex-message e)]; stop
+    n := n + 1
+    if (:halted? vm') and (:value vm') is a parked record: events += [:park …]; stop
+    v := extract(inst, W0, K0, vm, vm')              ; below; :none when not an event
+    if v ≠ :none: events += [:value (trace-normalize v)]
     vm := vm'
 ```
 
-Detecting the written value on the register side without reading the
-loop's locals: compare `(:window vm')` with `(:window vm)` when
-`(:control vm')` is in the same body and `K` did not shrink (the write
-is the one new or changed key); when `K` shrank by one (a `:return`, or
-a tail primitive's `return(v)`), the write is `(get (:window vm') (:rd
-frame))` for the popped frame and counts only in the tail-primitive
-case; when the machine halted, the value is `(:value vm')` and counts
-only when the halting instruction was a tail `:call` of a host function
-(the `:halt r` / `:return r`-with-empty-K cases are administrative).
-The classification therefore needs `inst` (read before the step) and
-`(:k vm)`/`(:k vm')`, both available from `vm/IVMState`.
+**Extraction, by explicit destination only.** `extract` never infers a
+destination from differences between windows or from a change in the
+length of `K`: a continuation invocation can replace many window
+entries at once, grow or discard `K`, and move to another body, so
+map differences identify nothing. The destination is always read from
+the instruction or from the record the instruction consumed:
 
-**The final walker value.** The walker's last value-producing step
-leaves `:control nil :k nil` and `:halted? true` in one transition, so
-the loop above records it as `[:value …]` and then `[:halt …]`; the
-register side records the body's last write as `[:value …]` and the
-`:halt` as `[:halt …]`. Both traces end `[:value v] [:halt v]`.
+| `inst` | destination | value |
+|---|---|---|
+| a production instruction of §4.1 (`rd` at tuple position 1) | `rd` | `(get (:window vm') rd)`; `:none` if the step parked or blocked (`(:blocked? vm')` or `(:halted? vm')` with a parked value) |
+| `[:call rd f args false]`, `(get W0 f)` a host fn | `rd` | `(get (:window vm') rd)`; `:none` if blocked |
+| `[:call rd f args true]`, `(get W0 f)` a host fn | the popped frame `(peek K0)` → its `:rd`; or the halt when `K0` is empty | `(get (:window vm') (:rd (peek K0)))`, or `(:value vm')` on halt; `:none` if blocked |
+| `[:call …]`, `(get W0 f)` a closure | — | `:none` |
+| `[:call …]`, `(get W0 f)` a continuation `κ` | `(:rd (:deliver (values/payload κ)))` | `(get (:window vm') that-rd)` — `κ`'s own captured delivery record, read from the pre-state |
+| `[:resume id v]` (4b) | the parked record `(get-in vm [:parked id])` read **before** the step: its `:deliver` `:rd`, or the popped frame of its `:k` / the halt for `:return` mode | as the two rows above |
+| `:return :halt :jump :branch-false :park` | — | `:none` |
+
+Everything `extract` reads is public machine state (`vm/control`, the
+`:window`, `:k` and `:parked` keys, the image under `:code`) and the
+instruction tuple; no loop local and no host map iteration order is
+involved. The operator kind of the pre-state window is classified with
+`fn?`, `values/closure?` and `values/continuation?`
+(`values.cljc:147-157`), the same tests `engine/operator-kind` uses.
+
+**The final walker value.** The walker's last producing step leaves
+`:control nil :k nil` and `:halted? true` in one transition, so the loop
+above records it as `[:value …]` and then `[:halt …]`; the register side
+records the body's last write as `[:value …]`, the `:halt` as nothing
+(relocation) and then `[:halt …]`. Both traces end `[:value v] [:halt v]`.
+
+**Blocked programs** are outside the step trace. Stepping a blocked
+walker is undefined (`cesk-transition` with nil control and nil `k`
+reaches the unknown-node throw, `ast_walker.cljc:613`), so the loop
+stops at `:blocked?`. Their effects, parking and resumption are covered
+by the run-to-completion parity lane (§5.2 rows from `parity_test.cljc:163-230`,
+`semantic_test.cljc`, `semantic_engine_test.cljc`, `semantic_ffi_test.cljc`),
+which compares values, store, effect traces and halting after `vm/run`.
 
 ### 4.4 Mismatch
 
-The test asserts `(= (trace-walker ast) (trace-register ast))` per
-program and reports the first differing index with both events. A
-mismatch is any of: different lengths; a differing event at any index;
-a `[:error m]` on one side only. Equal error messages count as a match
-(error parity: unbound symbols, `:not-applicable`, continuation arity).
+The test asserts whole-trace equality `(= (trace-walker ast)
+(trace-register ast))` per program and, on failure, reports the first
+differing index with both events (or the one that exists). A mismatch
+is any of: different lengths; a differing event at any index; a
+`[:error m]`, `[:park …]` or `[:fuel-exhausted n]` on one side only.
+Equal error messages count as a match (error parity: unbound symbols,
+`:not-applicable`, continuation arity, "not found" for an unknown parked
+id). Fuel exhaustion on both sides at the same index is still reported
+as a failure of that program (a divergence into a loop is a diagnostic,
+never a pass).
 
 ### 4.5 Corpus
 
-The trace lane runs over every program of:
+The trace lane runs over every program of the corpora below that the
+slice's eligibility predicate admits (§5.1). Counts were taken from the
+files at `d21ee43f`.
 
-1. `yin.vm.parity-test/corpus` (`test/yin/vm/parity_test.cljc:39-115`,
-   28 rows) — **the B0 parity corpus**; pinned expected values also
-   feed the value lane (§5.2).
-2. `yin.vm.semantic-register.corpus/programs` (`test/yin/vm/semantic_register/corpus.cljc:54-118`,
-   33 rows): most reference unbound names and therefore end in
+1. `yin.vm.parity-test/corpus` (`test/yin/vm/parity_test.cljc:39-115`):
+   **26 rows** — **the B0 parity corpus**; its pinned `expected` column
+   also feeds the value lane (§5.1), through `trace-normalize`.
+2. `yin.vm.semantic-register.corpus/programs` (`test/yin/vm/semantic_register/corpus.cljc:54-118`):
+   **32 rows**. Most reference unbound names and end in
    `[:error "Unable to resolve symbol: …"]` on both sides, which is
-   exactly the error-parity check; the runnable ones (`:literal`,
-   `:define`, `:define-call`, `:gensym`, `:store-ops`,
-   `:stream-make-default`, `:lambda-application`, `:nested-lambdas`,
-   `:if-in-test`, `:define-then-call`, `:resume-body` which errors
-   "not found" on both) exercise the productions.
+   exactly the error-parity check; the rows that run to a value
+   (`:literal`, `:define`, `:define-call`, `:gensym`, `:store-ops`,
+   `:lambda-application`, `:nested-lambdas`, `:if-in-test`,
+   `:define-then-call`, and in 4b `:stream-make-default`) exercise the
+   productions; `:resume-body` ends in `[:error "… not found"]` on both
+   (4b).
 3. The five programs of `yin.vm.continuation-invoke-test`
    (`test/yin/vm/continuation_invoke_test.cljc:131-202`), respelled in
    the trace test (they are inline there) — 4b only, since they
    invoke continuations.
 4. `definition-programs` of `yin.vm.rule-r-test`
-   (`test/yin/vm/rule_r_test.cljc:172-189`), respelled (private there).
+   (`test/yin/vm/rule_r_test.cljc:172-189`, **5 rows**), respelled
+   (private there).
 
 Blocking programs (the four effect deftests of `parity_test.cljc:163-230`,
-the `:park`-bearing corpus rows) are **not** traced step-wise: stepping
-a blocked walker is undefined (`cesk-transition` with nil control and
-nil `k` reaches the unknown-node throw, `ast_walker.cljc:613`). They
-are covered by the run-to-completion parity lane (§5.2, §5.3), which
-compares values, store, effect traces and halting after `vm/run`.
+the `:park`-bearing corpus rows) are **not** traced step-wise; the
+run-to-completion lane covers them (§4.3, last paragraph).
 
 ---
 
@@ -717,7 +861,7 @@ change is needed.
 - `src/cljc/yin/vm/semantic_register.cljc` (ns `yin.vm.semantic-register`):
   the record (§1.2), `create-vm` (template `semantic.cljc:898-951`,
   `:vm-model :semantic-register`), `load-vector`, `attach-image`,
-  `ast-loader` (§1.7), `put-registers`, `vm-hot` with the arms
+  `load-ast` (§1.7), `put-registers`, `vm-hot` with the arms
   `:const :var :closure :jump :branch-false :define :gensym :store-get
   :store-put :halt :return :call` (closure and host-fn **value**
   operators only; the effect and `:continuation` arms throw
@@ -733,24 +877,61 @@ change is needed.
 
 No existing source or test file changes in 4a.
 
+**The 4a eligibility predicate** — **DECIDED**, one predicate shared by
+the value gate, the outcome gate and the trace gate, defined once in
+`yin.vm.semantic-register.parity-test` and required by the trace test:
+
+```clojure
+(def slice-4a-mnemonics
+  #{:const :var :closure :jump :branch-false :define :gensym :store-get
+    :store-put :halt :return :call})
+
+(defn slice-4a-eligible? [ast]
+  (every? #(contains? slice-4a-mnemonics (nth % 0))
+          (:vector (sr-linearize/project ast))))
+```
+
+It is static over the projected vector, so it needs no run. 4a
+**defers**, rather than implements, every instruction outside the set:
+`:park` and `:resume` included, although they need no engine wait,
+because the brief's 4a is the walk-free core and because `:resume`'s
+semantics is the restore helper's `:return` arm plus the halted-state
+re-entry of §1.8, which 4b's park/resume rows test in one place. A
+deferred instruction reached at run time throws
+`{:reason :not-in-slice-4a :op mnemonic}`; the gates never feed one. A
+`:call` of an effect primitive (`require`, the stream module's
+functions) is not excluded by the predicate — it is dynamic — and no
+eligible corpus row makes one; the `:host-fn` effect arm likewise
+throws `:not-in-slice-4a` in 4a.
+
+Applied to the corpora of §4.5 at `d21ee43f`:
+
+| Corpus | Rows | Eligible in 4a | Excluded (deferred to 4b) |
+|---|---|---|---|
+| `parity-test/corpus` | 26 | **25** | `"stream make"` (`:stream-make`) |
+| `semantic-register.corpus/programs` | 32 | **21** | `:streams :stream-make-default :ffi-call :ffi-call-no-args :current-continuation :park :resume-body :resume-arm :resume-operand :resume-lambda-body :all-terminal-arms` (11) |
+| `rule-r-test/definition-programs` | 5 | **5** | — |
+| `continuation-invoke-test` programs | 5 | **0** | all (`:current-continuation`) |
+
 **Golden and parity rows, by name.**
 
-- Value parity: every row of `yin.vm.parity-test/corpus` except
-  `"stream make"` (needs `:make-stream`; 4b): the register VM's
-  normalized value equals the pinned `expected` column.
-- Error parity: every `yin.vm.semantic-register.corpus/programs` row
-  whose walker run throws, throws with an equal `ex-message` on the
-  register VM; every row whose walker run halts, halts with an equal
-  normalized value — rows `:streams :stream-make-default :ffi-call
-  :ffi-call-no-args :current-continuation :park :resume-arm` are
-  deferred to 4b.
-- Rule R: `definition-programs` of `rule_r_test.cljc:172-189` (value and
-  store slice), plus the `reserved-operands-are-refused-by-the-semantic-loaders`
-  pattern (`:283`) against `semantic-register/load-vector`: the
+- Value parity: the 25 eligible rows of `yin.vm.parity-test/corpus`:
+  `(trace-normalize register-value)` equals `(trace-normalize expected)`,
+  the pinned `expected` column passed through the **same**
+  normalisation (its `"closure value"` row carries `:body`,
+  `parity_test.cljc:76-78`, which the register closure cannot reproduce).
+- Outcome parity: each of the 21 eligible
+  `yin.vm.semantic-register.corpus/programs` rows has the same outcome on
+  the walker and the register VM: an equal normalized value when both
+  halt, an equal `ex-message` when both throw; one side throwing is a
+  failure.
+- Rule R: the 5 `definition-programs` (value and store slice), plus the
+  `reserved-operands-are-refused-by-the-semantic-loaders` pattern
+  (`rule_r_test.cljc:283`) against `semantic-register/load-vector`: the
   `[11 {:rule :reserved-name …}]` rows of
   `yin.vm.semantic-register.code-test/refusals` (`code_test.cljc:66-70`)
   are refused by the loader with that rule.
-- Trace: §4 over corpora 1, 2 (runnable subset), 4.
+- Trace: §4 over the eligible rows of corpora 1, 2 and 4 (25 + 21 + 5).
 
 **Acceptance list (4a).** Each item is checked by a named test or a
 command.
@@ -799,25 +980,30 @@ command.
     carrying `engine/store-of-key` in `E`, the write lands in
     `:module-stores`, not `:store` (`vm-test/define-routes-to-the-module-store`;
     build `E` by hand as `linker_require_test.cljc:673` does indirectly).
-12. `:branch-false` on a nil/false test register jumps; both arms write
-    the conditional's `rd` and no other register (`vm-test/branch-arms-share-rd`,
-    over the `:if`, `:nested-if-same-rd`, `:if-operand` goldens with
-    `c a b f y` bound).
+12. `:branch-false` on a nil/false test register jumps; each arm's
+    **result** definition writes the conditional's `rd` (arm expressions
+    may write intermediate registers of their own on the way; for the
+    `:if-in-tail` golden the arm writes 5, 7, 8, 9 and 6 before its tail
+    call), and after the join the window holds `rd` with the taken arm's
+    value (`vm-test/branch-arms-share-rd`, over the `:if`,
+    `:nested-if-same-rd`, `:if-operand` goldens with `c a b f y` bound).
 13. `engine/operator-kind` refusals are unchanged: calling a non-function
     throws `:not-applicable`; a closure owned by another task throws
     `:foreign-value` (`vm-test/application-refusals`; mint the foreign
     closure with `values/closure :other-owner …` in `:env`).
-14. `yin.vm.semantic-register.parity-test/b0-values`: the 27 runnable
-    `parity-test/corpus` rows match their pinned `expected` after
-    normalisation.
-15. `parity-test/corpus-outcomes`: every `corpus/programs` row not
-    deferred to 4b has the same outcome (value or `ex-message`) on the
-    walker and the register VM.
+14. `yin.vm.semantic-register.parity-test/b0-values`: the 25
+    `slice-4a-eligible?` rows of `parity-test/corpus` match their pinned
+    `expected` under `trace-normalize` on both sides; the test also
+    asserts the eligible count is 25, so a corpus change is noticed.
+15. `parity-test/corpus-outcomes`: the 21 eligible `corpus/programs`
+    rows have the same outcome (normalized value, or `ex-message`) on
+    the walker and the register VM; the test asserts the eligible count
+    is 21.
 16. `parity-test/rule-r-definitions`: value and store slice equal for
     the five `definition-programs`.
-17. `walker-trace-test/traces-align`: §4.3 traces equal for corpora 1,
-    2 (runnable subset), 4; the test prints the first differing index on
-    failure.
+17. `walker-trace-test/traces-align`: §4.3 traces equal for the eligible
+    rows of corpora 1, 2 and 4, under the fuel bound; the test prints the
+    first differing index on failure and never hangs.
 18. `walker-trace-test/return-is-administrative`: the trace of
     `"lambda application"` (`parity_test.cljc:67-75`) has exactly six
     `[:value …]` events on both sides (the closure, `10`, `+`, `x`, `1`,
@@ -843,19 +1029,27 @@ command.
   handling (§2.2), the `module/IModuleKernel` extension (§3.3).
 - `test/yin/vm/semantic_register/effects_test.cljc` (ns `yin.vm.semantic-register.effects-test`).
 - `test/yin/vm/semantic_register/link_test.cljc` (ns `yin.vm.semantic-register.link-test`).
-- **PROPOSED** one-entry additions to four existing backend maps so the
-  cross-VM rows run on the fifth kernel without duplication:
-  `yin.vm.continuation-invoke-test/runners` (`continuation_invoke_test.cljc:32-48`),
-  `yin.vm.ffi-test/vm-kinds` (`ffi_test.cljc:380-397`),
-  `yin.vm.rule-r-test/backends` (`rule_r_test.cljc:141-145`),
-  `yin.vm.linker-require-test/backends` (`linker_require_test.cljc:115-188`:
-  `:image` = `(:vector (sr-linearize/project ast))`, `:vm` = `ast-loader`
-  over `create-vm`, `:continue` = `ast-loader` over the halted task,
-  `:obligations` = `(constantly [])` until phase 5 supplies the
-  scanners — mark the entry with that comment).
+- **Approved exception** (§7): additive registration of the fifth
+  kernel in four existing backend maps, existing entries and assertions
+  untouched: `yin.vm.continuation-invoke-test/runners`
+  (`continuation_invoke_test.cljc:32-48`), `yin.vm.ffi-test/vm-kinds`
+  (`ffi_test.cljc:380-397`), `yin.vm.rule-r-test/backends`
+  (`rule_r_test.cljc:141-145`) **together with** the backend selection in
+  `a-parked-read-in-a-definition-resumes-and-writes` (`:223`,
+  `(select-keys backends [:ast-walker :semantic])` gains
+  `:semantic-register`), and `yin.vm.linker-require-test/backends`
+  (`linker_require_test.cljc:115-188`: `:image` =
+  `(:vector (sr-linearize/project ast))`, `:vm` = `load-ast` over
+  `create-vm`, `:continue` = `load-ast` over the halted task,
+  `:obligations` = `(constantly [])` carrying the comment
+  "install-mechanics fixture: empty obligations until phase 5 supplies
+  the register-vector scanners; proves install, not dependency
+  completeness").
 - `test/yin/vm/semantic_register/walker_trace_test.cljc` and
-  `parity_test.cljc`: lift the 4a deferrals (corpus 3, the seven
-  deferred corpus rows, `"stream make"`).
+  `parity_test.cljc`: replace `slice-4a-eligible?` by `(constantly
+  true)` for the lanes (or a `slice-4b-eligible?` that admits every §2.3
+  mnemonic), lifting the 4a deferrals: corpus 3, the 11 excluded
+  register-corpus rows, `"stream make"`.
 
 **Golden and parity rows, by name.**
 
@@ -955,9 +1149,15 @@ command.
 16. A lowered retained writer carrying `:response-cursor`/`:response-stream`
     waits on the carried route (`effects-test/retained-response-route`;
     template `semantic_test.cljc:885-919`).
-17. An FFI `error` response throws "FFI call failed" and leaves no
-    parked entry (`effects-test/ffi-error-leaves-no-parked`; template
-    `semantic_ffi_test.cljc:105-118`).
+17. An FFI `error` response makes `vm/run` throw "FFI call failed"
+    (`effects-test/ffi-error-raises`; template
+    `semantic_ffi_test.cljc:105-118`). The test asserts the throw and
+    the message only. It does **not** assert a cleaned `:parked` table:
+    the removal happens on a local value inside `register-restore`
+    (§2.2 step 2) and no machine is returned to the caller when
+    `ffi/call-result` throws; the machine the caller still holds is the
+    one it passed in. The order is kept for a future recoverable
+    path, which is a separate decision.
 18. `gensym` advances `:id-counter` and interleaves with stream ids as
     today (`store-and-gensym-test`, `semantic_test.cljc:401`, respelled).
 19. Link: `a-require-links-installs-and-resumes-with-the-module-test`
@@ -972,8 +1172,19 @@ command.
     `input-after-a-tail-applied-module-closure-is-the-tasks-own-test`
     pass on the fifth backend.
 22. Install refusals: `an-install-refuses-a-missing-export-and-a-loader-defect-test`
-    passes on the fifth backend (a `"v3"` or malformed vector in the
-    response is refused by `spawn-module`'s `load-vector`).
+    passes on the fifth backend. Two refusals are kept apart:
+    - **Vector refusal, through the install path.** The stub response
+      carries only `:image {:value v}` (`linker_require_test.cljc:262-267`);
+      a vector carries no stamp, and `spawn-module` supplies
+      `code/contract` itself (§3.3). A malformed vector, or a
+      stack-shaped "v3" vector (which fails §3.4 item 2 at its first
+      `:push` or at `[:const v]`'s arity), is refused by the §3.4 rules
+      inside `load-vector`, `start-install` catches it, and the waiter is
+      refused at phase `:loading` (`engine.cljc:1445-1456`).
+    - **Stamp refusal, through the public loader only.** `(load-vector vm
+      v "v3")` and `(load-vector vm v nil)` throw `:contract-mismatch` /
+      `:contract-missing` (4a item 1). The install response path never
+      exercises the stamp check and the test does not claim it does.
 23. `lower-closure` refuses a marker whose `params` or `entry` match no
     `:closure` tuple of the attached image with `:marker-mismatch`, and
     a marker of another format with `:binding-mismatch`
@@ -981,8 +1192,10 @@ command.
 24. `gc-roots` names `:window`: a cell ref held only in a register
     survives `engine/collect` (`effects-test/window-is-a-gc-root`;
     pattern `heap_reclamation_test.cljc`).
-25. Walker trace and parity lanes now cover corpus 3 and the deferred
-    rows; `walker-trace-test/traces-align` and `parity-test/*` green.
+25. Walker trace and parity lanes now cover corpus 3 and the 12 rows 4a
+    deferred (11 register-corpus rows and `"stream make"`); the
+    eligible counts asserted become 26, 32 and 5;
+    `walker-trace-test/traces-align` and `parity-test/*` green.
 26. `clojure -M:kondo` clean on the changed files; `bb test:sub yin.vm`
     green on three hosts, then `bb test:changed` (G2) green on three
     hosts. The Node log shows `Testing yin.vm.semantic-register.effects-test`
@@ -992,83 +1205,196 @@ command.
 
 ## 6. Findings and proposed amendments to the frozen design
 
-Each finding names the evidence, the proposed text, and the section it
-amends. None changes a transition or a shape; F1-F3 correct what the
-frozen text says the engine *is*; F5-F6 close gaps the phase-4
-implementer would otherwise fill ad hoc.
+All seven findings were ruled on by the independent review (codex
+gpt-6.1-sol, 2026-10-10; F1, F2, F5 accepted with changes, the rest
+accepted). Each entry below gives the evidence, the frozen section, the
+**exact text to replace** and the **exact replacement**, ready to apply
+verbatim to `yin.vm.semantic-register-vm.md`. None changes a transition
+or a shape.
 
-**F1 — the restore seam is not `handle-effect`.** Evidence: §2.1 above
-(`engine.cljc:2224-2256`, `:2299-2309`, `:2565-2683`; `module.cljc:546-549`).
-Amends §2.4 "Delivery" paragraph and §11 item 4. Proposed text for
-§2.4: "The engine seam already supports this: a VM's restore function
-`restore-fn(base, entry, value)` is called only by
-`engine/resume-from-run-queue` and `engine/resume-continuation`, after
-the entry has left its table and after the terminal-outcome check, with
-`base` the blocked machine (`:control nil :k nil`); it treats the VM
-payload as data and does not require a current activation, …". §11
-item 4: replace "the engine seam's `restore-fn(base, entry, value)`"
-with "the engine's restore seam (`resume-from-run-queue`,
-`resume-continuation`)".
+### F1 — the restore seam (ACCEPT WITH CHANGES; frozen §2.4 and §11 item 4)
 
-**F2 — the empty-K halt of a `tail` state needs an `E` to leave.**
-Evidence: `:halt` and `:return`-on-empty-K leave `(engine/without-store-of
-E)` as `:env` (`semantic.cljc:330-331`, `:339-340`); a `tail` state has
-no `E` (frozen §2.4). Amends §2.4 "Delivery". Proposed sentence after
-"runs `return(v)` against `K`, which pops a frame or halts": "When it
-halts, the machine's `:env` is the blocked machine's own `:env` (the
-tail site's `E`, written back before the effect ran) cleared of the
-module-store key, as `:halt` leaves it."
+Evidence: `engine.cljc:2224-2256` (`resume-from-run-queue`), `:2299-2309`
+(`resume-continuation`), `:2565-2683` (`handle-effect` calls no restore
+function; the walker's `:restore-fn` opt is forwarded only to module
+handlers, `:2674`, which read `:park-entry-fns` alone,
+`module.cljc:546-549`); the stack VM passes none (`semantic.cljc:204-221`).
 
-**F3 — K has one frame kind; the FFI phases are wait-entry markers,
-not frames.** Evidence: the stack VM's `K` holds only `:return` frames
+§2.4, "Delivery" paragraph. Replace:
+
+> The engine seam already supports this: `handle-effect`'s
+> `restore-fn(base, entry, value)` treats the VM payload as data and
+> does not require a current activation, so the semantic restore helper
+> decodes the completion and either resumes an `act` or runs
+> `return(v)`; no trampoline activation is synthesized.
+
+with:
+
+> The engine seam already supports this: a VM's restore function
+> `restore-fn(base, entry, value)` is called from exactly two places,
+> `engine/resume-from-run-queue` (a woken wait entry, after the entry
+> has left the ready queue and after the terminal-outcome check, with
+> `base` the blocked machine) and `engine/resume-continuation` (an
+> explicit `:resume`, with no terminal check and with `base` the
+> resuming machine, which may be active). Neither path requires a
+> current activation: the helper reads only the entry, the value and
+> the machine's tables, treats the VM payload as data, and either
+> resumes an `act` or runs `return(v)`, which may halt; the `:resume`
+> transition accepts a halted result. No trampoline activation is
+> synthesized.
+
+§11 item 4. Replace:
+
+> the engine seam's `restore-fn(base, entry, value)` needs no current
+> activation, so no trampoline;
+
+with:
+
+> the engine's two restore paths (`engine/resume-from-run-queue`,
+> `engine/resume-continuation`) call `restore-fn(base, entry, value)`
+> and neither requires a current activation, so no trampoline;
+
+### F2 — the empty-K halt's environment (ACCEPT WITH CHANGES; frozen §2.4)
+
+Evidence: `:halt` and empty-K `:return` leave `(engine/without-store-of
+E)` (`semantic.cljc:330-331`, `:339-340`); a `tail` state carries no `E`
+(frozen §2.4); the scheduler's `:env` at restore time is not necessarily
+the tail site's, since another ready entry may have run in between.
+
+§2.4, "Delivery" paragraph. After the sentence ending
+
+> delivery to a `tail` with `{:deliver :return}` runs `return(v)`
+> against `K`, which pops a frame or halts.
+
+insert:
+
+> When a deferred tail completion halts, the machine's `:env` is the
+> scheduler's current `:env` at the restore (`base`), cleared of the
+> module-store key; when an immediate tail completion halts (a pure
+> primitive or a non-parking effect in a tail call), it is the current
+> `E` so cleared, as `:halt` leaves it. The two are not equated: no
+> `E` of the tail site travels in the `tail` state.
+
+### F3 — one frame kind in K (ACCEPT; frozen §2.1, §4.2 commentary)
+
+Evidence: the stack VM's `K` holds only `:return` frames
 (`semantic.cljc:237-238`); `:dao.stream.apply/eval-call` and
 `:request-sent` are walker continuation types (`ast_walker.cljc:229`,
-`:252`), while the semantic VM marks the FFI phases on the **wait
-entry** (`:call-id`, `:request-sent true`; `semantic.cljc:110-119`,
-`:498-508`; `ffi/response-call-id`, `ffi.cljc:78-99`). Amends §2.1
-bullet **K** (and §4.2's `:yin.k/k` comment inherits the correction).
-Proposed text: "**K**: a vector of frames, innermost last, of one kind,
-`{:type :return :segment :pc :env :window :rd}` (§2.4). The FFI
-phases (`sent`, `retained`) are markers on the wait entry
-(`:call-id`, `:request-sent`), as today, never frames of `K`."
+`:252`); the semantic VM marks the FFI phases on the wait entry
+(`:call-id`, `:request-sent true`; `semantic.cljc:110-119`, `:498-508`;
+`ffi/response-call-id`, `ffi.cljc:78-99`).
 
-**F4 — in-VM reason names.** Evidence: the engine's reasons are `:next
-:put :observe :link-request :link-response :install`; `:ffi` and
-`:ffi-request` are UCF wire reasons only (UCF §7.4.3; `ffi/response-call-id`
-reads `:reason :next` with `:call-id`). Amends §4.1 table, column
-"State" for the two FFI rows: add "(in-VM: `:reason :next` + `:call-id`
-/ `:reason :put` + `:request-sent`)". Notational.
+§2.1, bullet **K**. Replace:
 
-**F5 — `:return r` is administrative in the trace correspondence.**
-Evidence: §4.1 above. Amends §2.5 table: add the row "| a closure
-body's value flowing to the caller through `:next k` | `:return r`: no
-new value; the body's write of `r` is the event. `return(v)` of a value
-not in the window (a tail primitive, a tail effect completion) is the
-event |". Without this row the §2.5 instruction "administrative steps
-skipped" is ambiguous for returns.
+> - **K**: a vector of frames, innermost last. One frame kind for calls,
+>   `{:type :return :segment :pc :env :window :rd}` (§2.4), and the
+>   engine's effect-continuation frames (`:dao.stream.apply/eval-call`,
+>   `:request-sent`) extended with `:segment :pc :window :rd` in place of
+>   `:segment :pc :stack`.
 
-**F6 — the phase-4 evaluator needs an interim link format keyword.**
+with:
+
+> - **K**: a vector of frames, innermost last, of one kind,
+>   `{:type :return :segment :pc :env :window :rd}` (§2.4). The FFI
+>   phases (sent, retained) are markers on the wait entry (`:call-id`,
+>   `:request-sent`), as in the stack machine today, never frames of
+>   `K`; the walker's `:dao.stream.apply/eval-call` and `:request-sent`
+>   continuation types correspond to those markers (§2.5).
+
+§4.2 needs no text change: its `:yin.k/k` example already shows only
+`:yin.k/frame-type :return`.
+
+### F4 — in-VM reason names (ACCEPT; frozen §4.1)
+
+Evidence: the engine's wait reasons are `:next :put :observe
+:link-request :link-response :install`; `:ffi` and `:ffi-request` are
+UCF §7.4.3 wire reasons; `ffi/response-call-id` reads `:reason :next`
+with `:call-id` (`ffi.cljc:78-88`), `ffi/request-call-id` reads
+`:request-sent` (`:91-99`).
+
+§4.1 table. In the row "FFI call, sent", replace the State cell
+
+> `act`, pending `:ffi` (call id, response cell)
+
+with
+
+> `act`, pending `:ffi` (call id, response cell); in-VM `:reason :next` with `:call-id`
+
+and in the row "FFI call, retained", replace
+
+> `act`, pending `:ffi-request` (envelope verbatim)
+
+with
+
+> `act`, pending `:ffi-request` (envelope verbatim); in-VM `:reason :put` with `:request-sent`
+
+### F5 — production versus relocation (ACCEPT WITH CHANGES; frozen §2.5)
+
+Evidence: companion §4.1. The frozen table already lists `:return`
+among administrative steps; the clarification is what makes a step an
+event, stated by semantic role and never by value novelty.
+
+§2.5 table, last row. Replace:
+
+> | walker frame pushes/pops; register `:jump` / `:return` administrative steps | no single-step counterpart; the correspondence holds at the next value-producing step |
+
+with:
+
+> | walker frame pushes/pops; register `:jump` / `:branch-false` / `:return r` / `:halt r` | no single-step counterpart; the correspondence holds at the next event. An **event** is a transition that produces an expression's result or delivers a value to a suspended destination (a popped frame, a captured destination, the halt); a transition that relocates a result already produced (`:return r`, `:halt r`, a walker frame pop) is administrative. `return(v)` of a tail primitive's or tail effect's value is a delivery event. Events are classified by role, never by whether the value already occurs elsewhere |
+
+§2.5, sentence after the table. Replace:
+
+> a trace test aligns walker value-producing steps with register writes
+> under the table above, administrative steps skipped.
+
+with:
+
+> a trace test aligns the two machines' events (production and
+> delivery, as the last row defines them) under the table above,
+> administrative steps skipped; the companion design's §4 fixes the
+> procedure.
+
+### F6 — the interim link format (ACCEPT; frozen §10 phase 4)
+
 Evidence: `linker/semantic-format` binds `:yin.semantic/code` to the
 `"v3"` stack vector and `yin.vm.code/well-formed-vector?`
 (`linker.cljc:692-712`); `module/IModuleKernel/link-format` must answer
-something for the install child's envelope (`module.cljc:580-590`);
-frozen §6 and §10 phase 8 only say the stamp becomes `"v4"` and the
-name becomes `yin.vm.semantic` at cutover. Amends §10 phase 4.
-**PROPOSED** text: "The evaluator links under the interim format
-`:yin.semantic-register/code`, contract `"v4"`, which phase 5 gives a
-linker format record (scanners over the new table) and phase 8 retires
-in favour of `:yin.semantic/code` `"v4"`." The keyword is the one
-decision in this document that is purely conventional; the reviewer may
-prefer another spelling.
+for the install child's envelope (`module.cljc:580-590`); frozen §6 and
+§10 phase 8 fix only the stamp and the name at cutover.
 
-**F7 — `define`'s store write goes through `put-active`.** Evidence:
-`semantic.cljc:356-361`, `engine.cljc:216-224`. Amends §2.4 "`define`
-writes through `engine/store-put`": "…through `engine/put-active`
-(which routes to the active module store and calls `engine/store-put`),
-…". Notational; the Rule R refusal is unchanged.
+§10, phase 4. After the sentence
 
-Checked and found consistent with the engine (no amendment): §2.4
-`call` (all seven arms), `return`, `stream-next` outcomes
+> **Evaluator.** `yin.vm.semantic-register` beside `yin.vm.semantic`.
+
+insert:
+
+> During coexistence the evaluator links under the interim format
+> `:yin.semantic-register/code`, contract `"v4"`; phase 5 supplies its
+> production linker format record (the dependency-closure scanners over
+> the new table), and phase 8 retires it in favour of
+> `:yin.semantic/code` `"v4"`.
+
+### F7 — `define` writes through `put-active` (ACCEPT; frozen §2.4)
+
+Evidence: `semantic.cljc:356-361`; `engine/put-active` routes to the
+active module store and calls `engine/store-put` (`engine.cljc:216-224`,
+`:152-161`).
+
+§2.4, after the `define` transition. Replace:
+
+> `define` writes through `engine/store-put`, which refuses the reserved
+> key (Rule R unchanged); the definition operator is never resolved.
+
+with:
+
+> `define` writes through `engine/put-active`, which routes the write
+> to the active module store or the task's store and calls
+> `engine/store-put`, which refuses the reserved key (Rule R unchanged);
+> the definition operator is never resolved.
+
+### Checked and consistent (no amendment)
+
+§2.4 `call` (all seven arms), `return`, `stream-next` outcomes
 (`engine.cljc:622-649`), `stream-put` retained value (`:2609-2611`),
 `ffi-call` (`semantic.cljc:466-518`), `park` as the no-wait shape
 (`engine.cljc:2280-2296`), `resume` gate refusal (`:2303`),
@@ -1081,10 +1407,25 @@ Checked and found consistent with the engine (no amendment): §2.4
 ## 7. Questions for the owner
 
 None. Every decision above follows from the frozen design, the owner's
-three rulings quoted there, or code that exists. Two items are for the
-**Architect reviewer**, not the owner: the interim format keyword (F6)
-and whether 4b may add one entry to the four existing backend maps
-(§5.2) rather than duplicating those suites.
+three rulings quoted there, or code that exists.
+
+**Reviewer approvals recorded** (codex gpt-6.1-sol, 2026-10-10 review,
+`collab/1791540000000-architect-srvm-phase4-design-review.gpt-6.1-sol.findings.md`):
+
+1. The interim link format is spelled `:yin.semantic-register/code`,
+   contract `"v4"`, during coexistence; phase 5 supplies its production
+   linker scanners; phase 8 retires it (F6).
+2. Slice 4b may register the register evaluator **additively** in the
+   four existing backend suites (`continuation_invoke_test`,
+   `ffi_test`, `rule_r_test`, `linker_require_test`) as an explicit,
+   narrow exception to the untouched-tests constraint. Existing entries
+   and assertions keep their behaviour. The exception includes the Rule
+   R backend-selection change (`rule_r_test.cljc:223` selects
+   `[:ast-walker :semantic]`; the fifth backend is added to that
+   `select-keys`), since four map insertions alone do not cover that
+   row. The stub responder's empty obligations remain a **marked
+   install-mechanics fixture**, not evidence of dependency-scanner
+   correctness, which is phase 5's.
 
 ---
 
@@ -1113,7 +1454,7 @@ Every item names the repo-known host trap it guards against.
 5. **Protocol parameter names (Dart).** `gc-children [_ _x]`, never
    `[_ _]` (`semantic.cljc:1058` already does this).
 6. **Private var access (Dart).** `register-restore`, `load-vector`,
-   `attach-image`, `ast-loader` are public; tests must not reach
+   `attach-image`, `load-ast` are public; tests must not reach
    private vars through `#'`.
 7. **EDN round trips in tests.** `(edn/read-string (pr-str x))` is fine;
    hand-written EDN strings must have no whitespace before a closer.
