@@ -423,13 +423,37 @@ Derivation of the second row under §8.2's own rules: at pc 3 nothing has
 `end < 3` so `v2` takes `T3`; at pc 4 `v3` and `v4` (`end 3`) expire,
 `v5` takes the lowest free slot `T1`; at pc 5 nothing expires (`v2`,
 `v5` end at 5) and `v0` takes `T2`. Every operand of every instruction
-differs from R1's, and the register count differs. The rule is general:
-**under §8.2 a call's destination is numbered after its operands; under
-R1 before them**, so the two agree only on bodies whose expression is a
-single atom. Over the B0 corpus (`parity_test.cljc:39-115`) that is the
-six literal rows, `"closure value"` and `"stream make"`; the other
-eighteen differ. Over the register corpus (`corpus.cljc:54-118`) only
-`:literal`, `:variable` and `:stream-make-default` agree.
+differs from R1's, and the register count differs.
+
+Two demonstrated samples are not a theorem, so the claim is narrowed to
+what the two allocators' stated rules entail. **Lemma (root result).**
+For a body whose root expression is a `:call`, `:ffi-call`, `:define` or
+stream effect with at least one child: R1 gives the root `T0`
+(`main-temp`, `:380-383`; the lambda bodies' first `allocate-temp!`,
+`:388`); under §8.2 the root's first child's chain begins at the body's
+first pc and takes `T0`, its interval ends at the root's pc (the root
+reads it) and has not expired there (`end < p` is false), so the root
+cannot take `T0`. The result register differs. **Lemma (call
+destination).** For a `:call` whose operator's first instruction is at
+the body's first pc: R1 assigns the call's destination before the
+operator, so destination < operator slot; §8.2 assigns it at the call's
+pc while the operator (`T0`) is live, so destination > operator slot.
+Both lemmas follow from the two allocation orders alone; conditional and
+`:resume` roots are **not** covered (for `(if c 1 2)` both allocators
+give the result `T0`, since the test interval expires at the
+`:branch-false`), and no claim is made about them beyond the gate.
+
+Applied to the B0 corpus (`parity_test.cljc:39-115`): ten rows are a
+single atom and agree (the six literal rows, `"closure value"`, `"store
+put then get"`, `"gensym"`, `"stream make"`); fourteen rows are
+call-rooted and differ by the root lemma; the two `if` rows have a call
+as test whose operator is at pc 0 and differ by the call-destination
+lemma. Sixteen of twenty-six differ. Over the register corpus
+(`corpus.cljc:54-118`) `:literal`, `:variable` and `:stream-make-default`
+are atoms and agree; every call-rooted row differs by the root lemma; the
+conditional-rooted rows (`:if`, `:if-in-test`, `:nested-if-same-rd`,
+`:all-terminal-arms`, `:resume-arm`) and `:resume-body` are left to the
+gate.
 
 **Consequence for `"r2"` under frozen §6.** The allocation rule is one of
 the five things §6 names as the normative contract ("descriptors,
@@ -603,7 +627,7 @@ Named, so the implementer adds nothing silently:
 |---|---|---|
 | `yin.vm.parity-test/corpus` (`parity_test.cljc:39-115`) | 26 | the B0 corpus both de Bruijn designs pin their laws over |
 | `yin.vm.semantic-register.corpus/programs` (`corpus.cljc:54-118`) | 32 | every §3.1 production, including the terminal shapes R1 has goldens for |
-| `yin.vm.debruijn-linearize-test`'s `corpus` (`debruijn_linearize_test.cljc:83-124`), respelled | 14 | every named mnemonic, `:default-gensym`, `:default-buffer`, `:duplicate-param`, `:nested-closure` |
+| `yin.vm.debruijn-linearize-test`'s `corpus` (`debruijn_linearize_test.cljc:83-124`), respelled | 15 | every named mnemonic, `:definition`, `:default-gensym`, `:default-buffer`, `:duplicate-param`, `:nested-closure` |
 | `yin.vm.debruijn-register-contract-test/address-law-extra-fixtures` (`debruijn_register_contract_test.cljc:311-320`) | 4 | the shared-occurrence fixtures: the one place `resolve` shares a record and A does not |
 | `yin.vm.debruijn-register-compile-test`'s live fixtures A-E (`:608-766`) and `r2-lift-programs` (`:998-1011`), respelled | 5 + 12 | the hand-derived `live` sets and the R2 nodes |
 | the C4 module ASTs: `prelude/module-uast`, `(:ast (safepoint/module-spec …))`, and the six guest packets' `(:ast (lower/module-spec …))` of `import_test.cljc:342-363` | 8 | the production modules the linker publishes; read-only use (§6.6) |
@@ -634,35 +658,45 @@ record shape (`yin.vm.debruijn.stack.md:306-387`) are unchanged; the
 ### 4.4 The decision
 
 ```
-for c in [b2 r2]:
-  bytes-held   := every P in C passes 4.1 (1)-(3)
+for c in [b2 r2]:                      ; b2 is decided by slice 5a, r2 by slice 5b
+  bytes-held    := every P in C passes 4.1 (1)-(3)
   contract-held := every row of 4.3 passes
-  if bytes-held and contract-held  → RETAIN c
-  else                              → RE-VERSION c (b3 / r3): bump the contract
-                                      constant, the descriptor version, regenerate
-                                      goldens, amend the design, as frozen §6 states
+  if bytes-held and contract-held  → RETAIN c; record the row of §4.5
+  else                              → the slice is BLOCKED: no landing, no stamp
+                                      or descriptor change; the discrepancy is
+                                      investigated to a named cause (a defect in
+                                      resolve-vector, in the comparison, or an
+                                      unnoticed edit to a §4.3 file) and fixed.
+                                      Re-versioning (b3 / r3) is never automatic:
+                                      it requires an explicit CHANGED-CONTRACT
+                                      decision, made after the cause is understood,
+                                      stating which §6 element changed and why,
+                                      reviewed by the Architect and recorded in §4.5
 ```
 
 Under route (b) the expected outcome is RETAIN for both, and the
-procedure is a **gate, not a choice**: a failing row in 4.1 is a defect in
-`resolve-vector` (equality is by construction, §1.6), to be fixed, never
-a reason to re-version. Under route (a) the expected outcome is
-RE-VERSION `"r2"` (§3.2) and RETAIN `"b2"`.
+procedure is a **blocking gate, not a choice**: equality is by
+construction (§1.6), so a failing row in 4.1 is evidence of a defect, not
+of a changed contract. Under route (a) the expected outcome would have
+been an explicit changed-contract decision for `"r2"` (§3.2) and RETAIN
+for `"b2"`.
 
-**Who records it where.** The slice-5b implementer writes the outcome
-into this document's §4.5 table (the one place this design is amended by
+**Who records it where.** Two independent rows: the slice-5a
+implementer records `"b2"`, the slice-5b implementer records `"r2"`, each
+in this document's §4.5 table (the one place this design is amended by
 an implementation) with the test names, the row counts asserted, the
-three hosts, and the commit; the orchestrator logs it in the migration
+three hosts, and the commit; the orchestrator logs each in the migration
 log against frozen §10 phase 5 ("the §8.4 byte-and-contract decision
 recorded with its evidence"); the Architect reviewer (non-Claude) signs
-the row. No stamp or descriptor constant moves without that row.
+each row. No stamp or descriptor constant moves without a signed
+changed-contract row.
 
 ### 4.5 Decision record
 
-| Contract | Bytes held on `C` | Contract held | Outcome | Evidence (tests, hosts, commit) | Recorded by |
-|---|---|---|---|---|---|
-| `"b2"` | *(to be filled by 5a)* | | | | |
-| `"r2"` | *(to be filled by 5b)* | | | | |
+| Contract | Slice | Bytes held on `C` | Contract held | Outcome (RETAIN / CHANGED-CONTRACT) | Evidence (tests, hosts, commit) | Recorded by / signed by |
+|---|---|---|---|---|---|---|
+| `"b2"` | 5a | *(to be filled by 5a)* | | | | |
+| `"r2"` | 5b | *(to be filled by 5b)* | | | | |
 
 ---
 
@@ -682,11 +716,22 @@ emission order, each `[:bound depth position]` or `[:free name]`:
 - `addresses(R)`: read off `(:instructions image)` in pc order:
   `[:load-bound rd d q]` → `[:bound d q]`, `[:load-free rd n]` → `[:free n]`
   (`register-image-var-addresses`).
-- `addresses(resolve-vector(A))`: `resolved-var-addresses`
-  (`:190-240`) over the tuples: walk the root, operator before operands,
-  test/consequent/alternate, target/value, source, value operand; lambdas
-  enqueue their bodies, drained FIFO after the main walk; a `:variable`
-  record contributes its resolution.
+- `addresses(resolve-vector(A))`: a walk over resolved tuples defined
+  in `derive` as `resolved-addresses` (**new**; it mirrors
+  `resolved-var-addresses`, `:190-240`, with one correction): walk the
+  root; for an `:application` whose operator record is the definition
+  operator (`resolve/definition-operator?`), **visit only the value
+  operand**, exactly as both lowerers do
+  (`debruijn_linearize.cljc:120-126`,
+  `debruijn_register_compile.cljc:178-187`); otherwise operator before
+  operands; then test/consequent/alternate, target/value, source, value
+  operand; lambdas enqueue their bodies, drained FIFO after the main
+  walk; a `:variable` record contributes its resolution. The existing
+  helper `resolved-addresses-of` visits every application's operator and
+  so would contribute a `[:free yin/def]` for each definition that no
+  image contains; it is **not** reused on any corpus with a definition.
+  Over definition-free programs the two walks are equal, which keeps
+  R0's and R1's laws as they stand.
 - `addresses(A)`, **new and the law's anchor**: walk `v` in pc order; for
   `[:var rd name]` at pc `p`, `(resolve-name (chain (body-of p)) name)` with
   §1.2's chain; `{:bound b}` → `(into [:bound] b)`, `{:free n}` → `[:free n]`.
@@ -698,17 +743,19 @@ emission order, each `[:bound depth position]` or `[:free name]`:
 The law:
 
 ```
-addresses(A) = addresses(resolve-vector(A)) = addresses(H(A)) = addresses(R(A))
-             = addresses(resolve(ast->datoms P))        for every P with project(P) = A
+addresses(A) = resolved-addresses(resolve-vector(A)) = addresses(H(A)) = addresses(R(A))
+             = resolved-addresses(resolve(ast->datoms P))   for every P with project(P) = A
 ```
 
-The last equality is the bridge to today's R0/R1 laws
-(`address-law-holds-over-the-b0-parity-corpus`,
-`debruijn_register_contract_test.cljc:324-329`;
-`address-law-holds-three-way-over-the-b0-parity-corpus`,
-`debruijn_register_compile_test.cljc:376-381`), and it is what makes the
-frozen §10 phase 5 clause "`addresses(H) = addresses(R) = addresses(resolve(A))`"
-exact: `resolve(A)` there is `resolve-vector`.
+The last equality is the bridge to today's resolver, taken through the
+**corrected** walk on both sides (the R0/R1 laws,
+`debruijn_register_contract_test.cljc:324-329` and
+`debruijn_register_compile_test.cljc:376-381`, run over definition-free
+corpora, where the old and corrected walks coincide, and stand
+unchanged). It is what makes the frozen §10 phase 5 clause
+"`addresses(H) = addresses(R) = addresses(resolve(A))`" exact:
+`resolve(A)` there is `resolve-vector`, and `addresses` over resolved
+tuples skips the definition operator as the lowerers do.
 
 ### 5.2 Corpus and test shape
 
@@ -721,18 +768,23 @@ the C4 modules). Test `yin.vm.semantic-register.derive-test/lexical-address-law`
   (testing name
     (let [v    (:vector (sr-linearize/project ast))
           want (derive/addresses v)]
-      (is (= want (resolved-addresses (derive/resolve-vector v))))
+      (is (= want (derive/resolved-addresses (derive/resolve-vector v))))
       (is (= want (stack-addresses (:image (derive/stack-image v)))))          ; 5a
       (is (= want (register-addresses (:image (derive/register-image v)))))    ; 5b
-      (is (= want (r0/resolved-addresses-of ast)) "today's resolver agrees"))))
+      (is (= want (derive/resolved-addresses
+                    (resolve/resolve (vm/ast->datoms ast))))
+          "today's resolver, read through the corrected walk, agrees"))))
 ```
 
-plus one non-vacuity assertion: at least one program of `C` yields a
-`[:bound 1 _]` (`:nested-closure`, `:nested-lambdas`) and at least one a
-`[:bound 0 1]` (`:duplicate-param`), so the law is not satisfied by empty
-sequences. `r0/resolved-addresses-of` is public for exactly this reuse
-(`debruijn_register_contract_test.cljc:256-262`, "never via var-quote
-reflection, which does not port to ClojureDart").
+`stack-addresses` and `register-addresses` are the two image readers,
+respelled in the test (private in their files). Plus two non-vacuity
+assertions: at least one program of `C` yields a `[:bound 1 _]`
+(`:nested-closure`, `:nested-lambdas`), at least one a `[:bound 0 1]`
+(`:duplicate-param`), and at least one program with a definition
+(`:define-then-call`, `:definition`) yields a sequence containing **no**
+`[:free yin/def]`, so the corrected walk is exercised. `derive/addresses`
+and `derive/resolved-addresses` are public; nothing is reached through
+`#'` (`debruijn_register_contract_test.cljc:256-262` records why).
 
 ---
 
@@ -780,9 +832,27 @@ well-formed `"v4"` vector:
 | `free-names v` | the set of their names | |
 | `definition-occurrences v` | `[{:name key :at pc :conditional? b} …]` | `[:store-put rd key value]` key at slot 2, `[:define rd name rs]` name at slot 2; `:conditional?` when pc is in a body > 0 or strictly inside a `:jump`/`:branch-false` target range (`[:jump t]` slot 1, `[:branch-false c t]` slot 2), as `register-conditional-ranges` computes it (`linker.cljc:553-569`) |
 | `application-sites v` | `[{:at pc} …]` | `:call` and `:ffi-call` pcs |
-| `requirements v` | `{:store-keys :ffi-ops :parked-ids :effects}` | Datalog over `$code` rows `[A pc mnemonic & ops]` (`code/project-segment-qualified` is generic, `code.cljc:446-467`, and applies unchanged): `[$code _ _ :store-get _ ?key]`, `[$code _ _ :store-put _ ?key _]`, `[$code _ _ :define _ ?key _]`, `[$code _ _ :ffi-call _ ?op _]`, `[$code _ _ :resume ?pid _]`, effect raisers `#{:stream-make :stream-put :stream-cursor :stream-next :stream-close :ffi-call}` normalised through `footprint-mnemonics` |
-| `footprint-mnemonics` | the `"v4"` mnemonic → effect-set map | `(dissoc (get-in vm/footprint-table [vm/semantic-contract :mnemonics]) :push)`, asserted equal by a test so the two tables cannot drift; it moves into `vm/footprint-table` under `"v4"` at cutover |
-| `segment-rows v` | `(code/project-segment-qualified v)` | |
+| `requirements v` | `{:store-keys :ffi-ops :parked-ids :effects}` | Datalog over `(segment-rows v)`: `[$code _ _ :store-get _ ?key]`, `[$code _ _ :store-put _ ?key _]`, `[$code _ _ :define _ ?key _]`, `[$code _ _ :ffi-call _ ?op _]`, `[$code _ _ :resume ?pid _]`, effect raisers `#{:stream-make :stream-put :stream-cursor :stream-next :stream-close :ffi-call}` normalised through `footprint-mnemonics` |
+| `footprint-mnemonics` | the `"v4"` mnemonic → effect-set map | `(dissoc (get-in vm/footprint-table [vm/semantic-contract :mnemonics]) :push)`, asserted equal by a test so the two tables cannot drift; derived engine data, never canonical content; it moves into `vm/footprint-table` under `"v4"` at cutover (reviewer ruling, §9) |
+| `segment-rows v` | `[[A pc mnemonic & operands] …]`, one row per pc | `(mapv (fn [pc t] (into [A pc] t)) (range) v)` with `A = (ucf/code-address v)`, defined **in `scan`**: the same shape `yin.vm.code/project-segment-qualified` gives a `"v3"` vector (`code.cljc:446-467`), but `scan` does not require `yin.vm.code` (the stack table, deleted at phase 8) |
+
+**Imports and access, pinned.** `scan` requires exactly
+`yin.vm.semantic-register.code`, `yin.vm.debruijn` (`resolve-name`),
+`yin.vm` (`reserved-name?`, `footprint-table`, `semantic-contract`),
+`yin.vm.ucf` (`code-address`) and `dao.space.query`. Every function in
+the table is public. On the old side, the scanner tests reach the
+`"v3"` scanners only through **public** surface: the format records'
+map keys (`(:obligations-fn linker/semantic-format)`,
+`(:definitions-fn …)`, `(:applications-fn …)`, `linker.cljc:692-711`;
+likewise `linker/ast-format` for the tree scanners, `:714-731`), the
+public `linker/semantic-free-occurrences` and `linker/semantic-free-names`
+(`:224-269`), `completion/segment-free-names` (`completion.cljc:195`),
+`vm/segment-requirements` and `vm/ast-requirements`, and
+`yin.vm.code/project-segment-qualified` for the `"v3"` rows **inside the
+test only**, since that namespace exists until phase 8. The step-5a
+join is reached through the public `linker/verify`
+(`linker.cljc:1363-1420`), never through the private `undischarged`
+(§6.3). No `#'` anywhere.
 
 **DECIDED** by UCF §7.6.1 (`:1385-1398`) and Rule R: `yin/def` is never a
 free name (item 11 guarantees no `:var` names it), a `:define` key is a
@@ -806,24 +876,74 @@ names, store footprint, discharged bodies"; §8 F11 corrects the third).
 For a program `P` with `v3 = (:vector (linearize/lower-rows (vm/ast->semantic-bytecode P)))`
 (the `"v3"` vector, `publish.cljc:164`) and `v4 = (:vector (sr-linearize/project P))`:
 
-| Fact | Old (`"v3"`) | New (`"v4"`) | Oracle (tree) | Compared as |
+Two kinds of agreement are kept apart, because the three sides do not
+share an order: the `"v3"` and `"v4"` scanners emit in **vector order**
+(main sequence first, bodies FIFO), while `linker/ast-format`'s tree
+scanners sort occurrences by structural path (`linker.cljc:290-375`), so
+for `:define-then-call` the tree lists the body's `list` before the main
+sequence's `inc` and `n`, and the vectors list them the other way round.
+The tree's `tree-application-sites` also counts definition applications
+and omits FFI nodes, where both vector scanners count `:call` and
+`:ffi-call` and never a `:define`.
+
+**(i) Unordered agreement, three-way**, old = new = tree oracle:
+
+| Fact | Old (`"v3"`) | New (`"v4"`) | Oracle (tree, `linker/ast-format` scanners, `vm` queries) | Compared as |
 |---|---|---|---|---|
-| free names | `(set (map :name (linker/semantic-free-occurrences v3)))`, `(completion/segment-free-names v3)` | `(scan/free-names v4)` | `(vm/free-names db occ root)` | set equality, three-way |
-| free-name occurrences | `semantic-free-occurrences v3` | `scan/free-occurrences v4` | `tree-free-name-occurrences` | **names and `:in-body?` flags in order**, `:at` dropped: pcs differ between the two layouts (a `"v3"` `(f x)` is four pcs with pushes, a `"v4"` one is three) |
-| definitions | `vector-definition-occurrences v3` | `scan/definition-occurrences v4` | `tree-definition-occurrences` | names and `:conditional?` flags in order |
-| application sites | `(count (vector-application-sites v3))` | `(count (scan/application-sites v4))` | `tree-application-sites` | counts (a `:call` is one site in both tables) |
-| store footprint, ffi ops, parked ids, effects | `(vm/segment-requirements (query/relation (code/project-segment-qualified v3)))` | `(scan/requirements v4)` | `(vm/ast-requirements (query/relation rows))` | map equality, three-way |
-| the step-5a join | `(:obligations (linker/undischarged old-occ old-defs old-sites))` | same over the new records | | the retained obligation **names in order** |
+| free names | `(linker/semantic-free-names v3)`, `(completion/segment-free-names v3)` | `(scan/free-names v4)` | `(vm/free-names db occ root)` | set equality |
+| free-name occurrences | `((:obligations-fn linker/semantic-format) v3)` | `(scan/free-occurrences v4)` | `((:obligations-fn linker/ast-format) tree)` | **multiset** of `[name in-body?]`, `:at` and paths dropped (pcs differ between layouts: a `"v3"` `(f x)` is four pcs with pushes, a `"v4"` one is three) |
+| definitions | `((:definitions-fn linker/semantic-format) v3)` | `(scan/definition-occurrences v4)` | `((:definitions-fn linker/ast-format) tree)` | multiset of `[name conditional?]` |
+| store footprint, ffi ops, parked ids, effects | `(vm/segment-requirements (query/relation (code/project-segment-qualified v3)))` | `(scan/requirements v4)` | `(vm/ast-requirements (query/relation rows))` | map equality |
 
-Three corpora, three tests in `yin.vm.semantic-register.scan-test`:
+**(ii) Ordered agreement, three-way**, old = new = an **independent
+emission-order tree oracle** written in `scan-test` from the map AST
+alone (no `linker`, no `scan`): walk the main expression with a FIFO
+queue of lambda bodies drained after it; operator before operands;
+test, consequent, alternate; target then value; source; value operand;
+for a definition application visit **only the value operand**; the
+bound set is the enclosing lambdas' parameters. It emits, in that
+order, `[name in-body?]` for every free `:variable` (`in-body?` true
+inside any lambda body), `[key conditional?]` for every `:vm/store-put`
+and definition (`conditional?` true inside a lambda body or inside a
+conditional's consequent or alternate, never its test, which is what
+the vectors' target ranges enclose), and one site per non-definition
+`:application` and per `:dao.stream.apply/call`:
 
-1. `scanners-agree-on-b0`: the 26 rows of `parity-test/corpus`.
+| Fact | Old | New | Oracle | Compared as |
+|---|---|---|---|---|
+| free-name occurrences | as (i), `:at` dropped | as (i) | the emission walk | sequence equality |
+| definitions | as (i), `:at` dropped | as (i) | the emission walk | sequence equality |
+| application sites | `(count ((:applications-fn linker/semantic-format) v3))` | `(count (scan/application-sites v4))` | the walk's site count | equality (definition applications excluded, FFI sites included, on all three sides) |
+
+**(iii) Join agreement**, old = new, through the public seam
+`linker/verify` (`linker.cljc:1363-1420`) rather than the private
+`undischarged`: `(linker/verify fmt A A {A v})` with `fmt` =
+`linker/semantic-format` for `v3` and `semantic-register-format` (§6.5)
+for `v4`, `A` the vector's own segment key, so steps 3-5a run exactly as
+a fetch runs them. The outcome is normalised to
+`{:status :ok :obligations [[name in-body?] …]}` or
+`{:status :refused :reason r :name n}` (`:at`, `:identity`, `:address`,
+`:value`, `:format` dropped), and the two normalised outcomes must be
+equal. A refusal is therefore compared, not discarded: two empty
+obligation vectors never pass for an outcome that refused on one side.
+The corpus for (iii) gains one row that **must** refuse on both sides,
+`:use-before-definition` = `(app (v 'list) (v 'n) (def! 'n (lit 1)))`
+(a main-sequence read of `n` whose only definition is later;
+`undischarged`'s main-sequence branch, `linker.cljc:1118-1135`), with the
+expected normalised outcome
+`{:status :refused :reason :use-before-definition :name n}` pinned.
+
+Three corpora, each run through (i), (ii) and (iii), three tests in
+`yin.vm.semantic-register.scan-test`:
+
+1. `scanners-agree-on-b0`: the 26 rows of `parity-test/corpus` plus the
+   `:use-before-definition` row.
 2. `scanners-agree-on-the-register-corpus`: the 32 rows of
    `corpus/programs` (asserting the count, as the phase-4 lanes do).
 3. `scanners-agree-on-the-c4-modules` (`^:slow`, `dao.test-slow/guard`):
    **by name**, over the module ASTs the C4 track publishes, read-only:
-   `prelude/module-uast` (`py`, `linked_prelude_test.cljc:167-187` uses
-   it), the `pysp` spec `(:ast (safepoint/module-spec (h/registry) a))`
+   `prelude/module-uast` (`py`), the `pysp` spec
+   `(:ast (safepoint/module-spec (h/registry) a))`
    (`linked_harness.cljc:66-73`), and the six guest packets of
    `import_test.cljc:342-363` through `lower/module-spec` with a stand-in
    `:py-address` and `:deps` as `module-spec-test` does
@@ -831,15 +951,33 @@ Three corpora, three tests in `yin.vm.semantic-register.scan-test`:
    `yang.python.antlr.prelude`, `.safepoint`, `.lower`,
    `.import-programs` and `.linked-harness` (for `registry` and
    `integer-limits`) and **edits none of them**; it calls no linked run
-   and publishes nothing. For every module the free-name set must also
-   equal the keys of the spec's `:primitives` declaration minus the
-   requirement-qualified names, which is what
-   `module-spec-declares-every-free-name-test` asserts for `py` today
-   (`linked_prelude_test.cljc:167-187`): the new scanner must find exactly
-   what the declaration covers.
+   and publishes nothing. (i)-(iii) run as for the other corpora; the
+   join (iii) is included, as the frozen phase-5 gate promises for this
+   corpus. A disagreement is reported to the C4 track's owner, never
+   repaired by weakening a declaration.
 
-The tree oracle is the permanent one: `vm/free-names` and
-`ast-requirements` are AST-level and survive cutover.
+   **Declarations, separately from raw agreement.** The module specs do
+   not declare raw free names: `lower/module-spec` removes the keys the
+   module defines and `yin/def`, then drops names covered by a pinned
+   requirement, and declares the rest (`lower.cljc:1864-1877`,
+   `declare-free-name`, `:1827-1843`); `prelude/module-spec` declares
+   `module-free-names`, the module's free names minus its defined keys
+   (`prelude.cljc:3428-3430`, `:3445-3466`). So two further equalities
+   are asserted per module, with the C4 track's own public walkers as a
+   fourth, independent raw oracle:
+   - raw: `(scan/free-names v4) = (set (prelude/free-names ast))`
+     (`prelude.cljc:3395-3414`, a lexical walk over the map AST);
+   - discharged: `(set (keys (:primitives spec)))` =
+     `(scan/free-names v4)` minus `(conj (prelude/defined-keys ast) 'yin/def)`
+     (`prelude.cljc:3416-3425`) minus every name whose namespace symbol
+     is in the spec's `:requires` keys (`py`, `pym.<i>`). For `py` the
+     requirement set is empty and this reduces to what
+     `module-spec-declares-every-free-name-test` checks
+     (`linked_prelude_test.cljc:167-187`).
+
+The tree oracles are the permanent ones: `vm/free-names`,
+`ast-requirements`, the `ast-format` scanners and the emission walk are
+AST-level and survive cutover.
 
 ### 6.4 "Old scanner" after cutover: pinning goldens
 
@@ -849,8 +987,11 @@ that, slice 5c writes **one golden fixture**
 `test/yin/vm/semantic_register/scanner_goldens.cljc`: for every program
 of corpora 1 and 2 and every C4 module of corpus 3, by name, the map
 `{:free-names #{…} :occurrences [[name in-body?] …] :definitions [[name conditional?] …]
-:application-count n :requirements {…} :retained [name …]}` as the `"v3"`
-scanners answer it at `0ff25b58`. The fixture is generated once by a
+:application-count n :requirements {…} :join {:status … …}}` (the join
+as §6.3 (iii) normalises it, refusals included) as the `"v3"` scanners
+answer it at `0ff25b58`; the fixture's corpus is exactly §6.3's three,
+listed by name in the file. It is historical evidence of what the
+deleted scanners said; the tree oracles remain the independent check. The fixture is generated once by a
 helper in `scan-test` that prints the map (run manually on the JVM,
 pasted as Clojure data, never EDN strings), and `scanners-agree-*` compare
 the new scanners against the fixture **and** against the live `"v3"`
@@ -983,9 +1124,11 @@ change is noticed.
 
 1. `derive-test/resolve-vector-validates`: for every `P ∈ C`,
    `(resolve/validate-resolved (:tuples r) (:source r))` is nil on
-   `r = (resolve-vector v)`; `(set (keys (:source r)))` equals the set of
-   record ids; `(:params r)` has one entry per `:closure` tuple of `v`
-   with that tuple's params vector.
+   `r = (resolve-vector v)`; `(set (keys (:source r)))` equals the
+   **complete** record set, every entity with a `:yin/type` fact, the
+   synthesized definition operator and key records included; `(:params r)`
+   has one entry per `:closure` tuple of `v` with that tuple's params
+   vector and no other entry.
 2. `derive-test/record-shapes`: on the goldens `:worked-example`,
    `:define`, `:zero-arity-call`, `:if`, `:streams`, `:resume-body`
    (`corpus.cljc`), the records are exactly §1.4's table (attribute by
@@ -1004,23 +1147,44 @@ change is noticed.
    (pure data) — the "no identity" clause made testable.
 5. `derive-test/stack-lowerer-equivalence`: for every `P ∈ C`, §4.1
    comparisons (1) structure, (2) `encode-image` bytes, (3) `image-hash`
-   between `(stack-image v)` and `(dl/adapt (vm/ast->datoms P))`; plus
-   `(= (:params old-side) (:params new-side))` on the `:closure` entries
-   of the two side tables.
+   between `(stack-image v)` and `(dl/adapt (vm/ast->datoms P))`; plus,
+   over the two pc-keyed side tables, for every pc whose entry has
+   `:kind :closure`, `(= (:params (get old pc)) (:params (get new pc)))`,
+   and the same closure pc set on both sides; `:source` (provenance) is
+   excluded from the comparison.
 6. `derive-test/b2-goldens-stand`: the pinned H values the repository
    already holds are reproduced from A: the `adapting-twice-is-byte-identical`
    corpus (`debruijn_linearize_test.cljc:174-184`) through `stack-image`,
    and `structural-comparison-differs-only-at-var-and-closure`'s
    invariant (`:187-213`) re-asserted against the `"v3"` named vector.
-7. `derive-test/lexical-address-law-stack`: §5.2 with the three legs that
-   exist in 5a (`addresses(A)`, `resolve-vector`, `H`, today's
-   `resolved-addresses-of`), with the non-vacuity assertion.
-8. `derive-test/derived-stack-images-run-on-b3`: every B0 program's
-   derived image loads under `dvm/create-vm` with `vm/stack-contract` and
-   runs to the pinned `expected` value under `parity-test/normalize`
-   (template `corpus-images-load-and-run-on-b3`,
-   `debruijn_linearize_test.cljc:215-245`; the effect rows that need a
-   bridge or a stream are excluded exactly as that test excludes them).
+7. `derive-test/lexical-address-law-stack`: §5.2 with the legs that
+   exist in 5a (`addresses(A)`, `resolved-addresses` over
+   `resolve-vector`, `H`, today's resolver through the corrected walk),
+   with the non-vacuity assertions including the no-`[:free yin/def]`
+   one.
+8. `derive-test/derived-stack-images-run-on-b3`: the **runtime corpus**
+   is every one of the 26 B0 rows plus the ten value-producing
+   register-corpus rows (`:literal :define :define-call :gensym
+   :store-ops :lambda-application :nested-lambdas :if-in-test
+   :define-then-call :stream-make-default`; the other 22 reference
+   unbound names and are outside the runtime gate, byte comparison
+   covering them in item 5). Composition:
+   `(dvm/create-vm image {:primitives vm/primitives :make-stream tu/make-stream
+   :contract vm/stack-contract})` (the options `debruijn/stack.cljc:369-394`
+   lists; `tu/make-stream` is what `"stream make"` needs). The result is
+   `(vm/value (vm/run vm))` under one **common native normalisation**
+   `native-normalize`, defined in `derive-test` and applied to both sides:
+   a host-typed value is unwrapped (`values/payload`); a closure, host
+   type or `{:type :closure …}` map, becomes the bare keyword `:closure`
+   (a native closure carries arity and body pc, never the pinned
+   `:params`/`:body`, so only closure-ness is observable in common); a
+   `{:type :stream-ref}` or `:cursor-ref` map becomes `{:type t :id id}`;
+   a host fn `:host-fn`; collections recursively; everything else as is.
+   Expected: the B0 row's pinned `expected` under `native-normalize`; for
+   the register-corpus rows the walker's value
+   (`tu/compile-and-run`) under `native-normalize`. Halting is asserted
+   (`vm/halted?`), as `corpus-images-load-and-run-on-b3` asserts it over
+   its five fixtures (`debruijn_linearize_test.cljc:215-230`).
 9. `derive-test/register-image-is-not-in-5a`: `register-image` throws
    `{:reason :not-in-slice-5a}`.
 10. The §4.5 row for `"b2"` is filled: bytes held on every program of
@@ -1045,8 +1209,9 @@ the items below. Nothing else.
 1. `derive-test/register-lowerer-equivalence`: §4.1 (1) image map
    equality including body descriptors, (2) `encode-register-image`
    bytes, (3) `register-hash`, between `(register-image v)` and
-   `(rc/adapt (vm/ast->datoms P))`, for every `P ∈ C`; side-table
-   `:params` equal.
+   `(rc/adapt (vm/ast->datoms P))`, for every `P ∈ C`; the two pc-keyed
+   side tables have the same closure pcs and equal `:params` at each,
+   `:source` excluded.
 2. `derive-test/r2-goldens-stand`: the twelve pinned R values and images
    of `debruijn_register_compile_test.cljc:460-620` are reproduced from
    A: `golden-pure-r1-image-and-r-test`'s image and
@@ -1058,17 +1223,22 @@ the items below. Nothing else.
    `(rcode/register-image-defect (:image (register-image v)))` is nil for
    every `P ∈ C` (all twelve rules, `live-exact` included).
 4. `derive-test/lexical-address-law`: §5.2 complete, four legs plus
-   today's resolver.
-5. `derive-test/derived-register-images-run-on-r4`: every B0 program's
-   derived image loads under `rvm/create-vm` with `vm/register-contract`
-   and runs to the pinned value under `normalize` (template: the
-   `:register` backend of `linked_harness.cljc:118-120`, without the link
-   pair).
+   today's resolver through the corrected walk.
+5. `derive-test/derived-register-images-run-on-r4`: the same runtime
+   corpus, composition shape and `native-normalize` as 5a item 8, over
+   `(rvm/create-vm image {:primitives vm/primitives :make-stream tu/make-stream
+   :contract vm/register-contract})` (template: the `:register` backend
+   of `linked_harness.cljc:118-120`, without the link pair); halting
+   asserted.
 6. `derive-test/worked-example-slots`: the derived register image of
    `:worked-example` is exactly
-   `[[:load-free 1 f] [:load-free 3 g] [:load-free 4 x] [:call 2 3 [4] false []] [:load-free 3 y] [:call 0 1 [2 3] false []] [:halt 0]]`
-   with body `{:locals 0 :registers 5 :start 0 :end 6}`, pinning §3.1's
-   statement of R1's discipline against A's `[1 3 4 2 5 0]` numbering.
+   `[[:load-free 1 f] [:load-free 3 g] [:load-free 4 x] [:call 2 3 [4] false [1]] [:load-free 3 y] [:call 0 1 [2 3] false []] [:halt 0]]`
+   with body `{:locals 0 :registers 5 :start 0 :end 6}`: the inner call's
+   `live` is `[1]` because `f` in register 1 is read by the outer call
+   after `(g x)` returns (`body-liveness`, live-out minus `rd`); the outer
+   call's `live` is `[]` because only `:halt 0` follows and `0` is its own
+   destination. This pins §3.1's statement of R1's discipline against
+   A's `[1 3 4 2 5 0]` numbering.
 7. The §4.5 row for `"r2"` is filled: bytes held, contract held, outcome
    RETAIN; the orchestrator's log records it against frozen §10 phase 5.
 8. kondo clean; `bb test:sub yin.vm` green on three hosts.
@@ -1114,29 +1284,54 @@ census is phase 6), the C4 track, every kernel and lowerer.
    off-by-one of §6.1, asserted negatively: no fact equals a small
    integer that is a register of the program unless the program's key is
    that integer, as `:store-ops`' `7` deliberately is).
-2. `scan-test/free-occurrences-use-the-owner-tree`: over `:nested-lambdas`,
-   `:body-queue-order`, `:closure-in-arm-in-body` and `:define-then-call`,
-   `free-occurrences` marks `+`, `f`, `list`, `inc` free and `a b p q r x
-   y z n` bound by their owning closure; `:in-body?` is true exactly for
-   occurrences in bodies > 0.
-3. `scan-test/definitions-and-sites`: `:define-then-call` yields a
-   definition `n` with `:conditional? false` at the main sequence and
-   `:if-in-tail`'s body call sites are in a body; counts equal the
-   `"v3"` scanners' counts.
+2. `scan-test/free-occurrences-use-the-owner-tree`, exact per fixture
+   (goldens in `corpus.cljc`):
+   - `:nested-lambdas`: one free occurrence, `[+ true]` (pc 8, body 2);
+     `a` (pc 9) and `b` (pc 10) are bound (`[1 0]` and `[0 0]`).
+   - `:body-queue-order`: **no** free occurrence; `p q r` are all bound.
+   - `:closure-in-arm-in-body`: no free occurrence; `x y z` bound.
+   - `:define-then-call`: free occurrences in order `[inc false]`
+     (pc 3), `[n false]` (pc 4: `n` is a lexically free **store** name,
+     not a parameter), `[list true]` (pc 8, body 1); `a` (pc 9) and `b`
+     (pc 10) are bound.
+   - `:if-in-tail`: `[< true] [loop true] [- true]`; `n` bound.
+   `:in-body?` is true exactly for occurrences in bodies > 0.
+3. `scan-test/definitions-and-sites`, exact per fixture: `:define-then-call`
+   yields one definition `[n false]` (pc 2, main sequence, not inside a
+   target range) and three sites (pcs 5, 6, 11); `:define` yields `[x false]`
+   and no site; `:store-ops` yields `[k false] [:n false]` and one site;
+   `:if-in-tail` yields no definition and four sites (pcs 2, 7, 15, 16;
+   the last two inside the body's alternate arm); `:ffi-call` yields one
+   site (the `:ffi-call`). Each count equals the `"v3"`
+   `(:applications-fn linker/semantic-format)` count for the same
+   program.
 4. `scan-test/footprint-mnemonics-is-the-v3-table-minus-push`.
-5. `scan-test/scanners-agree-on-b0` (26 rows asserted), §6.3 three-way.
-6. `scan-test/scanners-agree-on-the-register-corpus` (32 rows asserted).
+5. `scan-test/scanners-agree-on-b0` (26 rows asserted, plus the
+   `:use-before-definition` row): §6.3 (i) unordered three-way, (ii)
+   ordered three-way against the emission-order tree oracle, (iii) join
+   through `linker/verify` with normalised outcomes equal and the
+   use-before-definition row refusing on both sides with the pinned
+   normalised outcome.
+6. `scan-test/scanners-agree-on-the-register-corpus` (32 rows asserted):
+   (i), (ii), (iii).
 7. `scan-test/scanners-agree-on-the-c4-modules` (`^:slow`, guarded): the
-   eight module ASTs by name; the free-name set of each equals its spec's
-   declared primitive keys minus requirement-qualified names, as
-   `module-spec-declares-every-free-name-test` asserts for `py`.
-8. `scan-test/goldens-match`: every map of `scanner_goldens.cljc` equals
-   the live `"v3"` scanners' answer **and** the new scanners' answer.
+   eight module ASTs by name; (i), (ii), (iii) each; the raw equality
+   with `prelude/free-names`; and the discharged equality with the
+   spec's `:primitives` keys (§6.3). **This test must actually run for
+   sign-off**: the slice's checkpoint is `bb test:sub yin.vm --slow` (or
+   `clojure -M:test -i :slow -n yin.vm.semantic-register.scan-test`) on
+   three hosts, and the report quotes the row count it saw; a green
+   default lane alone does not discharge this item.
+8. `scan-test/goldens-match`: every map of `scanner_goldens.cljc`,
+   normalised join included, equals the live `"v3"` scanners' answer
+   **and** the new scanners' answer.
 9. `linker-test/semantic-register-scanners-yield-position-bearing-records`;
    `format-records-name-their-contract` passes with the `"v4"` row.
-10. `scan-test/undischarged-agrees`: for every program of corpora 1-2 the
-    retained obligation names from `linker/undischarged` over `"v3"`
-    records and over `"v4"` records are equal in order.
+10. `scan-test/verify-outcomes-agree`: for every program of all three
+    corpora, `(linker/verify linker/semantic-format A3 A3 {A3 v3})` and
+    `(linker/verify semantic-register-format A4 A4 {A4 v4})` have equal
+    normalised outcomes (§6.3 (iii)); the `:use-before-definition` row
+    refuses on both.
 11. `linker-test` and `linker_manifest_test` unchanged and green: the
     `relowered`/`publish-closure!` switch to `derive` is byte-neutral
     (§4), so `a-prelude-sized-module-publishes-under-default-bounds`
@@ -1223,9 +1418,20 @@ changes its output contract to the §2.3 table." with:
 > declared lift target is hashed into H and R; see the derivations
 > design, F10).
 
-**§8.3**, step 1. Replace "1. Resolve as in §8.2 step 1." with
-"1. Resolve as in §8.2 step 1: the same function, the same resolved
-tuples." Step 3, replace:
+**§8.3**, steps 1-2. Replace
+
+> 1. Resolve as in §8.2 step 1.
+> 2. **Parse** each body under §3.1 into its expression tree; the
+>    validator has already established that it parses.
+
+with:
+
+> 1. Resolve as in §8.2 step 1: the same function, the same resolved
+>    tuples. That step already parses each body under §3.1 (the validator
+>    has established that it parses); there is no second parse.
+> 2. *(merged into step 1.)*
+
+Step 3, replace:
 
 > 3. **Adapt** the recovered trees to the input shape `lower-stack`
 >    consumes today, resolved tuples plus side table (register design
@@ -1239,12 +1445,17 @@ with:
 
 > 3. There is no further adapter: step 1's output is the input
 >    `lower-stack` consumes today (resolved tuples plus side table,
->    register design §2.1). Body order and absolute pcs are the
->    emitter's own (its FIFO body queue and label pass), recomputed from
->    the tree; they coincide with A's layout because both follow §3.3
->    item 1.
+>    register design §2.1). Body **discovery order** is the emitter's
+>    own FIFO queue over the tree and agrees with A's (both follow §3.3
+>    item 1); every emitter computes its **own instruction positions**
+>    (the stack image's pushes and the register image's layout differ
+>    from A's pcs, and from each other), so no pc of A is carried over.
 
-**§8.4**, replace the two sentences "The emitter walk in §8.3 is the same
+**§8.4**, replace the composition formula in the first sentence,
+"`lower-stack(adapt(parse(resolve(A(P)))))`", with
+"`lower-stack(resolve-vector(A(P)))`", and "and likewise for the register
+image" with "and `lower-register(resolve-vector(A(P)))` against today's
+`lower-register(resolve(P))`". Then replace the two sentences "The emitter walk in §8.3 is the same
 walk as today's, over the same tree, so H is expected to hold; R depends
 on whether §8.2's interval scan reproduces R1's reservation-and-release
 timing, which is not expected to hold exactly." with:
@@ -1280,15 +1491,23 @@ the proof."
 implemented as `resolve-vector`, `stack-image`, `register-image`
 (derivations design §1-§3);".
 
-### F9 — the adapter neither orders bodies nor computes pcs (frozen §8.3 steps 3-4)
+### F9 — the adapter neither orders bodies nor computes pcs; §8.3 parses once (frozen §8.3 steps 1-4, §8.4)
 
 Evidence: `debruijn_linearize.cljc:98, 115-117, 173-178, 182-189`;
 `debruijn_register_compile.cljc:384-392, 399-407`. Both emitters own a
 FIFO body queue and a label/offset pass; a resolved-tuple set is a tree
-with no pc order to preserve. Amendment text is inside F8's §8.3 step 3
-replacement; recorded separately so the reviewer can accept it even if
-F8's route is overruled (under route (a) too, §8.3's stack adapter needs
-no ordering).
+with no pc order to preserve. Body discovery order agrees across A, H
+and R because all three follow the same FIFO rule; **absolute pcs do
+not** (the stack image interleaves `:push`es, the register image has its
+own layout), so each emitter computes its own positions and the frozen
+"absolute pcs are recomputed by that emission" is kept while any
+suggestion that they coincide with A's is dropped. §8.3's separate
+"parse" step duplicates the parse the shared resolve step already
+performs, and §8.4's composition `lower-stack(adapt(parse(resolve(A))))`
+names stages that no longer exist. Amendment text is inside F8's §8.3
+and §8.4 replacements; recorded separately so the reviewer can accept it
+even if F8's route is overruled (under route (a) too, §8.3's stack
+adapter needs no ordering and no second parse).
 
 ### F10 — the lift target is hashed; "lift changes its output contract" would move H and R (frozen §8.2 last paragraph, §9)
 
@@ -1303,13 +1522,21 @@ byte. The lift functions themselves (`dl/lift`, `rc/lift`) produce the
 `"v3"` named shape and are test oracles against `yin.vm.linearize/lower`,
 which phase 8 deletes.
 
-Amendment: F8's §8.2 replacement already drops the sentence. Add to **§10
-phase 8**, after "remove the old H/R request paths and the `raise`
-dependency,": "decide the lifts and the descriptors' declared lift
-target: either retarget the lift functions to the §2.3 table and keep
-`:dim/lift-to [:yin.code/*]` as a frozen historical label so H and R do
-not move, or re-version `"b2"`/`"r2"` openly; the owner chooses
-(derivations design §9 item 2)."
+Amendment: F8's §8.2 replacement already drops the sentence. **Phase 5
+leaves the lift functions and both descriptors unchanged**: no file
+under `debruijn_code.cljc`, `debruijn_register_code.cljc`,
+`debruijn_linearize.cljc` or `debruijn_register_compile.cljc` is edited
+(§4.3's empty-diff rows cover this). Add to **§10 phase 8**, after
+"remove the old H/R request paths and the `raise` dependency,": "take an
+**explicit lift-contract decision**: the descriptors' `:dim/lift-to
+[:yin.code/*]` names a lift to the named stack-shaped vector, which
+cutover deletes; either the lift is kept as a genuine legacy contract
+(the lift functions still produce that shape, as a diagnostic, and the
+label stays true), or the lift contract changes (retargeted to the §2.3
+table or removed), in which case the descriptors change and `"b2"`/`"r2"`
+are re-versioned with every consequence §6 names. A historical label
+kept over a changed lift is not an option: it would disguise a normative
+contract change. The owner chooses (derivations design §9 item 2)."
 
 ### F11 — "discharged bodies" is not a scanner fact (frozen §10 phase 5)
 
@@ -1366,40 +1593,57 @@ cutover).
 
 ## 9. Questions for the owner, and what is the reviewer's
 
-**For the owner** (decisions that are genuinely theirs):
+**For the owner** (decisions that are genuinely theirs; wording agreed
+with the Architect reviewer, codex gpt-6.1-sol, 2026-10-10):
 
-1. **Route (b) retains `"r2"` and `"b2"` unchanged, and under it the
-   native allocators never read A's virtual register ids** (they parse A
-   into the tree and allocate as today). Is that acceptable as the
-   phase-5 outcome, given the frozen §8.4 expected `"r2"` to move? The
-   recommendation is yes (§3.3-3.4); a re-versioned `"r2"` is not needed
-   and would buy only a vector-fed allocator.
-2. **At phase 8**, the lifts and the descriptors' hashed `:dim/lift-to
-   [:yin.code/*]` label (F10): keep the label frozen so H and R never
-   move at cutover, or re-version openly? Phase 5 does not touch them
-   either way.
-3. **At phase 8**, the semantic derivation record's `:yin.lower/profile`
-   string for the `"v4"` lowering (today `"ast-to-bytecode"` with
-   `:yin.code/contract "v3"`, `ledger.cljc:40-50`): a new name or the
-   same string under `"v4"`. A naming choice with no byte consequence
-   before cutover.
+1. **The route-(b) tradeoff.** A remains the canonical projection and the
+   derivation source: parsing its register operands reconstructs the
+   expression relationships the lowerers consume, and its virtual
+   numbering does not drive physical allocation. The register shape
+   therefore buys **no simpler native allocator and no local
+   stackification**; its direct benefits are the evaluator's state, the
+   UCF windows and the reconstruction maps, while native derivation
+   gains a validated canonical source grammar and reuses the existing
+   emitters, retaining `"r2"` and `"b2"` unchanged. Accept that tradeoff
+   as the phase-5 outcome? Both the author and the reviewer recommend
+   yes.
+2. **The phase-8 lift contract** (F10): does phase 8 preserve a genuine
+   legacy lift contract (lift functions still producing the named shape
+   the descriptors declare), or change it, with the contract and version
+   consequences §6 requires? Phase 5 touches neither lifts nor
+   descriptors.
+3. **The `"v4"` profile string** for the semantic derivation record
+   (today `"ast-to-bytecode"` with `:yin.code/contract "v3"`,
+   `ledger.cljc:40-50`). Reusing `"ast-to-bytecode"` with an explicit
+   `"v4"` contract is architecturally acceptable; a new name is optional.
+   No byte consequence before cutover.
 
-**For the Architect reviewer** (design choices of this document):
+**Reviewer rulings recorded** (codex gpt-6.1-sol,
+`collab/1791610000000-architect-srvm-phase5-design-review.gpt-6.1-sol.findings.md`,
+2026-10-10):
 
-- F8's route; F9-F12's texts.
-- §1.4's record-id scheme (pc-derived versus counter).
-- §4.2's corpus `C` membership and §4.4's "gate, not a choice" stance.
-- §6.2's `scan` namespace keeping a derived copy of the footprint table
-  with a drift test, versus adding a `"v4"` key to `vm/footprint-table`
-  in 5c.
-- §6.6 step 1's byte-neutral switch of `relowered`/`publish-closure!` in
-  5c (versus deferring to cutover), and the fate of
-  `yin.vm.debruijn-resolve/resolve` over named datoms after cutover: this
-  design keeps it as the lowerer-equivalence oracle through phase 7 and
-  recommends keeping it as a test-only oracle thereafter, since the
-  `unresolve` law and the shared-occurrence fixtures are its and nothing
-  else's.
-- §7.4's follow-up edit to the 4b obligations fixture.
+- F8 ACCEPT WITH CHANGES; F9, F10, F11 ACCEPT WITH CHANGES; F12 ACCEPT.
+  The changes are applied in this revision (§3.2's narrowed claims, §5's
+  corrected address oracle, §6.3's three-part agreement, §7's corrected
+  goldens and runtime gates, §8's texts).
+- Pc-derived record ids (§1.4): approved.
+- Corpus `C` membership (§4.2): approved, with the stack corpus counted
+  at 15.
+- Equivalence as a **blocking** gate, not discretionary checksum
+  acceptance (§4.4): approved.
+- The derived footprint map in `scan` with a drift test, relocated into
+  `vm/footprint-table` at phase 8 (§6.2): approved; it is derived engine
+  data, not canonical content.
+- The byte-neutral 5c production switch of `relowered`/`publish-closure!`
+  (§6.6 step 1), **after both equivalence gates pass**: approved.
+- `yin.vm.debruijn-resolve/resolve` over named datoms: retained through
+  phase 7 as the lowerer-equivalence oracle; at cutover its production
+  callers are removed and a portable test oracle is retained **without
+  depending on deleted stack machinery** (the `unresolve` law and the
+  shared-occurrence fixtures need no `yin.vm.linearize`).
+- The 4b obligations-fixture follow-up (§7.4): approved, assigned to
+  whichever slice lands second.
+- The slow C4 rows must actually run for sign-off (§7.3 item 7).
 
 ---
 
