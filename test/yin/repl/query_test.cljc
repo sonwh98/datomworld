@@ -156,33 +156,36 @@
   '[:find (count ?app) :in ?f :where [?app :yin/operator ?op] [?op :yin/name ?f]])
 
 
-(deftest scalar-in-inputs-bind-beside-the-implicit-index
-  (doseq [vm-type vm-types]
-    (testing (str vm-type)
-      (let [[_ texts]
-            (evaluate (repl.frontends/create-state {:vm-type vm-type})
-                      (into bump-lines
-                            [(q-line calls-of-f "(quote bump)")
-                             (q-line calls-of-f "(quote bump)" "{:view :current}")
-                             (q-line '[:find (count ?app) :in $ ?f
-                                       :where [?app :yin/operator ?op]
-                                       [?op :yin/name ?f]]
-                                     "(quote bump)")
-                             (q-line '[:find (count ?app) :in ?f
-                                       :where [?app :yin/operator ?op ?t ?m]
-                                       [?op :yin/name ?f ?t1 ?m1]]
-                                     "(quote bump)" "{:view :history}")
-                             (q-line calls-of-f)
-                             (q-line calls-of-f "(quote bump)" "(quote +)")]))
-            [bare with-options explicit history too-few too-many]
-            (drop (count bump-lines) texts)]
-        (is (= "#{[3]}" bare) "the index is implicit; ?f is the first input")
-        (is (= "#{[3]}" with-options) "an options map follows the inputs")
-        (is (= "#{[3]}" explicit) "a declared $ is the index")
-        (is (= "#{[3]}" history) "a history view takes inputs too")
-        (doseq [text [too-few too-many]]
-          (is (str/includes? text "(:yin.repl.query/query-failed)") text)
-          (is (str/includes? text "input arity") text))))))
+(deftest ^:slow scalar-in-inputs-bind-beside-the-implicit-index
+  (slow/guard
+    "scalar-in-inputs-bind-beside-the-implicit-index"
+    (fn []
+      (doseq [vm-type vm-types]
+        (testing (str vm-type)
+          (let [[_ texts]
+                (evaluate (repl.frontends/create-state {:vm-type vm-type})
+                          (into bump-lines
+                                [(q-line calls-of-f "(quote bump)")
+                                 (q-line calls-of-f "(quote bump)" "{:view :current}")
+                                 (q-line '[:find (count ?app) :in $ ?f
+                                           :where [?app :yin/operator ?op]
+                                           [?op :yin/name ?f]]
+                                         "(quote bump)")
+                                 (q-line '[:find (count ?app) :in ?f
+                                           :where [?app :yin/operator ?op ?t ?m]
+                                           [?op :yin/name ?f ?t1 ?m1]]
+                                         "(quote bump)" "{:view :history}")
+                                 (q-line calls-of-f)
+                                 (q-line calls-of-f "(quote bump)" "(quote +)")]))
+                [bare with-options explicit history too-few too-many]
+                (drop (count bump-lines) texts)]
+            (is (= "#{[3]}" bare) "the index is implicit; ?f is the first input")
+            (is (= "#{[3]}" with-options) "an options map follows the inputs")
+            (is (= "#{[3]}" explicit) "a declared $ is the index")
+            (is (= "#{[3]}" history) "a history view takes inputs too")
+            (doseq [text [too-few too-many]]
+              (is (str/includes? text "(:yin.repl.query/query-failed)") text)
+              (is (str/includes? text "input arity") text))))))))
 
 
 (deftest a-map-input-is-an-input-and-one-more-map-is-options
@@ -382,7 +385,7 @@
                       :get-bytes-fn (fn [_address not-found] not-found)}
               [_ [_ text]]
               (evaluate (repl.frontends/create-state {:vm-type vm-type
-                                            :index-store broken})
+                                                      :index-store broken})
                         [require-line (q-line names-query)])]
           (is (str/includes? text "(:yin.repl.query/index-unavailable)"))
           ;; a store refusing every write fails the round's first write:
@@ -501,46 +504,49 @@
     [state (vec (drop (count inc-lines) texts))]))
 
 
-(deftest ast-and-occ-are-supplied-when-named-in-in
-  (doseq [vm-type vm-types]
-    (testing (str vm-type)
-      (let [[state [names history map-form tag i-path joined sources-late
-                    occ-count]]
-            (evaluate-after-inc
-              vm-type
-              [(q-line ast-names)
-               (q-line ast-names "{:view :history}")
-               (q-line '{:find [?name] :in [$ast]
-                         :where [[$ast ?id :variable ?name]]})
-               (q-line '[:find ?tag . :in $ast ?n :where [$ast ?id ?tag ?n]]
-                       "(quote inc)")
-               (q-line '[:find ?path :in $occ $ast
-                         :where [$ast ?node :variable i]
-                         [$occ ?root ?path ?node]])
-               (q-line '[:find ?path :in $ $ast $occ ?n
-                         :where [?e :yin/type :variable] [?e :yin/name ?n]
-                         [$ast ?node :variable ?n] [$occ ?root ?path ?node]]
-                       "(quote i)")
-               (q-line '[:find ?path :in ?n $occ $ast
-                         :where [?e :yin/name ?n]
-                         [$ast ?node :variable ?n] [$occ ?root ?path ?node]]
-                       "(quote i)")
-               (q-line '[:find (count ?path) . :with ?root :in $occ
-                         :where [$occ ?root ?path ?node]])])
-            occurrences (:occ (ast-index/relations (:ast-indexer state)))]
-        (is (every? #(str/includes? names (pr-str [%])) '[yin/def + i])
-            "the variable rows of (defn inc ...) are $ast rows")
-        (is (= names history map-form)
-            "$ast is the same relation under either view and either query form")
-        (is (= ":literal" tag) "a caller input follows the named source")
-        (is (= (str (count occurrences)) occ-count)
-            "$occ holds every [root path node] the session observed, the
+(deftest ^:slow ast-and-occ-are-supplied-when-named-in-in
+  (slow/guard
+    "ast-and-occ-are-supplied-when-named-in-in"
+    (fn []
+      (doseq [vm-type vm-types]
+        (testing (str vm-type)
+          (let [[state [names history map-form tag i-path joined sources-late
+                        occ-count]]
+                (evaluate-after-inc
+                  vm-type
+                  [(q-line ast-names)
+                   (q-line ast-names "{:view :history}")
+                   (q-line '{:find [?name] :in [$ast]
+                             :where [[$ast ?id :variable ?name]]})
+                   (q-line '[:find ?tag . :in $ast ?n :where [$ast ?id ?tag ?n]]
+                           "(quote inc)")
+                   (q-line '[:find ?path :in $occ $ast
+                             :where [$ast ?node :variable i]
+                             [$occ ?root ?path ?node]])
+                   (q-line '[:find ?path :in $ $ast $occ ?n
+                             :where [?e :yin/type :variable] [?e :yin/name ?n]
+                             [$ast ?node :variable ?n] [$occ ?root ?path ?node]]
+                           "(quote i)")
+                   (q-line '[:find ?path :in ?n $occ $ast
+                             :where [?e :yin/name ?n]
+                             [$ast ?node :variable ?n] [$occ ?root ?path ?node]]
+                           "(quote i)")
+                   (q-line '[:find (count ?path) . :with ?root :in $occ
+                             :where [$occ ?root ?path ?node]])])
+                occurrences (:occ (ast-index/relations (:ast-indexer state)))]
+            (is (every? #(str/includes? names (pr-str [%])) '[yin/def + i])
+                "the variable rows of (defn inc ...) are $ast rows")
+            (is (= names history map-form)
+                "$ast is the same relation under either view and either query form")
+            (is (= ":literal" tag) "a caller input follows the named source")
+            (is (= (str (count occurrences)) occ-count)
+                "$occ holds every [root path node] the session observed, the
              asking program's own included")
-        (is (= "#{[[[3 1] 3 [3 0]]]}" i-path)
-            "the one place of i, joined through $ast")
-        (is (= i-path joined) "$, $ast and $occ join in one query")
-        (is (= i-path sources-late)
-            "sources declared after a caller input are still the session's")))))
+            (is (= "#{[[[3 1] 3 [3 0]]]}" i-path)
+                "the one place of i, joined through $ast")
+            (is (= i-path joined) "$, $ast and $occ join in one query")
+            (is (= i-path sources-late)
+                "sources declared after a caller input are still the session's")))))))
 
 
 (deftest ast-sources-are-not-caller-inputs

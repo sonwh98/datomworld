@@ -34,6 +34,7 @@
    seam's fresh-receiver rehydration rows through the composition --
    and the stage-D gate's two landed halves re-verified beside them."
   (:require [clojure.test :refer [deftest is testing]]
+            [dao.test-slow :as slow]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
             [dao.jing.mem :as mem]
@@ -1257,51 +1258,54 @@
                   :journals (:journals world)}))
 
 
-(deftest completion-recovery-unknown-policy-transaction-is-reconciled-once-test
-  (doseq [cut [:before :after]]
-    (exclusive-row
-      (fn [world]
-        (let [composition (step-until (exit-world world)
-                                      #(journal-has? % "h1" (fn [record]
-                                                              (and (= :yin.k/ack (:yin.k/journal record))
-                                                                   (= :yin.k/resumed (:yin.k/action record))))) 60)
-              state (get-in composition [:holders "h1"])
-              successor (successor-checkpoint composition (:store world) "h1")
-              _ (crash-exclusive! world composition)
-              backend (get (file-journal/backend! (:dir world)) ::file-journal/backend)
-              write! (:dao.stream.journal/write-frame! backend)
-              cut-backend (assoc backend :dao.stream.journal/write-frame!
-                                 (fn [bytes]
-                                   (when (= :after cut) (write! bytes))
-                                   (throw (ex-info "unknown policy transaction acceptance" {:cut cut}))))
-              refused (reopen-composition-with world cut-backend)]
-          (is (= :yin.k/unsatisfied (:yin.k/status refused)))
-          (is (= :authority-refused (:yin.k/reason refused)))
-          (file-journal/close! backend)
-          (let [reader-backend (get (file-journal/backend! (:dir world)) ::file-journal/backend)
-                opened (authority/open! reader-backend)
-                reader-authority (::authority/authority opened)
-                projection (authority/projection reader-authority)]
-            (is (= :open (:yin.k/status opened)))
-            (is (= (if (= :after cut) :policy nil)
-                   (get-in projection [:leases (:lease state) :dao.lease/cause])))
-            (is (= (if (= :after cut) 1 0)
-                   (get-in projection [:occurrences (:occurrence state) :yin.k/epoch])))
-            (is (= (= :after cut)
-                   (some? (get-in projection [:occurrences (:occurrence state) :yin.k/closed]))))
-            (authority/close! reader-authority)
-            (file-journal/close! reader-backend))
-          (let [rebuilt (rebuilt-exclusive world)
-                finished (ct/drive (:c rebuilt) "h1" (ct/phase-of :exited) 40)]
-            (assert-completion-transaction finished (:occurrence state) (:lease state)
-                                           (:address successor) (:occurrence successor) :policy)
-            (is (empty? (inbound-of finished "h1" :yin.k/release)))
-            (ct/close-reconstruction! rebuilt)
-            (let [again (rebuilt-exclusive world)]
-              (try
-                (assert-completion-transaction (:c again) (:occurrence state) (:lease state)
+(deftest ^:slow completion-recovery-unknown-policy-transaction-is-reconciled-once-test
+  (slow/guard
+    "completion-recovery-unknown-policy-transaction-is-reconciled-once-test"
+    (fn []
+      (doseq [cut [:before :after]]
+        (exclusive-row
+          (fn [world]
+            (let [composition (step-until (exit-world world)
+                                          #(journal-has? % "h1" (fn [record]
+                                                                  (and (= :yin.k/ack (:yin.k/journal record))
+                                                                       (= :yin.k/resumed (:yin.k/action record))))) 60)
+                  state (get-in composition [:holders "h1"])
+                  successor (successor-checkpoint composition (:store world) "h1")
+                  _ (crash-exclusive! world composition)
+                  backend (get (file-journal/backend! (:dir world)) ::file-journal/backend)
+                  write! (:dao.stream.journal/write-frame! backend)
+                  cut-backend (assoc backend :dao.stream.journal/write-frame!
+                                     (fn [bytes]
+                                       (when (= :after cut) (write! bytes))
+                                       (throw (ex-info "unknown policy transaction acceptance" {:cut cut}))))
+                  refused (reopen-composition-with world cut-backend)]
+              (is (= :yin.k/unsatisfied (:yin.k/status refused)))
+              (is (= :authority-refused (:yin.k/reason refused)))
+              (file-journal/close! backend)
+              (let [reader-backend (get (file-journal/backend! (:dir world)) ::file-journal/backend)
+                    opened (authority/open! reader-backend)
+                    reader-authority (::authority/authority opened)
+                    projection (authority/projection reader-authority)]
+                (is (= :open (:yin.k/status opened)))
+                (is (= (if (= :after cut) :policy nil)
+                       (get-in projection [:leases (:lease state) :dao.lease/cause])))
+                (is (= (if (= :after cut) 1 0)
+                       (get-in projection [:occurrences (:occurrence state) :yin.k/epoch])))
+                (is (= (= :after cut)
+                       (some? (get-in projection [:occurrences (:occurrence state) :yin.k/closed]))))
+                (authority/close! reader-authority)
+                (file-journal/close! reader-backend))
+              (let [rebuilt (rebuilt-exclusive world)
+                    finished (ct/drive (:c rebuilt) "h1" (ct/phase-of :exited) 40)]
+                (assert-completion-transaction finished (:occurrence state) (:lease state)
                                                (:address successor) (:occurrence successor) :policy)
-                (finally (ct/close-reconstruction! again))))))))))
+                (is (empty? (inbound-of finished "h1" :yin.k/release)))
+                (ct/close-reconstruction! rebuilt)
+                (let [again (rebuilt-exclusive world)]
+                  (try
+                    (assert-completion-transaction (:c again) (:occurrence state) (:lease state)
+                                                   (:address successor) (:occurrence successor) :policy)
+                    (finally (ct/close-reconstruction! again))))))))))))
 
 
 (deftest completion-recovery-without-an-accepted-report-abandons-successor-test

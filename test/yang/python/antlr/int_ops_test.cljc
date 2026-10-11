@@ -621,32 +621,35 @@
      ['(py/lshift 0 (py/int-lit "800000000000000")) 0]]))
 
 
-(deftest float-power-exponent-limit-test
+(deftest ^:slow float-power-exponent-limit-test
   ;; The exponent converts to float as CPython's does: it overflows from
   ;; 2^1024 - 2^970, the first integer that rounds past the largest double
-  (let [edge '(integer/sub (integer/pow 2 1024) (integer/pow 2 970))]
-    (check-cases
-      runners
-      [[(list 'caught (list 'fn [] (list 'py/pow '(py/float
-                                                    (data/float-value 1))
-                                         edge)))
-        "OverflowError"]
-       [(list 'caught (list 'fn [] (list 'py/pow '(py/float
-                                                    (data/float-value 1))
-                                         (list 'integer/neg edge))))
-        "OverflowError"]
-       [(list 'py/pow '(py/float (data/float-value 1))
-              (list 'integer/sub edge 1))
-        {:py/float (data/float-value 1)}]
-       [(list 'py/pow '(py/float (data/float-value 1))
-              (list 'integer/sub 1 edge))
-        {:py/float (data/float-value 1)}]
-       [(list 'py/try
-              (list 'fn [] (list 'py/pow '(py/float (data/float-value 1))
-                                 edge))
-              '(fn [e] (get (get (get (cell/get e) :attrs) "args") :items))
-              '(fn [] :py/None))
-        [{:py/str "int too large to convert to float"}]]])))
+  (slow/guard
+    "float-power-exponent-limit-test"
+    (fn []
+      (let [edge '(integer/sub (integer/pow 2 1024) (integer/pow 2 970))]
+        (check-cases
+          runners
+          [[(list 'caught (list 'fn [] (list 'py/pow '(py/float
+                                                        (data/float-value 1))
+                                             edge)))
+            "OverflowError"]
+           [(list 'caught (list 'fn [] (list 'py/pow '(py/float
+                                                        (data/float-value 1))
+                                             (list 'integer/neg edge))))
+            "OverflowError"]
+           [(list 'py/pow '(py/float (data/float-value 1))
+                  (list 'integer/sub edge 1))
+            {:py/float (data/float-value 1)}]
+           [(list 'py/pow '(py/float (data/float-value 1))
+                  (list 'integer/sub 1 edge))
+            {:py/float (data/float-value 1)}]
+           [(list 'py/try
+                  (list 'fn [] (list 'py/pow '(py/float (data/float-value 1))
+                                     edge))
+                  '(fn [e] (get (get (get (cell/get e) :attrs) "args") :items))
+                  '(fn [] :py/None))
+            [{:py/str "int too large to convert to float"}]]])))))
 
 
 (deftest ^:slow cpython-s3c-fixture-test

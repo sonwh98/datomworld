@@ -258,7 +258,7 @@
   (run-pairs! [sc/fork-row] [[:jvm :jvm] [:node :node]]))
 
 
-(deftest the-cross-host-handoff-across-processes-test
+(deftest ^:slow the-cross-host-handoff-across-processes-test
   (testing "the fast-lane gate: a whole exclusive handoff and its successor
             run, JVM to Node and Node to JVM, over durable bytes alone"
     (run-pairs! [(sc/row7 nil)] [[:jvm :node] [:node :jvm]])))

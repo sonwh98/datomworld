@@ -992,7 +992,7 @@
                       "print(list(g), x)"))))
 
 
-(deftest genexp-nesting-and-call-arguments-test
+(deftest ^:slow genexp-nesting-and-call-arguments-test
   (testing "nested generator expressions; a generator expression as the
             sole call argument; a consumer name rebound locally, at module
             level and through globals() receives the generator: nothing is
@@ -1587,7 +1587,7 @@
          "    i += 1"))
 
 
-(deftest dropped-generators-after-repeated-suspension-test
+(deftest ^:slow dropped-generators-after-repeated-suspension-test
   (testing "after a forced collection the complete reachable graph is the
             same after 5 and after 40 generators were resumed repeatedly by
             changing callers, through yield from, and dropped"
@@ -1597,7 +1597,7 @@
                (live-after-collection k (cycled-source 40) "keep")))))))
 
 
-(deftest dropped-generators-are-collected-test
+(deftest ^:slow dropped-generators-are-collected-test
   (testing "after a forced collection the live heap is the same after 5 and
             after 60 suspended generators were dropped"
     (doseq [k [:ast-walker :semantic :stack :register]]

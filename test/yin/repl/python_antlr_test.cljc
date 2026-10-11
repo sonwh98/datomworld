@@ -15,6 +15,7 @@
   (:require
     [clojure.string :as str]
     [clojure.test :refer [deftest is testing]]
+    [dao.test-slow :as slow]
     [dao.jing.mem :as mem]
     [dao.stream :as stream]
     [dao.stream.ringbuffer :as ring]
@@ -113,78 +114,96 @@
 ;; Session scenarios (every host)
 ;; =============================================================================
 
-(deftest assignment-then-print-test
-  (doseq [lang langs]
-    (testing (str lang)
-      (let [[[assigned t1] [_ t2]] (feed (session lang) ["x = 1" "print(x)"])]
-        (is (= lang (:lang (session lang))))
-        (is (= ["" "1\n"] [t1 t2]))
-        (is (= :primed (:frontend-session assigned)))))))
+(deftest ^:slow assignment-then-print-test
+  (slow/guard
+    "assignment-then-print-test"
+    (fn []
+      (doseq [lang langs]
+        (testing (str lang)
+          (let [[[assigned t1] [_ t2]] (feed (session lang) ["x = 1" "print(x)"])]
+            (is (= lang (:lang (session lang))))
+            (is (= ["" "1\n"] [t1 t2]))
+            (is (= :primed (:frontend-session assigned)))))))))
 
 
-(deftest an-exception-keeps-the-session-test
-  (doseq [lang langs]
-    (testing (str lang)
-      (is (= ["" "ZeroDivisionError: division by zero\n" "5\n"]
-             (texts (session lang) ["x = 5" "1/0" "print(x)"]))))))
+(deftest ^:slow an-exception-keeps-the-session-test
+  (slow/guard
+    "an-exception-keeps-the-session-test"
+    (fn []
+      (doseq [lang langs]
+        (testing (str lang)
+          (is (= ["" "ZeroDivisionError: division by zero\n" "5\n"]
+                 (texts (session lang) ["x = 5" "1/0" "print(x)"]))))))))
 
 
-(deftest reset-is-a-new-process-test
-  (doseq [lang langs]
-    (testing (str lang)
-      (let [[_ before [reset-state _] after]
-            (feed (session lang) ["x = 1" "print(x)" "(reset)" "print(x)"])]
-        (is (= "1\n" (second before)))
-        (is (nil? (:frontend-session reset-state)))
-        (is (= "NameError: name 'x' is not defined\n" (second after)))))))
+(deftest ^:slow reset-is-a-new-process-test
+  (slow/guard
+    "reset-is-a-new-process-test"
+    (fn []
+      (doseq [lang langs]
+        (testing (str lang)
+          (let [[_ before [reset-state _] after]
+                (feed (session lang) ["x = 1" "print(x)" "(reset)" "print(x)"])]
+            (is (= "1\n" (second before)))
+            (is (nil? (:frontend-session reset-state)))
+            (is (= "NameError: name 'x' is not defined\n" (second after)))))))))
 
 
-(deftest vm-rebuild-is-a-new-process-test
-  (doseq [lang langs]
-    (testing (str lang)
-      (let [vm-type (first (remove #{(:vm-type (session lang))}
-                                   [:semantic :register]))
-            [_ [switched _] gone _ again]
-            (feed (session lang)
-                  ["x = 1" (str "(vm " vm-type ")") "print(x)" "x = 5"
-                   "print(x)"])]
-        (is (= vm-type (:vm-type switched)))
-        (is (nil? (:frontend-session switched)))
-        (testing "the new VM runs the prelude again and has no x"
-          (is (= "NameError: name 'x' is not defined\n" (second gone))))
-        (is (= "5\n" (second again)))))))
+(deftest ^:slow vm-rebuild-is-a-new-process-test
+  (slow/guard
+    "vm-rebuild-is-a-new-process-test"
+    (fn []
+      (doseq [lang langs]
+        (testing (str lang)
+          (let [vm-type (first (remove #{(:vm-type (session lang))}
+                                       [:semantic :register]))
+                [_ [switched _] gone _ again]
+                (feed (session lang)
+                      ["x = 1" (str "(vm " vm-type ")") "print(x)" "x = 5"
+                       "print(x)"])]
+            (is (= vm-type (:vm-type switched)))
+            (is (nil? (:frontend-session switched)))
+            (testing "the new VM runs the prelude again and has no x"
+              (is (= "NameError: name 'x' is not defined\n" (second gone))))
+            (is (= "5\n" (second again)))))))))
 
 
-(deftest a-failed-first-round-keeps-the-runtime-uninitialized-test
-  (doseq [lang langs]
-    (testing (str lang)
+(deftest ^:slow a-failed-first-round-keeps-the-runtime-uninitialized-test
+  (slow/guard
+    "a-failed-first-round-keeps-the-runtime-uninitialized-test"
+    (fn []
+      (doseq [lang langs]
+        (testing (str lang)
+          (let [calls (atom 0)
+                report (fn [out exception]
+                         (if (= 1 (swap! calls inc))
+                           (throw (ex-info "report failed" {}))
+                           (python.repl/report out exception)))
+                [[failed failed-text] _ [_ text]]
+                (feed (session lang {:primitives {'py-report report}})
+                      ["x = 1" "x = 1" "print(x)"])]
+            (testing "the failed round is reported and leaves no session marker"
+              (is (str/includes? failed-text "report failed"))
+              (is (nil? (:frontend-session failed))))
+            (testing "the retry carries the prelude again and the session works"
+              (is (= "1\n" text)))))))))
+
+
+(deftest ^:slow a-failed-later-round-keeps-the-previous-marker-test
+  (slow/guard
+    "a-failed-later-round-keeps-the-previous-marker-test"
+    (fn []
       (let [calls (atom 0)
             report (fn [out exception]
-                     (if (= 1 (swap! calls inc))
+                     (if (= 2 (swap! calls inc))
                        (throw (ex-info "report failed" {}))
                        (python.repl/report out exception)))
-            [[failed failed-text] _ [_ text]]
-            (feed (session lang {:primitives {'py-report report}})
-                  ["x = 1" "x = 1" "print(x)"])]
-        (testing "the failed round is reported and leaves no session marker"
-          (is (str/includes? failed-text "report failed"))
-          (is (nil? (:frontend-session failed))))
-        (testing "the retry carries the prelude again and the session works"
+            [_ [failed _] [_ text]]
+            (feed (session :yang.python/cst {:primitives {'py-report report}})
+                  ["x = 1" "x = 5" "print(x)"])]
+        (is (= :primed (:frontend-session failed)))
+        (testing "the failed round's binding rolled back with its VM"
           (is (= "1\n" text)))))))
-
-
-(deftest a-failed-later-round-keeps-the-previous-marker-test
-  (let [calls (atom 0)
-        report (fn [out exception]
-                 (if (= 2 (swap! calls inc))
-                   (throw (ex-info "report failed" {}))
-                   (python.repl/report out exception)))
-        [_ [failed _] [_ text]]
-        (feed (session :yang.python/cst {:primitives {'py-report report}})
-              ["x = 1" "x = 5" "print(x)"])]
-    (is (= :primed (:frontend-session failed)))
-    (testing "the failed round's binding rolled back with its VM"
-      (is (= "1\n" text)))))
 
 
 ;; =============================================================================
@@ -337,7 +356,7 @@
 
 #?(:cljd nil
    :clj
-   (deftest probe-buffers-an-open-block-test
+   (deftest ^:slow probe-buffers-an-open-block-test
      (let [[[s1 t1] [s2 t2] [s3 t3] [_ t4]]
            (feed (session :yang.python/antlr)
                  ["def f(n):" "    return n + 1" "" "print(f(2))"])]
@@ -355,7 +374,7 @@
 
 #?(:cljd nil
    :clj
-   (deftest probe-buffers-across-lines-test
+   (deftest ^:slow probe-buffers-across-lines-test
      (testing "an open bracket"
        (is (= ["" "(1, 2)\n"]
               (texts (session :yang.python/antlr) ["print((1," "2))"]))))
@@ -378,7 +397,7 @@
 
 #?(:cljd nil
    :clj
-   (deftest probed-lines-keep-their-whitespace-test
+   (deftest ^:slow probed-lines-keep-their-whitespace-test
      (testing "trailing spaces and tabs inside a triple string are kept"
        (is (= ["" "" "" "a  \t\n  \n\tb \n"]
               (texts (session :yang.python/antlr)
@@ -394,7 +413,7 @@
 
 #?(:cljd nil
    :clj
-   (deftest probe-reports-irreparable-errors-at-once-test
+   (deftest ^:slow probe-reports-irreparable-errors-at-once-test
      (doseq [bad ["x = (1 + * 2" "foo(1 2" "x = )" "x = (]" "x =" "1 +"
                   "lambda x:" "s = 'abc"
                   ;; an error before a string still open

@@ -88,7 +88,7 @@
                       "print(g(), h(), m(), out)"))))
 
 
-(deftest raise-in-finally-and-handler-stack-test
+(deftest ^:slow raise-in-finally-and-handler-stack-test
   (testing "an exception raised in finally replaces the one in flight, and
             the handler stack is consistent afterwards"
     (every-vm= (prints "key ('b',)" "ok" "after-break")
@@ -186,7 +186,7 @@
                     "print(L, L[10:], t == (1, 2, 3), len(t), L[3:1], L[:1:-1])")))
 
 
-(deftest tuples-are-values-and-unhashable-lists-test
+(deftest ^:slow tuples-are-values-and-unhashable-lists-test
   (every-vm= (prints "True False 2" "unhashable")
              (lines "a = (1, [2])"
                     "s = {(1, 2), (1, 2.0), (2, 1)}"
