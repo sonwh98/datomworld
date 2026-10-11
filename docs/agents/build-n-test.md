@@ -178,6 +178,124 @@ aggregated lanes only run namespaces that still exist under `test/`, but a
 stale file can silently pass a plain `cljd test`. Run `rm -rf test/cljd-out`
 before relying on that to prove a deletion or rename took effect.
 
+## Remote test servers: shiva and jupiter
+
+Two Linux x86_64 servers run the full suite faster than a laptop. Both are
+reached over SSH as `sto` with key authentication, and both have `mise`, `tmux`
+and `git`.
+
+| Host | Cores / RAM | Toolchain state (checked 2026-10-11) |
+|---|---|---|
+| `shiva.stigmergy.systems` | 24 / 62 GB | Complete: java 21, clojure 1.12.4.1602, node 25.6.1, babashka, cljstyle, zprint, flutter 3.47.1-stable. All three lanes run. |
+| `jupiter.stigmergy.systems` | 48 / 62 GB | java 21, clojure, node, zprint; babashka installed with `mise install babashka@latest`; flutter 3.41.9 is NOT the pinned version. Run the JVM and Node lanes here, not Dart. |
+
+**Never test in `~/workspace/datomworld` on either host.** It is a working copy
+that is behind origin (shiva: 45 commits behind on 2026-10-11) and belongs to its
+owner. Use a scratch clone under `~/ci/` and leave the working copy alone.
+
+### Get the code there: push to origin, never rsync
+
+Rsyncing a worktree over the WAN ran at about 150 KB/s (576 MB of tracked files
+would take about an hour), and an unanchored `--exclude build` also dropped source
+directories named `build`, `out` and `target`. Both hosts reach GitHub, so push the
+branch from the laptop (a feature branch, never master), make one scratch clone on
+the host from its existing checkout (a local clone takes seconds), and fetch:
+
+```sh
+# once per host: a separate scratch clone, not the working copy
+ssh shiva.stigmergy.systems 'set -e; mkdir -p ~/ci; cd ~/workspace/datomworld;
+  URL=$(git remote get-url origin);
+  git clone -q --no-checkout ~/workspace/datomworld ~/ci/datomworld-<name>;
+  cd ~/ci/datomworld-<name>; git remote set-url origin "$URL";
+  git fetch -q origin; git checkout -q --detach origin/<branch>'
+```
+
+To test another branch later, fetch and check it out in the scratch clone with
+`git fetch origin` then `git checkout --detach origin/<branch>`. A branch that
+was never pushed cannot be tested remotely.
+
+### Activate the toolchain in the right order
+
+A non-interactive `ssh host cmd` does not load the shell profile, so `mise` and its
+tools are not on PATH. In a script, do this in exactly this order, after the `cd`
+into the clone:
+
+```sh
+export PATH="$HOME/.local/bin:/snap/bin:$PATH"   # mise: ~/.local/bin on shiva, /snap/bin on jupiter
+cd ~/ci/datomworld-<name>
+mise trust >/dev/null 2>&1                       # trust is per path; a fresh clone is untrusted
+eval "$(mise env -s bash)"                       # puts the repo-pinned tools on PATH
+```
+
+Activating mise before the `cd` and `mise trust` leaves the repo-pinned tools
+(flutter in particular) off PATH: the Dart lane then dies in seconds with "Can't
+find flutter on PATH", and so does `bb build:yin-repl-peer`.
+
+### The full run
+
+Run long jobs inside `tmux` so the SSH session can drop. The script below does the
+serial prerequisites once, then runs the three lanes concurrently with the same
+commands the `bb` tasks use (the `bb test` task runs them one after another) and
+records each lane's exit code and seconds:
+
+```sh
+#!/usr/bin/env bash
+# ~/ci/run-full.sh <checkout-dir>
+set -u
+export PATH="$HOME/.local/bin:/snap/bin:$PATH"
+cd "$1" || exit 2
+mise trust >/dev/null 2>&1
+eval "$(mise env -s bash)"
+LOG="$1/target-ci"; mkdir -p "$LOG"
+ts() { date +%H:%M:%S; }
+echo "start $(ts) $(git rev-parse --short HEAD)" | tee "$LOG/summary.txt"
+npm ci --silent >"$LOG/npm.log" 2>&1               && echo "npm ok $(ts)" | tee -a "$LOG/summary.txt"
+bb build:yin-repl-node >"$LOG/build-node.log" 2>&1 && echo "node repl built $(ts)" | tee -a "$LOG/summary.txt"
+bb gen:python-antlr >"$LOG/antlr.log" 2>&1         && echo "antlr ok $(ts)" | tee -a "$LOG/summary.txt"
+bb build:yin-repl-peer >"$LOG/build-peer.log" 2>&1 && echo "dart peer built $(ts)" | tee -a "$LOG/summary.txt"  # shiva only
+lane() { name=$1; shift; s=$(date +%s); "$@" >"$LOG/$name.log" 2>&1; rc=$?
+         echo "$name rc=$rc secs=$(( $(date +%s)-s )) $(ts)" | tee -a "$LOG/summary.txt"; }
+lane jvm  clojure -M:test -e :slow &
+lane node clj -M:cljs -m shadow.cljs.devtools.cli compile test &
+lane dart bb src/dev/cljd_agg.clj &                # shiva only; omit on jupiter
+wait
+echo "done $(ts)" | tee -a "$LOG/summary.txt"
+```
+
+```sh
+ssh <host> 'tmux new-session -d -s ci-full "bash -lc \"~/ci/run-full.sh ~/ci/datomworld-<name> > ~/ci/run-full.out 2>&1\""'
+```
+
+Watch it: `ssh <host>`, then `tmux attach -t ci-full` (detach with `Ctrl-b d`; do not
+press Ctrl-C inside it), or `tail -f ~/ci/datomworld-<name>/target-ci/{jvm,node,dart}.log`
+and `cat .../summary.txt`. The session's own output is empty by design: the lanes
+write to the logs. The JVM lane uses `-e :slow`, so it skips `^:slow` tests, like
+`bb test:clj`. For the slow set use `-i :slow` (or `bb test:slow`); the slow C4
+scanner row took about 11-19 minutes on the JVM and about 79 minutes on Node
+(measured 2026-10-11).
+
+### Known differences from the laptop
+
+- **`dao.stream.datagram.dart-test/refusals-and-lifecycle-events` fails on Linux.**
+  The assertion "a bind on a taken port deposits bind-failed" gets no `bind-failed`
+  event. A second UDP bind on a taken port evidently behaves differently on Linux
+  than on macOS (inferred, not confirmed). The test is in `dao.stream`, which the
+  semantic-register slices do not touch: treat it as a known Linux-only failure,
+  not a regression, until it is fixed or guarded.
+- A JVM lane started before the Dart peer is built skips the Dart-peer tests with a
+  printed notice. The script builds the peer first so they run.
+- Both hosts run other work (a QEMU guest and rustdesk on shiva); idle load is
+  under 1, but timings are not a clean benchmark.
+
+### Measured times (first runs, 2026-10-11, commit 84c7c9b7, all lanes concurrent)
+
+Shiva, Dart lane: 1054 s (17.5 min) cold, with the JVM and Node lanes running beside
+it, against about 9 minutes on the 8-core laptop run alone. Prerequisites (`npm ci`,
+Node REPL, ANTLR) took about 30 s; the Dart peer 91 s. JVM and Node lane times are
+not recorded yet: fill them in from `summary.txt` after a completed run. Running the
+lanes concurrently on one host did not make the Dart lane faster, so count on the
+extra cores and a free laptop, and measure before relying on a speedup.
+
 ## Testing Philosophy & TDD
 
 Write tests before implementing features (TDD).
