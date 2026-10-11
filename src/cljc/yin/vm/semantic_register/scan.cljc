@@ -29,6 +29,10 @@
            (fn [pc t]
              (when (= :var (first t))
                (let [name (nth t 2) i (code/body-index bs pc)]
+                 ;; Unreachable today: `bodies` runs `code/well-formed?`,
+                 ;; which refuses a `:var` naming a reserved name, and
+                 ;; lowering emits `:define`, never `:var yin/def`. Kept
+                 ;; so Rule R does not rest on the validator alone.
                  (when (and (not (vm/reserved-name? name))
                             (contains? (debruijn/resolve-name (chain v bs i) name) :free))
                    {:name name :at pc :in-body? (pos? i)})))) v))))

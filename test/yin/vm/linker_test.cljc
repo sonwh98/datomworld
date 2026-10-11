@@ -2093,3 +2093,16 @@
            (mapv #(select-keys % [:name :in-body?]) occs)))
     (is (< (:at (first defs)) (:at (first occs))))
     (is (seq (applications-fn vector)))))
+
+
+(deftest semantic-register-format-refuses-a-malformed-vector
+  (doseq [[label format] [[:v3 linker/semantic-format]
+                          [:v4 linker/semantic-register-format]]]
+    (testing label
+      (let [bad '[[:jump 9]]
+            a (jing/segment-key bad)]
+        (is (some? ((:row-defect-fn format) bad)))
+        (is (some? ((:validate-fn format) bad)))
+        (let [res (linker/verify format a a {a bad})]
+          (is (= :descriptor-defect (:reason res)))
+          (is (= ((:validate-fn format) bad) (:defect res))))))))
