@@ -348,7 +348,10 @@
                    (let [numbering (into {} (map-indexed (fn [i [_ members]]
                                                            [(first members) (keyword "yin.k" (str "c-" (inc i)))]) cs))
                          [id rows] (emit-node task numbering {})]
-                     {:numbering numbering :key (checked-key (checked-encode (subvec (get rows id) 1)))}))))]
+                     ;; This digest preimage contains the input row's own inline bodies,
+                     ;; not growing refinement labels. Decode bounds input by :bytes;
+                     ;; emit imposes no additional input-body byte limit here.
+                     {:numbering numbering :key (bytes-key (cbor/encode (subvec (get rows id) 1)))}))))]
        (if (empty? ids) {} (:numbering (search labels 0)))))))
 
 
@@ -709,7 +712,10 @@
 
 (defn rows->frame
   "Validate row syntax and hashes, then reshape to the keyed frame.
-   Semantic code/context rules remain frame/defect's responsibility."
+   Semantic code/context rules remain frame/defect's responsibility.
+   The default decoder produces in-band row/cell markers that the default
+   encoder refuses. frame->rows after rows->frame is identity only when
+   both sides are given a classifier for those values."
   ([wire] (rows->frame wire decoded-value))
   ([wire decode-value] (decode-frame (decode wire) decode-value)))
 

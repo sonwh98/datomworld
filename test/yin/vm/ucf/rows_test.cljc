@@ -401,3 +401,21 @@
   (let [d (error #(rows/canonical-numbering (seven-cell-triangle-square)))]
     (is (= :resource-limit (:yin.k/kind d)))
     (is (= [:label-bytes] (:yin.k/path d)))))
+
+
+(deftest input-row-bodies-do-not-spend-label-bytes
+  (let [large (vec (range 400000))
+        base (task-node [[:x (cell-body :s 0)]] [:lit large])
+        ;; Keep the census cell reachable so decode also validates the carrier.
+        reachable (rows/node :task (assoc (:slots base) 5
+                                          (rows/node :bindings ['cursor [:cell :x]])))
+        custody (rows/node :task (assoc (:slots reachable) 15 [:lit nil]))
+        custody (rows/node :task (assoc (:slots custody) 16 large))]
+    (is (nil? (error #(rows/emit base))))
+    (doseq [task [reachable custody]]
+      (let [wire (rows/emit task)
+            expected (rows/node :task
+                                (-> (:slots task)
+                                    (assoc 5 (rows/node :bindings ['cursor [:cell :yin.k/c-1]]))
+                                    (assoc 9 (rows/node :cells [:yin.k/c-1 (cell-body :s 0)]))))]
+        (is (= expected (rows/decode wire)))))))
