@@ -131,16 +131,12 @@ an id whose algorithm is not the one version 3 mints under
 (`:yin.k/undecodable`). Equal bodies are one row. The id is Merkle: it
 commits to every row id in the body.
 
-**Identity rows** are cursor cells (UCF §7.5.3). *Terminology
-(2026-10-12):* a **cursor** is the immutable `dao.stream` value (stream
-identity plus position); a **cursor cell** is the VM's mutable box in
-`:resources` that `stream/next!` updates, the identity-bearing thing this
-carrier serializes; a **cursor-ref** is the sealed reference a program
-holds, naming a cursor cell; **cell** alone means only the heap box of
-`yin.vm.cell`. Before this date this document called the cursor cell a
-"cell" and spelled its tags `:cells`, `:cell-body`, `[:cell C]`,
-`:yin.k/c-<n>`; the version-2 handoff carrier keeps those spellings. A
-cursor cell has a task-local id `C`
+**Identity rows** are cursor cells (UCF §7.5.3, "Terminology: cursor,
+cursor cell, cursor-ref, cell", which defines all four words; this document
+uses them exactly as defined there). Before 2026-10-12 this document called
+the cursor cell a "cell" and spelled its tags `:cells`, `:cell-body`,
+`[:cell C]`, `:yin.k/c-<n>`; the version-2 handoff carrier keeps those
+spellings. A cursor cell has a task-local id `C`
 in the form `:yin.k/cc-<n>`, minted by the lift under §6's canonical
 numbering, never content-addressed, and scoped to the task whose root
 carries it: a cursor-cell id means nothing outside its root, in a pool or a
