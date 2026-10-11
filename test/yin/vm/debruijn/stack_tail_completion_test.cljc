@@ -43,15 +43,25 @@
          :stack [:outer :caller :dead]
          :frames [[:dead]] :store-of :dead-module
          :continuation [{:return-pc 6 :frames [[:outer]] :stack-base 1}
-                        {:return-pc 4 :frames [[:caller]] :stack-base 2
+                        {:return-pc 2 :frames [[:caller]] :stack-base 2
                          :store-of :caller-module}]))
+
+
+(deftest empty-k-halts-with-non-nil-result-and-clears-store
+  (let [parked (parked-call true)
+        entry (assoc (frame-entry parked) :continuation [])
+        done (stack/stack-restore parked entry 7)]
+    (is (= [7] (:stack done)))
+    (is (= 7 (vm/value done)))
+    (is (true? (:halted? done)))
+    (is (nil? (:store-of done)))))
 
 
 (deftest return-pops-only-inner-frame
   (let [parked (parked-call true)
         done (stack/stack-restore parked (frame-entry parked) :result)]
     (is (= 1 (count (:continuation done))))
-    (is (= 4 (:pc done)))
+    (is (= 2 (:pc done)))
     (is (false? (:halted? done)))))
 
 
