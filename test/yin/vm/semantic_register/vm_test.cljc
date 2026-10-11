@@ -257,16 +257,3 @@
     (is (= {:segment -1 :pc 3} (:control ret)))
     (is (nil? (:k ret)))
     (is (= :deliver (:rule (error-data #(sr/register-restore base {} 1)))))))
-
-
-(deftest deferred-arms
-  (doseq [ast [{:type :vm/park} {:type :vm/current-continuation}
-               {:type :stream/make} {:type :vm/resume :parked-id :p :val (corpus/lit 1)}]]
-    (let [m (parity/register-machine ast) op (first (last (butlast (get-in m [:code (:program m) :vector]))))]
-      (is (= {:reason :not-in-slice-4a :op op}
-             (select-keys (error-data #(vm/run m)) [:reason :op])))))
-  (let [effect (parity/register-machine (corpus/app (corpus/v 'require) (corpus/lit 'foo)))
-        m (parity/register-machine (corpus/app (corpus/v 'k)))
-        k (values/continuation (:owner m) {})]
-    (is (= {:reason :not-in-slice-4a :op :call} (error-data #(vm/run effect))))
-    (is (= {:reason :not-in-slice-4a :op :call} (error-data #(vm/run (assoc-in m [:env 'k] k)))))))

@@ -1,6 +1,8 @@
 (ns yin.vm.semantic-register
-  "The register-shaped canonical evaluator, slice 4a (value operators only)."
-  (:require [yin.vm :as vm]
+  "The register-shaped canonical evaluator, phase 4b (effects, continuations, FFI and module installation)."
+  (:require [dao.jing :as jing]
+            [dao.stream.apply :as apply2]
+            [yin.vm :as vm]
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
             [yin.vm.module :as module]
@@ -52,35 +54,80 @@
          :halted? (and (not (:blocked? machine)) (nil? seg))))
 
 
+(defn- return-to
+  "The one popped-frame delivery: retain exactly the saved window and write rd."
+  [frame value]
+  (assoc frame :window (assoc (:window frame) (:rd frame) value)))
+
+
+(defn- act-payload
+  [seg pc E W K rd facts]
+  {:segment seg :pc (inc pc) :env E
+   :window (select-keys W (analysis/saved facts (inc pc) rd))
+   :k K :deliver {:deliver :rd :rd rd}})
+
+
+(defn- entry-builders
+  [payload]
+  {:stream/put (fn [_state _effect result]
+                 (assoc payload :reason :put :stream-id (:stream-id result)))
+   :stream/next (fn [_state _effect result]
+                  (assoc payload :reason :next :cursor-ref (:cursor-ref result)
+                         :stream-id (:stream-id result)))
+   :module/require (fn [_state _effect _result] payload)})
+
+
+(defn- act-builders
+  [seg pc E W K rd facts]
+  (entry-builders (act-payload seg pc E W K rd facts)))
+
+
+(defn- tail-builders
+  [seg pc K]
+  (entry-builders {:segment seg :site pc :k K :deliver {:deliver :return}}))
+
+
+(defn- run-effect
+  [machine seg pc W E K effect builders]
+  (let [{:keys [state value blocked?]}
+        (engine/handle-effect (put-registers machine seg pc W E K) effect
+                              (when builders {:park-entry-fns builders}))]
+    (if blocked?
+      {:stop (assoc state :control nil :k nil)}
+      {:continue [state value]})))
+
+
 (defn register-restore
-  "Deliver a value to an activation or through its saved return frames.
-   FFI request phases and decoding are deferred to slice 4b."
+  "Re-park a retained FFI request, decode its response, then deliver exactly once."
   ([base entry] (register-restore base entry (:value entry)))
   ([base entry value]
-   (case (get-in entry [:deliver :deliver])
-     :rd (put-registers base (:segment entry) (:pc entry)
-                        (assoc (:window entry) (get-in entry [:deliver :rd]) value)
-                        (:env entry) (:k entry))
-     :return (if-let [frame (peek (:k entry))]
-               (put-registers base (:segment frame) (:pc frame)
-                              (assoc (:window frame) (:rd frame) value)
-                              (:env frame) (pop (:k entry)))
-               (assoc (put-registers base nil nil {}
-                                     (engine/without-store-of (:env base)) nil)
-                      :value value))
-     (throw (ex-info "Entry carries no delivery record" {:rule :deliver :entry entry})))))
-
-
-(defn- not-in-slice!
-  [op]
-  (throw (ex-info "Instruction is not in slice 4a"
-                  {:reason :not-in-slice-4a :op op})))
+   (if (:request-sent entry)
+     (let [wait (cond-> (ffi/response-wait-entry entry (:call-id entry))
+                  (and (:response-cursor entry) (:response-stream entry))
+                  (assoc :cursor-ref {:type :cursor-ref :id (:response-cursor entry)}
+                         :stream-id (:response-stream entry)))]
+       (assoc base :wait-set (conj (vec (:wait-set base)) wait)
+              :control nil :k nil :value :yin/blocked :blocked? true :halted? false))
+     (let [call-id (:call-id entry)
+           base (if call-id (update base :parked dissoc call-id) base)
+           value (if call-id (ffi/call-result value call-id) value)]
+       (case (get-in entry [:deliver :deliver])
+         :rd (put-registers base (:segment entry) (:pc entry)
+                            (assoc (:window entry) (get-in entry [:deliver :rd]) value)
+                            (:env entry) (:k entry))
+         :return (if-let [frame (peek (:k entry))]
+                   (put-registers base (:segment frame) (:pc frame)
+                                  (:window (return-to frame value))
+                                  (:env frame) (pop (:k entry)))
+                   (assoc (put-registers base nil nil {}
+                                         (engine/without-store-of (:env base)) nil)
+                          :value value))
+         (throw (ex-info "Entry carries no delivery record" {:rule :deliver :entry entry})))))))
 
 
 (defn- scheduler-round
   [machine]
-  (let [next-state (engine/check-wait-set machine)]
-    (or (engine/resume-from-run-queue next-state register-restore) next-state)))
+  (engine/scheduler-round machine register-restore))
 
 
 (defn vm-hot
@@ -114,48 +161,115 @@
               :jump (recur machine seg (nth inst 1) W E K remaining)
               :branch-false (recur machine seg (if (get W (nth inst 1)) (inc pc) (nth inst 2)) W E K remaining)
               :define (let [value (get W (nth inst 3))
-                            next-state (engine/put-active (put-registers machine seg pc W E K)
+                            next-state (engine/put-active machine
                                                           (engine/env-store-of E) (nth inst 2) value)]
                         (recur next-state seg (inc pc) (assoc W (nth inst 1) value) E K remaining))
-              :gensym (let [[id next-state] (engine/gensym (put-registers machine seg pc W E K) (nth inst 2))]
+              :gensym (let [[id next-state] (engine/gensym machine (nth inst 2))]
                         (recur next-state seg (inc pc) (assoc W (nth inst 1) id) E K remaining))
               :store-get (recur machine seg (inc pc)
                                 (assoc W (nth inst 1) (get (engine/active-store machine (engine/env-store-of E)) (nth inst 2)))
                                 E K remaining)
-              :store-put (let [next-state (engine/put-active (put-registers machine seg pc W E K)
+              :store-put (let [next-state (engine/put-active machine
                                                              (engine/env-store-of E) (nth inst 2) (nth inst 3))]
                            (recur next-state seg (inc pc) (assoc W (nth inst 1) (nth inst 3)) E K remaining))
               :halt (assoc (put-registers machine nil nil {} (engine/without-store-of E) nil) :value (get W (nth inst 1)))
               :return (let [value (get W (nth inst 1))]
                         (if-let [frame (peek K)]
                           (recur machine (:segment frame) (:pc frame)
-                                 (assoc (:window frame) (:rd frame) value) (:env frame) (pop K) remaining)
+                                 (:window (return-to frame value)) (:env frame) (pop K) remaining)
                           (assoc (put-registers machine nil nil {} (engine/without-store-of E) nil) :value value)))
               :call (let [rd (nth inst 1) f (get W (nth inst 2))
-                          args (mapv #(get W %) (nth inst 3)) tail? (nth inst 4)
-                          materialized (put-registers machine seg pc W E K)]
-                      (case (engine/operator-kind materialized f)
+                          args (mapv #(get W %) (nth inst 3)) tail? (nth inst 4)]
+                      (case (engine/operator-kind machine f)
                         :closure (let [c (values/payload f)
-                                       frame {:type :return :segment seg :pc (inc pc) :env E
-                                              :window (select-keys W (analysis/saved (:analysis image) (inc pc) rd)) :rd rd}]
+                                       frame (when-not tail?
+                                               {:type :return :segment seg :pc (inc pc) :env E
+                                                :window (select-keys W (analysis/saved (:analysis image) (inc pc) rd)) :rd rd})]
                                    (recur machine (:segment c) (:entry c) {}
                                           (merge (:env c) (engine/bind-params (:params c) args))
                                           (if tail? K (conj K frame)) remaining))
-                        :host-fn (let [value (apply f args)]
-                                   (when (module/effect? value) (not-in-slice! :call))
-                                   (if tail?
-                                     (if-let [frame (peek K)]
-                                       (recur machine (:segment frame) (:pc frame)
-                                              (assoc (:window frame) (:rd frame) value) (:env frame) (pop K) remaining)
-                                       (assoc (put-registers machine nil nil {} (engine/without-store-of E) nil) :value value))
-                                     (recur machine seg (inc pc) (assoc W rd value) E K remaining)))
-                        :continuation (not-in-slice! :call)))
-              (not-in-slice! op))))))))
+                        :host-fn
+                        (let [result (apply f args)
+                              effect? (module/effect? result)
+                              r (if effect?
+                                  (run-effect (engine/check-callee-effect!
+                                                (put-registers machine seg pc W E K) f result)
+                                              seg pc W E K result
+                                              (if tail? (tail-builders seg pc K)
+                                                  (act-builders seg pc E W K rd (:analysis image))))
+                                  {:continue [machine result]})]
+                          (if-let [[next-state value] (:continue r)]
+                            (let [E' (if effect? (:env next-state) E)
+                                  K' (if effect? (or (:k next-state) []) K)
+                                  W' (if effect? (:window next-state) W)]
+                              (if tail?
+                                (if-let [frame (peek K')]
+                                  (recur next-state (:segment frame) (:pc frame)
+                                         (:window (return-to frame value)) (:env frame) (pop K') remaining)
+                                  (assoc (put-registers next-state nil nil {} (engine/without-store-of E') nil) :value value))
+                                (recur next-state seg (inc pc) (assoc W' rd value) E' K' remaining)))
+                            (:stop r)))
+                        :continuation
+                        (let [value (engine/continuation-argument args)
+                              restored (register-restore machine (values/payload f) value)
+                              control (:control restored)]
+                          (recur restored (:segment control) (:pc control) (:window restored)
+                                 (:env restored) (or (:k restored) []) remaining))))
+              (:stream-make :stream-cursor :stream-close :stream-put :stream-next)
+              (let [rd (nth inst 1)
+                    effect (case op
+                             :stream-make (module/make-effect :stream/make {:capacity (nth inst 2)})
+                             :stream-cursor (module/make-effect :stream/cursor {:stream (get W (nth inst 2))})
+                             :stream-close (module/make-effect :stream/close {:stream (get W (nth inst 2))})
+                             :stream-put (module/make-effect :stream/put {:stream (get W (nth inst 2)) :val (get W (nth inst 3))})
+                             :stream-next (module/make-effect :stream/next {:cursor (get W (nth inst 2))}))
+                    r (run-effect machine seg pc W E K effect
+                                  (when (contains? #{:stream-put :stream-next} op)
+                                    (act-builders seg pc E W K rd (:analysis image))))]
+                (if-let [[next-state value] (:continue r)]
+                  (recur next-state seg (inc pc) (assoc (:window next-state) rd value)
+                         (:env next-state) (or (:k next-state) []) remaining)
+                  (:stop r)))
+              :ffi-call
+              (let [rd (nth inst 1) ffi-op (nth inst 2)
+                    args (mapv #(get W %) (nth inst 3))
+                    {:keys [call-in]} (ffi/require-call-pair! (:resources machine) ffi-op)
+                    state (put-registers (engine/pin-refs machine args) seg pc W E K)
+                    call-id (ffi/call-id state (engine/park-id state))
+                    payload (act-payload seg pc E W K rd (:analysis image))
+                    parked (engine/park-continuation state payload call-id)
+                    request (apply2/request call-id ffi-op args)
+                    result (ffi/put-request state call-in request)
+                    entry (case (:dao.stream/outcome result)
+                            :dao.stream/ok (ffi/response-wait-entry payload call-id)
+                            :dao.stream/full (assoc payload :request-sent true :call-id call-id
+                                                    :op ffi-op :reason :put
+                                                    :stream-id vm/call-in-stream-key :datom request)
+                            (throw (ex-info "FFI request could not be appended"
+                                            {:op ffi-op :outcome (or (:dao.stream/outcome result)
+                                                                     (:dao.stream.apply/outcome result))})))]
+                (-> parked
+                    (update :wait-set (fnil conj []) entry)
+                    (assoc :control nil :k nil :value :yin/blocked :blocked? true :halted? false)))
+              :current-continuation
+              (let [rd (nth inst 1)
+                    payload (assoc (act-payload seg pc E W K rd (:analysis image)) :type :reified-continuation)]
+                (recur machine seg (inc pc) (assoc W rd (values/continuation (:owner machine) payload)) E K remaining))
+              :park (-> (put-registers machine seg pc W E K)
+                        (engine/park-continuation (act-payload seg pc E W K (nth inst 1) (:analysis image)))
+                        (assoc :control nil :k nil))
+              :resume (let [restored (engine/resume-continuation (put-registers machine seg pc W E K)
+                                                                 (nth inst 1) (get W (nth inst 2)) register-restore)
+                            control (:control restored)]
+                        (if (:halted? restored) restored
+                            (recur restored (:segment control) (:pc control) (:window restored)
+                                   (:env restored) (or (:k restored) []) remaining)))
+              (throw (ex-info "Unknown register instruction" {:op op})))))))))
 
 
 (defn- register-run-scheduler
   [machine]
-  (engine/run-loop machine #(some? (:control %)) #(vm-hot % nil)
+  (engine/run-loop machine engine/active-continuation? #(vm-hot % nil)
                    #(engine/resume-from-run-queue % register-restore)))
 
 
@@ -286,3 +400,89 @@
          (telemetry/install :semantic-register)
          (ffi/attach (:bridge opts))
          (telemetry/emit-snapshot :init)))))
+
+
+(extend-type RegisterVM
+  module/IModuleKernel
+  (link-format [_]
+    {:format :yin.semantic-register/code, :contract code/contract})
+  (spawn-module
+    [vm image {:keys [modules origin ancestry capability-secret]}]
+    (load-vector (create-vm
+                   {:primitives (:primitives vm),
+                    :primitive-profiles (:primitive-profiles vm),
+                    :primitive-canonical-names (:primitive-canonical-names vm),
+                    :modules modules,
+                    :make-stream (:make-stream vm),
+                    :link-request (get (:resources vm)
+                                       module/link-request-resource),
+                    :link-response (get (:resources vm)
+                                        module/link-response-resource),
+                    :origin origin,
+                    :ancestry ancestry,
+                    :capability-secret capability-secret,
+                    :secret-source (:secret-source vm),
+                    :attach-stream (:attach-stream vm),
+                    :gc-threshold (:base (:gc vm))})
+                 image
+                 code/contract))
+  (image-identity [_ image] (jing/segment-key image))
+  (image-holds? [_ image segment] (jing/segment-matches? segment image))
+  (attach-module [vm image] (attach-image vm image code/contract))
+  (lift-closure [vm closure encode]
+    (let [local (:segment closure)
+          address (some (fn [[a l]] (when (= l local) a)) (:code-aliases vm))
+          env (:env closure)
+          store-of (engine/env-store-of env)]
+      (when (nil? address)
+        (throw (ex-info "Closure segment has no address"
+                        {:yin.k/status :yin.k/non-portable,
+                         :yin.k/kind :unrooted-body,
+                         :segment local})))
+      (cond-> {:yin.k/tag :yin.k/closure,
+               :yin.k/binding :named,
+               :yin.k/format :yin.semantic-register/code,
+               :yin.k/segment address,
+               :yin.k/entry (:entry closure),
+               :yin.k/params (:params closure),
+               :yin.k/env (into {}
+                                (map (fn [[k x]] [k (encode x)]))
+                                (engine/without-store-of env))}
+        store-of (assoc :yin.k/store-of store-of))))
+  (lower-closure [vm marker decode]
+    (when-not (and (= :named (:yin.k/binding marker))
+                   (= :yin.semantic-register/code (:yin.k/format marker)))
+      (throw (ex-info "Closure binding or format does not match this kernel" {:reason :binding-mismatch :marker marker})))
+    (let [local (get (:code-aliases vm) (:yin.k/segment marker))
+          entry (:yin.k/entry marker)
+          store-of (:yin.k/store-of marker)]
+      ;; An entry outside the attached image names no code of it either.
+      (when-not (and (some? local)
+                     (nat-int? entry)
+                     (< entry (count (get-in vm [:code local :vector]))))
+        (throw (ex-info "Closure origin image is not attached"
+                        {:reason :origin-not-attached,
+                         :segment (:yin.k/segment marker)})))
+      ;; the binders are those of a `:closure` tuple of the attached image
+      ;; whose entry this is, never the wire's
+      (vm/check-params! (:yin.k/params marker))
+      (when-not (some (fn [inst]
+                        (and (= :closure (nth inst 0))
+                             (= entry (nth inst 3))
+                             (= (:yin.k/params marker) (nth inst 2))))
+                      (get-in vm [:code local :vector]))
+        (engine/marker-mismatch! marker))
+      (values/closure
+        (:owner vm)
+        {:type :closure,
+         :params (:yin.k/params marker),
+         :entry entry,
+         :segment local,
+         :env (cond-> (into {}
+                            (map (fn [[k x]] [k (decode x)]))
+                            (:yin.k/env marker))
+                store-of (assoc engine/store-of-key store-of))})))
+  (gc-roots [machine]
+    {:kernel [(:control machine) (:k machine)]
+     :values [(:env machine) (:window machine) (:value machine)]})
+  (gc-children [_ _x] nil))
