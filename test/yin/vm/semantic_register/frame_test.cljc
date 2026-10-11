@@ -162,7 +162,7 @@
   {:yin.k/state :act :yin.k/segment worked-address :yin.k/pc 4
    :yin.k/env {:yin.k/bindings {}} :yin.k/window {1 :f}
    :yin.k/deliver {:yin.k/deliver :rd :yin.k/rd 2} :yin.k/k []
-   :yin.k/pending {:yin.k/reason :next :yin.k/cursor :test/cursor}})
+   :yin.k/pending {:yin.k/reason :next :yin.k/cursor-cell :test/cursor}})
 
 
 (deftest contract-is-pure
@@ -231,7 +231,7 @@
         tail-v [[:var 1 'f] [:call 0 1 [] true] [:halt 0]]
         tail-a (jing/segment-key tail-v) tail-c {tail-a tail-v}
         tail-f {:yin.k/state :tail :yin.k/segment tail-a :yin.k/site 1
-                :yin.k/k [] :yin.k/deliver {:yin.k/deliver :return} :yin.k/pending {:yin.k/reason :next :yin.k/cursor :test/cursor}}
+                :yin.k/k [] :yin.k/deliver {:yin.k/deliver :return} :yin.k/pending {:yin.k/reason :next :yin.k/cursor-cell :test/cursor}}
         boundary-v [[:closure 0 [] 2] [:halt 0] [:current-continuation 0] [:return 0]]
         boundary-a (jing/segment-key boundary-v)
         rows [["S1" :frame-shape (assoc worked-frame :extra true) worked-code :wait task]

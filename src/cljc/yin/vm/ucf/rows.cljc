@@ -1,18 +1,18 @@
 (ns yin.vm.ucf.rows
   "Version-3 row codec. Pure row construction, graph decoding and canonical
-   cursor numbering; no machine attachment, dependency scanner or transport.
+   cursor-cell numbering; no machine attachment, dependency scanner or transport.
    An abstract row is {:kind keyword :slots vector}. Structural references
-   contain abstract rows; values use [:lit d], [:row abstract-row], [:cursor id].
-   A task's :cursors row holds alternating source identities and :cursor-body
-   rows. Install children are separate tasks with separate cursor scopes.
+   contain abstract rows; values use [:lit d], [:row abstract-row], [:cursor-cell id].
+   A task's :cursor-cells row holds alternating source identities and :cursor-cell-body
+   rows. Install children are separate tasks with separate cursor-cell scopes.
 
    The census is ordered numerically by n (draft §3, \"sorted by n\"), so
-   :yin.k/cur-10 follows :yin.k/cur-9; its keys must spell cur-N with no leading
+   :yin.k/cc-10 follows :yin.k/cc-9; its keys must spell cc-N with no leading
    zero, else :slot-kind.
 
    Default value markers are plain maps {:yin.k/row abstract-row} and
-   {:yin.k/cursor keyword}. A guest map whose sole key is :yin.k/row or
-   :yin.k/cursor collides with them and is not portable: on encode and decode
+   {:yin.k/cursor-cell keyword}. A guest map whose sole key is :yin.k/row or
+   :yin.k/cursor-cell collides with them and is not portable: on encode and decode
    every literal of that shape is refused :yin.k/non-portable. Explicit
    markers use the caller value encoder."
   (:require [dao.jing :as jing]
@@ -51,9 +51,9 @@
    :module-store [:D [:ref :store]]
    :parked-table [:pairs :D [:ref :act :tail]]
    :install [:S :D :D :D [:ref :task]]
-   :cursors [:pairs :C [:ref :cursor-body]] :cursor-body [[:ref :stream] :D]
+   :cursor-cells [:pairs :C [:ref :cursor-cell-body]] :cursor-cell-body [[:ref :stream] :D]
    :task [:N :D :D :D :N [:ref :bindings] [:ref :store]
-          [:refs :module-store] [:ref :parked-table] [:ref :cursors]
+          [:refs :module-store] [:ref :parked-table] [:ref :cursor-cells]
           :D :D [:refs :install] [:refs :wait] :optional-D :optional-V :optional-D]})
 
 
@@ -77,7 +77,7 @@
 
 (defn- marker-shaped?
   [x]
-  (and (map? x) (= 1 (count x)) (or (contains? x :yin.k/row) (contains? x :yin.k/cursor))))
+  (and (map? x) (= 1 (count x)) (or (contains? x :yin.k/row) (contains? x :yin.k/cursor-cell))))
 
 
 (defn- check-literal-markers!
@@ -134,11 +134,11 @@
   (and (vector? d) (= :refs (first d))))
 
 
-(def ^:private census-key #"cur-([1-9][0-9]*)")
+(def ^:private census-key #"cc-([1-9][0-9]*)")
 
 
 (defn- census-order
-  ;; Numeric order of cur-N without reading wire data: fewer digits first,
+  ;; Numeric order of cc-N without reading wire data: fewer digits first,
   ;; then the digits. Other keys (a partial emit-numbered) sort last.
   [k]
   (let [digits (when (keyword? k) (second (re-matches census-key (name k))))]
@@ -149,7 +149,7 @@
   [kind slots]
   (cond
     (= kind :window) (vec (mapcat identity (sort-by first (partition 2 slots))))
-    (= kind :cursors) (vec (mapcat identity (sort-by #(census-order (first %)) (partition 2 slots))))
+    (= kind :cursor-cells) (vec (mapcat identity (sort-by #(census-order (first %)) (partition 2 slots))))
     (contains? #{:map :bindings :store :parked-table} kind)
     (vec (mapcat identity (sort #(byte-compare (first %1) (first %2)) (partition 2 slots))))
     (= kind :set) (sorted-bytes slots)
@@ -173,7 +173,7 @@
     (contains? #{:V :optional-V} d)
     (case (first x)
       :row (let [[id rs] (emit-node (second x) numbering rows)] [[:row id] rs])
-      :cursor [[:cursor (get numbering (second x) (second x))] rows]
+      :cursor-cell [[:cursor-cell (get numbering (second x) (second x))] rows]
       [x rows])
     :else [x rows]))
 
@@ -199,7 +199,7 @@
 
 (def default-budget
   "Local resource bounds, independent of canonical bytes."
-  {:rows 10000 :cursors 64 :depth 256 :work 200000 :search 10000 :bytes 16777216 :label-bytes 1048576})
+  {:rows 10000 :cursor-cells 64 :depth 256 :work 200000 :search 10000 :bytes 16777216 :label-bytes 1048576})
 
 
 (defn- spend!
@@ -235,13 +235,13 @@
 
 (defn canonical-numbering
   "Draft §6 refinement and exhaustive individualization search. Returns
-   source-cursor -> :yin.k/cur-N. No encounter-order tie break. A budget
+   source-cursor-cell -> :yin.k/cc-N. No encounter-order tie break. A budget
    exhaustion is a resource refusal, never a canonicality verdict."
   ([task] (canonical-numbering task default-budget))
   ([task budget]
    (let [budget (merge default-budget budget) counter (atom {})
-         cursors (into {} (map vec) (partition 2 (:slots (nth (:slots task) 9))))
-         ids (vec (keys cursors))
+         cursor-cells (into {} (map vec) (partition 2 (:slots (nth (:slots task) 9))))
+         ids (vec (keys cursor-cells))
          checked-encode (fn [x] (check-label-bytes! x budget) (cbor/encode x))
          checked-key (fn [x] (check-label-bytes! x budget) (bytes-key x))
          checked-sort (fn [xs]
@@ -252,24 +252,24 @@
          labels (into {} (map (fn [[id body]]
                                 (let [[stream position] (:slots body)]
                                   [id (checked-encode [:body (checked-encode (into [:stream] (:slots stream)))
-                                                       (checked-encode position)])])) cursors))]
-     (spend! counter budget :cursors (count ids))
+                                                       (checked-encode position)])])) cursor-cells))]
+     (spend! counter budget :cursor-cells (count ids))
      (letfn [(ce-slot
                [d x ls]
                (spend! counter budget :work 1)
                (cond
                  (ref? d) (ce x ls)
                  (refs? d) (mapv #(ce % ls) x)
-                 (= :C d) [:cursor (get ls x)]
+                 (= :C d) [:cursor-cell (get ls x)]
                  (contains? #{:V :optional-V} d)
-                 (case (first x) :cursor [:cursor (get ls (second x))]
+                 (case (first x) :cursor-cell [:cursor-cell (get ls (second x))]
                        :row [:row (ce (second x) ls)] x)
                  :else x))
              (ce
                [n ls]
                (let [{:keys [kind slots]} n]
                  (cond
-                   (= :cursors kind) [:cursors]
+                   (= :cursor-cells kind) [:cursor-cells]
                    (and (= :task kind) (not (identical? n task)))
                    (let [[id _rows] (emit-node n (canonical-numbering n budget) {})]
                      [:child (checked-encode id)])
@@ -295,13 +295,13 @@
                              (ref? d) (visit x path (inc depth))
                              (contains? #{:V :optional-V} d)
                              (case (first x)
-                               :cursor (swap! out update (second x) conj (checked-encode path))
+                               :cursor-cell (swap! out update (second x) conj (checked-encode path))
                                :row (visit (second x) path (inc depth)) nil)
                              :else nil))
                          (visit
                            [n path depth]
                            (let [{:keys [kind slots]} n ds (descriptors kind slots)]
-                             (when-not (or (= :cursors kind)
+                             (when-not (or (= :cursor-cells kind)
                                            (and (= :task kind) (not (identical? n task))))
                                (cond
                                  (contains? #{:map :store :bindings :parked-table} kind)
@@ -346,7 +346,7 @@
                                (if (or (nil? best) (neg? (compare-bytes (:key leaf) (:key best)))) leaf best)))
                            nil (second unresolved))
                    (let [numbering (into {} (map-indexed (fn [i [_ members]]
-                                                           [(first members) (keyword "yin.k" (str "cur-" (inc i)))]) cs))
+                                                           [(first members) (keyword "yin.k" (str "cc-" (inc i)))]) cs))
                          [id rows] (emit-node task numbering {})]
                      ;; This digest preimage contains the input row's own inline bodies,
                      ;; not growing refinement labels. Decode bounds input by :bytes;
@@ -375,12 +375,12 @@
 (defn- structural?
   [kind d x]
   (cond
-    (and (= :cursors kind) (= :C d)) (and (keyword? x) (some? (re-matches census-key (name x))))
+    (and (= :cursor-cells kind) (= :C d)) (and (keyword? x) (some? (re-matches census-key (name x))))
     (or (ref? d) (= :C d)) (keyword? x)
     (refs? d) (and (vector? x) (every? keyword? x))
     (contains? #{:V :optional-V} d)
     (or (and (= :optional-V d) (nil? x))
-        (and (vector? x) (= 2 (count x)) (contains? #{:lit :row :cursor} (first x))
+        (and (vector? x) (= 2 (count x)) (contains? #{:lit :row :cursor-cell} (first x))
              (or (= :lit (first x)) (keyword? (second x)))))
     (= :N d) (and (code/reg? x) (<= x 4503599627370495))
     (= :S d) (symbol? x)
@@ -417,7 +417,7 @@
             [v]
             (case (first v)
               :lit (literal-value (second v))
-              :cursor [:identity (second v)]
+              :cursor-cell [:identity (second v)]
               :row (let [n (second v) ss (:slots n)]
                      (case (:kind n)
                        :vec [:seq (mapv value ss)]
@@ -428,14 +428,14 @@
           (reference?
             [v]
             (case (first v)
-              :cursor true
+              :cursor-cell true
               :lit false
               :row (let [n (second v)]
                      (if (contains? #{:vec :list :set :map} (:kind n))
                        (boolean (some reference? (:slots n))) true))
               false))
           (visit
-            [n path cursors reached]
+            [n path cursor-cells reached]
             (let [{:keys [kind slots]} n ds (descriptors kind slots)]
               (when (contains? #{:map :set} kind)
                 (let [vs (if (= :set kind) slots (map first (partition 2 slots)))
@@ -446,31 +446,31 @@
               (doseq [[i d x] (map vector (range) ds slots)]
                 (let [p (conj path i)]
                   (cond
-                    (= :C d) (do (when-not (contains? cursors x) (bad! :missing-cursor p)) (swap! reached conj x))
+                    (= :C d) (do (when-not (contains? cursor-cells x) (bad! :missing-cursor-cell p)) (swap! reached conj x))
                     (and (ref? d) (= :task (:kind x))) (check-task x p)
-                    (and (ref? d) (not= :cursors (:kind x))) (visit x p cursors reached)
+                    (and (ref? d) (not= :cursor-cells (:kind x))) (visit x p cursor-cells reached)
                     (refs? d) (doseq [[j child] (map-indexed vector x)]
-                                (visit child (conj p j) cursors reached))
+                                (visit child (conj p j) cursor-cells reached))
                     (contains? #{:V :optional-V} d)
                     (when x
                       (case (first x)
                         :lit (when-not (literal? (second x)) (bad! :literal p))
-                        :cursor (do (when-not (contains? cursors (second x)) (bad! :missing-cursor p))
-                                    (swap! reached conj (second x)))
-                        :row (visit (second x) p cursors reached)))
+                        :cursor-cell (do (when-not (contains? cursor-cells (second x)) (bad! :missing-cursor-cell p))
+                                         (swap! reached conj (second x)))
+                        :row (visit (second x) p cursor-cells reached)))
                     :else nil)))))
           (check-task
             [task path]
             (let [slots (:slots task) census (nth slots 9)
-                  cursors (into {} (map vec) (partition 2 (:slots census))) reached (atom #{})]
-              (visit task path cursors reached)
-              (when-not (= (set (keys cursors)) @reached) (bad! :extra-cursor (conj path 9)))))]
+                  cursor-cells (into {} (map vec) (partition 2 (:slots census))) reached (atom #{})]
+              (visit task path cursor-cells reached)
+              (when-not (= (set (keys cursor-cells)) @reached) (bad! :extra-cursor-cell (conj path 9)))))]
     (when (= :task (:kind root)) (check-task root []))))
 
 
 (defn- decode*
   "Validate gate, local schema, finite reachable graph, hashes, canonical
-   form and cursor numbering, then expand structural refs. No attachment.
+   form and cursor-cell numbering, then expand structural refs. No attachment.
    Frame checks are available separately through validate-frames."
   ([wire] (decode* wire default-budget))
   ([wire budget]
@@ -553,7 +553,7 @@
                                      (when (= :lit (first x)) (second x)) x))))
        (doseq [[id kind & slots] rs]
          (when-not (= (vec slots) (ordered-slots kind (vec slots))) (bad! :row-order [id]))
-         (when (contains? #{:map :bindings :store :parked-table :window :cursors :set} kind)
+         (when (contains? #{:map :bindings :store :parked-table :window :cursor-cells :set} kind)
            (let [keys (if (= kind :set) slots (map first (partition 2 slots)))]
              (when-not (and (= (count keys) (count (distinct keys)))
                             (= (count keys) (count (distinct (map #(bytes-key (cbor/encode %)) keys)))))
@@ -572,7 +572,7 @@
                canonical (if (= :task (:kind task)) (emit task budget)
                              (let [[id _] (emit-node task {} {})] {:yin.k/root id}))]
            (when (and (not= false (:check-numbering budget)) (not= root (:yin.k/root canonical)))
-             (bad! :noncanonical-cursors [root]))
+             (bad! :noncanonical-cursor-cells [root]))
            (when (= :task (:kind task))
              (when-let [d (validate-frames task)]
                (throw (ex-info "Frame validation failed" (update d :yin.k/path #(into [root] %))))))
@@ -580,7 +580,7 @@
 
 
 (defn decode
-  "Validate and expand a row pack, including canonical cursor numbering.
+  "Validate and expand a row pack, including canonical cursor-cell numbering.
    For task roots, run X1 and frame validation after numbering."
   ([wire] (decode* wire default-budget))
   ([wire budget] (decode* wire (dissoc budget :check-numbering))))
@@ -589,7 +589,7 @@
 (defn canonical-under
   "Test-only §5.5 re-emission under an explicit stream correspondence.
    Missing marker coverage fails; neither traversal order nor original
-   cursor numbering chooses a logical identity. Accepts a carrier."
+   cursor-cell numbering chooses a logical identity. Accepts a carrier."
   [wire correspondence]
   (let [task (decode* wire (assoc default-budget :check-numbering false))]
     (letfn [(rewrite-slot
@@ -618,7 +618,7 @@
   [v]
   (case (first v)
     :row {:yin.k/row (second v)}
-    :cursor {:yin.k/cursor (second v)}
+    :cursor-cell {:yin.k/cursor-cell (second v)}
     :lit (if (marker-shaped? (second v)) (refuse! :yin.k/non-portable :marker []) (second v))))
 
 
@@ -639,19 +639,19 @@
 
 
 (def pending-keys
-  {:next [:yin.k/cursor]
+  {:next [:yin.k/cursor-cell]
    :put [:yin.k/stream :yin.k/value :yin.k/op-id]
-   :ffi [:yin.k/cursor :yin.k/call-id :yin.k/op]
-   :ffi-request [:yin.k/call-id :yin.k/envelope :yin.k/request-stream :yin.k/response-stream :yin.k/response-cursor :yin.k/op-id]
-   :link-request [:yin.k/link-id :yin.k/name :yin.k/request-stream :yin.k/response-stream :yin.k/cursor :yin.k/envelope :yin.k/op-id]
-   :link-response [:yin.k/link-id :yin.k/name :yin.k/request-stream :yin.k/response-stream :yin.k/cursor]
+   :ffi [:yin.k/cursor-cell :yin.k/call-id :yin.k/op]
+   :ffi-request [:yin.k/call-id :yin.k/envelope :yin.k/request-stream :yin.k/response-stream :yin.k/response-cursor-cell :yin.k/op-id]
+   :link-request [:yin.k/link-id :yin.k/name :yin.k/request-stream :yin.k/response-stream :yin.k/cursor-cell :yin.k/envelope :yin.k/op-id]
+   :link-response [:yin.k/link-id :yin.k/name :yin.k/request-stream :yin.k/response-stream :yin.k/cursor-cell]
    :install [:yin.k/name]})
 
 
 (defn frame->rows
   "Encode a keyed frame to a frame-rooted version-3 row pack. Values are
    plain literals by default. An explicit value encoder classifies portable
-   references as [:row abstract-row] or [:cursor id], distinct from guest maps.
+   references as [:row abstract-row] or [:cursor-cell id], distinct from guest maps.
    This reshapes; frame/defect owns semantic validity."
   ([f] (frame->rows f value-node))
   ([f encode]
@@ -713,7 +713,7 @@
 (defn rows->frame
   "Validate row syntax and hashes, then reshape to the keyed frame.
    Semantic code/context rules remain frame/defect's responsibility.
-   The default decoder produces in-band row/cursor markers that the default
+   The default decoder produces in-band row/cursor-cell markers that the default
    encoder refuses. frame->rows after rows->frame is identity only when
    both sides are given a classifier for those values."
   ([wire] (rows->frame wire decoded-value))
