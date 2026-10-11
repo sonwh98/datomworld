@@ -127,7 +127,7 @@ selected namespaces and run automatically when needed.
 2. **G1 Checkpoint**: Run the three-lane subsystem test (`bb test:sub <own>`). Proves the home suite across all three hosts before reporting ready.
 3. **G2 Land**: Run `bb test:changed` in the worktree across all three lanes (plus `bb test:sub <own> --slow` if slow tests are present). Covers dependents across the change (for foundation subsystems like `dao.stream` or `dao.jing`, this correctly runs nearly the full suite).
 4. **G3 Master**: The mandatory landing gate on master after merge, and for any wide change (`bb test`).
-5. **G4 Release**: Full or slow test run before a big release or cross-cutting merge (`bb test:slow` or `bb test:all`).
+5. **G4 Release**: Full or slow test run before a big release or cross-cutting merge (`bb test:slow` or `bb test:all`), and at each phase boundary of a multi-phase track (owner decision 2026-10-12; see "Test tiers: quick and slow" below). G0 to G3 run the quick tier; G4 runs the slow tier.
 
 
 The linker-over-DHT end-to-end gate (docs/design/yin.vm.linker.dht.md,
@@ -181,6 +181,122 @@ compile does not prune it when a source file is deleted or renamed. The
 aggregated lanes only run namespaces that still exist under `test/`, but a
 stale file can silently pass a plain `cljd test`. Run `rm -rf test/cljd-out`
 before relying on that to prove a deletion or rename took effect.
+
+## Test tiers: quick and slow
+
+The suite has two tiers so that slow tests run less often than quick ones
+(owner decision, 2026-10-12).
+
+- **Quick tier:** every test not tagged `^:slow`. `bb test:clj` or
+  `clojure -M:test -e :slow` on the JVM; the Node and Dart lanes skip the
+  guarded bodies (`dao.test-slow/guard`) unless `DATOM_SLOW_TESTS=1`.
+- **Slow tier:** the tagged deftests. `bb test:slow` or
+  `clojure -M:test -i :slow -n <ns>` on the JVM.
+- **The tagging rule** is the one above ("When to tag a test slow"): a deftest that
+  takes about 5 s or more run alone. On 2026-10-12 every JVM test namespace and every
+  deftest in the 22 slowest namespaces were timed on a 48-core Linux server, and the
+  **63 deftests at 5 s or more** were tagged: `^:slow` on the deftest, plus the guard
+  wrapper in `.cljc` files. 37 are guarded, 26 are `^:slow` only (`.clj` files and
+  `:clj` reader-conditional branches). Those 22 namespaces now hold **168 slow tests**
+  in all (some were already tagged). Per-test times are not in the repo: measure again
+  with the method below before changing the cut.
+- **Cadence:** the quick tier at every checkpoint (G1) and landing (G2, G3); the slow
+  tier before merging a big change and at each phase boundary of a multi-phase track
+  (the existing G4). There is no nightly run.
+
+Measured (2026-10-12, origin master plus the tags, Linux servers; see "Remote test
+servers" for how to run them):
+
+| Run | Time |
+|---|---|
+| Full JVM lane, one process, before tagging (shiva) | 70 min |
+| Full JVM lane, sharded by subsystem, before tagging (jupiter, 13 shards, 8 at a time) | 46.5 min, set by `yin.repl.python-antlr-test` |
+| **Quick tier, sharded by subsystem (jupiter, same 13 shards)** | **5 min 3 s**, 4055 tests, all shards exit 0; longest shards `yang.python` 253 s and `yin.vm.ucf` 204 s |
+| **Slow tier (shiva, one JVM per namespace, 6 at a time)** | **53 min**, 22 namespaces, 168 tests, all exit 0; longest `yin.repl.python-antlr-test` 3183 s (about 1580 s alone on the laptop) |
+
+The quick tier has exactly 63 fewer tests than the untagged suite (4118 to 4055).
+Some quick parts are still 25 to 69 s when a namespace is run alone (`e2e-c2`,
+`prelude-parity`, `int-ops`, `holder.driver`, `compose-rows`): many tests each just
+under the 5 s cut (the Python e2e per-test floor is about 2 to 3 s), not shared setup.
+A lower cut would shrink the quick tier further and move more tests to the slow tier.
+
+**How the per-test times were measured.** To time every deftest of a namespace alone,
+run it without the test runner's alias main (the `:test` alias's `-m cognitect.test-runner`
+otherwise swallows `-e`, and every JVM runs the whole suite):
+
+```sh
+NS=<namespace> clojure -Sdeps '{:aliases {:t {:extra-paths ["test"]}}}' -M:t timing.clj
+# timing.clj: require the namespace, for each deftest var that is not ^:slow:
+#   (binding [clojure.test/*test-out* (java.io.StringWriter.)] (clojure.test/test-vars [v]))
+# and print the elapsed nanoseconds. One-off setup (a `use-fixtures :once` or a parser
+# load) is paid by the first test in file order; check before tagging that test alone.
+```
+
+**Sharding the JVM lane by subsystem** (the quick tier; run on a server, see below). The
+shards come from `bb test:sub:list <subsystem>` for the 13 subsystems that hold JVM
+tests, so each subsystem is one JVM; the script also checks that the shards cover every
+JVM test namespace under `test/`:
+
+```sh
+#!/usr/bin/env bash
+# Usage: shard-jvm.sh <clone> [parallel]  -- JVM lane sharded by subsystem (fast tests, -e :slow)
+set -u
+export PATH="$HOME/.local/bin:/snap/bin:$PATH"
+cd "$1" || exit 2
+PAR="${2:-8}"
+mise trust >/dev/null 2>&1
+eval "$(mise env -s bash)"
+OUT="$1/target-ci/shards"; rm -rf "$OUT"; mkdir -p "$OUT"
+ts() { date +%H:%M:%S; }
+echo "start $(ts) $(git rev-parse --short HEAD) par=$PAR" | tee "$OUT/summary.txt"
+npm ci --silent >"$OUT/npm.log" 2>&1                   && echo "npm ok $(ts)" | tee -a "$OUT/summary.txt"
+bb build:yin-repl-node >"$OUT/build-node.log" 2>&1     && echo "node repl built $(ts)" | tee -a "$OUT/summary.txt"
+bb gen:python-antlr >"$OUT/antlr.log" 2>&1             && echo "antlr ok $(ts)" | tee -a "$OUT/summary.txt"
+SUBS="yang.python yin.repl yin.vm yin.vm.ucf dao.stream dao.jing dao.gui dao.space demo dao.data dao.postgraphics yang.base dao.base"
+: > "$OUT/covered.txt"
+for s in $SUBS; do
+  bb test:sub:list "$s" 2>/dev/null | awk "/^clj:/{f=1;next} /^[A-Za-z]/{f=0} f{gsub(/ /,\"\");print}" > "$OUT/ns-$s.txt"
+  cat "$OUT/ns-$s.txt" >> "$OUT/covered.txt"
+  echo "$s $(wc -l < "$OUT/ns-$s.txt")" >> "$OUT/plan.txt"
+done
+# coverage: every JVM test namespace under test/ vs the union of the shards
+find test -type f \( -name "*_test.clj" -o -name "*_test.cljc" \) | sed -e "s#^test/##" -e "s#\.cljc\?\$##" -e "s#/#.#g" -e "s#_#-#g" | sort -u > "$OUT/all.txt"
+sort -u "$OUT/covered.txt" > "$OUT/covered.sorted"
+comm -23 "$OUT/all.txt" "$OUT/covered.sorted" > "$OUT/ns-uncovered.txt"
+echo "all=$(wc -l < $OUT/all.txt) covered=$(wc -l < $OUT/covered.sorted) uncovered=$(wc -l < $OUT/ns-uncovered.txt)" | tee -a "$OUT/summary.txt"
+run_shard() {
+  s=$1; f="$OUT/ns-$s.txt"; [ -s "$f" ] || return 0
+  args=(); while read -r n; do args+=(-n "$n"); done < "$f"
+  t0=$(date +%s); clojure -M:test -e :slow "${args[@]}" >"$OUT/$s.log" 2>&1; rc=$?
+  echo "$s rc=$rc secs=$(( $(date +%s)-t0 )) $(ts) $(grep -E "^Ran " "$OUT/$s.log" | tail -1)" | tee -a "$OUT/summary.txt"
+}
+export -f run_shard; export OUT; export -f ts
+printf "%s\n" $SUBS uncovered | xargs -P "$PAR" -I{} bash -c "run_shard {}"
+echo "done $(ts)" | tee -a "$OUT/summary.txt"
+```
+
+**The slow tier** runs each tagged namespace on its own JVM, a few at a time:
+
+```sh
+#!/usr/bin/env bash
+# Usage: slow-tier.sh <clone> [parallel] -- the ^:slow tests of the tagged namespaces, one JVM per namespace
+set -u
+export PATH="$HOME/.local/bin:/snap/bin:$PATH"
+cd "$1" || exit 2
+PAR="${2:-6}"
+mise trust >/dev/null 2>&1
+eval "$(mise env -s bash)"
+OUT="$1/target-ci/slowtier"; rm -rf "$OUT"; mkdir -p "$OUT"
+run_ns() {
+  n=$1; t0=$(date +%s)
+  clojure -M:test -i :slow -n "$n" > "$OUT/$n.log" 2>&1; rc=$?
+  echo "$n rc=$rc secs=$(( $(date +%s)-t0 )) $(grep -E "^Ran " "$OUT/$n.log" | tail -1)" >> "$OUT/summary.txt"
+}
+export -f run_ns; export OUT
+echo "start $(date +%H:%M:%S) $(git rev-parse --short HEAD) par=$PAR" > "$OUT/summary.txt"
+xargs -P "$PAR" -I{} bash -c "run_ns {}" < "$HOME/ci/pertest-ns.txt"
+echo "done $(date +%H:%M:%S)" >> "$OUT/summary.txt"
+```
 
 ## Remote test servers: shiva and jupiter
 
