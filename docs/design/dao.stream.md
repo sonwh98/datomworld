@@ -47,7 +47,11 @@ The design separates five concepts:
 
 Creation is not attachment. A descriptor is not a creation specification or an
 identity. A handle is not portable identity. A cursor is not handle-owned
-state.
+state. A cursor is a value and has no identity of its own: a VM that lets
+programs advance a cursor keeps it in a mutable **cursor cell**, a box that
+has identity and is named by a sealed **cursor-ref** (`yin.vm`; the four-word
+vocabulary cursor, cursor cell, cursor-ref and cell is defined in
+`yin.vm.universal-continuation-format.md` §7.5.3).
 
 Seven operations range over them, each returning an outcome map (see
 Result Convention):

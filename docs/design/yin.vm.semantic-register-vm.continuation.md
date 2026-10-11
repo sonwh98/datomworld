@@ -223,13 +223,11 @@ receiving composition's choice. The version-2 registry
 content rows have `id = (jing/segment-key body)` under Jing's default
 digest, BLAKE3 for version 3 permanently; identity rows are cursor cells
 `:yin.k/cc-<n>` numbered by the draft's §6 procedure; the root carries
-the cursor-cell census. (Terminology, 2026-10-12: a **cursor** is the
-immutable `dao.stream` value; a **cursor cell** is the VM's mutable box in
-`:resources` that `stream/next!` updates, the identity row carried here; a
-**cursor-ref** is the sealed reference naming a cursor cell; **cell** alone
-means only the heap box of `yin.vm.cell`. Before this date the cursor cells
-were called "cells" and spelled `:yin.k/c-<n>`, `:cells`, `:cell-body`;
-the version-2 handoff carrier keeps those spellings.) One ordering rule: "sorted" is by the Jing canonical
+the cursor-cell census. (The words cursor, cursor cell, cursor-ref and cell
+are used exactly as defined in UCF §7.5.3, "Terminology: cursor, cursor
+cell, cursor-ref, cell". Before 2026-10-12 the cursor cells were called
+"cells" and spelled `:yin.k/c-<n>`, `:cells`, `:cell-body`; the version-2
+handoff carrier keeps those spellings.) One ordering rule: "sorted" is by the Jing canonical
 bytes of the key as spelled.
 
 ### 2.3 The frame rows (replacing draft §5.2)

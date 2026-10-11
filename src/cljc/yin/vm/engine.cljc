@@ -303,7 +303,12 @@
 
 
 (defn- cursor-cell?
-  "True when a resource is a cursor cell, `{:stream-id id :cursor c}`."
+  "True when a resource is a cursor cell, `{:stream-id id :cursor c}`.
+   A cursor cell is the VM's mutable box (with identity) holding one
+   immutable `dao.stream` cursor; `:stream/next` overwrites its `:cursor`
+   with the successor. A guest program holds a sealed `:cursor-ref` naming
+   it, never the cell itself. Not to be confused with `yin.vm.cell`, the
+   general heap box. Vocabulary: UCF §7.5.3, \"Terminology\"."
   [resource]
   (and (map? resource) (contains? resource :stream-id)))
 

@@ -1355,14 +1355,29 @@ two continuations parked from the same closure share its encoding. This is
 a single frame. It is also why §7.3.4 separates `:yin.k/id` (which varies
 with these choices, harmlessly) from `:yin.k/occurrence` (which does not).
 
-**Cursor cells.** (Terminology, 2026-10-12, one meaning per word: a
-**cursor** is the immutable `dao.stream` value, a logical-stream identity
-plus a position; a **cursor cell** is the VM's mutable box
-`{:stream-id id :cursor c}` in `:resources` that `stream/next!` updates,
-the identity-bearing thing this section carries; a **cursor-ref** is the
-sealed reference a program holds, naming a cursor cell; **cell** alone
-means only the general heap box of `yin.vm.cell`. Before this date the
-carrier called the cursor cell a "cell".) A cursor cell is *observable state with aliasing*: two distinct
+**Terminology: cursor, cursor cell, cursor-ref, cell.** The specification
+uses four words, each with exactly one meaning. This subsection is their
+definition; every other document defers to it (2026-10-12, owner decision).
+
+| Word | Meaning | Defined in code |
+|---|---|---|
+| **cursor** | The immutable value of `dao.stream`: a logical-stream identity plus a position in that stream. It has no identity of its own; two equal cursors are the same value. `dao.stream.md`: "A cursor is an immutable value owned by the interpreter that holds it." | `dao.stream` (`:dao.stream/cursor`) |
+| **cursor cell** | The VM's mutable box `{:stream-id id :cursor c}` held in the task's `:resources`, which `stream/next!` overwrites with the successor cursor on every successful read. It has identity: two cursor cells holding equal cursors are two different cells. It is the identity-bearing object the row carrier serializes (the census, the numbering, aliasing). | `yin.vm.engine` `cursor-cell?` |
+| **cursor-ref** | The sealed reference (`:cursor-ref`, sealed under the task's capability secret) that a guest program holds; it names a cursor cell. Binding one cursor-ref under two names makes both names the same cursor cell. | `yin.vm.engine` `issue-ref`, kind `:cursor-ref` |
+| **cell** | Only the general mutable heap box, `yin.vm.cell` (`cell/new`), referred to by a `:cell-ref`. It is unrelated to streams. | `yin.vm.cell` |
+
+Two invariants follow, and the carrier relies on both. (1) *A cursor inside a
+cursor cell is plain data.* Together with the stream's portable descriptor it
+is all a receiver needs: the receiver attaches to the stream at that position
+and mints its own cursor cell, so the carrier never has to reconstruct the
+sender's identity beyond naming which references share one cursor cell.
+(2) *Sharing must survive transport.* Repeated cursor-refs to one cursor cell
+advance together after transport, and two cursor cells at one position remain
+two independently advanceable cells. Before 2026-10-12 the row carrier called
+the cursor cell a "cell"; the version-2 handoff carrier keeps its shipped
+spellings (`:yin.k/c-<n>`, `:yin.k/cell`, `:yin.k/cells`).
+
+**Cursor cells.** A cursor cell is *observable state with aliasing*: two distinct
 cursor refs may sit at the same position and yet be independently
 advanceable store entries, while repeated refs to one cursor ref must
 advance together — `check-wait-set` advances a shared cursor ref before
