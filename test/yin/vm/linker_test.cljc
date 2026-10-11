@@ -20,6 +20,7 @@
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.code :as code]
+            [yin.vm.semantic-register.linearize :as sr-linearize]
             [yin.vm.debruijn-code :as dcode]
             [yin.vm.debruijn-linearize :as dl]
             [yin.vm.debruijn-register-code :as rcode]
@@ -560,6 +561,8 @@
 
 
 (deftest format-records-name-their-contract
+  (is (= :yin.semantic-register/code (:format linker/semantic-register-format)))
+  (is (= "v4" (:contract linker/semantic-register-format)))
   (is (= :yin.debruijn.code (:format linker/stack-format)))
   (is (= :yin.debruijn.register (:format linker/register-format)))
   (is (= :yin.semantic/code (:format linker/semantic-format)))
@@ -2077,3 +2080,16 @@
                                      (requested format))))
             "an absent address over the stream is :absent")
         (jing/close! publisher)))))
+
+
+(deftest semantic-register-scanners-yield-position-bearing-records
+  (let [vector (:vector (sr-linearize/project def-then-use))
+        {:keys [obligations-fn definitions-fn applications-fn]} linker/semantic-register-format
+        defs (definitions-fn vector)
+        occs (obligations-fn vector)]
+    (is (= [{:name 'x :conditional? false}]
+           (mapv #(select-keys % [:name :conditional?]) defs)))
+    (is (= [{:name 'x :in-body? false}]
+           (mapv #(select-keys % [:name :in-body?]) occs)))
+    (is (< (:at (first defs)) (:at (first occs))))
+    (is (seq (applications-fn vector)))))

@@ -19,8 +19,9 @@
    identity mint and match, the row-local validator, the whole-value
    validator, the three position-bearing scanners of section 4.1
    (`:obligations-fn`, `:definitions-fn`, `:applications-fn`), and the
-   parts worklist; the four records are `ast-format`, `semantic-format`,
-   `stack-format`, and `register-format` (section 5). The manifest and
+   parts worklist; the five records are `ast-format`, `semantic-format`,
+   `semantic-register-format`, `stack-format`, and `register-format`
+   (section 5). The manifest and
    derivation record formats of section 8.1 are `manifest-format` and
    `record-format`, and `link-manifest` is the manifest-delivered image
    link. Storage
@@ -42,6 +43,8 @@
             [dao.stream.ringbuffer :as ring]
             [yin.vm :as vm]
             [yin.vm.code :as code]
+            [yin.vm.semantic-register.code :as sr-code]
+            [yin.vm.semantic-register.scan :as scan]
             [yin.vm.debruijn-code :as debruijn-code]
             [yin.vm.debruijn-linearize :as linearize]
             [yin.vm.debruijn-register-code :as debruijn-register-code]
@@ -709,6 +712,20 @@
    :definitions-fn      vector-definition-occurrences,
    :applications-fn     vector-application-sites,
    :parts-fn            (constantly nil)})
+
+
+(def semantic-register-format
+  "The production v4 semantic register vector format record."
+  {:format :yin.semantic-register/code
+   :contract sr-code/contract
+   :identity-fn jing/segment-key
+   :identity-matches-fn jing/segment-matches?
+   :row-defect-fn sr-code/well-formed?
+   :validate-fn sr-code/well-formed?
+   :obligations-fn scan/free-occurrences
+   :definitions-fn scan/definition-occurrences
+   :applications-fn scan/application-sites
+   :parts-fn (constantly nil)})
 
 
 (def ast-format
