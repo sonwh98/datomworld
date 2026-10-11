@@ -2,7 +2,9 @@
   "Pure native derivations from the admitted semantic register vector A."
   (:refer-clojure :exclude [resolve])
   (:require [yin.vm.semantic-register.code :as code]
-            [yin.vm.debruijn :as db]))
+            [yin.vm.debruijn :as db]
+            [yin.vm.semantic-register.analysis :as analysis]
+            [yin.vm.debruijn-register-code :as rcode]))
 
 
 (defn- chains
@@ -156,7 +158,65 @@
        :side-table @side})))
 
 
+(defn- allocation
+  [v a {:keys [start end owner]}]
+  (let [locals (if (nil? owner) 0 (count (nth (nth v owner) 2)))
+        defined (into #{} (keep #(code/rd (nth v %))) (range start end))
+        points (reduce (fn [m pc]
+                         (reduce (fn [m r] (update m r (fnil conj []) pc)) m
+                                 (into (analysis/live a pc) (analysis/defs v pc))))
+                       {} (range start end))
+        intervals (mapv (fn [r] [r (apply min (get points r)) (apply max (get points r))])
+                        (sort defined))
+        starts-by-pc (group-by second intervals)
+        missing (seq (remove defined (mapcat #(code/uses (nth v %)) (range start end))))]
+    (loop [pc start active [] free (sorted-set) next-slot 0 slots {}]
+      (if (= pc end)
+        {:locals locals :registers (+ locals next-slot (if missing 1 0))
+         :start start :end (dec end)
+         :slots slots :structural (+ locals next-slot)}
+        (let [expired (sort-by (juxt #(nth % 2) first)
+                               (filter #(< (nth % 2) pc) active))
+              free (into free (map #(get slots (first %))) expired)
+              active (filterv #(>= (nth % 2) pc) active)
+              starts (get starts-by-pc pc [])
+              [free next-slot slots]
+              (reduce (fn [[free next-slot slots] [r]]
+                        (let [i (if (seq free) (first free) next-slot)]
+                          [(disj free i) (if (seq free) next-slot (inc next-slot))
+                           (assoc slots r i)]))
+                      [free next-slot slots] starts)]
+          (recur (inc pc) (into active starts) free next-slot slots))))))
+
+
 (defn register-image
-  "Reserved for slice 5b."
-  [_v]
-  (throw (ex-info "Register derivation is not in slice 5a" {:reason :not-in-slice-5a})))
+  "Allocate temporaries by linear scan over A's live points; preserve A's
+   layout and fill saved windows using the register format's liveness."
+  [v]
+  (let [{rv :vector bodies :bodies} (resolve v)
+        a (analysis/analyze v)
+        allocations (mapv #(allocation v a %) bodies)
+        instructions
+        (mapv (fn [pc t]
+                (let [{:keys [slots locals structural]}
+                      (nth allocations (code/body-index bodies pc))
+                      physical (fn [r] (if (contains? slots r) (+ locals (get slots r)) structural))
+                      op (first t)
+                      fields (get rcode/opcode-table op)]
+                  (into [op]
+                        (map-indexed (fn [i [k kind]]
+                                       (if (= k :yin.debruijn.register/live) []
+                                           (let [x (nth t (inc i))]
+                                             (case kind
+                                               :reg (physical x)
+                                               :regs (mapv physical x)
+                                               x)))) fields))))
+              (range (count rv)) rv)
+        image {:bodies (mapv #(select-keys % [:locals :registers :start :end]) allocations)
+               :instructions instructions}]
+    (reduce (fn [image bi]
+              (reduce (fn [image [pc live]]
+                        (assoc-in image [:instructions pc
+                                         (rcode/live-slot-index (first (nth instructions pc)))] live))
+                      image (rcode/body-liveness image bi)))
+            image (range (count bodies)))))
