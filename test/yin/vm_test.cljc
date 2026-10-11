@@ -221,7 +221,15 @@
       (is (fn? (vm/primitive-function entry)) (str name))
       (is (= profile (get vm/primitive-profiles name)))
       (is (= :none (:yin.k/host-state profile)))
-      (is (= "yin.k.pp" (namespace (:yin.k/profile profile)))))
+      (is (= "yin.k.pp" (namespace (:yin.k/profile profile))))
+      (is (= (str "blake3-"
+                  (jing/content-hash
+                    (-> profile
+                        (dissoc :yin.k/profile)
+                        (assoc :yin.k/name name))
+                    {:algorithm :blake3}))
+             (clojure.core/name (:yin.k/profile profile)))
+          (str name " profile address is the BLAKE3 digest")))
     (is (not (contains? vm/primitives 'yin/def))
         "Rule R: a definition is syntax, not a primitive")
     (is (not (contains? vm/primitive-profiles 'yin/def)))

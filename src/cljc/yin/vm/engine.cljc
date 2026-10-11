@@ -299,7 +299,7 @@
 (defn- seal-of
   "The seal of a `kind` reference to resource `id` under `secret`."
   [secret kind id]
-  (jing/content-hash [:yin.k/seal secret kind id] {:algorithm :sha256}))
+  (jing/content-hash [:yin.k/seal secret kind id] {:algorithm :blake3}))
 
 
 (defn- cursor-cell?
