@@ -639,7 +639,7 @@
             :name '+, :kind :primitive}
            (linker/discharge receiver [(assoc prim
                                               :profile
-                                              :yin.k.pp/sha256-nope)]))
+                                              :yin.k.pp/blake3-nope)]))
         "a same-named primitive of another profile resolves nothing")
     (is (= {:status :refused, :reason :shadowed-free, :name '+}
            (linker/discharge (assoc receiver :free-env {'+ 0}) [prim])))

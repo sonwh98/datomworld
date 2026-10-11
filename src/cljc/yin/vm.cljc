@@ -348,8 +348,8 @@
                      :yin.k/arities (vec arities),
                      :yin.k/effects (set effects),
                      :yin.k/host-state host-state}
-        digest (jing/content-hash description {:algorithm :sha256})]
-    {:yin.k/profile (keyword "yin.k.pp" (str "sha256-" digest)),
+        digest (jing/content-hash description {:algorithm :blake3})]
+    {:yin.k/profile (keyword "yin.k.pp" (str "blake3-" digest)),
      :yin.k/class class,
      :yin.k/arities (vec arities),
      :yin.k/effects (set effects),
