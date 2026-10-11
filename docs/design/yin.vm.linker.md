@@ -23,6 +23,15 @@ reviews by `gpt-6-sol` (thread
 identity rules of `yin.vm.universal-continuation-format.md` (UCF) section
 7.3, the addressing and derivation rules of `yin.vm.code-as-tuples.md`
 sections 4 and 5, and the ledger of `yin.vm.ledger`.
+Amended 2026-10-11 under the unitarity invariant of `datom.world.md`
+(the AST is retrievable wherever code is lowered), on the
+codex-reviewed amendment texts of
+`yin.vm.semantic-register-vm.derivations.md` §9.2: the §3 amendment
+gains the composition `source-index` (A to the set of tree addresses),
+`:yin.link/trees` on by-identity outcomes and `:tree-unavailable`;
+§8.1 `:trusted` skips re-lowering, never retrievability; §8.3's host
+module is the guest-code carve-out (`:manifest-shape` keeps a tree-less
+manifest from naming an image).
 
 Related documents:
 
@@ -219,7 +228,19 @@ a choice.
 >   semantic and lowering contract revision (coexisting revisions make
 >   the revision part of the key); for the semantic format the storage
 >   address is A itself, and the canonical vector stays obtainable
->   independently of any native-image entry. The derivation record of
+>   independently of any native-image entry, and so does a tree it was
+>   projected from: the composition's `source-index` maps A to the set
+>   of tree addresses it knows (populated at publication and from every
+>   verified manifest), and a by-identity outcome for any format carries
+>   that set as `:yin.link/trees`. A is not a key to one tree (several
+>   ASTs project to one A); the unitarity invariant of `datom.world.md`
+>   (the AST is retrievable wherever code is lowered) is satisfied when
+>   at least one member is known. A native image for which the serving
+>   composition knows no tree is a composition defect
+>   (`:tree-unavailable` at step 2), distinct from a known tree whose
+>   read fails, which is the medium's ordinary `:absent`
+>   (`yin.vm.semantic-register-vm.derivations.md` §9.2, 2026-10-11). The
+>   derivation record of
 >   §8.1 for format `f` leads from the canonical tree to A and from A to
 >   the native image, recording the checksum as evidence, not identity.
 > - **The AST walker** (`:yin.ast/code`, §5.1): the tree's root row
@@ -229,7 +250,9 @@ a choice.
 >   (code-as-tuples §2), and verifies that lowering it under the declared
 >   contract produces the requested A; the verification direction is
 >   **tree → A**, and no reconstruction of a tree from A is required or
->   assumed. A trusted derivation record never replaces that check.
+>   assumed. A tree is retrieved by address through the `source-index`,
+>   never reconstructed from A. A trusted derivation record never
+>   replaces that check.
 > - I5 keeps both checks, with the identity check now directed by A: step
 >   2 proves the retrieved value is the content at its storage address;
 >   step 3 proves it is the lowering of the verified canonical vector A
@@ -1778,6 +1801,13 @@ Rules:
     in the outcome, exactly as B6's trusted fallback did and never
     silently. A composition that chooses `:trusted` has chosen to
     accept the publisher's lowering, and the outcome says so.
+    `:trusted` skips **re-lowering**, never retrievability: the
+    composition that serves under `:trusted` holds the manifest's
+    `:yin.module/tree` address in its `source-index` and is responsible
+    for the tree being retrievable from it (the publisher's store, or a
+    store it can reach); no fetch is performed by the policy, and a tree
+    whose read fails later is the medium's `:absent`, not a policy
+    violation (`yin.vm.semantic-register-vm.derivations.md` §9.2).
   The B6 fallback pair maps onto these: `verifying-fallback` is the
   `:verifying` policy applied to an H image selected in place of an
   unsupported R; `trusted-fallback` is `:trusted` applied the same way.
@@ -1984,7 +2014,14 @@ effect constructor, and the engine's `:make-stream` capability remains
 the explicit boundary that performs the creation. A host module is
 entered as an already-linked manifest with `:yin.module/tree` absent,
 `:yin.module/derivations {}`, and its exports listed under
-`:yin.module/primitives` by profile address.
+`:yin.module/primitives` by profile address. This is the **guest-code
+carve-out**: the unitarity invariant governs guest code, the code that
+is lowered. A host module lowers nothing, has no AST and no derivations,
+and declares only profiles; its manifest therefore carries no tree, and
+`:manifest-shape` requires that a manifest without `:yin.module/tree`
+also have empty `:yin.module/derivations` and no `:yin.module/index`,
+so a tree-less manifest can never name an image
+(`yin.vm.semantic-register-vm.derivations.md` §9.2).
 
 **The host module is the trusted composition boundary, and the check
 above is a declaration check, not a proof.** A host function is opaque

@@ -247,7 +247,7 @@ and `:tail` (§10.1 F1, reviewer: ACCEPTED):
 `:window`, `:bindings`, `:store` and every other tabled keyed row are
 structural rows, never a `V`; the draft's "a reference-free collection
 must be `[:lit d]`" rule is about guest collections. `rd` on `:act` is
-redundant with the instruction at `pc−1` and is checked (rule A7), as
+redundant with the instruction at `pc−1` and is checked (rule A2), as
 `pc` is redundant with the pending and checked.
 
 ### 2.4 Pending rows

@@ -29,7 +29,13 @@ its open canonical encoding), and
 surface and current-state resolution). It extends them; where it restates
 one of their rules it cites the rule. Where it supersedes one, it says so
 (§7.2). Line numbers were read from the working tree on 2026-09-14 and
-re-verified on 2026-09-15.
+re-verified on 2026-09-15. Amended 2026-10-11 in §7.2 (C1 of
+`yin.vm.semantic-register-vm.continuation.md` §10.4): the
+vector-to-datoms projection path is retired; one direct vector load, two
+AST projection lanes, one validator. §6.5, §7.1 and the §10 impact table
+name the loads the same way (the datom lane is an AST lane; no
+`:yin.code/*` datom batch is a load input), and the §1 table's and §2's
+row-id examples are spelled under Jing's default digest, BLAKE3.
 
 ---
 
@@ -49,7 +55,7 @@ things that never cross between them are what make the design hold.
 |                |                                | also content-addressed values       | id (§4.1)          |                          |                                |
 +----------------+--------------------------------+-------------------------------------+--------------------+--------------------------+--------------------------------+
 | **Refs**       | [e :yin/code                   | Datoms `[e a v t m]` whose `v` is a | the datom itself,  | the ledger relation      | append-only; the hash chain is |
-|                | :segment/sha256-…]             | code or record address: names,      | in a `dao.space`   | (§8), transacted by a    | realized by ledger records and |
+|                | :segment/blake3-…]             | code or record address: names,      | in a `dao.space`   | (§8), transacted by a    | realized by ledger records and |
 |                |                                | history, retraction, derivation,    | ledger             | `dao.space` transactor   | the refs that publish them     |
 |                |                                | expansion, publication, custody     |                    |                          | (§8.2)                         |
 +----------------+--------------------------------+-------------------------------------+--------------------+--------------------------+--------------------------------+
@@ -169,7 +175,7 @@ AST, `project : map-ast → rows`, one row per node (the bytecode linearization)
 [B :application C [D E] true]
 [C :variable +]
 [D :variable x]
-[E :literal 1]          ; A..E are :segment/sha256-… row ids
+[E :literal 1]          ; A..E are :segment/blake3-… row ids
 ```
 
 A row's **body** is `[tag & slots]`: the slots are the node's field
@@ -1046,8 +1052,9 @@ turns one shared site row into one result per place.
 A tree also projects to datoms, `[e a v t m]` with tempids minted in
 preorder and one extra fact `[e :yin/address addr]` per node so the
 projection joins back to refs. This is the successor of `ast->datoms`
-(`v2.cljc:372-482`) and is the *projection path* of §7.1. It exists for
-three queries the flat rows deliberately do not serve:
+(`v2.cljc:372-482`) and is the *datom lane* of §7.1 (an AST lane; the
+vector-to-datoms projection of instruction vectors is retired, §7.2). It
+exists for three queries the flat rows deliberately do not serve:
 
 +----------------------------------------------------------------------+-------------------------------------------------------------------------------------------------+
 | Query                                                                | Why the datom projection                                                                        |
@@ -1087,21 +1094,30 @@ vector (code medium), and the evaluator's loader takes it as is:
 | AST medium           |                      | (`linearize.cljc:269-286`, chosen in `src/cljc/yin/repl/core.cljc:63-68`)                                             |
 +----------------------+----------------------+--------------------------------------------------------------------------------------------------------------------------+
 
-Datom-batch loading is the projection path: a batch of `:yin/*` datoms is
-projected to rows by the datom→row half of the §9.1 codec pair and then
-loaded as above; a batch of `:yin.code/*` datoms is decoded to a vector
-by UCF §7.3.4's projection rule and then loaded as above. The projection
-path exists for media that carry datoms and for the datom projection of
+Datom-batch loading is the **datom lane**, the second AST lane: a batch
+of `:yin/*` datoms is projected to rows by the datom→row half of the
+§9.1 codec pair and then loaded as above (the row lane). The datom lane
+exists for media that carry datoms and for the datom projection of
 §6.5; it is not a second loader and it runs the same validator (§7.2).
+There is no datom lane for instruction vectors: a `:yin.code/*` datom
+batch is not a load input, since the vector-to-datoms projection is
+retired (§7.2; UCF §7.3.4) and a vector is loaded only directly, under
+its address and stamp. So the loads are exactly three: the direct
+vector load, and the two AST lanes (row lane, datom lane) that produce
+the vector.
 
-### 7.2 Conformance: both paths, one validator, one image
+### 7.2 Conformance: one validator, one image
 
-**This section supersedes the sentence in UCF §7.3.4 that names the
-projection path as the reference path.** Under the owner's ruling the
-direct path is primary and the reference; the projection path is derived
-from it. Everything else in §7.3.4 stands.
+The vector-to-datoms projection path is **retired** (owner ruling
+2026-09-18; frozen `yin.vm.semantic-register-vm.md` §3.4 "One vector
+validator"). There is one load path for a vector, the direct one, and
+two AST projection lanes (datom lane, row lane) that produce the vector;
+all three feed one validator
+(`yin.vm.semantic-register.code/well-formed?`). UCF §7.3.4's projection
+path is superseded accordingly (amended 2026-10-11,
+`yin.vm.semantic-register-vm.continuation.md` §10.4 C1).
 
-Both paths invoke the same validator (§7.4 for rows, §7.5 for vectors)
+All lanes invoke the same validator (§7.4 for rows, §7.5 for vectors)
 before anything is registered, and the conformance obligation has four
 parts:
 
@@ -1114,16 +1130,19 @@ parts:
    this testable now.
 2. **Valid corpus, same result.** For every corpus program, loading the
    rows directly and loading their datom projection yield the same walker
-   `:program` value; loading the instruction vector directly and loading
-   its datom projection yield the same image. Keyword store keys
+   `:program` value; loading the vector produced by either AST lane and
+   the vector loaded directly yield the same image and address
+   (`load_paths_test.cljc`). Keyword store keys
    (`parity_test.cljc:99`) and numeric store keys are part of the corpus
-   and must round-trip on both paths, so the `key` kind is exercised as
+   and must round-trip on both AST lanes, so the `key` kind is exercised as
    the `data` domain it is (§2.2), not as the two types the corpus
    happened to use.
 3. **Malformed input, same refusal.** For a published set of malformed
    vectors, each violating one rule of §7.5, and malformed row sets, each
-   violating one rule of §7.4, both paths refuse with the same defect
-   (rule and pc, or rule and path). A correctly hashed `[[:jump 9]]` is in
+   violating one rule of §7.4, the direct vector load refuses with the
+   published defect (rule and pc) for every rule of the frozen
+   `yin.vm.semantic-register-vm.md` §3.4, and the row load with its rule
+   and path. A correctly hashed `[[:jump 9]]` is in
    the set. Image equality on valid input does not establish this; the
    malformed set does.
 4. **Several segments loaded.** Loading two or more segments through each
@@ -1995,10 +2014,10 @@ rows behind it. The semantics do not change; the boundary does.
 | codec, `v2.cljc:372-559`                         | becomes `yin.vm/ast->semantic-bytecode`, the projection pair of §6.5 mapping Universal AST to Canonical Rows/Datoms.            |
 |                                                  | `:yin/root` and `:eid` removed; `:yin/address` added; retains `:yin/params` on lambda and `:yin/name` on variable |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
-| `code/mnemonics`, `code/well-formed?`,           | `code/mnemonics` (`code.cljc:12-16`) is unchanged (§4.5). `well-formed?` keeps judging datom batches on the projection path before projection; the shared vector validator of §7.5 runs on   |
-| `code.cljc:12-180`                               | both paths after it                                                                                                 |
+| `code/mnemonics`, `code/well-formed?`,           | `code/mnemonics` (`code.cljc:12-16`) is unchanged (§4.5). The datom-batch judgement of `well-formed?` goes with the retired vector-to-datoms projection (§7.2); the one vector validator of §7.5 (`yin.vm.semantic-register.code/well-formed?`) runs on the direct vector load and on the vector either AST lane produces |
+| `code.cljc:12-180`                               |                                                                                                                     |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
-| `semantic/load-image`,                           | decodes from the vector directly on the primary path; frame binding for `:closure` matches arguments to `params` by position, binding each to its name (§7.7.2); apply (`semantic.cljc:200`) changes from `zipmap` to nil-filling missing params; `:var` opcode is unchanged, resolving env → store → primitives → modules (§4.5); decodes the new operand (`:closure params body`); both paths call the §7.5 validator   |
+| `semantic/load-image`,                           | decodes from the vector directly on the primary path; frame binding for `:closure` matches arguments to `params` by position, binding each to its name (§7.7.2); apply (`semantic.cljc:200`) changes from `zipmap` to nil-filling missing params; `:var` opcode is unchanged, resolving env → store → primitives → modules (§4.5); decodes the new operand (`:closure params body`); the direct vector load and both AST lanes call the §7.5 validator   |
 | `semantic.cljc:524-596`                          |                                                                                                                     |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
 | frontends                                        | keep emitting map ASTs to the stream (as named universal ASTs). They do not perform the tuple projection. |

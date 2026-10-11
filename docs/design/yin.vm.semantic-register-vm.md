@@ -17,6 +17,22 @@ environment, `define` through `put-active`), §2.5 (events: production
 versus relocation), §4.1 (in-VM reason names), §10 phase 4 (interim link
 format), §11 item 4. No transition and no shape changed.
 
+Amended 2026-10-11 after the phase-5 and phase-6 design reviews (codex
+rulings, text in `yin.vm.semantic-register-vm.derivations.md` §9.1
+F8-F14 and `yin.vm.semantic-register-vm.continuation.md` §10.1 F1-F4):
+§4.2 (row names `:act`/`:tail`, root `free-env`, the pure frame
+validator), §4.3 (the two kernels' layouts and the tail-completion
+seam), §6 (de Bruijn contracts keep names and versions; lowerers change
+in place; `:dim/lift-to` goes at cutover), §8.2 (interval bounds,
+`live` as `body-liveness`, R1 lowerer deleted), §8.3 (one walk, no
+adapter), §8.4 (execution oracle replaces the byte-identity question),
+§9 corpora (R/H goldens are the new lowerers' own), §10 phases 5, 6
+and 8 (oracle gate, three scanner obligations, body version 3 with one
+profile, cutover steps), §12; on review (codex, 2026-10-11) §7 drops
+the "two load paths" and vector-to-datoms claims in favour of §3.4 and
+names §§2.3/3.3/3.4 as the `"v4"` canonical vector and validator that
+take precedence over UCF §7.3.2. No transition and no shape changed.
+
 ## 1. Stance, in the owner's words
 
 > "The AST is the source of truth but the semantic vm is the canonical
@@ -687,14 +703,25 @@ innermost last, each well-formed), and pending compatibility with
 `reason`. Two captures of equal state therefore encode identically, and
 dead values never travel.
 
+The validator is the pure function `(defect frame code context task)`
+of `yin.vm.semantic-register-vm.continuation.md` §3: `task` is decoded
+task context (the parked key, the live FFI call ids, the free
+environment), never an engine; its rules are ordered, structural checks
+first, current-window rules on `act` only, return windows separately,
+and every `E` is checked to agree with the task's free environment off
+the lexical names; it runs after canonical numbering, as the carrier
+orders it.
+
 The row carrier (`yin.vm.ucf-transport-tuples.md` §5.2) changes
-accordingly: `:regs` becomes `[segment-A pc env-cref window-cref
-k-cref deliver-D]` for an `act` and a sibling `:tail-state [segment-A
-site k-cref deliver-D]` is added; `deliver` is structural data of the
-closed shape above; `:window` is a keyed row `[r₁ V₁ r₂ V₂ …]` sorted by
-`r`; `:kframe` becomes `[segment-A pc env-cref window-cref rd]`; and
-`:stack` and `stack-base` are removed. That amendment is written when
-this design lands (§10 phase 6).
+accordingly: the frame rows are `:act [segment-A pc env-cref window-cref
+k-cref rd]` and `:tail [segment-A site k-cref]`, the kind being the
+delivery discriminant, so `deliver` is not a slot; `:window` is a keyed
+row `[r₁ V₁ r₂ V₂ …]` sorted by `r` in which a nil-valued register is a
+present `[:lit nil]`; `:kframe` is `[segment-A pc env-cref window-cref
+rd]`; `:stack` and `stack-base` are removed; the root gains `free-env`,
+the task's initial free environment (continuation design §2, §6.3).
+That amendment is applied to the carrier draft with this design's
+phase 6 (§10; `yin.vm.semantic-register-vm.continuation.md` §10.3).
 
 ### 4.3 Foreign engines (UCF §7.4.2)
 
@@ -712,7 +739,18 @@ validated frames, the delivery record and the pending state, and **no**
 current window or `E`. A physical-slot map alone does not discharge it
 when values are spilled, rematerialized, or shared between locations;
 the engine owes the values, however it kept them. `lift(lower(frame)) =
-frame` holds for admitted canonical frames, as today.
+frame` holds for admitted canonical frames, as today. The register
+kernel pairs physical and virtual registers pc by pc from `v` and
+`R(v)`, recovers every destination from A's call (its `dest` is
+physical), and resolves each return frame's image and relative pc
+independently; the stack kernel corresponds the non-push instructions of
+`H(v)` with `v`, slices its operand stack `[previous-base, base_i)` per
+return frame and `[last-base, count)` for the current activation, and
+needs a tail-completion seam to deliver a tail state through `K`
+(continuation design §4.3, slice 6c-pre); both kernels' positional
+frames become `E` through the owner chain and `bind-params`, with the
+task's free environment carried explicitly. The AST walker is not a
+frame reconstructor.
 
 ## 5. Scheduler, park, resume, FFI, modules
 
@@ -739,25 +777,29 @@ body version (the row carrier's version 3 is revised in place before it
 is implemented, since nothing of version 3 has landed; versions 0-2 keep
 their bytes as historical contracts and describe the old machine).
 
-The de Bruijn contracts `"b2"` and `"r2"` are **not re-versioned by
-this document**. They are retained only if **both** their bytes on the
-corpus (§8.4) **and** their normative contracts (descriptors,
-validators, allocation rules, execution and live-operand rules) remain
-unchanged; a changed contract is versioned even when the corpus
-goldens happen to match, and a changed byte is versioned even when the
-contract text did not move. What changes here is their input (A
-instead of resolved tuples), which touches the register design's §4
-allocation contract (§8.2), so `"r2"` is the one expected to move.
+The de Bruijn contracts keep their names `"b2"` and `"r2"` and their
+version numbers; their lowerers change in place (owner, 2026-10-11: no
+legacy, no version). At cutover their descriptors lose the lift
+declaration `:dim/lift-to`, since the lift and its target are deleted
+with the named linearizer; the descriptor hashes and every H and R
+checksum are regenerated then, mechanically (derivations design §8.1-8.2).
 
 ## 7. What A is, restated
 
 A = `(jing/segment-key saturated-vector)`, Jing's default digest, over
 the §2.3 positional tuples of one segment, body-local register ids
-included, `live` sets and provenance excluded. Everything UCF §7.3
-says about A (content address of the loader-resolved interpretation,
-two load paths, projection to datoms with eid `(inc pc)`) stands with
-the new table substituted. A is the only code identity; H and R are
-checksums of §8's lowerings.
+included, `live` sets and provenance excluded. Of what UCF §7.3 says
+about A, this stands with the new table substituted: A is the content
+address of one resolved instruction stream, computed over the vector
+alone, under Jing's default digest, keyed per contract stamp. What does
+not stand: there are no "two load paths" and no projection of the
+vector to datoms (eid `(inc pc)`); the vector has one load path, the
+direct one, and the two AST projection lanes produce the vector (§3.4
+"One vector validator"; UCF §7.3.4 as amended). For `"v4"` the
+canonical vector is §2.3's table minted by §3.3's walk and validated by
+§3.4; UCF §7.3.2's stack-shaped vector describes the `"v3"` machine and
+is historical (UCF §7.3.2's precedence note). A is the only code
+identity; H and R are checksums of §8's lowerings.
 
 ## 8. Derivations from A
 
@@ -809,9 +851,11 @@ unchanged.
    order** (pre-order ids are not pc-ordered, §3.3):
    - *Intervals.* Each virtual register `v` with at least one syntactic
      definition has one interval `[start(v), end(v)]` in pcs: `start(v)`
-     is the pc of its first syntactic definition in textual order;
-     `end(v)` is the greatest pc at which `v ∈ L(pc)` or `v` is
-     syntactically defined, so an interval covers every definition
+     is the least pc at which `v` is syntactically defined or
+     `v ∈ L(pc)`, and `end(v)` the greatest such pc; on reachable code
+     `start(v)` is the first syntactic definition, and the widening
+     covers only layout-syntax live points (derivations design §2.2);
+     so an interval covers every definition
      (layout-syntax ones included, since they are emitted and must be
      in bounds) and every live point. A register with several leaf
      definitions (a conditional's `rd`, §3.2) therefore has **one
@@ -863,9 +907,12 @@ unchanged.
 3. **Fill `live`.** Exactly the r2 boundary opcodes carry a `live`
    operand (register design §4.4: `:call`, `:stream-put`, `:stream-next`,
    `:ffi-call`, `:current-continuation`, `:park`). For each, `live` is
-   the physical image of `L(pc+1) − {rd}`, computed **statically over
-   the whole CFG of the body, unreachable components included**, and
-   for a tail `:call` it is empty, because its successor set is empty.
+   `body-liveness` of the emitted physical body, the format's one
+   liveness function; its equality with the physical image of the
+   virtual live-out over the instruction's **actual successors** (§8.1)
+   minus `rd`, which is `L(pc+1) − {rd}` for a non-tail boundary and the
+   empty set for a tail `:call`, is a checked property of the gate
+   (derivations design §2.5), not a second definition.
    This is exactly what the register design's `body-liveness` computes
    over the physical image (it excludes the destination and treats
    tail calls as successor-less), and that function is the acceptance
@@ -878,32 +925,23 @@ unchanged.
    `{:bodies … :instructions …}` shape is filled from the body ranges.
    R = `register-hash` of the result, as a checksum.
 
-What this replaces in R1 (register design §4.1-4.6): the input
-validation (now §3.4), the expression-tree walk and its
-target-register-passing recursion (now steps 1-2 over a vector), and
-the consumption-event allocator (now explicit last-use linear scan).
-`body-liveness` and the R2 descriptor are reused. The register image's
-`lift` changes its output contract to the §2.3 table.
+This replaces R1's lowerer whole: `lower-register` and its tree walk are
+deleted at cutover (§10 phase 8); `body-liveness`, the validator and
+the kernel are reused unchanged; the R2 descriptor loses its lift
+declaration at cutover (derivations design §8.2). The lifts are deleted
+with the named linearizer.
 
 ### 8.3 A → H: the de Bruijn stack image
 
-1. Resolve as in §8.2 step 1.
-2. **Parse** each body under §3.1 into its expression tree; the
-   validator has already established that it parses.
-3. **Adapt** the recovered trees to the input shape `lower-stack`
-   consumes today, resolved tuples plus side table (register design
-   §2.1): one resolved record per occurrence (occurrences stay
-   positionally expanded, never re-shared), defaults as saturated,
-   `:yin/tail?` from the `:call`'s `tail?`, binder arities from the
-   `:closure` instructions, and bodies in the §3.3 queue order so that
-   discovery order is preserved.
-4. **Emit** with the existing `lower-stack` walk
-   (`yin.vm.debruijn-linearize`), which is the named linearizer's
-   flattening: operator, `:push`, operands with `:push` each, `:call
-   argc tail?`, labels for conditionals, bodies out of line in
-   discovery order. Absolute pcs are recomputed by that emission (the
-   stack image's layout is its own). H = `image-hash` of the result, as
-   a checksum.
+1. Resolve as in §8.2 step 1 (the resolved vector carries the parse).
+2. **Emit** by one walk over each body's recovered tree: operator,
+   `:push`, operands with `:push` each, `:call argc tail?`, labels for
+   conditionals, `:define name` after its value, bodies out of line in
+   FIFO discovery order, each ending in `:return`, main in `:halt`;
+   labels resolved to pcs in a second pass. Body discovery order
+   agrees with A's and R's, and the stack image's pcs are its own; H
+   is the stack kernel's bytecode and need equal neither R nor any
+   earlier image. H = `image-hash` of the result, as a checksum.
 
 This is a whole-body lowering by the recovered grammar, not an
 instruction-by-instruction expansion; the Architect's finding that
@@ -911,20 +949,27 @@ instruction-by-instruction expansion; the Architect's finding that
 parse hands the emitter the tree and the emitter's own walk places the
 pushes.
 
-### 8.4 The byte-identity question
+### 8.4 Verification
 
-For every corpus program `P`: are the emitted vectors and their encoded
-bytes of `lower-stack(adapt(parse(resolve(A(P)))))` equal to today's
-`lower-stack(resolve(P))`, and likewise for the register image? The
-comparison is of the actual vectors and canonical bytes, with the
-checksums as a summary, never checksums alone. The emitter walk in
-§8.3 is the same walk as today's, over the same tree, so H is expected
-to hold; R depends on whether §8.2's interval scan reproduces R1's
-reservation-and-release timing, which is not expected to hold exactly.
-The decision is made from the evidence (§10 phase 5) **together with
-§6's contract test**: a contract is kept only if bytes and normative
-rules are both unchanged; otherwise it is re-versioned plainly, with
-its goldens regenerated, and nothing pretends otherwise.
+R and H are functions of A alone and are two kernels' bytecode: they
+need not equal each other or any earlier image, and no gate compares
+them with one. The old lowerers are an **execution** oracle: every
+program of the corpus the derivations design §6.1.1 names runs through
+the old and the new pipeline on the same kernels under the same
+composition and must give identical observable results under one
+normalization (derivations design §6.1.2), with the executable rows
+stated precisely (derivations design §6.1.3: the 26 B0 rows and twelve
+register-corpus rows to a value, nineteen rows to an equal throw, one FFI
+row under an explicit zero-argument bridge; derivations design §6.1.4:
+ten C4 root import programs to
+their pinned outcomes and the eight module bodies run as root programs,
+the install-child path over new module images being phase 8's). Every
+emitted image passes the format's validator, including `live-exact`;
+the tricky cases are pinned as hand-derived goldens (derivations design
+§6.3); and determinism is checked (same A, same bytes; ASTs differing
+only in facts A omits, same A). Pinned checksums are regenerated, once
+at the slice and once at cutover (derivations design §8.1); nothing is
+versioned.
 
 ## 9. Blast radius
 
@@ -950,16 +995,18 @@ continuation-invoke, safepoint, lift, handoff and cross-engine tests.
 **Notational or focused.** code-as-tuples §5 (instruction contract) and
 §7.2 (validator interface); UCF revision history and implementation
 plan; the stack and register native VM documentation and restore
-adapters, **only if their contracts survive §8.4** (otherwise they are
-rewrites under a new version); blog Part Three's `St` paragraph;
+adapters (their contracts keep their names and versions and their
+lowerers change in place, §6 and §8.4); blog Part Three's `St` paragraph;
 REPL/session composition, encoder loaders, telemetry and benchmark
 fixtures that name the old shape.
 
 **Corpora.** Source programs, expected results, errors and effect
 traces are preserved. Every semantic vector, A, pc, saved frame and
 transported body is regenerated. Stage D/E scenarios and handoff/
-checkpoint fixtures are re-encoded. H and R goldens are preserved only
-if §8.4 says the bytes held.
+checkpoint fixtures are re-encoded. R and H goldens are the new
+lowerers' own, pinned at the slices and re-pinned at cutover when the
+descriptors lose their lift declaration (derivations design §8.1-8.2);
+neither is compared with an earlier image.
 
 **Untouched in substance.** The Universal AST and front ends; Rule R;
 the stream protocol; FFI correlation; lease, custody, fencing,
@@ -1010,27 +1057,64 @@ until phase 8.
    retained-request and response phases.
 5. **Derivations.** §8.2-8.3 implemented; the lexical-address law
    (`addresses(H) = addresses(R) = addresses(resolve(A))`) and
-   behavioural parity of all three kernels on the corpus; the §8.4
-   byte-and-contract decision recorded with its evidence; **the
-   dependency-closure scanners (UCF §7.6.1) reimplemented over the new
-   table answer identically to the old ones on the C4 linked-prelude
-   corpus** (free names, store footprint, discharged bodies), since the
-   C4 track's module layout is built against those answers.
+   behavioural parity of all three kernels on the corpus; the
+   execution oracle, validators, goldens and determinism checks of §8.4
+   green on three hosts, the slow C4 rows actually run; **the
+   dependency-closure scanners (UCF §7.6.1) reimplemented over the
+   new table agree with the old ones and with the tree-side oracles on
+   the B0 corpus, the register corpus and the C4 linked-prelude modules
+   by name**, under three obligations (derivations design §7.3): (i)
+   unordered agreement, old = new = the tree scanners and queries, on
+   free-name sets, the multiset of free-name occurrences as
+   `[name in-body?]`, the multiset of definitions as `[name conditional?]`,
+   and the store-key, FFI-op, parked-id and effect-kind sets (positions
+   excluded since the layouts differ; the tree scanners order by
+   structural path and are compared unordered); (ii) ordered agreement,
+   old = new = an independent emission-order tree oracle (main sequence
+   then bodies FIFO; a definition visits only its value operand), on the
+   occurrence and definition sequences and on the application-site count
+   (definition applications excluded, FFI sites included); (iii) join
+   agreement through `linker/verify`, old = new on the **complete
+   normalised outcome**: a success with its retained obligations as
+   `[name in-body?]` in order, or a refusal with its reason and name
+   (`:use-before-definition` included, exercised by a row that must
+   refuse on both sides). The old scanners' answers, normalised joins
+   included, are pinned as goldens before cutover deletes them, since the
+   C4 track's module declarations are built against those answers; the
+   C4 gate is read-only and compares declarations against the discharged
+   external-name set (module-defined keys and `yin/def` removed,
+   requirement-covered names removed), not raw free names.
 6. **Continuation format.** §4.2 frames and both state shapes, the
    full frame validator, the safepoint harness of §4.1 (bidirectional
    lift/lower rows for every kind and both delivery modes, pending
    waits, nested and reified captures, module contexts, refusals); the
-   row carrier amended. Gate: UCF §7.11's harness green **for every
-   engine intended to reconstruct canonical frames** (the semantic
-   kernel, the stack and register kernels through their layouts), not
-   the semantic profile alone.
+   row carrier amended to body version 3 with one profile,
+   `{:yin.code/contract "v4" :yin.k/version 1}`, carrying canonical
+   vectors by A, `:yin.k/trees` and the task's free environment, never
+   a native image (continuation design §2, §6). Gate: UCF §7.11's
+   harness green **for every engine intended to reconstruct canonical
+   frames** (the semantic kernel, the stack and register kernels through
+   their layouts, the stack kernel with its tail-completion seam; the
+   walker is excluded), not the semantic profile alone.
 7. **Stage D/E rerun.** Handoff, fencing, custody, durability,
    crash-cut and cross-process acceptance over the new transport, three
    hosts.
 8. **Cutover.** Delete `yin.vm.semantic` (old), rename
    `yin.vm.semantic-register` to `yin.vm.semantic`, remove the old H/R
-   request paths and the `raise` dependency, finalize documentation.
-   No compatibility shim.
+   request paths and the `raise` dependency, remove the `:dim/lift-to`
+   row from both de Bruijn descriptors without a version bump and
+   regenerate the descriptor hashes and every pinned H and R
+   (derivations design §8.1-8.2); delete `yin.vm.debruijn-resolve`,
+   `yin.vm.debruijn-linearize`, `yin.vm.debruijn-register-compile` and
+   their tests only after the replacement coverage of §8.4 is green and
+   the descriptor-hash golden has moved to a surviving namespace; switch
+   `linker/relowered`, `publish-closure!` and the REPL to the A-derived
+   lowerings (derivations design §8.3); regenerate the manifests'
+   derivation records as `A → H`, `A → R` and the format index in its
+   final shape `{format storage-address}` (derivations design §7.6,
+   §8.1); run the C4 suite over the newly published images as the
+   install-child gate (derivations design §6.1.4 (c)); finalize
+   documentation. No compatibility shim.
 
 ## 11. Questions resolved by the freeze review
 
@@ -1060,7 +1144,8 @@ design is the choice of the independent reference implementation that
 
 The Universal AST; code identity (A, as ruled); the walker; the stream
 protocol and every outcome vocabulary; custody and admission; the de
-Bruijn descriptors (pending §8.4); the six invariants' satisfaction, in
+Bruijn contracts' names and versions (their descriptors lose only the
+`:dim/lift-to` row at cutover, §6); the six invariants' satisfaction, in
 the Architect's reading: no hidden global state (register counters are
 lowering data; windows, destinations and saved state are explicit), no
 implicit control flow, no callbacks, no shared mutable state (windows
