@@ -54,6 +54,21 @@ snapshot variants preserve the operation baseline, the install phase
 no longer constrains the child's kind, the defect set is defined in
 full, and unknown transport acceptance is neither commitment nor its
 absence.
+Amended 2026-10-11 (r8) for the register-shaped canonical machine, on the
+codex-reviewed amendment texts of
+`yin.vm.semantic-register-vm.derivations.md` §9.2 (unitarity) and
+`yin.vm.semantic-register-vm.continuation.md` §10.2 (U1-U7): 7.3.4
+carries register-shaped vectors by A and `:yin.k/trees`, one vector load
+path (the projection path is retired); 7.4.1 is superseded for the
+register-shaped machine and its frame example is the keyed `act`/`tail`
+form; 7.4.2 publishes `def`/`use`/`live` in place of `stack-effect`;
+7.4.3 pendings ride on `act` or `tail` states; 7.6.1 gains `:yin.k/trees`
+and 7.6.1a (the source association and its completeness rule); 7.11 and
+7.11.1 require the frame validator and cross-engine canonical equality
+across the three repository engines; 7.2.1 opens with the scope
+statement that makes body versions 0-2 and their clauses historical
+(the row carrier of body version 3 takes precedence). Segment addresses
+are spelled under Jing's default digest, BLAKE3.
 Subordinate to [`datom.world.md`](./datom.world.md); builds on the Phase 0
 contract in [`yin.vm.semantic.md`](./yin.vm.semantic.md) (§1–§4), the storage
 contract in [`dao.jing.md`](./dao.jing.md), the stream contract in
@@ -119,7 +134,7 @@ never a bare marker map.
 ```clojure
 {:yin.k/type        :yin.k/continuation
  :yin.k/contract    {:yin.code/contract "v3" :yin.k/version 0}   ; S7.3.3
- :yin.k/id          :segment/sha256-…          ; §7.3.4  content address of this map minus :yin.k/id
+ :yin.k/id          :segment/blake3-…          ; §7.3.4  content address of this map minus :yin.k/id
  :yin.k/occurrence  :yin.k/o-…                  ; §7.7    the checkpoint occurrence — the lease subject
  :yin.k/origin      {:yin.k/occurrence :yin.k/o-…                        ; predecessor, or absent on a first park
                     :dao.lease/lease   :dao.lease/l-…                     ; the grant it ran under
@@ -164,6 +179,29 @@ Admission outcomes are a second, disjoint family with their own dispatch
 key. The full algebra is in 7.9.
 
 ### 7.2.1 The handoff body: the task wire grammar, versions 0 and 1
+
+**Scope (2026-10-11).** Body versions 0, 1 and 2 and every clause of
+this document that admits, reads, recovers or interoperates with them
+are **historical**: they describe the stack-shaped machine's handoff,
+which leaves at `yin.vm.semantic-register-vm.md` §10 phase 8. The row
+carrier of body version 3 (`yin.vm.ucf-transport-tuples.md` as amended by
+`yin.vm.semantic-register-vm.continuation.md`) reads no other version and
+takes **precedence** over any sentence below that implies otherwise; a
+conflict is resolved in its favour without further amendment. **Not
+historical**: the custody, fencing and operation-id semantics (§7.7.8,
+§7.9, §7.4.3's operation ids) travel in version 3 as the root's
+`custody` slot (`yin.vm.ucf-transport-tuples.md` §5.5) and stay
+operative; where those sections say "a version-1 body" read, for version
+3, "a root whose custody policy is `:yin.k/exclusive`", and where they
+say "a version-0 body" or "fork", "a root whose policy is `:yin.k/fork`"
+(§5.5's table). The code stamp `{:yin.code/contract "v3" :yin.k/version
+0}` wherever this document shows it (§7.2's envelope example, the body
+example below, §7.3.3) is the stack-shaped machine's; the
+register-shaped machine's contract is `"v4"`
+(`yin.vm.semantic-register-vm.md` §6), the one the version-3 profile map
+names, and §7.2's envelope example is superseded for version 3 by the
+row carrier's wire unit (`yin.vm.ucf-transport-tuples.md` §3, ids under
+Jing's default digest).
 
 (Amendment r5, 2026-10-04; `yin.vm.linker.dht.md` 14.3 item 2.) The
 envelope above is the design shape. The value a driver publishes is the
@@ -411,7 +449,9 @@ Rules, each replacing heavier machinery from the attributed-map record:
   no successor here because there is no sort at all.
 
 **The address** is `(dao.jing/segment-key vector)` — a
-`:segment/sha256-<hex>` keyword. The vector *is* the resolved
+`:segment/blake3-<hex>` keyword under Jing's default digest, BLAKE3 (the
+algorithm is named in the keyword and verified per id). The vector *is*
+the resolved
 interpretation, so r2's collision-freedom argument carries over unchanged
 and needs only restating: canonicalization and execution read the same
 value by construction; there is nothing left to collide. The address fixes
@@ -508,23 +548,31 @@ payload it is handed and verifies address-equals-hash on every write and read
 stored at a code address **is the canonical instruction vector** — nothing
 else hashes to that address. A raw segment batch, with tempids and
 provenance, materializes under its *own* different address and is not a
-resolution mechanism for UCF; `:yin.k/carried` carries vectors, not batches.
+resolution mechanism for UCF; `:yin.k/carried` and the body's code map
+carry **register-shaped canonical vectors keyed by A**, never batches,
+never datoms projected from a vector, and never a native stack or
+register image: a receiver of either native kernel derives its image from
+A (`yin.vm.semantic-register-vm.derivations.md` §2-3). `:yin.k/requires
+:yin.k/trees` maps every address in `:yin.k/segments` to the non-empty
+set of tree addresses the emitter's `source-index` held for it
+(`yin.vm.semantic-register-vm.derivations.md` §9.2; §7.6.1a below). The
+three-way resolution order below applies to **vectors**; a tree is
+resolved by address through the resumer's own `source-index` or by a
+`dao.jing` read, and the value's `:yin.k/trees` entries are merged into
+that index on arrival. A segment with no `:yin.k/trees` entry is
+`:yin.k/missing :yin.k/trees` and discovery is `:incomplete` (§7.6.5),
+never a silent load; a known tree address that does not read now is a
+fetch outcome, not a missing association. The derivations of native
+images do not read the tree; the value preserves retrievability, which
+is what the unitarity invariant asks (`datom.world.md`).
 
-Loading a fetched vector has two paths, and both are specified. The
-**projection path** converts the vector to loadable datoms deterministically
-— segment entity eid `0`, instruction of pc `p` eid `(inc p)`, each tuple
-emitted with `:yin.code/segment 0` and its saturated operands as attribute
-datoms (so the round trip vector → datoms → loader is the identity), each
-resolved-pc operand emitted as a ref to that eid — and hands the batch to
-the ordinary §2.6 loader, so every well-formedness check runs on the way in.
-The **direct path** decodes the canonical vector into an image without
-datoms, as a foreign engine would. The two paths are a conformance
-obligation: both must yield the same image, and a test in the harness (§7.11)
-asserts it for every corpus segment. `yin.vm.code-as-tuples.md` §7.2
-supersedes this section's original designation of the projection path as the
-reference path: the direct path is primary and is the reference; the
-projection path is derived from it. Both invoke the same validator, and
-nothing may depend on which path a conforming engine takes.
+Loading a fetched vector has **one path**: the direct decode of the
+canonical vector into an image through the one validator
+(`yin.vm.semantic-register.code/well-formed?`). The projection path
+(vector → datoms → loader) is retired (owner ruling 2026-09-18;
+`yin.vm.semantic-register-vm.md` §3.4). The conformance obligation is
+that the two AST projection lanes and the direct vector load yield one
+image and address (`load_paths_test.cljc`).
 
 On lowering, the resumer resolves each address in this order and stops at the
 first hit:
@@ -572,6 +620,11 @@ runnable checkpoint.
 
 ### 7.4.1 Only safepoints lift, and the table is the machine's
 
+Superseded for the register-shaped machine by
+`yin.vm.semantic-register-vm.md` §4.1 (two state columns, `act` and
+`tail`, and the `deliver` record); the table below describes the
+stack-shaped machine, which leaves at that design's phase 8.
+
 The linear machine's registers are canonical only *between* instructions.
 Inside a `:call` that has popped its operands but not yet pushed a frame, or
 inside a superinstruction the loader fused (§6.4), no ⟨C, E, S, K⟩ exists
@@ -603,26 +656,34 @@ point. And `pc+1` as the resume pc is verified sound for every row above:
 §2.6 requires the final pc to be a terminator, so every listed instruction
 has a successor in its own segment.
 
-The `:yin.k/frame` is exactly the wait-entry shape of `yin.vm.semantic.md`
-§3.5, with segments replaced by addresses and values by their portable
-encodings (§7.5):
+The `:yin.k/frame` is the decoded canonical frame of the register-shaped
+machine (`yin.vm.semantic-register-vm.md` §4.2;
+`yin.vm.semantic-register-vm.continuation.md` §1.2), with segments as
+addresses and values in their portable encodings (§7.5), in its keyed
+form:
 
 ```clojure
-:yin.k/frame
-{:yin.k/segment  :segment/sha256-3f1a…
- :yin.k/pc       5                         ; the resume pc, already pc+1
- :yin.k/reason   :next                     ; :park | :next | :put | :ffi
-                                          ; | :ffi-request | :call-effect
-                                          ; | :link-request | :link-response
-                                          ; | :install
- :yin.k/val      nil                       ; accumulator; nil except where §7.4.3 pre-fills it
- :yin.k/stack    [ … ]                     ; St per the table above, encoded
- :yin.k/env      { sym → encoded value }   ; E
- :yin.k/k        [ {:yin.k/frame-type :return                    ; or :eval-call / :request-sent,
-                    :yin.k/segment :segment/sha256-…             ; which also carry :yin.k/call-id
-                    :yin.k/pc 5 :yin.k/env {…} :yin.k/stack-base 0} … ]   ; K, innermost last
- :yin.k/pending  {…}}                      ; the wait it was in, §7.4.3 — one variant per reason
+;; act state
+{:yin.k/state :act
+ :yin.k/segment A  :yin.k/pc n                ; the resume pc, already pc+1
+ :yin.k/env   {:yin.k/bindings {sym V …} :yin.k/store-of M?}
+ :yin.k/window {r V …}                      ; exactly saved(pc, rd); sorted by r on the wire
+ :yin.k/deliver {:yin.k/deliver :rd :yin.k/rd r}
+ :yin.k/k [{:yin.k/frame-type :return :yin.k/segment A :yin.k/pc n
+            :yin.k/env E :yin.k/window {r V …} :yin.k/rd r} …]
+ :yin.k/pending {…}}                        ; absent on a parked record and a reified value
+
+;; tail state
+{:yin.k/state :tail
+ :yin.k/segment A  :yin.k/site n
+ :yin.k/deliver {:yin.k/deliver :return}
+ :yin.k/k [ … ]
+ :yin.k/pending {…}}
 ```
+
+The wait's reason travels in the pending (§7.4.3), one variant per
+reason; the stack-shaped machine's `:yin.k/val`, `:yin.k/stack` and
+`:yin.k/stack-base` are gone.
 
 **Linker safepoints (M4).** Every block marked (linker M4) is specified by
 `yin.vm.linker.md`; the private resources table, sealed references and
@@ -669,37 +730,40 @@ The reference machine needs no metadata because its registers *are* the
 canonical configuration. A foreign engine — a register allocator over the
 image, a WebAssembly lowering, a JIT — keeps its state in physical locations
 of its own choosing, and the first draft promised it reconstruction data
-that is not a function of the code: absolute stack depth and environment
-key sets at a pc depend on the *activation* — a closure enters with the
-caller's residual operand stack and an environment formed from its captured
-environment plus arguments (`apply-call`), and §2.6 enforces no equal stack
-heights at joins, so the same pc is legitimately reached at many depths.
+that is not a function of the code: the saved window's values, the
+environment's bindings and the depth of `K` at a pc depend on the
+*activation*; the same pc is legitimately reached under many windows and
+environments.
 None of that is derivable, and none of it needs to be: **the frame carries
-it.** E, St, and every K frame's `:stack-base` and env travel in the value;
-a foreign engine lowers the canonical frame directly.
+it.** E, the saved window, and every K frame's window, `rd` and env
+travel in the value, as does the task's free environment; a foreign
+engine lowers the canonical frame directly.
 
 What *is* a function of the canonical vector alone, and what such an engine
 must publish — **per segment and per engine profile**, derived from the
 canonical stream at its own load time — is the static half:
 
 ```clojure
-[[sp :yin.safepoint/segment      :segment/sha256-3f1a…]  ; the code, by address
+[[sp :yin.safepoint/segment      :segment/blake3-3f1a…]  ; the code, by address
  [sp :yin.safepoint/engine       :wasm32/v1]             ; the engine profile that produced this layout
  [sp :yin.safepoint/pc           5]                      ; canonical resume pc
- [sp :yin.safepoint/stack-effect -1]                     ; Δ|St| across the parking instruction (static)
+ [sp :yin.safepoint/def          #{…}]                   ; registers defined at this pc (static, from A)
+ [sp :yin.safepoint/use          #{…}]                   ; registers read at this pc (static, from A)
+ [sp :yin.safepoint/live         #{…}]                   ; L(pc) (static, from A)
  [sp :yin.safepoint/lexically-required [x conn]]         ; names this pc can read from E (static)
- [sp :yin.safepoint/layout       {…}]]                   ; engine-owned: physical slot → canonical slot
+ [sp :yin.safepoint/layout       {…}]]                   ; engine-owned: physical location → virtual register (continuation design §4)
 ```
 
 Rules:
 
-- `stack-effect` and `lexically-required` are **derived from the canonical
-  vector alone**, by the same static walk the linearizer performs (§5.3).
-  They are identical for every engine and checkable against the reference
-  machine by a conformance test that runs the segment to each safepoint and
-  compares the observed deltas and E-reads. Absolute depth, activation
-  bases, captured environments, and physical layouts are **not** claimed,
-  not derived, and not in this table; they are the frame's business.
+- `def`, `use`, `live` and `lexically-required` are **derived from the
+  canonical vector alone** (`yin.vm.semantic-register.analysis`). They are
+  identical for every engine and checkable against the reference machine
+  by a conformance test that runs the segment to each safepoint and
+  compares the saved window's key set with `live − {rd}` and the E-reads.
+  Window values, environments, `K` and physical layouts are **not**
+  claimed, not derived, and not in this table; they are the frame's
+  business.
 - `:yin.safepoint/layout` is opaque to the protocol. It is a memo the engine
   keeps so that its `lift` is a table lookup. It never travels in a UCF
   value; a resumer that is a different engine has its own.
@@ -760,6 +824,11 @@ left implicit on the emitter's heap:
 ```
 
 Three rules make these resumable somewhere other than where they were minted:
+
+A pending rides on an `act` state (write-result delivery) or a `tail`
+state (through-return delivery); the variants are unchanged, and
+`:yin.k/registers R` of the version-2 amendment is the `act`/`tail` state
+of the frozen design `yin.vm.semantic-register-vm.md` §4.2.
 
 - **The response position is a kept cursor, never an anchor.** Reattaching
   at `:oldest` replays responses that belong to other calls; attaching at
@@ -1346,15 +1415,46 @@ guessed from the current environment:
 
 ```clojure
 :yin.k/requires
-{:yin.k/segments        #{:segment/sha256-3f1a… :segment/sha256-9c02…}  ; every address in frame, k, closures, values, parked
+{:yin.k/segments        #{:segment/blake3-3f1a… :segment/blake3-9c02…}  ; every address in frame, k, closures, values, parked
  :yin.k/primitives      {sym → profile, §7.5.2}                        ; every {:yin.k/primitive …} encoded, plus every free :var
- :yin.k/modules         {my.mod :segment/sha256-…}                     ; module name → manifest address
+ :yin.k/modules         {my.mod :segment/blake3-…}                     ; module name → manifest address
  :yin.k/effects         #{:stream/next :stream/put :module/require}    ; effect kinds the segments can raise
  :yin.k/ffi-ops         #{:op/add}                                     ; :yin.code/ffi-op values present
  :yin.k/streams         #{<identity> …}                                ; logical-stream identities referenced anywhere
  :yin.k/cursor-profiles #{:dao.stream/file-v1} ; required cursor profile
+ :yin.k/trees           {A #{tree-address …}}                           ; §7.6.1a  the trees each segment was projected from
  :yin.k/discovery       :complete}                                     ; :complete | :incomplete | :blocked — computed, §7.6.5
 ```
+
+#### 7.6.1a `:yin.k/trees`: the source association (amendment 2026-10-11)
+
+(`yin.vm.semantic-register-vm.derivations.md` §9.2, under the unitarity
+invariant of `datom.world.md`: the AST tree must be retrievable wherever
+code is lowered.) `:yin.k/carried` carries vectors, not batches, and
+`:yin.k/requires :yin.k/trees` maps every address in `:yin.k/segments` to
+the set of tree addresses the emitter's `source-index` held for it. The
+three-way resolution order of §7.3.4 applies to **vectors**; a tree is
+resolved by address through the resumer's own `source-index` or by a
+`dao.jing` read, and the value's `:yin.k/trees` entries are merged into
+that index on arrival. A segment with no `:yin.k/trees` entry is
+`:yin.k/missing :yin.k/trees` and discovery is `:incomplete` (§7.6.5),
+never a silent load; a known tree address that does not read now is a
+fetch outcome, not a missing association. The derivations of native
+images do not read the tree; the value preserves retrievability, which
+is what the invariant asks.
+
+**Completeness.** A value is **complete** for the invariant when every
+segment address it carries or requires has a non-empty `:yin.k/trees`
+entry; an absent entry and an entry holding an empty tree set are both
+incomplete. Absence of an entry is the design defect the owner names
+(the lowering site lost the tree). A **known** tree address whose read
+fails now (a `dao.jing` miss, a transport error) is not absence: the
+association is intact and the read is retried or reported as the
+ordinary fetch outcome of the medium. Nothing here turns a failed read
+into a refusal of code that is otherwise linkable: retrievability is a
+property of the association, not of one read. A is not a key to one
+tree (several ASTs project to one A, `yin.vm.semantic-register-vm.derivations.md`
+§4.2); any one retrievable member satisfies the invariant.
 
 The fixed point starts from the frame, its K frames, the parked records of
 §7.6.3, the store slice, and the pending wait. Its unit of analysis is a work
@@ -1536,7 +1636,7 @@ holds and answers with one outcome:
 ```clojure
 {:yin.k/status    :yin.k/unsatisfied
  :yin.k/discovery :incomplete                    ; or :blocked, §7.6.1 — the computed status of the closure itself
- :yin.k/missing   {:yin.k/segments       #{:segment/sha256-9c02…}
+ :yin.k/missing   {:yin.k/segments       #{:segment/blake3-9c02…}
                    :yin.k/primitives     {println <expected profile>}
                    :yin.k/modules        {my.mod …}
                    :yin.k/streams        #{<identity>}
@@ -2727,9 +2827,16 @@ the review's named architectural obligations; they are blockers to
   on the reference machine to each safepoint of the complete §7.4.1 table —
   effect-producing calls included — lifts, lowers into a fresh VM, and
   checks the parity suite's result; the same harness is what a foreign
-  engine runs to claim conformance, including `lift ∘ lower = id`, the
-  static `stack-effect`/`lexically-required` checks, and the §7.3.4
-  projection/direct-path image-equality assertion.
+  engine runs to claim conformance, including `lift ∘ lower = id` on
+  canonical frames, the static `def`/`use`/`live` and
+  `lexically-required` checks, the frame validator on every frame, and
+  **cross-engine canonical equality**: one program at one safepoint lifts
+  to row sets with equal root ids after the harness's specified
+  re-emission (`yin.vm.semantic-register-vm.continuation.md` §5.5) from
+  the semantic-register kernel and from the stack and register kernels
+  through their layouts, the stack kernel with its tail-completion seam;
+  and the §7.3.4 image-equality assertion (the two AST projection lanes
+  and the direct vector load yield one image and address).
 - **Exporting-state integration.** The lift driver's exporting transition
   and its failure/retry paths, tested specifically against the
   poll-a-blocked-writer-appends hazard of §7.7.4.
@@ -2886,16 +2993,19 @@ claim that all five blockers have closed.
   item 12). Exercise distinct activation depths and captured environments
   at one pc, a nonempty ready queue, a nonsafepoint pc, and a kept response
   cursor shared by two waiters. Omit the portable cursor profile for the
-  refusal case. Separately prepare two independently implemented UCF
-  engines with a nontrivial call stack, a captured closure, and a blocked
-  effect at the handoff point.
+  refusal case. Separately prepare the three engines intended to
+  reconstruct canonical frames (the semantic-register kernel; the
+  register kernel; the stack kernel after its tail-completion seam) with
+  a nontrivial call stack, a captured closure, and a blocked effect at
+  the handoff point.
 - Action and expected outcome: On each host, lift a parked task and lower
   into a fresh VM, then compare its result and effect trace with the
   reference machine. Before the full corpus, lift that handoff from one
-  engine and lower it in the other; the frame, pending wait, next result,
-  and effect trace must agree in both directions. Static
-  `:yin.safepoint/kinds`, stack effect, and lexical reads agree with the
-  reference trace. The observed parked record, wait entry, and effect
+  engine and lower it in the other; the canonical row set after
+  re-emission, the pending wait, next result and effect trace must agree
+  across all three and in every lowering direction. Static
+  `:yin.safepoint/kinds`, `def`/`use`/`live`, and lexical reads agree with
+  the reference trace. The observed parked record, wait entry, and effect
   outcome determine `:yin.k/reason` and `:yin.k/pending`, never the
   static kind alone.
   Test both FFI states and each call effect. `lift(lower(frame))` must
