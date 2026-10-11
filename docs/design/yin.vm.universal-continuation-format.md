@@ -146,7 +146,7 @@ never a bare marker map.
  :yin.k/arbitration {:dao.stream/identity … :dao.stream/descriptor …}     ; §7.7.3  the authority medium, named in the value
  :yin.k/frame       {…}                        ; §7.4  the canonical CESK at a safepoint
  :yin.k/values      {…}                        ; §7.5.3  shared subvalues, by content address
- :yin.k/cursors       {…}                        ; §7.5.3  cursors: logical identity + position
+ :yin.k/cells       {…}                        ; §7.5.3  cursor cells: logical identity + position
  :yin.k/scheduler   {…}                        ; §7.6.3  fresh-name state and referenced parked records
  :yin.k/requires    {…}                        ; §7.6  dependency closure, with discovery status
  :yin.k/store       {…}                        ; §7.6.2  the store slice restored as an isolated store
@@ -157,7 +157,7 @@ never a bare marker map.
 The parts answer four questions a resumer must be able to ask of the data
 alone: *what code* (`:yin.k/requires`, `:yin.k/carried`, and every segment
 address inside the frame), *what state* (`:yin.k/frame`, `:yin.k/values`,
-`:yin.k/cursors`, `:yin.k/store`, `:yin.k/scheduler`), *what world*
+`:yin.k/cells`, `:yin.k/store`, `:yin.k/scheduler`), *what world*
 (`:yin.k/requires`, `:yin.k/arbitration`), and *who may run it*
 (`:yin.k/policy`, `:yin.k/occurrence`, with the custody facts of §7.7 on
 their own medium).
@@ -227,7 +227,7 @@ map. The body carries no `:yin.k/id`: its address is the hash of the body
  :yin.k/parked        {pid registers}      ; 7.6.3 parked records
  :yin.k/store         {encoded encoded}    ; 7.6.2 isolated slice
  :yin.k/module-stores {module {encoded encoded}}
- :yin.k/cursors         {cursor {:yin.k/stream marker
+ :yin.k/cells         {cursor-cell {:yin.k/stream marker
                              :yin.k/position p}}   ; 7.5.3
  :yin.k/requires      {:yin.k/cursor-profiles #{profile}
                        :yin.k/segments #{address}}
@@ -240,6 +240,8 @@ map. The body carries no `:yin.k/id`: its address is the hash of the body
  ;; when the task holds live install children (7.4.3)
  :yin.k/installs      {module install}}
 ```
+
+The spellings `:yin.k/cells`, `:yin.k/cell`, `:yin.k/response-cell` and `:yin.k/c-<n>` are the body-version 0/1/2 wire spellings, as the version-2 code (`ucf/handoff.cljc`, `ucf/remote.cljc`) uses them; version 3, the row carrier of `yin.vm.ucf-transport-tuples.md`, spells the same cursor cells `:yin.k/cursor-cells`, `:yin.k/cursor-cell`, `:yin.k/response-cursor-cell` and `:yin.k/cc-<n>`.
 
 `registers` is `{:yin.k/segment address :yin.k/pc n :yin.k/env {name
 encoded} :yin.k/stack [encoded] :yin.k/k [frame]}`, every key required,
@@ -257,8 +259,8 @@ Shape rules, each a `:yin.k/undecodable` refusal naming its path:
 - A frame's resume pc is a static safepoint whose kinds admit the
   pending's reason; a parked record's resume pc is an `:explicit-park`
   safepoint (`yin.vm.ucf-revisions.md` section 8).
-- The cursors the body carries are exactly the cursors its roots name:
-  none missing, none extra. A body with cursors claims
+- The cursor cells the body carries are exactly the cursor cells its roots name:
+  none missing, none extra. A body with cursor cells claims
   `:dao.stream.remote/v1`, else `:yin.k/unsatisfied`.
 - Each code vector hashes to its key (`:yin.k/hash-mismatch`) and is
   well formed under the stamp.
@@ -820,7 +822,7 @@ left implicit on the emitter's heap:
 ```clojure
 ;; blocked read (:stream-next)
 {:yin.k/reason   :next
- :yin.k/cursor     :yin.k/cur-17}          ; the CURSOR id, §7.5.3 — not a bare position
+ :yin.k/cell     :yin.k/c-17}          ; the cursor CELL id, §7.5.3 — not a bare position
 
 ;; blocked write (:stream-put, or an effectful call's :stream/put)
 {:yin.k/reason   :put
@@ -834,7 +836,7 @@ left implicit on the emitter's heap:
  :yin.k/op         :op/add
  :yin.k/request    {:dao.stream/identity … :dao.stream/descriptor …}   ; where the request went
  :yin.k/response   {:dao.stream/identity … :dao.stream/descriptor …}   ; where the answer lands
- :yin.k/cursor       :yin.k/cur-23         ; the response cursor, §7.5.3, at its KEPT position}
+ :yin.k/cell       :yin.k/c-23         ; the response cursor cell, §7.5.3, at its KEPT position}
 
 ;; FFI call, retained (:ffi-call → full): the request is still in hand
 {:yin.k/reason     :ffi-request
@@ -843,8 +845,10 @@ left implicit on the emitter's heap:
  :yin.k/request-args [<encoded> …]     ; enough to rebuild the envelope verbatim
  :yin.k/request    {identity/descriptor as above}
  :yin.k/response   {identity/descriptor as above}
- :yin.k/cursor       :yin.k/cur-23}        ; response cursor at its kept position
+ :yin.k/cell       :yin.k/c-23}        ; response cursor cell at its kept position
 ```
+
+(`:yin.k/cell`, `:yin.k/response-cell` and `:yin.k/c-<n>` are the version-2 wire spellings; version 3 spells them `:yin.k/cursor-cell`, `:yin.k/response-cursor-cell` and `:yin.k/cc-<n>`, 7.2.1.)
 
 Three rules make these resumable somewhere other than where they were minted:
 
@@ -855,20 +859,20 @@ of the frozen design `yin.vm.semantic-register-vm.md` §4.2.
 
 - **The response position is a kept cursor, never an anchor.** Reattaching
   at `:oldest` replays responses that belong to other calls; attaching at
-  `:newest` skips past this call's own. The response cursor therefore travels
-  at its *kept* position, and the whole task's waiters on that cursor travel
+  `:newest` skips past this call's own. The response cursor cell therefore travels
+  at its *kept* position, and the whole task's waiters on that cursor cell travel
   with it (§7.6.3), so the round-order semantics of `check-wait-set` —
-  waiters sharing a cursor consume successive values — are preserved on the
+  waiters sharing a cursor cell consume successive values — are preserved on the
   resumer exactly. A first poll that observes `gap` is the honest outcome
   the contract already promises a kept cursor (`dao.stream.md`, *Retention
   and Gaps*). At migration the composition serves every carried stream
-  cursor through `dao.stream.remote.md`: the exporter enters the cursor's
-  handle in its table and the cursor's stream descriptor becomes a remote
+  cursor cell through `dao.stream.remote.md`: the exporter enters the cursor cell's
+  handle in its table and the cursor cell's stream descriptor becomes a remote
   descriptor. This is an access path to the original logical stream, not
   a copied stream with new positions. `dao.stream` itself assumes no
   network. The mirror serves the source's declared reader and writer
   surface, preserving its outcome maps and cursor namespace rather than
-  assigning new positions. The cursor carries its kept position. The receiver
+  assigning new positions. The cursor cell carries its kept cursor. The receiver
   attaches a reflection through that descriptor and resumes at the kept
   cursor. `:yin.k/cursor-profiles` in `:yin.k/requires` names
   `:dao.stream.remote/v1`, the one profile: a cursor is plain data in the
@@ -887,13 +891,13 @@ of the frozen design `yin.vm.semantic-register-vm.md` §4.2.
   and friends). A resumer must *not* do that: the outstanding call's
   response will arrive on the **emitter's** response stream, because that is
   where the request was sent. The resumer re-establishes the wait against
-  the carried response descriptor and the cursor's fresh local key (the cursor
+  the carried response descriptor and the cursor cell's fresh local key (the cursor cell
   id remapped per §7.5.3), while calls the resumed program makes *after*
   lowering use the resumer's own pair under its own keys. Pending-call
   routing and future-call routing are separate stores of state; conflating
   them strands the migrated call exactly as the review described.
 - **On resume, the resumer attaches and re-mints.** Attach to every
-  descriptor in the frame, pending, and cursors; an attachment resolving to
+  descriptor in the frame, pending, and cursor cells; an attachment resolving to
   `not-found` is `:yin.k/unsatisfied` naming the stream identity, never a
   silent `nil`; a `:put` wait retries its retained value and resumes with it
   on `ok` (the engine, a woken writer's retry appends and stamps the
@@ -902,14 +906,14 @@ of the frozen design `yin.vm.semantic-register-vm.md` §4.2.
   link's event writer, while an append whose effect is unknown leaves the
   wait undischarged for the program or its composition to decide
   (`dao.stream.remote.md`, sections 2.4 and 2.5); a `:next` wait polls
-  its cursor. No wait is silently dropped and no
+  its cursor cell. No wait is silently dropped and no
   retained value is recomputed — what parks is what resumes.
 
 **Linker pending variants (M4).** Specified by `yin.vm.linker.md` and
 implemented in M4. The require flow adds three pending variants, one per
 safepoint of the same name (`yin.vm.linker.md` 7.2, 7.3). A wait entry's
-`:cursor` (the kept cursor) is UCF's `:yin.k/cursor`: the cursor id stands for
-the cursor and its kept position rides in the cursors table of section
+`:cursor` (the kept cursor) is UCF's `:yin.k/cell`: the cursor-cell id stands for
+the cursor and its kept position rides in the cursor-cell table of section
 7.5.3:
 
 ```clojure
@@ -921,14 +925,14 @@ the cursor and its kept position rides in the cursors table of section
                    :yin.link/contract "b2"}   ; rebuilt verbatim
  :yin.k/request   {:dao.stream/identity ... :dao.stream/descriptor ...}
  :yin.k/response  {:dao.stream/identity ... :dao.stream/descriptor ...}
- :yin.k/cursor      :yin.k/cur-31}            ; response cursor, minted newest
+ :yin.k/cell      :yin.k/c-31}            ; response cursor cell, minted newest
                                           ; before the request is appended
 
 ;; module link, awaiting the correlated response (request appended ok)
 {:yin.k/reason    :link-response
  :yin.k/link-id   [:t0 7]
  :yin.k/response  {:dao.stream/identity ... :dao.stream/descriptor ...}
- :yin.k/cursor      :yin.k/cur-31}            ; the kept cursor, at its kept
+ :yin.k/cell      :yin.k/c-31}            ; the kept cursor cell, at its kept
                                           ; position
 
 ;; module install (a matching ok discharged; the child runs)
@@ -946,11 +950,11 @@ the `dao.stream.md` *Cursors* rule for observing events caused by an
 operation -- so a response that lands before the cursor exists is not
 skipped. `:link-request` carries everything needed to rebuild the
 envelope, `:link-response` carries the response descriptor and the kept
-cursor; a `full` append keeps the request state, retains the envelope
+cursor cell; a `full` append keeps the request state, retains the envelope
 verbatim, and retries on the next poll, the `:ffi-request` discipline.
 And the poll restores only on exact correlation: the entry advances
 past every response whose `:yin.link/id` is not its own, keeping its
-cursor at the first unconsumed position -- the per-cursor round-order
+cursor at the first unconsumed position -- the per-cursor-cell round-order
 discipline section 7.5.3 already gives shared cursors -- and skips
 duplicate, late, and unknown responses, each skip a telemetry
 diagnostic that consumes nothing but the cursor position. A matching
@@ -1039,7 +1043,7 @@ together with the body's install entry for the same name:
   module's initialization again, and nothing replays the link
   request.
 - The child is a whole body of 7.2.1 in the version of its holder,
-  with its own frames, parked records, stores, cursors, code, and
+  with its own frames, parked records, stores, cursor cells, code, and
   nested installs. It is validated by the same grammar in the child
   role, recursively and with its root's context (7.2.1), before
   anything of the parent is restored.
@@ -1102,16 +1106,16 @@ retain a write that may already have been attempted: `:put`,
 *Required keys per variant, as the handoff body carries them.* Where
 an example above differs, this list is the wire contract:
 
-- `:next`: `:yin.k/cursor`.
-- `:ffi`: `:yin.k/cursor`, `:yin.k/call-id`; `:yin.k/op` optional. The
-  response stream is the cursor's own stream marker.
+- `:next`: `:yin.k/cell`.
+- `:ffi`: `:yin.k/cell`, `:yin.k/call-id`; `:yin.k/op` optional. The
+  response stream is the cursor cell's own stream marker.
 - `:put`: `:yin.k/stream` (a stream marker), `:yin.k/value`.
 - `:ffi-request`: `:yin.k/call-id`, `:yin.k/request-envelope` (the
   request, retried verbatim), `:yin.k/request`, `:yin.k/response`,
-  `:yin.k/response-cursor`; `:yin.k/request-op` and
+  `:yin.k/response-cell`; `:yin.k/request-op` and
   `:yin.k/request-args` are optional restatements of the envelope.
 - `:link-request` and `:link-response`: `:yin.k/link-id`,
-  `:yin.k/name`, `:yin.k/request`, `:yin.k/response`, `:yin.k/cursor`;
+  `:yin.k/name`, `:yin.k/request`, `:yin.k/response`, `:yin.k/cell`;
   `:link-request` also `:yin.k/envelope`.
 - `:install`: `:yin.k/name`, and the install entry above.
 
@@ -1143,7 +1147,7 @@ a program's own maps are always wrapped.
 | parked continuation | `:yin.k/frame` | a nested frame plus `:yin.k/parked-id` | `{:type :parked-continuation …}` |
 | primitive | `:yin.k/primitive` | `:yin.k/name sym` | the named function, after profile check (§7.5.2) |
 | stream reference | `:yin.k/stream` | `:dao.stream/identity … :dao.stream/descriptor …` | an attached handle, under a fresh store key |
-| cursor reference | `:yin.k/cursor-ref` | `:yin.k/cursor cursor-id` | a store cursor entry for that cursor, §7.5.3 |
+| cursor reference | `:yin.k/cursor-ref` | `:yin.k/cell cell-id` | a store cursor entry for that cursor cell, §7.5.3 |
 | shared subvalue | `:yin.k/ref` | `:yin.k/id addr` | the table entry at `addr`, §7.5.3 |
 | anything else | — | — | **refused**: `:yin.k/non-portable` |
 
@@ -1231,9 +1235,9 @@ section 7.6.2.
 and a store cursor entry; the linker's resource split moves both targets
 out of the store (`yin.vm.linker.md` 7.3). Lowering installs an attached
 handle under a fresh resource id in the receiver's private `:resources`
-table, and lowers a logical cursor to a cursor entry in `:resources` seeded
+table, and lowers a logical cursor cell to a cursor entry in `:resources` seeded
 with its carried position, remapping every `:yin.k/cursor-ref` to that
-entry -- two refs to one cursor still share one entry -- and no store key is
+entry -- two refs to one cursor cell still share one entry -- and no store key is
 ever created: program values keep only the opaque `stream-ref` and
 `cursor-ref` ids, exactly as a running program holds them. References are
 sealed, not merely shaped. Each task's resources are bound to a
@@ -1252,7 +1256,7 @@ task's own secret, and an invalid, unsealed, or forged reference refuses
 the lift immediately, as `:yin.k/non-portable` with `:yin.k/kind
 :forged-resource-reference`. The marker carries no seal -- it is the
 portable encoding -- and the lower, having installed the attachment or
-cursor in the receiver's `:resources`, issues a fresh reference sealed under
+cursor cell in the receiver's `:resources`, issues a fresh reference sealed under
 the receiver's secret. One task's literals cannot guess another task's
 secret, so cross-task forgery and the export-laundering path fail with the
 same refusal.
@@ -1320,7 +1324,7 @@ present as. Rules:
   is dynamic, not statically interpreted, and stays an ordinary
   primitive.
 
-### 7.5.3 Sharing, cursors, and cycles
+### 7.5.3 Sharing, cursor cells, and cycles
 
 **The value table.** A configuration is a DAG, not a tree: a closure's
 captured environment is the frame's environment; a value on the stack is
@@ -1351,43 +1355,49 @@ two continuations parked from the same closure share its encoding. This is
 a single frame. It is also why §7.3.4 separates `:yin.k/id` (which varies
 with these choices, harmlessly) from `:yin.k/occurrence` (which does not).
 
-**Cursors.** (Terminology, 2026-10-12: the carrier's identity-bearing
-reference to a position in a stream was called a "cell" before this
-date; it is now a **cursor**, and the word "cell" means only the mutable
-heap box of `yin.vm.cell`.) A cursor is *observable state with aliasing*: two distinct
+**Cursor cells.** (Terminology, 2026-10-12, one meaning per word: a
+**cursor** is the immutable `dao.stream` value, a logical-stream identity
+plus a position; a **cursor cell** is the VM's mutable box
+`{:stream-id id :cursor c}` in `:resources` that `stream/next!` updates,
+the identity-bearing thing this section carries; a **cursor-ref** is the
+sealed reference a program holds, naming a cursor cell; **cell** alone
+means only the general heap box of `yin.vm.cell`. Before this date the
+carrier called the cursor cell a "cell".) A cursor cell is *observable state with aliasing*: two distinct
 cursor refs may sit at the same position and yet be independently
 advanceable store entries, while repeated refs to one cursor ref must
 advance together — `check-wait-set` advances a shared cursor ref before
 polling the next waiter, so waiters on one ref read successive values, and
 waiters on two refs at the same position read the same next value
 (`yin.vm.engine`, `check-wait-set`). A position-only encoding erases
-exactly this distinction: two cursors at one position would collapse, and
+exactly this distinction: two cursor cells at one position would collapse, and
 their independent advancement would be lost. The encoding therefore carries
-**logical cursors** separately from position content:
+**logical cursor cells** separately from position content:
 
 ```clojure
-:yin.k/cursors {:yin.k/cur-17 {:yin.k/stream   {:yin.k/tag :yin.k/stream …}
+:yin.k/cells {:yin.k/c-17 {:yin.k/stream   {:yin.k/tag :yin.k/stream …}
                            :yin.k/position <opaque, exactly as the transport minted it>}}
-;; values reference cursors, never positions:
-{:yin.k/tag :yin.k/cursor-ref :yin.k/cursor :yin.k/cur-17}
+;; values reference cursor cells, never positions:
+{:yin.k/tag :yin.k/cursor-ref :yin.k/cell :yin.k/c-17}
 ```
 
-Cursor ids are minted by the emitter (stable within one lift; remapped on
-lowering) and are *not* content-addressed — a cursor is a local identity, like
-a tempid, and deduplicating cursors by their contents is precisely the aliasing
-erasure this structure exists to prevent. On lowering, each cursor becomes a
-fresh store cursor entry seeded with its carried position; every
-`:yin.k/cursor-ref` to it remaps to that entry; two refs to one cursor share
-one entry and one ref per cursor keeps its own. The FFI response cursor of
-§7.4.3 is a cursor like any other.
+(Body versions 0/1/2 spell the table `:yin.k/cells`, the reference key `:yin.k/cell` and the ids `:yin.k/c-<n>`, exactly as the version-2 code does; version 3 spells them `:yin.k/cursor-cells`, `:yin.k/cursor-cell` and `:yin.k/cc-<n>`, 7.2.1.)
 
-**Cursors lower into the private resource table (linker M4).** Specified by
+Cursor-cell ids are minted by the emitter (stable within one lift; remapped on
+lowering) and are *not* content-addressed — a cursor cell is a local identity, like
+a tempid, and deduplicating cursor cells by their contents is precisely the aliasing
+erasure this structure exists to prevent. On lowering, each cursor cell becomes a
+fresh store cursor entry seeded with its carried position; every
+`:yin.k/cursor-ref` to it remaps to that entry; two refs to one cursor cell share
+one entry and one ref per cursor cell keeps its own. The FFI response cursor cell of
+§7.4.3 is a cursor cell like any other.
+
+**Cursor cells lower into the private resource table (linker M4).** Specified by
 `yin.vm.linker.md` and implemented in M4. The lowering rule above -- each
-cursor becomes a fresh store cursor entry -- is amended by the resource
-split of `yin.vm.linker.md` 7.3: each cursor becomes a cursor entry in the
+cursor cell becomes a fresh store cursor entry -- is amended by the resource
+split of `yin.vm.linker.md` 7.3: each cursor cell becomes a cursor entry in the
 receiver's private `:resources` table, seeded with its carried position,
 and every `:yin.k/cursor-ref` to it remaps to that entry; two refs to one
-cursor still share one entry and one ref per cursor keeps its own, but no
+cursor cell still share one entry and one ref per cursor cell keeps its own, but no
 store key is ever created, and program values keep only the opaque
 reference ids, exactly as a running program holds them.
 
@@ -1396,7 +1406,7 @@ A stream reference is portable when the exporter can enter its handle in a
 original logical stream. This applies to local implementations,
 including an in-memory or string-backed stream; they need no native
 network transport. The exporter checks the `:dao.stream.remote/v1` cursor
-profile before encoding the cursor, and the receiver holds a reflection
+profile before encoding the cursor cell, and the receiver holds a reflection
 after `attach!`. The mirror preserves the source's cursor and outcome
 semantics, including `gap`; it does not turn `:oldest` or `:newest` into
 a kept position. A raw host handle
@@ -1550,7 +1560,7 @@ pair (§4.1). None of it is global in the UCF sense; it is the emitter's. A
 continuation carries the **reachable slice**: every store key the fixed
 point of §7.6.1 can name — every free `:var` obligation for which the
 emitter's store has a matching key, every `:store-get`/`:store-put` operand,
-every stream/cursor — with values encoded by §7.5:
+every stream/cursor cell — with values encoded by §7.5:
 
 ```clojure
 :yin.k/store {counter 41
@@ -1561,16 +1571,16 @@ The FFI pair is never in the slice — a program that names the pair's store
 keys directly holds handles, and the lift refuses it (§7.5.4). A resumer has
 its own pair; outstanding calls route per §7.4.3.
 
-**Resource cursors live beside the store, not in it (linker M4).** Specified
+**Resource cursor cells live beside the store, not in it (linker M4).** Specified
 by `yin.vm.linker.md` and implemented in M4. The opening list above is
 amended by the linker's resource split (`yin.vm.linker.md` 7.3): stream
-handles, cursors, and the FFI pair live in a private `:resources`
+handles, cursor cells, and the FFI pair live in a private `:resources`
 table in VM state, beside the store, never inside it. The engine's own
 machinery -- wait-set resolution, handle creation and polling, resume --
 reads and writes only that table, and no user store instruction and no
 `resolve-var` step consults it, at top level or inside a module closure.
 The ids may stay predictable: they name nothing a store instruction can
-reach. A migration slice still carries resource cursors, remapped at resume,
+reach. A migration slice still carries resource cursor cells, remapped at resume,
 but beside the program store; the decode targets of sections 7.5.1 and
 7.5.3 move with them.
 
@@ -1581,13 +1591,13 @@ primitives (`resolve-var`), so a resumer whose local store happens to bind
 `+` would change what the migrated program resolves, without any collision
 at all. Merging in either order is the wrong shape. **The resumed task runs
 in an isolated execution store**: a fresh store whose contents are exactly
-the carried slice, the remapped cursors of §7.5.3, and the resumer's FFI pair
+the carried slice, the remapped cursor cells of §7.5.3, and the resumer's FFI pair
 — nothing else of the resumer's, nothing of any other task's. A name absent
 from the slice resolves through primitives and modules at the resumer
 exactly as it did at the emitter, because there is no third store to
 intervene; a slice key cannot collide with a receiver task's key because no
 receiver key participates; resource entries are remapped to fresh local
-keys (cursors per §7.5.3, stream handles per §7.4.3), and non-resource
+keys (cursor cells per §7.5.3, stream handles per §7.4.3), and non-resource
 entries keep their keys verbatim. "Unreachable store entries do not travel"
 survives unchanged — anything the program did not observe is not the
 program's state — and nothing else shares state with the resumed task by
@@ -1888,7 +1898,7 @@ refused, and every public apply refuses a late result. The root's mode
 is stamped on each install child at its creation and before each run;
 a child carries the mode only. A machine entering exporting refuses
 the custody holds -- a wait entry with reason `:observe`, an entry or
-cursor carrying `:yin.k/held`, a cursor carrying `:yin.k/unminted`,
+cursor cell carrying `:yin.k/held`, a cursor cell carrying `:yin.k/unminted`,
 a machine with a nonempty `:yin.k/closes` queue, and a
 `:link-request` entry without `:cursor` -- as `:yin.k/non-portable`,
 kind `:reason-mismatch`, with the holding task's path; the lift
@@ -1918,7 +1928,7 @@ encoded into the UCF body, but the header stays in the retained export
 record. The live record can contain authentic closures and is not itself
 a canonical data object. `holder.export/freeze [machine prepared-record]`
 encodes a separate content-addressed export-recovery object, tagged
-`:yin.k/export-recovery` with format version 1, using the handoff value/cursor
+`:yin.k/export-recovery` with format version 1, using the handoff value/cursor-cell
 codec. It returns recovery bytes/address beside the exact handoff body
 bytes/address; both are stored durably before the journal's fenced event.
 Recovery retains the local enrolled declaration, prior gate, ordered waits,
@@ -1928,7 +1938,7 @@ The enrolled declaration still never travels in a published handoff body.
 `holder.export/rehydrate-fenced` validates the recovery object and its
 embedded body before administrative attachment. It creates authentic
 fresh-receiver-owned values and preserves resource aliases and distinct
-cursors without program reads, cursor minting, writes, closes, initialization
+cursor cells without program reads, cursor minting, writes, closes, initialization
 or execution. Every task stays exporting, with waits outside scheduler
 queues. The prior gate is retained only as data; recovery is neither grant
 admission nor permission to abort back into execution. Runtime composition
@@ -2604,8 +2614,8 @@ duplicates an edge nor advances an already-reclaimed lease's epoch again.
 6. Load every required segment by address into the per-stamp index,
    verifying each (§7.3.4).
 7. **Restore into an isolated store** (§7.6.2): the slice, the remapped
-   cursors, the resumer's FFI pair. Attach to every stream descriptor in the
-   frame, pending waits, and cursors (§7.4.3); an attachment `not-found` is
+   cursor cells, the resumer's FFI pair. Attach to every stream descriptor in the
+   frame, pending waits, and cursor cells (§7.4.3); an attachment `not-found` is
    `:yin.k/unsatisfied` naming the stream. **Any failure from this step
    onward — after custody was acquired — releases first**: the resumer
    appends `:dao.lease/released`, the occurrence returns to offered, and
@@ -2784,7 +2794,7 @@ independently (7.11).
 | No callbacks | Lift and lower are step functions; custody is observed, never notified; a lapsed holder stops at its own bound; an unanswered proposal is a step status, not a wait. |
 | No shared mutable state | A UCF value is content-addressed and immutable; occurrence identity separates content variants from the one leased computation; two resumers of one value under `:fork` diverge into distinct incarnations; the isolated execution store shares nothing with the resumer's tasks. |
 | No layer collapsing | Canonicalize, encode, discover, arbitrate, load, restore, execute are separate functions with data between them. The engine's hot loop is untouched: lifting is a pure function over the blocked machine's value, and the exporting state is that value with an emptied wait-set and a retained record — driver discipline, not engine machinery. |
-| No assumed graphs | Sharing is an explicit value table keyed by address; cursor aliasing is an explicit cursor graph, not inferred from positions; code refs are pcs relative to an addressed vector; nothing is resolved by pointer; foreign engines reconstruct dynamic state from the frame, never from layouts they assume. |
+| No assumed graphs | Sharing is an explicit value table keyed by address; cursor aliasing is an explicit cursor-cell graph, not inferred from positions; code refs are pcs relative to an addressed vector; nothing is resolved by pointer; foreign engines reconstruct dynamic state from the frame, never from layouts they assume. |
 
 And the axioms — each claim conditioned on the obligation it depends on: the
 continuation is a stream value (1); its meaning is supplied by the
@@ -2814,7 +2824,7 @@ the review's named architectural obligations; they are blockers to
   windows of §7.7.5.
 - **Pending-state completeness.** Every pending variant of §7.4.3 must
   round-trip and resume *elsewhere*: retained writes, sent and retained FFI
-  calls with both endpoints and the kept response cursor, and cursors
+  calls with both endpoints and the kept response cursor, and cursor cells
   through the aliasing scenarios of `check-wait-set`. This depends on
   `dao.stream.remote.md` and its **portable cursor profile**
   `:dao.stream.remote/v1`, which preserves the source stream's kept cursor
@@ -3050,9 +3060,9 @@ claim that all five blockers have closed.
 - Reflection acceptance (`dao.stream.remote.implementation-plan.md`, slice 8): Park a
   continuation holding a string-backed local `dao.stream` with a kept
   cursor, then migrate to another network node. The exporter
-  mechanically serves that stream by entering it in its table; the cursor
-  descriptor is a remote descriptor and the cursor carries the kept
-  position, and the receiver holds a reflection on the original logical
+  mechanically serves that stream by entering it in its table; the cursor cell
+  descriptor is a remote descriptor and the cursor cell carries the kept
+  cursor, and the receiver holds a reflection on the original logical
   stream. Reads resume at the kept position. Force retention loss and
   verify the reflection returns `:dao.stream/gap` with the source's
   successor cursor, without replay or silent skip. Repeat with a source
@@ -3081,13 +3091,13 @@ claim that all five blockers have closed.
 - Setup: Park frames with nested literal maps that look like UCF tags,
   map keys containing values, closures, reified and parked continuations,
   profiled primitives, shared subvalues, stream refs, and two cursor refs
-  that share a cursor beside two independent cursors at the same position.
+  that share a cursor cell beside two independent cursor cells at the same position.
   Add a host object, unnamed or ambiguous function, host-state primitive,
   cyclic value, forged resource ref, missing table ref, cyclic ref data,
   extra table entry, and a correctly hashed malformed marker.
 - Action and expected outcome: Lift, transfer, and lower on each host;
   literals remain literals, repeated refs share one value, independent
-  cursors advance independently, and shared cursors advance in wait
+  cursor cells advance independently, and shared cursor cells advance in wait
   order. The lift refuses unsupported leaves as `:yin.k/non-portable`
   with path and kind and publishes no partial value; decode refuses
   malformed markers and refs as `:yin.k/undecodable` with path before

@@ -71,7 +71,7 @@ integers and guest numeric values are not bounded by this notation.
 `A` is a code address in the enclosing profile's native address domain
 (section 4). `B` is a Jing segment address of canonical body bytes.
 `M` is a module-store manifest address. `P` is a parked identifier in the
-existing engine identifier domain. `C` is a task-local cursor identifier.
+existing engine identifier domain. `C` is a task-local cursor-cell identifier.
 `S` is a symbol. A vector is ordered. A map is unordered and has unique
 keys by canonical-byte equality. `?` in a table means a key may be absent;
 it does not mean a present nil is accepted. Empty maps/vectors are emitted
@@ -111,7 +111,7 @@ The body is:
  :yin.k/store {V V ...}
  :yin.k/module-stores {M {V V ...} ...}
  :yin.k/parked {P R ...}             ; R is profile-specific registers
- :yin.k/cursors {C {:yin.k/stream stream-marker
+ :yin.k/cells {C {:yin.k/stream stream-marker          ; version-2 spelling; version 3 says :yin.k/cursor-cells, ids :yin.k/cc-<n>
                   :yin.k/position portable-position} ...}
  :yin.k/requires {:yin.k/cursor-profiles #{cursor-profile ...}
                    :yin.k/segments #{A ...}}
@@ -158,7 +158,7 @@ profile must agree. No child initialization runs during lower.
 
 Pending is the closed union already specified by UCF 7.4.3:
 `:next`, `:put`, `:ffi`, `:ffi-request`, `:link-request`, `:link-response`,
-`:install`. Their field shapes, stream/cursor references, envelopes,
+`:install`. Their field shapes, stream/cursor-cell references, envelopes,
 correlation IDs and operation-ID rules are unchanged. The complete
 `:install` form, not the old name-only sketch, is required. Version 2
 adds no observation, cursor-mint or close pending arm. Encoding and
@@ -547,13 +547,13 @@ Rule-R names from the source's own profile interpretation, never from the
 receiver's guest state. Missing source dependencies refuse; a known
 portable primitive unavailable in the receiver is unsatisfied.
 
-Cursors are task-local: encode aliasing as one C; distinct source cursors
+Cursor cells are task-local: encode aliasing as one C; distinct source cursor cells
 remain distinct even if positions equal. Assign IDs deterministically
 before order-sensitive encoding, using the established canonical
 ordering pass, not comparator side effects. Canonical encoded key order
 orders maps and sets; it must not reorder waits, layouts, positional
-frames, register pairs or continuation chains. Every declared cursor must
-be reached and every reached cursor declared. Apply the same rule per
+frames, register pairs or continuation chains. Every declared cursor cell must
+be reached and every reached cursor cell declared. Apply the same rule per
 child. Pin roots needed by outstanding FFI/stream obligations according
 to the existing heap/resource rules; serialization is not reclamation.
 
@@ -643,7 +643,7 @@ the walker wrappers. PC profiles retain their existing request-sent/
 call-id transport reconstruction and restore seams. Portable correlation
 IDs and request bytes are unchanged; no retry mints a new ID.
 
-Gated cursor creation is still immediate with an unminted cursor; D12
+Gated cursor creation is still immediate with an unminted cursor cell; D12
 records its mint and applies it before export. Poll and close holds
 stay outside this grammar. This is why r2 boundary-opcodes need not change.
 
@@ -785,7 +785,7 @@ rows and the whole existing D4-D6 zero-program-IO matrix.
    operand stacks, sparse registers, return frames and walker partially
    evaluated operands. Include owned reified and parked references.
    Round trip; assert fresh receiver ownership, behavior, aliasing and
-   distinct cursors. Literal maps shaped like markers remain data.
+   distinct cursor cells. Literal maps shaped like markers remain data.
 5. **Image growth.** Stack/register: attach A then B, capture, attach C,
    retain a prefix-layout continuation with cross-image return frames;
    restore into a receiver whose old layout is C,A. Assert source layout
@@ -810,13 +810,13 @@ rows and the whole existing D4-D6 zero-program-IO matrix.
    poll pseudo-boundary to avoid the r2 live-operand constraint.
 10. **Canonical bytes.** Use identical prepared data in each profile on
     all hosts, varying only map insertion order; assert exact body bytes,
-    body address, code keys and cursor IDs agree. Layout/wait order changes
+    body address, code keys and cursor-cell IDs agree. Layout/wait order changes
     are not erased. Pin float64 integral content and negative zero in
     code/value positions before host execution conversion.
 11. **Legacy and recovery.** Assert legacy version-0/1 and ledger pins
     unchanged from the post-D14 baseline. Freeze and fresh-process
     rehydrate a version-2 recovery snapshot; assert exact published bytes,
-    complete registers/cursors, exporting gates, zero program IO and refused
+    complete registers/cursor cells, exporting gates, zero program IO and refused
     restarted abort. Reject recovery bytes as a handoff body.
 12. **Isolation.** Poison receiver guest/module stores, parked/install
     maps, closes/issued state and code layout. Restore with valid host

@@ -1449,11 +1449,11 @@ with `:call-id` (`ffi.cljc:78-88`), `ffi/request-call-id` reads
 
 §4.1 table. In the row "FFI call, sent", replace the State cell
 
-> `act`, pending `:ffi` (call id, response cursor)
+> `act`, pending `:ffi` (call id, response cursor cell)
 
 with
 
-> `act`, pending `:ffi` (call id, response cursor); in-VM `:reason :next` with `:call-id`
+> `act`, pending `:ffi` (call id, response cursor cell); in-VM `:reason :next` with `:call-id`
 
 and in the row "FFI call, retained", replace
 
