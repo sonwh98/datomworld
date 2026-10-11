@@ -1165,7 +1165,7 @@ The steps, as rules:
    discipline. The two states are the two UCF pending variants this
    flow adds (section 11, item 12): `:link-request` carries everything
    needed to rebuild the envelope, `:link-response` carries the response
-   descriptor and the kept cursor.
+   descriptor and the kept cursor cell.
 5. **The linker interpreter observes the request stream** with its own
    cursor, in its own control flow. It resolves the name through its
    name environment at the snapshot it was composed with (section 8.2),
@@ -1185,7 +1185,7 @@ The steps, as rules:
    restores only on exact correlation.** On each poll the entry advances
    past every response whose `:yin.link/id` is not its own, keeping its
    cursor at the first unconsumed position, and acts only on a response
-   whose id equals `:link-id`. This is the per-cursor round-order
+   whose id equals `:link-id`. This is the per-cursor-cell round-order
    discipline UCF section 7.5.3 already gives shared cursors, so a
    parked `:link-response` lifts and lowers as any other wait does.
    Handling of every other case is fixed:
@@ -1573,13 +1573,13 @@ Rules:
     dependency's `:store-of`, never the child's ambient bindings.
 
   **Private engine resources (r8).** r7 let `:store-get` fall back
-  to the ambient store for engine-filed resource cursors. That
+  to the ambient store for engine-filed resource cursor cells. That
   fallback was a forging vector: `engine/gensym` mints resource
   keys from the VM's counter (`:stream-0`, `:cursor-1`), the ids
   are predictable, and a linked module could emit
   `[:store-get :stream-0]` and read a host handle no publisher
   handed it. The split is therefore physical, not conventional:
-  stream handles, cursors, and the FFI pair live in a private
+  stream handles, cursor cells, and the FFI pair live in a private
   `:resources` table in VM state; the engine's own machinery
   (wait-set resolution, handle creation and polling, resume) reads
   and writes only that table; and no user store instruction and no
@@ -1590,22 +1590,25 @@ Rules:
   the store S holds (listed with the other amendments in section
   11, item 12; r8's citation of a "UCF 4.1" named no such section,
   corrected r10): a migration slice still carries resource
-  cursors, remapped at resume, but beside the program store, never
-  inside it.
+  cursor cells, remapped at resume, but beside the program store, never
+  inside it. (The version-2 handoff body spells these cursor cells
+  `:yin.k/cells`, `:yin.k/cell`, `:yin.k/c-<n>`; the version-3 row
+  carrier spells them `:yin.k/cursor-cells`, `:yin.k/cursor-cell`,
+  `:yin.k/cc-<n>`.)
 
   **Resource lowering (r9).** The continuation format's own decode
   rules move with the split, or the private table is bypassed at
   every boundary crossing: UCF section 7.5.1's table decodes a
   `:yin.k/stream` marker to "an attached handle, under a fresh
   store key" and a `:yin.k/cursor-ref` to "a store cursor entry",
-  and section 7.5.3 lowers each logical cursor to "a fresh store
+  and section 7.5.3 lowers each logical cursor cell to "a fresh store
   cursor entry". From r9 those decode targets are the private
   table, as an amendment to UCF sections 7.5.1 and 7.5.3 (added to
   the list in section 11, item 12): lowering installs an attached
   handle under a fresh **resource id** in `:resources`, lowers a
-  logical cursor to a cursor entry in `:resources` seeded with its
+  logical cursor cell to a cursor entry in `:resources` seeded with its
   carried position, and remaps every `:yin.k/cursor-ref` to that
-  entry; two refs to one cursor still share one entry. Program
+  entry; two refs to one cursor cell still share one entry. Program
   values keep only the non-forgeable references -- the opaque
   `stream-ref` and `cursor-ref` ids, exactly as a running program
   holds them -- and no store key is ever created. A module export
@@ -1613,7 +1616,7 @@ Rules:
   through the same rules, the lift authenticating the reference
   first as the sealed-references rule below requires: the marker
   crosses in the slice, the
-  receiver's `:resources` gains the attachment or cursor, and the
+  receiver's `:resources` gains the attachment or cursor cell, and the
   export's value in the receiver is the remapped reference,
   indistinguishable from one the receiver made itself.
 
@@ -1622,14 +1625,14 @@ Rules:
   (`{:type :stream-ref, :id :stream-0}`), and an effect carries
   whatever value the program supplies: a program or linked module
   can write the literal itself and name a resource it was never
-  handed -- another task's stream, a cursor, or the FFI pair's
+  handed -- another task's stream, a cursor cell, or the FFI pair's
   ids. Shape checks are not the answer (UCF 7.5.1 refuses every
   "looks like data" rule); unguessability is. Each task's resources
   are bound to a **task-scoped capability secret**, minted once by
   the composition at task creation from its own random source and
   held in VM state -- never in a program value, never on a stream,
   never counter-derived. Every reference the engine issues -- a
-  `stream-ref`, a `cursor-ref`, an FFI cursor id -- carries a seal
+  `stream-ref`, a `cursor-ref`, an FFI cursor-cell id -- carries a seal
   over its id under that secret, and every effect dispatch that
   resolves a program-supplied reference verifies the seal against
   the active task's secret before touching `:resources`. A literal
@@ -1651,7 +1654,7 @@ Rules:
   with `:yin.k/kind :forged-resource-reference`. Only an
   authenticated reference is encoded without its seal (the marker
   is the portable encoding), and the lower, having installed the
-  attachment or cursor in the receiver's `:resources`, issues a
+  attachment or cursor cell in the receiver's `:resources`, issues a
   fresh reference sealed under the receiver's secret -- which is
   what r9's "remapped reference" now means. One task's literals
   cannot guess another task's secret, so cross-task forgery and
@@ -2175,7 +2178,7 @@ store snapshot with the child's mutations, and a task already
 holding that dependency's store keeps its own instance; a module
 forging a predictable resource key (`[:store-get :stream-0]`)
 against a task with a live stream reads nothing on any backend; a
-forged reference literal -- stream, cursor, or FFI cursor id --
+forged reference literal -- stream, cursor, or FFI cursor-cell id --
 passed to an effect is `:forged-resource-reference` while the
 task's own sealed references resolve, and a lifted-then-lowered
 reference works under the receiver's seal; a module exporting a
@@ -2184,7 +2187,7 @@ effect in the child fails the export lift with
 `:yin.k/non-portable` and
 `:yin.k/kind :forged-resource-reference`; a module export
 carrying a stream or cursor reference lifts and
-lowers, the attachment or cursor landing in the receiver's private
+lowers, the attachment or cursor cell landing in the receiver's private
 `:resources` and only the remapped reference in program values;
 REPL input following a module closure's tail-completed application
 defines into the task's own store, no stale module context; a
@@ -2222,7 +2225,7 @@ Edited:   src/cljc/yin/vm/module.cljc                 (M4)
           src/cljc/yin/vm.cljc, yin/vm/ffi.cljc, yin/vm/completion.cljc,
           dao/await.cljc          (the private :resources table
                                    moves the FFI pair and the stream
-                                   and cursors out of :store)   (M4)
+                                   and cursor cells out of :store)   (M4)
           src/cljc/yin/vm/debruijn_register_effects.cljc
                                   (the register frame check drops
                                    :segment and :hash; the offset
@@ -2426,7 +2429,7 @@ Require:
     task with a live stream at that id reads nothing on any
     backend, because engine resources live in the private table no
     store instruction reads; a fabricated reference literal -- a
-    `stream-ref`, a `cursor-ref`, or an FFI cursor id, written by the
+    `stream-ref`, a `cursor-ref`, or an FFI cursor-cell id, written by the
     program or by a linked module -- passed to any effect fails
     `:forged-resource-reference` on every backend, while the
     sealed reference the task itself was issued resolves, and a
@@ -2439,7 +2442,7 @@ Require:
     module export whose captured
     environment carries a stream or a cursor reference lifts and
     lowers: the receiver's private `:resources` gains the
-    attachment or cursor, the export's value is the remapped,
+    attachment or cursor cell, the export's value is the remapped,
     re-sealed reference, and no store key is created; after a
     module closure applied at the REPL and its tail call
     completed, new top-level input defining
@@ -2591,14 +2594,15 @@ item in the task:
 | r8 put engine handles in private  | Agreed. UCF 7.5.1 decodes         |
 | `:resources`, but the UCF decode  | `:yin.k/stream` and               |
 | clauses still installed handles   | `:yin.k/cursor-ref` into store    |
-| and cursors under store keys      | keys and 7.5.3 lowers a cursor to |
-| -- bypassing the table at every   | a "fresh store cursor entry". From|
-| boundary crossing                 | r9 the decode targets are the     |
-|                                   | private table: lowering installs  |
-|                                   | an attachment under a fresh       |
-|                                   | resource id, lowers a logical     |
-|                                   | cursor to a `:resources` cursor   |
-|                                   | entry seeded with its position,   |
+| and cursor cells under store keys | keys and 7.5.3 lowers a cursor    |
+| -- bypassing the table at every   | cell to a "fresh store cursor     |
+| boundary crossing                 | entry". From r9 the decode        |
+|                                   | targets are the private table:    |
+|                                   | lowering installs an attachment   |
+|                                   | under a fresh resource id, lowers |
+|                                   | a logical cursor cell to a        |
+|                                   | `:resources` cursor entry seeded  |
+|                                   | with its position,                |
 |                                   | remaps every `:yin.k/cursor-ref`, |
 |                                   | and creates no store key; program |
 |                                   | values keep only the opaque       |
@@ -2620,7 +2624,7 @@ Each, and what r8 did:
 |-----------------------------------|-----------------------------------|
 | r7's `:store-get` fallback to the | Agreed; r7 rule withdrawn. Engine |
 | ambient store was a forging       | resources (stream handles, cursor |
-| vector: resource keys are         | cursors, the FFI pair) move to a    |
+| vector: resource keys are         | cells, the FFI pair) move to a    |
 | counter-minted and predictable,   | private `:resources` table no     |
 | so a module could read a host     | store instruction or `resolve-var`|
 | handle it was never handed; the   | step reads; store instructions    |
@@ -2675,8 +2679,9 @@ Each, and what r7 did:
 | and the slice carried no          | the active module store;          |
 | transitive dependency stores      | `:store-get` reads it, ambient    |
 |                                   | only for engine-filed resource    |
-|                                   | cursors) and threads across calls:  |
-|                                   | a frame records the caller's      |
+|                                   | cursor cells) and threads across  |
+|                                   | calls: a frame records the        |
+|                                   | caller's                          |
 |                                   | active `:store-of`. The slice     |
 |                                   | carries one snapshot per module   |
 |                                   | reached transitively, including   |
@@ -2921,9 +2926,10 @@ Each finding of the 2026-09-24 adversarial review, and what r2 did.
 |                                  | kept cursor advancing past others;  |
 |                                  | duplicate, late, unknown, abandoned |
 |                                  | fixed (7.2 step 7). Divergence:     |
-|                                  | per-entry cursors rather than one   |
-|                                  | router cursor, so a parked entry    |
-|                                  | stays a UCF cursor and migrates.    |
+|                                  | per-entry cursor cells rather than  |
+|                                  | one router cursor, so a parked      |
+|                                  | entry stays a UCF cursor cell and   |
+|                                  | migrates.                           |
 | P1 install cannot be synchronous | Agreed; r1's claim withdrawn.       |
 |                                  | Scheduler child task with phases,   |
 |                                  | own store and wait-set, waiter set, |

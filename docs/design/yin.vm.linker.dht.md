@@ -3069,35 +3069,35 @@ the sole DHT step owner; the handoff driver steps beside it over streams.
 
 For each ordered source/receiver pair in JVM, Node (CLJS), and Dart (CLJD),
 a lower into a fresh task preserves the original logical stream identity,
-the source-minted opaque kept position, the cursor alias relation,
+the source-minted opaque kept position, the cursor-cell alias relation,
 and wait-set order. Test all nine pairs, including the three same-host
 pairs as controls. Serializing a cursor must not translate it to a local
 anchor, offset, newly minted position, or copied stream. Host resource ids
 and seals are fresh; their equality across hosts is neither needed nor
-permitted as a substitute for logical cursor identity.
+permitted as a substitute for logical cursor-cell identity.
 
-Every reachable reference to one source cursor resource maps to one cursor
+Every reachable reference to one source cursor resource maps to one cursor cell
 and one fresh receiver resource. Distinct cursor resources map to distinct
-cursors even when their stream and position contents are equal. Advancing a
-shared cursor is visible to its next waiter in the same polling round;
-advancing one independent cursor changes no other cursor. Wait order comes
-from carried scheduler state, not map iteration or sorted cursor ids.
+cursor cells even when their stream and position contents are equal. Advancing a
+shared cursor cell is visible to its next waiter in the same polling round;
+advancing one independent cursor cell changes no other cursor cell. Wait order comes
+from carried scheduler state, not map iteration or sorted cursor-cell ids.
 
 | Safepoint kind | Required resume evidence |
 |---|---|
-| Explicit park | No active wait; reachable cursors keep their positions. |
-| Blocked read | Poll the remapped cursor at its kept position. |
+| Explicit park | No active wait; reachable cursor cells keep their positions. |
+| Blocked read | Poll the remapped cursor cell at its kept position. |
 | Blocked write | Retry the retained value on the original target. |
-| Sent FFI | Await the original response pair and kept response cursor. |
-| Retained FFI | Retry the same request, id, args, and response cursor. |
+| Sent FFI | Await the original response pair and kept response cursor cell. |
+| Retained FFI | Retry the same request, id, args, and response cursor cell. |
 | Ordinary/tail effectful call | Use the observed effect's pending shape. |
 | `:link-request` | Retry the retained link envelope and id verbatim. |
-| `:link-response` | Poll the original response cursor; match the link id. |
+| `:link-response` | Poll the original response cursor cell; match the link id. |
 | `:install` | Preserve child phase and its waits, or refuse export. |
 | Halt | Carry a result; create no resumable frame or pending wait. |
 
 For write-only rows the position obligation applies to all reachable
-cursors, including response cursors retained before the append. An outstanding
+cursor cells, including response cursor cells retained before the append. An outstanding
 FFI or link response uses the emitter's pair; a subsequent new operation
 uses the receiver's composed pair. A sent request is never reissued merely
 because a task moves. A retained request is not recomputed. Reflection
@@ -3123,18 +3123,19 @@ routes. Those routes keep the original streams served; this design does
 not re-home a stream or promise export after its serving host disappears.
 
 No cursor wire field is added. UCF 7.5.3 already carries
-`:yin.k/cursors`, each cursor's stream marker and `:yin.k/position`, and
-`:yin.k/cursor-ref` markers naming cursors. Requirements name
-`:dao.stream.remote/v1` and every reachable stream identity. Cursor ids
+`:yin.k/cells`, each cursor cell's stream marker and `:yin.k/position`, and
+`:yin.k/cursor-ref` markers naming cursor cells (the version-2 spelling;
+version 3 says `:yin.k/cursor-cells` and `:yin.k/cc-<n>`). Requirements name
+`:dao.stream.remote/v1` and every reachable stream identity. Cursor-cell ids
 are lift-local identities, never content hashes or position hashes.
-A cursor mapping is shared by frame, waits, stores, closures, and parked
+A cursor-cell mapping is shared by frame, waits, stores, closures, and parked
 records during one lift; separate encoders per root would erase aliasing.
 
 Lift proceeds as follows:
 
 1. Validate the safepoint and empty ready queue; enter exporting before
    any carrier append. Capture the ordered waits without polling them.
-2. Walk the complete reachable graph with one source-resource-to-cursor
+2. Walk the complete reachable graph with one source-resource-to-cursor-cell
    map. Authenticate sealed references against the source's private
    resources; forged references refuse with their existing path and kind.
 3. Enter each logical stream in the exporter's remote table once. Verify
@@ -3142,7 +3143,7 @@ Lift proceeds as follows:
    the returned descriptor and source cursor verbatim, never a handle.
 4. Encode pending variants from runtime evidence, close requirements,
    validate the full body, and publish under its content address. Failure
-   leaves the source exporting; retry retains its occurrence and cursors.
+   leaves the source exporting; retry retains its occurrence and cursor cells.
 
 Lower proceeds as follows:
 
@@ -3152,9 +3153,9 @@ Lower proceeds as follows:
 2. Obtain custody when exclusive, then attach each stream identity once
    through its carried descriptor. Missing/gone routes or profiles yield
    `:yin.k/unsatisfied` naming the stream or profile.
-3. Allocate one fresh private cursor resource for each logical cursor;
+3. Allocate one fresh private cursor resource for each logical cursor cell;
    seed it with the carried position without calling `cursor` on an
-   anchor. Allocate equal-content distinct cursors separately. Re-seal all
+   anchor. Allocate equal-content distinct cursor cells separately. Re-seal all
    references under the receiving task and remap every root consistently.
 4. Restore stores in isolation, counter and parked records, then ordered
    pending waits. Install-child state must pass the same completeness
@@ -3179,11 +3180,11 @@ isolated runtime tables and the portable mesh seam; process transport
 coverage is recorded separately, never inferred from mesh coverage.
 
 - Setup: A string-backed local stream has prefix A already consumed and
-  B,C unread. Put one shared cursor in two ordered waiters and in a closure
-  and store, plus two independent cursors at the same position. Action:
+  B,C unread. Put one shared cursor cell in two ordered waiters and in a closure
+  and store, plus two independent cursor cells at the same position. Action:
   export, transfer bytes, attach, lower, and poll. Assert: shared waiters
-  see B then C; independent cursors each see B. Advancing a closure/store
-  alias advances the same cursor. No waiter sees A, and original handles,
+  see B then C; independent cursor cells each see B. Advancing a closure/store
+  alias advances the same cursor cell. No waiter sees A, and original handles,
   ids, and seals occur nowhere in the transferred value.
 - Setup: The same task at each row of 14.1.1, with distinct activation
   depths and ordinary/tail calls. Action: hand off, satisfy the wait,
@@ -3202,7 +3203,7 @@ coverage is recorded separately, never inferred from mesh coverage.
   Assert: eviction yields the source's gap and exact successor cursor;
   route loss yields unsatisfied naming the stream, with no anchor fallback.
   Omit the cursor profile at lift and assert unsatisfied before publication.
-- Setup: Missing, extra, cyclic, or malformed cursor references, forged
+- Setup: Missing, extra, cyclic, or malformed cursor-cell references, forged
   resource references, and a correctly hashed malformed body. Action:
   lift/decode. Assert: existing non-portable/undecodable path outcomes;
   no restored wait or committed effect. A non-safepoint pc and queued work
