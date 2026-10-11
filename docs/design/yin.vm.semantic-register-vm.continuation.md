@@ -1093,7 +1093,9 @@ frames to validate. Touches nothing of 4b or 5; needs no scanner.
    requires no kernel and no `yin.vm.engine` (a string check over the
    source on the JVM lane, `#?(:cljd nil :clj …)`).
 2. `frame-test/every-reference-frame-validates`: for every 4b-stage-1
-   row of §5.2 (1, 2, 5, 6, 13-16, 18-22) over the four segments, every
+   row of §5.2 (1, 2, 5, 6, 13-16, 18, 19, 21, 22) over the four segments,
+   plus row 20 as one separate, unwrapped run (its empty `K` needs no wrapper
+   frames; §8.2 6b makes the same exception), every
    `act`, `tail`, return frame, parked record and reified value the
    register evaluator mints passes `defect` in its context with the
    task context decoded from the machine's own tables.
@@ -1221,10 +1223,13 @@ lanes added to the 6b harness file. **Depends on:** 5a, 5b (`derive`),
    [y] (cat [3] (next-of c))) 2))) 1))` under the harness's standard
    binding setup: `with-cat` outermost, then `(let1 s (stream/make 4)
    (let1 c (cursor-of s) …))` around it (the stream is made inside the
-   program, as every row does; a primitive `cat` or a cursor supplied in
-   the free environment would sit in a live slot and is no carrier
-   value, `:continuation-registers`,
-   `debruijn_register_effects.cljc:196`). **Derivation of the expression
+   program, as every row does: that is this fixture's chosen setup. A
+   primitive `cat` supplied in the free environment would sit in a live
+   slot and is no carrier value, `:continuation-registers`,
+   `debruijn_register_effects.cljc:196`; an authentic cursor reference is
+   machine data with an explicit carrier marker, `engine.cljc:899-905`, so
+   in-program construction of `c` is a fixture choice, not a carrier
+   restriction). **Derivation of the expression
    alone** (`cat` and `c` taken as given): the outer application of
    `(fn [x] …)` pops its closure and `1`, leaving the outer `cat` and
    `[1]` pushed, so its frame's base is `2`; the inner application leaves
