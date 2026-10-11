@@ -266,6 +266,27 @@
     (is (= :free-env-shape (:yin.k/kind (frame/task-defect {:free-env {1 nil}}))))))
 
 
+(deftest rule-boundaries-refuse-their-tamper
+  ;; Supplements the prescribed table at each rule's other edge.
+  (let [resume (fn [op]
+                 (let [v [[:closure 0 [] 2] [:halt 0] [op 0] [:return 0]] a (jing/segment-key v)]
+                   [(assoc worked-frame :yin.k/segment a :yin.k/pc 3 :yin.k/window {}
+                           :yin.k/deliver {:yin.k/deliver :rd :yin.k/rd 0}) {a v}]))
+        [park-f park-c] (resume :park)
+        [cc-f cc-c] (resume :current-continuation)]
+    (is (nil? (kind (dissoc park-f :yin.k/pending) park-c :parked task)))
+    (is (nil? (kind (dissoc cc-f :yin.k/pending) cc-c :captured task)))
+    (doseq [[rule expected f c] [["S2 map K" :k-shape (assoc worked-frame :yin.k/k {}) worked-code]
+                                 ["S2 nil K" :k-shape (assoc worked-frame :yin.k/k nil) worked-code]
+                                 ["S4 nil store-of" :env-shape (assoc-in worked-frame [:yin.k/env :yin.k/store-of] nil) worked-code]
+                                 ["C2 pc 0" :pc-bounds (assoc worked-frame :yin.k/pc 0) worked-code]
+                                 ["A5 before A6" :window-extra (assoc worked-frame :yin.k/window {3 :x}) worked-code]
+                                 ["P2 park" :reason-mismatch park-f park-c]
+                                 ["P2 current-continuation" :reason-mismatch cc-f cc-c]]]
+      (testing rule
+        (is (= expected (kind f c :wait task)))))))
+
+
 (deftest tail-bookkeeping-and-delivery
   (let [fixture (last (reference-machines)) {:keys [frame code]} (first (reference-frames fixture))
         f (dissoc frame :yin.k/pending)]

@@ -30,6 +30,7 @@
 (defn- env?
   [e]
   (and (closed? e [:yin.k/bindings] [:yin.k/store-of])
+       (or (not (contains? e :yin.k/store-of)) (some? (:yin.k/store-of e)))
        (map? (:yin.k/bindings e))
        (every? symbol? (keys (:yin.k/bindings e)))))
 

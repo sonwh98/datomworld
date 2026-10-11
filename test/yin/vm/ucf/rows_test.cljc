@@ -168,7 +168,7 @@
       (is (= 2 (count (rows/canonical-numbering a)))))))
 
 
-(deftest refinement-search-preserves-unordered-multiplicity
+(deftest refinement-search-on-symmetric-cells-is-bounded
   (let [body (cell-body :s 0)
         make-task (fn [a b] (task-node [[a body] [b body]] [:row (rows/node :set [[:cell a] [:cell b]])]))
         a (rows/emit (make-task :x :y)) b (rows/emit (make-task :b :a))]
@@ -183,7 +183,24 @@
     (doseq [version [0 1 2 4 3.5]]
       (is (= :yin.k/profile-mismatch (:yin.k/status (error #(rows/decode (assoc wire :yin.k/version version)))))))
     (is (= :duplicate-row (:yin.k/kind (error #(rows/decode (update wire :yin.k/rows conj (first (:yin.k/rows wire))))))))
-    (is (= :unreachable-row (:yin.k/kind (error #(rows/decode (update wire :yin.k/rows conj [:fake :prim 'f]))))))))
+    (is (= :unreachable-row (:yin.k/kind (error #(rows/decode (update wire :yin.k/rows conj [:fake :prim 'f]))))))
+    (is (= :row-shape (:yin.k/kind (error #(rows/decode (assoc wire :extra 1))))))
+    (let [root (:yin.k/root wire)
+          root-row (first (filter #(= root (first %)) (:yin.k/rows wire)))
+          store (first (first (filter #(= :store (second %)) (:yin.k/rows wire))))
+          forge (fn [i x] (update wire :yin.k/rows (fn [rs] (mapv #(if (= root (first %)) (assoc % i x) %) rs))))]
+      ;; Slot n of the task row is at index n + 2.
+      (is (= :task-shape (:yin.k/kind (error #(rows/decode (forge 14 5))))))
+      (is (= :reference-kind (:yin.k/kind (error #(rows/decode (forge 7 store))))))
+      (is (= :yin.k/hash-mismatch (:yin.k/status (error #(rows/decode (forge 17 [:lit 1]))))))
+      (is (= :task (second root-row))))
+    (let [child (task-node [] [:lit nil])
+          parent (rows/emit (rows/node :task (assoc (:slots (task-node [] [:lit nil])) 12
+                                                    [(rows/node :install ['a :running nil {} child])])))
+          root (:yin.k/root parent)
+          cyclic (update parent :yin.k/rows
+                         (fn [rs] (mapv #(if (= :install (second %)) (assoc % 6 root) %) rs)))]
+      (is (= :cyclic (:yin.k/kind (error #(rows/decode cyclic))))))))
 
 
 (deftest numbering-precedes-frame-defect
@@ -205,7 +222,19 @@
     (is (= :value-reference-kind
            (:yin.k/kind (error #(rows/decode (rows/emit (task-node [] [:row (rows/node :window [])])))))))
     (let [wire (rows/emit (task-node [] [:lit nil]))]
-      (is (= :yin.k/unsupported (:yin.k/status (error #(rows/decode wire {:rows 1}))))))))
+      (is (= :yin.k/unsupported (:yin.k/status (error #(rows/decode wire {:rows 1}))))))
+    (is (= :literal (:yin.k/kind (error #(rows/decode (rows/emit (task-node [] [:lit (cbor/encode 1)])))))))
+    ;; Distinct rows whose decoded elements are equal ([x [1]] = [x (1)]).
+    (is (= :duplicate-key
+           (:yin.k/kind (error #(rows/decode (rows/emit (task-node [[:x body]]
+                                                                   [:row (rows/node :set [[:row (rows/node :vec [[:cell :x] [:lit [1]]])]
+                                                                                          [:row (rows/node :vec [[:cell :x] [:lit (list 1)]])]])])))))))
+    (let [task (task-node [[:x body]] [:cell :x])
+          wire (rows/emit task)
+          census (first (filter #(= :cells (second %)) (:yin.k/rows wire)))]
+      (doseq [k [:x :yin.k/c-01 :yin.k/c-0 :yin.k/c-]]
+        (is (= :slot-kind (:yin.k/kind (error #(rows/decode (replace-row wire (first census) [:cells k (nth census 3)])))))))
+      (is (= :slot-kind (:yin.k/kind (error #(rows/decode (rows/emit-numbered task {})))))))))
 
 
 (deftest child-scope-and-shared-child-dag
@@ -235,13 +264,88 @@
 (deftest task-root-checks-carried-code-and-frame
   (let [wait (rows/decode (rows/frame->rows ft/worked-frame))
         base (task-node [[:test/cursor (cell-body :s 0)]] nil)
-        task (rows/node :task (assoc (:slots base) 2 :blocked 11 ft/worked-code
-                                     13 [wait] 16 {:yin.k/policy :yin.k/fork}))
+        task (rows/node :task (-> (:slots base) (assoc 2 :blocked) (assoc 11 ft/worked-code)
+                                  (assoc 13 [wait]) (assoc 16 {:yin.k/policy :yin.k/fork})))
         wire (rows/emit task)
         bad-state (rows/node :act (assoc (:slots (first (:slots wait))) 3 (rows/node :window [])))
-        bad-task (rows/node :task (assoc (:slots task) 13 [(rows/node :wait [bad-state (second (:slots wait))])]))]
+        bad-task (rows/node :task (assoc (:slots task) 13 [(rows/node :wait [bad-state (second (:slots wait))])]))
+        bad-code [[:halt 99]]]
     (is (= (:yin.k/root wire) (:yin.k/root (rows/emit (rows/decode wire)))))
     (let [d (error #(rows/decode (rows/emit bad-task)))]
       (is (= :window-missing (:yin.k/kind d)))
       (is (= :yin.k/undecodable (:yin.k/status d)))
-      (is (jing/parse-segment-address (first (:yin.k/path d)))))))
+      (is (jing/parse-segment-address (first (:yin.k/path d)))))
+    ;; X1 is judged before any wait.
+    (is (= :reserved-name
+           (:yin.k/kind (error #(rows/decode (rows/emit (rows/node :task (assoc (:slots bad-task) 5 (rows/node :bindings ['yin/def [:lit 1]])))))))))
+    (is (= :code
+           (:yin.k/kind (error #(rows/decode (rows/emit (rows/node :task (assoc (:slots task) 11 {(jing/segment-key bad-code) bad-code}))))))))))
+
+
+(defn- reversed
+  "The same abstract task with every :set and :map listed in reverse."
+  [n]
+  (letfn [(value [v] (if (= :row (first v)) [:row (reversed (second v))] v))]
+    (case (:kind n)
+      :set (rows/node :set (vec (reverse (mapv value (:slots n)))))
+      :map (rows/node :map (vec (mapcat (fn [[k v]] [(value k) (value v)]) (reverse (partition 2 (:slots n))))))
+      :store (rows/node :store (vec (mapcat (fn [[k v]] [k (value v)]) (partition 2 (:slots n)))))
+      :task (rows/node :task (assoc (:slots n) 6 (reversed (nth (:slots n) 6))))
+      n)))
+
+
+(deftest unordered-containers-are-order-free
+  ;; Identity correspondence: only the listed order of :set elements
+  ;; (streams and cells) and :map entries differs.
+  (let [a (fixture :s1 :s2 :x :y) b (reversed a) ident {:s1 :s1 :s2 :s2}]
+    (is (not= a b))
+    (is (= (:yin.k/root (rows/emit a)) (:yin.k/root (rows/emit b))))
+    (is (= (:yin.k/root (rows/canonical-under (rows/emit a) ident))
+           (:yin.k/root (rows/canonical-under (rows/emit b) ident))))))
+
+
+(deftest canonical-roots-are-pinned
+  (is (= :segment/blake3-be82d50b14804bb7a69103631b9c45759b49b67dbb3cebe75a1259fed6b4a937
+         (:yin.k/root (rows/emit (fixture :s1 :s2 :x :y)))))
+  (is (= :segment/blake3-c4a7c7e6de3b44400efec5930bc3d85d86b29153b4b2d548acba630bfbc3da7d
+         (:yin.k/root (rows/frame->rows ft/worked-frame))))
+  ;; The draft §6 case at its smallest: a directed loop and a directed
+  ;; 2-cycle over equal-body cells leave all three cells in one class, and
+  ;; no automorphism exchanges the loop with a 2-cycle vertex.
+  (let [shape (fn [[l a b]]
+                [[:row (rows/node :vec [[:cell l] [:cell l]])]
+                 [:row (rows/node :vec [[:cell a] [:cell b]])]
+                 [:row (rows/node :vec [[:cell b] [:cell a]])]])
+        graph (fn [ids edges] (task-node (mapv #(vector % (cell-body :s 0)) ids) [:row (rows/node :set edges)]))
+        task (graph [:l :a :b] (shape [:l :a :b]))
+        renamed (graph [:z/b :z/a :z/l] (vec (reverse (shape [:z/l :z/a :z/b]))))
+        numbering (rows/canonical-numbering task)
+        root (:yin.k/root (rows/emit task))]
+    (is (= :resource-limit (:yin.k/kind (error #(rows/emit task {:search 2})))))
+    (is (= :segment/blake3-8899f95d330a174ee098e10f16ecf2d017d5aae67d4f50d8369222342e6d36e9 root))
+    (is (= root (:yin.k/root (rows/emit renamed))))
+    (is (= :yin.k/c-3 (numbering :l)))
+    (is (= (:z/l (rows/canonical-numbering renamed)) (numbering :l)))))
+
+
+(deftest census-is-numeric-from-ten-cells
+  (let [ids (mapv #(keyword "src" (str "x" %)) (range 10))
+        task (task-node (mapv (fn [id i] [id (cell-body :s i)]) ids (range))
+                        [:row (rows/node :vec (mapv #(vector :cell %) ids))])
+        wire (rows/emit task)
+        census (first (filter #(= :cells (second %)) (:yin.k/rows wire)))]
+    (is (= (mapv #(keyword "yin.k" (str "c-" %)) (range 1 11)) (vec (take-nth 2 (drop 2 census)))))
+    (is (= (:yin.k/root wire) (:yin.k/root (rows/emit (rows/decode wire)))))))
+
+
+(deftest marker-shaped-guest-maps-are-not-portable
+  (doseq [v [{:yin.k/row 1} {:yin.k/cell "c"}]]
+    (is (= :yin.k/non-portable
+           (:yin.k/status (error #(rows/frame->rows (assoc ft/worked-frame :yin.k/window {1 v})))))))
+  (let [f (assoc ft/worked-frame :yin.k/window {1 {:yin.k/row 1 :other 2}})]
+    (is (= f (rows/rows->frame (rows/frame->rows f)))))
+  (let [wire (rows/frame->rows ft/worked-frame)
+        window (first (first (filter #(= :window (second %)) (:yin.k/rows wire))))]
+    (doseq [v [{:yin.k/row 1} {:yin.k/cell :c}]]
+      (is (= :yin.k/non-portable
+             (:yin.k/status (error #(rows/rows->frame (replace-row wire window [:window 1 [:lit v]])))))))))
