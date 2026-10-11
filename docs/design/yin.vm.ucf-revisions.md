@@ -444,7 +444,7 @@ untouched, so no image validity changes.
      ordered frames of registers plus pending, the parked-record slice
      and its active id, install children as whole child bodies with
      phase and response, the isolated store and module-store
-     snapshots, the one cell table, closed requirements (cursor
+     snapshots, the one cursor table, closed requirements (cursor
      profiles, segments), the code vectors under their addresses, the
      fresh-name counter, and the halt result.  Stage 1 mints these as
      version-0 canonical CBOR bytes under their content address; the
@@ -464,11 +464,11 @@ untouched, so no image validity changes.
      only; the wire reason and pending variant come from the observed
      entry, and a variant the static kinds do not admit refuses (kind
      `:reason-mismatch`), never invents `:call-effect`.
-  5. Cell identity discipline: cell ids are lift-local, minted once
+  5. Cursor identity discipline: cursor ids are lift-local, minted once
      across the whole reachable graph (frames, waits, stores, closures,
-     parked records); the lower allocates fresh resource keys per cell
+     parked records); the lower allocates fresh resource keys per cursor
      and re-seals every reference under the receiver.
-  6. The cursor-profile claim: a body carrying cells must claim
+  6. The cursor-profile claim: a body carrying cursors must claim
      `:dao.stream.remote/v1` in `:yin.k/requires`; omission refuses
      `:yin.k/unsatisfied` before publication.
 - Contract-pinned AST and semantic identities. From the linker

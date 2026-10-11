@@ -89,7 +89,7 @@ A continuation is a value: one **canonical frame** of the register
 machine, `act` or `tail`, with its saved window, its `K` of `:return`
 frames, its environment, its delivery record and its pending wait
 (frozen §2.4, §4.2), plus the task context it needs: the task's **free
-environment**, store slice, module stores, parked table, cells, code by
+environment**, store slice, module stores, parked table, cursors, code by
 A and the tree association. **§1** restates the frame as the 4b
 evaluator mints it. **§2** gives the row carrier: body version 3, one
 profile (`"v4"`), Merkle content rows under Jing's default digest, the
@@ -193,7 +193,7 @@ readers; §10.3 lists every replaced or deleted clause. Its §3 (rows, id
 spaces, census, the explicit "version 3 verifies under BLAKE3
 permanently" rule), §4 (value union), §5.1 (value rows, except
 `:reified`), §5.3 (pending), §5.4 (task context, except
-`:parked-table`), §6 (canonical cell numbering), §7 (equality) and §8
+`:parked-table`), §6 (canonical cursor numbering), §7 (equality) and §8
 steps 1-6 and 8-12 stand.
 
 ### 2.1 Positioning: body version 3, one profile
@@ -221,9 +221,11 @@ receiving composition's choice. The version-2 registry
 
 **DECIDED** (draft §3, ruling 1). Every row is `[id kind & slots]`;
 content rows have `id = (jing/segment-key body)` under Jing's default
-digest, BLAKE3 for version 3 permanently; identity rows are cells
-`:yin.k/c-<n>` numbered by the draft's §6 procedure; the root carries
-the cell census. One ordering rule: "sorted" is by the Jing canonical
+digest, BLAKE3 for version 3 permanently; identity rows are cursors
+`:yin.k/cur-<n>` numbered by the draft's §6 procedure; the root carries
+the cursor census. (Terminology, 2026-10-12: the carrier's cursors were
+called "cells" and spelled `:yin.k/c-<n>`, `:cells`, `:cell-body` before
+this date; "cell" now means only the mutable heap box of `yin.vm.cell`.) One ordering rule: "sorted" is by the Jing canonical
 bytes of the key as spelled.
 
 ### 2.3 The frame rows (replacing draft §5.2)
@@ -298,7 +300,7 @@ markers (`:request-sent`, `:call-id`, `:op`, `:datom`,
    store-cref
    module-stores    ; crefs sorted by M
    parked-cref      ; :parked-table
-   cells-cref       ; :cells census
+   cursors-cref       ; :cursors census
    requires         ; plain: UCF §7.6.1's map plus :yin.k/trees (§6.1)
    code             ; plain: {A canonical-vector …}, "v4" vectors verified to hash to their key
    installs         ; crefs to :install rows, sorted by module name
@@ -452,7 +454,7 @@ context is judged first by `frame/task-defect` (X1), then every `:act`,
 judged by `frame/defect` with its context and that task context; a defect
 is `:yin.k/undecodable` with the rule's kind and the row path. A
 first-defect test therefore sees a numbering defect
-(`:noncanonical-cells`) before a frame defect on a body that has both,
+(`:noncanonical-cursors`) before a frame defect on a body that has both,
 and §8's acceptance items say so. On **lift**: the same function runs
 over every assembled frame before any row is emitted; a frame the
 evaluator itself minted that fails is `:yin.k/non-portable`
@@ -839,7 +841,7 @@ landed or stage-2 evaluator.
 | 15 | capture invoked after lower | `(let1 k (vm/current-continuation) (if (= k :second) :done (let1 r (next-of c) (k :second))))`: on the first pass `k` is a continuation, so the test fails and the read runs and parks; after satisfaction `(k :second)` delivers `:second` into the capture's `rd` (the `let1` operand) and re-enters at the capture's successor pc, so the body is entered again with `k = :second` and the test succeeds **without repeating the read** (the invocation is abortive on every lane: `:continuation` operator kind, `srvm-phase4b:semantic_register.cljc:212-217` stage 2, `stack.cljc:760-763`). `if` is `{:type :if :test :consequent :alternate}` (`vm.cljc:1069`), a helper the new harness file adds; `=` is the primitive (`vm.cljc:387`), consumed before the read | append `"x"` after lower | act, `:next`; `k` is a `:reified` value in `E` (the closure's) | `:done` | yes |
 | 16 | nested capture | `(let1 k1 (vm/current-continuation) (let1 k2 (vm/current-continuation) (cat (cat (cat [] k1) k2) (next-of c))))` | append `"B"` | act; `k2`'s act window holds `k1` (a `:reified` inside a `:reified`'s window) | `[:continuation :continuation "B"]` | yes |
 | 17 | module context, blocked inside a module closure | `host.mod` exports `f = (fn [c] (stream/next! c))`; root: `(f c)` after `(require 'host.mod)` | append `"B"` | act, `:next`, `E` carries `store-of host.mod` | `"B"` | 4b stage 2 (link) |
-| 18 | module-store snapshot | `parked-module-store-cursors` (`lift_support.cljc:310-333`): an explicit park whose module store holds two cursors named by a module closure | resume | parked record; `:module-store` row | the cursors' cells | yes |
+| 18 | module-store snapshot | `parked-module-store-cursors` (`lift_support.cljc:310-333`): an explicit park whose module store holds two cursors named by a module closure | resume | parked record; `:module-store` row | the cursors' identity rows | yes |
 | 19 | halt | `(lit 42)` | — | result | `42` | yes |
 | 20 | **tail-effect halt** | run **outside the wrappers**, in two batches on one machine: a setup batch `(then (def! 's (stream/make 4)) (def! 'c (cursor-of s)))` run to halt (store writes persist across batches, as `lift_support.cljc:320-322` relies on), then the batch `(stream/next! c)` **marked `:tail? true` at the root**, `c` resolving through the store; no application precedes the call, so `K` is empty (any `let1` or wrapper would push a frame, §5.2 above) | append `"B"` | tail, `:next` | halts with `"B"` (4b: a tail effect with no frame to pop halts, `srvm-phase4b:semantic_register.cljc:205-211` stage 2; stack: the seam's empty-`K` case, §4.3), env free of `store-of` | yes |
 | 21 | **free-env shadowing** (the review's row) | initial free env `{x 99}`; `(let1 f (fn [] x) ((fn [x] (f (next-of c))) 1))` | append `"B"` | act, `:next`; `E` at the read binds `x` to 1; root `free-env` carries `x 99` | the lowered `f` returns `99` (not nil, not 1) on every lane; **the one row the earlier design would have failed** | yes |
@@ -907,11 +909,11 @@ harness first **fixes identities where it can**: all three lanes serve
 their streams through one toy channel (`v2_support/toy`,
 `served-peer`), so stream identities and descriptors are equal across
 lanes by construction where the same logical stream is lifted. Where a
-lane mints its own (fresh cells on relift, the receiver's own call
+lane mints its own (fresh cursors on relift, the receiver's own call
 pair), the comparison uses `rows/canonical-under`, a **test-only**
 transformation whose placeholder assignment is **never derived from
 traversal order** (the review's objection: map and set traversal, and
-"cells by body", can depend on the very identities being erased). It
+"cursors by body", can depend on the very identities being erased). It
 takes an **explicit logical-stream correspondence** from the fixture:
 the harness created every stream the row reaches, so it supplies
 `{lane-identity → logical-name}` (e.g. `{id-of-s :s, id-of-call-out
@@ -919,12 +921,12 @@ the harness created every stream the row reaches, so it supplies
 abstract task (draft §6's input), replaces each stream marker's identity
 and descriptor by the logical name the map gives it (a marker the map
 does not cover is a test failure, never a guess), runs the canonical
-cell numbering (draft §6), re-emits every row and recomputes every id,
+cursor numbering (draft §6), re-emits every row and recomputes every id,
 and compares root ids. Draft §6 is invariant under renaming of the
-**cells** (its labels never encode an incoming cell id), and the only
-other identity it consumes is the stream marker in each cell's initial
+**cursors** (its labels never encode an incoming cursor id), and the only
+other identity it consumes is the stream marker in each cursor's initial
 label (`[:body <stream-marker-bytes> <position-bytes>]`, draft §6 step
-1) and in cell bodies; after the substitution those are the fixture's
+1) and in cursor bodies; after the substitution those are the fixture's
 logical names, so the procedure's inputs no longer depend on any lane's
 identities. Unordered containers (`:set`, `:map`, `:store`,
 `:bindings`, the parked table) are encoded by sorting their elements'
@@ -1039,7 +1041,7 @@ holds (`unliftable-hold`, `handoff.cljc:588`) as `:yin.k/non-portable
 (`scan/requirements`, `scan/free-names`, `scan/free-occurrences` over the
 §2.3 table: the current `completion/code-facts` reads stack-table
 positions and cannot be used), and refuse `:yin.k/unsatisfied` unless
-`:complete`, `:yin.k/trees` included; number cells (draft §6); walk
+`:complete`, `:yin.k/trees` included; number cursors (draft §6); walk
 waits, parked records, the store slice, module stores, the free
 environment (from the kernel's `:free-env` field or the lift's explicit
 `:free-env` argument, §6.3, never from a current `E`), the result,
@@ -1132,7 +1134,7 @@ frames to validate. Touches nothing of 4b or 5; needs no scanner.
    `:window` row is `:yin.k/undecodable` at canonical form (step 5).
 10. `rows-test/canonical-under-is-renaming-invariant`: §5.5's
     transformation gives equal root ids for two emissions of one abstract
-    task under permuted cell numbering and distinct stream identities,
+    task under permuted cursor numbering and distinct stream identities,
     with the fixture's correspondence map; **and the unordered-container
     permutation**: a store value that is a set of two stream references
     and a map keyed by two cursor references, emitted twice with the two
@@ -1179,9 +1181,9 @@ Touches nothing of 4b or 5.
    to a non-tail call is `:site` (T1 runs before P4).
 7. `refusals`: every refusal row of §5.2 refuses with the named status
    and kind before any attachment; `first-defect-order`: a body with a
-   noncanonical cell numbering **and** a tampered window reports
-   `:noncanonical-cells`.
-8. `a-response-cursor-shared-by-two-waiters-crosses-as-one-cell` and
+   noncanonical cursor numbering **and** a tampered window reports
+   `:noncanonical-cursors`.
+8. `a-response-cursor-shared-by-two-waiters-crosses-as-one-cursor` and
    `a-nonempty-ready-queue-is-not-quiescent`, ported.
 9. kondo clean; `bb test:sub yin.vm` green on three hosts.
 
