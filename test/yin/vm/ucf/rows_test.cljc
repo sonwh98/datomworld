@@ -14,26 +14,26 @@
 
 
 (defn task-node
-  [cells result]
+  [cursors result]
   (rows/node :task [3 rows/profile :halted :root 0 (rows/node :bindings [])
                     (rows/node :store []) [] (rows/node :parked-table [])
-                    (rows/node :cells (mapcat identity cells)) {} {} [] [] nil result nil]))
+                    (rows/node :cursors (mapcat identity cursors)) {} {} [] [] nil result nil]))
 
 
-(defn cell-body
+(defn cursor-body
   [stream position]
-  (rows/node :cell-body [(rows/node :stream [stream {:peer stream}]) position]))
+  (rows/node :cursor-body [(rows/node :stream [stream {:peer stream}]) position]))
 
 
 (defn fixture
   [a b x y]
   (let [payload [:row (rows/node :map
-                                 [[:lit 'both] [:row (rows/node :set [[:cell x] [:cell y]])]
-                                  [:lit 'one] [:cell x]
+                                 [[:lit 'both] [:row (rows/node :set [[:cursor x] [:cursor y]])]
+                                  [:lit 'one] [:cursor x]
                                   [:lit 'streams] [:row (rows/node :set [[:row (rows/node :stream [a {:peer a}])]
                                                                          [:row (rows/node :stream [b {:peer b}])]])]
-                                  [:lit 'cursors] [:row (rows/node :map [[:cell x] [:lit :x] [:cell y] [:lit :y]])]])]
-        task (task-node [[x (cell-body a 0)] [y (cell-body b 0)]] [:lit nil])]
+                                  [:lit 'cursors] [:row (rows/node :map [[:cursor x] [:lit :x] [:cursor y] [:lit :y]])]])]
+        task (task-node [[x (cursor-body a 0)] [y (cursor-body b 0)]] [:lit nil])]
     (rows/node :task (assoc (:slots task) 6 (rows/node :store ['payload payload])))))
 
 
@@ -43,7 +43,7 @@
 (defn- encoded
   [x]
   (cond (and (map? x) (contains? x :yin.k/row)) [:row (:yin.k/row x)]
-        (and (map? x) (contains? x :yin.k/cell)) [:cell (:yin.k/cell x)]
+        (and (map? x) (contains? x :yin.k/cursor)) [:cursor (:yin.k/cursor x)]
         :else [:lit x]))
 
 
@@ -66,7 +66,7 @@
                                                                 (engine/without-store-of e))))
                                        (engine/env-store-of e)])})
     (fn? x) {:yin.k/row (rows/node :prim ['fixture/primitive])}
-    (and (map? x) (= :cursor-ref (:type x))) {:yin.k/cell (:id x)}
+    (and (map? x) (= :cursor-ref (:type x))) {:yin.k/cursor (:id x)}
     (and (map? x) (= :stream-ref (:type x))) {:yin.k/row (rows/node :stream [(:id x) :fixture/served])}
     (coll? x)
     (let [kind (cond (map? x) :map (vector? x) :vec (set? x) :set :else :list)
@@ -88,7 +88,7 @@
       (= :act (:yin.k/state f)) (update :yin.k/env env)
       (= :act (:yin.k/state f)) (update :yin.k/window bindings)
       (contains? f :yin.k/pending) (update :yin.k/pending #(case (:yin.k/reason %)
-                                                             :next (assoc % :yin.k/cell :test/cursor)
+                                                             :next (assoc % :yin.k/cursor :test/cursor)
                                                              :put (assoc % :yin.k/stream (rows/node :stream [:fixture/w :fixture/served])
                                                                          :yin.k/value "v" :yin.k/op-id nil) %)))))
 
@@ -149,7 +149,7 @@
     (is (= (:yin.k/root ca)
            (:yin.k/root (rows/canonical-under
                           (rows/emit-numbered (fixture :lane-a/s1 :lane-a/s2 :source/x :source/y)
-                                              {:source/x :yin.k/c-2 :source/y :yin.k/c-1})
+                                              {:source/x :yin.k/cur-2 :source/y :yin.k/cur-1})
                           {:lane-a/s1 :s1 :lane-a/s2 :s2}))))
     (is (= (set (:yin.k/rows ca)) (set (:yin.k/rows cb))))
     (is (= :missing-stream-correspondence
@@ -157,10 +157,10 @@
 
 
 (deftest alias-topology-and-census
-  (let [x :local/x y :local/y body (cell-body :s 0)
-        a (task-node [[x body] [y body]] [:row (rows/node :vec [[:cell x] [:cell x] [:cell y]])])
-        b (task-node [[x body] [y body]] [:row (rows/node :vec [[:cell x] [:cell y] [:cell y]])])
-        c (task-node [[x body] [y (cell-body :s 1)]] [:row (rows/node :vec [[:cell x] [:cell x] [:cell y]])])]
+  (let [x :local/x y :local/y body (cursor-body :s 0)
+        a (task-node [[x body] [y body]] [:row (rows/node :vec [[:cursor x] [:cursor x] [:cursor y]])])
+        b (task-node [[x body] [y body]] [:row (rows/node :vec [[:cursor x] [:cursor y] [:cursor y]])])
+        c (task-node [[x body] [y (cursor-body :s 1)]] [:row (rows/node :vec [[:cursor x] [:cursor x] [:cursor y]])])]
     (is (not= (:yin.k/root (rows/emit a)) (:yin.k/root (rows/emit b))))
     (is (not= (:yin.k/root (rows/emit a)) (:yin.k/root (rows/emit c))))
     (let [wire (rows/emit a)]
@@ -168,9 +168,9 @@
       (is (= 2 (count (rows/canonical-numbering a)))))))
 
 
-(deftest refinement-search-on-symmetric-cells-is-bounded
-  (let [body (cell-body :s 0)
-        make-task (fn [a b] (task-node [[a body] [b body]] [:row (rows/node :set [[:cell a] [:cell b]])]))
+(deftest refinement-search-on-symmetric-cursors-is-bounded
+  (let [body (cursor-body :s 0)
+        make-task (fn [a b] (task-node [[a body] [b body]] [:row (rows/node :set [[:cursor a] [:cursor b]])]))
         a (rows/emit (make-task :x :y)) b (rows/emit (make-task :b :a))]
     (is (= (:yin.k/root a) (:yin.k/root b)))
     (is (= 2 (count (rows/canonical-numbering (make-task :x :y)))))
@@ -208,15 +208,15 @@
         slots (:slots abstract)
         abstract (rows/node :task (assoc slots 5 (rows/node :bindings ['yin/def [:lit 1]])))
         wire (rows/emit abstract)
-        d (error #(rows/decode (rows/emit-numbered abstract {:x :yin.k/c-9 :y :yin.k/c-8})))]
-    (is (= :noncanonical-cells (:yin.k/kind d)))
+        d (error #(rows/decode (rows/emit-numbered abstract {:x :yin.k/cur-9 :y :yin.k/cur-8})))]
+    (is (= :noncanonical-cursors (:yin.k/kind d)))
     (is (= :reserved-name (:yin.k/kind (error #(rows/decode wire)))))))
 
 
 (deftest schema-and-literal-canonicality
-  (let [body (cell-body :s 0)]
-    (is (= :missing-cell (:yin.k/kind (error #(rows/decode (rows/emit (task-node [] [:cell :missing])))))))
-    (is (= :extra-cell (:yin.k/kind (error #(rows/decode (rows/emit (task-node [[:x body]] [:lit nil])))))))
+  (let [body (cursor-body :s 0)]
+    (is (= :missing-cursor (:yin.k/kind (error #(rows/decode (rows/emit (task-node [] [:cursor :missing])))))))
+    (is (= :extra-cursor (:yin.k/kind (error #(rows/decode (rows/emit (task-node [[:x body]] [:lit nil])))))))
     (is (= :reference-free-row
            (:yin.k/kind (error #(rows/decode (rows/emit (task-node [] [:row (rows/node :vec [[:lit 1]])])))))))
     (is (= :value-reference-kind
@@ -227,19 +227,19 @@
     ;; Distinct rows whose decoded elements are equal ([x [1]] = [x (1)]).
     (is (= :duplicate-key
            (:yin.k/kind (error #(rows/decode (rows/emit (task-node [[:x body]]
-                                                                   [:row (rows/node :set [[:row (rows/node :vec [[:cell :x] [:lit [1]]])]
-                                                                                          [:row (rows/node :vec [[:cell :x] [:lit (list 1)]])]])])))))))
-    (let [task (task-node [[:x body]] [:cell :x])
+                                                                   [:row (rows/node :set [[:row (rows/node :vec [[:cursor :x] [:lit [1]]])]
+                                                                                          [:row (rows/node :vec [[:cursor :x] [:lit (list 1)]])]])])))))))
+    (let [task (task-node [[:x body]] [:cursor :x])
           wire (rows/emit task)
-          census (first (filter #(= :cells (second %)) (:yin.k/rows wire)))]
-      (doseq [k [:x :yin.k/c-01 :yin.k/c-0 :yin.k/c-]]
-        (is (= :slot-kind (:yin.k/kind (error #(rows/decode (replace-row wire (first census) [:cells k (nth census 3)])))))))
+          census (first (filter #(= :cursors (second %)) (:yin.k/rows wire)))]
+      (doseq [k [:x :yin.k/cur-01 :yin.k/cur-0 :yin.k/cur- :yin.k/c-1]]
+        (is (= :slot-kind (:yin.k/kind (error #(rows/decode (replace-row wire (first census) [:cursors k (nth census 3)])))))))
       (is (= :slot-kind (:yin.k/kind (error #(rows/decode (rows/emit-numbered task {})))))))))
 
 
 (deftest child-scope-and-shared-child-dag
-  (let [child (rows/node :task (assoc (:slots (task-node [[:x (cell-body :child/s 2)]] [:cell :x])) 3 :child))
-        root (task-node [[:x (cell-body :root/s 1)]] [:cell :x])
+  (let [child (rows/node :task (assoc (:slots (task-node [[:x (cursor-body :child/s 2)]] [:cursor :x])) 3 :child))
+        root (task-node [[:x (cursor-body :root/s 1)]] [:cursor :x])
         parent (rows/node :task (assoc (:slots root) 12 [(rows/node :install ['a :running nil {} child])
                                                          (rows/node :install ['b :running nil {} child])]))
         wire (rows/emit parent)]
@@ -255,7 +255,7 @@
         f (assoc ft/worked-frame :yin.k/pending
                  {:yin.k/reason :ffi-request :yin.k/call-id :id :yin.k/envelope envelope
                   :yin.k/request-stream stream :yin.k/response-stream stream
-                  :yin.k/response-cell :cell :yin.k/op-id nil})
+                  :yin.k/response-cursor :cursor :yin.k/op-id nil})
         wire (rows/frame->rows f)]
     (is (= f (rows/rows->frame wire)))
     (is (contains? (get-in (rows/rows->frame wire) [:yin.k/pending :yin.k/envelope]) :unknown))))
@@ -263,7 +263,7 @@
 
 (deftest task-root-checks-carried-code-and-frame
   (let [wait (rows/decode (rows/frame->rows ft/worked-frame))
-        base (task-node [[:test/cursor (cell-body :s 0)]] nil)
+        base (task-node [[:test/cursor (cursor-body :s 0)]] nil)
         task (rows/node :task (-> (:slots base) (assoc 2 :blocked) (assoc 11 ft/worked-code)
                                   (assoc 13 [wait]) (assoc 16 {:yin.k/policy :yin.k/fork})))
         wire (rows/emit task)
@@ -296,7 +296,7 @@
 
 (deftest unordered-containers-are-order-free
   ;; Identity correspondence: only the listed order of :set elements
-  ;; (streams and cells) and :map entries differs.
+  ;; (streams and cursors) and :map entries differs.
   (let [a (fixture :s1 :s2 :x :y) b (reversed a) ident {:s1 :s1 :s2 :s2}]
     (is (not= a b))
     (is (= (:yin.k/root (rows/emit a)) (:yin.k/root (rows/emit b))))
@@ -305,54 +305,54 @@
 
 
 (deftest canonical-roots-are-pinned
-  (is (= :segment/blake3-be82d50b14804bb7a69103631b9c45759b49b67dbb3cebe75a1259fed6b4a937
+  (is (= :segment/blake3-beef94ed002ce432ba00874b12ec585069e82856cec367b86007d657138902b7
          (:yin.k/root (rows/emit (fixture :s1 :s2 :x :y)))))
   (is (= :segment/blake3-c4a7c7e6de3b44400efec5930bc3d85d86b29153b4b2d548acba630bfbc3da7d
          (:yin.k/root (rows/frame->rows ft/worked-frame))))
   ;; The draft §6 case at its smallest: a directed loop and a directed
-  ;; 2-cycle over equal-body cells leave all three cells in one class, and
+  ;; 2-cycle over equal-body cursors leave all three cursors in one class, and
   ;; no automorphism exchanges the loop with a 2-cycle vertex.
   (let [shape (fn [[l a b]]
-                [[:row (rows/node :vec [[:cell l] [:cell l]])]
-                 [:row (rows/node :vec [[:cell a] [:cell b]])]
-                 [:row (rows/node :vec [[:cell b] [:cell a]])]])
-        graph (fn [ids edges] (task-node (mapv #(vector % (cell-body :s 0)) ids) [:row (rows/node :set edges)]))
+                [[:row (rows/node :vec [[:cursor l] [:cursor l]])]
+                 [:row (rows/node :vec [[:cursor a] [:cursor b]])]
+                 [:row (rows/node :vec [[:cursor b] [:cursor a]])]])
+        graph (fn [ids edges] (task-node (mapv #(vector % (cursor-body :s 0)) ids) [:row (rows/node :set edges)]))
         task (graph [:l :a :b] (shape [:l :a :b]))
         renamed (graph [:z/b :z/a :z/l] (vec (reverse (shape [:z/l :z/a :z/b]))))
         numbering (rows/canonical-numbering task)
         root (:yin.k/root (rows/emit task))]
     (is (= :resource-limit (:yin.k/kind (error #(rows/emit task {:search 2})))))
-    (is (= :segment/blake3-8899f95d330a174ee098e10f16ecf2d017d5aae67d4f50d8369222342e6d36e9 root))
+    (is (= :segment/blake3-b140ac405963a115665c26ac8ff3435d984ed70c8a44cec3be86544ae66abad9 root))
     (is (= root (:yin.k/root (rows/emit renamed))))
-    (is (= :yin.k/c-3 (numbering :l)))
+    (is (= :yin.k/cur-3 (numbering :l)))
     (is (= (:z/l (rows/canonical-numbering renamed)) (numbering :l)))))
 
 
-(deftest census-is-numeric-from-ten-cells
+(deftest census-is-numeric-from-ten-cursors
   (let [ids (mapv #(keyword "src" (str "x" %)) (range 10))
-        task (task-node (mapv (fn [id i] [id (cell-body :s i)]) ids (range))
-                        [:row (rows/node :vec (mapv #(vector :cell %) ids))])
+        task (task-node (mapv (fn [id i] [id (cursor-body :s i)]) ids (range))
+                        [:row (rows/node :vec (mapv #(vector :cursor %) ids))])
         wire (rows/emit task)
-        census (first (filter #(= :cells (second %)) (:yin.k/rows wire)))]
-    (is (= (mapv #(keyword "yin.k" (str "c-" %)) (range 1 11)) (vec (take-nth 2 (drop 2 census)))))
+        census (first (filter #(= :cursors (second %)) (:yin.k/rows wire)))]
+    (is (= (mapv #(keyword "yin.k" (str "cur-" %)) (range 1 11)) (vec (take-nth 2 (drop 2 census)))))
     (is (= (:yin.k/root wire) (:yin.k/root (rows/emit (rows/decode wire)))))))
 
 
 (deftest marker-shaped-guest-maps-are-not-portable
-  (doseq [v [{:yin.k/row 1} {:yin.k/cell "c"}]]
+  (doseq [v [{:yin.k/row 1} {:yin.k/cursor "c"}]]
     (is (= :yin.k/non-portable
            (:yin.k/status (error #(rows/frame->rows (assoc ft/worked-frame :yin.k/window {1 v})))))))
   (let [f (assoc ft/worked-frame :yin.k/window {1 {:yin.k/row 1 :other 2}})]
     (is (= f (rows/rows->frame (rows/frame->rows f)))))
   (let [wire (rows/frame->rows ft/worked-frame)
         window (first (first (filter #(= :window (second %)) (:yin.k/rows wire))))]
-    (doseq [v [{:yin.k/row 1} {:yin.k/cell :c}]]
+    (doseq [v [{:yin.k/row 1} {:yin.k/cursor :c}]]
       (is (= :yin.k/non-portable
              (:yin.k/status (error #(rows/rows->frame (replace-row wire window [:window 1 [:lit v]])))))))))
 
 
 (deftest well-formed-guest-markers-are-refused
-  (doseq [v [{:yin.k/row (rows/node :prim ['guest/f])} {:yin.k/cell :c}]]
+  (doseq [v [{:yin.k/row (rows/node :prim ['guest/f])} {:yin.k/cursor :c}]]
     (is (= :yin.k/non-portable
            (:yin.k/status (error #(rows/frame->rows (assoc ft/worked-frame :yin.k/window {1 v})))))))
   (let [f (assoc ft/worked-frame :yin.k/window {1 {:yin.k/row (rows/node :prim ['guest/f])}})]
@@ -360,7 +360,7 @@
 
 
 (deftest every-literal-context-refuses-markers
-  (doseq [v [{:yin.k/row 1} {:yin.k/cell :c}]]
+  (doseq [v [{:yin.k/row 1} {:yin.k/cursor :c}]]
     (doseq [task [(task-node [] [:lit v])
                   (task-node [] [:lit [v]])
                   (task-node [] [:lit (with-meta 'guest v)])
@@ -381,34 +381,34 @@
                (:yin.k/status (error #(rows/decode (replace-row wire id body))))))))))
 
 
-(deftest cell-and-identity-shaped-literal-are-distinct
-  (let [task (task-node [[:x (cell-body :s 0)]]
-                        [:row (rows/node :set [[:cell :x] [:lit [:identity :yin.k/c-1]]])])
+(deftest cursor-and-identity-shaped-literal-are-distinct
+  (let [task (task-node [[:x (cursor-body :s 0)]]
+                        [:row (rows/node :set [[:cursor :x] [:lit [:identity :yin.k/cur-1]]])])
         wire (rows/emit task)]
     (is (nil? (error #(rows/decode wire))))
     (is (= (:yin.k/root wire) (:yin.k/root (rows/emit (rows/decode wire)))))))
 
 
-(defn seven-cell-triangle-square
+(defn seven-cursor-triangle-square
   []
   (let [ids [:a :b :c :d :e :f :g]
         edges [[:a :b] [:b :c] [:c :a] [:d :e] [:e :f] [:f :g] [:g :d]]]
-    (task-node (mapv #(vector % (cell-body :s 0)) ids)
-               [:row (rows/node :set (mapv (fn [[a b]] [:row (rows/node :vec [[:cell a] [:cell b]])]) edges))])))
+    (task-node (mapv #(vector % (cursor-body :s 0)) ids)
+               [:row (rows/node :set (mapv (fn [[a b]] [:row (rows/node :vec [[:cursor a] [:cursor b]])]) edges))])))
 
 
 (deftest intermediate-label-bytes-are-bounded
-  (let [d (error #(rows/canonical-numbering (seven-cell-triangle-square)))]
+  (let [d (error #(rows/canonical-numbering (seven-cursor-triangle-square)))]
     (is (= :resource-limit (:yin.k/kind d)))
     (is (= [:label-bytes] (:yin.k/path d)))))
 
 
 (deftest input-row-bodies-do-not-spend-label-bytes
   (let [large (vec (range 400000))
-        base (task-node [[:x (cell-body :s 0)]] [:lit large])
-        ;; Keep the census cell reachable so decode also validates the carrier.
+        base (task-node [[:x (cursor-body :s 0)]] [:lit large])
+        ;; Keep the census cursor reachable so decode also validates the carrier.
         reachable (rows/node :task (assoc (:slots base) 5
-                                          (rows/node :bindings ['cursor [:cell :x]])))
+                                          (rows/node :bindings ['cursor [:cursor :x]])))
         custody (rows/node :task (assoc (:slots reachable) 15 [:lit nil]))
         custody (rows/node :task (assoc (:slots custody) 16 large))]
     (is (nil? (error #(rows/emit base))))
@@ -416,6 +416,6 @@
       (let [wire (rows/emit task)
             expected (rows/node :task
                                 (-> (:slots task)
-                                    (assoc 5 (rows/node :bindings ['cursor [:cell :yin.k/c-1]]))
-                                    (assoc 9 (rows/node :cells [:yin.k/c-1 (cell-body :s 0)]))))]
+                                    (assoc 5 (rows/node :bindings ['cursor [:cursor :yin.k/cur-1]]))
+                                    (assoc 9 (rows/node :cursors [:yin.k/cur-1 (cursor-body :s 0)]))))]
         (is (= expected (rows/decode wire)))))))
