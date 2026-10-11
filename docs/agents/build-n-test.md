@@ -29,7 +29,9 @@ bb test:slow:cljd    # Dart: only those namespaces' generated tests, DATOM_SLOW_
 # On Node, shadow also runs the test namespaces those nine require (about
 # seven more, e.g. lower-portable-test); on Dart only the nine namespaces run.
 # Run test:slow / test:all before a big merge or a commit that touches many parts.
-# Run one Dart lane at a time repo-wide.
+# Run one Dart lane at a time per machine (the limit is cores and the Flutter cache,
+# not subsystems). On the many-core remote hosts see "Remote test servers" below for
+# which lanes may overlap.
 #
 # When to tag a test slow: when it takes more than about 5 s on any lane (the
 # Python e2e tests sit on a ~3 s floor, so their JVM cut is 3.0 s). The
@@ -48,7 +50,9 @@ bb test:slow:cljd    # Dart: only those namespaces' generated tests, DATOM_SLOW_
 # G2 (`bb test:changed` in the worktree across all three lanes).
 # Full repo-wide `bb test` (G3) is the mandatory landing gate on master after merge.
 # Cross-host bugs show only on Node or Dart, so tri-host verification is mandatory
-# for every gate from G1 upward. Run one lane set at a time repo-wide to avoid contention.
+# for every gate from G1 upward. Run one lane set at a time per machine to avoid
+# contention (a laptop has 8 cores; the 24- and 48-core remote hosts have room to
+# overlap lanes, see "Remote test servers" below).
 # Measured fast-lane times (2026-10-03): bb test about 14 min = JVM 5.5 + Node
 # 3.8 + Dart 4.3, plus builds. test:slow: Node and Dart about 5 min each (mostly
 # compile); the JVM half is estimated at 17 min (long-loops-test alone is 14),
@@ -231,18 +235,49 @@ Activating mise before the `cd` and `mise trust` leaves the repo-pinned tools
 (flutter in particular) off PATH: the Dart lane then dies in seconds with "Can't
 find flutter on PATH", and so does `bb build:yin-repl-peer`.
 
+### Which lanes may overlap (reconciling the one-lane-set rule)
+
+"One lane set at a time" and "one Dart lane at a time" are per-machine rules about
+CPU: they exist because a laptop has 8 cores. They are not a rule about repos.
+`test.subsystems.md` section 5 item 6 says the same ("on one machine where
+avoidable"). On shiva (24 cores) and jupiter (48) the cores are not the limit, so
+lanes may overlap, with these limits:
+
+- **JVM and Dart lanes must not share one clone.** `src/dev/affected.clj`
+  (`serialized-pairs`, the `[:clj :cljd]` pair) serializes them whenever a JVM test
+  runs the cljd compiler, and some do (`yin.repl.build-test`,
+  `yin.vm.linker.cross-host-transfer-test`, `dao.stream.ws-project-cross-jvm-test`);
+  the compiler writes the clone's `lib/cljd-out` and `build/`. A second scratch clone
+  gives the Dart lane its own copies, so the two lanes then overlap safely. This is
+  by the design's own reasoning ("each worktree owns its own `cljd-out`"), not yet
+  verified by a measured run.
+- **JVM and Node may share a clone.** Node writes `target/` and `.shadow-cljs/`; the
+  JVM lane only reads `target/yin-repl.js`.
+- **One Dart lane per host at a time**, even across clones: the lane shards up to
+  `min(8, cores)` Flutter processes and shares the host's Flutter cache.
+- **Different branches in different clones** are independent, so two branches may
+  run on one host if its cores and RAM allow (62 GB each).
+- Do not treat this as permission to overlap lanes on the laptop.
+
+The first run on shiva (2026-10-11) overlapped JVM and Dart in one clone before
+this rule was written down; its results are advisory until repeated with a
+separate Dart clone.
+
 ### The full run
 
 Run long jobs inside `tmux` so the SSH session can drop. The script below does the
-serial prerequisites once, then runs the three lanes concurrently with the same
-commands the `bb` tasks use (the `bb test` task runs them one after another) and
-records each lane's exit code and seconds:
+serial prerequisites once, then runs the JVM and Node lanes in the first clone and
+the Dart lane in a second clone, all concurrently, with the same commands the `bb`
+tasks use (the `bb test` task runs them one after another), and records each
+lane's exit code and seconds. Make the Dart clone the same way as the first, at the
+same commit, with a name like `~/ci/datomworld-<name>-dart`:
 
 ```sh
 #!/usr/bin/env bash
-# ~/ci/run-full.sh <checkout-dir>
+# ~/ci/run-full.sh <jvm-node-clone> [<dart-clone>]   (omit the second on jupiter: no Dart)
 set -u
 export PATH="$HOME/.local/bin:/snap/bin:$PATH"
+DART="${2:-}"
 cd "$1" || exit 2
 mise trust >/dev/null 2>&1
 eval "$(mise env -s bash)"
@@ -257,18 +292,22 @@ lane() { name=$1; shift; s=$(date +%s); "$@" >"$LOG/$name.log" 2>&1; rc=$?
          echo "$name rc=$rc secs=$(( $(date +%s)-s )) $(ts)" | tee -a "$LOG/summary.txt"; }
 lane jvm  clojure -M:test -e :slow &
 lane node clj -M:cljs -m shadow.cljs.devtools.cli compile test &
-lane dart bb src/dev/cljd_agg.clj &                # shiva only; omit on jupiter
+if [ -n "$DART" ]; then                            # shiva only: its own clone (own lib/cljd-out, build/)
+  ( cd "$DART" && mise trust >/dev/null 2>&1 && eval "$(mise env -s bash)"
+    bb build:yin-repl-peer >"$LOG/build-peer-dart.log" 2>&1
+    lane dart bb src/dev/cljd_agg.clj ) &
+fi
 wait
 echo "done $(ts)" | tee -a "$LOG/summary.txt"
 ```
 
 ```sh
-ssh <host> 'tmux new-session -d -s ci-full "bash -lc \"~/ci/run-full.sh ~/ci/datomworld-<name> > ~/ci/run-full.out 2>&1\""'
+ssh <host> 'tmux new-session -d -s ci-full "bash -lc \"~/ci/run-full.sh ~/ci/datomworld-<name> ~/ci/datomworld-<name>-dart > ~/ci/run-full.out 2>&1\""'
 ```
 
 Watch it: `ssh <host>`, then `tmux attach -t ci-full` (detach with `Ctrl-b d`; do not
 press Ctrl-C inside it), or `tail -f ~/ci/datomworld-<name>/target-ci/{jvm,node,dart}.log`
-and `cat .../summary.txt`. The session's own output is empty by design: the lanes
+and `cat .../summary.txt` (all logs and the summary are in the first clone). The session's own output is empty by design: the lanes
 write to the logs. The JVM lane uses `-e :slow`, so it skips `^:slow` tests, like
 `bb test:clj`. For the slow set use `-i :slow` (or `bb test:slow`); the slow C4
 scanner row took about 11-19 minutes on the JVM and about 79 minutes on Node
