@@ -20,7 +20,18 @@ validator has a complete pure input contract and the carrier's order
 (§3), the static laws use actual-successor live-out (§5.6), blinding is
 a specified re-emission (§5.5), the harness matrix is expanded (§5.2),
 6a is the independent codec (§8.1), and the amendment inventory is
-exhaustive (§10). The frozen document is not changed by this one.
+exhaustive (§10). Revision 3 (2026-10-11) applies the codex round-2
+review
+`collab/1791800000000-architect-srvm-phase6-design-review-r2.gpt-6.1-sol.findings.md`
+(CHANGES_REQUESTED): stack lowering bases are cumulative through each
+slice (§4.3), the live operand subtracts the virtual destination before
+mapping (§4.2, §5.6), the free environment's source on lift is specified
+with its owner (§6.3), E2 requires lexical presence and X1 validates the
+root's free environment (§3.2), the harness oracles of rows 15, 20, 22
+and 23 and the segment-wrapper results are corrected (§5.2), the
+cross-lane re-emission takes an explicit stream correspondence (§5.5),
+and the amendment residue is closed (§10.3 R9, U7). The frozen document
+is not changed by this one.
 Subordinate to [`datom.world.md`](./datom.world.md), including its
 unitarity invariant, and to
 [`yin.vm.semantic-register-vm.md`](./yin.vm.semantic-register-vm.md)
@@ -32,7 +43,11 @@ Every section marks its content **DECIDED** (an owner ruling, frozen
 text, or code that exists) or **PROPOSED** (a design choice of this
 document, open to the reviewer). File references are to the worktree at
 `8f0b9e38`; line numbers are those of that commit; the 4b branch is
-cited as `srvm-phase4b:semantic_register.cljc`.
+cited as `srvm-phase4b:semantic_register.cljc`, with the line numbers of
+its stage-1 commit (`0f4522b9`) unless a citation says stage 2
+(`bdf48cf4`, committed after revision 2; stage 2 moved the reified
+payload to `:256`, `create-vm` to `:349-375` and `gc-roots`/`gc-children`
+to `:485-488`, and changed none of the shapes this document reads).
 
 Contents: §0 rulings and the one-paragraph answer · §1 the canonical
 frame · §2 the row carrier · §3 the frame validator · §4 layouts · §5
@@ -328,6 +343,10 @@ return-frame sites, `K` structure, pending compatibility). **PROPOSED**
 ;;            :ffi-call-ids #{…}                   ; call ids of the task's live :ffi and :ffi-request pendings
 ;;            :free-env {sym V …}}                 ; the root's free environment, decoded
 ;; => nil, or {:yin.k/kind k :yin.k/path p …}
+
+(frame/task-defect task)
+;; the once-per-body rule X1 over the decoded task context (its :free-env);
+;; run before any frame of the body; => nil or {:yin.k/kind k :yin.k/path p …}
 ```
 
 Namespace `yin.vm.semantic-register.frame`, file
@@ -365,7 +384,7 @@ body `b` as phase-5 §1.2 (closure pcs innermost first) and `params(c) =
 | # | Rule | Kind |
 |---|---|---|
 | C1 | `:yin.k/segment` of the frame and of every return frame names a key of `code` | `:segment` |
-| C2 | an `act`'s `pc` and every return frame's `pc` satisfy `0 < pc < (count v)`; a `tail`'s `site` satisfies `0 ≤ site < (count v)` | `:pc-bounds` |
+| C2 | an `act`'s `pc`, every return frame's `pc` and a `tail`'s `site` are **exact non-negative integers** (`cbor/numeric-kind` `:integer` for a wire value; never a float carrier), checked **before** any indexing; then `0 < pc < (count v)` and `0 ≤ site < (count v)` | `:pc-kind` / `:pc-bounds` |
 | C3 | `body(pc−1) = body(pc)` for the act and every return frame (no body ends in a parking instruction, frozen §3.4 rule 6) | `:pc-body` |
 
 **The current activation (`act` only; a `tail` skips A1-A6).**
@@ -398,7 +417,13 @@ body `b` as phase-5 §1.2 (closure pcs innermost first) and `params(c) =
 | # | Rule | Kind |
 |---|---|---|
 | E1 | no binding key is reserved (`vm/reserved-name?`) | `:reserved-name` |
-| E2 | **free part agrees with the task**: with `C = (set (mapcat params (chain (body pc))))` the lexically bound names at that pc, `(apply dissoc bindings C) = (apply dissoc (:free-env task) C)` as maps of `V`; the chain of a return frame is that of its own `pc`. A key of `bindings` outside `C` that the free environment lacks, or a differing value, is a defect | `:free-env-mismatch` |
+| E2 | **`E` is the free environment under the lexical chain.** With `C = (set (mapcat params (chain (body pc))))` the lexically bound names at that pc (a return frame's chain is that of its own `pc`): (a) **every name of `C` is a key of `bindings`**, a nil binding being a present key (`bind-params` nil-fills, so a lexical name is never absent; an absent one would be nil-filled on lower and break the canonical round trip); (b) `(apply dissoc bindings C) = (apply dissoc (:free-env task) C)` as maps of `V`: a key outside `C` the free environment lacks, a free key `E` lacks, or a differing value, is a defect | `:free-env-mismatch` |
+
+**Task (once per body, before any frame; `frame/task-defect`).**
+
+| # | Rule | Kind |
+|---|---|---|
+| X1 | the root's `free-env` decodes to a map `{S V …}` with symbol keys, sorted and unique on the wire, none reserved (`vm/reserved-name?`, the same check `create-vm` runs on its `:env`, `vm/check-bindings!`, `vm.cljc:161-168`); it is the `:free-env` every E2 compares against | `:free-env-shape` / `:reserved-name` (path `[:free-env]`) |
 
 **Pending and contexts.**
 
@@ -421,9 +446,10 @@ stack depth, a stack base or a `live` vector.
 review's ruling). On **lower**: gate (1), structure (2), graph (3),
 hashes (4), canonical form (5), canonical numbering (6), **frames (7)**,
 pending and operations (8), dependency closure (9), custody (10),
-composition (11), restore (12). In step 7 every `:act`, `:tail`,
-`:kframe`, `:reified` and parked-table state is decoded and judged by
-`frame/defect` with its context and the decoded task context; a defect
+composition (11), restore (12). In step 7 the body's decoded task
+context is judged first by `frame/task-defect` (X1), then every `:act`,
+`:tail`, `:kframe`, `:reified` and parked-table state is decoded and
+judged by `frame/defect` with its context and that task context; a defect
 is `:yin.k/undecodable` with the rule's kind and the row path. A
 first-defect test therefore sees a numbering defect
 (`:noncanonical-cells`) before a frame defect on a body that has both,
@@ -497,8 +523,11 @@ canonical frame (no reachable instruction reads them).
    are A's, so this is the canonical pc.
 3. `rd = (code/rd (nth v (dec pc)))` **from A**, never the physical
    `:dest` (which is `phys(rd)`).
-4. `W = {virt(pc−1, s) ↦ V : [s V] ∈ regs}`; the kernel's `live` is the
-   physical image of `live-out*(pc−1) − {phys(rd)}`, so `(keys W) =
+4. `W = {virt(pc−1, s) ↦ V : [s V] ∈ regs}`; the kernel's `live` is
+   `(sort (map phys (disj live-out*(pc−1) rd)))` (the subtraction is on
+   **virtual** ids before mapping: on the worked example `live-out*(3) =
+   L(4) = {1 2}`, `(disj … 2) = {1}`, `phys → [0]`; subtracting the
+   physical `3` from `{1 2}` would wrongly keep `2`), so `(keys W) =
    saved(pc, rd)`, which rule A5/A6 then checks.
 5. `E` = §4.4 from the entry's `frames` and `store-of`, at `body(pc)`.
 6. `K`: for each continuation frame `f`, **independently**: its
@@ -621,11 +650,19 @@ concatenation over `K` outermost first of each `slice(fᵢ)` =
 `(mapv Wᵢ (stack-layout_{Aᵢ} (dec pcᵢ)))`, then `slice(current) =
 (mapv W (stack-layout (dec pc)))`; `:continuation` = for each `fᵢ`
 `{:return-pc (+ offᵢ (a->h_{Aᵢ} (dec pcᵢ)) 1) :frames (§4.4 from Eᵢ)
-:stack-base (running length of the slices before slice(fᵢ))
-:store-of …}`; `:format stack/format-tag`; `:segment`/`:hash` the
-receiver's. `stack-restore` then conjes the delivered value onto
-`:stack` at `:pc`, which is the `:push`-free position after the parking
-instruction, exactly where H expects the result.
+:stack-base bᵢ :store-of …}` where **`bᵢ` is the cumulative length of
+the slices up to and including `slice(fᵢ)`**: `b₀ = |slice(f₀)|`, `bᵢ =
+b_{i−1} + |slice(fᵢ)|`. This is the inverse of the lift's
+`slice(fᵢ) = St[b_{i−1}, bᵢ)`: the kernel's base is the caller's
+residual height, which is exactly the end of the caller's own slice
+(`stack.cljc:731-733`). On the multi-frame fixture of §8.3 item 6
+(five return frames, slices `[0,0) [0,0) [0,0) [0,2) [2,4)`) this emits
+bases `0, 0, 0, 2, 4`; the before-slice rule would emit `0, 0, 0, 0, 2`
+and the kernel would truncate to the wrong height on return. `:format
+stack/format-tag`; `:segment`/`:hash` the receiver's. `stack-restore`
+then conjes the delivered value onto `:stack` at `:pc`, the `:push`-free
+position after the parking instruction, exactly where H expects the
+result.
 
 **Lower, `tail`, and the tail-completion seam.** Today the stack kernel
 resumes a parked host effect at the entry's `pc` by pushing the value
@@ -643,11 +680,18 @@ existing vocabulary, `register.cljc:458-468`), and `stack-restore`
 delivers such an entry by the **return transition** (pop the top frame,
 truncate `:stack` to its base, push the value, restore its `frames`,
 `store-of` and `return-pc`; halt with the value when `K` is empty) instead
-of resuming at `pc`. Lowering a canonical `tail` then produces
+of resuming at `pc`; the retained-FFI re-park and the response decoding
+(`stack-restore`'s `:request-sent` and `:call-id` steps, `:548-557`) keep
+their order before the final delivery, as in the register kernel.
+Lowering a canonical `tail` then produces
 `{:image row-of-A :pc (+ off (a->h site) 1) :resume-mode :return-result
-:stack (concat of K slices) :frames [] :store-of nil :continuation …}`;
-the `:frames`/`:store-of` values are unobservable (the return transition
-replaces them) and the harness checks that (§5.6 item 8). File:
+:stack (concat of the K slices, in order) :frames [] :store-of nil
+:continuation …}` with each continuation frame's `:stack-base bᵢ` the
+**same cumulative-including rule as the `act` lowering** (the last
+frame's base equals the stack's length, since the current activation
+contributes no slice); the `:frames`/`:store-of` values are unobservable
+(the return transition replaces them) and the harness checks that (§5.6
+item 8). File:
 `src/cljc/yin/vm/debruijn/stack.cljc` (not a 4b or phase-5 file); the
 register kernel needs no change.
 
@@ -744,6 +788,28 @@ reason is the observed wait's; on the three lanes: `:semantic-register`,
 
 ### 5.2 The matrix
 
+**Expected results are stated for the bare expression.** Each row runs
+under the four segment wrappers of the old harness
+(`safepoint_harness_test.cljc:92-106`), whose expected results follow
+mechanically from the bare result `r`: `:bare` → `r`; `:operand` →
+`[:operand r]` (`(cat [:operand] r)`); `:depth-3` → `[3 [2 [1 r]]]`
+(`nest` wraps `(cat [d] ((fn [x] …) d))` three times, as the old test's
+pinned `[2 [1 [:two 2 "C"]]]` shows for depth 2, `:574`); `:captured` →
+`[:captured :arg r]` (`(cat (cat (cat [] k) y) r)` with `k = :captured`,
+`y = :arg`). **Frames the wrappers add.** The harness marks `:tail?
+true` only where a row says so (`:228`, `:256`; `ast->semantic-bytecode`
+defaults it to false, `vm.cljc:1089`; `mark-tail` is the expander's and
+is not run here), so every `let1` and every `nest` application is a
+non-tail call that pushes a return frame. `with-cat` (`:69-76`,
+outermost in every segment, `:96`) adds **one** frame below everything
+the row builds, with `stack-base 0` and an empty slice on the stack lane
+(nothing is pushed before its application). On top of it `:bare` and
+`:operand` add none of their own (the row is the operand), `:depth-3`
+adds three (`nest`'s applications, each with two values, `cat` and
+`[d]`, pushed under it), and `:captured` adds three (`let1 k`, `let1 f`,
+`(f :arg)`). A row's own `let1`s add theirs. Row 20 alone runs outside
+the wrappers.
+
 Programs use `v2_support`'s AST helpers (`v2_support.cljc:56-104`:
 `lit v lam app def! then cursor-of next-of let1`) and the four segments
 of the old harness (`safepoint_harness_test.cljc:92-106`: `:bare`,
@@ -770,15 +836,15 @@ landed or stage-2 evaluator.
 | 12 | install, tail | `((fn [u] (require 'host.mod)) 0)` tail with 10's child | as 10 | **tail**, `:install` | `'host.mod` through `K` | 4b stage 2 |
 | 13 | explicit park | `(vm/park)` | `(vm/resume pid "back")` beside | parked record, root `:parked` | `"back"` | yes |
 | 14 | reified capture live in a window | `(let1 k (vm/current-continuation) (cat (cat [] k) (next-of c)))` | append `"B"` | act, `:next`; `k` is a `:reified` value in `W` | `[:continuation "B"]` normalised | yes |
-| 15 | capture invoked after lower | `(let1 k (vm/current-continuation) (if (= :first (next-of c)) (k :second) :done))`; parked at the read; after lower append `:first` | the invocation delivers `:second` into `k`'s `rd`, so the `if` re-tests | act, `:next` | `:done` (the second test sees `:second`) | yes |
+| 15 | capture invoked after lower | `(let1 k (vm/current-continuation) (if (= k :second) :done (let1 r (next-of c) (k :second))))`: on the first pass `k` is a continuation, so the test fails and the read runs and parks; after satisfaction `(k :second)` delivers `:second` into the capture's `rd` (the `let1` operand) and re-enters at the capture's successor pc, so the body is entered again with `k = :second` and the test succeeds **without repeating the read** (the invocation is abortive on every lane: `:continuation` operator kind, `srvm-phase4b:semantic_register.cljc:212-217` stage 2, `stack.cljc:760-763`). `if` is `{:type :if :test :consequent :alternate}` (`vm.cljc:1069`), a helper the new harness file adds; `=` is the primitive (`vm.cljc:387`), consumed before the read | append `"x"` after lower | act, `:next`; `k` is a `:reified` value in `E` (the closure's) | `:done` | yes |
 | 16 | nested capture | `(let1 k1 (vm/current-continuation) (let1 k2 (vm/current-continuation) (cat (cat (cat [] k1) k2) (next-of c))))` | append `"B"` | act; `k2`'s act window holds `k1` (a `:reified` inside a `:reified`'s window) | `[:continuation :continuation "B"]` | yes |
 | 17 | module context, blocked inside a module closure | `host.mod` exports `f = (fn [c] (stream/next! c))`; root: `(f c)` after `(require 'host.mod)` | append `"B"` | act, `:next`, `E` carries `store-of host.mod` | `"B"` | 4b stage 2 (link) |
 | 18 | module-store snapshot | `parked-module-store-cursors` (`lift_support.cljc:310-333`): an explicit park whose module store holds two cursors named by a module closure | resume | parked record; `:module-store` row | the cursors' cells | yes |
 | 19 | halt | `(lit 42)` | — | result | `42` | yes |
-| 20 | **tail-effect halt** | `((fn [c] (stream/next! c)) cursor)` in tail position at the root (empty `K`) | append `"B"` | tail, `:next` | halts with `"B"`, env free of `store-of` | yes |
+| 20 | **tail-effect halt** | run **outside the wrappers**, in two batches on one machine: a setup batch `(then (def! 's (stream/make 4)) (def! 'c (cursor-of s)))` run to halt (store writes persist across batches, as `lift_support.cljc:320-322` relies on), then the batch `(stream/next! c)` **marked `:tail? true` at the root**, `c` resolving through the store; no application precedes the call, so `K` is empty (any `let1` or wrapper would push a frame, §5.2 above) | append `"B"` | tail, `:next` | halts with `"B"` (4b: a tail effect with no frame to pop halts, `srvm-phase4b:semantic_register.cljc:205-211` stage 2; stack: the seam's empty-`K` case, §4.3), env free of `store-of` | yes |
 | 21 | **free-env shadowing** (the review's row) | initial free env `{x 99}`; `(let1 f (fn [] x) ((fn [x] (f (next-of c))) 1))` | append `"B"` | act, `:next`; `E` at the read binds `x` to 1; root `free-env` carries `x 99` | the lowered `f` returns `99` (not nil, not 1) on every lane; **the one row the earlier design would have failed** | yes |
-| 22 | nil-valued live register | `(f nil (next-of c))` with `f = cat`: the `nil` operand is evaluated **before** the read and is live across it | append `"B"` | act, `:next`; `W` has a present key with `[:lit nil]` | `[nil "B"]` | yes |
-| 23 | tail FFI bookkeeping | a `tail` parked record under a call id | — | parked, context `:parked`, bookkeeping clause of P4 | validator accepts; tampering `site` to a non-tail call is `:parked-site` | **synthetic**: no primitive returns an FFI effect through a tail `:call` today (evaluator §1.6) |
+| 22 | nil-valued live register | `(let1 pair (fn [p q] (cat (cat [] p) q)) (pair nil (next-of c)))`: the `nil` operand is evaluated **before** the read and is live across it (`(cat nil (next-of c))` would give `(conj nil "B")`, the list `("B")`, so a vector-building `pair` is used; there is no `vector` primitive, `vm.cljc:380-410`, and `pair` builds through the segment's `cat`) | append `"B"` | act, `:next`; `W` has a present key with `[:lit nil]` | `[nil "B"]` | yes |
+| 23 | tail FFI bookkeeping | a `tail` parked record under a call id `P ∈ :ffi-call-ids` | — | parked, context `:parked`, bookkeeping clause of P4 | validator accepts; the **same valid tail under a key not in `:ffi-call-ids`** is `:parked-site` (P4); moving `site` to a non-tail call is `:site` (T1, which runs first) | **synthetic**: no primitive returns an FFI effect through a tail `:call` today (evaluator §1.6) |
 | 24 | `act` FFI bookkeeping | 3's parked bookkeeping record under its call id | — | parked, P4 bookkeeping | validator accepts | 4b stage 2 |
 
 Refusal rows: `:yin.k/not-quiescent` (`a-nonempty-ready-queue-is-not-quiescent`,
@@ -793,8 +859,13 @@ a tail call → `:return-site`; a reason the site does not admit →
 `:reason-mismatch`; a `:tail` row given a fourth slot → `:frame-shape`;
 the `[:lit nil]` of row 22 dropped → `:window-missing`; a `:reified`
 act whose `pc−1` is not a capture → `:captured-site`; a parked act whose
-`pc−1` is not `:park` → `:parked-site`; a binding of `x` in row 21's `E`
-changed to `98` → `:free-env-mismatch`. **A changed live value**
+`pc−1` is not `:park` → `:parked-site`; for E2, with row 21's initial
+free environment extended to `{x 99 y 7}`, the **unshadowed** free
+binding `y` in the act's `E` changed to `8` → `:free-env-mismatch`
+(changing the lexical `x`, which is `1` at the read, trips nothing: E2
+compares off the lexical names), and the lexical `x` **removed** from
+`E` → `:free-env-mismatch` (presence clause (a)); the root `free-env`
+row given a reserved key → `:reserved-name` (X1). **A changed live value**
 (e.g. `"A"` → `"Z"` in row 1's window) is not a membership defect and is
 not expected to be refused: it is tested by **execution parity** (the
 lowered run's result differs from the reference), as the review ruled.
@@ -835,17 +906,31 @@ not recompute Merkle ids, so it cannot establish root-id equality). The
 harness first **fixes identities where it can**: all three lanes serve
 their streams through one toy channel (`v2_support/toy`,
 `served-peer`), so stream identities and descriptors are equal across
-lanes by construction where the same stream is lifted. Where a lane
-mints its own (fresh cells on relift, the receiver's own call pair), the
-comparison uses `rows/canonical-under`, a **test-only** transformation
-specified as: decode the row set to the abstract task (draft §6's
-input, cells as identities); replace every stream marker's identity and
-descriptor by a placeholder determined by the marker's first occurrence
-in a fixed traversal of the abstract task (root slots in table order,
-waits in order, cells by body); run the canonical numbering (draft §6);
-**re-emit every row** and recompute every id; compare root ids. The
-procedure is deterministic and renaming-invariant like the numbering it
-reuses, and it is never used outside the harness.
+lanes by construction where the same logical stream is lifted. Where a
+lane mints its own (fresh cells on relift, the receiver's own call
+pair), the comparison uses `rows/canonical-under`, a **test-only**
+transformation whose placeholder assignment is **never derived from
+traversal order** (the review's objection: map and set traversal, and
+"cells by body", can depend on the very identities being erased). It
+takes an **explicit logical-stream correspondence** from the fixture:
+the harness created every stream the row reaches, so it supplies
+`{lane-identity → logical-name}` (e.g. `{id-of-s :s, id-of-call-out
+:call-out}`) for each lane; `canonical-under` decodes the row set to the
+abstract task (draft §6's input), replaces each stream marker's identity
+and descriptor by the logical name the map gives it (a marker the map
+does not cover is a test failure, never a guess), runs the canonical
+cell numbering (draft §6), re-emits every row and recomputes every id,
+and compares root ids. Draft §6 is invariant under renaming of the
+**cells** (its labels never encode an incoming cell id), and the only
+other identity it consumes is the stream marker in each cell's initial
+label (`[:body <stream-marker-bytes> <position-bytes>]`, draft §6 step
+1) and in cell bodies; after the substitution those are the fixture's
+logical names, so the procedure's inputs no longer depend on any lane's
+identities. Unordered containers (`:set`, `:map`, `:store`,
+`:bindings`, the parked table) are encoded by sorting their elements'
+encodings bytewise (draft §6 step 2), never by host traversal order, so
+a permutation of the erased identities cannot change the result once
+the markers are substituted. It is never used outside the harness.
 
 ### 5.6 Static checks the harness runs once per corpus segment
 
@@ -854,8 +939,11 @@ reuses, and it is never used outside the harness.
    (inc p) rd)` has no member `≥ k(body(p))` and does not contain `rd`.
 3. Register layout: at every reachable boundary pc `p`, `virt(p, s)` is
    single-valued on the physical image of `live-out*(p)`; the `live`
-   operand of `R[p]` equals the sorted physical image of `live-out*(p) −
-   {phys(rd)}`, which is `[]` for a tail call (phase-5 §2.5).
+   operand of `R[p]` equals `(sort (map phys (disj live-out*(p) rd)))`,
+   the destination removed as a **virtual** id before mapping, which is
+   `[]` for a tail call (phase-5 §2.5). Worked example, inner call at
+   `p = 3`: `L(4) = {1 2}`, minus `rd 2` → `{1}` → `[0]`, the pinned
+   `live` of phase-5 §6.3 row 2.
 4. Stack layout: the k-th non-push instruction of `H` has the mnemonic
    family of `v[k]` for every `k`; counts agree.
 5. Stack layout: `(set (stack-layout p)) = (analysis/saved a (inc p)
@@ -897,20 +985,46 @@ read fails now is the medium's `:absent`, not a missing association).
 **DECIDED** (ruling 4). No vector is projected to datoms; the direct
 load path is the only path (§10.4).
 
-### 6.3 The free environment
+### 6.3 The free environment: carrier, source, ownership
 
 **DECIDED** by the review's finding and §4.4. The task's initial free
 environment travels **once, explicitly**, as the root's `free-env`
-slot, a `:bindings` row (`[S V …]` sorted). Every `E` in the task (acts,
-return frames, closures' envs, parked records, reified values) is a
-complete map and is checked by rule E2 to agree with it off the lexical
-names. On lower, the semantic-register kernel receives it as the
-machine's base `:env` (what `create-vm`'s `:env` option supplies); a de
-Bruijn kernel receives it as its `:free-env` (`stack.cljc:418`), and
-reconstructs each activation's positional frames from each `E` by the
-chain (§4.4). Merkle sharing means every `E` whose bindings equal
-another's shares one `:bindings` row; the root slot is one more
-reference to a row that usually already exists.
+slot, a `:bindings` row (`[S V …]` sorted). Every `E` in the task is a
+complete map and is checked by rules X1 and E2. On lower, the
+semantic-register kernel receives it as the machine's base `:env`
+(`create-vm`'s `:env` option, `semantic_register.cljc:261`); a de Bruijn
+kernel receives it as its `:free-env` (`stack.cljc:418`) and
+reconstructs positional frames from each `E` by the chain (§4.4).
+
+**Where the lift gets it (PROPOSED, the gap the review named).** It is
+**never recovered from a current `E`** (§4.4). Its source is, per
+kernel:
+
+- **de Bruijn kernels**: the kernel's own `:free-env` field, "fixed for
+  this instance" (`stack.cljc:82`; `register.cljc:50`), read directly.
+- **the semantic-register kernel**: the evaluator keeps only the
+  mutable-current `:env` (`RegisterVM` field `env`, "persistent lexical
+  scope map", `srvm-phase4b:semantic_register.cljc:23`; the old semantic
+  VM likewise captures the initial env only transiently in `eval`,
+  `semantic.cljc:874-876`), so no field holds the initial map. The
+  **composition owns it**: it is the value the composition passed as
+  `create-vm`'s `:env` (`vm/check-bindings!` of it, `:261`). The lift's
+  input contract therefore takes it explicitly,
+  `(rows/lift-task vm serve! {:free-env E₀})`, and refuses
+  `:yin.k/non-portable :missing-free-env` when the caller supplies none;
+  the holder and REPL paths that call the lift pass the environment they
+  constructed the task with. **Coordinated retention seam, recommended**:
+  4b (stage 3, its track's file) adds an immutable `free-env` field set
+  once in `create-vm` from the checked `:env` and never written by any
+  transition, with `gc-roots` listing it; once it lands the lift reads
+  it when `:free-env` is not supplied and the explicit argument stays as
+  the override for compositions that constructed the task elsewhere.
+  Phase 6 does **not** edit `semantic_register.cljc`; 6b depends on the
+  explicit argument and names the seam as a follow-up (§8.2).
+
+Merkle sharing means every `E` whose bindings equal another's shares one
+`:bindings` row; the root slot is one more reference to a row that
+usually already exists.
 
 ---
 
@@ -927,7 +1041,9 @@ holds (`unliftable-hold`, `handoff.cljc:588`) as `:yin.k/non-portable
 positions and cannot be used), and refuse `:yin.k/unsatisfied` unless
 `:complete`, `:yin.k/trees` included; number cells (draft §6); walk
 waits, parked records, the store slice, module stores, the free
-environment, the result, install children; run `frame/defect` over every
+environment (from the kernel's `:free-env` field or the lift's explicit
+`:free-env` argument, §6.3, never from a current `E`), the result,
+install children; run `frame/defect` over every
 frame; emit rows and the census. A de Bruijn source walks the frames
 `layout/lift-act`/`lift-tail` reconstruct.
 
@@ -982,10 +1098,14 @@ frames to validate. Touches nothing of 4b or 5; needs no scanner.
    register evaluator mints passes `defect` in its context with the
    task context decoded from the machine's own tables.
 3. `frame-test/each-rule-refuses-its-tamper`: for each rule S1-S4, C1-C3,
-   A1-A6, T1, K1-K3, E1-E2, P1-P4 one tampered frame built from a valid
-   one, refused with that rule's kind and a path naming the slot
-   (twenty-four rows, named by kind); plus `first-defect-is-structural`:
-   a frame with a malformed `K` **and** a bad window reports `:k-shape`.
+   A1-A6, T1, K1-K3, E1-E2, X1, P1-P4 one tampered frame built from a
+   valid one, refused with that rule's kind and a path naming the slot
+   (**twenty-four rules**: 4+3+6+1+3+2+1+4, the twenty-three of the
+   round-1 text plus X1; **twenty-five rows**, since C2 contributes two,
+   a float `pc` for `:pc-kind` and an out-of-range one for `:pc-bounds`;
+   X1's row goes through `frame/task-defect`); plus
+   `first-defect-is-structural`: a frame with a malformed `K` **and** a
+   bad window reports `:k-shape`.
 4. `frame-test/nil-valued-register-is-a-member`: row 22's frame
    validates with the nil key present; the same frame with the key
    removed is `:window-missing`.
@@ -993,10 +1113,14 @@ frames to validate. Touches nothing of 4b or 5; needs no scanner.
    4 with window `{1 <f>}` and `rd 2` validates; `{1 <f> 2 x}` is
    `:window-self`; `{}` is `:window-missing`; `{1 <f> 3 x}` is
    `:window-extra` (`saved(4, 2) = {1}`, `analysis_test.cljc:131-139`).
-6. `frame-test/free-env-mismatch`: row 21's frame with `task :free-env
-   {x 99}` validates; with `{x 98}` or `{}` it is `:free-env-mismatch`;
-   a binding `y` present in `E` but absent from `free-env` and not
-   lexically bound is `:free-env-mismatch`.
+6. `frame-test/free-env-mismatch`: row 21's frame (initial free
+   environment `{x 99 y 7}`) with `task :free-env {x 99 y 7}` validates;
+   with the free environment `{x 99 y 8}` or `{x 99}` it is
+   `:free-env-mismatch` (`y` is unshadowed); with the lexical `x` removed
+   from `E` it is `:free-env-mismatch` (presence); changing the lexical
+   `x` in `E` from `1` to `98` **does not** trip E2 (it is off the
+   comparison), and the test asserts that too; a `free-env` row with the
+   key `yin/def` is `:reserved-name` (X1).
 7. `rows-test/bijection`: `frame->rows ∘ rows->frame` and the converse
    are identities on every frame of item 2, nil-valued keys included.
 8. `rows-test/row-ids-are-jing-default`: every content row's id equals
@@ -1006,7 +1130,13 @@ frames to validate. Touches nothing of 4b or 5; needs no scanner.
    `:window` row is `:yin.k/undecodable` at canonical form (step 5).
 10. `rows-test/canonical-under-is-renaming-invariant`: §5.5's
     transformation gives equal root ids for two emissions of one abstract
-    task under permuted cell numbering and distinct stream identities.
+    task under permuted cell numbering and distinct stream identities,
+    with the fixture's correspondence map; **and the unordered-container
+    permutation**: a store value that is a set of two stream references
+    and a map keyed by two cursor references, emitted twice with the two
+    streams' identities swapped (and the correspondence map swapped
+    accordingly), gives equal root ids; a marker absent from the map is
+    a test failure.
 11. kondo clean; `bb test:sub yin.vm` green on three hosts; Node log
     shows `Testing yin.vm.semantic-register.frame-test` and
     `Testing yin.vm.ucf.rows-test`.
@@ -1018,7 +1148,9 @@ pending rows' lift and lower, install children. **Files to create.**
 `test/yin/vm/semantic_register/safepoint_harness_test.cljc` (§5, the
 `:semantic-register` lane). The old harness file is not edited.
 
-**Depends on:** 4b stage 2 (FFI retained→sent restoration, link
+**Depends on:** the explicit `:free-env` lift argument supplied by the
+harness (§6.3; the 4b retention seam is a named follow-up for the 4b
+track, not a 6b prerequisite); 4b stage 2 (FFI retained→sent restoration, link
 request/response/install preservation, install children, the
 evaluator's `IModuleKernel` linking methods: `link-format`,
 `spawn-module`, `lift-closure`, `lower-closure`); **phase 5c** (the
@@ -1027,9 +1159,10 @@ Touches nothing of 4b or 5.
 
 **Acceptance (6b).**
 
-1. `every-row-every-segment-matches-the-reference`: rows 1-22 and 24 of
-   §5.2 × four segments on the reference lane; laws 1-3 and 6; counts
-   asserted (23 executable rows, 4 segments).
+1. `every-row-every-segment-matches-the-reference`: rows 1-19, 21, 22
+   and 24 of §5.2 × four segments, plus row 20 once (outside the
+   wrappers, §5.2), on the reference lane; laws 1-3 and 6; counts
+   asserted (22 wrapped rows × 4 segments + 1 = 89 runs).
 2. `tail-states-carry-no-window`: rows 6, 9, 12, 20 lift to `:tail`
    rows of three slots and lower to through-`K` delivery.
 3. `install-rows-carry-the-child`: rows 10-12; the child's kind and
@@ -1039,8 +1172,9 @@ Touches nothing of 4b or 5.
 5. `free-env-shadowing`: row 21 yields `99` after lower.
 6. `synthetic-tail-bookkeeping`: row 23's hand-built parked `tail`
    under a call id in `:ffi-call-ids` passes `defect` with context
-   `:parked`; the same record with `site` moved to a non-tail call is
-   `:parked-site`.
+   `:parked`; the **same valid record under a key absent from
+   `:ffi-call-ids`** is `:parked-site` (P4); the record with `site` moved
+   to a non-tail call is `:site` (T1 runs before P4).
 7. `refusals`: every refusal row of §5.2 refuses with the named status
    and kind before any attachment; `first-defect-order`: a body with a
    noncanonical cell numbering **and** a tampered window reports
@@ -1083,16 +1217,30 @@ lanes added to the 6b harness file. **Depends on:** 5a, 5b (`derive`),
    worked cases: `(f (g x) y)` at the inner call → `[1]`; `(f (if c (g)
    2) y)` at `(g)` → `[1]`.
 6. `layout-test/stack-slices-partition`: §5.6 item 9; and the
-   multi-frame case `(cat [1] ((fn [x] (cat [2] ((fn [y] (cat [3]
-   (next-of c))) 2))) 1))`: at the read, `K` has two frames. The outer
-   application of `(fn [x] …)` pops its closure and `1`, leaving the
-   outer `cat` and `[1]` pushed, so `b₀ = 2`; the inner application
-   leaves the middle `cat` and `[2]` as well, so `b₁ = 4`; the current
-   activation has pushed its `cat` and `[3]` and the read has consumed
-   its cursor operand, so the operand stack has six values. Slices:
-   `[0,2)` = `[cat [1]]`, `[2,4)` = `[cat [2]]`, current `[4,6)` =
-   `[cat [3]]`; each slice's `stack-layout` is `[operator-rd literal-rd]`
-   of its `cat` call, and each equals that activation's saved window.
+   multi-frame fixture, the expression `(cat [1] ((fn [x] (cat [2] ((fn
+   [y] (cat [3] (next-of c))) 2))) 1))` under the harness's standard
+   binding setup: `with-cat` outermost, then `(let1 s (stream/make 4)
+   (let1 c (cursor-of s) …))` around it (the stream is made inside the
+   program, as every row does; a primitive `cat` or a cursor supplied in
+   the free environment would sit in a live slot and is no carrier
+   value, `:continuation-registers`,
+   `debruijn_register_effects.cljc:196`). **Derivation of the expression
+   alone** (`cat` and `c` taken as given): the outer application of
+   `(fn [x] …)` pops its closure and `1`, leaving the outer `cat` and
+   `[1]` pushed, so its frame's base is `2`; the inner application leaves
+   the middle `cat` and `[2]` as well, base `4`; the current activation
+   has pushed its `cat` and `[3]` and the read has popped its cursor
+   operand (`stack.cljc:839`), so the operand stack has six values:
+   slices `[0,2)` = `[cat [1]]`, `[2,4)` = `[cat [2]]`, current `[4,6)` =
+   `[cat [3]]`, each slice's `stack-layout` being `[operator-rd
+   literal-rd]` of its `cat` call and equal to that activation's saved
+   window. **As run**, the three binding applications each pop their
+   closure and single operand off an otherwise empty stack, so `K` has
+   **five** frames with bases `0, 0, 0, 2, 4`, slices `[0,0) [0,0) [0,0)
+   [0,2) [2,4)`, current `[4,6)`, stack length six; the test pins these
+   bases from the kernel's state, checks the partition, and checks that
+   lowering the lifted frame emits the same five bases (§4.3; the
+   before-slice rule would emit `0, 0, 0, 0, 2`).
 7. `layout-test/env-reconstruction`: §5.6 item 6.
 8. `layout-test/closures-round-trip`: §5.6 item 7.
 9. `layout-test/tail-lowering-is-unobservable`: §5.6 item 8.
@@ -1112,7 +1260,11 @@ carrier the only writer and reader the semantic-register kernel has; a
 documented seam for the holder, checkpoint, ledger and authority paths
 (phase 7 wires it; phase 6 edits none of them); the Stage D/E scenarios
 (`stage_e_scenarios.cljc`, `checkpoint_fixtures.cljc`) listed with, for
-each, the §5.2 row that exercises its parking shape.
+each, the §5.2 row that exercises its parking shape; the export-recovery
+object (UCF §7.7.4, format version 1 over the old codec) re-based on the
+row carrier by phase 7, since it embeds a body; and the free-environment
+retention seam (§6.3) either landed by the 4b track or the explicit
+`:free-env` argument threaded through the holder's export path.
 
 ### 8.5 Ordering and concurrency
 
@@ -1137,10 +1289,16 @@ not edited.
   stack slices `[f]` at the inner call of `(f (g x) y)` and at `(g)` in
   `(f (if c (g) 2) y)` were derived twice from the §4.3 walk and agreed
   with the reviewer's derivation; the register `phys(1) = 0`, `phys(2) =
-  3` follow from phase-5 §6.3 row 2. The multi-frame bases `b₀ = 2, b₁ =
-  4` in 6c item 6 were derived twice from the kernel's call arm
-  (`stack.cljc:716-733`); the first pass forgot the pushed operator and
-  was corrected before this revision was written out. Nothing was run.
+  3` follow from phase-5 §6.3 row 2, whose pinned `live` at pc 3 is `[0]`
+  (`{T0,T3}` minus the destination `T3`), the same set §4.2 step 4 and
+  §5.6 item 3 compute by subtracting the virtual `rd 2` before mapping.
+  The multi-frame bases in 6c item 6 (`2, 4` for the expression alone;
+  `0, 0, 0, 2, 4` as run under the harness's bindings) were derived
+  twice from the kernel's call arm (`stack.cljc:716-733`, base = height
+  after popping callee and operands); the first pass forgot the pushed
+  operator, and revision 2's lowering rule used the height **before**
+  each slice, which the round-2 review caught and §4.3 now states as
+  cumulative through the slice. Nothing was run.
 - **Claims that are checks, not theorems**: the stack operand slice
   equals the saved set at non-tail safepoints (§5.6 item 5); the non-push
   H ↔ A correspondence (item 4); `virt` single-valued at reachable
@@ -1390,7 +1548,16 @@ version 3 and its one canonical nested projection (§10.3)".
 
 **R9 — §10.6 `:782-788`, §10.7 `:792-796`, §2 `:70-81`, §10's
 proposals list `:821-834`, "Still open" `:836-837`, §11 `:839-852`
-(ACCEPT WITH CHANGES).** §10.6: replace "version 3, like version 2, does
+(ACCEPT WITH CHANGES).** §10.6, **whole item**: replace its opening
+"**Foreign-engine value profiles.** Required before any implementation
+brief claims heterogeneous execution conformance, and not drafted here"
+with "**Foreign-engine value profiles.** Required before an
+implementation brief claims execution conformance for an engine
+**outside the three repository lanes** (the semantic-register kernel and
+the stack and register kernels, whose reconstruction is the layouts of
+`yin.vm.semantic-register-vm.continuation.md` §4 and needs no value
+profile), and not drafted here"; keep its list of what such a profile
+must cover; and replace "version 3, like version 2, does
 not translate between kernels" with "version 3 carries the canonical
 frame; a stack or register kernel reconstructs it through its layout
 (continuation §4), which is heterogeneous reconstruction, not
@@ -1412,6 +1579,47 @@ never upgraded to custody; an exclusive-only receiver refuses it as
 **R11 — §3 `:115-134`.** Keep verbatim, including "**body version 3
 uses BLAKE3 permanently**" and the per-id algorithm check (the reviewer
 asked that this explicit rule survive).
+
+**U7 — scope and precedence of UCF's historical legacy-body clauses
+(new).** UCF keeps clauses that describe bodies the row carrier never
+reads: §7.2.1 (versions 0 and 1, `:166-321`), the version-0/1 custody
+gate and fork rules (`:234-290`), §7.4.3 r5's version-0 notes (`:966-970`:
+"A version-0 entry without a phase reads as `:running`", "The landed
+version-0 reader breaches both"), §7.7.4's `nil`-header version-0 lift
+and recovery of legacy fork bytes (`:1781`, `:1806-1807`, `:1844`), and
+§7.11.1's version-0/1 interoperation rows (`:3051-3057`, `:3095-3096`).
+Insert at the head of §7.2.1: "**Scope (2026-10-11).** Body versions 0,
+1 and 2 and every clause of this document that admits, reads, recovers
+or interoperates with them are **historical**: they describe the
+stack-shaped machine's handoff, which leaves at
+`yin.vm.semantic-register-vm.md` §10 phase 8. The row carrier of body
+version 3 (`yin.vm.ucf-transport-tuples.md` as amended by
+`yin.vm.semantic-register-vm.continuation.md`) reads no other version and
+takes **precedence** over any sentence below that implies otherwise; a
+conflict is resolved in its favour without further amendment. **Not
+historical**: the custody, fencing and operation-id semantics (§7.7.8,
+§7.9, §7.4.3's operation ids) travel in version 3 as the root's
+`custody` slot (`yin.vm.ucf-transport-tuples.md` §5.5) and stay
+operative; where those sections say 'a version-1 body' read, for version
+3, 'a root whose custody policy is `:yin.k/exclusive`', and where they
+say 'a version-0 body' or 'fork', 'a root whose policy is `:yin.k/fork`'
+(§5.5's table). The code stamp `{:yin.code/contract "v3" :yin.k/version
+0}` wherever this document shows it (§7.2's example `:121`, §7.2.1
+`:183`, §7.3.3 `:232-236`) is the stack-shaped machine's; the
+register-shaped machine's contract is `"v4"`
+(`yin.vm.semantic-register-vm.md` §6), the one the version-3 profile map
+names, and §7.2's envelope example is superseded for version 3 by the
+row carrier's wire unit (`yin.vm.ucf-transport-tuples.md` §3, ids under
+Jing's default digest)." The same grep (`legacy`, `version-0`,
+`version 0`, `versions 0`, `version 1`, `recovery`) found, besides the
+clauses above: the export-recovery object's version-1 format
+(`:1789-1807`), which is phase 7's to re-base on the row carrier and is
+named in §8.4 as an entry condition, not amended here; publication
+failure recovery (`:1741`), completion recovery (`:2417`) and the
+ledger's "legacy destructive readers" (`:2774-2775`), which concern the
+driver, the ledger protocol and the ledger reader, not a body version,
+and are untouched; and the status paragraph `:39-42`, covered by the
+scope statement's "every clause".
 
 ### 10.4 To code-as-tuples (`yin.vm.code-as-tuples.md`) §7.2
 
@@ -1451,8 +1659,8 @@ remaining is owner-level.
 1. **Nil-valued window keys (Dart, Node).** The window is built with
    `select-keys` and encoded as `[r [:lit nil]]`; never filter `some?`
    values; `frame-test/nil-valued-register-is-a-member` over row 22
-   (`(f nil (next-of c))`, the nil operand evaluated before the read) is
-   the canary. Membership is always by `contains?`/key sets, never
+   (`(pair nil (next-of c))`, the nil operand evaluated before the read)
+   is the canary. Membership is always by `contains?`/key sets, never
    `(get W r)`.
 2. **`for` over large seqs (Dart).** Row sets of the C4 modules run to
    thousands of rows; build with `mapv`/`into`/`reduce`.
