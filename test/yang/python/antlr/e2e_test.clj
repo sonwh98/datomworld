@@ -561,7 +561,7 @@
                   "    print('unbound')\n")))
 
 
-(deftest zero-division-test
+(deftest ^:slow zero-division-test
   (every-vm= (prints "div")
              (str "try:\n"
                   "    1 / 0\n"
@@ -569,7 +569,7 @@
                   "    print('div')\n")))
 
 
-(deftest uncaught-exception-test
+(deftest ^:slow uncaught-exception-test
   (every-vm= {:py/out ["1"], :py/exception {:type "ValueError", :args ["bad"]}}
              "print(1)\nraise ValueError('bad')\nprint(2)\n"))
 
@@ -589,7 +589,7 @@
                   " isinstance(A(1), B))\n")))
 
 
-(deftest class-attributes-and-identity-test
+(deftest ^:slow class-attributes-and-identity-test
   (every-vm= (prints "2 True False")
              (str "class C:\n"
                   "    count = 1\n"
@@ -599,7 +599,7 @@
                   "print(a.count, a is b, a is C())\n")))
 
 
-(deftest lists-alias-and-index-test
+(deftest ^:slow lists-alias-and-index-test
   (every-vm= (prints "[1, 99, 3] 3 3 True")
              (str "a = [1, 2, 3]\n"
                   "b = a\n"
@@ -607,7 +607,7 @@
                   "print(a, len(a), a[-1], a == [1, 99, 3])\n")))
 
 
-(deftest dict-order-and-key-normalization-test
+(deftest ^:slow dict-order-and-key-normalization-test
   (testing "1, 1.0 and True are one key; insertion order is kept"
     (every-vm= (prints "{1: 'c', 'k': 2} 2 c")
                (str "d = {1: 'a', 'k': 2}\n"
@@ -716,12 +716,12 @@
                     "print(x is y, x + 1 is y + 1, True is 1)\n"))))
 
 
-(deftest strings-test
+(deftest ^:slow strings-test
   (every-vm= (prints "abc 5 True")
              "print('ab' + \"c\", len('h\\u00e9llo'), 'x' == 'x')\n"))
 
 
-(deftest boolean-operators-test
+(deftest ^:slow boolean-operators-test
   (every-vm= (prints "x 0 True True False 2")
              "print(0 or 'x', 1 and 0, not [], 1 < 2 < 3, 3 < 2 < 1, 1 + True)\n"))
 
@@ -842,7 +842,7 @@
 ;; Safepoint slice 2: recursion
 ;; =============================================================================
 
-(deftest recursion-error-is-a-builtin-test
+(deftest ^:slow recursion-error-is-a-builtin-test
   (testing "with no hook prelude, RecursionError is a RuntimeError, so an
             Exception (naive, and under no-op hooks)"
     (every-vm= (prints "rt True")
@@ -867,7 +867,7 @@
                          [])))
 
 
-(deftest sys-is-refused-test
+(deftest ^:slow sys-is-refused-test
   (testing "sys.setrecursionlimit and sys.settrace are not reachable: the
             pre-seeded `sys` module resolves under the bundled profile too
             (I1: no linker delivery), but it exposes only sys.modules, so

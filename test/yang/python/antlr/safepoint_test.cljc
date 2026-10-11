@@ -230,9 +230,12 @@
       (is (= [:test/derived 0] ((juxt :yin/source-medium :yin/root) derived))))))
 
 
-(deftest insertion-is-deterministic-test
-  (doseq [[label pk] programs]
-    (is (= (derive* pk hooks/profile) (derive* pk hooks/profile)) (str label))))
+(deftest ^:slow insertion-is-deterministic-test
+  (slow/guard
+    "insertion-is-deterministic-test"
+    (fn []
+      (doseq [[label pk] programs]
+        (is (= (derive* pk hooks/profile) (derive* pk hooks/profile)) (str label))))))
 
 
 (defn- nodes

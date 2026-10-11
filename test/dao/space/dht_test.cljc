@@ -996,27 +996,30 @@
     (close-world! w)))
 
 
-(deftest sustained-rounds-are-each-reported-once-in-order-and-drain
-  (let [w (world [13 14] {})
-        rounds (mapv (fn [r] (:manifest (round! (:node w) r 499))) (range 8))
-        w (step-world w 10)
-        _ (is (= 4000 (+ (:fresh (dht/backlog (:node w)))
-                         (:outstanding (dht/backlog (:node w)))))
-              "all admitted: within :max-backlog")
-        w (run-world w 10 400000
-                     #(every? (fn [m] (event (:events %) :published m)) rounds)
-                     bounded-outstanding)
-        published (filterv #(= :published (::dht/event %)) (:events w))]
-    (is (= rounds (mapv :manifest published))
-        "each once, in announcement order")
-    (is (every? #(= :acknowledged (:result %)) published))
-    (let [w (run-world w 10 (+ (:now w) 20000)
-                       #(not (dht/busy? (:node %))))]
-      (is (= 0 (:fresh (dht/backlog (:node w)))))
-      (is (= 0 (:outstanding (dht/backlog (:node w)))))
-      (is (false? (dht/busy? (:node w))))
-      (is (zero? (:busy-facts w)))
-      (close-world! w))))
+(deftest ^:slow sustained-rounds-are-each-reported-once-in-order-and-drain
+  (slow/guard
+    "sustained-rounds-are-each-reported-once-in-order-and-drain"
+    (fn []
+      (let [w (world [13 14] {})
+            rounds (mapv (fn [r] (:manifest (round! (:node w) r 499))) (range 8))
+            w (step-world w 10)
+            _ (is (= 4000 (+ (:fresh (dht/backlog (:node w)))
+                             (:outstanding (dht/backlog (:node w)))))
+                  "all admitted: within :max-backlog")
+            w (run-world w 10 400000
+                         #(every? (fn [m] (event (:events %) :published m)) rounds)
+                         bounded-outstanding)
+            published (filterv #(= :published (::dht/event %)) (:events w))]
+        (is (= rounds (mapv :manifest published))
+            "each once, in announcement order")
+        (is (every? #(= :acknowledged (:result %)) published))
+        (let [w (run-world w 10 (+ (:now w) 20000)
+                           #(not (dht/busy? (:node %))))]
+          (is (= 0 (:fresh (dht/backlog (:node w)))))
+          (is (= 0 (:outstanding (dht/backlog (:node w)))))
+          (is (false? (dht/busy? (:node w))))
+          (is (zero? (:busy-facts w)))
+          (close-world! w))))))
 
 
 (deftest ^:slow rounds-beyond-the-backlog-bound-fail-at-once-then-repair

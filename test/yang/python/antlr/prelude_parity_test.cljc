@@ -1556,36 +1556,39 @@
                         [:thrown (ex-message e)])))))))))
 
 
-(deftest init-is-idempotent-test
-  (testing "after the bundled prelude has run py/init! once, two more calls
+(deftest ^:slow init-is-idempotent-test
+  (slow/guard
+    "init-is-idempotent-test"
+    (fn []
+      (testing "after the bundled prelude has run py/init! once, two more calls
             reallocate nothing: every class, function, dict and runtime cell
             is the same cell ref, and the slot reads ready"
-    (doseq [[k result]
-            (run-with-prelude
-              prelude/uast
-              (list 'let '[c1 py.b/ValueError
-                           f1 py.b/len
-                           b1 py.b/builtins
-                           ctx1 py.rt/ctx
-                           out1 py.rt/out
-                           lim1 py.rt/limit
-                           s1 py.rt/state
-                           _ (py/init!)
-                           _ (py/init!)]
-                    (conj-all '[(= c1 py.b/ValueError)
-                                (= f1 py.b/len)
-                                (= b1 py.b/builtins)
-                                (= ctx1 py.rt/ctx)
-                                (= out1 py.rt/out)
-                                (= lim1 py.rt/limit)
-                                (= s1 :py/ready)
-                                (= (py/global-get (py/dict-new) {:py/str "ValueError"}) c1)])))]
-      (testing (str k)
-        (is (= [true true true true true true true true] result)))))
-  (testing "before any py/init!, the slot is the literal :py/uninit"
-    (doseq [[k result] (run-with-prelude prelude/functions-uast 'py.rt/state)]
-      (testing (str k)
-        (is (= :py/uninit result))))))
+        (doseq [[k result]
+                (run-with-prelude
+                  prelude/uast
+                  (list 'let '[c1 py.b/ValueError
+                               f1 py.b/len
+                               b1 py.b/builtins
+                               ctx1 py.rt/ctx
+                               out1 py.rt/out
+                               lim1 py.rt/limit
+                               s1 py.rt/state
+                               _ (py/init!)
+                               _ (py/init!)]
+                        (conj-all '[(= c1 py.b/ValueError)
+                                    (= f1 py.b/len)
+                                    (= b1 py.b/builtins)
+                                    (= ctx1 py.rt/ctx)
+                                    (= out1 py.rt/out)
+                                    (= lim1 py.rt/limit)
+                                    (= s1 :py/ready)
+                                    (= (py/global-get (py/dict-new) {:py/str "ValueError"}) c1)])))]
+          (testing (str k)
+            (is (= [true true true true true true true true] result)))))
+      (testing "before any py/init!, the slot is the literal :py/uninit"
+        (doseq [[k result] (run-with-prelude prelude/functions-uast 'py.rt/state)]
+          (testing (str k)
+            (is (= :py/uninit result))))))))
 
 
 (deftest shadow-then-delete-builtin-test

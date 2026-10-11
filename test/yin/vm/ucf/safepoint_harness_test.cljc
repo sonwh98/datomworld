@@ -26,6 +26,7 @@
    queue; a kept FFI response cursor shared by two waiters; and a real
    held immediate (the D4 `:observe` entry), which refuses export."
   (:require [clojure.test :refer [deftest is testing]]
+            [dao.test-slow :as slow]
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
             [yin.vm :as vm]
@@ -432,31 +433,34 @@
           (is (empty? (:wait-set recv)))))))
 
 
-(deftest every-corpus-segment-to-every-row-matches-the-reference
-  (doseq [[engine version] lanes
-          [row build] rows
-          [seg wrap] corpus]
-    (testing (str (name engine) " v" version " " (name row) " " (name seg))
-      (let [expected (reference (build engine wrap))
-            world (build engine wrap)
-            {:keys [export lower recv relift] :as got}
-            (handed-off engine version world)
-            body (:body export)]
-        (is (:halted expected) "the reference run completes")
-        (check engine row :export (= :ok (:status export)) (pr-str export))
-        (when (= :ok (:status export))
-          (is (= (:kind world) (:kind export)))
-          (is (= version (:yin.k/version body)))
-          (kind-checks world expected export recv)
-          (is (= :ok (:status lower)) (pr-str lower))
-          (is (= :ok (:status relift)) (pr-str relift))
-          (check engine row :relift
-                 (= (s/stream-blind body) (s/stream-blind (:body relift)))
-                 "lift(lower(frame)) reproduces the canonical body")
-          (check engine row :result
-                 (= (select-keys expected [:halted :value :trace])
-                    (select-keys got [:halted :value :trace]))
-                 "result and effect trace equal the reference run"))))))
+(deftest ^:slow every-corpus-segment-to-every-row-matches-the-reference
+  (slow/guard
+    "every-corpus-segment-to-every-row-matches-the-reference"
+    (fn []
+      (doseq [[engine version] lanes
+              [row build] rows
+              [seg wrap] corpus]
+        (testing (str (name engine) " v" version " " (name row) " " (name seg))
+          (let [expected (reference (build engine wrap))
+                world (build engine wrap)
+                {:keys [export lower recv relift] :as got}
+                (handed-off engine version world)
+                body (:body export)]
+            (is (:halted expected) "the reference run completes")
+            (check engine row :export (= :ok (:status export)) (pr-str export))
+            (when (= :ok (:status export))
+              (is (= (:kind world) (:kind export)))
+              (is (= version (:yin.k/version body)))
+              (kind-checks world expected export recv)
+              (is (= :ok (:status lower)) (pr-str lower))
+              (is (= :ok (:status relift)) (pr-str relift))
+              (check engine row :relift
+                     (= (s/stream-blind body) (s/stream-blind (:body relift)))
+                     "lift(lower(frame)) reproduces the canonical body")
+              (check engine row :result
+                     (= (select-keys expected [:halted :value :trace])
+                        (select-keys got [:halted :value :trace]))
+                     "result and effect trace equal the reference run"))))))))
 
 
 (deftest a-wait-over-a-live-host-primitive-resumes-on-every-profile
@@ -532,49 +536,52 @@
   (get-in export [:body :yin.k/frames 0 :yin.k/registers]))
 
 
-(deftest one-pc-reached-at-two-depths-hands-off-at-each
-  (doseq [[engine version] lanes]
-    (testing (str (name engine) " v" version)
-      (let [[ref-m ref-src] (two-activations engine)
-            _ (stream/append! ref-src "B")
-            ref-hop (s/drive-local ref-m 6)
-            _ (stream/append! ref-src "C")
-            expected (vm/value (s/drive-local ref-hop 6))
-            [m src] (two-activations engine)
-            t1 (s/toy)
-            p1 (s/served-peer t1)
-            e1 (lift m version t1 p1 #{:reader})
-            r1 (:vm (handoff/resume-task
-                      (s/new-machine engine {:attach-stream (s/attacher t1)})
-                      (:bytes e1) (s/attacher t1) {:address (:address e1)}))
-            _ (stream/append! src "B")
-            hop (drive-peers r1 [p1] 6)
-            t2 (s/toy)
-            p2 (s/served-peer t2)
-            e2 (lift hop version t2 p2 #{:reader})
-            r2 (:vm (handoff/resume-task
-                      (s/new-machine engine {:attach-stream (s/attacher t2)})
-                      (:bytes e2) (s/attacher t2) {:address (:address e2)}))
-            _ (stream/append! src "C")
-            done (drive-peers r2 [p2 p1] 8)
-            regs1 (registers e1)
-            regs2 (registers e2)]
-        (is (= :ok (:status e1)) (pr-str e1))
-        (is (= :ok (:status e2)) (pr-str e2))
-        (is (= [:next :next] (mapv (comp :yin.k/reason frame-pending) [e1 e2])))
-        ;; the walker's frame is its environment and continuation alone:
-        ;; it has no pc to compare
-        (when-not (= :walker engine)
-          (is (some? (:yin.k/pc regs1)))
-          (is (= (select-keys regs1 [:yin.k/pc :yin.k/segment :yin.k/image])
-                 (select-keys regs2 [:yin.k/pc :yin.k/segment :yin.k/image]))
-              "both hand-offs park at one pc of one segment"))
-        (is (not= regs1 regs2)
-            "with a different activation: depth and captured environment")
-        (is (= [[:one 1 "B"] [2 [1 [:two 2 "C"]]]] expected))
-        (is (vm/halted? done))
-        (is (= expected (vm/value done))
-            "two hand-offs answer what the source's own run did")))))
+(deftest ^:slow one-pc-reached-at-two-depths-hands-off-at-each
+  (slow/guard
+    "one-pc-reached-at-two-depths-hands-off-at-each"
+    (fn []
+      (doseq [[engine version] lanes]
+        (testing (str (name engine) " v" version)
+          (let [[ref-m ref-src] (two-activations engine)
+                _ (stream/append! ref-src "B")
+                ref-hop (s/drive-local ref-m 6)
+                _ (stream/append! ref-src "C")
+                expected (vm/value (s/drive-local ref-hop 6))
+                [m src] (two-activations engine)
+                t1 (s/toy)
+                p1 (s/served-peer t1)
+                e1 (lift m version t1 p1 #{:reader})
+                r1 (:vm (handoff/resume-task
+                          (s/new-machine engine {:attach-stream (s/attacher t1)})
+                          (:bytes e1) (s/attacher t1) {:address (:address e1)}))
+                _ (stream/append! src "B")
+                hop (drive-peers r1 [p1] 6)
+                t2 (s/toy)
+                p2 (s/served-peer t2)
+                e2 (lift hop version t2 p2 #{:reader})
+                r2 (:vm (handoff/resume-task
+                          (s/new-machine engine {:attach-stream (s/attacher t2)})
+                          (:bytes e2) (s/attacher t2) {:address (:address e2)}))
+                _ (stream/append! src "C")
+                done (drive-peers r2 [p2 p1] 8)
+                regs1 (registers e1)
+                regs2 (registers e2)]
+            (is (= :ok (:status e1)) (pr-str e1))
+            (is (= :ok (:status e2)) (pr-str e2))
+            (is (= [:next :next] (mapv (comp :yin.k/reason frame-pending) [e1 e2])))
+            ;; the walker's frame is its environment and continuation alone:
+            ;; it has no pc to compare
+            (when-not (= :walker engine)
+              (is (some? (:yin.k/pc regs1)))
+              (is (= (select-keys regs1 [:yin.k/pc :yin.k/segment :yin.k/image])
+                     (select-keys regs2 [:yin.k/pc :yin.k/segment :yin.k/image]))
+                  "both hand-offs park at one pc of one segment"))
+            (is (not= regs1 regs2)
+                "with a different activation: depth and captured environment")
+            (is (= [[:one 1 "B"] [2 [1 [:two 2 "C"]]]] expected))
+            (is (vm/halted? done))
+            (is (= expected (vm/value done))
+                "two hand-offs answer what the source's own run did")))))))
 
 
 ;; =============================================================================

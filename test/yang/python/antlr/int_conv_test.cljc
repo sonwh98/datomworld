@@ -245,44 +245,47 @@
               (py/range3 0 (integer/pow 2 2000) 2)) true]]))
 
 
-(deftest digit-limit-test
+(deftest ^:slow digit-limit-test
   ;; Hand pins, not CPython 3.9.6 (which has no digit limit): the
   ;; profile's limit is N = 4300 here, and the message names N.
-  (check-cases*
-    ops/runners
-    [['(data/str-length
-         (get (py/str-conv (py/int-result
-                             (integer/sub (integer/pow 10 4300) 1)) false)
-              :py/str)) 4300]
-     ['(args-of (fn [] (py/str-conv (integer/pow 10 4300) false)))
-      [{:py/str (limit-message 4300)}]]
-     ['(args-of (fn [] (py/str-conv (integer/pow 10 4300) true)))
-      [{:py/str (limit-message 4300)}]]
-     ['(data/str-length
-         (get (py/str-conv (py/int-conv (py/str (py/text-repeat "7" 4300 ""))
-                                        :py/missing) false) :py/str)) 4300]
-     ['(args-of (fn []
-                  (py/int-conv (py/str (py/text-repeat "7" 4301 ""))
-                               :py/missing)))
-      [{:py/str (limit-message 4300)}]]
-     ;; a syntax error wins over the limit
-     ['(data/str-index-of
-         (get (get (args-of
-                     (fn []
-                       (py/int-conv
-                         (py/str (py/text-repeat "7_" 4301 ""))
-                         :py/missing))) 0) :py/str)
-         "invalid literal for int() with base 10: ")
-      0]
-     ;; power-of-two bases are exempt both ways
-     ['(data/str-length
-         (get (py/radix-conv (integer/pow 16 5000) 16 "0x") :py/str)) 5003]
-     ['(data/str-length
-         (get (py/str-conv
-                (py/int-result
-                  (integer/bit-and
-                    (py/int-conv (py/str (py/text-repeat "f" 5000 "")) 16)
-                    255)) false) :py/str)) 3]]))
+  (slow/guard
+    "digit-limit-test"
+    (fn []
+      (check-cases*
+        ops/runners
+        [['(data/str-length
+             (get (py/str-conv (py/int-result
+                                 (integer/sub (integer/pow 10 4300) 1)) false)
+                  :py/str)) 4300]
+         ['(args-of (fn [] (py/str-conv (integer/pow 10 4300) false)))
+          [{:py/str (limit-message 4300)}]]
+         ['(args-of (fn [] (py/str-conv (integer/pow 10 4300) true)))
+          [{:py/str (limit-message 4300)}]]
+         ['(data/str-length
+             (get (py/str-conv (py/int-conv (py/str (py/text-repeat "7" 4300 ""))
+                                            :py/missing) false) :py/str)) 4300]
+         ['(args-of (fn []
+                      (py/int-conv (py/str (py/text-repeat "7" 4301 ""))
+                                   :py/missing)))
+          [{:py/str (limit-message 4300)}]]
+         ;; a syntax error wins over the limit
+         ['(data/str-index-of
+             (get (get (args-of
+                         (fn []
+                           (py/int-conv
+                             (py/str (py/text-repeat "7_" 4301 ""))
+                             :py/missing))) 0) :py/str)
+             "invalid literal for int() with base 10: ")
+          0]
+         ;; power-of-two bases are exempt both ways
+         ['(data/str-length
+             (get (py/radix-conv (integer/pow 16 5000) 16 "0x") :py/str)) 5003]
+         ['(data/str-length
+             (get (py/str-conv
+                    (py/int-result
+                      (integer/bit-and
+                        (py/int-conv (py/str (py/text-repeat "f" 5000 "")) 16)
+                        255)) false) :py/str)) 3]]))))
 
 
 (deftest small-profile-digit-limit-test
@@ -326,33 +329,36 @@
       ["ValueError" [[1]]]]]))
 
 
-(deftest departure-pins-test
+(deftest ^:slow departure-pins-test
   ;; Hand pins, not CPython 3.9.6. Under content identity two separately
   ;; made NaNs are one value, so `in` finds one where CPython says False
   ;; (the one-NaN departure); non-ASCII digits are refused (ASCII policy).
-  (let [arabic-12 (fixtures/code-points->text "661,662")
-        arabic-1-5 (fixtures/code-points->text "661,2e,35")
-        astral (fixtures/code-points->text "61,1f600,27")]
-    (check-cases*
-      ops/runners
-      [['(py/in (py/float-conv (py/str "nan"))
-                (py/list (py/vconj [] (py/float-conv (py/str "nan")))))
-        true]
-       [(list 'caught (list 'fn [] (list 'py/int-conv (list 'py/str arabic-12)
-                                         :py/missing)))
-        "ValueError"]
-       [(list 'caught (list 'fn [] (list 'py/float-conv
-                                         (list 'py/str arabic-1-5))))
-        "ValueError"]
-       [(list 'py/str-conv (list 'py/str astral) true)
-        {:py/str (str "\"" astral "\"")}]]))
-  ;; float("-nan") is the one NaN; its sign bit is the host CPU's default
-  ;; NaN's, never set from the text (CPython: fff8000000000000)
-  (doseq [[k result] (ops/run-with-prelude
-                       prelude/uast
-                       '(py/num (py/float-conv (py/str "-nan"))))]
-    (let [v (data/float-value result)]
-      (is (not (<= v v)) (str k)))))
+  (slow/guard
+    "departure-pins-test"
+    (fn []
+      (let [arabic-12 (fixtures/code-points->text "661,662")
+            arabic-1-5 (fixtures/code-points->text "661,2e,35")
+            astral (fixtures/code-points->text "61,1f600,27")]
+        (check-cases*
+          ops/runners
+          [['(py/in (py/float-conv (py/str "nan"))
+                    (py/list (py/vconj [] (py/float-conv (py/str "nan")))))
+            true]
+           [(list 'caught (list 'fn [] (list 'py/int-conv (list 'py/str arabic-12)
+                                             :py/missing)))
+            "ValueError"]
+           [(list 'caught (list 'fn [] (list 'py/float-conv
+                                             (list 'py/str arabic-1-5))))
+            "ValueError"]
+           [(list 'py/str-conv (list 'py/str astral) true)
+            {:py/str (str "\"" astral "\"")}]]))
+      ;; float("-nan") is the one NaN; its sign bit is the host CPU's default
+      ;; NaN's, never set from the text (CPython: fff8000000000000)
+      (doseq [[k result] (ops/run-with-prelude
+                           prelude/uast
+                           '(py/num (py/float-conv (py/str "-nan"))))]
+        (let [v (data/float-value result)]
+          (is (not (<= v v)) (str k)))))))
 
 
 (deftest string-literal-lint-test
