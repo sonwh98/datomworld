@@ -690,13 +690,24 @@
 
 
 (deftest widened-layout-interval
-  ;; §6.3's numeric note: v0 is live at jump pc 4 before its sole def at 5.
+  ;; §6.3's numeric-note image; widening does not change this allocation.
   (let [a (projected (if-node (v 'c) (resume :p (lit 1)) (lit 2)))
         image (derive/register-image a)]
     (is (= '{:bodies [{:locals 0 :registers 1 :start 0 :end 6}]
              :instructions [[:load-free 0 c] [:branch-false 0 5] [:const 0 1]
                             [:resume :p 0] [:jump 6] [:const 0 2] [:halt 0]]}
-           image))))
+           image)))
+  (testing "§2.2 widened start reserves T0 before the else-arm temporaries"
+    ;; L(4)={0} widens v0 to [4,8], ahead of v3:[5,7] and v4:[6,7].
+    (let [a (projected (if-node (v 'c) (resume :p (lit 1)) (app (v 'g) (lit 2))))]
+      (is (= '[[:var 1 c] [:branch-false 1 5] [:const 2 1] [:resume :p 2]
+               [:jump 8] [:var 3 g] [:const 4 2] [:call 0 3 [4] false] [:halt 0]]
+             a))
+      (is (= '{:bodies [{:locals 0 :registers 3 :start 0 :end 8}]
+               :instructions [[:load-free 0 c] [:branch-false 0 5] [:const 0 1]
+                              [:resume :p 0] [:jump 8] [:load-free 1 g] [:const 2 2]
+                              [:call 0 1 [2] false []] [:halt 0]]}
+             (derive/register-image a))))))
 
 
 (deftest hand-derived-register-intervals
