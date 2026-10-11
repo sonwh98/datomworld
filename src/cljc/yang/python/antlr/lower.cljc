@@ -32,12 +32,16 @@
      eager; a generator expression is an anonymous generator whose first
      iterable is evaluated and `iter()`-checked at creation, every other
      clause lazily, at each resume.
-   - `import m` (C4 I1, single undotted names) lowers at the statement to
-     `(py/import m pym.m/spec pym.m/body)` plus the binding of the
-     module object, one `(require 'pym.m)` hoisted per import in the
-     program wrapper (linked only); `sys` and `builtins` come pre-seeded
-     with no delivery. `del m.y` is a delattr call, `del x` an unbind.
-     Dotted, aliased and from-imports are I2's.
+   - `import m` (C4 I1) lowers at the statement to `(py/import m
+     pym.m/spec pym.m/body)` plus the binding of the module object, one
+     `(require 'pym.m)` hoisted per import in the program wrapper (linked
+     only); `sys` and `builtins` come pre-seeded with no delivery. `del
+     m.y` is a delattr call, `del x` an unbind. I2: `import a.b.c` loads
+     the chain `a`, `a.b` (`pym.a$b`), `a.b.c` in order through
+     `py/import-sub`, which sets each fresh submodule on its parent;
+     `as`, `from` (`py/import-from`), `*` (`py/import-star`) and relative
+     imports, resolved statically against the unit's declared name and
+     package-ness, a failure raising at the statement (`py/import-fail`).
    - A function whose body yields is a generator function: its code binds
      the arguments and allocates the cells, then returns
      `(py/make-generator name (fn [%gen] body))`; each `yield v` is
@@ -100,9 +104,6 @@
    "async_funcdef" "async def",
    "async_stmt" "async statement",
    "annassign" "annotated assignment",
-   "import_from" "from import",
-   "import_as_name" "from import",
-   "import_as_names" "from import",
    "assert_stmt" "assert statement",
    "match_stmt" "match statement",
    "subject_expr" "match statement",
@@ -151,7 +152,8 @@
     "augassign" "except_clause" "block" "comp_op" "trailer" "subscriptlist"
     "subscript_" "sliceop" "arglist" "argument" "testlist_comp"
     "dictorsetmaker" "strings" "comp_for" "comp_iter" "comp_if" "with_item"
-    "yield_arg" "dotted_name" "dotted_as_name" "dotted_as_names"})
+    "yield_arg" "dotted_name" "dotted_as_name" "dotted_as_names"
+    "import_as_name" "import_as_names"})
 
 
 (def handled-rules
@@ -163,7 +165,7 @@
     "try_stmt" "with_stmt" "funcdef" "classdef" "test" "test_nocond"
     "lambdef" "lambdef_nocond" "or_test" "and_test" "not_test" "comparison"
     "expr" "star_expr" "atom_expr" "atom" "name" "yield_stmt" "yield_expr"
-    "del_stmt" "import_stmt" "import_name"})
+    "del_stmt" "import_stmt" "import_name" "import_from"})
 
 
 (defn- default-arm
@@ -529,86 +531,256 @@
 
 
 (defn module-symbol
-  "The linker module name of the Python module `name`."
+  "The linker module name of the Python module `name`: `pym.` then the
+   name with each dot a `$` (8.5.6 ruling 3; `$` is never in a Python
+   identifier, so the mapping is injective), so no linker module name is
+   a dotted prefix of another: `m` is `pym.m`, `a.b.c` is `pym.a$b$c`."
   [name]
-  (symbol (str module-prefix "." name)))
+  (symbol (str module-prefix "." (str/replace name "." "$"))))
 
 
-(defn- import-target-name
-  "The module name of import target `n` (a dotted_as_name) when it is
-   I1's shape -- a single undotted name, no `as` -- else nil."
-  [pk n]
-  (let [dn (first (p/child-rules pk n "dotted_name"))]
-    (when (and dn
-               (not (p/has-token? pk n "as"))
-               (= 1 (count (p/child-rules pk dn "name"))))
-      (let [nm (first (p/child-rules pk dn "name"))]
-        (:text (first (p/children pk nm)))))))
+(defn- name-chain
+  "A dotted module name and its ancestors, root first: `a.b.c` is
+   `[\"a\" \"a.b\" \"a.b.c\"]`, the order an import loads them in."
+  [name]
+  (vec (reductions #(str %1 "." %2) (str/split name #"\."))))
 
 
-(defn- packet-import-targets
-  "Every import target of the packet's `import` statements, in source
-   order, at any depth (a function or class body included): delivery is
-   hoisted for each, wherever the statement runs."
-  [pk]
+(defn- parent-name
+  "The parent package of a dotted module name; a top-level module's is
+   the empty string, as CPython's `name.rpartition('.')[0]`."
+  [name]
+  (let [chain (name-chain name)]
+    (if (> (count chain) 1) (nth chain (- (count chain) 2)) "")))
+
+
+(defn resolve-relative
+  "The absolute module a `from` import with `level` leading dots and the
+   dotted tail `tail` (nil in `from . import x`) names, resolved
+   statically at lowering from the unit's declared `{:name :package?}`
+   (8.5.6 ruling 12), as CPython's `_resolve_name`: a package is its own
+   base, a module its parent package, and each further dot drops one
+   component. A unit with no package -- nil, as `__main__` is, or a
+   top-level module -- answers `:packageless`; dropping past the top
+   level `:beyond`. Each is raised at the executed statement."
+  [unit level tail]
+  (let [package (when unit
+                  (if (:package? unit) (:name unit) (parent-name (:name unit))))]
+    (if (empty? package)
+      :packageless
+      (let [parts (str/split package #"\.")
+            kept (- (count parts) (dec level))]
+        (if (< kept 1)
+          :beyond
+          (let [base (str/join "." (take kept parts))]
+            (if tail (str base "." tail) base)))))))
+
+
+(def ^:private relative-import-texts
+  "CPython 3.9.6's ImportError texts for an unresolvable relative import."
+  {:packageless "attempted relative import with no known parent package",
+   :beyond "attempted relative import beyond top-level package"})
+
+
+(defn- dotted-text
+  "A dotted_name's module name, `a.b.c`."
+  [pk dn]
+  (str/join "." (map #(:text (first (p/children pk %)))
+                     (p/child-rules pk dn "name"))))
+
+
+(defn- from-module
+  "The absolute module an import_from reads from, or `:packageless` /
+   `:beyond` for a relative one that cannot resolve. A `.` token counts
+   one level and an `...` token (the lexer's ELLIPSIS) three."
+  [pk unit n]
+  (let [level (reduce + 0 (keep #(cond (p/token? % ".") 1
+                                       (p/token? % "...") 3)
+                                (p/children pk n)))
+        dn (first (p/child-rules pk n "dotted_name"))
+        tail (when dn (dotted-text pk dn))]
+    (if (zero? level) tail (resolve-relative unit level tail))))
+
+
+(defn- packet-imports
+  "The modules each import statement of the packet loads, every dotted
+   name as its whole chain, root first, in source order, at any depth (a
+   function or class body included): delivery is hoisted for each,
+   wherever the statement runs. A relative import that cannot resolve
+   loads nothing."
+  [pk unit]
   (let [out (volatile! [])]
     (letfn [(walk
               [n]
               (when (p/rule? n)
-                (if (= "import_name" (:rule n))
+                (case (:rule n)
+                  "import_name"
                   (when-let [das (first (p/child-rules pk n "dotted_as_names"))]
-                    (vswap! out into (p/child-rules pk das "dotted_as_name")))
+                    (run! (fn [t]
+                            (vswap! out into
+                                    (name-chain
+                                      (dotted-text
+                                        pk
+                                        (first (p/child-rules pk t "dotted_name"))))))
+                          (p/child-rules pk das "dotted_as_name")))
+                  "import_from"
+                  (let [m (from-module pk unit n)]
+                    (when (string? m) (vswap! out into (name-chain m))))
                   (run! walk (p/children pk n)))))]
       (walk (p/root pk))
       @out)))
 
 
 (defn imported-module-names
-  "The distinct module names the unit statically imports in I1's shape,
-   source order, the pre-seeded `sys` and `builtins` aside."
+  "The distinct modules the unit statically imports, each dotted name's
+   ancestors ahead of it, source order: the pre-seeded `sys` and
+   `builtins` aside, and the unit's own name, whose sys.modules entry
+   answers while its body runs. `unit` is `{:name :package?}`, nil for a
+   packageless unit."
+  ([pk] (imported-module-names pk nil))
+  ([pk unit]
+   (into [] (comp (remove preseeded-modules)
+                  (remove #(= % (:name unit)))
+                  (distinct))
+         (packet-imports pk unit))))
+
+
+(defn- preseeded-imports-only?
+  "Whether every import statement of the packet, at any depth, is I1's
+   `import sys` or `import builtins` (undotted, unaliased, pre-seeded):
+   the only imports the bundled profile lowers. Checked on the
+   statements, not on the delivery they need: a packageless relative
+   import needs none and is still an I2 form."
   [pk]
-  (into [] (comp (keep #(import-target-name pk %))
-                 (remove preseeded-modules)
-                 (distinct))
-        (packet-import-targets pk)))
+  (letfn [(plain-preseeded?
+            [t]
+            (and (empty? (p/child-rules pk t "name"))
+                 (contains? preseeded-modules
+                            (dotted-text
+                              pk (first (p/child-rules pk t "dotted_name"))))))
+          (ok?
+            [n]
+            (or (not (p/rule? n))
+                (case (:rule n)
+                  "import_from" false
+                  "import_name"
+                  (every? plain-preseeded?
+                          (p/child-rules
+                            pk (first (p/child-rules pk n "dotted_as_names"))
+                            "dotted_as_name"))
+                  (every? ok? (p/children pk n)))))]
+    (ok? (p/root pk))))
 
 
 (defn- import-requires
-  "The linker modules a unit's static imports deliver: `pym.<name>` per
-   imported name, source order. The module's own `py` require is not
-   here; the wrappers add it ahead of these."
-  [pk]
-  (mapv module-symbol (imported-module-names pk)))
+  "The linker modules a unit's static imports deliver: `pym.<mangled>`
+   per imported module, source order. The module's own `py` require is
+   not here; the wrappers add it ahead of these."
+  [pk unit]
+  (mapv module-symbol (imported-module-names pk unit)))
+
+
+(defn- delivered
+  "The spec and body nodes an import of `nm` passes: None for a
+   pre-seeded module and for the unit itself (sys.modules answers both),
+   else the delivered `pym.<mangled>/spec` and `/body`."
+  [ctx nm]
+  (if (or (contains? preseeded-modules nm) (= nm (get-in ctx [:unit :name])))
+    [none none]
+    (let [mod (str (module-symbol nm))]
+      [(u/v (symbol mod "spec")) (u/v (symbol mod "body"))])))
+
+
+(defn- import-chain
+  "Import the module `nm` and its ancestors, root first, each module
+   object bound to a fresh temporary of node `n`; `k` receives the
+   temporaries, root first, and returns the body they scope. The root is
+   `(py/import name spec body)`; each later link `(py/import-sub name spec
+   body parent attr)`, which on a fresh load sets the module as its
+   parent's attribute (ruling 13)."
+  [ctx n nm k]
+  (let [chain (name-chain nm)
+        tmps (mapv #(gen (str "imp" % "_") n) (range (count chain)))]
+    (letfn [(step
+              [i]
+              (if (= i (count chain))
+                (k tmps)
+                (let [full (nth chain i)
+                      [spec body] (delivered ctx full)
+                      call (if (zero? i)
+                             (app* 'py/import (u/lit {:py/str full}) spec body)
+                             (app* 'py/import-sub (u/lit {:py/str full}) spec body
+                                   (u/v (nth tmps (dec i)))
+                                   (u/lit {:py/str (last (str/split full #"\."))})))]
+                  (u/let1 (nth tmps i) call (step (inc i))))))]
+      (step 0))))
 
 
 (defn- lower-import
-  "import_name (I1): every target a single undotted module, no `as`.
-   Each lowers at its statement position to `(py/import name spec body)`
-   plus the binding of the module object to the imported name in the
-   scope the statement runs in; `sys.modules` answers first, the body
-   runs lazily in the importing task. Dotted and aliased targets are
-   I2's; a from-import too. `sys` and `builtins` need no delivery: spec
-   and body are None, and the pre-seeded sys.modules entry answers."
+  "import_name: each target lowers at its statement position to the
+   import of its chain (`import-chain`) plus one binding in the scope the
+   statement runs in -- `import a.b.c` binds the root `a`, `import a.b as
+   x` binds `x` to `b` read off `a` by `py/import-from`, as CPython (the
+   attribute, else the sys.modules entry). `sys.modules` answers first, a
+   body runs lazily in the importing task, once. `sys` and `builtins`
+   need no delivery:
+   spec and body are None, and the pre-seeded sys.modules entry answers."
   [ctx n]
-  (let [pk (:pk ctx)
-        das (first (rules ctx n "dotted_as_names"))
-        targets (rules ctx das "dotted_as_name")]
+  (let [das (first (rules ctx n "dotted_as_names"))]
     (u/seq-nodes
       (mapv (fn [t]
-              (when (p/has-token? pk t "as") (unsupported! t "aliased import"))
-              (let [dn (first (rules ctx t "dotted_name"))
-                    names (rules ctx dn "name")]
-                (when (not= 1 (count names))
-                  (unsupported! t "dotted import"))
-                (let [nm (name-of ctx (first names))
-                      preseeded (contains? preseeded-modules nm)
-                      mod (module-symbol nm)
-                      spec (if preseeded none (u/v (symbol (str mod) "spec")))
-                      body (if preseeded none (u/v (symbol (str mod) "body")))
-                      tmp (gen "imp" t)]
-                  (u/let1 tmp (app* 'py/import (u/lit {:py/str nm}) spec body)
-                          (assign-name ctx nm (u/v tmp))))))
-            targets))))
+              (let [nm (dotted-text (:pk ctx) (first (rules ctx t "dotted_name")))
+                    as-node (first (rules ctx t "name"))]
+                (import-chain ctx t nm
+                              (fn [tmps]
+                                (if as-node
+                                  ;; CPython's IMPORT_FROM per component:
+                                  ;; a rebound a.b is what x binds
+                                  (assign-name
+                                    ctx (name-of ctx as-node)
+                                    (reduce #(app* 'py/import-from %1
+                                                   (u/lit {:py/str %2}))
+                                            (u/v (first tmps))
+                                            (rest (str/split nm #"\."))))
+                                  (assign-name ctx (first (name-chain nm))
+                                               (u/v (first tmps))))))))
+            (rules ctx das "dotted_as_name")))))
+
+
+(defn- lower-import-from
+  "import_from: the module's chain is imported as `import-chain` does,
+   then each name is read by `(py/import-from m name)` -- the attribute,
+   else the sys.modules entry of `m.name`, never a submodule auto-import
+   (ruling 13) -- and bound to its `as` name or itself. `from m import *`
+   is `(py/import-star m %globals)` at module level, CPython's syntax
+   error in a function, and unsupported in a class body. A relative
+   import resolves statically (`resolve-relative`); one that cannot
+   raises ImportError at the executed statement."
+  [ctx n]
+  (let [target (from-module (:pk ctx) (:unit ctx) n)
+        star? (some #(p/token? % "*") (kids ctx n))
+        module-level? (= (:scope ctx) (:module (:analysis ctx)))]
+    (when (and star? (not module-level?))
+      (if (:class ctx)
+        (unsupported! n "import * in a class body")
+        (syntax! n "import * only allowed at module level")))
+    (if (keyword? target)
+      (app* 'py/import-fail (u/lit {:py/str (relative-import-texts target)}))
+      (import-chain
+        ctx n target
+        (fn [tmps]
+          (let [m (u/v (peek tmps))]
+            (if star?
+              (app* 'py/import-star m (u/v globals-sym))
+              (u/seq-nodes
+                (mapv (fn [ian]
+                        (let [[nm-node as-node] (rules ctx ian "name")
+                              nm (name-of ctx nm-node)]
+                          (assign-name ctx (name-of ctx (or as-node nm-node))
+                                       (app* 'py/import-from m
+                                             (u/lit {:py/str nm})))))
+                      (rules ctx (first (rules ctx n "import_as_names"))
+                             "import_as_name"))))))))))
 
 
 (defn- lower-del-target
@@ -1661,11 +1833,9 @@
     "funcdef" (lower-funcdef ctx n)
     "classdef" (lower-classdef ctx n)
     "del_stmt" (lower-del ctx n)
-    ;; a from-import is I2's; the import_name arm lowers I1's form
-    "import_stmt" (if (p/rule? (first (kids ctx n)) "import_from")
-                    (unsupported! n "from import")
-                    ((:lower ctx) ctx (first (kids ctx n))))
+    "import_stmt" ((:lower ctx) ctx (first (kids ctx n)))
     "import_name" (lower-import ctx n)
+    "import_from" (lower-import-from ctx n)
     ;; ---- expressions
     "testlist_star_expr" (display ctx n)
     "testlist" (display ctx n)
@@ -1721,10 +1891,11 @@
 
 
 (defn- context
-  [packet]
+  [packet unit]
   (let [pk (p/validate! packet)
         analysis (scope/analyze pk)]
     {:pk pk,
+     :unit unit,
      :max-digits (digit-budget packet),
      :analysis analysis,
      :scope (:module analysis),
@@ -1739,10 +1910,13 @@
 
 (defn lower-module-body
   "The module's statements as one node, before the runtime wrapper: what
-   lowering goldens compare."
-  [packet]
-  (let [ctx (context packet)]
-    (lower ctx (p/root (:pk ctx)))))
+   lowering goldens compare. `unit`, the unit's declared `{:name
+   :package?}`, resolves its relative imports; nil (the default, as for
+   `__main__`) is a packageless unit."
+  ([packet] (lower-module-body packet nil))
+  ([packet unit]
+   (let [ctx (context packet unit)]
+     (lower ctx (p/root (:pk ctx))))))
 
 
 (defn lower-packet
@@ -1758,21 +1932,25 @@
    `py/` exports, never a runtime key.
 
    A unit that statically imports a module needs it delivered: under
-   `:linked` one `(require 'pym.<name>)` per import is hoisted after the
-   `py` require (ruling 4's explicit eager-dependency restriction; an
-   import-free unit's tree is unchanged). Imports need the linked
+   `:linked` one `(require 'pym.<mangled>)` per imported module (a dotted
+   import's ancestors included) is hoisted after the `py` require (ruling
+   4's explicit eager-dependency restriction; an import-free unit's tree
+   is unchanged). The program is `__main__`, a packageless unit, so its
+   relative imports raise. Imports need the linked
    prelude -- a module closure's free reads never see the ambient store,
    so a bundled importer's `py/*` definitions are invisible to an
-   imported body -- and a bundled unit holding an import is refused."
+   imported body -- and a bundled unit holding any import statement but
+   `import sys` or `import builtins` is refused."
   ([packet] (lower-packet packet {}))
   ([packet {:keys [prelude], :or {prelude :bundled}}]
-   (let [requires (import-requires (p/validate! packet))
+   (let [pk (p/validate! packet)
+         requires (import-requires pk nil)
          main (app* 'py/run-main
                     (u/lam [globals-sym globals-fn-sym]
                            (lower-module-body packet)))]
      (u/mark-tails
        (case prelude
-         :bundled (if (seq requires)
+         :bundled (if-not (preseeded-imports-only? pk)
                     (throw (ex-info
                              "Imports need the linked prelude (docs/design/yang.antlr.md 8.5.6)"
                              {:yang.python.antlr/diagnostic :yang.python.antlr/unsupported,
@@ -1801,24 +1979,32 @@
 
 
 (defn module-packet
-  "One ok packet as the linker module `pym.<name>`: one wide application
-   whose operands are `(require 'py)`, one `(require 'pym.<i>)` per
-   static import (delivery hoisted and pinned, bodies lazy), then the
-   spec and body definitions. `name` is the Python module name; I1
-   admits undotted names only, and the spec's package-ness is false (I2
-   derives it from source layout). The body is the same form
-   `lower-packet` runs as `__main__`: one code image, two roles."
-  [packet {:keys [name]}]
-  (when (or (empty? name) (str/includes? name "."))
-    (throw (ex-info "I1 module names are single undotted names"
+  "One ok packet as the linker module `pym.<mangled>`: one wide
+   application whose operands are `(require 'py)`, one `(require
+   'pym.<i>)` per statically imported module (delivery hoisted and
+   pinned, bodies lazy), then the spec and body definitions. `name` is
+   the dotted Python module name and `package?` (default false) whether
+   the unit is a package, which is source layout, not derivable from
+   rows: the spec records both, the runtime derives `__package__` from
+   them, and the lowering resolves relative imports against them. The
+   body is the same form `lower-packet` runs as `__main__`: one code
+   image, two roles."
+  [packet {:keys [name package?]}]
+  (when (or (empty? name)
+            (str/starts-with? name ".")
+            (str/ends-with? name ".")
+            (str/includes? name "..")
+            (str/includes? name "$"))
+    (throw (ex-info "a module name is dotted identifiers"
                     {:yang.python.antlr/diagnostic :yang.python.antlr/unsupported,
-                     :construct "dotted module name",
+                     :construct "malformed module name",
                      :name name})))
-  (let [requires (import-requires (p/validate! packet))
+  (let [unit {:name name, :package? (boolean package?)}
+        requires (import-requires (p/validate! packet) unit)
         nodes (into [prelude/module-name] requires)
-        defs [(u/def! 'spec (u/lit {:name name, :package? false}))
+        defs [(u/def! 'spec (u/lit unit))
               (u/def! 'body (u/lam [globals-sym globals-fn-sym]
-                                   (lower-module-body packet)))]
+                                   (lower-module-body packet unit)))]
         operands (into (mapv require-node nodes) defs)
         params (mapv (fn [i] (symbol (str "%d" i))) (range (count operands)))]
     (u/mark-tails (apply u/app (u/lam params (u/lit nil)) operands))))
@@ -1859,9 +2045,10 @@
    `vm/primitives` profile; any other `ns/name` is a host export
    declared by the profile address the registry's host module `ns`
    publishes. A free name none of these supplies is refused before
-   anything is published. This namespace emits; it never publishes."
-  [registry packet {:keys [name py-address deps]}]
-  (let [ast (module-packet packet {:name name})
+   anything is published. `package?` is `module-packet`'s. This
+   namespace emits; it never publishes."
+  [registry packet {:keys [name package? py-address deps]}]
+  (let [ast (module-packet packet {:name name, :package? package?})
         covered (into #{prelude/module-name} (map module-symbol (keys deps)))
         free-names (vec (sort-by str
                                  (remove (conj (prelude/defined-keys ast) 'yin/def)

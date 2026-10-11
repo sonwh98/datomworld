@@ -124,9 +124,10 @@
 
 (defn import-bindings
   "The names an `import_stmt` binds, as Python's own rule has it: plain
-   `import a.b` binds `a`, the root; `import a.b as x` binds `x`; a
-   `from` import is I2's and binds nothing here (the lowering refuses it
-   before any name it would bind is read)."
+   `import a.b` binds `a`, the root; `import a.b as x` binds `x`; `from m
+   import y as z` binds `z`, `from m import y` binds `y`, and `from m
+   import *` binds nothing statically (it is module-level only, where
+   every name is a namespace-dict lookup)."
   [pk n]
   (letfn [(dotted-as
             [dan]
@@ -141,7 +142,14 @@
       (if-let [das (first (p/child-rules pk iname "dotted_as_names"))]
         (into [] (mapcat dotted-as) (p/child-rules pk das "dotted_as_name"))
         [])
-      [])))
+      (let [ifrom (first (p/child-rules pk n "import_from"))
+            ians (when ifrom
+                   (first (p/child-rules pk ifrom "import_as_names")))]
+        (if ians
+          ;; the last name of an import_as_name is its `as` name, if any
+          (mapv #(name-text pk (peek (p/child-rules pk % "name")))
+                (p/child-rules pk ians "import_as_name"))
+          [])))))
 
 
 (defn params-of

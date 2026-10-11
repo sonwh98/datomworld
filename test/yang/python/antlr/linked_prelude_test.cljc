@@ -223,10 +223,12 @@
 (def ^:private manifest-golden
   "I1 moved this once: the definition list gained the module runtime
    (`py/import`, module objects, sys.modules and its two pre-seeded
-   modules) and the `ImportError` class."
+   modules) and the `ImportError` class. I2 moved it once: py/import-sub,
+   py/import-from, py/import-star, py/import-fail and their helpers, and
+   a top-level module's `__package__` ''."
   (keyword (str "segment/blake3-"
-                "ad6f34e349ce527382ddd039236197a7"
-                "00c6c1182f163bc3b8bcf13449f1c3d8")))
+                "0dee20206b02b4204c1f9e9811a749aa"
+                "96dba8b72f6006ff9f0a9b22e0005134")))
 
 
 (def ^:private vector-formats

@@ -911,7 +911,19 @@
                #'imports/r-packet #'imports/x-packet #'imports/s-packet
                #'imports/q-packet #'imports/tt-packet #'imports/nn-packet
                #'imports/dotted-packet #'imports/aliased-packet
-               #'imports/from-packet #'imports/del-packet]]
+               #'imports/from-packet #'imports/del-packet
+               #'imports/i2-a-packet #'imports/i2-ab-packet
+               #'imports/i2-abc-packet #'imports/i2-abd-packet
+               #'imports/i2-g-packet #'imports/i2-sx-packet
+               #'imports/i2-sy-packet #'imports/i2-nf-packet
+               #'imports/i2-nfsub-packet #'imports/dotted-main-packet
+               #'imports/packageless-main-packet
+               #'imports/nosub-main-packet #'imports/forms-main-packet
+               #'imports/star-main-packet
+               #'imports/star-in-function-packet
+               #'imports/alias-rebind-main-packet
+               #'imports/from-dict-main-packet
+               #'imports/star-bad-main-packet]]
       (is (= (map node-shape (:yang.cst/nodes (parser/parse-source (:doc (meta v)))))
              (map node-shape (:yang.cst/nodes @v)))
           (str v)))))
