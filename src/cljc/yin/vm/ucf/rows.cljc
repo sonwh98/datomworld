@@ -12,9 +12,9 @@
 
    Default value markers are plain maps {:yin.k/row abstract-row} and
    {:yin.k/cell keyword}. A guest map whose sole key is :yin.k/row or
-   :yin.k/cell collides with them and is not portable: on encode one whose
-   payload is not a well-formed marker, and on decode any [:lit] of that
-   shape, is refused :yin.k/non-portable."
+   :yin.k/cell collides with them and is not portable: on encode and decode
+   every literal of that shape is refused :yin.k/non-portable. Explicit
+   markers use the caller value encoder."
   (:require [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
             [yin.vm.semantic-register.code :as code]
@@ -73,6 +73,19 @@
 (defn- bad!
   [kind path]
   (refuse! :yin.k/undecodable kind path))
+
+
+(defn- marker-shaped?
+  [x]
+  (and (map? x) (= 1 (count x)) (or (contains? x :yin.k/row) (contains? x :yin.k/cell))))
+
+
+(defn- check-literal-markers!
+  [x]
+  (when (marker-shaped? x) (refuse! :yin.k/non-portable :marker []))
+  (when (coll? x)
+    (doseq [v (if (map? x) (mapcat identity x) x)] (check-literal-markers! v)))
+  (when (meta x) (check-literal-markers! (meta x))))
 
 
 (defn- bytes-key
@@ -148,6 +161,9 @@
 
 (defn- emit-slot
   [d x numbering rows]
+  (when-not (or (ref? d) (refs? d) (= :C d))
+    (check-literal-markers! (if (contains? #{:V :optional-V} d)
+                              (when (= :lit (first x)) (second x)) x)))
   (cond
     (ref? d) (emit-node x numbering rows)
     (refs? d) (reduce (fn [[out rs] n]
@@ -183,7 +199,7 @@
 
 (def default-budget
   "Local resource bounds, independent of canonical bytes."
-  {:rows 10000 :cells 64 :depth 256 :work 200000 :search 10000 :bytes 16777216})
+  {:rows 10000 :cells 64 :depth 256 :work 200000 :search 10000 :bytes 16777216 :label-bytes 1048576})
 
 
 (defn- spend!
@@ -191,6 +207,27 @@
   (let [n (get (swap! counter update category (fnil + 0) amount) category)]
     (when (> n (get budget category))
       (refuse! :yin.k/unsupported :resource-limit [category]))))
+
+
+(defn- check-label-bytes!
+  "Conservative byte/representation bound before CBOR normalization or
+   comparison vectors allocate. Byte payloads are counted without copying;
+   container overhead also bounds the number of intermediate tree nodes."
+  [x budget]
+  (let [limit (:label-bytes budget)]
+    (letfn [(size
+              [x remaining]
+              (let [n (cond
+                        (cbor/byte-payload? x) (+ 16 #?(:cljd (.-length x) :default (alength x)))
+                        (string? x) (+ 128 (* 4 (count x)))
+                        (or (keyword? x) (symbol? x)) (+ 128 (* 4 (count (str x))))
+                        (coll? x) (reduce (fn [total v] (+ total (size v (- remaining total))))
+                                          128 (if (map? x) (mapcat identity x) x))
+                        :else 128)]
+                (when (> n remaining)
+                  (refuse! :yin.k/unsupported :resource-limit [:label-bytes]))
+                (if (meta x) (+ n (size (meta x) (- remaining n))) n)))]
+      (size x limit))))
 
 
 (declare canonical-numbering)
@@ -205,10 +242,17 @@
    (let [budget (merge default-budget budget) counter (atom {})
          cells (into {} (map vec) (partition 2 (:slots (nth (:slots task) 9))))
          ids (vec (keys cells))
+         checked-encode (fn [x] (check-label-bytes! x budget) (cbor/encode x))
+         checked-key (fn [x] (check-label-bytes! x budget) (bytes-key x))
+         checked-sort (fn [xs]
+                        (doseq [x xs] (check-label-bytes! x budget))
+                        (vec (sort (fn [a b]
+                                     (compare-bytes (checked-key (checked-encode a))
+                                                    (checked-key (checked-encode b)))) xs)))
          labels (into {} (map (fn [[id body]]
                                 (let [[stream position] (:slots body)]
-                                  [id (cbor/encode [:body (cbor/encode (into [:stream] (:slots stream)))
-                                                    (cbor/encode position)])])) cells))]
+                                  [id (checked-encode [:body (checked-encode (into [:stream] (:slots stream)))
+                                                       (checked-encode position)])])) cells))]
      (spend! counter budget :cells (count ids))
      (letfn [(ce-slot
                [d x ls]
@@ -228,14 +272,14 @@
                    (= :cells kind) [:cells]
                    (and (= :task kind) (not (identical? n task)))
                    (let [[id _rows] (emit-node n (canonical-numbering n budget) {})]
-                     [:child (cbor/encode id)])
+                     [:child (checked-encode id)])
                    :else
                    (let [ss (mapv #(ce-slot %1 %2 ls) (descriptors kind slots) slots)
                          ss (cond
                               (contains? #{:map :store :bindings :parked-table} kind)
-                              (sorted-bytes (mapv vec (partition 2 ss)))
-                              (= :set kind) (sorted-bytes ss)
-                              (= :task kind) (-> ss (update 7 sorted-bytes) (update 12 sorted-bytes))
+                              (checked-sort (mapv vec (partition 2 ss)))
+                              (= :set kind) (checked-sort ss)
+                              (= :task kind) (-> ss (update 7 checked-sort) (update 12 checked-sort))
                               :else ss)]
                      (into [kind] ss)))))
              (positions
@@ -247,11 +291,11 @@
                            (when (> depth (:depth budget))
                              (refuse! :yin.k/unsupported :resource-limit [:depth]))
                            (cond
-                             (= :C d) (swap! out update x conj (cbor/encode path))
+                             (= :C d) (swap! out update x conj (checked-encode path))
                              (ref? d) (visit x path (inc depth))
                              (contains? #{:V :optional-V} d)
                              (case (first x)
-                               :cell (swap! out update (second x) conj (cbor/encode path))
+                               :cell (swap! out update (second x) conj (checked-encode path))
                                :row (visit (second x) path (inc depth)) nil)
                              :else nil))
                          (visit
@@ -283,13 +327,13 @@
                [ls]
                (vec (sort #(compare-bytes (first %1) (first %2))
                           (map (fn [[label members]] [label (vec members)])
-                               (reduce (fn [m id] (update m (bytes-key (get ls id)) (fnil conj []) id)) {} ids)))))
+                               (reduce (fn [m id] (update m (checked-key (get ls id)) (fnil conj []) id)) {} ids)))))
              (refine
                [ls]
                (let [ps (positions ls)
                      next-ls (into {} (map (fn [id]
-                                             [id (cbor/encode [:sig (get ls id)
-                                                               (vec (sort #(compare-bytes (bytes-key %1) (bytes-key %2)) (get ps id)))])]) ids))]
+                                             [id (checked-encode [:sig (get ls id)
+                                                                  (vec (sort #(compare-bytes (checked-key %1) (checked-key %2)) (get ps id)))])]) ids))]
                  (if (= (count (classes ls)) (count (classes next-ls))) next-ls (recur next-ls))))
              (search
                [ls depth]
@@ -298,13 +342,13 @@
                      unresolved (first (filter #(> (count (second %)) 1) cs))]
                  (if unresolved
                    (reduce (fn [best id]
-                             (let [leaf (search (assoc ls id (cbor/encode [:ind depth (get ls id)])) (inc depth))]
+                             (let [leaf (search (assoc ls id (checked-encode [:ind depth (get ls id)])) (inc depth))]
                                (if (or (nil? best) (neg? (compare-bytes (:key leaf) (:key best)))) leaf best)))
                            nil (second unresolved))
                    (let [numbering (into {} (map-indexed (fn [i [_ members]]
                                                            [(first members) (keyword "yin.k" (str "c-" (inc i)))]) cs))
                          [id rows] (emit-node task numbering {})]
-                     {:numbering numbering :key (bytes-key (cbor/encode (subvec (get rows id) 1)))}))))]
+                     {:numbering numbering :key (checked-key (checked-encode (subvec (get rows id) 1)))}))))]
        (if (empty? ids) {} (:numbering (search labels 0)))))))
 
 
@@ -359,18 +403,25 @@
 
 (defn- check-abstract!
   [root]
-  (letfn [(value
+  (letfn [(literal-value
+            [x]
+            (cond
+              (map? x) [:map (into {} (map (fn [[k v]] [(literal-value k) (literal-value v)])) x)]
+              (set? x) [:set (set (map literal-value x))]
+              (sequential? x) [:seq (mapv literal-value x)]
+              :else [:literal x]))
+          (value
             [v]
             (case (first v)
-              :lit (second v)
+              :lit (literal-value (second v))
               :cell [:identity (second v)]
               :row (let [n (second v) ss (:slots n)]
                      (case (:kind n)
-                       :vec (mapv value ss)
-                       :list (apply list (map value ss))
-                       :set (set (map value ss))
-                       :map (into {} (map (fn [[k x]] [(value k) (value x)])) (partition 2 ss))
-                       n))))
+                       :vec [:seq (mapv value ss)]
+                       :list [:seq (mapv value ss)]
+                       :set [:set (set (map value ss))]
+                       :map [:map (into {} (map (fn [[k x]] [(value k) (value x)])) (partition 2 ss))]
+                       [:row n]))))
           (reference?
             [v]
             (case (first v)
@@ -492,6 +543,11 @@
            (when-not (= address (jing/segment-key v))
              (refuse! :yin.k/hash-mismatch :code [id 11 address]))
            (when (code/well-formed? v) (bad! :code [id 11 address]))))
+       (doseq [[_ kind & slots] rs
+               [d x] (map vector (descriptors kind slots) slots)]
+         (when-not (or (ref? d) (refs? d) (= :C d))
+           (check-literal-markers! (if (contains? #{:V :optional-V} d)
+                                     (when (= :lit (first x)) (second x)) x))))
        (doseq [[id kind & slots] rs]
          (when-not (= (vec slots) (ordered-slots kind (vec slots))) (bad! :row-order [id]))
          (when (contains? #{:map :bindings :store :parked-table :window :cells :set} kind)
@@ -549,21 +605,10 @@
       (emit (rewrite task)))))
 
 
-(defn- marker-shaped?
-  [x]
-  (and (map? x) (= 1 (count x)) (or (contains? x :yin.k/row) (contains? x :yin.k/cell))))
-
-
 (defn- value-node
   [x]
-  ;; Explicit codec values allow 6b to supply already classified guest
-  ;; markers, without introducing native seals or resource lookup here.
-  (let [r (:yin.k/row x)]
-    (cond
-      (not (marker-shaped? x)) [:lit x]
-      (and (map? r) (= #{:kind :slots} (set (keys r))) (keyword? (:kind r)) (vector? (:slots r))) [:row r]
-      (keyword? (:yin.k/cell x)) [:cell (:yin.k/cell x)]
-      :else (refuse! :yin.k/non-portable :marker []))))
+  (check-literal-markers! x)
+  [:lit x])
 
 
 (defn- decoded-value
@@ -602,8 +647,8 @@
 
 (defn frame->rows
   "Encode a keyed frame to a frame-rooted version-3 row pack. Values are
-   plain literals or explicit {:yin.k/row abstract-row}/{:yin.k/cell id}.
-   An optional value encoder may classify a composition's portable values.
+   plain literals by default. An explicit value encoder classifies portable
+   references as [:row abstract-row] or [:cell id], distinct from guest maps.
    This reshapes; frame/defect owns semantic validity."
   ([f] (frame->rows f value-node))
   ([f encode]

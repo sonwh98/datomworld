@@ -56,7 +56,7 @@
     (values/continuation? x)
     {:yin.k/row (rows/node :reified
                            [(rows/decode (rows/frame->rows
-                                           (portable-frame m (ft/canonical m (values/payload x) false))))])}
+                                           (portable-frame m (ft/canonical m (values/payload x) false)) encoded))])}
     (values/closure? x)
     (let [p (values/payload x) e (:env p)]
       {:yin.k/row (rows/node :closure [(get-in m [:code (:segment p) :address]) (:entry p) (:params p)
@@ -96,9 +96,9 @@
 (deftest bijection
   (doseq [fixture (ft/reference-machines)
           {:keys [frame]} (ft/reference-frames fixture)]
-    (let [f (portable-frame (:machine fixture) frame) wire (rows/frame->rows f) back (rows/rows->frame wire)]
+    (let [f (portable-frame (:machine fixture) frame) wire (rows/frame->rows f encoded) back (rows/rows->frame wire)]
       (is (= f back))
-      (is (= (:yin.k/root wire) (:yin.k/root (rows/frame->rows back)))))))
+      (is (= (:yin.k/root wire) (:yin.k/root (rows/frame->rows back encoded)))))))
 
 
 (deftest row-ids-are-jing-default
@@ -349,3 +349,55 @@
     (doseq [v [{:yin.k/row 1} {:yin.k/cell :c}]]
       (is (= :yin.k/non-portable
              (:yin.k/status (error #(rows/rows->frame (replace-row wire window [:window 1 [:lit v]])))))))))
+
+
+(deftest well-formed-guest-markers-are-refused
+  (doseq [v [{:yin.k/row (rows/node :prim ['guest/f])} {:yin.k/cell :c}]]
+    (is (= :yin.k/non-portable
+           (:yin.k/status (error #(rows/frame->rows (assoc ft/worked-frame :yin.k/window {1 v})))))))
+  (let [f (assoc ft/worked-frame :yin.k/window {1 {:yin.k/row (rows/node :prim ['guest/f])}})]
+    (is (= f (rows/rows->frame (rows/frame->rows f encoded))))))
+
+
+(deftest every-literal-context-refuses-markers
+  (doseq [v [{:yin.k/row 1} {:yin.k/cell :c}]]
+    (doseq [task [(task-node [] [:lit v])
+                  (task-node [] [:lit [v]])
+                  (task-node [] [:lit (with-meta 'guest v)])
+                  (rows/node :task (assoc (:slots (task-node [] [:lit nil])) 6
+                                          (rows/node :store ['v [:lit v]])))
+                  (rows/node :task (assoc (:slots (task-node [] [:lit nil])) 16 v))]]
+      (is (= :yin.k/non-portable (:yin.k/status (error #(rows/emit task))))))
+    (let [wire (rows/emit (task-node [] [:lit nil]))
+          root (:yin.k/root wire)
+          row (first (filter #(= root (first %)) (:yin.k/rows wire)))
+          store (first (filter #(= :store (second %)) (:yin.k/rows wire)))]
+      (doseq [[id body] [[root (assoc (subvec row 1) 16 [:lit v])]
+                         [root (assoc (subvec row 1) 16 [:lit [v]])]
+                         [root (assoc (subvec row 1) 16 [:lit (with-meta 'guest v)])]
+                         [root (assoc (subvec row 1) 17 v)]
+                         [(first store) [:store 'v [:lit v]]]]]
+        (is (= :yin.k/non-portable
+               (:yin.k/status (error #(rows/decode (replace-row wire id body))))))))))
+
+
+(deftest cell-and-identity-shaped-literal-are-distinct
+  (let [task (task-node [[:x (cell-body :s 0)]]
+                        [:row (rows/node :set [[:cell :x] [:lit [:identity :yin.k/c-1]]])])
+        wire (rows/emit task)]
+    (is (nil? (error #(rows/decode wire))))
+    (is (= (:yin.k/root wire) (:yin.k/root (rows/emit (rows/decode wire)))))))
+
+
+(defn seven-cell-triangle-square
+  []
+  (let [ids [:a :b :c :d :e :f :g]
+        edges [[:a :b] [:b :c] [:c :a] [:d :e] [:e :f] [:f :g] [:g :d]]]
+    (task-node (mapv #(vector % (cell-body :s 0)) ids)
+               [:row (rows/node :set (mapv (fn [[a b]] [:row (rows/node :vec [[:cell a] [:cell b]])]) edges))])))
+
+
+(deftest intermediate-label-bytes-are-bounded
+  (let [d (error #(rows/canonical-numbering (seven-cell-triangle-square)))]
+    (is (= :resource-limit (:yin.k/kind d)))
+    (is (= [:label-bytes] (:yin.k/path d)))))
