@@ -48,11 +48,7 @@
 
 
 (def stack-corpus
-  "Every named mnemonic `yin.vm.code/mnemonics` declares, reached at least
-   once: :const :var :closure :push :call :return :jump :branch-false
-   :halt :gensym :store-get :store-put :stream-make :stream-put
-   :stream-cursor :stream-next :stream-close :park :resume
-   :current-continuation :ffi-call :define."
+  "Respelled from debruijn_linearize_test.cljc's corpus."
   {:worked-example worked-example,
    ;; Rule R: a definition lowers to `:define`, its operator never loaded
    :definition (app (lam '[x] (tail (app (v 'yin/def) (lit 'k) (v 'x))))
@@ -240,6 +236,18 @@
     (is (nil? (dc/image-defect golden)))))
 
 
+(deftest stack-operand-goldens
+  ;; Hand-derived from §3.2: push each FFI operand; for stream-put,
+  ;; push the target before evaluating the value. Main ends with halt.
+  (is (= [[:const 1] [:push] [:const 2] [:push] [:ffi-call :op/echo 2] [:halt]]
+         (:image (derive/stack-image
+                   (projected {:type :dao.stream.apply/call :op :op/echo
+                               :operands [(lit 1) (lit 2)]})))))
+  (is (= [[:const :s] [:push] [:const 1] [:stream-put] [:halt]]
+         (:image (derive/stack-image
+                   (projected {:type :stream/put :target (lit :s) :val (lit 1)}))))))
+
+
 (deftest stack-images-validate
   (doseq [[label ast] C]
     (testing (str label)
@@ -297,7 +305,24 @@
     :if-in-test :define-then-call :stream-make-default :body-queue-order :closure-in-arm-in-body})
 
 
+(def runtime-extra-rows
+  [[:ffi-two-operands
+    {:type :dao.stream.apply/call :op :op/echo :operands [(lit 1) (lit 2)]}
+    {:bridge {:op/echo (fn [a b] [a b])}} [1 2]]
+   [:put-on-made-stream
+    {:type :stream/put :target {:type :stream/make :buffer 4} :val (lit 1)}
+    {} 1]])
+
+
 (deftest stack-execution-oracle
+  (is (= 2 (count runtime-extra-rows)))
+  (is (= 60 (+ (count b0/corpus) (count corpus/programs) (count runtime-extra-rows))))
+  (doseq [[label ast opts expected] runtime-extra-rows]
+    (testing (str label)
+      (let [old (stack-run :old ast opts) new (stack-run :new ast opts)]
+        (is (= old new))
+        (is (= [true false (native-normalize expected)] (:observable old)))
+        (is (= [true false (native-normalize expected)] (:observable new))))))
   (is (= 26 (count b0/corpus)))
   (doseq [[label ast expected] b0/corpus]
     (testing label
@@ -327,8 +352,10 @@
   (is (some #(and (= :bound (first %)) (= 1 (second %)))
             (derive/addresses (projected (get (into {} corpus/programs) :nested-lambdas)))))
   (is (some #{[:bound 0 1]} (derive/addresses (projected duplicate-param))))
-  (is (not-any? #{[:free 'yin/def]}
-                (derive/addresses (projected (get (into {} corpus/programs) :define-then-call))))))
+  ;; Guard the old resolver reader's exclusion of the definition operator.
+  (let [ast (get (into {} corpus/programs) :define-then-call)]
+    (is (not-any? #{[:free 'yin/def]}
+                  (derive/resolved-addresses (dr/resolve (vm/ast->datoms ast)))))))
 
 
 (deftest register-image-is-not-in-5a
