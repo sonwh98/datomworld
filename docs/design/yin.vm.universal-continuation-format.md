@@ -67,8 +67,12 @@ and 7.6.1a (the source association and its completeness rule); 7.11 and
 7.11.1 require the frame validator and cross-engine canonical equality
 across the three repository engines; 7.2.1 opens with the scope
 statement that makes body versions 0-2 and their clauses historical
-(the row carrier of body version 3 takes precedence). Segment addresses
-are spelled under Jing's default digest, BLAKE3.
+(the row carrier of body version 3 takes precedence); 7.3.2 opens with
+the precedence note that makes the frozen design's §§2.3/3.3/3.4 the
+canonical vector and validator for `"v4"` and its stack-shaped
+specification historical; 7.6.1's fixed point roots include the task's
+free environment. Segment addresses are spelled under Jing's default
+digest, BLAKE3.
 Subordinate to [`datom.world.md`](./datom.world.md); builds on the Phase 0
 contract in [`yin.vm.semantic.md`](./yin.vm.semantic.md) (§1–§4), the storage
 contract in [`dao.jing.md`](./dao.jing.md), the stream contract in
@@ -366,6 +370,25 @@ grant binding of 7.7.8.
 therefore not a value, it is a pointer. UCF names code by **what it is**.
 
 ### 7.3.2 The canonical instruction vector and its address
+
+**Precedence (2026-10-11).** For the contract `"v4"`, the register-shaped
+canonical machine's, the canonical vector is the instruction table of
+`yin.vm.semantic-register-vm.md` §2.3, minted by the lowering walk and
+minting order of its §3.3 and validated by the one vector validator of
+its §3.4 (`yin.vm.semantic-register.code/well-formed?`); those sections
+take precedence over this one wherever the two differ, without further
+amendment. What survives of this section for `"v4"` is the identity
+layer: the address is `(dao.jing/segment-key vector)` computed over the
+vector alone, the header folds away, provenance and the hash itself are
+excluded, no ordering is imposed, and equal addresses mean equal
+resolved instruction streams and nothing more. The rest of this section
+(the stack-shaped vector, the §2.4 opcode table, the batch-loader
+resolved interpretation, saturation from a batch and the normalization
+gate) describes the `"v3"` stack-shaped machine's vector and is
+**historical**: that machine leaves at the frozen design's §10 phase 8,
+and a `"v4"` vector is never computed from a datom batch by the
+procedure below (the two AST projection lanes of §7.3.4 produce it from
+the tree). The vector→datoms projection is retired (§7.3.4).
 
 The segment attribute `:yin.code/hash`, reserved in `yin.vm.semantic.md`
 §2.2, becomes required on any segment a continuation may reference. Its
@@ -1457,7 +1480,12 @@ tree (several ASTs project to one A, `yin.vm.semantic-register-vm.derivations.md
 §4.2); any one retrievable member satisfies the invariant.
 
 The fixed point starts from the frame, its K frames, the parked records of
-§7.6.3, the store slice, and the pending wait. Its unit of analysis is a work
+§7.6.3, the store slice, the task's initial free environment (the root's
+`free-env`, `yin.vm.ucf-transport-tuples.md` §5.5; a value reachable only
+through it can carry closures, streams and primitives,
+`yin.vm.semantic-register-vm.continuation.md` §7.1), and the pending
+wait. The row carrier's census (its §8 step 9) is computed from the same
+roots and must agree with `:yin.k/requires` exactly. Its unit of analysis is a work
 item `[code-address context]`, not an address: `context` is the finite
 abstraction of the captured environment with which a closure enters that
 code. Code is fetched, validated, and projected once per address, but every
@@ -2953,7 +2981,9 @@ claim that all five blockers have closed.
   different entity ids, order, provenance, and omitted defaults; make
   unequal vectors by reversing repeated single-valued operands. Include
   a `:gensym` prefix of `false` beside absent and explicit `"id"` prefixes.
-  Verify the published `v2` decision in both direct and projected loads.
+  Verify the published `v2` decision on the direct vector load and on
+  the vector each of the two AST lanes (row lane, datom lane) produces;
+  there is no projected vector load (§7.3.4).
   Include an index hit, carried code, a `dao.jing` miss/hit path, a valid
   vector under a wrong index entry, a correctly addressed malformed
   vector, a missing address, an old stamp, and two valid images claiming
@@ -2971,8 +3001,9 @@ claim that all five blockers have closed.
   `:yin.k/undecodable` naming the pc; a miss is `:yin.k/unsatisfied`;
   an incompatible stamp is `:yin.k/profile-mismatch`. No check may
   redirect an existing local id or bypass the common validator. The
-  falsy-prefix case either normalizes identically in both paths or is
-  refused as inadmissible before an address is minted.
+  falsy-prefix case either normalizes identically on the direct load and
+  on both AST lanes or is refused as inadmissible before an address is
+  minted.
 - Landing and order: M3 lands the stream and format-identity gate;
   M4 closes UCF identity after M3 and the published normalization
   decision, before any lifted image is run.

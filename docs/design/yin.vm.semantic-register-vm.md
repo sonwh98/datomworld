@@ -28,7 +28,10 @@ in place; `:dim/lift-to` goes at cutover), §8.2 (interval bounds,
 adapter), §8.4 (execution oracle replaces the byte-identity question),
 §9 corpora (R/H goldens are the new lowerers' own), §10 phases 5, 6
 and 8 (oracle gate, three scanner obligations, body version 3 with one
-profile, cutover steps), §12. No transition and no shape changed.
+profile, cutover steps), §12; on review (codex, 2026-10-11) §7 drops
+the "two load paths" and vector-to-datoms claims in favour of §3.4 and
+names §§2.3/3.3/3.4 as the `"v4"` canonical vector and validator that
+take precedence over UCF §7.3.2. No transition and no shape changed.
 
 ## 1. Stance, in the owner's words
 
@@ -785,11 +788,18 @@ checksum are regenerated then, mechanically (derivations design §8.1-8.2).
 
 A = `(jing/segment-key saturated-vector)`, Jing's default digest, over
 the §2.3 positional tuples of one segment, body-local register ids
-included, `live` sets and provenance excluded. Everything UCF §7.3
-says about A (content address of the loader-resolved interpretation,
-two load paths, projection to datoms with eid `(inc pc)`) stands with
-the new table substituted. A is the only code identity; H and R are
-checksums of §8's lowerings.
+included, `live` sets and provenance excluded. Of what UCF §7.3 says
+about A, this stands with the new table substituted: A is the content
+address of one resolved instruction stream, computed over the vector
+alone, under Jing's default digest, keyed per contract stamp. What does
+not stand: there are no "two load paths" and no projection of the
+vector to datoms (eid `(inc pc)`); the vector has one load path, the
+direct one, and the two AST projection lanes produce the vector (§3.4
+"One vector validator"; UCF §7.3.4 as amended). For `"v4"` the
+canonical vector is §2.3's table minted by §3.3's walk and validated by
+§3.4; UCF §7.3.2's stack-shaped vector describes the `"v3"` machine and
+is historical (UCF §7.3.2's precedence note). A is the only code
+identity; H and R are checksums of §8's lowerings.
 
 ## 8. Derivations from A
 
@@ -948,9 +958,10 @@ program of the corpus the derivations design §6.1.1 names runs through
 the old and the new pipeline on the same kernels under the same
 composition and must give identical observable results under one
 normalization (derivations design §6.1.2), with the executable rows
-stated precisely (§6.1.3: the 26 B0 rows and twelve register-corpus
-rows to a value, nineteen rows to an equal throw, one FFI row under an
-explicit zero-argument bridge; §6.1.4: ten C4 root import programs to
+stated precisely (derivations design §6.1.3: the 26 B0 rows and twelve
+register-corpus rows to a value, nineteen rows to an equal throw, one FFI
+row under an explicit zero-argument bridge; derivations design §6.1.4:
+ten C4 root import programs to
 their pinned outcomes and the eight module bodies run as root programs,
 the install-child path over new module images being phase 8's). Every
 emitted image passes the format's validator, including `live-exact`;

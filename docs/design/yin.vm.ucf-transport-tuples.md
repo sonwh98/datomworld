@@ -33,6 +33,10 @@ one carrier; older bodies are not read.
 > paragraph (R1a), §2 (R1, R7), §5.1 `:reified` (R3), §5.2 (R2), §5.4
 > `:parked-table` (R4), §5.5 (R5, R10), §8 steps 1 and 7 (R6a, R6), §9
 > (R8), §10.3-10.8 (R7, R8, R9), §11 (R9); §3 kept verbatim (R11).
+> Completed against continuation §3.3 and §7.1 on review (codex,
+> 2026-10-11): §8 step 7 runs `frame/task-defect` once per body before
+> its frames; §8 step 9's census roots and §9's lift walk include the
+> initial free environment; §5.2 cites rule A2.
 
 ## 1. Stance
 
@@ -310,7 +314,7 @@ validated in context `:captured` (continuation §3.2 P3): its `pc−1` is a
 structural rows, never a `V`; §4's "a reference-free collection must be
 `[:lit d]`" rule is about guest collections. `rd` on `:act` is redundant
 with the instruction at `pc−1` and is checked (continuation §3.2 rule
-A7), as `pc` is redundant with the pending and checked. The frame rows
+A2), as `pc` is redundant with the pending and checked. The frame rows
 are in bijection with the keyed canonical frame of continuation §1.2
 (`rows->frame`, `frame->rows`, continuation §2.7).
 
@@ -668,23 +672,33 @@ one attachment. The order follows amendment §8 and is binding:
 6. **Canonical numbering.** Recompute §6 under the work bound and
    compare (`:yin.k/undecodable`, kind `:noncanonical-cells`; or the
    resource refusal of §10.10 if the bound is exceeded).
-7. **Frames.** Every `:act`, `:tail`, `:kframe`, `:reified` and
-   parked-table state is decoded to its keyed frame and judged by
+7. **Frames.** For each body (the root and every install child), first
+   decode its task context (parked key, live FFI call ids, the root's
+   free environment from `free-env-cref`) and judge it once by
+   `yin.vm.semantic-register.frame/task-defect` (continuation §3.2 rule
+   X1: the free environment is a sorted, unique symbol-keyed map with no
+   reserved name); this runs for every body, a `:halted` body with no
+   frames included, since no frame rule establishes X1. Then every
+   `:act`, `:tail`, `:kframe`, `:reified` and parked-table state is
+   decoded to its keyed frame and judged by
    `yin.vm.semantic-register.frame/defect` with its context (`:wait`,
-   `:captured`, `:parked`) and the decoded task context (parked key, live
-   FFI call ids, the root's free environment); a defect is
-   `:yin.k/undecodable` with the rule's kind and the row path
-   (continuation §3). This step runs after canonical numbering (step 6)
+   `:captured`, `:parked`) and that task context; a defect of either
+   function is `:yin.k/undecodable` with the rule's kind and the row path
+   (continuation §3.3). This step runs after canonical numbering (step 6)
    and before pending validation (step 8).
 8. **Pending and operations.** Reason-specific slot rules; correlation
    agreement of §5.3 (cell stream, envelope ids, module names); every
    op-id below `next-op-seq`, unique across the tree, absent without
    origin; every install response verified as §5.4 requires.
 9. **Dependency closure.** Compute the census of amendment §6 from the
-   rows (waits, pendings and envelopes, parked records, store, module
-   stores, result, children) and require the carried `requires` and
-   `code` map to agree with it exactly: a declared segment not reached
-   or a reached segment not declared is `:yin.k/undecodable`. Then
+   rows (waits, pendings and envelopes, parked records, the initial free
+   environment `free-env`, store, module stores, result, children; the
+   free environment is a root because a value reachable only through it
+   can carry closures, streams and primitives, continuation §7.1) and
+   require the carried `requires` and `code` map to agree with it
+   exactly: a declared segment not reached or a reached segment not
+   declared is `:yin.k/undecodable`, and every reached segment has a
+   non-empty `:yin.k/trees` entry (UCF §7.6.1a). Then
    evaluate `requires` per UCF §7.6.5: missing segments, primitives,
    modules, streams, cursor profiles are `:yin.k/unsatisfied`; a body
    with cells claims `:dao.stream.remote/v1`; module-store coverage is
@@ -714,8 +728,9 @@ the two kinds this carrier adds to UCF §7.5.4's set: `:byte-string` and
 ## 9. Lift, lower, and the laws
 
 **Lift** (reference machine): refuse unless quiescent; number cells (§6);
-walk waits, parked records, the slice, module stores, the result and
-each install child, emitting rows and the census; refuse by path as UCF
+walk waits, parked records, the slice, module stores, the initial free
+environment (continuation §6.3, §7.1), the result and each install
+child, emitting rows and the census; refuse by path as UCF
 §7.5.4 and §7.2.1 specify. The nested carrier's value table
 (`:yin.k/values`) has no counterpart, sharing being Merkle; its cell
 table becomes the census.
