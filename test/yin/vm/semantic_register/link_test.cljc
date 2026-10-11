@@ -141,8 +141,8 @@
         closure {:type :closure :params '[x] :entry 2 :segment (get (:code-aliases machine) address)
                  :env {'captured nil engine/store-of-key :module-store}}
         marker (module/lift-closure machine closure identity)
-        child (module/spawn-module machine image {:modules (module/default-registry)
-                                                  :origin :child :ancestry ['foo] :capability-secret tu/secret})]
+        child (module/spawn-module (assoc machine :window {0 :parent-only}) image {:modules (module/default-registry)
+                                                                                   :origin :child :ancestry ['foo] :capability-secret tu/secret})]
     (is (module/image-holds? machine image address))
     (is (not (module/image-holds? machine [[:const 0 9] [:halt 0]] address)))
     (is (nil? (:control machine)))
@@ -150,6 +150,7 @@
     (is (= :module-store (:yin.k/store-of marker)))
     (is (= {'captured nil} (:yin.k/env marker)))
     (is (= closure (values/payload (module/lower-closure machine marker identity))))
+    (is (= {} (:window child)))
     (is (= :child (:origin child)))
     (is (= ['foo] (:ancestry child)))
     (is (= tu/secret (:capability-secret child)))

@@ -446,6 +446,19 @@
   (app (v 'vector) (lit nil) (ffi-node :op/echo (lit 7)) (lit 2)))
 
 
+(deftest ffi-cell-ref-stays-pinned
+  (let [modules (module/register-cell-module (module/default-registry))
+        blocked (vm/run (parity/register-machine
+                          (ffi-node :op/echo (app (v 'cell/new) (lit :keep)))
+                          {:modules modules}))
+        cell-id (first (keys (:heap blocked)))
+        collected (engine/collect (assoc blocked :window {} :env {}))]
+    (is (vm/blocked? blocked))
+    (is (some? cell-id))
+    (is (contains? (get-in blocked [:gc :pinned]) cell-id))
+    (is (= :keep (get-in collected [:heap cell-id :value])))))
+
+
 (deftest ffi-sent
   (let [before (until-inst (parity/register-machine (ffi-program)
                                                     {:env {'vector vector} :ffi-caller-id :caller}) :ffi-call)
