@@ -25,6 +25,7 @@
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
             [yin.vm.values :as values]
+            [yin.vm.semantic-register.analysis :as analysis]
             [yin.vm.semantic-register.code :as code]
             [yin.vm.semantic-register.frame :as frame]
             [yin.vm.semantic-register.scan :as scan]
@@ -1382,20 +1383,27 @@
         (:installs m)))
 
 
-(defn- encloses?
-  "Body i of bodies is body j or one of j's ancestors."
-  [bodies i j]
-  (loop [j j]
-    (cond
-      (= i j) true
-      (nil? (:owner (nth bodies j))) false
-      :else (recur (code/body-index bodies (:owner (nth bodies j)))))))
+(defn live-pcs
+  "The pcs of v control flow can still reach from at: the successor
+   relation (§8.1), so a backward jump makes earlier code live, and from
+   each reachable :closure its body from the entry, since reachable code
+   can still construct it."
+  [v at]
+  (loop [seen #{at}
+         todo [at]]
+    (if-let [p (peek todo)]
+      (let [t (nth v p)
+            fresh (remove seen (cond-> (analysis/successors v p)
+                                 (= :closure (nth t 0)) (conj (nth t 3))))]
+        (recur (into seen fresh) (into (pop todo) fresh)))
+      seen)))
 
 
 (defn- discharge!
   "The dependency closure over the v4 vectors (§7.1), after the walk that
-   found the contexts: every free occurrence is answered, in each carried
-   context whose body encloses it, in resolve-var's order: that context's
+   found the contexts: every free occurrence control flow can still reach
+   from a carried context (live-pcs) is answered there, in resolve-var's
+   order: that context's
    E, then the one store engine/active-store selects for it (the root
    store, or the module store its store-of names; both travel), then a
    primitive, an installing module's export, the module registry. Else
@@ -1414,16 +1422,15 @@
                                 (and (some? (namespace sym))
                                      (some? (module/resolve-module (:modules m)
                                                                    (symbol (str (namespace sym) "." (name sym)))))))))))
-        scanned (into {} (map (fn [[a v]] [a [(code/parse v) (scan/free-occurrences v)]])) code)
+        scanned (into {} (map (fn [[a v]] [a (scan/free-occurrences v)])) code)
         missing (into #{}
                       (mapcat (fn [{:keys [a at env]}]
-                                (let [[bodies occurrences] (get scanned a)
-                                      home (code/body-index bodies at)]
+                                (let [live (live-pcs (get code a) at)]
                                   (keep (fn [o]
-                                          (when (and (encloses? bodies home (code/body-index bodies (:at o)))
+                                          (when (and (contains? live (:at o))
                                                      (not (answered? (:name o) env)))
                                             (:name o)))
-                                        occurrences))))
+                                        (get scanned a)))))
                       (:contexts @(:acc ctx)))]
     (when (seq missing)
       (outcome! :yin.k/unsatisfied nil {:yin.k/discovery :incomplete :yin.k/missing {:obligations missing}}))))
@@ -1620,17 +1627,25 @@
 
 (defn- check-dependencies!
   "Step 9, dependency closure: requires and code agree, every segment has
-   its trees (§6.1) and is a vector the receiver's kernel admits under its
-   A, every closure names a closure of its code, every :prim is the
-   receiver's."
+   its trees (§6.1), every closure's and frame's store-of names a module
+   store of this task (not a parent's or sibling's of the same key), every
+   segment is a vector the receiver's kernel admits under its A, every
+   closure names a closure of its code, every :prim is the receiver's."
   [recv task _role]
-  (let [[_ _ _ _ _ _ _ _ _ _ requires code] (:slots task)]
+  (let [[_ _ _ _ _ _ _ module-stores _ _ requires code] (:slots task)]
     (when-not (and (map? requires) (= (set (:yin.k/segments requires)) (set (keys code))))
       (outcome! :yin.k/undecodable :requires {}))
     (let [trees (:yin.k/trees requires)
           missing (into #{} (remove #(seq (get trees %))) (keys code))]
       (when (seq missing)
         (outcome! :yin.k/unsatisfied nil {:yin.k/discovery :incomplete :yin.k/missing {:yin.k/trees missing}})))
+    ;; §2.6: every store-of resolves to a module store this task carries
+    (let [census (into #{} (map #(first (:slots %))) module-stores)
+          missing (into #{} (comp (keep #(nth (:slots %) (if (= :closure (:kind %)) 4 1)))
+                                  (remove census))
+                        (concat (rows-of task :closure true) (rows-of task :env true)))]
+      (when (seq missing)
+        (outcome! :yin.k/unsatisfied nil {:yin.k/discovery :incomplete :yin.k/missing {:yin.k/stores missing}})))
     (doseq [[a v] (sort-by #(str (key %)) code)]
       (when-not (attaches? recv v a)
         (outcome! :yin.k/undecodable :segment {:yin.k/segment a})))

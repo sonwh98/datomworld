@@ -543,11 +543,16 @@
 
 (deftest bare-rows-match-the-reference
   ;; The quick-tier slice of acceptance 1: every row once, bare.
-  (doseq [[n r build] rows]
-    (testing (str "row " n)
-      (let [ref (reference (build identity))]
-        (when (some? r) (is (= r (:value ref))))
-        (laws (build identity) ref)))))
+  (let [counted (atom [0 0])]
+    (doseq [[n r build] rows]
+      (testing (str "row " n)
+        (let [ref (reference (build identity))
+              {:keys [wire attaches]} (laws (build identity) ref)]
+          (when (some? r) (is (= r (:value ref))))
+          (swap! counted (fn [[a i]] [(+ a attaches) (+ i (count (stream-identities wire)))])))))
+    ;; outside laws, so deleting its count assertion leaves one standing
+    (is (pos? (first @counted)) "the corpus attaches streams")
+    (is (apply = @counted) "attaches = distinct stream identities over the corpus")))
 
 
 ;; =============================================================================
@@ -1172,3 +1177,98 @@
       (is (zero? attaches))
       (is (= ['scoped] (mapv #(first (:slots %)) (slot (root-task wire) 7))) "only the routed module store travels")
       (is (= 42 (vm/value (run-beside (assoc recv :store {'f (vm/value recv)}) (s/app (s/v 'f)))))))))
+
+
+(def fresh-read (s/next-of (s/cursor-of {:type :stream/make :buffer 4})))
+
+
+(defn fed-73
+  "Lift m, lower it into a fresh receiver, then feed the source's stream
+   73 and run both."
+  [m]
+  (let [{:keys [serve! toy peer]} (served #{:reader})
+        wire (rows/lift-task m serve! (lift-opts))
+        [recv attaches] (lowered toy wire)]
+    (stream/append! (s/stream-of m) 73)
+    {:source (vm/value (vm/run m)) :receiver (vm/value (drive-peers recv [peer])) :attaches attaches}))
+
+
+(deftest discharge-follows-control-flow-from-the-resume-pc
+  (let [past (fn [consequent]
+               (halted-on {:type :if :test (s/lit false) :consequent consequent :alternate fresh-read}))]
+    (testing "a free read behind the resume pc is no obligation"
+      (doseq [m [(past (s/v 'ghost))
+                 (assoc (past (s/v 'ghost)) :module-stores {'unrelated {'ghost 42}})
+                 (past ghost-fn)]]
+        (is (= {:source 73 :receiver 73 :attaches 1} (fed-73 m))))))
+  (testing "a free read after the resume pc is an obligation"
+    (is (= #{'ghost} (missing-obligations (halted-on (s/app (s/lam ['p 'q] (s/lit 1)) fresh-read (s/v 'ghost)))))))
+  (testing "a closure reachable code can still construct is an obligation"
+    (is (= #{'ghost} (missing-obligations (halted-on (s/app (s/lam ['p 'q] (s/lit 1)) fresh-read ghost-fn))))))
+  (testing "a backward jump makes earlier code live"
+    ;; §3.1 admits no backward jump, so no carried vector has one; live-pcs
+    ;; follows the stated edges, never pc order
+    (let [v [[:const 1 false] [:branch-false 1 4] [:var 0 'ghost] [:jump 6] [:const 0 1] [:jump 2] [:halt 0]]]
+      (is (contains? (rows/live-pcs v 4) 2))
+      (is (not (contains? (rows/live-pcs v 3) 2))))))
+
+
+;; =============================================================================
+;; Every store-of names a module store of its own task (§2.6)
+;; =============================================================================
+
+(defn routed-beside-stream
+  "ast's closure routed to module store scoped, with an authentic stream
+   in the root store so that an attachment is observable."
+  [ast stores]
+  (let [m0 (halted-on ast)
+        [ref m] (engine/attach-resource m0 (s/ring 4))]
+    (assoc m :value (routed m (vm/value m) 'scoped) :module-stores stores :store {'stream ref})))
+
+
+(defn without-module-stores
+  [path]
+  (fn [task] (update-at task path (constantly []))))
+
+
+(defn module-store-ids
+  [task]
+  (mapv #(first (:slots %)) (slot task 7)))
+
+
+(deftest every-store-of-names-a-module-store-of-its-own-task
+  (doseq [[label ast stores value] [["a scoped store" ghost-fn {'scoped {'ghost 42}} 42]
+                                    ["a present empty store" (s/lam [] (s/lit 7)) {'scoped {}} 7]]]
+    (testing label
+      (let [{:keys [serve! toy]} (served #{:reader})
+            wire (rows/lift-task (routed-beside-stream ast stores) serve! (lift-opts))
+            [recv attaches] (lowered toy wire)
+            [r none] (lowered toy (rows/emit ((without-module-stores [7]) (root-task wire))))]
+        (is (= ['scoped] (module-store-ids (root-task wire))))
+        (is (= 1 attaches))
+        (is (= value (vm/value (run-beside (assoc recv :store {'f (vm/value recv)}) (s/app (s/v 'f))))))
+        (testing ", its rows removed"
+          (is (zero? none) "refused before any attachment")
+          (is (= [:yin.k/unsatisfied #{'scoped}] [(:yin.k/status r) (get-in r [:yin.k/missing :yin.k/stores])]))))))
+  (testing "a frame's E naming a store its task does not carry"
+    (let [[status _ r] (refused-before-attach 17 (without-module-stores [7]))]
+      (is (= :yin.k/unsatisfied status))
+      (is (= 1 (count (get-in r [:yin.k/missing :yin.k/stores]))))))
+  (testing "a child does not read its parent's store of the same key"
+    (let [scope (fn [x]
+                  (-> x
+                      (update-in [:wait-set 0 :env] assoc engine/store-of-key 'scoped)
+                      (assoc :module-stores {'scoped {}})))
+          m (:machine (bare 10))
+          m (-> (scope m) (update-in [:installs 'host.mod :vm] scope))
+          {:keys [serve! toy]} (served #{:reader :writer})
+          wire (rows/lift-task m serve! (lift-opts))
+          child-path (conj install-path 4)
+          [ok n] (lowered toy wire)
+          [r none] (lowered toy (rows/emit ((without-module-stores (conj child-path 7)) (root-task wire))))]
+      (is (= ['scoped] (module-store-ids (root-task wire))) "the parent carries scoped")
+      (is (= ['scoped] (module-store-ids (slot (first (slot (root-task wire) 12)) 4))) "and so does the child")
+      (is (vm/blocked? ok) (pr-str (when (map? ok) (select-keys ok [:yin.k/status :yin.k/kind]))))
+      (is (= (count (stream-identities wire)) n))
+      (is (zero? none) "refused before any attachment")
+      (is (= [:yin.k/unsatisfied #{'scoped}] [(:yin.k/status r) (get-in r [:yin.k/missing :yin.k/stores])])))))
