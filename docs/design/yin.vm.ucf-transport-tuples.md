@@ -391,6 +391,19 @@ id equals `parent`, its image is well formed, hashes to the address it
 is delivered under, is the image the manifest names, and its format,
 contract and the child's profile agree (`yin.vm.linker.md` §5, §9;
 amendment §2). A failure is `:yin.k/undecodable` naming the row.
+**Amended after 6b (2026-10-13; continuation §5.2 B1, §7.2):** the
+merged lower (`rows/check-install!`) verifies, before any attachment:
+the phase is one of `#{:running :parked}` (`:install-phase`); the
+response is a map with `:status :ok`, a `:manifest` whose
+`:yin.module/name` is the row's module and whose `:yin.module/exports`
+is a collection of symbols, and an `:image` map whose `:value` the
+receiving kernel's loader admits (`:install-response`); and the carried
+child task's kind is `:blocked` (`:install-child`), the only kind the
+engine retains at a safepoint (a halted or parked child is linked in the
+sweep it halts in, so phase `:running` is a wire phase the codec accepts
+but the engine never exposes at a safepoint). The link-id-equals-parent
+and image-address-equals-manifest checks of the paragraph above are
+**not** implemented (continuation §11 Q3).
 
 ### 5.5 The root
 
@@ -786,6 +799,31 @@ one attachment. The order follows amendment §8 and is binding:
 10. **Custody.** For an exclusive root, the occurrence, baseline and
     operation inspector and admission checks of §7.7.8; an authority
     never adds missing header keys.
+
+**Amended after 6b (2026-10-13; continuation §7.2).** The merged
+`rows/lower-task` runs steps 8-10 as four stages, **each over the whole
+task tree before the next, and all before the first attachment** (step
+11): (a) stores: no reserved name keys the root store or a module store
+(`:yin.k/undecodable :reserved-name`); (b) pendings and install
+records: role, every `:install` pending names a carried install, kind
+consistency, parked id, every install record as §5.4 as amended
+(`:role :incomplete-install :kind :parked-id :install-phase
+:install-response :install-child`); (c) dependencies: `requires`'
+`:yin.k/segments` equals `code`'s key set (`:requires`), every segment
+has a non-empty `:yin.k/trees` entry, every `store-of` of this task's
+closures and environments names one of **this task's** module-store
+rows (`:yin.k/unsatisfied`, `:yin.k/missing {:yin.k/stores …}`), every
+vector attaches in the receiving kernel under its A (`:segment`), every
+closure row names a closure tuple of its vector with the same binders
+(`:closure-origin`, `:closure-binders`), every `:prim` is the receiver's
+(`:yin.k/unsatisfied`); (d) custody: nil only (`:yin.k/unsupported
+:custody`). Of step 8's text, the op-id rules and the correlation
+agreement are not implemented (fork-only custody has no `next-op-seq`;
+continuation §11 Q4); of step 9's, the census is not recomputed from the
+rows (continuation §11 Q2), and `requires` beyond segments, trees and
+primitives (modules, streams, cursor profiles) is not evaluated on
+lower; free names are discharged at lift only (continuation §7.1).
+Refusals are thrown `ex-info` with `:yin.k/status` and a `:yin.k/kind`.
 11. **Composition.** Protection, resource, primitive and grant inputs of
     the receiving composition.
 12. **Restore.** Reconstruct isolated code spaces, fresh values, the
@@ -812,7 +850,13 @@ the three kinds this carrier adds to UCF §7.5.4's set: `:byte-string`,
 walk waits, parked records, the slice, module stores, the initial free
 environment (continuation §6.3, §7.1), the result and each install
 child, emitting rows and the census; refuse by path as UCF
-§7.5.4 and §7.2.1 specify. The nested carrier's value table
+§7.5.4 and §7.2.1 specify. **Amended after 6b (2026-10-13; continuation
+§7.1 B4):** the merged order is quiescence and safepoint, kind, free
+environment, the walk (which fixes the segments, contexts and module
+stores), code, the per-context dependency closure over live code, tree
+coverage from the composition's `:source-index`, frame validation of
+the assembled task, then canonical numbering and emit; the slice is the
+whole root store and every parked record; custody is nil. The nested carrier's value table
 (`:yin.k/values`) has no counterpart, sharing being Merkle; its cursor cell
 table becomes the census.
 
