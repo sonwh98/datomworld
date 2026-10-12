@@ -371,9 +371,15 @@
     ["driver-config" :map] 1
     ["front-of" :map] 1}
    ;; the carrier's row-schema table: `:store` is the name of a wire row
-   ;; kind (a read-only schema entry), never a VM store write
+   ;; kind (a read-only schema entry), never a VM store write; and the
+   ;; version-3 lower's restore (continuation design §7.2, step 12):
+   ;; every carried key goes through store-put -- a reserved key in a
+   ;; tampered carrier refuses -- and the checked slice lands on the
+   ;; fresh receiver in one write, as the handoff lower does
    "src/cljc/yin/vm/ucf/rows.cljc"
-   {["row-table" :map] 1}})
+   {["row-table" :map] 1
+    ["restore-task" "engine/store-put"] 1
+    ["restore-task" "assoc"] 1}})
 
 
 (deftest every-store-mutation-is-on-the-allowlist
