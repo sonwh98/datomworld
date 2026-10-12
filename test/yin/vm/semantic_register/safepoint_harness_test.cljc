@@ -10,7 +10,14 @@
    trace equal the reference (law 1); the relift equals the lift by root
    id under rows/canonical-under (law 2); the pending's reason is the
    observed wait's (law 3); every lifted frame passes the validator
-   (law 6). Row 20 runs once, outside the wrappers."
+   (law 6). Row 20 runs once, outside the wrappers.
+
+   Phase 6c adds the two de Bruijn lanes (§5.3): a world built under
+   *lane* :stack or :register runs A's derived image on that kernel and
+   lifts and lowers through yin.vm.semantic-register.layout. Law 4 (one
+   root id on all three lanes under canonical-under), law 5 (six ordered
+   lowering pairs, each continuing to the reference result) and the
+   layout refusals close the file."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.stream :as stream]
@@ -23,9 +30,12 @@
             [yin.vm.values :as values]
             [yin.vm.test-utils :as tu]
             [yin.vm.semantic-register :as sr]
+            [yin.vm.debruijn.register :as rvm]
+            [yin.vm.debruijn.stack :as dvm]
             [yin.vm.semantic-register.code :as code]
             [yin.vm.semantic-register.frame :as frame]
             [yin.vm.semantic-register.frame-test :as ft]
+            [yin.vm.semantic-register.layout :as layout]
             [yin.vm.semantic-register.linearize :as linearize]
             [yin.vm.ucf.lift-support :as support]
             [yin.vm.ucf.rows :as rows]
@@ -42,28 +52,108 @@
   (atom {}))
 
 
+(def code-index
+  "{A v}: every vector this harness projects, for the layouts' spaces."
+  (atom {}))
+
+
 (defn project
   [ast]
-  (let [v (:vector (linearize/project ast))]
-    (swap! source-index update (jing/segment-key v) (fnil conj #{}) (jing/segment-key [:yin/tree ast]))
+  (let [v (:vector (linearize/project ast))
+        a (jing/segment-key v)]
+    (swap! source-index update a (fnil conj #{}) (jing/segment-key [:yin/tree ast]))
+    (swap! code-index assoc a v)
     v))
 
 
 (def stream-modules (module/register-stream-module (module/default-registry)))
 
 
+(def ^:dynamic *lane*
+  "The kernel a world is built on: :semantic-register (the reference
+   lane), or :stack or :register, which run A's derived image and lift
+   and lower through the layouts (§5.3)."
+  :semantic-register)
+
+
+(def lanes [:semantic-register :stack :register])
+
+
+(defn- composition
+  [opts]
+  (merge {:make-stream tu/make-stream :capability-secret tu/secret
+          :secret-source (fn [origin] (str tu/secret "/" (name origin)))
+          :modules stream-modules}
+         opts))
+
+
+(defn- kernel-opts
+  "A de Bruijn kernel's options for the same composition: the full
+   primitive table, and the initial environment as :free-env."
+  [opts]
+  (cond-> (assoc (dissoc (composition opts) :env) :primitives vm/primitives)
+    (contains? opts :env) (assoc :free-env (:env opts))))
+
+
 (defn machine
   ([] (machine {}))
   ([opts]
-   (sr/create-vm (merge {:make-stream tu/make-stream :capability-secret tu/secret
-                         :secret-source (fn [origin] (str tu/secret "/" (name origin)))
-                         :modules stream-modules}
-                        opts))))
+   (case *lane*
+     :semantic-register (sr/create-vm (composition opts))
+     :stack (dvm/create-vm [] (kernel-opts opts))
+     :register (rvm/create-vm (assoc {} :bodies [] :instructions []) (kernel-opts opts)))))
+
+
+(defn lane-of
+  [m]
+  (let [f (:format (module/link-format m))]
+    (cond (= dvm/format-tag f) :stack
+          (= rvm/format-tag f) :register
+          :else :semantic-register)))
+
+
+(def segment-of
+  "layout/segment, once per A."
+  (memoize layout/segment))
+
+
+(defn kernel-space
+  "The layout space of the A vectors whose images de Bruijn kernel k holds."
+  [k]
+  (let [id (if (= :stack (lane-of k)) :stack-id :register-id)
+        held (into #{} (map first) (:images k))]
+    (layout/space (filter #(contains? held (id %)) (map segment-of (vals @code-index))))))
+
+
+(defn- kernel-load
+  "Attach v's derived image and start it at its row, beside whatever the
+   kernel already holds: parked records keep naming their own rows."
+  [k v]
+  (let [kind (lane-of k)
+        sg (segment-of v)
+        k (if (= :stack kind)
+            (dvm/attach-image k (:stack sg) vm/stack-contract)
+            (rvm/attach-image k (:register sg) vm/register-contract))
+        k (assoc k :pc (layout/offset kind k sg) :frames [] :continuation [] :store-of nil
+                 :halted? false :blocked? false :value nil)]
+    (if (= :stack kind)
+      (assoc k :stack [])
+      (assoc k :registers (vec (repeat (:registers (first (:bodies (:register sg)))) nil))))))
 
 
 (defn load-program
   [m ast]
-  (sr/load-vector m (project ast) code/contract))
+  (if (= :semantic-register (lane-of m))
+    (sr/load-vector m (project ast) code/contract)
+    (kernel-load m (project ast))))
+
+
+(defn lane-closure
+  "Canonical closure payload c, its :segment an A, as machine m's value."
+  [m c]
+  (if (= :semantic-register (lane-of m))
+    (values/closure (:owner m) (update c :segment #(get (:code-aliases m) %)))
+    (layout/positional-value (layout/lower-context m (kernel-space m)) (values/closure (:owner m) c))))
 
 
 (defn lift-opts
@@ -301,16 +391,17 @@
    else reaches, named by a module closure in the task store."
   [wrap]
   (let [ring (s/ring 4)
-        m (vm/run (load-program (machine) (with-cat (wrap (s/app (s/lam ['p] {:type :vm/park}) (s/lit 1))))))
+        ast (with-cat (wrap (s/app (s/lam ['p] {:type :vm/park}) (s/lit 1))))
+        v (project ast)
+        m (vm/run (load-program (machine) ast))
         cursor (fn [m]
                  (let [[ref m] (engine/attach-resource m ring) [id m] (engine/gensym m "cursor")]
                    (engine/handle-cursor m {:stream ref} id)))
         [c1 m] (cursor m)
         [c2 m] (cursor m)
-        [seg image] (first (:code m))
-        closure (first (filter #(= :closure (first %)) (:vector image)))
-        clo (values/closure (:owner m) {:type :closure :params (nth closure 2) :entry (nth closure 3)
-                                        :segment seg :env {engine/store-of-key 'host.mod}})]
+        closure (first (filter #(= :closure (first %)) v))
+        clo (lane-closure m {:type :closure :params (nth closure 2) :entry (nth closure 3)
+                             :segment (jing/segment-key v) :env {engine/store-of-key 'host.mod}})]
     (parking (assoc m :store {'mod clo} :module-stores {'host.mod {'c c1 'd c2}}))))
 
 
@@ -1290,3 +1381,291 @@
       (is (= (count (stream-identities wire)) n))
       (is (zero? none) "refused before any attachment")
       (is (= [:yin.k/unsatisfied #{'scoped}] [(:yin.k/status r) (get-in r [:yin.k/missing :yin.k/stores])])))))
+
+
+;; =============================================================================
+;; Phase 6c: the cross-engine lanes (§5.3, §5.4 laws 4 and 5, §8.3 10-12)
+;; =============================================================================
+
+(def link-rows
+  "Rows the de Bruijn lanes do not carry: a require installs a child and
+   attaches a module image in the kernel's own format, and the layouts
+   of §4 reconstruct no install child (canonical-task refuses
+   :installs)."
+  #{7 8 9 10 11 12 17})
+
+
+(def lane-rows
+  "The wrapped rows every lane executes: 15 of §5.2's 22."
+  (filterv #(not (contains? link-rows (first %))) rows))
+
+
+(defn lane-cases
+  "15 lane rows x 4 segments, plus row 20 once: [row segment expected build]."
+  []
+  (filterv #(not (contains? link-rows (first %))) (matrix-cases)))
+
+
+(defn on-lane
+  [lane build]
+  (binding [*lane* lane] (build)))
+
+
+(defn lane-lift
+  "The lift of §7.1 on m's own lane."
+  [m serve!]
+  (if (= :semantic-register (lane-of m))
+    (rows/lift-task m serve! (lift-opts))
+    (layout/lift-task m (kernel-space m) (on-lane :semantic-register machine) serve! (lift-opts))))
+
+
+(defn lane-lower
+  "The lower of §7.2 into a fresh receiver on lane, of composition opts."
+  [lane opts wire attach!]
+  (let [scratch (on-lane :semantic-register #(machine opts))]
+    (if (= :semantic-register lane)
+      (rows/lower-task scratch wire attach!)
+      (layout/lower-task scratch (on-lane lane #(machine opts)) wire attach!))))
+
+
+(defn logical-names
+  "§5.5's explicit correspondence: each served identity to the resource
+   key the lifted machine holds that handle under. The fixture builds the
+   same program on every lane, so one key names one logical stream."
+  [m peer]
+  (into {} (map (fn [[id e]]
+                  [id (or (some (fn [[k h]] (when (identical? h (:handle e)) k)) (:resources m))
+                          (throw (ex-info "A served handle the machine does not hold" {:id id})))]))
+        @(:table peer)))
+
+
+(defn ring-names
+  "{stream identity -> resource key} over every stream m holds."
+  [m]
+  (into {} (keep (fn [[k h]]
+                   (when (satisfies? stream/IDaoStreamDescriptor h)
+                     [(:dao.stream/identity (stream/descriptor h)) k])))
+        (:resources m)))
+
+
+(defn logical-positions
+  "The task with each cursor position's embedded stream identity renamed
+   to its logical name. A ring buffer cursor carries its stream's
+   identity, which §5.5's marker substitution does not reach (reported
+   as a design defect), so the cross-lane comparison renames it under
+   the same fixture correspondence."
+  [task m]
+  (let [names (ring-names m)
+        k :dao.stream.ringbuffer/identity]
+    (replace-nodes task #(= :cursor-cell-body (:kind %))
+                   (fn [n]
+                     (update-in n [:slots 1]
+                                (fn [p]
+                                  (if (and (map? p) (contains? names (get p k)))
+                                    (assoc p k (get names (get p k)))
+                                    p)))))))
+
+
+(defn logical-root
+  "§5.5: the lift's root id with every lane identity replaced by the
+   fixture's logical name."
+  [wire m peer]
+  (:yin.k/root (rows/canonical-under (rows/emit (logical-positions (rows/decode wire) m))
+                                     (logical-names m peer))))
+
+
+(defn lane-root
+  "Build on lane, lift: [root under the logical names, the lane's own
+   reference run]."
+  [lane build]
+  (let [world (on-lane lane build)
+        {:keys [serve! peer]} (served (or (:surfaces world) #{:reader}))
+        wire (lane-lift (:machine world) serve!)]
+    (is (nil? (rows/validate-frames (rows/decode wire))) "law 6 on every lane")
+    [(logical-root wire (:machine world) peer)
+     (reference (on-lane lane build))]))
+
+
+(defn canonical-equality
+  "Law 4 for one case: the three lanes lift to one root, and each lane's
+   own run answers the reference."
+  [build expected]
+  (let [roots (mapv #(lane-root % build) lanes)]
+    (is (apply = (map first roots)) "law 4: one root id on every lane")
+    (doseq [[lane [_ ref]] (map vector lanes roots)]
+      (is (:halted ref) (str lane " completes"))
+      (when (some? expected) (is (= expected (:value ref)) (str lane " answers the reference"))))
+    roots))
+
+
+(deftest cross-engine-canonical-equality-bare
+  ;; the quick-tier slice of acceptance 10: every lane row once, bare
+  (let [n (atom 0)]
+    (doseq [[row r build] lane-rows]
+      (testing (str "row " row)
+        (canonical-equality #(build identity) r)
+        (swap! n inc)))
+    (testing "row 20"
+      (canonical-equality tail-effect-halt "B")
+      (swap! n inc))
+    (is (= 16 @n))))
+
+
+(deftest ^:slow cross-engine-canonical-equality
+  (slow/guard
+    "cross-engine-canonical-equality"
+    (fn []
+      (let [cases (lane-cases) n (atom 0)]
+        (is (= 61 (count cases)) "15 lane rows x 4 segments + row 20")
+        (doseq [[row label expected build] cases]
+          (testing (str "row " row " " (name label))
+            (canonical-equality build expected)
+            (swap! n inc)))
+        (is (= 61 @n))))))
+
+
+(def ordered-pairs
+  "Law 5's six ordered pairs of distinct lanes."
+  (into [] (mapcat (fn [from] (keep (fn [to] (when (not= from to) [from to])) lanes))) lanes))
+
+
+(def unlowerable
+  "[row receiver] pairs a de Bruijn receiver cannot continue: row 4's
+   retained FFI re-parks through the kernel's own call-out pair
+   (ffi/response-wait-entry), not the carried response cursor cell the
+   semantic-register kernel restores. A kernel seam, reported."
+  #{[4 :stack] [4 :register]})
+
+
+(defn crossed
+  "Lift on from, lower into a fresh receiver on to, satisfy through the
+   source's streams: the run's observables and attaches."
+  [from to build]
+  (let [world (on-lane from build)
+        {:keys [toy peer serve!]} (served (or (:surfaces world) #{:reader}))
+        wire (lane-lift (:machine world) serve!)
+        receiver ((or (:receiver world) (constantly nil)))
+        {:keys [attach!] n :count} (recording-attacher toy)
+        recv (lane-lower to (merge {:attach-stream attach!} (:opts receiver)) wire attach!)
+        _ (is (= to (lane-of recv)))
+        attaches @n
+        done (satisfy world recv #(drive-peers % [peer]))
+        _ (s/serve-mirror! peer)]
+    (when-let [f (:finish world)] (f))
+    (when-let [f (:finish receiver)] (f))
+    {:attaches attaches :wire wire
+     :halted (vm/halted? done) :value (normalize (vm/value done)) :trace @(:trace world)}))
+
+
+(defn cross-lowering
+  "Law 5 for one case: every admitted ordered pair continues to the
+   reference. Answers the pairs that ran."
+  [row build]
+  (let [ref (reference (on-lane :semantic-register build))]
+    (is (:halted ref))
+    (reduce (fn [ran [from to]]
+              (if (contains? unlowerable [row to])
+                ran
+                (testing (str (name from) " -> " (name to))
+                  (let [got (crossed from to build)]
+                    (is (= (count (stream-identities (:wire got))) (:attaches got)))
+                    (is (= (select-keys ref [:halted :value :trace]) (select-keys got [:halted :value :trace]))
+                        "law 5: the lowered run continues to the reference")
+                    (conj ran [from to])))))
+            []
+            ordered-pairs)))
+
+
+(deftest cross-engine-lowering-bare
+  ;; the quick-tier slice of acceptance 11: every lane row once, bare
+  (is (= 6 (count ordered-pairs)))
+  (let [ran (atom 0)]
+    (doseq [[row _ build] lane-rows]
+      (testing (str "row " row)
+        (let [pairs (cross-lowering row #(build identity))]
+          (is (= (if (= 4 row) 2 6) (count pairs)) "every admitted ordered pair ran")
+          (swap! ran + (count pairs)))))
+    (testing "row 20"
+      (is (= 6 (count (cross-lowering 20 tail-effect-halt))))
+      (swap! ran + 6))
+    (is (= 92 @ran) "16 cases x 6 pairs, less row 4's 4 into a de Bruijn receiver")))
+
+
+(deftest ^:slow cross-engine-lowering
+  (slow/guard
+    "cross-engine-lowering"
+    (fn []
+      (let [ran (atom 0) cases (lane-cases)]
+        (is (= 61 (count cases)))
+        (doseq [[row label _ build] cases]
+          (testing (str "row " row " " (name label))
+            (swap! ran + (count (cross-lowering row build)))))
+        (is (= 350 @ran) "61 cases x 6 pairs, less row 4's 4 per segment")))))
+
+
+(defn register-judge
+  "The frame validator's verdict on register entry `entry` of m,
+   reconstructed through the layout."
+  [m entry]
+  (let [sp (kernel-space m)
+        p (layout/lift-state (layout/lift-context m sp (:owner m)) entry)
+        code-map (into {} (map (fn [[a sg]] [a (:vector sg)])) (:segments sp))
+        as-sr {:code (into {} (map (fn [a] [a {:address a}])) (keys code-map))}]
+    (:yin.k/kind (frame/defect (ft/canonical as-sr p true) code-map :wait {:free-env {} :ffi-call-ids #{}}))))
+
+
+(defn spare-register
+  "A physical register of the entry's body outside its live set and its
+   destination that R gives exactly one virtual."
+  [m entry]
+  (let [sg (val (first (:segments (kernel-space m))))
+        site (- (:site-pc entry) (layout/offset :register m sg))
+        body (nth (:phys sg) (code/body-index (:bodies sg) site))
+        unique (keep (fn [[s xs]] (when (= 1 (count xs)) s)) (group-by body (keys body)))]
+    (first (remove (conj (set (:live entry)) (:dest entry)) (sort unique)))))
+
+
+(deftest layout-refusals
+  (testing "a kernel stepped to a non-safepoint pc"
+    (doseq [lane [:stack :register]]
+      (testing (name lane)
+        (let [m (on-lane lane #(vm/step (load-program (machine) (s/app (s/lam ['p] (s/lit 42)) (s/lit 1)))))
+              n (atom 0)
+              {:keys [serve!]} (served #{:reader})
+              d (error #(lane-lift m (fn [h] (swap! n inc) (serve! h))))]
+          (is (not (vm/halted? m)))
+          (is (= :yin.k/not-at-safepoint (:yin.k/status d)) (pr-str d))
+          (is (zero? @n) "no stream was served")
+          (testing ", its registers read as a payload"
+            (let [entry (if (= :stack lane)
+                          (select-keys m [:pc :frames :stack :continuation])
+                          (assoc (select-keys m [:pc :frames :continuation]) :regs [] :resume-mode :write-result))
+                  cx (layout/lift-context m (kernel-space m) (:owner m))]
+              (is (= :yin.k/not-at-safepoint (:yin.k/status (error #(layout/lift-state cx entry)))))))))))
+  (testing "a register entry whose live was tampered"
+    (let [m (:machine (on-lane :register #(bare 1)))
+          entry (first (:wait-set m))
+          live (:live entry)
+          spare (spare-register m entry)]
+      (is (nil? (register-judge m entry)) "the untampered entry reconstructs a valid frame")
+      (is (seq live))
+      (is (= :window-missing (register-judge m (assoc entry :live (vec (rest live)) :regs (vec (rest (:regs entry))))))
+          "a live register dropped")
+      (is (some? spare))
+      (is (= :window-extra (register-judge m (assoc entry :live (vec (sort (conj live spare)))
+                                                    :regs (vec (sort-by first (conj (:regs entry) [spare :x]))))))
+          "a dead register added")))
+  (testing "a primitive in a window: the register kernel cannot hold it, refused before any attach"
+    (let [build #(reader % (s/app (s/v 'conj) (s/lit []) read-op))
+          world (build identity)
+          {:keys [serve! toy]} (served #{:reader})
+          wire (rows/lift-task (:machine world) serve! (lift-opts))
+          {:keys [attach!] n :count} (recording-attacher toy)
+          d (error #(lane-lower :register {:attach-stream attach!} wire attach!))]
+      (is (= [:yin.k/unsupported :continuation-registers] [(:yin.k/status d) (:yin.k/kind d)]) (pr-str d))
+      (is (zero? @n) "refused before any attachment")
+      (testing ", the stack kernel holds it"
+        (let [ref (reference (build identity))
+              got (crossed :semantic-register :stack #(build identity))]
+          (is (= ["B"] (:value ref)))
+          (is (= (:value ref) (:value got))))))))
