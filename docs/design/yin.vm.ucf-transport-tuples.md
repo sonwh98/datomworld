@@ -138,7 +138,7 @@ the cursor cell a "cell" and spelled its tags `:cells`, `:cell-body`,
 `[:cell C]`, `:yin.k/c-<n>`; the version-2 handoff carrier keeps those
 spellings. A cursor cell has a task-local id `C`
 in the form `:yin.k/cc-<n>`, minted by the lift under §6's canonical
-numbering, never content-addressed, and scoped to the task whose root
+numbering (the n-th cursor cell met in §6's canonical walk), never content-addressed, and scoped to the task whose root
 carries it: a cursor-cell id means nothing outside its root, in a pool or a
 query, and two tasks' `:yin.k/cc-1` are unrelated.
 
@@ -259,9 +259,9 @@ not of the tabled kind, or a `V` outside §4's union is `:yin.k/undecodable`
 naming the row and slot. **One ordering rule** governs every emitted row
 and every receiver check: "sorted" means ordered by the Jing canonical
 bytes of the sort key *as spelled in the emitted row*, cursor-cell numbers
-included, under the final numbering of §6. The class-erased skeletons of
-§6 are used only inside the numbering procedure and never decide the
-order of an emitted row. Ordered slots are part of the schema because
+included, under the final numbering of §6. The spellings (keys) of §6
+are used only inside the numbering procedure and never decide the order
+of an emitted row. Ordered slots are part of the schema because
 they determine the Merkle id.
 
 `N` is an exact CBOR integer in `[0, 2^52−1]` (amendment §2). `A` is a
@@ -463,121 +463,187 @@ can). The numbering is therefore defined over the **whole alias
 topology** of the task, and the definition is the reference against
 which any algorithm is checked.
 
-**What is defined, and what is not claimed.** The canonical numbering
-is defined as **the output of the procedure below**, which is a function
-of the state alone: every step depends only on structure, never on a
-cursor cell's number or on any hash that includes one, so renaming the cursor cells of
-the input does not change the output. It is *not* claimed to be the
-minimum of the root bytes over all `n!` bijections; that is a different
-definition, and a refinement-and-search procedure is not shown to reach
-it (signature order does not order Merkle bytes). Nor is it claimed that
-cursor cells left together by refinement are interchangeable: they need not be
-(a guest set encoding a disjoint triangle and square as ordered pairs of
-equal-body cursor cells leaves all seven cursor cells in one class, and no
-automorphism exchanges a triangle vertex with a square vertex). The
-procedure therefore explores every unresolved alternative, with no
-pruning, and the representative it returns is canonical because the
-procedure is deterministic and renaming-invariant, not because of any
-symmetry argument.
+**What is defined, and what is not claimed.** The canonical numbering is
+defined as the output of the discovery-order procedure below, a function
+of the state up to renaming of cursor cells and host enumeration of guest
+sets, maps and the census (proof in
+`yin.vm.semantic-register-vm.cursor-cell-numbering.md` §2). It is not the
+minimum of the root bytes over all bijections. The one choice the walk
+cannot make by itself, between tied members of one guest set or map that
+the tie test cannot prove interchangeable, is refused
+(`:unresolved-cursor-cells`); the refusal certifies nothing about
+interchangeability and can be narrowed later without changing any
+numbering assigned today.
 
-**The procedure.** Its input is the abstract task: the structure of
-§5 with cursor cells as identities, before any numbering. Every encoding below
-is canonical CBOR (`dao.jing.cbor.md`) of a *synthetic vector
-structure*; vectors are used throughout, never host maps or sets, so
-that elements or keys that become equal after class substitution keep
-their multiplicity. All byte comparisons are bytewise on those CBOR
-bytes. Let the cursor cells be `n` in number; if `n = 0` the procedure returns
-the empty numbering and performs no search.
+**The rule in one paragraph.** A cursor cell is named by the order in
+which a fixed walk over the task meets it: the n-th cursor cell met is
+`:yin.k/cc-n`, as a de Bruijn index names a binder by position. The walk
+is pre-order in the table order of §5, so every position is ordered
+except the members of a guest set and the entries of a guest map. Those
+the carrier *transforms* into ordered vectors before numbering: each
+member is given a key, the spelling of the member in which cursor cells
+already numbered appear by number and the others by body, occurrence
+count and the order in which they first appear inside the member; the
+members are sorted by key. Members whose keys are equal are *tied*; they
+are postponed until the rest of the walk has numbered what it can, and
+re-keyed. A tie that survives is entered in any order if a cheap test
+proves its members interchangeable (swapping them leaves the whole state
+unchanged); otherwise the lift refuses. Guest programs are unrestricted:
+sets and maps may hold cursor-refs anywhere, including as map keys.
 
-1. **Class labels** are CBOR byte strings. Wherever a label is embedded
-   in a larger encoding it is embedded as a CBOR byte string (major
-   type 2), never re-parsed. A cursor cell's initial label is the CBOR of
-   `[:body <stream-marker-bytes> <position-bytes>]`.
-2. **Class encoding** `CE(x)` of any encoded value or row, structural
-   and hash-free. **Every identity-bearing position encodes the cursor cell's
-   current label, never its incoming id**; the identity positions are
-   exactly: `[:cursor-cell C]` values, the bare `cursor-cell-C` and `response-cursor-cell-C`
-   slots of `:pending` rows, and the keys of the `:cursor-cells` census.
-   - `[:lit d]` → `[:lit d]`.
-   - `[:cursor-cell C]`, and a bare `C` slot → `[:cursor-cell <label of C>]` (full
-     tag retained, §10.9).
-   - `[:row B]` → `[:row <CE(row B)>]`, the row expanded in place; the
-     expansion is finite because the structural edge family is acyclic
-     (§8 step 3).
-   - A row `[kind s₁ … sₖ]` → `[kind CE(s₁) … CE(sₖ)]` with each slot
-     encoded as: a structural datum (`A`, `M`, `P`, `S`, `N`, `D`, a
-     reason, a phase, a version, a role, a kind) as itself; a `C` as
-     above; a `V` as above; a cref as the expanded row; a crefs vector
-     as the vector of expansions.
-   - For `:set` rows, and for the key-value pairs of `:map`, `:store`
-     and `:bindings` rows, the entries of `:parked-table`, and the
-     installs and module-stores slots of the root: encode each element
-     (or each `[key value]` pair as a two-element vector), then **sort
-     the resulting vector of encodings bytewise, retaining duplicates**.
-     Ordered rows (`:vec`, `:list`, `:k`) and the ordered
-     `frames` slot keep their order.
-   - The `:cursor-cells` census is **not expanded**: in `CE(root)` the
-     `cursor-cells-cref` slot is the constant `[:cursor-cells]`. The census is a
-     derived index of the cursor cells the task reaches, so it carries no
-     additional information beyond the reached cursor cell identities and
-     their bodies (which already seed the initial labels), and
-     (consistently with
-     §8 step 3, which excludes census declaration edges from
-     reachability) **census declaration occurrences contribute no
-     positions** to any cursor cell.
-   - Context lookups (`P` in `:parked-ref` and `parked-id`, `M` in
-     `store-of`) are not expanded; they appear as the plain datum.
-   - An install child's `:task` row is **not expanded**: children are
-     numbered first, as their own tasks with their own cursor cells (task
-     boundary; this runs bottom-up inside §8 step 6 and needs no
-     restoration), and a child cref appears in the parent's encodings
-     as `[:child <child root id>]`, the child's already-canonical root
-     id as a byte string.
-3. **Positions.** A position is the CBOR of the path from the task's
-   root to one identity-bearing occurrence of a cursor cell: a vector of
-   steps, built by descending from the root and appending exactly one
-   step per slot category crossed, with the occurrence itself
-   contributing no step. The categories, and their one spelling each:
-   - *Fixed slot* (any tabled slot that is not one of the categories
-     below, including a `:pending` row's `cursor-cell-C` slots):
-     `[kind slot-index]`, the slot's 0-based index in the row table.
-   - *Ordered repeated entry* (`:vec`, `:list` elements; `:k`
-     frames; the root's `frames`): `[kind i]` with `i` the 0-based
-     position; for `frames` the step is `[:task :frame i]`.
-   - *Unordered element* (`:set`): `[kind :elem CE(e)]`; never an index.
-   - *Keyed pair* (`:map`, `:store`, `:bindings`, `:parked-table`, and
-     the root's installs and module-stores slots, keyed by module name
-     and `M`): `[kind :key CE(k)]` when descending into the key,
-     `[kind :val CE(k)]` when descending into the value; never an
-     index. For `:bindings`, `:parked-table`, installs and module
-     stores the key is a structural datum and `CE(k)` is the datum.
-   - *Task boundary*: a path never crosses into an install child; a
-     child's cursor cells have paths rooted at the child's own root.
-   Equal occurrences yield equal positions, one per occurrence, and
-   positions never contain a source enumeration index of an unordered
-   container.
-4. **Signature and refinement.** A cursor cell's signature is the CBOR of
-   `[:sig <old label> <sorted vector of its positions, duplicates
-   retained>]`; its new label is that byte string. Repeat until no
-   class splits. Keeping the old label makes refinement monotone, so
-   the partition stabilizes in at most `n − k` splitting rounds from
-   `k` initial classes plus one stability check; this bounds partition
-   rounds only, not signature-processing or search work.
-5. **Search.** Order classes bytewise by label. If every class is a
-   singleton, assign `1 … n` in that order and stop. Otherwise take the
-   first non-singleton class and, **for each of its members in turn**,
-   give that member the label that is the CBOR byte string of
-   `[:ind <depth> <old label>]`, where `depth` is 0 at the top-level
-   search and increases by one per level of recursion (distinct from
-   every refinement label by its tag; no ordering relative to other
-   labels is needed), refine to stability, and
-   recurse. Every branch is explored. Each complete leaf yields a
-   numbering; build the §5 rows under it and take the **root body's
-   canonical CBOR bytes** (the digest preimage, not the digest) as the
-   leaf's key. The procedure's output is the row set of the leaf with
-   the bytewise least key. Two leaves with equal keys have emitted
-   identical rows: they differ only in which source cursor cell received
-   which number, which the transported representation cannot observe.
+**Vocabulary.** An **item** is a row or a value. The **walk** is the
+procedure below over one item from a numbering; the **root walk** is over
+the `:task` row from the empty numbering and its numbers are the output;
+a **key walk** is the same procedure over one member of a set or map from
+the enclosing walk's numbering, run only to produce the member's **key**.
+A **member** is a `:set` element or a `:map` entry taken as the synthetic
+ordered row `[:entry key value]`. A **tie group** is a run of members of
+one container with equal keys. A cursor cell's **body rank** is the index
+of its census body label `[:body [:stream identity descriptor] position]`
+among the census's distinct labels in bytewise order; its **occurrence
+count** is the number of positions of the task (census and install
+children excluded) that hold it. Install children are numbered as their
+own tasks by the same rule, in any order.
+
+**The transformation and the key.** When the walk reaches a `:set` or
+`:map` it replaces the container, for its own purposes, by the vector of
+its members in key order. The key of a member is the **spelling** of that
+member produced by a key walk under the numbering at that moment (every
+member of one container is keyed from that one numbering):
+
+- a cursor cell numbered by the enclosing walk spells `[:cursor-cell
+  [:n k]]` (root numbers) or as the enclosing key walk spelled it;
+- a cursor cell the key walk meets unnumbered receives a **local index**
+  `j` (the order of first meeting, counted from the enclosing walk's
+  local counter so a nested key walk never reuses an index of its
+  enclosing one) and spells `[:cursor-cell [:u j r m]]`, `r` its body
+  rank and `m` its occurrence count, all exact CBOR integers;
+- `[:lit d]` as itself, structural data as itself (by reference, never
+  copied), `[:row B]` expanded in place, the census as `[:cursor-cells]`,
+  an install child as `[:child]`, keyed structural rows in canonical key
+  order, `:window` in register order, and a nested `:set` or `:map` as
+  the bytewise sorted vector of its members' spellings in which a tie
+  group the key walk could not certify (the tie test below) is spelled in
+  place as `[:tie K … K]`, its common key once per member.
+
+Keys are compared bytewise on canonical CBOR; the spelling is hash-free.
+`[X X]` keys `[:vec [u0 r m] [u0 r m]]` and `[Y Z]` keys
+`[:vec [u0 r m] [u1 r m']]`: the alias pattern inside a member is part
+of its key, and so is each cell's occurrence count, which separates
+`#{[A B] [B C]}` and `[#{X Y} #{Y Z}]` without a search.
+
+**The walk.**
+
+- *W1, order.* Depth-first, pre-order, from the walk's item. A row's
+  slots in table order (§5); ordered repeated slots (`frames`, `:vec`,
+  `:list`, `:k`) in order; keyed rows with structural keys (`:bindings`,
+  `:store`, `:parked-table`, the root's `installs` and `module-stores`)
+  in the Jing canonical byte order of the key; `:window` in ascending
+  register order. The census is not entered; an install child's `:task`
+  row is not entered. A `:set` or `:map` is entered as the transformation
+  orders it: members with a unique key in key order, an entry's key
+  before its value; each tie group is **postponed** to the walk's queue
+  (queue order is canonical: containers in walk order, groups within one
+  container in key order).
+- *W2, meeting.* When the walk reaches a `[:cursor-cell C]` value or a
+  `C` slot of a `:pending` row whose cursor cell has no number, the cell
+  receives the next number (the root walk counts from 1). A numbered cell
+  is passed over. Every occurrence emits `[:cursor-cell :yin.k/cc-n]`;
+  the census row stays the contents table.
+- *W3, postponed ties.* After the pre-order walk, the queue is taken in
+  order: each group's members are re-keyed under the current numbering
+  and treated as in W1 (unique keys entered in key order, surviving ties
+  re-queued in order; a tie met inside an entered member joins the same
+  queue). Repeat while a pass numbers at least one cursor cell and groups
+  remain. When a pass numbers nothing, the surviving groups go to the tie
+  test.
+
+**The tie test.** A surviving group **passes** when all of (i) its common
+key is complete (contains no `[:tie …]`), (ii) the unnumbered cursor
+cells of its members are pairwise disjoint, and (iii) none of them occurs
+in a member of any other surviving group of the same walk. (At this point
+every unnumbered cell occurs only in postponed members, so (ii) and (iii)
+say: the cells of each member are confined to that member.) If every
+surviving group passes, all of them are entered, each group's members in
+the order the host lists them (the numbering note's §2 shows the rows do
+not depend on it), and the walk returns to W3. If any group fails, the
+**root walk refuses** and a **key walk stops**: its surviving groups are
+spelled as `[:tie …]` residue and its key is incomplete. The test inside
+a key walk reads only the member being keyed; it never reads the
+enclosing state. The test is sound and cheap: (i)–(iii) are exactly what
+the proof needs for the index-matched swap of two members to be an
+automorphism of the state; whatever it refuses may still be
+interchangeable (numbering note §3 says what), but nothing it accepts can
+be host-order dependent.
+
+**Refusal.** The root walk refuses `:yin.k/non-portable` kind
+`:unresolved-cursor-cells`, `:yin.k/path` the row path of the container
+holding the first failing group in queue order (a container nested under
+a member of a set or map has the enclosing container's path followed by
+`:member`, since no index into an unordered container is canonical; for
+an install child the path is prefixed `[12 <install name> …]`), and
+`:yin.k/cursor-cells` the sorted unnumbered cursor cells of the failing
+groups' members. The verdict and the path are functions of the state up
+to renaming and host enumeration; the cell list names local source ids.
+This is not a resource refusal and never `:noncanonical-cursor-cells`.
+The receiver's recomputation (§8 step 6) translates only this refusal,
+for the root or any install child, to `:yin.k/undecodable`
+`:unresolved-cursor-cells` with the path prefixed by the carried root id
+(a child's path reads `[<root> 12 <name> …]`); a resource refusal
+propagates as itself. Numbering is checked after step 5 and before frame
+validation (step 7), so a wrong numbering is reported as
+`:noncanonical-cursor-cells` and an unresolved one as
+`:unresolved-cursor-cells` even when the task also has a frame defect.
+
+**Budgets and gates.**
+
+- `:cursor-cells`: the census's pair count is charged first, before the
+  census map, ranks, counts or any walk is built.
+- `:depth`: enforced second, **before any recursive traversal of the
+  task**, by one bounded iterative scan (an explicit stack, never the
+  host stack) over rows, members, structural and literal data and the
+  census, install children excluded (each is gated by its own run). The
+  depth of a position is its slot steps from the task (a member step
+  counts one, a map entry's key or value two) plus, inside data, its
+  collection nesting; a position deeper than `:depth` refuses
+  `[:depth]`. After the scan every recursive read of the task (cell
+  scans, occurrence counts, memo-key hashing, spelling, encoding) nests
+  at most `:depth` levels, so no input can overflow the host stack
+  before the gate fires. The walk checks its own depth as well. Default
+  256.
+- `:work`: one unit per position scanned (the depth scan), visited
+  (walk, key walk, cell scans, count and rank preparation), keyed (one
+  per member per keying, so the number of key walks and memo lookups is
+  charged) or spelled, one unit per cell in a key walk's memo key, and,
+  **before every CBOR encoding made for a comparison** (keys, rank
+  labels, structural keys), the representation bound of the value
+  encoded: 128 per node or scalar, 4 per character, 16 plus the length
+  per byte payload, an upper bound of the encoding's bytes. The
+  estimator is iterative and budget-aware: it runs against the budget
+  remaining at the call and stops as soon as its running total exceeds
+  it, so it never reads to the end of a value it cannot afford.
+  Spellings hold input literals by reference, so their own size is their
+  spelled positions. Every comparison encoding is thus charged before it
+  is made, by a conservative abstract bound of its encoded bytes and of
+  the encoder's intermediate nodes; the budget bounds allocation up to a
+  constant factor of the host's representation, not byte for byte, and
+  the input itself is not counted. No polynomial bound is claimed; the
+  budget is the bound. Default `4194304`. A literal of more than about
+  30000 scalars inside a guest set or map exceeds it; in an ordered
+  position a literal is never spelled or encoded and costs one unit per
+  position of its data in the depth scan.
+- `:rows`, `:bytes`: the decoder's, unchanged.
+
+Exceeding any budget is the resource refusal of §10.10
+(`:yin.k/unsupported :resource-limit [<key>]`), never a canonicality
+verdict, at lift and at decode alike.
+
+**Totality.** The root walk ends with an empty queue or a refusal. Before
+emission the implementation asserts that the numbering is a bijection
+from the census's cursor cells onto `1 … n`; a violation (a census cell
+no walk reaches) is a defect, an exception without `:yin.k/status`
+carrying the missing and extra cells, never a refusal and never a
+partially numbered carrier.
 
 **Validation.** Canonicality is a property of the emitted rows, not of
 a source-cursor-cell-to-number bijection, so the receiver does not compare
@@ -585,12 +651,17 @@ numberings. It decodes the rows to the abstract task, runs the
 procedure, re-emits rows, and compares the resulting root id with the
 carried root id: unequal is `:yin.k/undecodable` kind
 `:noncanonical-cursor-cells`. Every labeling that yields the selected
-commitment is thereby accepted, and no encounter-order tie-break ever
-decides validity. This is a lower-side structural refusal, not a lift
+commitment is thereby accepted. The emitted commitment and the acceptance
+decision are invariant under the host's enumeration order of every set,
+map and census (numbering note §2); the procedure's one use of host
+order, entering the members of a tie group proved interchangeable,
+cannot change the rows, and a receiver never decides validity by its own
+enumeration order. This is a lower-side structural refusal, not a lift
 kind. A receiver whose work bound (§10.10) is exceeded before the
-procedure completes refuses with a structured resource refusal before
-any attachment and never labels the state `:noncanonical-cursor-cells`, never
-falls back to encounter order, and never accepts an unfinished check.
+procedure completes refuses with the structured resource refusal before
+any attachment, never labels the state `:noncanonical-cursor-cells`, and
+never accepts an unfinished check; a receiver that reaches the tie
+refusal refuses `:yin.k/undecodable` kind `:unresolved-cursor-cells`.
 
 Under this rule two lifts of one state are byte-identical. Two lifts of
 different states sharing a closure over the same cursor cell may number it
@@ -674,9 +745,13 @@ one attachment. The order follows amendment §8 and is binding:
    and slot. Without this step two different valid encodings could lower
    to one state, or a `:bindings` row could carry one symbol twice and
    lose a binding on lower.
-6. **Canonical numbering.** Recompute §6 under the work bound and
-   compare (`:yin.k/undecodable`, kind `:noncanonical-cursor-cells`; or the
-   resource refusal of §10.10 if the bound is exceeded).
+6. **Canonical numbering.** Recompute §6 under the work bound, for the
+   root and every install child, and compare (`:yin.k/undecodable`, kind
+   `:noncanonical-cursor-cells`; kind `:unresolved-cursor-cells` if the
+   tie refusal is reached in the root or in a child, translated from the
+   recomputation's lift-side refusal of that kind only, its path prefixed
+   by the carried root id; or the resource refusal of §10.10 if the bound
+   is exceeded, which propagates untranslated).
 7. **Frames.** For each body (the root and every install child), first
    decode its task context (parked key, live FFI call ids, the root's
    free environment from `free-env-cref`) and judge it once by
@@ -725,10 +800,11 @@ one attachment. The order follows amendment §8 and is binding:
 Diagnostics use the established families and no new top-level outcome:
 `:yin.k/profile-mismatch`, `:yin.k/undecodable` with `:yin.k/path` as
 `[row-id slot-index …]` and a `:yin.k/kind` where one is named above
-(`:reason-mismatch`, `:noncanonical-cursor-cells`), `:yin.k/hash-mismatch`,
+(`:reason-mismatch`, `:noncanonical-cursor-cells`,
+`:unresolved-cursor-cells`), `:yin.k/hash-mismatch`,
 `:yin.k/unsatisfied`, and on the lift side `:yin.k/non-portable` with
-the two kinds this carrier adds to UCF §7.5.4's set: `:byte-string` and
-`:metadata`.
+the three kinds this carrier adds to UCF §7.5.4's set: `:byte-string`,
+`:metadata` and `:unresolved-cursor-cells`.
 
 ## 9. Lift, lower, and the laws
 
@@ -816,19 +892,23 @@ reader):
 9. **Skeleton placeholder.** Safe only if the full value-union tag is
    retained in the skeleton, which §6 now requires (`[:cursor-cell <class>]`,
    never a bare class); and a placeholder does not canonicalize alias
-   topology, which is why §6 is now defined as the output of a
-   renaming-invariant refinement-and-search procedure.
+   topology, which is why §6 is now defined as the output of the
+   discovery-order procedure, which is invariant under renaming and host
+   enumeration.
 
 10. **Receiver work bound** (Architect, round 3; adopted as a
     requirement, with the limits left to implementation and
     composition). Before an implementation brief, the receiver must have
-    a bound on decoded bytes, rows, cursor cells, traversal depth, refinement
-    work and search nodes for §6, with elapsed time as an optional
+    a bound on decoded bytes, rows, cursor cells, traversal depth and
+    traversal-and-spelling work for §6 (its `:work` unit counts positions
+    and representation bytes, charged before any spelling is encoded),
+    with elapsed time as an optional
     operational limit on top. Exceeding a local budget produces a
     structured resource or capability refusal before any attachment, in
     the qualified-unsupported family `datom.world.md` already provides;
-    it never labels a valid state `:noncanonical-cursor-cells`, never falls
-    back to encounter order, and never accepts an unfinished check. The
+    it never labels a valid state `:noncanonical-cursor-cells`, never
+    substitutes host enumeration order for the canonical walk, and never
+    accepts an unfinished check. The
     exact limits and their refusal mapping are implementation and
     composition decisions and must not alter canonical bytes.
 
@@ -837,7 +917,8 @@ document makes; they follow neither uniquely from the owner's three
 rulings nor from the six invariants, and an implementation brief must
 name them as choices being accepted: a new body version (3) rather than
 another carrier identification; the canonical representative of §6 as
-defined by its procedure; the wire unit and pack framing of §3; the
+defined by discovery order, and the `:unresolved-cursor-cells` refusal;
+the wire unit and pack framing of §3; the
 explicit fork-policy spelling of §5.5; one engine-less profile
 (continuation §2.1); the explicit root `free-env` (continuation §6.3);
 the byte-string and metadata restrictions of §4; binding the row digest to
@@ -858,7 +939,7 @@ pending-wait semantics and the r5 required keys, install-child rules,
 the dependency closure and satisfaction check, the isolated store, the
 private resource table, module-store instancing, scheduler state, the
 custody header and admission rules, fencing and operation ids, the
-outcome families, and the existing refusal kinds (two lift kinds and two
+outcome families, and the existing refusal kinds (three lift kinds and three
 `:yin.k/undecodable` kinds are added, §8). The carrier is a new body
 version for the same facts. The
 Architect's round-1 statement is the acceptance bar: tuple transport

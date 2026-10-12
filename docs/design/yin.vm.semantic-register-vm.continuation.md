@@ -222,7 +222,8 @@ receiving composition's choice. The version-2 registry
 **DECIDED** (draft §3, ruling 1). Every row is `[id kind & slots]`;
 content rows have `id = (jing/segment-key body)` under Jing's default
 digest, BLAKE3 for version 3 permanently; identity rows are cursor cells
-`:yin.k/cc-<n>` numbered by the draft's §6 procedure; the root carries
+`:yin.k/cc-<n>` numbered by discovery order (draft §6 as amended by
+`yin.vm.semantic-register-vm.cursor-cell-numbering.md`); the root carries
 the cursor-cell census. (The words cursor, cursor cell, cursor-ref and cell
 are used exactly as defined in UCF §7.5.3, "Terminology: cursor, cursor
 cell, cursor-ref, cell". Before 2026-10-12 the cursor cells were called
@@ -914,7 +915,8 @@ lanes by construction where the same logical stream is lifted. Where a
 lane mints its own (fresh cursor cells on relift, the receiver's own call
 pair), the comparison uses `rows/canonical-under`, a **test-only**
 transformation whose placeholder assignment is **never derived from
-traversal order** (the review's objection: map and set traversal, and
+*host* traversal order** (the canonical walk of draft §6 is a function
+of the state and is what the procedure reads; the review's objection: map and set traversal, and
 "cursor cells by body", can depend on the very identities being erased). It
 takes an **explicit logical-stream correspondence** from the fixture:
 the harness created every stream the row reaches, so it supplies
@@ -926,13 +928,14 @@ does not cover is a test failure, never a guess), runs the canonical
 cursor-cell numbering (draft §6), re-emits every row and recomputes every id,
 and compares root ids. Draft §6 is invariant under renaming of the
 **cursor cells** (its labels never encode an incoming cursor-cell id), and the only
-other identity it consumes is the stream marker in each cursor cell's initial
-label (`[:body <stream-marker-bytes> <position-bytes>]`, draft §6 step
-1) and in cursor-cell bodies; after the substitution those are the fixture's
+other identity it consumes is the stream marker in each cursor cell's body
+label (`[:body [:stream identity descriptor] position]`, draft §6 as
+amended, spelled by rank inside keys) and in cursor-cell bodies; after the substitution those are the fixture's
 logical names, so the procedure's inputs no longer depend on any lane's
-identities. Unordered containers (`:set`, `:map`, `:store`,
-`:bindings`, the parked table) are encoded by sorting their elements'
-encodings bytewise (draft §6 step 2), never by host traversal order, so
+identities. Guest sets and maps are entered in the bytewise order of
+their members' keys, and `:store`, `:bindings` and the parked table in
+the byte order of their structural keys (draft §6 W1), never in host
+enumeration order, so
 a permutation of the erased identities cannot change the result once
 the markers are substituted. It is never used outside the harness.
 
@@ -1146,6 +1149,72 @@ frames to validate. Touches nothing of 4b or 5; needs no scanner.
 11. kondo clean; `bb test:sub yin.vm` green on three hosts; Node log
     shows `Testing yin.vm.semantic-register.frame-test` and
     `Testing yin.vm.ucf.rows-test`.
+12. `rows-test/discovery-order-numbering`: `canonical-numbering` returns
+    the maps of the numbering note's appendix A for `fixture :s1 :s2 :x
+    :y`, the review counterexample, `[x x y]`, `[x y y]`, `[#{X Y} X]`,
+    the witness `[#{#{[A B] [B A]}} A]`, `[#{X Y} #{Y Z}]`, the path and
+    the two frame fixtures.
+13. `rows-test/occurrence-count-separates-members`: the review
+    counterexample numbers `Y cc-1, X cc-2`, pinned `2d9873a8…`; the path
+    pinned `726a9fbb…`; `[#{X Y} #{Y Z}]` pinned `d84480d4…`; each equal
+    after renaming plus reversal of every set.
+14. `rows-test/interchangeable-ties`: `#{X Y}`, `#{[X X] [Y Y]}`,
+    `{X 1, Y 1}`, `#{#{X Y} #{Z W}}` number without refusal; reversal and
+    renaming give equal roots; pins `07eda35d…`, `da69c679…`,
+    `49d4478c…`, `18b70de6…`.
+15. `rows-test/alias-pattern-is-part-of-the-key`: `#{[X X] [Y Z]}` and
+    `{X X, Y Z}` give one root for both enumerations and after renaming,
+    pinned `387f294a…` and `be62ba43…`; the witness numbers `B cc-1,
+    A cc-2`, pinned `0193312…`, and decodes; the balanced-alias witness
+    `#{[X X Y Y] [Z W Z W]}` gives one root for both enumerations, pinned
+    `5376f133…`, and the key without the local index would not.
+16. `rows-test/unresolved-cursor-cells-refuse`: the 2-cycle, the
+    3-cycle, the loop plus 2-cycle, the seven-cell state,
+    `[#{X Y} #{X Y}]`, the mixed-body, the anchored, the two-2-cycle and
+    the 3-cycle-beside-fan states refuse at `emit` with
+    `:yin.k/non-portable :unresolved-cursor-cells`, the paths and cells of
+    the numbering note's appendix A, the same verdict and path after
+    renaming plus shuffling; a carrier of each built with `emit-numbered`
+    decodes to `:yin.k/undecodable :unresolved-cursor-cells` with the
+    path prefixed by the root, never `:noncanonical-cursor-cells`; a
+    parent whose install `'a` holds the 2-cycle refuses at `emit` with
+    path `[12 a 15]` and its `emit-numbered` carrier decodes to the
+    `:yin.k/undecodable` kind with path `[<root> 12 a 15]`.
+17. `rows-test/canonical-roots-are-pinned`: `fab223…` and `c4a7c7…`
+    unchanged; `a850fce6…` (`[#{X Y} X]`), `4993b5b1…`, `536c810b…`,
+    `e67405ec…` (`[#{#{X Y} #{Z W}} X]`), `6e7c7a6b…` (ten cells) added;
+    `55ff168e…` removed.
+18. `rows-test/counterexample-search`: a seeded generator (at least 2000
+    random value states, 200 frame-bearing, 100 with install children)
+    in CI: every numbered state's carrier decodes and re-emits to its
+    root; renaming every cursor cell plus shuffling every set, map and
+    census gives an equal root, or the same refusal verdict and path;
+    refusals are counted and reported; the largest `:work` is reported.
+19. `rows-test/numbering-is-total`: a census cell the walk does not reach
+    raises the totality defect, not a refusal, before any row is emitted.
+20. `numbering-precedes-frame-defect`, `alias-topology-and-census`,
+    `canonical-under-is-renaming-invariant`,
+    `unordered-containers-are-order-free`,
+    `child-scope-and-shared-child-dag` and
+    `census-is-numeric-from-ten-cursor-cells` pass unchanged against the
+    rewritten decoder; `numbering-precedes-frame-defect` is extended: the
+    2-cycle with the same reserved-name binding, carried by
+    `emit-numbered`, decodes to `:yin.k/undecodable
+    :unresolved-cursor-cells`, not `:reserved-name`.
+21. `rows-test/gates-and-work`: 65 cells refuse `:resource-limit
+    [:cursor-cells]` under the default budget and 2 cells under
+    `{:cursor-cells 1}`; `[[[[X]]]]` under `{:depth 3}` refuses
+    `[:depth]`, and so do one cell inside 3000 nested vectors under
+    `{:depth 3}` and under the default budget, and a literal nested 3000
+    deep beside a cell (no host stack overflow on any of the three hosts;
+    200 nested vectors number); a set holding a 400000-scalar literal
+    refuses `[:work]` under `{:work 2000}` with the work counter at 2001
+    and under `{:work 900000}` with at most 1000 estimator steps; a state
+    whose bodies carry a 65536-character descriptor numbers under the
+    default budget; `{:work 1}` refuses `[:work]` at `emit` and, for a
+    valid carrier, at `decode`.
+22. Budgets: `:label-bytes` and `:search` gone, `:work` default
+    `4194304`.
 
 ### 8.2 Slice 6b: full task transport and the harness on the reference lane
 
