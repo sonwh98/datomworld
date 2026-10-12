@@ -47,8 +47,8 @@ DaoJing registry change.
 | `yin.vm.debruijn/dimension-hash` | **`def`, computed once at namespace load** — not a function | `src/cljc/yin/vm/debruijn.cljc:944-952` | Frozen SHA-256. The published hash domain separator (§4); `(jing/sha256 (encode-value descriptor))` evaluates exactly once when the namespace loads, so every node-hash call in the process shares one already-computed value. |
 | `yin.vm.debruijn/node-hash` | `defn-` (private) | `src/cljc/yin/vm/debruijn.cljc:1002-1008` | Frozen SHA-256. `sha256(dimension-hash-hex ++ encode(slots))`, per §5. |
 | `dao.jing.dht/node-id` | `defn` | `src/cljc/dao/jing/dht.cljc:30-33` | Frozen SHA-256. Defines the DHT routing identity space (`sha256(host:port)`), not a content-address selection. Changing it is a separate DHT protocol decision, independent of DaoJing's algorithm registry. |
-| `yin.vm/primitive-profile`'s `:yin.k.pp/sha256-...` label | `defn` | `src/cljc/yin/vm.cljc:118-140` (label construction at line 135-136) | **Explicit VM contract using a first-class registry algorithm, not a compatibility fallback.** Currently `(str "sha256-" (jing/content-hash description))`, which relies on `content-hash`'s current one-argument BLAKE3-default behavior and would mislabel a BLAKE3 digest as SHA-256 once H1 flips the default. H1 must change this call site to `(jing/content-hash description {:algorithm :sha256})` so the `sha256-` label stays truthful. This is the one Class-1 site that requires a source edit in H1 — not because its contract changes, but because its current implementation silently rode the soon-to-move default. |
-| Future register VM format contract: `register-descriptor-hash`, `register-hash` | not yet implemented | `src/cljc/yin/vm/debruijn_register_code.cljc` does not exist in this checkout | **Absent register implementation, recorded here as future integration.** The register design specifies format R as explicit SHA-256, mirroring the H formula (`register-descriptor-hash` parallels `descriptor-hash`; `register-hash` parallels `image-hash`). When implemented, both follow this Class-1 disposition from day one: explicit SHA-256, never coupled to `default-hash-algorithm`. No register golden values exist yet to preserve. |
+| `yin.vm/primitive-profile`'s `:yin.k.pp/blake3-...` label | `defn` | `src/cljc/yin/vm.cljc:351` | **No longer SHA-256.** Explicit VM contract on BLAKE3 (`(jing/content-hash description {:algorithm :blake3})`, label `blake3-`), moved with the capability seal (`engine.cljc`) and the owner tag (`values.cljc`) by the owner's decision of 2026-10-12. Computed explicitly, not by riding the default. |
+| Future register VM format contract: `register-descriptor-hash`, `register-hash` | not yet implemented | `src/cljc/yin/vm/debruijn_register_code.cljc` does not exist in this checkout | **Absent register implementation, recorded here as future integration.** The register design specifies format R as explicit SHA-256, mirroring the H formula (`register-descriptor-hash` parallels `descriptor-hash`; `register-hash` parallels `image-hash`). When implemented, both follow this Class-1 disposition from day one: explicit SHA-256 until the phase-8 cutover, then BLAKE3 (owner 2026-10-12), never coupled to `default-hash-algorithm`. No register golden values exist yet to preserve. |
 
 Class-1 sites never call `dao.jing/segment-key`, `dao.jing/segment-matches?`,
 or `dao.jing/materialize!`. They call `jing/sha256` (a string-in/hex-out
@@ -255,8 +255,7 @@ Guard Specification").
 ## Summary
 
 - **5** frozen Class-1 SHA-256 contracts implemented today, plus **1**
-  primitive-profile label requiring an H1 source fix to stay truthful under
-  the new default, plus **1** future register contract recorded as not yet
+  primitive-profile label, now an explicit BLAKE3 contract, plus **1** future register contract recorded as not yet
   implemented — 7 rows total.
 - **14** direct Class-2 mint call sites, **2** default-only remote mint
   entry points, and **1** DaoSpace mint site requiring an H1 field-shape
