@@ -166,6 +166,14 @@
                                        (map #(str (nth "0123456789abcdef" (quot % 16))
                                                   (nth "0123456789abcdef" (rem % 16)))
                                             (range 100))))
+                              3 "127.0.0.1" 4100))))
+  ;; Exactly one block (64 bytes): the key is padded, not hashed (RFC 2104).
+  (is (= "bad7b1f69037816a18e571231947419b"
+         (hex (dht/cookie-for (dht/hex->bytes
+                                (apply str
+                                       (map #(str (nth "0123456789abcdef" (quot % 16))
+                                                  (nth "0123456789abcdef" (rem % 16)))
+                                            (range 64))))
                               3 "127.0.0.1" 4100)))))
 
 
