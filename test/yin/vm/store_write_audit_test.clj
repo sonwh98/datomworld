@@ -369,7 +369,11 @@
    "src/cljc/yin/vm/ucf/compose.cljc"
    {["bare-composition" :map] 1
     ["driver-config" :map] 1
-    ["front-of" :map] 1}})
+    ["front-of" :map] 1}
+   ;; the carrier's row-schema table: `:store` is the name of a wire row
+   ;; kind (a read-only schema entry), never a VM store write
+   "src/cljc/yin/vm/ucf/rows.cljc"
+   {["row-table" :map] 1}})
 
 
 (deftest every-store-mutation-is-on-the-allowlist
