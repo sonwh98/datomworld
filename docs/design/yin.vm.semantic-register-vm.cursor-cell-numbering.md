@@ -1,7 +1,7 @@
 # Cursor-cell numbering by discovery order (companion to the row carrier)
 
 Status: **Adopted by the owner 2026-10-12 (replaces carrier §6's
-refinement and search); not yet implemented.** Round 4 of the same day
+refinement and search); implemented in phase 6a (branch srvm-phase6a).** Round 4 of the same day
 (Architect, claude-fable-5-1): the base design the owner asked for after
 the third review (`collab/1792210000000-…review-r3…findings.md`), with
 the round-3 variants moved to appendix B as an extension that is not
