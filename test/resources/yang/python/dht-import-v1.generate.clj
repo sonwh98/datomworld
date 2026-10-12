@@ -5,7 +5,10 @@
 ;; on the JVM, with the test paths on the classpath, to rewrite the
 ;; artifact:
 ;;
-;;   clojure -A:test -M test/resources/yang/python/dht-import-v1.generate.clj
+;;   clojure -Sdeps '{:aliases {:t {:extra-paths ["test"]}}}' -M:t \
+;;    test/resources/yang/python/dht-import-v1.generate.clj
+;;
+;; (not -A:test: that alias's main is the test runner and runs the suite)
 ;;
 ;; It publishes the committed CST packets of the guest units through
 ;; `yang.python.antlr.publication` against `py` as the JVM publishes it,
@@ -18,5 +21,9 @@
 
 (require '[yang.python.antlr.dht-import-fixture :as fixture])
 
-(fixture/write!)
-(println "wrote" fixture/path)
+
+(let [{:keys [lines refused]} (fixture/generate)]
+  (when refused
+    (throw (ex-info "the artifact's publication was refused" refused)))
+  (spit fixture/path (fixture/text lines))
+  (println "wrote" fixture/path))

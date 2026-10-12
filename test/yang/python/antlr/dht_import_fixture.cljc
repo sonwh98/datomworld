@@ -161,17 +161,6 @@
   (str (str/join "\n" lines) "\n"))
 
 
-#?(:cljd nil
-   :clj
-   (defn write!
-     "Regenerate the artifact on the JVM (the generator script's call)."
-     []
-     (let [{:keys [lines refused]} (generate)]
-       (when refused
-         (throw (ex-info "the artifact's publication was refused" refused)))
-       (spit path (text lines)))))
-
-
 (defn read-lines
   "The artifact's lines, blank ones dropped (Dart keeps a trailing one)."
   []
