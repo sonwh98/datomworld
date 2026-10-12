@@ -1726,7 +1726,7 @@ address. It replaces the `{sym fn}` dictionary entry.
  :yin.module/index       {H :segment/... R :segment/...}       ; optional
  :yin.module/exports     #{'foo 'bar}
  :yin.module/requires    {'other.lib :segment/...}             ; manifest
- :yin.module/primitives  {'println :yin.k.pp/sha256-...}       ; profile
+ :yin.module/primitives  {'println :yin.k.pp/blake3-...}       ; profile
  :yin.module/footprint   {:store-keys #{} :effects #{}}}       ; UCF 7.6.1
 ```
 

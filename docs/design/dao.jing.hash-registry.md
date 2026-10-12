@@ -354,7 +354,7 @@ The current tree contains five direct consumers:
 
 These calls do not follow DaoJing's default.
 
-The four de Bruijn hashes remain SHA-256 because they are VM-format contracts. Their byte rules, descriptor declarations, contract versions, and golden values are frozen and must change only through their own format-version process.
+The four de Bruijn hashes are SHA-256 today and are VM-format contracts, not default selections. Owner decision 2026-10-12: the H and R checksums and the descriptor hashes move to BLAKE3 at the phase-8 cutover of the semantic-register VM (derivations design §8.2), where every golden is regenerated once. Until then they stay explicit SHA-256 and must not follow DaoJing's default.
 
 The DHT node ID remains SHA-256 because it defines the DHT routing identity space rather than a content-address selection. Changing it is a separate DHT protocol decision.
 
@@ -364,21 +364,13 @@ The task that originated this plan named `src/cljc/yin/vm/debruijn_register_code
 
 ### Primitive-profile identifier
 
-`yin.vm/primitive-profile` currently constructs:
+`yin.vm/primitive-profile` constructs:
 
 ```clojure
-:yin.k.pp/sha256-<jing/content-hash description>
+:yin.k.pp/blake3-<digest of (content-hash description {:algorithm :blake3})>
 ```
 
-After BLAKE3 becomes the default, that expression would label a BLAKE3 digest as SHA-256.
-
-Keep the primitive-profile contract explicitly on SHA-256:
-
-```clojure
-(content-hash description {:algorithm :sha256})
-```
-
-The `sha256-` label then remains truthful. This is an explicit VM contract using a first-class registry algorithm, not a compatibility fallback.
+The profile digest is computed explicitly with BLAKE3 (owner decision 2026-10-12, with the capability seal and the owner tag), not by riding the default. The `blake3-` label stays truthful even if the default algorithm later changes. This is an explicit VM contract using a first-class registry algorithm, not a compatibility fallback.
 
 A future canonical-encoding clean break may change this digest because `content-hash` follows the one current canonical encoder. If primitive-profile identity must remain frozen across that break, its owning VM contract must first pin its own byte encoder rather than relying on DaoJing's changing content encoder.
 
@@ -460,18 +452,18 @@ The DHT may route by the carried 256-bit digest. Both initial algorithms produce
 
 H and R remain explicitly SHA-256.
 
-For the implemented stack format:
+For the implemented stack format (until the phase-8 cutover moves it to BLAKE3):
 
 - keep `descriptor-hash` and `image-hash` on explicit SHA-256;
 - keep descriptor data declaring `:hash :sha256`;
-- do not repin the golden H corpus;
+- do not repin the golden H corpus before the cutover;
 - add a regression proving that DaoJing's BLAKE3 default does not change H.
 
-The older `yin.vm.debruijn` dimension and node hashes likewise remain explicit SHA-256 under their existing format contract.
+The older `yin.vm.debruijn` dimension and node hashes likewise remain explicit SHA-256 under their existing format contract until the same cutover.
 
 For the planned register format:
 
-- implement `register-descriptor-hash` and `register-hash` with explicit SHA-256;
+- implement `register-descriptor-hash` and `register-hash` with explicit SHA-256 now and BLAKE3 from the phase-8 cutover;
 - retain the documented R formula and descriptor declaration;
 - do not couple R to `default-hash-algorithm`.
 
@@ -482,7 +474,7 @@ Jing addresses for stored stack or register images are separate identities. An i
 - H or R, identifying its executable-format bytes; and
 - a DaoJing segment address, identifying the stored Jing value under its selected registry algorithm.
 
-The two identities must not be conflated merely because both can use SHA-256.
+The two identities must not be conflated merely because both can use the same algorithm.
 
 ## Host libraries
 
@@ -596,7 +588,7 @@ Complete when:
 - all four address-preserving copy sites derive their minting algorithm from the source address (including `store-tree-async` flushes supplying the source address to the remote store);
 - file codec round-trip validation uses the selected algorithm on both sides;
 - `dao.space.index` emits only `:schema-address` and restore accepts only that shape;
-- `yin.vm/primitive-profile` computes its digest explicitly with SHA-256, keeping its label truthful;
+- `yin.vm/primitive-profile` computes its digest explicitly with BLAKE3, keeping its `blake3-` label truthful;
 - every committed development fixture containing segment addresses is regenerated;
 - existing development file stores are discarded rather than upgraded;
 - SHA-only storage docstrings and errors are generalized;

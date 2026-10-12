@@ -1282,7 +1282,7 @@ published data, and the binding is checked on both ends:
 ```clojure
 ;; in :yin.k/requires — computed, not hand-written (§7.6.1)
 :yin.k/primitives {+
-                   {:yin.k/profile :yin.k.pp/sha256-…   ; content address of the profile record
+                   {:yin.k/profile :yin.k.pp/blake3-…   ; content address of the profile record
                     :yin.k/class    :pure               ; :pure | :effectful | :host
                     :yin.k/arities  [2]
                     :yin.k/effects  #{}                 ; for :effectful — declared effect kinds
