@@ -1,6 +1,7 @@
 (ns yin.vm.ucf.rows
-  "Version-3 row codec. Pure row construction, graph decoding and canonical
-   cursor-cell numbering; no machine attachment, dependency scanner or transport.
+  "Version-3 row codec. Pure row construction, graph decoding and
+   discovery-order cursor-cell numbering (design note §1); no machine
+   attachment, dependency scanner or transport.
    An abstract row is {:kind keyword :slots vector}. Structural references
    contain abstract rows; values use [:lit d], [:row abstract-row], [:cursor-cell id].
    A task's :cursor-cells row holds alternating source identities and :cursor-cell-body
@@ -116,7 +117,8 @@
 
 (defn- descriptors
   [kind slots]
-  (let [schema (get row-table kind)]
+  ;; :entry is the numbering's synthetic map entry [:entry k v], never a carrier row.
+  (let [schema (if (= :entry kind) [:V :V] (get row-table kind))]
     (cond
       (= schema :pending) (into [:D] (get pending-table (first slots)))
       (= :repeat (first schema)) (vec (repeat (count slots) (second schema)))
@@ -156,50 +158,57 @@
     :else slots))
 
 
-(declare emit-node canonical-numbering validate-frames)
+(def default-budget
+  "Local resource bounds, independent of canonical bytes. :work counts the
+   numbering's positions and the representation bound of every value it
+   encodes for a comparison (design note §1.5)."
+  {:rows 10000 :cursor-cells 64 :depth 256 :work 4194304 :bytes 16777216})
+
+
+(declare emit-node canonical-numbering child-numberer validate-frames)
 
 
 (defn- emit-slot
-  [d x numbering rows]
+  [d x numbering rows path number-child]
   (when-not (or (ref? d) (refs? d) (= :C d))
     (check-literal-markers! (if (contains? #{:V :optional-V} d)
                               (when (= :lit (first x)) (second x)) x)))
   (cond
-    (ref? d) (emit-node x numbering rows)
-    (refs? d) (reduce (fn [[out rs] n]
-                        (let [[id rs'] (emit-node n numbering rs)] [(conj out id) rs']))
-                      [[] rows] x)
+    (ref? d) (emit-node x numbering rows path number-child)
+    (refs? d) (reduce (fn [[out rs] [j n]]
+                        (let [p (conj path (if (= :install (:kind n)) (first (:slots n)) j))
+                              [id rs'] (emit-node n numbering rs p number-child)]
+                          [(conj out id) rs']))
+                      [[] rows] (map-indexed vector x))
     (= d :C) [(get numbering x x) rows]
     (contains? #{:V :optional-V} d)
     (case (first x)
-      :row (let [[id rs] (emit-node (second x) numbering rows)] [[:row id] rs])
+      :row (let [[id rs] (emit-node (second x) numbering rows path number-child)] [[:row id] rs])
       :cursor-cell [[:cursor-cell (get numbering (second x) (second x))] rows]
       [x rows])
     :else [x rows]))
 
 
 (defn- emit-node
-  [n numbering rows]
-  (let [{:keys [kind slots]} n
-        ;; A child is canonicalized in its own identity scope.
-        [slots rows] (reduce (fn [[out rs] [d x]]
-                               (if (and (ref? d) (= :task (:kind x)))
-                                 (let [[id child-rows] (emit-node x (canonical-numbering x) {})]
-                                   [(conj out id) (merge rs child-rows)])
-                                 (let [[x' rs'] (emit-slot d x numbering rs)] [(conj out x') rs'])))
-                             [[] rows] (map vector (descriptors kind slots) slots))
-        slots (if (= kind :task)
-                (-> slots
-                    (update 7 #(vec (sort (fn [a b] (byte-compare (nth (get rows a) 2) (nth (get rows b) 2))) %)))
-                    (update 12 #(vec (sort (fn [a b] (byte-compare (nth (get rows a) 2) (nth (get rows b) 2))) %))))
-                (ordered-slots kind slots))
-        body (into [kind] slots) id (jing/segment-key body)]
-    [id (assoc rows id (into [id] body))]))
-
-
-(def default-budget
-  "Local resource bounds, independent of canonical bytes."
-  {:rows 10000 :cursor-cells 64 :depth 256 :work 200000 :search 10000 :bytes 16777216 :label-bytes 1048576})
+  ;; path is the row path of n, so a child's refusal reports [12 <install name> ...].
+  ([n numbering rows] (emit-node n numbering rows [] (child-numberer default-budget)))
+  ([n numbering rows path number-child]
+   (let [{:keys [kind slots]} n
+         ;; A child is canonicalized in its own identity scope.
+         [slots rows] (reduce (fn [[out rs] [i d x]]
+                                (if (and (ref? d) (= :task (:kind x)))
+                                  (let [[id child-rows] (emit-node x (number-child x path) {} path number-child)]
+                                    [(conj out id) (merge rs child-rows)])
+                                  (let [[x' rs'] (emit-slot d x numbering rs (conj path i) number-child)]
+                                    [(conj out x') rs'])))
+                              [[] rows] (map vector (range) (descriptors kind slots) slots))
+         slots (if (= kind :task)
+                 (-> slots
+                     (update 7 #(vec (sort (fn [a b] (byte-compare (nth (get rows a) 2) (nth (get rows b) 2))) %)))
+                     (update 12 #(vec (sort (fn [a b] (byte-compare (nth (get rows a) 2) (nth (get rows b) 2))) %))))
+                 (ordered-slots kind slots))
+         body (into [kind] slots) id (jing/segment-key body)]
+     [id (assoc rows id (into [id] body))])))
 
 
 (defn- spend!
@@ -209,158 +218,495 @@
       (refuse! :yin.k/unsupported :resource-limit [category]))))
 
 
-(defn- check-label-bytes!
-  "Conservative byte/representation bound before CBOR normalization or
-   comparison vectors allocate. Byte payloads are counted without copying;
-   container overhead also bounds the number of intermediate tree nodes."
-  [x budget]
-  (let [limit (:label-bytes budget)]
-    (letfn [(size
-              [x remaining]
-              (let [n (cond
-                        (cbor/byte-payload? x) (+ 16 #?(:cljd (.-length x) :default (alength x)))
-                        (string? x) (+ 128 (* 4 (count x)))
-                        (or (keyword? x) (symbol? x)) (+ 128 (* 4 (count (str x))))
-                        (coll? x) (reduce (fn [total v] (+ total (size v (- remaining total))))
-                                          128 (if (map? x) (mapcat identity x) x))
-                        :else 128)]
-                (when (> n remaining)
-                  (refuse! :yin.k/unsupported :resource-limit [:label-bytes]))
-                (if (meta x) (+ n (size (meta x) (- remaining n))) n)))]
-      (size x limit))))
+;; Discovery-order cursor-cell numbering (design note
+;; yin.vm.semantic-register-vm.cursor-cell-numbering.md §1). A cursor cell is
+;; named by the order in which a fixed pre-order walk of the task meets it. A
+;; guest :set or :map is entered as the vector of its members sorted by key:
+;; the member's spelling by a key walk, numbered cursor cells by number and
+;; the others by local first-occurrence index, body rank and occurrence
+;; count. Members with equal keys form a tie group, postponed and re-keyed
+;; until a pass numbers nothing; a surviving group is entered in host order
+;; only when the tie test proves that harmless, else the lift refuses
+;; :unresolved-cursor-cells.
 
 
-(declare canonical-numbering)
+(defn- work!
+  [ctx amount]
+  (spend! (:counter ctx) (:budget ctx) :work amount))
+
+
+(defn- charge-representation!
+  "Charge to :work, before x is CBOR-encoded for a comparison, a conservative
+   bound of its representation: 128 per node or scalar, 4 per character, 16
+   plus the length per byte payload, metadata included. Iterative, against
+   the budget remaining at the call: it stops as soon as its running total
+   exceeds that, so it never reads to the end of a value it cannot afford."
+  [ctx x]
+  (let [{:keys [counter budget]} ctx
+        remaining (- (:work budget) (get @counter :work 0))]
+    (loop [stack (list (list x)) total 0 steps 0]
+      (if (empty? stack)
+        (do (swap! counter update :estimator-steps (fnil + 0) steps)
+            (work! ctx total))
+        (let [s (first stack) stack (rest stack)]
+          (if (empty? s)
+            (recur stack total steps)
+            (let [x (first s)
+                  stack (cons (rest s) stack)
+                  total (+ total (cond
+                                   (cbor/byte-payload? x) (+ 16 #?(:cljd (.-length x) :default (alength x)))
+                                   (string? x) (+ 128 (* 4 (count x)))
+                                   (or (keyword? x) (symbol? x)) (+ 128 (* 4 (count (str x))))
+                                   :else 128))]
+              (if (> total remaining)
+                (do (swap! counter update :estimator-steps (fnil + 0) (inc steps))
+                    (work! ctx total))
+                (recur (cond->> stack
+                         (coll? x) (cons (if (map? x) (mapcat identity x) (seq x)))
+                         (meta x) (cons (list (meta x))))
+                       total (inc steps))))))))))
+
+
+(defn- key-bytes!
+  "Every comparison encoding of the numbering: charged, then encoded."
+  [ctx x]
+  (charge-representation! ctx x)
+  (bytes-key (cbor/encode x)))
+
+
+(defn- sort-by-key!
+  "xs in the bytewise order of (f x), each encoded once."
+  [ctx f xs]
+  (mapv second (sort #(compare-bytes (first %1) (first %2))
+                     (mapv (fn [x] [(key-bytes! ctx (f x)) x]) xs))))
+
+
+(def ^:private keyed-structural #{:bindings :store :parked-table})
+
+
+(defn- value-slot?
+  [d]
+  (contains? #{:V :optional-V} d))
+
+
+(defn- child-task?
+  [ctx n]
+  (and (= :task (:kind n)) (not (identical? n (:task ctx)))))
+
+
+(defn- elem-item
+  ;; A :set member is its V; a :map entry is the synthetic ordered row
+  ;; [:entry k v], so the alias pattern across key and value is in its key.
+  [kind e]
+  (if (= :map kind) [:row (node :entry e)] e))
+
+
+(defn- depth-scan!
+  "The :depth gate, before any recursive traversal of the task: one pre-order
+   scan with an explicit stack over rows, members, structural and literal
+   data and the census, install children skipped (each is gated by its own
+   numbering). A position's depth is its slot steps from the task (a member
+   step counts one, a map entry's key or value two) plus, inside data, its
+   collection nesting. Each position costs one :work unit, charged when it
+   is popped, before any work proportional to it."
+  [ctx task]
+  (let [limit (:depth (:budget ctx))
+        row (fn [n k] [:row nil n k])
+        slot (fn [d v k] [:slot d v k])
+        data (fn [v k] [:data nil v k])]
+    (loop [stack (list (list (row task 0)))]
+      (when (seq stack)
+        (let [s (first stack) stack (rest stack)]
+          (if (empty? s)
+            (recur stack)
+            (let [[tag d x k] (first s)
+                  stack (cons (rest s) stack)]
+              (work! ctx 1)
+              (when (> k limit) (refuse! :yin.k/unsupported :resource-limit [:depth]))
+              (recur
+                (cons
+                  (case tag
+                    :row
+                    (let [{:keys [kind slots]} x k' (inc k)]
+                      (when-not (child-task? ctx x)
+                        (let [ds (descriptors kind slots)]
+                          (cond
+                            (= :task kind)
+                            (mapcat (fn [i d v]
+                                      (if (contains? #{7 12} i)
+                                        (map (fn [child] (row child (inc k'))) v)
+                                        [(slot d v k')]))
+                                    (range) ds slots)
+                            (contains? keyed-structural kind)
+                            (mapcat (fn [[key v]] [(data key k') (slot (second ds) v k')]) (partition 2 slots))
+                            (= :window kind)
+                            (mapcat (fn [[r v]] [(data r k') (slot :V v k')]) (partition 2 slots))
+                            (= :set kind) (map (fn [v] (slot :V v k')) slots)
+                            (= :map kind)
+                            (mapcat (fn [[a b]] [(slot :V a (inc k')) (slot :V b (inc k'))]) (partition 2 slots))
+                            :else (map (fn [d v] (slot d v k')) ds slots)))))
+                    :slot
+                    (cond
+                      (ref? d) [(row x k)]
+                      (refs? d) (map (fn [n] (row n (inc k))) x)
+                      (= :C d) nil
+                      (value-slot? d) (when x
+                                        (case (first x)
+                                          :cursor-cell nil
+                                          :row [(row (second x) k)]
+                                          :lit [(data (second x) k)]
+                                          [(data x k)]))
+                      :else [(data x k)])
+                    :data
+                    (concat (when (coll? x) (map (fn [e] (data e (inc k))) (if (map? x) (mapcat identity x) x)))
+                            (when (meta x) [(data (meta x) (inc k))])))
+                  stack)))))))))
+
+
+(defn- walk-cells
+  "Call f on the cursor cell at every position under slot (d x), the census
+   and install children excluded; one :work unit per position. Recursive,
+   so it runs only after the depth scan."
+  [ctx d x f]
+  (letfn [(slot
+            [d x]
+            (work! ctx 1)
+            (cond
+              (ref? d) (row x)
+              (refs? d) (doseq [n x] (row n))
+              (= :C d) (f x)
+              (value-slot? d) (when x
+                                (case (first x)
+                                  :cursor-cell (f (second x))
+                                  :row (row (second x))
+                                  nil))
+              :else nil))
+          (row
+            [n]
+            (when-not (or (= :cursor-cells (:kind n)) (child-task? ctx n))
+              (doseq [[d x] (map vector (descriptors (:kind n) (:slots n)) (:slots n))] (slot d x))))]
+    (slot d x)))
+
+
+(defn- item-cells
+  "The cursor cells under slot (d x), memoized per numbering on the slot."
+  [ctx d x]
+  (or (get @(:cells-memo ctx) [d x])
+      (let [acc (atom #{})]
+        (walk-cells ctx d x #(swap! acc conj %))
+        (swap! (:cells-memo ctx) assoc [d x] @acc)
+        @acc)))
+
+
+(defn- body-ranks
+  "Cursor cell -> rank of its body label [:body [:stream identity
+   descriptor] position] among the census's distinct labels in bytewise
+   order, so a key never repeats a descriptor."
+  [ctx bodies]
+  (let [labels (into {} (map (fn [[c b]]
+                               (let [[stream position] (:slots b)]
+                                 [c [:body (into [:stream] (:slots stream)) position]])))
+                     bodies)
+        ranks (into {} (map-indexed (fn [i l] [l i]) (sort-by-key! ctx identity (distinct (vals labels)))))]
+    (into {} (map (fn [[c l]] [c (get ranks l)])) labels)))
+
+
+(defn- new-run
+  [ctx num tag start]
+  {:ctx ctx :num (atom num) :tag tag :next (atom start)
+   :groups (atom []) :gid (atom 0) :refused (atom nil)})
+
+
+(defn- meet!
+  "W2: a cursor cell met for the first time receives the run's next number."
+  [run c]
+  (when-not (contains? @(:num run) c)
+    (swap! (:num run) assoc c [(:tag run) @(:next run)])
+    (swap! (:next run) inc)))
+
+
+(declare enter-node! unordered! key-walk spell-slot spell-node)
+
+
+(defn- enter-slot!
+  [run d x path]
+  (let [ctx (:ctx run)]
+    (work! ctx 1)
+    (when (> (count path) (:depth (:budget ctx)))
+      (refuse! :yin.k/unsupported :resource-limit [:depth]))
+    (cond
+      (ref? d) (enter-node! run x path)
+      (refs? d) (doseq [[i n] (map-indexed vector x)] (enter-node! run n (conj path i)))
+      (= :C d) (meet! run x)
+      (value-slot? d) (when x
+                        (case (first x)
+                          :cursor-cell (meet! run (second x))
+                          :row (enter-node! run (second x) path)
+                          nil))
+      :else nil)))
+
+
+(defn- enter-node!
+  "W1: pre-order in table order; ordered repeated slots in order; keyed
+   structural rows, installs and module stores in the byte order of the
+   key; :window in register order; :set and :map by member keys, ties
+   postponed; the census and install children are not entered."
+  [run n path]
+  (let [{:keys [kind slots]} n ctx (:ctx run) ds (descriptors kind slots)]
+    (cond
+      (or (= :cursor-cells kind) (child-task? ctx n)) nil
+      (= :task kind)
+      (doseq [[i d x] (map vector (range) ds slots)]
+        (if (contains? #{7 12} i)
+          (doseq [child (sort-by-key! ctx #(first (:slots %)) x)]
+            (enter-node! run child (conj path i (first (:slots child)))))
+          (enter-slot! run d x (conj path i))))
+      (contains? keyed-structural kind)
+      (doseq [[k v] (sort-by-key! ctx first (partition 2 slots))]
+        (enter-slot! run (second ds) v (conj path k)))
+      (= :window kind)
+      (doseq [[r v] (sort-by first (partition 2 slots))] (enter-slot! run :V v (conj path r)))
+      (= :set kind) (unordered! run n :set (vec slots) path)
+      (= :map kind) (unordered! run n :map (mapv vec (partition 2 slots)) path)
+      :else (doseq [[i d x] (map vector (range) ds slots)] (enter-slot! run d x (conj path i))))))
+
+
+(defn- unordered!
+  "Key every member by a key walk under the numbering at this moment; enter
+   members with a unique key in key order and postpone each run of equal
+   keys, a tie group, to the run's queue. A member's path is the
+   container's path plus :member: no index into an unordered container is
+   canonical."
+  [run container kind elems path]
+  (let [ctx (:ctx run)
+        keyed (mapv (fn [e]
+                      ;; One unit per member keyed, so key walks and memo lookups are charged.
+                      (work! ctx 1)
+                      [(key-walk run (elem-item kind e) (conj path :member)) e])
+                    elems)
+        groups (partition-by (comp :bytes first)
+                             (sort #(compare-bytes (:bytes (first %1)) (:bytes (first %2))) keyed))]
+    (doseq [g groups]
+      (if (= 1 (count g))
+        (enter-slot! run :V (elem-item kind (second (first g))) (conj path :member))
+        (swap! (:groups run) conj {:id (swap! (:gid run) inc) :container container :kind kind :path path
+                                   :key (:spell (first (first g))) :complete? (:complete? (first (first g)))
+                                   :elems (mapv second g)})))))
+
+
+(defn- fixpoint!
+  "W3: re-key the postponed groups under the current numbering, in queue
+   order; repeat while a pass numbers a cursor cell and groups remain."
+  [run]
+  (loop []
+    (let [before (count @(:num run)) groups @(:groups run)]
+      (reset! (:groups run) [])
+      (doseq [{:keys [container kind elems path]} groups] (unordered! run container kind elems path))
+      (when (and (seq @(:groups run)) (> (count @(:num run)) before)) (recur)))))
+
+
+(defn- unnumbered-cells
+  [run kind e]
+  (let [num @(:num run)]
+    (set (remove #(contains? num %) (item-cells (:ctx run) :V (elem-item kind e))))))
+
+
+(defn- tie-failure
+  "The tie test, nil when the group passes: its common key is complete, and
+   its members' unnumbered cursor cells are pairwise disjoint and occur in
+   no member of another surviving group."
+  [run groups g]
+  (let [own (mapv #(unnumbered-cells run (:kind g) %) (:elems g))
+        others (reduce (fn [acc h]
+                         (if (= (:id h) (:id g))
+                           acc
+                           (reduce #(into %1 (unnumbered-cells run (:kind h) %2)) acc (:elems h))))
+                       #{} groups)]
+    (cond
+      (not (:complete? g)) :incomplete-key
+      (not= (reduce + (map count own)) (count (reduce into #{} own))) :shared-within-group
+      (some (fn [cells] (some #(contains? others %) cells)) own) :shared-across-groups
+      :else nil)))
+
+
+(defn- resolve!
+  "The postponed groups to completion: the fixpoint, then the tie test on
+   every surviving group. All pass: enter them in host order and repeat. Any
+   fails: the root walk refuses; a key walk leaves them as [:tie ...] residue."
+  [run]
+  (loop []
+    (fixpoint! run)
+    (let [groups @(:groups run)]
+      (when (seq groups)
+        (let [failing (filterv #(tie-failure run groups %) groups)]
+          (cond
+            (empty? failing)
+            ;; Passing groups are independent (their cursor cells are
+            ;; confined), so all are entered before the next pass.
+            (do (reset! (:groups run) [])
+                (doseq [g groups e (:elems g)]
+                  (enter-slot! run :V (elem-item (:kind g) e) (conj (:path g) :member)))
+                (recur))
+            (= :n (:tag run))
+            (reset! (:refused run)
+                    {:path (:path (first failing))
+                     :cursor-cells (vec (sort-by str (distinct (mapcat (fn [g] (mapcat #(unnumbered-cells run (:kind g) %) (:elems g)))
+                                                                       failing))))})
+            :else nil))))))
+
+
+(defn- key-walk
+  "A member's key: the walk over the member from the enclosing walk's
+   numbering, local numbers counted on from an enclosing key walk's counter,
+   spelled under its final numbering. Memoized on the member, the numbering
+   of its cursor cells and the counter."
+  [run item path]
+  (let [ctx (:ctx run)
+        cells (item-cells ctx :V item)
+        num @(:num run)
+        start (if (= :u (:tag run)) @(:next run) 0)
+        memo-key [item (select-keys num cells) start]]
+    (or (get @(:memo ctx) memo-key)
+        (let [sub (new-run ctx num :u start)]
+          (work! ctx (count cells))
+          (enter-slot! sub :V item path)
+          (resolve! sub)
+          (let [spelling (spell-slot sub :V item path)
+                k {:spell spelling :bytes (key-bytes! ctx spelling) :complete? (empty? @(:groups sub))}]
+            (swap! (:memo ctx) assoc memo-key k)
+            k)))))
+
+
+(defn- spell-cell
+  [run c]
+  (let [ctx (:ctx run) [tag k] (get @(:num run) c)]
+    (case tag
+      :n [:cursor-cell [:n k]]
+      :u [:cursor-cell [:u k (get (:ranks ctx) c) (get (:counts ctx) c)]]
+      (throw (ex-info "Spelling an unnumbered cursor cell" {:cursor-cell c})))))
+
+
+(defn- spell-slot
+  [run d x path]
+  (work! (:ctx run) 1)
+  (cond
+    (ref? d) (spell-node run x path)
+    (refs? d) (vec (map-indexed (fn [i n] (spell-node run n (conj path i))) x))
+    (= :C d) (spell-cell run x)
+    (value-slot? d) (if (nil? x)
+                      x
+                      (case (first x)
+                        :cursor-cell (spell-cell run (second x))
+                        :row [:row (spell-node run (second x) path)]
+                        x))
+    :else x))
+
+
+(defn- spell-node
+  "Literals and structural data as themselves (by reference), rows expanded
+   in place, keyed rows in key order, a :set or :map as the sorted vector of
+   its members' spellings with each surviving tie group as [:tie K ... K]."
+  [run n path]
+  (let [{:keys [kind slots]} n ctx (:ctx run) ds (descriptors kind slots)]
+    (cond
+      (= :cursor-cells kind) [:cursor-cells]
+      (child-task? ctx n) [:child]
+      (= :task kind)
+      (into [kind] (map (fn [i d x]
+                          (if (contains? #{7 12} i)
+                            (sort-by-key! ctx #(nth % 1) (mapv #(spell-node run % (conj path i (first (:slots %)))) x))
+                            (spell-slot run d x (conj path i))))
+                        (range) ds slots))
+      (contains? keyed-structural kind)
+      (into [kind] (mapcat identity (sort-by-key! ctx first
+                                                  (mapv (fn [[k v]] [k (spell-slot run (second ds) v (conj path k))])
+                                                        (partition 2 slots)))))
+      (= :window kind)
+      (into [kind] (mapcat (fn [[r v]] [r (spell-slot run :V v (conj path r))]) (sort-by first (partition 2 slots))))
+      (contains? #{:set :map} kind)
+      (let [elems (if (= :set kind) (vec slots) (mapv vec (partition 2 slots)))
+            tied (filterv #(identical? n (:container %)) @(:groups run))
+            tied-elems (set (mapcat :elems tied))
+            plain (into [] (keep (fn [e]
+                                   (when-not (contains? tied-elems e)
+                                     (spell-slot run :V (elem-item kind e) (conj path :member)))))
+                        elems)
+            ties (mapv #(into [:tie] (repeat (count (:elems %)) (:key %))) tied)]
+        (into [kind] (sort-by-key! ctx identity (into plain ties))))
+      :else (into [kind] (map (fn [i d x] (spell-slot run d x (conj path i))) (range) ds slots)))))
+
+
+(defn- discovery-numbering
+  "The root walk: {:numbering {source -> :yin.k/cc-n}}, or {:refused {:path
+   :cursor-cells}} when a tie group fails the tie test. The census's pair
+   count is charged first, then the depth scan runs, before anything
+   recursive. Throws the resource refusal, or a defect without
+   :yin.k/status when the numbering is not a bijection onto the census."
+  [task budget counter]
+  (let [budget (merge default-budget budget)
+        census (:slots (nth (:slots task) 9))]
+    (spend! counter budget :cursor-cells (quot (count census) 2))
+    (if (empty? census)
+      {:numbering {}}
+      (let [ctx {:task task :budget budget :counter counter :memo (atom {}) :cells-memo (atom {})}
+            _ (depth-scan! ctx task)
+            bodies (into {} (map vec) (partition 2 census))
+            ranks (body-ranks ctx bodies)
+            counts (let [acc (atom {})]
+                     (walk-cells ctx [:ref :task] task #(swap! acc update % (fnil inc 0)))
+                     @acc)
+            run (new-run (assoc ctx :ranks ranks :counts counts) {} :n 1)]
+        (enter-node! run task [])
+        (resolve! run)
+        (if-let [refused @(:refused run)]
+          {:refused refused}
+          (let [numbered (set (keys @(:num run))) declared (set (keys bodies))]
+            (when (or (seq @(:groups run)) (not= numbered declared))
+              (throw (ex-info "Cursor-cell numbering is not total"
+                              {:missing (vec (sort-by str (remove numbered declared)))
+                               :extra (vec (sort-by str (remove declared numbered)))})))
+            {:numbering (into {} (map (fn [[c [_ k]]] [c (keyword "yin.k" (str "cc-" k))])) @(:num run))}))))))
+
+
+(defn- unresolved!
+  [refused prefix]
+  (throw (ex-info "Row codec refused data"
+                  {:yin.k/status :yin.k/non-portable :yin.k/kind :unresolved-cursor-cells
+                   :yin.k/path (into prefix (:path refused)) :yin.k/cursor-cells (:cursor-cells refused)})))
 
 
 (defn canonical-numbering
-  "Draft §6 refinement and exhaustive individualization search. Returns
-   source-cursor-cell -> :yin.k/cc-N. No encounter-order tie break. A budget
-   exhaustion is a resource refusal, never a canonicality verdict."
+  "Discovery-order cursor-cell numbering (design note §1): source cursor
+   cell -> :yin.k/cc-n, the n-th cursor cell the canonical walk meets.
+   Refuses :yin.k/non-portable :unresolved-cursor-cells when tied members of
+   a guest set or map cannot be proved interchangeable. A budget exhaustion
+   is a resource refusal, never a canonicality verdict. counter, when
+   supplied, is the atom the charges accumulate in."
   ([task] (canonical-numbering task default-budget))
-  ([task budget]
-   (let [budget (merge default-budget budget) counter (atom {})
-         cursor-cells (into {} (map vec) (partition 2 (:slots (nth (:slots task) 9))))
-         ids (vec (keys cursor-cells))
-         checked-encode (fn [x] (check-label-bytes! x budget) (cbor/encode x))
-         checked-key (fn [x] (check-label-bytes! x budget) (bytes-key x))
-         checked-sort (fn [xs]
-                        (doseq [x xs] (check-label-bytes! x budget))
-                        (vec (sort (fn [a b]
-                                     (compare-bytes (checked-key (checked-encode a))
-                                                    (checked-key (checked-encode b)))) xs)))
-         labels (into {} (map (fn [[id body]]
-                                (let [[stream position] (:slots body)]
-                                  [id (checked-encode [:body (checked-encode (into [:stream] (:slots stream)))
-                                                       (checked-encode position)])])) cursor-cells))]
-     (spend! counter budget :cursor-cells (count ids))
-     (letfn [(ce-slot
-               [d x ls]
-               (spend! counter budget :work 1)
-               (cond
-                 (ref? d) (ce x ls)
-                 (refs? d) (mapv #(ce % ls) x)
-                 (= :C d) [:cursor-cell (get ls x)]
-                 (contains? #{:V :optional-V} d)
-                 (case (first x) :cursor-cell [:cursor-cell (get ls (second x))]
-                       :row [:row (ce (second x) ls)] x)
-                 :else x))
-             (ce
-               [n ls]
-               (let [{:keys [kind slots]} n]
-                 (cond
-                   (= :cursor-cells kind) [:cursor-cells]
-                   (and (= :task kind) (not (identical? n task)))
-                   (let [[id _rows] (emit-node n (canonical-numbering n budget) {})]
-                     [:child (checked-encode id)])
-                   :else
-                   (let [ss (mapv #(ce-slot %1 %2 ls) (descriptors kind slots) slots)
-                         ss (cond
-                              (contains? #{:map :store :bindings :parked-table} kind)
-                              (checked-sort (mapv vec (partition 2 ss)))
-                              (= :set kind) (checked-sort ss)
-                              (= :task kind) (-> ss (update 7 checked-sort) (update 12 checked-sort))
-                              :else ss)]
-                     (into [kind] ss)))))
-             (positions
-               [ls]
-               (let [out (atom (zipmap ids (repeat [])))]
-                 (letfn [(visit-slot
-                           [d x path depth]
-                           (spend! counter budget :work 1)
-                           (when (> depth (:depth budget))
-                             (refuse! :yin.k/unsupported :resource-limit [:depth]))
-                           (cond
-                             (= :C d) (swap! out update x conj (checked-encode path))
-                             (ref? d) (visit x path (inc depth))
-                             (contains? #{:V :optional-V} d)
-                             (case (first x)
-                               :cursor-cell (swap! out update (second x) conj (checked-encode path))
-                               :row (visit (second x) path (inc depth)) nil)
-                             :else nil))
-                         (visit
-                           [n path depth]
-                           (let [{:keys [kind slots]} n ds (descriptors kind slots)]
-                             (when-not (or (= :cursor-cells kind)
-                                           (and (= :task kind) (not (identical? n task))))
-                               (cond
-                                 (contains? #{:map :store :bindings :parked-table} kind)
-                                 (doseq [[i [key value]] (map-indexed vector (partition 2 slots))]
-                                   (let [kd (nth ds (* 2 i)) vd (nth ds (inc (* 2 i)))
-                                         ck (ce-slot kd key ls)]
-                                     (visit-slot kd key (conj path [kind :key ck]) depth)
-                                     (visit-slot vd value (conj path [kind :val ck]) depth)))
-                                 (= :set kind)
-                                 (doseq [x slots] (visit-slot :V x (conj path [kind :elem (ce-slot :V x ls)]) depth))
-                                 :else
-                                 (doseq [[i d x] (map vector (range) ds slots)]
-                                   (if (refs? d)
-                                     (doseq [[j child] (map-indexed vector x)]
-                                       (visit child
-                                              (conj path (if (= i 13) [:task :frame j]
-                                                             [kind :val (first (:slots child))]))
-                                              (inc depth)))
-                                     (visit-slot d x (conj path [kind i]) depth)))))))]
-                   (visit task [] 0)
-                   @out)))
-             (classes
-               [ls]
-               (vec (sort #(compare-bytes (first %1) (first %2))
-                          (map (fn [[label members]] [label (vec members)])
-                               (reduce (fn [m id] (update m (checked-key (get ls id)) (fnil conj []) id)) {} ids)))))
-             (refine
-               [ls]
-               (let [ps (positions ls)
-                     next-ls (into {} (map (fn [id]
-                                             [id (checked-encode [:sig (get ls id)
-                                                                  (vec (sort #(compare-bytes (checked-key %1) (checked-key %2)) (get ps id)))])]) ids))]
-                 (if (= (count (classes ls)) (count (classes next-ls))) next-ls (recur next-ls))))
-             (search
-               [ls depth]
-               (spend! counter budget :search 1)
-               (let [ls (refine ls) cs (classes ls)
-                     unresolved (first (filter #(> (count (second %)) 1) cs))]
-                 (if unresolved
-                   (reduce (fn [best id]
-                             (let [leaf (search (assoc ls id (checked-encode [:ind depth (get ls id)])) (inc depth))]
-                               (if (or (nil? best) (neg? (compare-bytes (:key leaf) (:key best)))) leaf best)))
-                           nil (second unresolved))
-                   (let [numbering (into {} (map-indexed (fn [i [_ members]]
-                                                           [(first members) (keyword "yin.k" (str "cc-" (inc i)))]) cs))
-                         [id rows] (emit-node task numbering {})]
-                     ;; This digest preimage contains the input row's own inline bodies,
-                     ;; not growing refinement labels. Decode bounds input by :bytes;
-                     ;; emit imposes no additional input-body byte limit here.
-                     {:numbering numbering :key (bytes-key (cbor/encode (subvec (get rows id) 1)))}))))]
-       (if (empty? ids) {} (:numbering (search labels 0)))))))
+  ([task budget] (canonical-numbering task budget (atom {})))
+  ([task budget counter]
+   (let [r (discovery-numbering task budget counter)]
+     (if-let [refused (:refused r)] (unresolved! refused []) (:numbering r)))))
+
+
+(defn- child-numberer
+  "Numbers an install child in its own scope under budget; a refusal's path
+   is prefixed by the install's row path [12 <name> ...]."
+  [budget]
+  (fn [child path]
+    (let [r (discovery-numbering child budget (atom {}))]
+      (if-let [refused (:refused r)] (unresolved! refused path) (:numbering r)))))
 
 
 (defn emit-numbered
   "Emit under a supplied numbering. Useful for canonicality probes;
-   ordinary callers use emit, which computes the canonical numbering."
-  [task numbering]
-  (let [[id rows] (emit-node task numbering {})]
-    {:yin.k/handoff true :yin.k/version 3 :yin.k/root id :yin.k/rows (vec (vals rows))}))
+   ordinary callers use emit, which computes the canonical numbering.
+   number-child, (fn [child path] numbering), numbers install children;
+   by default canonically."
+  ([task numbering] (emit-numbered task numbering (child-numberer default-budget)))
+  ([task numbering number-child]
+   (let [[id rows] (emit-node task numbering {} [] number-child)]
+     {:yin.k/handoff true :yin.k/version 3 :yin.k/root id :yin.k/rows (vec (vals rows))})))
 
 
 (defn emit
@@ -368,7 +714,8 @@
    not lift-task: the caller supplies the complete abstract row tree."
   ([task] (emit task default-budget))
   ([task budget]
-   (let [[id rows] (emit-node task (canonical-numbering task budget) {})]
+   (let [budget (merge default-budget budget)
+         [id rows] (emit-node task (canonical-numbering task budget) {} [] (child-numberer budget))]
      {:yin.k/handoff true :yin.k/version 3 :yin.k/root id :yin.k/rows (vec (vals rows))})))
 
 
@@ -569,8 +916,19 @@
                    (node kind (mapv expand-slot (descriptors kind slots) slots))))]
          (let [task (expand root)
                _ (check-abstract! task)
-               canonical (if (= :task (:kind task)) (emit task budget)
-                             (let [[id _] (emit-node task {} {})] {:yin.k/root id}))]
+               ;; Only the lift's tie refusal (root or child) is translated; a
+               ;; resource refusal propagates as itself.
+               canonical (if (= :task (:kind task))
+                           (try (emit task budget)
+                                (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                                  (let [d (ex-data e)]
+                                    (if (and (= :yin.k/non-portable (:yin.k/status d))
+                                             (= :unresolved-cursor-cells (:yin.k/kind d)))
+                                      (throw (ex-info "Row codec refused data"
+                                                      (assoc d :yin.k/status :yin.k/undecodable
+                                                             :yin.k/path (into [root] (:yin.k/path d)))))
+                                      (throw e)))))
+                           (let [[id _] (emit-node task {} {})] {:yin.k/root id}))]
            (when (and (not= false (:check-numbering budget)) (not= root (:yin.k/root canonical)))
              (bad! :noncanonical-cursor-cells [root]))
            (when (= :task (:kind task))
