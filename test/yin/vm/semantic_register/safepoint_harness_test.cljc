@@ -431,8 +431,9 @@
         wire (rows/lift-task (:machine world) serve! (lift-opts))
         corr (into {} (map (fn [[id _]] [id id])) @(:table peer))
         receiver ((or (:receiver world) (constantly nil)))
-        {:keys [attach! origin]} (recording-attacher toy)
+        {:keys [attach! origin] n :count} (recording-attacher toy)
         recv (rows/lower-task (machine (merge {:attach-stream attach!} (:opts receiver))) wire attach!)
+        attaches @n
         again (served surfaces)
         relift (rows/lift-task recv (:serve! again) (lift-opts))
         corr2 (into {} (map (fn [[id e]] [id (get @origin (:handle e))])) @(:table (:peer again)))
@@ -440,13 +441,35 @@
         _ (s/serve-mirror! peer)]
     (when-let [f (:finish world)] (f))
     (when-let [f (:finish receiver)] (f))
-    {:wire wire :recv recv :relift relift :corr corr :corr2 corr2
+    {:wire wire :recv recv :relift relift :corr corr :corr2 corr2 :attaches attaches
      :halted (vm/halted? done) :value (normalize (vm/value done)) :trace @(:trace world)}))
 
 
 (defn root-task
   [wire]
   (rows/decode wire))
+
+
+(defn stream-identities
+  "The distinct stream identities of the whole carrier, install children
+   included: one row table serves the tree."
+  [wire]
+  (into #{} (keep (fn [r] (when (= :stream (second r)) (nth r 2)))) (:yin.k/rows wire)))
+
+
+(defn rows-in
+  "Every row node the decoded tree x reaches, once per path."
+  [x]
+  (cond
+    (and (map? x) (contains? x :kind) (contains? x :slots)) (cons x (rows-in (:slots x)))
+    (sequential? x) (mapcat rows-in x)
+    :else nil))
+
+
+(defn stream-occurrences
+  "How many times the decoded tree reaches a :stream row."
+  [x]
+  (count (filter #(= :stream (:kind %)) (rows-in x))))
 
 
 (defn slot
@@ -462,9 +485,10 @@
 (defn laws
   "Laws 1, 2, 3 and 6 for one world; answers the run."
   [world expected]
-  (let [{:keys [wire relift corr corr2] :as got} (handed-off world)
+  (let [{:keys [wire relift corr corr2 attaches] :as got} (handed-off world)
         task (root-task wire)]
     (is (= (:kind world) (slot task 2)))
+    (is (= (count (stream-identities wire)) attaches) "one attach per distinct stream identity")
     (when (= :blocked (:kind world))
       (is (= (:reason world) (first (:slots (first-pending task)))) "law 3: the observed wait's reason"))
     (is (nil? (rows/validate-frames task)) "law 6: every lifted frame validates")
@@ -576,9 +600,11 @@
             wire (rows/lift-task (:machine world) serve! (lift-opts))
             [install] (slot (root-task wire) 12)
             [mn carried-phase _ _ child] (:slots install)
-            recv (rows/lower-task (machine {:attach-stream (s/attacher toy)}) wire (s/attacher toy))
+            {:keys [attach!] n :count} (recording-attacher toy)
+            recv (rows/lower-task (machine {:attach-stream attach!}) wire attach!)
             inst (get-in recv [:installs 'host.mod])
             lowered (:vm inst)]
+        (is (= (count (stream-identities wire)) @n) "one attach per distinct stream identity of the tree")
         (is (= 'host.mod mn))
         (is (= phase carried-phase) "the child's phase as the source held it")
         (is (= :blocked (slot child 2)) "the child's kind")
@@ -935,9 +961,10 @@
         task (root-task wire)
         pendings (mapv #(second (:slots %)) (slot task 13))
         own-out (s/ring 8)
-        recv (rows/lower-task (machine {:attach-stream (s/attacher toy) :call-in (s/ring 8) :call-out own-out
+        {:keys [attach!] n :count} (recording-attacher toy)
+        recv (rows/lower-task (machine {:attach-stream attach! :call-in (s/ring 8) :call-out own-out
                                         :call-out-cursor (vm/mint-oldest own-out :test)})
-                              wire (s/attacher toy))
+                              wire attach!)
         [w1 w2] (:wait-set recv)
         _ (answer-both! call-out id)
         swept (sweep recv [peer])]
@@ -946,6 +973,7 @@
     (is (= 1 (quot (count (:slots (slot task 9))) 2)) "the two waiters name one cursor cell")
     (is (= (nth (:slots (first pendings)) 1) (nth (:slots (second pendings)) 1)))
     (is (= (:cursor-ref w1) (:cursor-ref w2)) "the lower gives both waiters one fresh cursor entry")
+    (is (= (count (stream-identities wire)) @n) "one attach per distinct stream identity")
     (is (= [(apply2/success-response :parked-9 "second") (apply2/success-response id "first")] expected))
     (is (empty? (:wait-set swept)))
     (is (= expected (mapv :value (:ready-queue swept)))
@@ -963,3 +991,184 @@
     (is (= :act (:kind state)))
     (is (= [:ffi (:call-id world)] [(first (:slots (first-pending task))) (nth (:slots (first-pending task)) 2)]))
     (is (nil? (rows/validate-frames task)))))
+
+
+(deftest a-stream-shared-across-the-tree-attaches-once
+  ;; Row 10 with the link-request stream named from the root's store and
+  ;; from the install child's: one identity, reached by two tasks.
+  (let [m (:machine (bare 10))
+        child (get-in m [:installs 'host.mod :vm])
+        ref-in (fn [x] (engine/issue-ref x :stream-ref module/link-request-resource))
+        m (-> m
+              (update :store assoc 'rq (ref-in m))
+              (assoc-in [:installs 'host.mod :vm] (update child :store assoc 'rq (ref-in child))))
+        {:keys [serve! toy]} (served #{:reader :writer})
+        wire (rows/lift-task m serve! (lift-opts))
+        task (root-task wire)
+        {:keys [attach!] n :count} (recording-attacher toy)
+        recv (rows/lower-task (machine {:attach-stream attach!}) wire attach!)
+        lowered-child (get-in recv [:installs 'host.mod :vm])
+        handle (fn [x] (get (:resources x) (:id (get-in x [:store 'rq]))))]
+    (is (< (count (stream-identities wire)) (stream-occurrences task)) "the tree reaches one identity twice")
+    (is (= (count (stream-identities wire)) @n) "one attach per distinct stream identity")
+    (is (some? (handle recv)))
+    (is (identical? (handle recv) (handle lowered-child)) "both tasks hold the one attached stream")))
+
+
+;; =============================================================================
+;; Carrier defects the restore would meet: refused before any attachment
+;; =============================================================================
+
+(defn refused-before-attach
+  "Lower row n's carrier after (edit task): [status kind data]; asserts
+   no stream was attached."
+  [n edit]
+  (let [[toy wire] (lift-bare n)
+        [r attaches] (lowered toy (rows/emit-numbered (edit (root-task wire)) {}))]
+    (is (zero? attaches) (str "refused before any attachment: "
+                              (pr-str (select-keys r [:yin.k/status :yin.k/kind :rule :reason :defect]))))
+    [(:yin.k/status r) (:yin.k/kind r) r]))
+
+
+(def install-path [12 0])
+
+
+(defn with-store-key
+  [k]
+  (fn [s] (rebuild s (fn [ps] (conj ps [k [:lit 42]])))))
+
+
+(defn closures
+  [f]
+  (fn [task] (replace-nodes task #(= :closure (:kind %)) f)))
+
+
+(deftest carrier-defects-refuse-before-attachment
+  (testing "a reserved root store key"
+    (let [[status kind r] (refused-before-attach 1 #(update-at % [6] (with-store-key 'yin/def)))]
+      (is (= [:yin.k/undecodable :reserved-name :store-key] [status kind (:yin.k/role r)]))))
+  (testing "a reserved module store key"
+    (let [[status kind r] (refused-before-attach 18 #(update-at % [7 0 1] (with-store-key 'yin/def)))]
+      (is (= [:yin.k/undecodable :reserved-name :store-key] [status kind (:yin.k/role r)]))))
+  (testing "a closure whose entry names no closure of its code"
+    (is (= [:yin.k/undecodable :closure-origin]
+           (take 2 (refused-before-attach 1 (closures #(assoc-in % [:slots 1] 999999999)))))))
+  (testing "a closure whose binders are not its tuple's"
+    (is (= [:yin.k/undecodable :closure-binders]
+           (take 2 (refused-before-attach 1 (closures #(update-in % [:slots 2] (fn [ps] (conj (vec (butlast ps)) 'zz)))))))))
+  (testing "an install whose retained response is {}"
+    (is (= [:yin.k/undecodable :install-response]
+           (take 2 (refused-before-attach 10 #(update-at % (conj install-path 3) (constantly {})))))))
+  (testing "an install whose response image does not load"
+    (is (= [:yin.k/undecodable :install-response]
+           (take 2 (refused-before-attach 10 #(update-at % (conj install-path 3) (fn [r] (assoc-in r [:image :value] []))))))))
+  (testing "an install whose manifest names another module"
+    (is (= [:yin.k/undecodable :install-response]
+           (take 2 (refused-before-attach 10 #(update-at % (conj install-path 3)
+                                                         (fn [r] (assoc-in r [:manifest :yin.module/name] 'other.mod))))))))
+  (testing "an install in a phase the engine never carries"
+    (is (= [:yin.k/undecodable :install-phase]
+           (take 2 (refused-before-attach 10 #(update-at % (conj install-path 1) (constantly :bogus)))))))
+  (testing "an install whose child is not blocked"
+    (is (= [:yin.k/undecodable :install-child]
+           (take 2 (refused-before-attach 10 #(update-at % (conj install-path 4 2) (constantly :halted))))))))
+
+
+(defn exclusive
+  [task]
+  (update-at task [16] (constantly {:custody :exclusive})))
+
+
+(defn without-trees
+  [path]
+  (fn [task] (update-at task path #(assoc % :yin.k/trees {}))))
+
+
+(deftest carrier-steps-run-in-order-over-the-tree
+  (testing "custody (10) alone"
+    (is (= [:yin.k/unsupported :custody] (take 2 (refused-before-attach 1 exclusive)))))
+  (testing "the dependency closure (9) before custody (10)"
+    (let [[status _ r] (refused-before-attach 1 (comp exclusive (without-trees [10])))]
+      (is (= :yin.k/unsatisfied status) (pr-str r))
+      (is (seq (get-in r [:yin.k/missing :yin.k/trees])))))
+  (testing "the child's dependency closure before the root's custody"
+    (let [[status _ r] (refused-before-attach 10 (comp exclusive (without-trees (conj install-path 4 10))))]
+      (is (= :yin.k/unsatisfied status) (pr-str r))
+      (is (seq (get-in r [:yin.k/missing :yin.k/trees])))))
+  (testing "an install record (8) before the root's dependency closure (9)"
+    (is (= [:yin.k/undecodable :install-phase]
+           (take 2 (refused-before-attach 10 (comp #(update-at % (conj install-path 1) (constantly :bogus))
+                                                   (without-trees [10]))))))))
+
+
+;; =============================================================================
+;; The dependency closure: each free occurrence in its own context (§7.1)
+;; =============================================================================
+
+(defn halted-on
+  [ast]
+  (vm/run (load-program (machine) ast)))
+
+
+(def ghost-fn (s/lam [] (s/v 'ghost)))
+
+
+(defn lift-outcome
+  "Lift m: [the wire or the refusal's ex-data, serves]."
+  [m]
+  (let [n (atom 0)
+        {:keys [serve!]} (served #{:reader})
+        r (try (rows/lift-task m (fn [h] (swap! n inc) (serve! h)) (lift-opts))
+               (catch #?(:cljd Object :clj Throwable :cljs :default) e (ex-data e)))]
+    [r @n]))
+
+
+(defn missing-obligations
+  [m]
+  (let [[d] (lift-outcome m)]
+    (when (= [:yin.k/unsatisfied :incomplete] [(:yin.k/status d) (:yin.k/discovery d)])
+      (get-in d [:yin.k/missing :obligations]))))
+
+
+(defn routed
+  "closure c, its E naming module store mid."
+  [m c mid]
+  (values/closure (:owner m) (assoc-in (values/payload c) [:env engine/store-of-key] mid)))
+
+
+(deftest free-occurrences-are-answered-in-their-own-context
+  (let [m (halted-on ghost-fn)
+        g (vm/value m)]
+    (testing "a carried closure whose only free obligation is missing"
+      (is (= #{'ghost} (missing-obligations m))))
+    (testing "a module store the closure does not route to answers nothing"
+      (is (= #{'ghost} (missing-obligations (assoc m :module-stores {'unrelated {'ghost 42}})))))
+    (testing "a routed closure reads its module store, never the root store"
+      (is (= #{'ghost} (missing-obligations (assoc m :value (routed m g 'scoped) :store {'ghost 1}
+                                                   :module-stores {'scoped {}})))))
+    (testing "the root store answers a top-level closure"
+      (is (nil? (missing-obligations (assoc m :store {'ghost 1})))))
+    (testing "reachable only through the store"
+      (is (= #{'ghost} (missing-obligations (assoc m :value 1 :store {'k g})))))
+    (testing "another closure's E answers nothing"
+      (let [bound (values/closure (:owner m) (assoc-in (values/payload g) [:env 'ghost] 1))]
+        (is (nil? (missing-obligations (assoc m :value bound))) "its own E answers")
+        (is (= #{'ghost} (missing-obligations (assoc m :value 1 :store {'a bound 'k g}))))))
+    (testing "reachable only through a module store a routed closure reaches"
+      ;; the holder runs in outer, where ghost is 2; k, found in outer,
+      ;; runs at top level, where nothing answers ghost
+      (is (= #{'ghost} (missing-obligations (assoc m :value 1 :store {'mod (routed m g 'outer)}
+                                                   :module-stores {'outer {'ghost 2 'k g}}))))))
+  (testing "reachable only through another closure's E"
+    (is (= #{'ghost} (missing-obligations (halted-on (s/let1 'h ghost-fn (s/lam [] (s/app (s/v 'h)))))))))
+  (testing "a routed module store answers, travels alone, and the lowered closure reads it"
+    (let [m0 (halted-on ghost-fn)
+          m (assoc m0 :value (routed m0 (vm/value m0) 'scoped) :module-stores {'scoped {'ghost 42} 'unrelated {'other 1}})
+          [wire serves] (lift-outcome m)
+          {:keys [toy]} (served #{:reader})
+          [recv attaches] (lowered toy wire)]
+      (is (contains? wire :yin.k/rows) (pr-str wire))
+      (is (zero? serves))
+      (is (zero? attaches))
+      (is (= ['scoped] (mapv #(first (:slots %)) (slot (root-task wire) 7))) "only the routed module store travels")
+      (is (= 42 (vm/value (run-beside (assoc recv :store {'f (vm/value recv)}) (s/app (s/v 'f)))))))))

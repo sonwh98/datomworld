@@ -1230,8 +1230,14 @@
 
 (defn- bindings-node
   [ctx e]
-  (swap! (:acc ctx) update :bound into (keys e))
   (node :bindings (mapcat (fn [[k v]] [k (lift-value ctx v)]) e)))
+
+
+(defn- context!
+  "Record that segment a can run from pc at under environment e: a
+   closure's entry, an :act's or a return frame's pc (§7.1's discharge)."
+  [ctx a at e]
+  (swap! (:acc ctx) update :contexts conj {:a a :at at :env (or e {})}))
 
 
 (defn- store-of!
@@ -1249,8 +1255,10 @@
 
 (defn- closure-node
   [ctx c]
-  (let [e (or (:env c) {})]
-    (node :closure [(address! ctx (:segment c)) (:entry c) (vec (:params c))
+  (let [e (or (:env c) {})
+        a (address! ctx (:segment c))]
+    (context! ctx a (:entry c) e)
+    (node :closure [a (:entry c) (vec (:params c))
                     (bindings-node ctx (engine/without-store-of e)) (store-of! ctx e)])))
 
 
@@ -1297,8 +1305,10 @@
 (defn- k-node
   [ctx k]
   (node :k (mapv (fn [f]
-                   (node :kframe [(address! ctx (:segment f)) (:pc f) (lift-env-node ctx (:env f))
-                                  (window-node ctx (:window f)) (:rd f)]))
+                   (let [a (address! ctx (:segment f))]
+                     (context! ctx a (:pc f) (:env f))
+                     (node :kframe [a (:pc f) (lift-env-node ctx (:env f))
+                                    (window-node ctx (:window f)) (:rd f)])))
                  (or k []))))
 
 
@@ -1307,9 +1317,12 @@
    its :act or :tail row; engine fields are the pending's."
   [ctx p]
   (if (contains? p :site)
+    ;; a tail state resumes through its K: its own segment never runs again
     (node :tail [(address! ctx (:segment p)) (:site p) (k-node ctx (:k p))])
-    (node :act [(address! ctx (:segment p)) (:pc p) (lift-env-node ctx (:env p))
-                (window-node ctx (:window p)) (k-node ctx (:k p)) (get-in p [:deliver :rd])])))
+    (let [a (address! ctx (:segment p))]
+      (context! ctx a (:pc p) (:env p))
+      (node :act [a (:pc p) (lift-env-node ctx (:env p))
+                  (window-node ctx (:window p)) (k-node ctx (:k p)) (get-in p [:deliver :rd])]))))
 
 
 (defn- pending-node
@@ -1369,26 +1382,49 @@
         (:installs m)))
 
 
+(defn- encloses?
+  "Body i of bodies is body j or one of j's ancestors."
+  [bodies i j]
+  (loop [j j]
+    (cond
+      (= i j) true
+      (nil? (:owner (nth bodies j))) false
+      :else (recur (code/body-index bodies (:owner (nth bodies j)))))))
+
+
 (defn- discharge!
-  "The dependency closure over the v4 vectors (§7.1): every free name the
-   carried code reads is answered in resolve-var's order, or the lift is
-   :yin.k/unsatisfied, discovery :incomplete."
-  [ctx names free-env]
+  "The dependency closure over the v4 vectors (§7.1), after the walk that
+   found the contexts: every free occurrence is answered, in each carried
+   context whose body encloses it, in resolve-var's order: that context's
+   E, then the one store engine/active-store selects for it (the root
+   store, or the module store its store-of names; both travel), then a
+   primitive, an installing module's export, the module registry. Else
+   the lift is :yin.k/unsatisfied, discovery :incomplete."
+  [ctx code]
   (let [m (:m ctx)
-        bound (:bound @(:acc ctx))
-        module-keys (into #{} (mapcat keys) (vals (:module-stores m)))
         installing (installing-names m)
-        answered? (fn [sym]
-                    (let [profile (vm/profile-of (:primitives m) sym)]
-                      (when (= :host (:yin.k/class profile))
-                        (outcome! :yin.k/non-portable :host-state-primitive {:yin.k/name sym}))
-                      (or (vm/reserved-name? sym) (contains? free-env sym) (contains? bound sym)
-                          (contains? (:store m) sym) (contains? module-keys sym)
-                          (contains? installing sym) (some? profile)
-                          (and (some? (namespace sym))
-                               (some? (module/resolve-module (:modules m)
-                                                             (symbol (str (namespace sym) "." (name sym)))))))))
-        missing (into #{} (remove answered?) names)]
+        answered? (fn [sym e]
+                    (let [store-of (engine/env-store-of e)
+                          store (if (some? store-of) (get (:module-stores m) store-of {}) (:store m))]
+                      (or (vm/reserved-name? sym) (contains? e sym) (contains? store sym)
+                          (let [profile (vm/profile-of (:primitives m) sym)]
+                            (when (= :host (:yin.k/class profile))
+                              (outcome! :yin.k/non-portable :host-state-primitive {:yin.k/name sym}))
+                            (or (some? profile) (contains? installing sym)
+                                (and (some? (namespace sym))
+                                     (some? (module/resolve-module (:modules m)
+                                                                   (symbol (str (namespace sym) "." (name sym)))))))))))
+        scanned (into {} (map (fn [[a v]] [a [(code/parse v) (scan/free-occurrences v)]])) code)
+        missing (into #{}
+                      (mapcat (fn [{:keys [a at env]}]
+                                (let [[bodies occurrences] (get scanned a)
+                                      home (code/body-index bodies at)]
+                                  (keep (fn [o]
+                                          (when (and (encloses? bodies home (code/body-index bodies (:at o)))
+                                                     (not (answered? (:name o) env)))
+                                            (:name o)))
+                                        occurrences))))
+                      (:contexts @(:acc ctx)))]
     (when (seq missing)
       (outcome! :yin.k/unsatisfied nil {:yin.k/discovery :incomplete :yin.k/missing {:obligations missing}}))))
 
@@ -1426,7 +1462,7 @@
         free-env (cond (some? (:free-env opts)) (:free-env opts)
                        (some? (:free-env m)) (:free-env m)
                        :else (outcome! :yin.k/non-portable :missing-free-env {}))
-        ctx {:m m :serve! serve! :acc (atom {:streams {} :cells {} :stores #{} :segments #{} :bound #{}})}
+        ctx {:m m :serve! serve! :acc (atom {:streams {} :cells {} :stores #{} :segments #{} :contexts #{}})}
         free-node (bindings-node ctx free-env)
         waits (mapv (fn [e] (node :wait [(state-node ctx e) (pending-node ctx e)])) (:wait-set m))
         parked (node :parked-table (mapcat (fn [[p rec]] [p (state-node ctx rec)]) (:parked m)))
@@ -1441,7 +1477,7 @@
                                [a v]
                                (outcome! :yin.k/unsatisfied nil {:yin.k/segment a}))))
                    segments)
-        _ (discharge! ctx (into #{} (mapcat scan/free-names) (vals code)) free-env)
+        _ (discharge! ctx code)
         index (or (:source-index opts) {})
         missing-trees (into #{} (remove #(seq (get index %))) segments)
         _ (when (seq missing-trees)
@@ -1508,13 +1544,51 @@
   (into [[task role]] (mapcat #(task-tree (nth (:slots %) 4) :child)) (nth (:slots task) 12)))
 
 
-(defn- check-task!
-  "Carrier steps 8 to 10 for one task, before any attachment: pending and
-   operations, dependency closure, custody."
+(defn- check-stores!
+  "Step 7's task context, beside X1: no root or module store key is a
+   reserved name (Rule R), refused here rather than by restore's store-put."
+  [_recv task _role]
+  (let [[_ _ _ _ _ _ store module-stores] (:slots task)]
+    (doseq [s (cons store (map #(second (:slots %)) module-stores))
+            k (take-nth 2 (:slots s))]
+      (when (vm/reserved-name? k)
+        (outcome! :yin.k/undecodable :reserved-name {:yin.k/role :store-key :yin.k/name k})))))
+
+
+(defn- attaches?
+  "The receiving kernel admits vector v (its loader's validation), under
+   address a when a is given."
+  [recv v a]
+  (try (let [r (module/attach-module recv v)] (or (nil? a) (contains? (:code-aliases r) a)))
+       (catch #?(:cljd Object :clj Throwable :cljs :default) _e false)))
+
+
+(defn- check-install!
+  "One install record: a phase the engine holds a carried child in, the
+   retained response link-install reads (status, manifest naming this
+   module, exports) with the image spawn-child loads, and a child that
+   is blocked: the engine links a halted child in the sweep it halts in."
+  [recv inst]
+  (let [[mn phase _ response child] (:slots inst)
+        manifest (when (map? response) (:manifest response))
+        child-kind (nth (:slots child) 2)]
+    (when-not (contains? #{:running :parked} phase)
+      (outcome! :yin.k/undecodable :install-phase {:yin.k/name mn :yin.k/phase phase}))
+    (when-not (and (map? response) (= :ok (:status response)) (map? manifest)
+                   (= mn (:yin.module/name manifest))
+                   (coll? (:yin.module/exports manifest)) (every? symbol? (:yin.module/exports manifest))
+                   (map? (:image response)) (attaches? recv (:value (:image response)) nil))
+      (outcome! :yin.k/undecodable :install-response {:yin.k/name mn}))
+    (when-not (= :blocked child-kind)
+      (outcome! :yin.k/undecodable :install-child {:yin.k/name mn :yin.k/task-kind child-kind}))))
+
+
+(defn- check-pendings!
+  "Step 8, pending and operations: role, kind, parked id, every :install
+   pending names a carried install, every install record."
   [recv task role]
-  (let [[_ _ kind role' _ _ _ _ parked _ requires code installs waits parked-id _ custody] (:slots task)]
+  (let [[_ _ kind role' _ _ _ _ parked _ _ _ installs waits parked-id] (:slots task)]
     (when-not (= role role') (outcome! :yin.k/undecodable :role {:yin.k/role role'}))
-    (when (some? custody) (outcome! :yin.k/unsupported :custody {}))
     (let [names (into #{} (map #(first (:slots %))) installs)]
       (doseq [w waits]
         (let [[reason n] (:slots (second (:slots w)))]
@@ -1526,18 +1600,51 @@
       :parked (when-not (some #(= parked-id %) (take-nth 2 (:slots parked)))
                 (outcome! :yin.k/undecodable :parked-id {}))
       (outcome! :yin.k/undecodable :kind {:yin.k/task-kind kind}))
+    (run! #(check-install! recv %) installs)))
+
+
+(defn- check-closure!
+  "A closure row names a :closure tuple of its carried vector: the entry
+   (:closure-origin) and that tuple's binders (:closure-binders), as
+   lower-closure will demand."
+  [code c]
+  (let [[a entry params] (:slots c)
+        v (get code a)
+        _ (when (nil? v) (outcome! :yin.k/undecodable :segment {:yin.k/segment a}))
+        tuple (first (filter #(and (= :closure (nth % 0)) (= entry (nth % 3))) v))]
+    (cond
+      (nil? tuple) (outcome! :yin.k/undecodable :closure-origin {:yin.k/segment a :yin.k/entry entry})
+      (not= params (nth tuple 2)) (outcome! :yin.k/undecodable :closure-binders {:yin.k/segment a :yin.k/entry entry})
+      :else nil)))
+
+
+(defn- check-dependencies!
+  "Step 9, dependency closure: requires and code agree, every segment has
+   its trees (§6.1) and is a vector the receiver's kernel admits under its
+   A, every closure names a closure of its code, every :prim is the
+   receiver's."
+  [recv task _role]
+  (let [[_ _ _ _ _ _ _ _ _ _ requires code] (:slots task)]
     (when-not (and (map? requires) (= (set (:yin.k/segments requires)) (set (keys code))))
       (outcome! :yin.k/undecodable :requires {}))
     (let [trees (:yin.k/trees requires)
           missing (into #{} (remove #(seq (get trees %))) (keys code))]
       (when (seq missing)
         (outcome! :yin.k/unsatisfied nil {:yin.k/discovery :incomplete :yin.k/missing {:yin.k/trees missing}})))
-    (doseq [c (rows-of task :closure true)]
-      (when-not (contains? code (first (:slots c)))
-        (outcome! :yin.k/undecodable :segment {:yin.k/segment (first (:slots c))})))
+    (doseq [[a v] (sort-by #(str (key %)) code)]
+      (when-not (attaches? recv v a)
+        (outcome! :yin.k/undecodable :segment {:yin.k/segment a})))
+    (run! #(check-closure! code %) (rows-of task :closure true))
     (doseq [p (rows-of task :prim true)]
       (when-not (contains? (:primitives recv) (first (:slots p)))
         (outcome! :yin.k/unsatisfied nil {:yin.k/name (first (:slots p))})))))
+
+
+(defn- check-custody!
+  "Step 10: phase 6 carries fork custody only."
+  [_recv task _role]
+  (when (some? (nth (:slots task) 16))
+    (outcome! :yin.k/unsupported :custody {})))
 
 
 (defn- attach-streams!
@@ -1715,13 +1822,18 @@
 
 (defn lower-task
   "The lower of §7.2 into recv, a fresh semantic-register machine of the
-   receiver's composition: gate to frames (decode), then pendings,
-   dependency closure and custody for every task of the tree, all before
-   the first attach! (step 11); then restore (step 12). Answers the
-   restored machine, or throws the first refusal as ex-data."
+   receiver's composition: gate to frames (decode) and the store keys,
+   then pendings and install records, dependency closure (code, closures,
+   primitives) and custody, each step over the whole tree before the
+   next, all before the first attach! (step 11); then restore (step 12),
+   which therefore meets no carrier defect. Answers the restored machine,
+   or throws the first refusal as ex-data."
   ([recv wire attach!] (lower-task recv wire attach! {}))
   ([recv wire attach! opts]
    (let [task (decode wire (merge default-budget (:budget opts)))]
      (when-not (= :task (:kind task)) (outcome! :yin.k/undecodable :root {}))
-     (doseq [[t role] (task-tree task :root)] (check-task! recv t role))
+     ;; each step over the whole tree before the next (§3.3)
+     (doseq [step [check-stores! check-pendings! check-dependencies! check-custody!]
+             [t role] (task-tree task :root)]
+       (step recv t role))
      (restore-task recv task (attach-streams! attach! task)))))
