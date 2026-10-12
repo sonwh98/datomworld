@@ -38,6 +38,7 @@
    ["--dht-max-inbound-bytes" :value]
    ["--dht-key" :value]
    ["--dht-principal" :many]
+   ["--dht-trust" :many]
    ["--dht-follow" :many]])
 
 

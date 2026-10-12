@@ -438,7 +438,9 @@
         q (some-> admission (admission/asked (:yin.link/id request)))]
     (if q
       (admitted node declared request q (admission/answer-to admission q))
-      (let [entry (linker.dht/resolve-name node declared name)]
+      (let [entry (linker.dht/resolve-name node declared name)
+            refused (when (= :ok (:status entry))
+                      (when-some [admit (:admit source)] (admit name entry)))]
         (cond
           (not= :ok (:status entry))
           (if (and (= :absent (:reason entry))
@@ -446,8 +448,8 @@
             {:node node, :body ::pending, :heads (awaited-heads source node)}
             {:node node, :body entry})
 
-          (some? (when-some [admit (:admit source)] (admit name entry)))
-          {:node node, :body ((:admit source) name entry)}
+          (some? refused)
+          {:node node, :body refused}
 
           (= :composition (:yin.link/provenance entry))
           (dht-attempt node declared request (:address entry))

@@ -396,6 +396,40 @@
         (cleanup-dir! dir)))))
 
 
+(deftest trusted-principals-are-strict-and-apart-from-declared-ones
+  (let [public (:public (sign/generate))
+        trusted (str "ed25519:" public)
+        dir (temp-dir)
+        decision #(get-in % [:state :repl :link-source :admission :decision])]
+    (try
+      (testing "a declaration alone trusts nothing"
+        (let [started (repl/startup ["--index-store" (str "dht:" dir)
+                                     "--dht-principal" public])]
+          (is (= #{} (decision started)))
+          (repl/close-index-store! (:state started))))
+      (testing "--dht-trust, repeatable, with or without its ed25519: tag"
+        (let [other (:public (sign/generate))
+              started (repl/startup ["--index-store" (str "dht:" dir)
+                                     "--dht-trust" trusted
+                                     "--dht-trust" other])]
+          (is (= #{trusted (str "ed25519:" other)} (decision started)))
+          (is (empty? (get-in started [:state :repl :link-source
+                                       :principals])))
+          (repl/close-index-store! (:state started))))
+      (doseq [bad [(str/upper-case public) (subs public 1) "ed25519:xyz"]]
+        (is (str/includes? (str (:refusal (repl/startup
+                                            ["--index-store" (str "dht:" dir)
+                                             "--dht-trust" bad])))
+                           "--dht-trust")
+            bad))
+      (is (str/includes? (str (:refusal (repl/startup ["--dht-trust"
+                                                       trusted])))
+                         "dht:")
+          "--dht-trust needs the DHT store")
+      (finally
+        (cleanup-dir! dir)))))
+
+
 (deftest an-ephemeral-bind-serves-and-the-serving-line-names-the-port
   (let [server (serve/serve! {:bind-port 0 :host (host-adapter)})
         [_ server' lines] (repl/step-all (repl/boot {}) server 0)
@@ -1470,7 +1504,7 @@
                   "--headless" "--index-store" "--help"
                   "--dht-peer" "--dht-publish" "--dht-bind" "--dht-port"
                   "--dht-max-inbound-bytes" "--dht-manifest" "--dht-key"
-                  "--dht-principal" "--dht-follow" "heads.edn"
+                  "--dht-principal" "--dht-trust" "--dht-follow" "heads.edn"
                   "--dht-keygen" "--name" "--dir" "--key"
                   "--listen" "--peer" "--telemetry" "dht init" "dht serve"
                   "dht join" "keygen"]]

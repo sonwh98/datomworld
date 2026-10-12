@@ -25,6 +25,7 @@
             [yin.repl.admission :as admission]
             [yin.repl.frontends :as repl.frontends]
             [yin.repl.link :as link]
+            [yin.repl.main :as main]
             [yin.vm :as vm]
             [yin.vm.linker.closure-test :as ct]
             [yin.vm.linker.dht :as ld]
@@ -401,10 +402,13 @@
               :yin.admit/conditions {:names ['f]}}
              (refused (assoc (allow id) :yin.admit/conditions {:names ['f]})))))
     (testing "malformed: an unknown decision, a refusal with no reason,
-              conditions that are not a map"
+              conditions that are not a map, an allow with no conditions,
+              an allow with a key beyond its closed set"
       (doseq [answer [{:yin.admit/id id :yin.admit/decision :maybe}
                       {:yin.admit/id id :yin.admit/decision :refuse}
-                      (assoc (allow id) :yin.admit/conditions [:x])]]
+                      (assoc (allow id) :yin.admit/conditions [:x])
+                      {:yin.admit/id id :yin.admit/decision :allow}
+                      (assoc (allow id) :unexpected true)]]
         (is (= {:status :refused :reason :yin.admit/malformed-answer}
                (refused answer))
             (pr-str answer))))
@@ -436,6 +440,21 @@
       (is (= :ok (:status (first (responses s)))))
       (is (nil? (:yin.admit/id (first (responses s)))))
       (is (empty? (questions-of (:adm s)))))))
+
+
+(deftest the-legacy-admit-hook-is-called-once-per-refusal-test
+  (let [w (world)
+        calls (atom 0)
+        hook (fn [n _]
+               {:status :refused :reason :test/hook :name n
+                :call (swap! calls inc)})
+        s (until-response (ask! (assoc-in (seam w) [:src :admit] hook)
+                                [:t0 0] 'own.m))]
+    (is (= 1 @calls))
+    (is (= {:status :refused :reason :test/hook :call 1}
+           (select-keys (first (responses s)) [:status :reason :call])))
+    (is (empty? (questions-of (:adm s))) "refused before it is asked")
+    (is (nil? (status (:node s) w 'own.m)))))
 
 
 (deftest verify-receives-the-snapshot-the-context-and-the-question-test
@@ -661,6 +680,33 @@
         (is (= "43" (second (type! state "app.m/f"))))))))
 
 
+(deftest an-install-child-inherits-the-admission-of-a-preinstalled-entry-test
+  (doseq [vm-type [:ast-walker :semantic :stack :register]]
+    (testing (str vm-type)
+      (let [w (world)
+            allow! (fn [state]
+                     (let [id (pending-admission state)]
+                       (first (settle (first (repl/recheck-on-answers
+                                               (answer-at! state (allow id))))
+                                      #(or (nil? (:pending-run %))
+                                           (not= id (pending-admission %)))))))
+            [state _] (require! (shell w vm-type {:admission :external})
+                                'own.m)
+            state (allow! state)
+            recorded (:admission (entry state 'own.m))
+            [state _] (require! state 'mid.m)
+            state (allow! state)
+            child (get-in state [:vm :installs 'mid.m :vm])]
+        (is (= (address w 'own.m) (:yin.admit/address recorded)))
+        (is (some? (:yin.admit/id recorded)))
+        (is (some? child) "mid.m's install child is parked on inner.m")
+        (is (some? (pending-admission state)))
+        (testing "the child's inherited entry carries the original admission"
+          (is (= recorded
+                 (:admission (module/module-entry (:modules (:modules child))
+                                                  'own.m)))))))))
+
+
 (deftest an-untrusted-import-is-refused-at-the-shell-with-no-load-test
   (let [w (world)
         [state text] (require! (shell w :semantic) 'their.m)]
@@ -673,6 +719,37 @@
                                    'their.m)
             [state text'] (settle state)]
         (is (= 'their.m (:last-value state)) (str text text'))))))
+
+
+(defn- booted
+  "The shell `yin.repl.main/boot` composes from `opts`, holding A's key
+   and declaring B, over `w`'s node."
+  [w opts]
+  (-> (main/boot (merge {:dht-key a :principals [(:public b)]} opts))
+      :repl
+      (assoc :dht (:node w))
+      (assoc-in [:link-source :content] {:kind :dht})))
+
+
+(deftest boot-keeps-declared-authority-apart-from-admission-trust-test
+  (let [w (world)]
+    (testing "declaring B alone refuses B's module before any load"
+      (let [state (booted w {})
+            [state text] (require! state 'their.m)]
+        (is (= #{pa} (get-in state [:link-source :admission :decision])))
+        (is (nil? (:pending-run state)) text)
+        (is (str/includes? text "untrusted-principal") text)
+        (is (nil? (status (:dht state) w 'their.m)))))
+    (testing "an explicit admission passed to boot is honored: trusting B
+              imports B's module"
+      (let [state (booted w {:admission {:trusted #{pb}}})
+            [state text] (require! state 'their.m)
+            [state text'] (settle state)]
+        (is (= #{pa pb} (get-in state [:link-source :admission :decision])))
+        (is (= 'their.m (:last-value state)) (str text text'))))
+    (testing "and an external admission reaches the session"
+      (is (nil? (get-in (booted w {:admission :external})
+                        [:link-source :admission]))))))
 
 
 (deftest create-state-composes-the-admission-policy-test

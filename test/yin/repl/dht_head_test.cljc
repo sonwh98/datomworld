@@ -77,7 +77,8 @@
 
 
 (defn- shell
-  "The step owner's state of a shell over `dir` at mesh `port`."
+  "The step owner's state of a shell over `dir` at mesh `port`, trusting
+   the principals it declares."
   [{:keys [mesh ws dir port peers key principals follow write! bind-host
            bind!]}]
   (quick
@@ -92,6 +93,10 @@
                           (seq follow) (assoc :follow follow))
                         :dht-key key
                         :principals principals
+                        ;; the shells import their declared publishers'
+                        ;; modules: trusted explicitly (7.5)
+                        :admission {:trusted (set (map sign/principal
+                                                       principals))}
                         :ws-host (when ws (ws-host ws))}
                  write! (assoc :write-heads! write!)))))
 

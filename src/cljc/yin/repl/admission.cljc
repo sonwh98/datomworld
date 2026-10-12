@@ -173,20 +173,28 @@
   (get-in admission [:answers (:yin.admit/id question)]))
 
 
+(def ^:private allow-keys
+  #{:yin.admit/id :yin.admit/decision :yin.admit/conditions})
+
+
 (defn judge
   "nil when `answer` allows with empty conditions; otherwise the refusal
    it amounts to, as `{:yin.admit/reason r ...}`.  A refusal keeps the
-   answer's reason and open keys.  Non-empty conditions refuse
-   `:yin.admit/unsupported-condition` and anything else that is not an
-   allow or a refusal with a keyword reason refuses
+   answer's reason and open keys.  An allow's key set is closed: exactly
+   id, decision and conditions.  Non-empty conditions refuse
+   `:yin.admit/unsupported-condition` and anything else that is not such
+   an allow or a refusal with a keyword reason refuses
    `:yin.admit/malformed-answer`: both fail closed."
   [answer]
   (let [decision (:yin.admit/decision answer)
-        conditions (get answer :yin.admit/conditions {})]
+        conditions (:yin.admit/conditions answer)
+        allow? (and (= :allow decision)
+                    (= allow-keys (set (keys answer)))
+                    (map? conditions))]
     (cond
-      (and (= :allow decision) (map? conditions) (empty? conditions)) nil
+      (and allow? (empty? conditions)) nil
 
-      (and (= :allow decision) (map? conditions))
+      allow?
       {:yin.admit/reason :yin.admit/unsupported-condition
        :yin.admit/conditions conditions}
 
