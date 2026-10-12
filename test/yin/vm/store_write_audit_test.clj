@@ -379,7 +379,19 @@
    "src/cljc/yin/vm/ucf/rows.cljc"
    {["row-table" :map] 1
     ["restore-task" "engine/store-put"] 1
-    ["restore-task" "assoc"] 1}})
+    ["restore-task" "assoc"] 1}
+   ;; the de Bruijn layouts' task presentations (continuation design
+   ;; §7.1, §7.2): state construction over keys that already passed the
+   ;; one program-write gate. canonical-task copies a quiescent kernel's
+   ;; store, whose every program write went through engine/put-active and
+   ;; so store-put; kernel-task copies the scratch machine's store that
+   ;; rows/restore-task built key by key through store-put. The layout
+   ;; converts values only and never introduces a key, so a second key
+   ;; check would prove nothing -- the precedent of restore-task and
+   ;; isolated-receiver above
+   "src/cljc/yin/vm/semantic_register/layout.cljc"
+   {["canonical-task" "assoc"] 1
+    ["kernel-task" "assoc"] 1}})
 
 
 (deftest every-store-mutation-is-on-the-allowlist

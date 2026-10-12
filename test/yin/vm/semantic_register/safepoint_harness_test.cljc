@@ -32,7 +32,10 @@
             [yin.vm.semantic-register :as sr]
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
+            [yin.vm.parity-test :as b0]
+            [yin.vm.semantic-register.analysis :as analysis]
             [yin.vm.semantic-register.code :as code]
+            [yin.vm.semantic-register.corpus :as corpus]
             [yin.vm.semantic-register.frame :as frame]
             [yin.vm.semantic-register.frame-test :as ft]
             [yin.vm.semantic-register.layout :as layout]
@@ -57,13 +60,27 @@
   (atom {}))
 
 
+(def ^:dynamic *projected*
+  "When bound, an atom {A v} of the vectors one world projected: the
+   layouts' spaces read it instead of the whole file's code-index, so an
+   alpha-equivalent A an unrelated fixture projected widens no lookup."
+  nil)
+
+
 (defn project
   [ast]
   (let [v (:vector (linearize/project ast))
         a (jing/segment-key v)]
     (swap! source-index update a (fnil conj #{}) (jing/segment-key [:yin/tree ast]))
     (swap! code-index assoc a v)
+    (when *projected* (swap! *projected* assoc a v))
     v))
+
+
+(defn scoped
+  "f's result, every vector it projects recorded in a fresh *projected*."
+  [f]
+  (binding [*projected* (atom {})] (f)))
 
 
 (def stream-modules (module/register-stream-module (module/default-registry)))
@@ -118,11 +135,14 @@
 
 
 (defn kernel-space
-  "The layout space of the A vectors whose images de Bruijn kernel k holds."
+  "The layout space of the A vectors whose images de Bruijn kernel k
+   holds, among those this world projected (*projected*, when bound) or
+   the file ever projected."
   [k]
   (let [id (if (= :stack (lane-of k)) :stack-id :register-id)
         held (into #{} (map first) (:images k))]
-    (layout/space (filter #(contains? held (id %)) (map segment-of (vals @code-index))))))
+    (layout/space (filter #(contains? held (id %))
+                          (map segment-of (vals (if *projected* @*projected* @code-index)))))))
 
 
 (defn- kernel-load
@@ -1388,10 +1408,11 @@
 ;; =============================================================================
 
 (def link-rows
-  "Rows the de Bruijn lanes do not carry: a require installs a child and
-   attaches a module image in the kernel's own format, and the layouts
-   of §4 reconstruct no install child (canonical-task refuses
-   :installs)."
+  "Rows the de Bruijn lanes do not carry (§5.3, the shared fragment): a
+   de Bruijn kernel links a native image while module responses carry A,
+   and §4 defines no layout for install children (canonical-task refuses
+   :installs). The reference lane runs the whole matrix; these lanes are
+   removed with their kernels at phase 8."
   #{7 8 9 10 11 12 17})
 
 
@@ -1401,7 +1422,8 @@
 
 
 (defn lane-cases
-  "15 lane rows x 4 segments, plus row 20 once: [row segment expected build]."
+  "§5.3's shared fragment: 15 lane rows x 4 segments, plus row 20 once:
+   [row segment expected build]."
   []
   (filterv #(not (contains? link-rows (first %))) (matrix-cases)))
 
@@ -1428,32 +1450,41 @@
       (layout/lower-task scratch (on-lane lane #(machine opts)) wire attach!))))
 
 
+(defn injective
+  "names, asserting no two identities share a logical name (§5.5)."
+  [names]
+  (is (= (count names) (count (distinct (vals names)))) "the correspondence is injective")
+  names)
+
+
 (defn logical-names
   "§5.5's explicit correspondence: each served identity to the resource
    key the lifted machine holds that handle under. The fixture builds the
    same program on every lane, so one key names one logical stream."
   [m peer]
-  (into {} (map (fn [[id e]]
-                  [id (or (some (fn [[k h]] (when (identical? h (:handle e)) k)) (:resources m))
-                          (throw (ex-info "A served handle the machine does not hold" {:id id})))]))
-        @(:table peer)))
+  (injective
+    (into {} (map (fn [[id e]]
+                    [id (or (some (fn [[k h]] (when (identical? h (:handle e)) k)) (:resources m))
+                            (throw (ex-info "A served handle the machine does not hold" {:id id})))]))
+          @(:table peer))))
 
 
 (defn ring-names
   "{stream identity -> resource key} over every stream m holds."
   [m]
-  (into {} (keep (fn [[k h]]
-                   (when (satisfies? stream/IDaoStreamDescriptor h)
-                     [(:dao.stream/identity (stream/descriptor h)) k])))
-        (:resources m)))
+  (injective
+    (into {} (keep (fn [[k h]]
+                     (when (satisfies? stream/IDaoStreamDescriptor h)
+                       [(:dao.stream/identity (stream/descriptor h)) k])))
+          (:resources m))))
 
 
 (defn logical-positions
   "The task with each cursor position's embedded stream identity renamed
    to its logical name. A ring buffer cursor carries its stream's
-   identity, which §5.5's marker substitution does not reach (reported
-   as a design defect), so the cross-lane comparison renames it under
-   the same fixture correspondence."
+   identity, which §5.5's marker substitution does not reach, so the
+   cross-lane comparison renames only that field, under the same fixture
+   correspondence; every other field, the offset included, is kept."
   [task m]
   (let [names (ring-names m)
         k :dao.stream.ringbuffer/identity]
@@ -1466,40 +1497,150 @@
                                     p)))))))
 
 
+(defn rename-identities
+  "x with every :dao.stream/identity value that names maps renamed."
+  [x names]
+  (cond
+    (map? x) (into {} (map (fn [[k v]]
+                             [k (if (and (= :dao.stream/identity k) (contains? names v))
+                                  (get names v)
+                                  (rename-identities v names))]))
+                   x)
+    (vector? x) (mapv #(rename-identities % names) x)
+    :else x))
+
+
+(defn logical-descriptors
+  "§5.5: {logical name -> stream descriptor, identities renamed} over every
+   stream m holds. canonical-under erases a marker's descriptor, so the
+   lanes' descriptors are shown equivalent on these, separately."
+  [m]
+  (let [names (ring-names m)]
+    (into {} (keep (fn [[k h]]
+                     (when (satisfies? stream/IDaoStreamDescriptor h)
+                       [k (rename-identities (stream/descriptor h) names)])))
+          (:resources m))))
+
+
+(defn descriptors-equivalent?
+  "Each lane's logical-descriptors, one per lane: equal maps."
+  [ds]
+  (apply = ds))
+
+
+(defn identities-in
+  "The members of ids anywhere in x."
+  [x ids]
+  (cond
+    (contains? ids x) #{x}
+    (map? x) (into #{} (mapcat #(identities-in % ids)) (concat (keys x) (vals x)))
+    (coll? x) (into #{} (mapcat #(identities-in % ids)) x)
+    :else #{}))
+
+
+(defn task-root
+  "§5.5 over decoded task: positions renamed, re-emitted, then
+   canonical-under the served correspondence; no lane identity survives."
+  [task m peer]
+  (let [names (logical-names m peer)
+        canonical (rows/canonical-under (rows/emit (logical-positions task m)) names)]
+    (is (empty? (identities-in (:yin.k/rows canonical) (into (set (keys names)) (keys (ring-names m)))))
+        "every lane identity was renamed")
+    (:yin.k/root canonical)))
+
+
 (defn logical-root
   "§5.5: the lift's root id with every lane identity replaced by the
    fixture's logical name."
   [wire m peer]
-  (:yin.k/root (rows/canonical-under (rows/emit (logical-positions (rows/decode wire) m))
-                                     (logical-names m peer))))
+  (task-root (rows/decode wire) m peer))
 
 
 (defn lane-root
-  "Build on lane, lift: [root under the logical names, the lane's own
-   reference run]."
+  "Build on lane, lift: {:root under the logical names, :reference the
+   lane's own run, :lane the kernel the world ran on, :descriptors, and
+   :task :machine :peer for the controls}."
   [lane build]
-  (let [world (on-lane lane build)
-        {:keys [serve! peer]} (served (or (:surfaces world) #{:reader}))
-        wire (lane-lift (:machine world) serve!)]
-    (is (nil? (rows/validate-frames (rows/decode wire))) "law 6 on every lane")
-    [(logical-root wire (:machine world) peer)
-     (reference (on-lane lane build))]))
+  (scoped
+    (fn []
+      (let [world (on-lane lane build)
+            m (:machine world)
+            {:keys [serve! peer]} (served (or (:surfaces world) #{:reader}))
+            task (rows/decode (lane-lift m serve!))]
+        (is (nil? (rows/validate-frames task)) "law 6 on every lane")
+        {:root (task-root task m peer)
+         :reference (reference (on-lane lane build))
+         :lane (lane-of m) :descriptors (logical-descriptors m)
+         :task task :machine m :peer peer}))))
 
 
 (defn canonical-equality
-  "Law 4 for one case: the three lanes lift to one root, and each lane's
-   own run answers the reference."
+  "Law 4 for one case: exactly the three distinct kernel lanes lift to one
+   root, their streams' descriptors are equivalent under the
+   correspondence, and each lane's own run answers the reference."
   [build expected]
   (let [roots (mapv #(lane-root % build) lanes)]
-    (is (apply = (map first roots)) "law 4: one root id on every lane")
-    (doseq [[lane [_ ref]] (map vector lanes roots)]
-      (is (:halted ref) (str lane " completes"))
-      (when (some? expected) (is (= expected (:value ref)) (str lane " answers the reference"))))
+    (is (= 3 (count roots)))
+    (is (= [:semantic-register :stack :register] (mapv :lane roots)) "three distinct kernel lanes")
+    (is (apply = (map :root roots)) "law 4: one root id on every lane")
+    (is (descriptors-equivalent? (mapv :descriptors roots)) "descriptors equivalent under the correspondence")
+    (doseq [{:keys [lane reference]} roots]
+      (is (:halted reference) (str lane " completes"))
+      (when (some? expected) (is (= expected (:value reference)) (str lane " answers the reference"))))
     roots))
 
 
+(defn control-root
+  "A lane's root with its decoded task changed by f first."
+  [{:keys [task machine peer]} f]
+  (let [task' (f task)]
+    (is (not= task task') "the control changed the task")
+    (task-root task' machine peer)))
+
+
+(defn first-binding
+  "Pairs node n with the value of its first pair whose key satisfies pred
+   replaced by v."
+  [n pred v]
+  (let [ps (pairs-of n)
+        i (first (keep-indexed (fn [i [k _]] (when (pred k) i)) ps))]
+    (if i (rows/node (:kind n) (mapcat identity (assoc-in ps [i 1] v))) n)))
+
+
+(deftest law-4-controls
+  ;; §5.5 (D1): a changed position offset, descriptor field, saved value or
+  ;; lexical value changes what law 4 compares
+  (let [roots (canonical-equality #(bare 1) ["A" "B"])
+        [sr stack-lane register-lane] roots
+        base (:root sr)]
+    (testing "the three lanes agree"
+      (is (= base (:root stack-lane) (:root register-lane))))
+    (testing "a cursor position's offset"
+      (is (not= base (control-root stack-lane
+                                   (fn [t]
+                                     (replace-nodes t #(= :cursor-cell-body (:kind %))
+                                                    (fn [n] (update-in n [:slots 1 :dao.stream.ringbuffer/position] inc))))))))
+    (testing "a stream descriptor's nonidentity field"
+      (let [ds (mapv :descriptors roots)
+            k (first (keys (first ds)))]
+        (is (some? k))
+        (is (descriptors-equivalent? ds))
+        (is (not (descriptors-equivalent? (update-in ds [2 k :dao.stream/descriptor] assoc :review/extra :different))))))
+    (testing "a saved window value"
+      (is (not= base (control-root register-lane
+                                   (fn [t]
+                                     (replace-nodes t #(= :window (:kind %))
+                                                    (fn [n] (first-binding n some? [:lit :control]))))))))
+    (testing "a lexical value"
+      (is (not= base (control-root sr
+                                   (fn [t]
+                                     (replace-nodes t #(= :env (:kind %))
+                                                    (fn [n] (update-in n [:slots 0] first-binding #{'a} [:lit :control]))))))))))
+
+
 (deftest cross-engine-canonical-equality-bare
-  ;; the quick-tier slice of acceptance 10: every lane row once, bare
+  ;; the quick-tier slice of acceptance 10: every lane row once, bare;
+  ;; §5.3's shared fragment, 16 cases over three distinct kernel lanes
   (let [n (atom 0)]
     (doseq [[row r build] lane-rows]
       (testing (str "row " row)
@@ -1512,6 +1653,8 @@
 
 
 (deftest ^:slow cross-engine-canonical-equality
+  ;; acceptance 10: law 4 over §5.3's shared fragment, 61 cases, each over
+  ;; exactly three distinct kernel lanes
   (slow/guard
     "cross-engine-canonical-equality"
     (fn []
@@ -1530,10 +1673,12 @@
 
 
 (def unlowerable
-  "[row receiver] pairs a de Bruijn receiver cannot continue: row 4's
-   retained FFI re-parks through the kernel's own call-out pair
+  "[row receiver] pairs a de Bruijn receiver cannot continue (§5.3): row
+   4 is lifted from a de Bruijn source but not lowered into a de Bruijn
+   receiver, whose re-park names its own call pair
    (ffi/response-wait-entry), not the carried response cursor cell the
-   semantic-register kernel restores. A kernel seam, reported."
+   semantic-register kernel restores. Emptied when the retained-FFI seam
+   (§4, 6c-post-D2) lands, raising law 5 to 366 and 96."
   #{[4 :stack] [4 :register]})
 
 
@@ -1541,20 +1686,22 @@
   "Lift on from, lower into a fresh receiver on to, satisfy through the
    source's streams: the run's observables and attaches."
   [from to build]
-  (let [world (on-lane from build)
-        {:keys [toy peer serve!]} (served (or (:surfaces world) #{:reader}))
-        wire (lane-lift (:machine world) serve!)
-        receiver ((or (:receiver world) (constantly nil)))
-        {:keys [attach!] n :count} (recording-attacher toy)
-        recv (lane-lower to (merge {:attach-stream attach!} (:opts receiver)) wire attach!)
-        _ (is (= to (lane-of recv)))
-        attaches @n
-        done (satisfy world recv #(drive-peers % [peer]))
-        _ (s/serve-mirror! peer)]
-    (when-let [f (:finish world)] (f))
-    (when-let [f (:finish receiver)] (f))
-    {:attaches attaches :wire wire
-     :halted (vm/halted? done) :value (normalize (vm/value done)) :trace @(:trace world)}))
+  (scoped
+    (fn []
+      (let [world (on-lane from build)
+            {:keys [toy peer serve!]} (served (or (:surfaces world) #{:reader}))
+            wire (lane-lift (:machine world) serve!)
+            receiver ((or (:receiver world) (constantly nil)))
+            {:keys [attach!] n :count} (recording-attacher toy)
+            recv (lane-lower to (merge {:attach-stream attach!} (:opts receiver)) wire attach!)
+            _ (is (= to (lane-of recv)))
+            attaches @n
+            done (satisfy world recv #(drive-peers % [peer]))
+            _ (s/serve-mirror! peer)]
+        (when-let [f (:finish world)] (f))
+        (when-let [f (:finish receiver)] (f))
+        {:attaches attaches :wire wire
+         :halted (vm/halted? done) :value (normalize (vm/value done)) :trace @(:trace world)}))))
 
 
 (defn cross-lowering
@@ -1577,7 +1724,8 @@
 
 
 (deftest cross-engine-lowering-bare
-  ;; the quick-tier slice of acceptance 11: every lane row once, bare
+  ;; the quick-tier slice of acceptance 11: every lane row once, bare;
+  ;; §5.3's shared fragment, 92 transfers (96 once unlowerable is emptied)
   (is (= 6 (count ordered-pairs)))
   (let [ran (atom 0)]
     (doseq [[row _ build] lane-rows]
@@ -1592,6 +1740,8 @@
 
 
 (deftest ^:slow cross-engine-lowering
+  ;; acceptance 11: law 5, six ordered pairs over §5.3's shared fragment,
+  ;; 350 transfers (366 once unlowerable is emptied)
   (slow/guard
     "cross-engine-lowering"
     (fn []
@@ -1625,6 +1775,56 @@
     (first (remove (conj (set (:live entry)) (:dest entry)) (sort unique)))))
 
 
+(def layout-corpus
+  "C, [label ast]: the B0 corpus, the phase-3 corpus, then a tail call in
+   operand position, whose dead layout syntax reads registers other than
+   the call's own (phase-5 §6.3's last golden)."
+  (conj (into (mapv (fn [[label ast _]] [label ast]) b0/corpus) corpus/programs)
+        [:tail-operand (corpus/app (corpus/v 'f) (corpus/tail (corpus/app (corpus/v 'g) (corpus/v 'x))) (corpus/v 'y))]))
+
+
+(defn- parking-site?
+  "Rule A1: a non-tail parking instruction."
+  [t]
+  (or (contains? #{:stream-next :stream-put :ffi-call :park :current-continuation} (nth t 0))
+      (and (= :call (nth t 0)) (not (code/tail-call? t)))))
+
+
+(defn ambiguous-dead-slots
+  "[v p s] over C: a reachable parking pc p and a physical slot s of its
+   body that R gives two or more virtuals, outside live-out*(p)'s image
+   and p's destination."
+  []
+  (into []
+        (mapcat (fn [[_ ast]]
+                  (let [v (:vector (linearize/project ast))
+                        sg (segment-of v)
+                        reach (into #{} (mapcat #(analysis/reachable v (:start %))) (code/body-ranges v))]
+                    (mapcat (fn [p]
+                              (let [rd (code/rd (nth v p))
+                                    body (nth (:phys sg) (code/body-index (:bodies sg) p))
+                                    used (into #{} (map #(layout/phys sg p %))
+                                               (cond-> (layout/live-out sg p) (some? rd) (conj rd)))]
+                                (keep (fn [[s xs]] (when (and (< 1 (count xs)) (not (contains? used s))) [v p s]))
+                                      (sort-by key (group-by body (keys body))))))
+                            (filter #(parking-site? (nth v %)) (sort reach))))))
+        layout-corpus))
+
+
+(defn register-entry
+  "A register kernel k's wait entry parked after pc p of v, its window the
+   live registers holding :v, plus slot extra holding :x when given."
+  [k v p extra]
+  (let [sg (segment-of v)
+        off (layout/offset :register k sg)
+        rd (code/rd (nth v p))
+        regs (vec (sort-by first (cond-> (mapv (fn [r] [r :v]) (layout/register-live sg p))
+                                   (some? extra) (conj [extra :x]))))]
+    {:site-pc (+ off p) :pc (+ off p 1) :regs regs :live (mapv first regs)
+     :dest (when (some? rd) (layout/phys sg p rd)) :continuation [] :resume-mode :write-result
+     :frames (mapv (fn [c] (vec (repeat (count (nth (nth v c) 2)) nil))) (layout/chain sg (inc p)))}))
+
+
 (deftest layout-refusals
   (testing "a kernel stepped to a non-safepoint pc"
     (doseq [lane [:stack :register]]
@@ -1655,17 +1855,44 @@
       (is (= :window-extra (register-judge m (assoc entry :live (vec (sort (conj live spare)))
                                                     :regs (vec (sort-by first (conj (:regs entry) [spare :x]))))))
           "a dead register added")))
-  (testing "a primitive in a window: the register kernel cannot hold it, refused before any attach"
-    (let [build #(reader % (s/app (s/v 'conj) (s/lit []) read-op))
-          world (build identity)
-          {:keys [serve! toy]} (served #{:reader})
-          wire (rows/lift-task (:machine world) serve! (lift-opts))
-          {:keys [attach!] n :count} (recording-attacher toy)
-          d (error #(lane-lower :register {:attach-stream attach!} wire attach!))]
-      (is (= [:yin.k/unsupported :continuation-registers] [(:yin.k/status d) (:yin.k/kind d)]) (pr-str d))
-      (is (zero? @n) "refused before any attachment")
-      (testing ", the stack kernel holds it"
-        (let [ref (reference (build identity))
-              got (crossed :semantic-register :stack #(build identity))]
-          (is (= ["B"] (:value ref)))
-          (is (= (:value ref) (:value got))))))))
+  (testing "a register entry tampered with an ambiguous dead preimage: the layout refuses"
+    (let [fixtures (ambiguous-dead-slots)]
+      (is (seq fixtures) "C holds one: the allocator reuses slots")
+      (doseq [[v p s] fixtures]
+        (let [sp (layout/space [v])
+              k (layout/attach-space (on-lane :register machine) sp)
+              cx (layout/lift-context k sp (:owner k))
+              d (error #(layout/lift-state cx (register-entry k v p s)))]
+          (is (map? (layout/lift-state cx (register-entry k v p nil))) "untampered, the entry lifts")
+          (is (= [:yin.k/non-portable :register-layout] [(:yin.k/status d) (:yin.k/kind d)]) (pr-str d))
+          (is (= {:yin.k/pc p :yin.k/register s} (select-keys d [:yin.k/pc :yin.k/register])))))))
+  (testing "a primitive in a window, a lexical binding, a closure's capture or a window's guest collection: the register kernel cannot hold it, refused before any attach"
+    (doseq [[label op expected path?]
+            [[:window (s/app (s/v 'conj) (s/lit []) read-op) ["B"]
+              #(= [:frames 0 :window] (subvec % 0 3))]
+             ;; the read under cat, whose closure captures no primitive: s/then
+             ;; would save its own closure, which captures the binding too
+             [:lexical (s/app (s/lam ['q] (cat-of (cat-of (s/lit []) read-op) (s/app (s/v 'q) (s/lit []) (s/lit 1))))
+                              (s/v 'conj))
+              ["B" [1]] #(= '[:frames 0 :env q] %)]
+             [:captured (s/let1 'g (s/lam ['h] (s/lam ['x] (s/app (s/v 'h) (s/lit []) (s/v 'x))))
+                                (s/let1 'k (s/app (s/v 'g) (s/v 'conj))
+                                        (cat-of (cat-of (s/lit []) read-op) (s/app (s/v 'k) (s/lit 2)))))
+              ["B" [2]] #(= '[:frames 0 :env k h] %)]
+             [:nested (s/app (s/lam ['w 'r] (s/v 'r)) (cat-of (s/lit []) (s/v 'conj)) read-op) "B"
+              #(and (= 5 (count %)) (= [:frames 0 :window] (subvec % 0 3)) (= 0 (peek %)))]]]
+      (testing (str " " (name label))
+        (let [build #(reader % op)
+              world (build identity)
+              {:keys [serve! toy]} (served #{:reader})
+              wire (rows/lift-task (:machine world) serve! (lift-opts))
+              {:keys [attach!] n :count} (recording-attacher toy)
+              d (error #(lane-lower :register {:attach-stream attach!} wire attach!))]
+          (is (= [:yin.k/unsupported :continuation-registers] [(:yin.k/status d) (:yin.k/kind d)]) (pr-str d))
+          (is (path? (:yin.k/path d)) (pr-str (:yin.k/path d)))
+          (is (zero? @n) "refused before any attachment")
+          (testing ", the stack kernel holds it"
+            (let [ref (reference (build identity))
+                  got (crossed :semantic-register :stack #(build identity))]
+              (is (= expected (:value ref)))
+              (is (= (:value ref) (:value got))))))))))

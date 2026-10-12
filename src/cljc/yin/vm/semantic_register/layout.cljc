@@ -700,18 +700,33 @@
 ;; Tasks
 ;; =============================================================================
 
+(defn- holds-procedure?
+  "Whether kernel value `x` is or holds, through guest collections, a
+   closure or continuation."
+  [x]
+  (cond
+    (or (values/closure? x) (values/continuation? x)) true
+    (values/host-typed? x) false
+    (map? x) (boolean (some holds-procedure? (concat (keys x) (vals x))))
+    (coll? x) (boolean (some holds-procedure? x))
+    :else false))
+
+
 (defn canonical-task
   "Quiescent kernel `k` presented as semantic-register machine `template`
    (a fresh machine of the same composition) for `rows/lift-task`: code
    by A from `space`, every wait, parked record and value reconstructed
    through the layout; resources, stores and counters carried. A running
    kernel is `:yin.k/not-at-safepoint`; install children are not carried
-   by this phase's layouts."
+   by this phase's layouts; a closure or continuation in the free
+   environment has no finite canonical form (§6.3)."
   [k space template]
   (when (engine/active-continuation? k)
     (refuse! :yin.k/not-at-safepoint nil {:yin.k/pc (:pc k)}))
   (when (seq (:installs k))
     (refuse! :yin.k/unsupported :installs {:yin.k/names (vec (keys (:installs k)))}))
+  (when-let [sym (some (fn [[sym x]] (when (holds-procedure? x) sym)) (sort-by (comp str key) (:free-env k)))]
+    (refuse! :yin.k/non-portable :free-env-value {:yin.k/key sym}))
   (let [cx (lift-context k space (:owner template))
         conv #(canonical-value cx %)
         parked (into {} (map (fn [[id rec]] [id (assoc (lift-state cx rec) :type :parked-continuation :id id)]))
@@ -859,19 +874,69 @@
       nil)))
 
 
+(defn- row-procedure
+  "The path to the first closure or continuation row carrier value `x`
+   holds, through guest collections; or nil."
+  [x path]
+  (when (and (vector? x) (= :row (first x)))
+    (let [n (second x)]
+      (case (:kind n)
+        (:closure :reified) path
+        (:vec :list :set :map) (some (fn [[i y]] (row-procedure y (conj path i))) (map-indexed vector (:slots n)))
+        nil))))
+
+
+(defn- free-env-procedure
+  "§6.3: a de Bruijn kernel resolves free names through its one
+   `free-env` while a canonical closure snapshots its `env`, so a closure
+   or continuation held in the free environment has no finite canonical
+   form there. The path `[:free-env sym …]` to the first such value of
+   decoded task `task`, or nil."
+  [task]
+  (some (fn [[sym x]] (row-procedure x [:free-env sym]))
+        (partition 2 (:slots (nth (:slots task) 5)))))
+
+
+(defn- image-collision
+  "§4.1: `[ident #{A …}]` for the first image of kind `kind` two carried A
+   derive, or nil. A de Bruijn kernel attaches one image once, so it
+   cannot hold both segments; no enumeration order selects an A. A
+   vector that derives no image is left to the carrier's own checks."
+  [code kind]
+  (let [ident (fn [a v]
+                (try
+                  (if (= :stack kind)
+                    (dcode/image-hash (:image (derive/stack-image v)))
+                    (rcode/register-hash (derive/register-image v)))
+                  (catch #?(:cljd Object :clj Throwable :cljs :default) _ [::underivable a])))
+        by-image (reduce (fn [acc [a v]] (update acc (ident a v) (fnil conj #{}) a)) {} code)]
+    (some (fn [[i as]] (when (< 1 (count as)) [i as])) (sort-by (comp str key) by-image))))
+
+
 (defn lower-defect
   "What a kernel of `kind` cannot hold, judged on decoded task `task`
-   before anything is attached: install children (not carried by this
-   phase's layouts), and for the register kernel a primitive function in
-   the payload data of a wait or parked state (a window, a lexical
-   binding, or reached through them), which its restore refuses as
-   `:continuation-registers` (`vm/machine-data?`). nil when it can."
+   before anything is attached: two carried A of one image (§4.1), install
+   children (not carried by this phase's layouts), a closure or
+   continuation in the free environment (§6.3), and for the register
+   kernel a primitive function in the payload data of a wait or parked
+   state (a window, a lexical binding, or reached through them), which
+   its restore refuses as `:continuation-registers` (`vm/machine-data?`).
+   nil when it can."
   [task kind]
   (let [slots (:slots task)
-        code (nth slots 11)]
+        code (nth slots 11)
+        collision (image-collision code kind)
+        free (free-env-procedure task)]
     (cond
+      collision
+      (assoc {} :yin.k/status :yin.k/unsupported :yin.k/kind :ambiguous-image
+             :yin.k/image (first collision) :yin.k/segments (second collision))
+
       (seq (nth slots 12))
       (assoc {} :yin.k/status :yin.k/unsupported :yin.k/kind :installs)
+
+      free
+      (assoc {} :yin.k/status :yin.k/unsupported :yin.k/kind :free-env-value :yin.k/path free)
 
       (= :register kind)
       (when-let [path (or (some (fn [[i w]] (state-prim code (first (:slots w)) [:frames i]))

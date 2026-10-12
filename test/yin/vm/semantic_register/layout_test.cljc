@@ -10,10 +10,8 @@
             [dao.stream :as stream]
             [yin.vm :as vm]
             [yin.vm.debruijn-register-code :as rcode]
-            [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
-            [yin.vm.parity-test :as b0]
             [yin.vm.values :as values]
             [yin.vm.semantic-register.analysis :as analysis]
             [yin.vm.semantic-register.code :as code]
@@ -25,11 +23,8 @@
 
 
 (def C
-  "[label ast]: the B0 corpus, the phase-3 corpus, then a tail call in
-   operand position, whose dead layout syntax reads registers other than
-   the call's own (phase-5 §6.3's last golden)."
-  (conj (into (mapv (fn [[label ast _]] [label ast]) b0/corpus) corpus/programs)
-        [:tail-operand (corpus/app (corpus/v 'f) (corpus/tail (corpus/app (corpus/v 'g) (corpus/v 'x))) (corpus/v 'y))]))
+  "[label ast]: the harness's layout corpus."
+  h/layout-corpus)
 
 
 (defn projected
@@ -423,3 +418,139 @@
           (is (= "B" (second (:observed plain))))
           (swap! checked inc))))
     (is (= 4 @checked) "rows 6 and 20 on both de Bruijn lanes; 9 and 12 are link rows")))
+
+
+;; =============================================================================
+;; §4.1: alpha-equivalent segments, one native image, two A
+;; =============================================================================
+;;
+;; The fixtures' shapes are this test's own: the harness's code-index is
+;; file-wide, and an alpha-equivalent A of another test's vector would
+;; widen that test's unscoped kernel-space.
+
+(defn binder-program
+  "A reader parked inside ((fn [sym] (then :alpha (next-of c))) 0)."
+  [sym]
+  (h/with-stream (h/with-cat (s/app (s/lam [sym] (s/then (s/lit :alpha) h/read-op)) (s/lit 0)))))
+
+
+(defn binder-world
+  [sym]
+  (h/reader (fn [_] (s/app (s/lam [sym] (s/then (s/lit :alpha) h/read-op)) (s/lit 0))) h/read-op))
+
+
+(defn alpha-closure
+  [sym]
+  (s/lam [sym] (s/then (s/lit :alpha) (s/v sym))))
+
+
+(defn alpha-world
+  "Two alpha-equivalent closures in the store, then (b (a \"B\")) after a read."
+  []
+  (let [m1 (vm/run (h/load-program (h/machine) (alpha-closure 'x)))
+        m2 (vm/run (h/load-program m1 (alpha-closure 'y)))
+        m3 (assoc m2 :store {'a (vm/value m1) 'b (vm/value m2)})
+        m (vm/run (h/load-program m3 (h/with-stream (s/then h/read-op (s/app (s/v 'b) (s/app (s/v 'a) (s/lit "B")))))))
+        src (s/stream-of m)]
+    {:machine m :kind :blocked :reason :next :steps [#(stream/append! src "B")] :trace (atom [])}))
+
+
+(deftest alpha-equivalent-segments
+  (testing "distinct A, one register image, one stack image"
+    (let [sx (layout/segment (projected (s/lam ['x] (s/v 'x))))
+          sy (layout/segment (projected (s/lam ['y] (s/v 'y))))]
+      (is (not= (:address sx) (:address sy)))
+      (is (= (:register-id sx) (:register-id sy)))
+      (is (= (:stack-id sx) (:stack-id sy)))))
+  (testing "a de Bruijn source whose space resolves one image to two A refuses the lift before serving"
+    (let [ax (layout/segment (h/project (binder-program 'x)))
+          ay (layout/segment (h/project (binder-program 'y)))]
+      (is (not= (:address ax) (:address ay)))
+      (is (= [(:register-id ax) (:stack-id ax)] [(:register-id ay) (:stack-id ay)]))
+      (doseq [lane [:stack :register]]
+        (testing (name lane)
+          (let [m (:machine (h/on-lane lane #(binder-world 'x)))
+                n (atom 0)
+                {:keys [serve!]} (h/served #{:reader})
+                counting #(do (swap! n inc) (serve! %))
+                template (h/on-lane :semantic-register h/machine)
+                d (h/error #(layout/lift-task m (layout/space [ax ay]) template counting (h/lift-opts)))]
+            (is (vm/blocked? m))
+            (is (contains? (set (map first (:images m))) (if (= :stack lane) (:stack-id ax) (:register-id ax)))
+                "the kernel holds the one image")
+            (is (= [:yin.k/non-portable :ambiguous-image] [(:yin.k/status d) (:yin.k/kind d)]) (pr-str d))
+            (is (zero? @n) "no stream was served")
+            (testing ", the file-wide code-index widens the space; the world's own does not"
+              (is (= :ambiguous-image (:yin.k/kind (h/error #(h/lane-lift m counting)))))
+              (is (zero? @n))
+              (h/scoped (fn []
+                          (let [m (:machine (h/on-lane lane #(binder-world 'x)))]
+                            (is (= #{(:address ax)} (set (keys (:segments (h/kernel-space m))))))
+                            (is (map? (h/lane-lift m serve!)) "the world's own space lifts"))))))))))
+  (testing "a de Bruijn receiver of two A of one image refuses before any attach"
+    (let [world (alpha-world)
+          addresses (into #{} (map #(:address (layout/segment (projected (alpha-closure %))))) '[x y])]
+      (is (= 2 (count addresses)))
+      (doseq [lane [:stack :register]]
+        (testing (name lane)
+          (let [{:keys [serve! toy]} (h/served #{:reader})
+                wire (h/lane-lift (:machine world) serve!)
+                {:keys [attach!] n :count} (h/recording-attacher toy)
+                d (h/error #(h/lane-lower lane {:attach-stream attach!} wire attach!))]
+            (is (= [:yin.k/unsupported :ambiguous-image] [(:yin.k/status d) (:yin.k/kind d)]) (pr-str d))
+            (is (= addresses (:yin.k/segments d)))
+            (is (zero? @n) "refused before any attachment"))))))
+  (testing "the reference lane holds both: laws 1 and 2"
+    (let [expected (h/reference (alpha-world))]
+      (is (= "B" (:value expected)))
+      (is (= "B" (:value (h/laws (alpha-world) expected)))))))
+
+
+;; =============================================================================
+;; §6.3: a closure in the free environment, refused on the de Bruijn lanes
+;; =============================================================================
+
+(defn free-closure-world
+  "An identity closure f the machine's own lane made, held in the free
+   environment, then (then (next-of c) (f \"B\")) parked on the read."
+  []
+  (let [m0 (vm/run (h/load-program (h/machine) (s/lam ['arg] (s/v 'arg))))
+        f (vm/value m0)
+        m1 (cond-> (update m0 :free-env assoc 'f f)
+             (= :semantic-register (h/lane-of m0)) (update :env assoc 'f f))
+        m (vm/run (h/load-program m1 (h/with-stream (s/then h/read-op (s/app (s/v 'f) (s/lit "B"))))))
+        src (s/stream-of m)]
+    {:machine m :kind :blocked :reason :next :steps [#(stream/append! src "B")] :trace (atom [])}))
+
+
+(deftest free-env-values
+  (testing "the reference lane and the carrier admit it"
+    (let [world (h/on-lane :semantic-register free-closure-world)]
+      (is (values/closure? (get-in world [:machine :free-env 'f])))
+      (is (= "B" (:value (h/reference (h/on-lane :semantic-register free-closure-world)))))
+      (is (= "B" (:value (h/handed-off world))))))
+  (testing "a de Bruijn receiver refuses it before any attach"
+    (doseq [lane [:stack :register]]
+      (testing (name lane)
+        (let [world (h/on-lane :semantic-register free-closure-world)
+              {:keys [serve! toy]} (h/served #{:reader})
+              wire (h/lane-lift (:machine world) serve!)
+              {:keys [attach!] n :count} (h/recording-attacher toy)
+              d (h/error #(h/lane-lower lane {:attach-stream attach!} wire attach!))]
+          (is (= [:yin.k/unsupported :free-env-value] [(:yin.k/status d) (:yin.k/kind d)]) (pr-str d))
+          (is (= '[:free-env f] (:yin.k/path d)))
+          (is (zero? @n) "refused before any attachment")))))
+  (testing "a de Bruijn source refuses it before anything is served"
+    (doseq [lane [:stack :register]]
+      (testing (name lane)
+        (let [world (h/on-lane lane free-closure-world)
+              m (:machine world)
+              n (atom 0)
+              {:keys [serve!]} (h/served #{:reader})
+              d (h/error #(h/lane-lift m (fn [x] (swap! n inc) (serve! x))))]
+          (is (= lane (h/lane-of m)))
+          (is (vm/blocked? m))
+          (is (values/closure? (get-in m [:free-env 'f])))
+          (is (= [:yin.k/non-portable :free-env-value] [(:yin.k/status d) (:yin.k/kind d)]) (pr-str d))
+          (is (= 'f (:yin.k/key d)))
+          (is (zero? @n) "no stream was served"))))))
