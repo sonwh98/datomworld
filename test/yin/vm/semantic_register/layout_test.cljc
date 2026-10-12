@@ -7,8 +7,10 @@
    phase-3 corpus (derive-test's wider C requires the Python ANTLR lane);
    the dynamic items run the harness's worlds on the de Bruijn lanes."
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.walk :as walk]
             [dao.stream :as stream]
             [yin.vm :as vm]
+            [yin.vm.debruijn-code :as dcode]
             [yin.vm.debruijn-register-code :as rcode]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
@@ -16,6 +18,7 @@
             [yin.vm.semantic-register.analysis :as analysis]
             [yin.vm.semantic-register.code :as code]
             [yin.vm.semantic-register.corpus :as corpus]
+            [yin.vm.semantic-register.derive :as derive]
             [yin.vm.semantic-register.layout :as layout]
             [yin.vm.semantic-register.linearize :as linearize]
             [yin.vm.semantic-register.safepoint-harness-test :as h]
@@ -105,9 +108,17 @@
 (def worked-ast (second (first (filter #(= :worked-example (first %)) corpus/programs))))
 
 
+(defn in-world
+  "(f machine) of the world build makes on lane, its construction and its
+   layout lookups in one h/scoped: no other fixture's vector is in its
+   space."
+  [lane build f]
+  (h/scoped #(f (:machine (h/on-lane lane build)))))
+
+
 (defn lifted-waits
   "The canonical wait entries of world machine m: the evaluator's own, or a
-   de Bruijn kernel's through the layout."
+   de Bruijn kernel's through the layout. m's kernel-space is its scope's."
   [m]
   (if (= :semantic-register (h/lane-of m))
     (:wait-set m)
@@ -116,28 +127,29 @@
 
 (deftest register-rd-from-a
   (testing "the worked example parked at its inner call"
-    (let [m0 (h/on-lane :register h/machine)
-          [sref m1] (engine/attach-resource m0 (s/ring 4))
-          [cref m2] (engine/handle-cursor m1 {:stream sref} :k1)
-          next! (engine/resolve-var {} {} vm/primitives h/stream-modules 'stream/next!)
-          m (vm/run (h/load-program (assoc m2 :free-env {'f (get vm/primitives 'conj) 'g next! 'x cref 'y 2})
-                                    worked-ast))
-          entry (first (:wait-set m))
-          [p] (lifted-waits m)
-          v (projected worked-ast)]
-      (is (vm/blocked? m))
-      (is (= [:call 2 3 [4] false] (nth v 3)) "the inner call")
-      (is (= 4 (:pc p)))
-      (is (= {:deliver :rd :rd 2} (:deliver p)) "the canonical rd is A's 2")
-      (is (= 3 (:dest entry)) "the kernel's dest is the physical 3")
-      (is (= #{1} (set (keys (:window p)))) "saved(4, 2)")))
+    (h/scoped
+      (fn []
+        (let [m0 (h/on-lane :register h/machine)
+              [sref m1] (engine/attach-resource m0 (s/ring 4))
+              [cref m2] (engine/handle-cursor m1 {:stream sref} :k1)
+              next! (engine/resolve-var {} {} vm/primitives h/stream-modules 'stream/next!)
+              m (vm/run (h/load-program (assoc m2 :free-env {'f (get vm/primitives 'conj) 'g next! 'x cref 'y 2})
+                                        worked-ast))
+              entry (first (:wait-set m))
+              [p] (lifted-waits m)
+              v (projected worked-ast)]
+          (is (vm/blocked? m))
+          (is (= [:call 2 3 [4] false] (nth v 3)) "the inner call")
+          (is (= 4 (:pc p)))
+          (is (= {:deliver :rd :rd 2} (:deliver p)) "the canonical rd is A's 2")
+          (is (= 3 (:dest entry)) "the kernel's dest is the physical 3")
+          (is (= #{1} (set (keys (:window p)))) "saved(4, 2)")))))
   (testing "the K frames of :depth-3 take rd from A"
     (let [[_ wrap] (nth h/segments 2)
           build #(h/reader wrap h/read-op)
           reference (first (:wait-set (:machine (h/on-lane :semantic-register build))))
-          m (:machine (h/on-lane :register build))
-          entry (first (:wait-set m))
-          [p] (lifted-waits m)]
+          [m [p]] (in-world :register build (juxt identity lifted-waits))
+          entry (first (:wait-set m))]
       (is (= :depth-3 (first (nth h/segments 2))))
       (is (= 6 (count (:k p))) "three bindings, three nest applications")
       (is (= (mapv :rd (:k reference)) (mapv :rd (:k p))) "the evaluator's return destinations")
@@ -222,44 +234,47 @@
     (doseq [[row label _ build] (h/lane-cases)
             :when (contains? #{:bare :depth-3 :unwrapped} label)]
       (testing (str "row " row " " (name label))
-        (let [k (:machine (h/on-lane :stack build))]
-          (doseq [e (concat (:wait-set k) (vals (:parked k)))
-                  :when (non-tail? e)]
-            (let [frames (stack-frames k e)]
-              (is (= (vec (:stack e)) (into [] (mapcat #(nth % 2)) frames)) "the slices partition the stack")
-              (doseq [[sg pc slice] frames]
-                (is (= (count (layout/stack-layout sg (dec pc))) (count slice))))
-              (swap! checked inc))))))
+        (in-world :stack build
+                  (fn [k]
+                    (doseq [e (concat (:wait-set k) (vals (:parked k)))
+                            :when (non-tail? e)]
+                      (let [frames (stack-frames k e)]
+                        (is (= (vec (:stack e)) (into [] (mapcat #(nth % 2)) frames)) "the slices partition the stack")
+                        (doseq [[sg pc slice] frames]
+                          (is (= (count (layout/stack-layout sg (dec pc))) (count slice))))
+                        (swap! checked inc)))))))
     (is (< 20 @checked)))
   (testing "the multi-frame fixture"
-    (let [expr (h/cat-of (s/lit [1])
-                         (s/app (s/lam ['x] (h/cat-of (s/lit [2])
-                                                      (s/app (s/lam ['y] (h/cat-of (s/lit [3]) h/read-op))
-                                                             (s/lit 2))))
-                                (s/lit 1)))
-          world (h/on-lane :stack #(h/reader identity expr))
-          k (:machine world)
-          e (first (:wait-set k))
-          st (:stack e)]
-      (is (= [0 0 0 2 4] (mapv :stack-base (:continuation e))) "the bases, pinned from the kernel")
-      (is (= 6 (count st)))
-      (is (= [[] [] [] 2 2 2] (mapv #(if (empty? %) [] (count %)) (layout/slices (vec st) [0 0 0 2 4]))))
-      (is (= [[1] [2] [3]] (mapv #(nth st %) [1 3 5])) "each slice holds its activation's cat and literal")
-      (is (every? values/closure? (map #(nth st %) [0 2 4])))
-      (is (= (vec st) (into [] cat (layout/slices (vec st) [0 0 0 2 4]))))
-      (let [sp (h/kernel-space k)
-            p (layout/lift-state (layout/lift-context k sp (:owner k)) e)
-            fresh (layout/attach-space (h/on-lane :stack h/machine) sp)
-            lowered (layout/lower-state (layout/lower-context fresh sp) p)]
-        (is (= 5 (count (:k p))))
-        (is (= [0 0 0 2 4] (mapv :stack-base (:continuation lowered))) "the lowering emits the same bases")
-        (is (= 6 (count (:stack lowered))))
-        (is (= (h/normalize (:stack e)) (h/normalize (:stack lowered))))
-        (stream/append! (s/stream-of k) "B")
-        (is (= [1 [2 [3 "B"]]] (h/normalize (vm/value (h/drive-local (assoc fresh :wait-set [lowered] :blocked? true
-                                                                            :halted? false :value :yin/blocked
-                                                                            :resources (:resources k))))))
-            "and it continues")))))
+    (h/scoped
+      (fn []
+        (let [expr (h/cat-of (s/lit [1])
+                             (s/app (s/lam ['x] (h/cat-of (s/lit [2])
+                                                          (s/app (s/lam ['y] (h/cat-of (s/lit [3]) h/read-op))
+                                                                 (s/lit 2))))
+                                    (s/lit 1)))
+              world (h/on-lane :stack #(h/reader identity expr))
+              k (:machine world)
+              e (first (:wait-set k))
+              st (:stack e)]
+          (is (= [0 0 0 2 4] (mapv :stack-base (:continuation e))) "the bases, pinned from the kernel")
+          (is (= 6 (count st)))
+          (is (= [[] [] [] 2 2 2] (mapv #(if (empty? %) [] (count %)) (layout/slices (vec st) [0 0 0 2 4]))))
+          (is (= [[1] [2] [3]] (mapv #(nth st %) [1 3 5])) "each slice holds its activation's cat and literal")
+          (is (every? values/closure? (map #(nth st %) [0 2 4])))
+          (is (= (vec st) (into [] cat (layout/slices (vec st) [0 0 0 2 4]))))
+          (let [sp (h/kernel-space k)
+                p (layout/lift-state (layout/lift-context k sp (:owner k)) e)
+                fresh (layout/attach-space (h/on-lane :stack h/machine) sp)
+                lowered (layout/lower-state (layout/lower-context fresh sp) p)]
+            (is (= 5 (count (:k p))))
+            (is (= [0 0 0 2 4] (mapv :stack-base (:continuation lowered))) "the lowering emits the same bases")
+            (is (= 6 (count (:stack lowered))))
+            (is (= (h/normalize (:stack e)) (h/normalize (:stack lowered))))
+            (stream/append! (s/stream-of k) "B")
+            (is (= [1 [2 [3 "B"]]] (h/normalize (vm/value (h/drive-local (assoc fresh :wait-set [lowered] :blocked? true
+                                                                                :halted? false :value :yin/blocked
+                                                                                :resources (:resources k))))))
+                "and it continues")))))))
 
 
 ;; =============================================================================
@@ -297,14 +312,13 @@
       (testing label
         (let [expected (envs (:machine (h/on-lane :semantic-register build)))]
           (doseq [lane [:stack :register]]
-            (is (= expected (envs (:machine (h/on-lane lane build)))) (str (name lane) "'s E is the evaluator's"))
+            (is (= expected (in-world lane build envs)) (str (name lane) "'s E is the evaluator's"))
             (swap! checked inc)))))
     (is (= (* 2 (+ 61 3)) @checked)))
   (testing "row 21: the read's E binds x to 1, the free environment keeps 99"
     (let [build #(h/free-env-world identity {'x 99})]
       (doseq [lane h/lanes]
-        (let [m (:machine (h/on-lane lane build))
-              [p] (lifted-waits m)]
+        (let [[m [p]] (in-world lane build (juxt identity lifted-waits))]
           (is (= 1 (get-in p [:env 'x])))
           (is (= {'x 99} (:free-env m)))))))
   (testing "the env programs answer"
@@ -347,34 +361,46 @@
   (h/normalize (assoc (select-keys c [:params :entry :env]) :segment (address (:segment c)))))
 
 
+(def alpha-renames
+  "Every binder of closure-programs renamed: an alpha-equivalent A of each,
+   one native image with it."
+  '{x other-x y other-y f other-f})
+
+
 (deftest closures-round-trip
+  ;; an unrelated alpha-equivalent of every fixture, projected file-wide
+  ;; first: each world's own scope must not see it
+  (doseq [[_ ast] closure-programs]
+    (h/project (h/with-stream (h/with-cat (walk/postwalk-replace alpha-renames ast)))))
   (let [checked (atom 0)]
     (doseq [[label ast] closure-programs
             lane [:stack :register]]
       (testing (str (name label) " " (name lane))
-        (let [sr (:machine (h/on-lane :semantic-register #(h/reader identity ast)))
-              k (:machine (h/on-lane lane #(h/reader identity ast)))
-              sp (h/kernel-space k)
-              cx (layout/lift-context k sp (:owner k))
-              lx (layout/lower-context k sp)
-              expected (mapv #(canonical-shape (fn [seg] (get-in sr [:code seg :address])) (values/payload %))
-                             (closures-in [(:value sr) (mapv :env (:wait-set sr))]))
-              positional (kernel-closures k)
-              canonical (mapv #(layout/canonical-value cx %) positional)]
-          (is (seq positional))
-          (is (= (set expected) (set (map #(canonical-shape identity (values/payload %)) canonical)))
-              "positional -> canonical is the evaluator's closure")
-          (doseq [[p c] (map vector positional canonical)]
-            (let [back (values/payload (layout/positional-value lx c))]
-              (is (= (select-keys (values/payload p) [:arity :body-pc :store-of]) (select-keys back [:arity :body-pc :store-of])))
-              (is (= (h/normalize (values/payload c))
-                     (h/normalize (values/payload (layout/canonical-value cx (layout/positional-value lx c)))))
-                  "canonical -> positional -> canonical is the identity")
-              (if (and (= :duplicate-param label) (= [1 2] (peek (:frames (values/payload p)))))
-                (is (= [2 2] (peek (:frames back))) "the shadowed position reads as the visible x")
-                (is (= (h/normalize (:frames (values/payload p))) (h/normalize (:frames back)))
-                    "positional -> canonical -> positional keeps every frame"))
-              (swap! checked inc))))))
+        (h/scoped
+          (fn []
+            (let [sr (:machine (h/on-lane :semantic-register #(h/reader identity ast)))
+                  k (:machine (h/on-lane lane #(h/reader identity ast)))
+                  sp (h/kernel-space k)
+                  cx (layout/lift-context k sp (:owner k))
+                  lx (layout/lower-context k sp)
+                  expected (mapv #(canonical-shape (fn [seg] (get-in sr [:code seg :address])) (values/payload %))
+                                 (closures-in [(:value sr) (mapv :env (:wait-set sr))]))
+                  positional (kernel-closures k)
+                  canonical (mapv #(layout/canonical-value cx %) positional)]
+              (is (seq positional))
+              (is (= (set expected) (set (map #(canonical-shape identity (values/payload %)) canonical)))
+                  "positional -> canonical is the evaluator's closure")
+              (doseq [[p c] (map vector positional canonical)]
+                (let [back (values/payload (layout/positional-value lx c))]
+                  (is (= (select-keys (values/payload p) [:arity :body-pc :store-of]) (select-keys back [:arity :body-pc :store-of])))
+                  (is (= (h/normalize (values/payload c))
+                         (h/normalize (values/payload (layout/canonical-value cx (layout/positional-value lx c)))))
+                      "canonical -> positional -> canonical is the identity")
+                  (if (and (= :duplicate-param label) (= [1 2] (peek (:frames (values/payload p)))))
+                    (is (= [2 2] (peek (:frames back))) "the shadowed position reads as the visible x")
+                    (is (= (h/normalize (:frames (values/payload p))) (h/normalize (:frames back)))
+                        "positional -> canonical -> positional keeps every frame"))
+                  (swap! checked inc))))))))
     (is (<= 6 @checked)))
   (testing "the duplicate binder's visible value survives"
     (let [k (:machine (h/on-lane :stack #(h/reader identity (s/app (second (nth closure-programs 2)) (s/lit 7)))))]
@@ -424,9 +450,8 @@
 ;; §4.1: alpha-equivalent segments, one native image, two A
 ;; =============================================================================
 ;;
-;; The fixtures' shapes are this test's own: the harness's code-index is
-;; file-wide, and an alpha-equivalent A of another test's vector would
-;; widen that test's unscoped kernel-space.
+;; Every world's layout lookups run in its own h/scoped; only the
+;; contamination case below reads the file-wide index, explicitly.
 
 (defn binder-program
   "A reader parked inside ((fn [sym] (then :alpha (next-of c))) 0)."
@@ -445,14 +470,25 @@
 
 
 (defn alpha-world
-  "Two alpha-equivalent closures in the store, then (b (a \"B\")) after a read."
-  []
-  (let [m1 (vm/run (h/load-program (h/machine) (alpha-closure 'x)))
-        m2 (vm/run (h/load-program m1 (alpha-closure 'y)))
-        m3 (assoc m2 :store {'a (vm/value m1) 'b (vm/value m2)})
-        m (vm/run (h/load-program m3 (h/with-stream (s/then h/read-op (s/app (s/v 'b) (s/app (s/v 'a) (s/lit "B")))))))
-        src (s/stream-of m)]
-    {:machine m :kind :blocked :reason :next :steps [#(stream/append! src "B")] :trace (atom [])}))
+  "Two alpha-equivalent closures in the store, then (b (a \"B\")) after a
+   read; with :one, both names hold the first and the second is only
+   projected."
+  ([] (alpha-world :both))
+  ([carried]
+   (let [m1 (vm/run (h/load-program (h/machine) (alpha-closure 'x)))
+         m2 (vm/run (h/load-program m1 (alpha-closure 'y)))
+         m3 (assoc m2 :store {'a (vm/value m1) 'b (vm/value (if (= :one carried) m1 m2))})
+         m (vm/run (h/load-program m3 (h/with-stream (s/then h/read-op (s/app (s/v 'b) (s/app (s/v 'a) (s/lit "B")))))))
+         src (s/stream-of m)]
+     {:machine m :kind :blocked :reason :next :steps [#(stream/append! src "B")] :trace (atom [])})))
+
+
+(defn receiver-image
+  "The image identity a de Bruijn receiver of kind derives for v (§4.1)."
+  [kind v]
+  (if (= :stack kind)
+    (dcode/image-hash (:image (derive/stack-image v)))
+    (rcode/register-hash (derive/register-image v))))
 
 
 (deftest alpha-equivalent-segments
@@ -481,7 +517,7 @@
             (is (= [:yin.k/non-portable :ambiguous-image] [(:yin.k/status d) (:yin.k/kind d)]) (pr-str d))
             (is (zero? @n) "no stream was served")
             (testing ", the file-wide code-index widens the space; the world's own does not"
-              (is (= :ambiguous-image (:yin.k/kind (h/error #(h/lane-lift m counting)))))
+              (is (= :ambiguous-image (:yin.k/kind (h/file-wide (fn [] (h/error #(h/lane-lift m counting)))))))
               (is (zero? @n))
               (h/scoped (fn []
                           (let [m (:machine (h/on-lane lane #(binder-world 'x)))]
@@ -499,7 +535,19 @@
                 d (h/error #(h/lane-lower lane {:attach-stream attach!} wire attach!))]
             (is (= [:yin.k/unsupported :ambiguous-image] [(:yin.k/status d) (:yin.k/kind d)]) (pr-str d))
             (is (= addresses (:yin.k/segments d)))
+            (is (= (receiver-image lane (projected (alpha-closure 'x))) (:yin.k/image d))
+                "the receiver's own image identity")
+            (is (= (receiver-image lane (projected (alpha-closure 'y))) (:yin.k/image d)))
             (is (zero? @n) "refused before any attachment"))))))
+  (testing "one of the pair carried, the other only projected: no collision"
+    (doseq [lane [:stack :register]]
+      (testing (name lane)
+        (let [ref (h/reference (alpha-world :one))
+              got (h/crossed :semantic-register lane #(alpha-world :one))]
+          (is (= "B" (:value ref)))
+          (is (= 1 (count (h/stream-identities (:wire got)))))
+          (is (= 1 (:attaches got)) "lowered, one attach")
+          (is (= (select-keys ref [:halted :value]) (select-keys got [:halted :value])))))))
   (testing "the reference lane holds both: laws 1 and 2"
     (let [expected (h/reference (alpha-world))]
       (is (= "B" (:value expected)))
@@ -543,14 +591,100 @@
   (testing "a de Bruijn source refuses it before anything is served"
     (doseq [lane [:stack :register]]
       (testing (name lane)
-        (let [world (h/on-lane lane free-closure-world)
-              m (:machine world)
-              n (atom 0)
-              {:keys [serve!]} (h/served #{:reader})
-              d (h/error #(h/lane-lift m (fn [x] (swap! n inc) (serve! x))))]
-          (is (= lane (h/lane-of m)))
-          (is (vm/blocked? m))
-          (is (values/closure? (get-in m [:free-env 'f])))
-          (is (= [:yin.k/non-portable :free-env-value] [(:yin.k/status d) (:yin.k/kind d)]) (pr-str d))
-          (is (= 'f (:yin.k/key d)))
-          (is (zero? @n) "no stream was served"))))))
+        (h/scoped
+          (fn []
+            (let [world (h/on-lane lane free-closure-world)
+                  m (:machine world)
+                  n (atom 0)
+                  {:keys [serve!]} (h/served #{:reader})
+                  d (h/error #(h/lane-lift m (fn [x] (swap! n inc) (serve! x))))]
+              (is (= lane (h/lane-of m)))
+              (is (vm/blocked? m))
+              (is (values/closure? (get-in m [:free-env 'f])))
+              (is (= [:yin.k/non-portable :free-env-value] [(:yin.k/status d) (:yin.k/kind d)]) (pr-str d))
+              (is (= 'f (:yin.k/key d)))
+              (is (zero? @n) "no stream was served"))))))))
+
+
+(def nestings
+  "[label wrap extract path]: a value one guest collection deep under box,
+   the AST that reads it back, and the refusal's path to it."
+  [[:vector (fn [x] [1 [x]]) (s/app (s/v 'first) (s/app (s/v 'first) (s/app (s/v 'rest) (s/v 'box))))
+    '[:free-env box 1 0]]
+   [:map (fn [x] {:nested x}) (s/app (s/v 'get) (s/v 'box) (s/lit :nested)) '[:free-env box 1]]])
+
+
+(def held
+  "[label made program expected]: (made m) is [value m feed], a value made
+   on m's own lane (feed, a ring the read is answered on, else the
+   program's own stream); program uses the value through extract."
+  [[:closure (fn [m] (let [m (vm/run (h/load-program m (s/lam ['arg] (s/v 'arg))))] [(vm/value m) m nil]))
+    (fn [extract] (h/with-stream (s/app extract h/read-op))) "B"]
+   ;; captured where box is lexical: its E agrees with any free environment
+   ;; on every other name, so the carrier lifts it beside box (§5.5 frames)
+   [:continuation (fn [m]
+                    (let [m (vm/run (h/load-program m (h/tail (s/app (s/lam ['box] h/capture) (s/lit 0)))))]
+                      [(vm/value m) m nil]))
+    (fn [_] (h/with-stream h/read-op)) "B"]
+   [:primitive (fn [m] [(get vm/primitives 'conj) m nil])
+    (fn [extract] (h/with-stream (s/then h/read-op extract))) (get vm/primitives 'conj)]
+   [:cursor (fn [m]
+              (let [ring (s/ring 4)
+                    [sref m] (engine/attach-resource m ring)
+                    [cref m] (engine/handle-cursor m {:stream sref} :held)]
+                [cref m ring]))
+    (fn [extract] (s/next-of extract)) "B"]])
+
+
+(defn boxed-world
+  "A world on the machine's own lane: made's value wrapped under box in
+   the free environment, program parked on its read."
+  [made wrap program extract]
+  (let [[x m0 feed] (made (h/machine))
+        box (wrap x)
+        m1 (cond-> (update m0 :free-env assoc 'box box)
+             (= :semantic-register (h/lane-of m0)) (update :env assoc 'box box))
+        m (vm/run (h/load-program m1 (program extract)))
+        src (or feed (s/stream-of m))]
+    {:machine m :kind :blocked :reason :next :steps [#(stream/append! src "B")] :trace (atom [])}))
+
+
+(deftest free-env-nested-values
+  ;; §6.3 through guest collections: a closure or continuation refuses both
+  ;; ways; a primitive and an authentic cursor reference cross and are used
+  (doseq [[nest wrap extract path] nestings
+          [label made program expected] held]
+    (testing (str (name label) " in a " (name nest))
+      (let [build #(boxed-world made wrap program extract)
+            procedure? (contains? #{:closure :continuation} label)]
+        (is (= (h/normalize expected) (:value (h/reference (h/on-lane :semantic-register build)))) "the reference lane")
+        (doseq [lane [:stack :register]]
+          (testing (str ", lowered into " (name lane))
+            (if procedure?
+              (let [world (h/on-lane :semantic-register build)
+                    {:keys [serve! toy]} (h/served #{:reader})
+                    wire (h/lane-lift (:machine world) serve!)
+                    {:keys [attach!] n :count} (h/recording-attacher toy)
+                    d (h/error #(h/lane-lower lane {:attach-stream attach!} wire attach!))]
+                (is (= [:yin.k/unsupported :free-env-value] [(:yin.k/status d) (:yin.k/kind d)]) (pr-str d))
+                (is (= path (:yin.k/path d)))
+                (is (zero? @n) "refused before any attachment"))
+              (let [got (h/crossed :semantic-register lane build)]
+                (is (pos? (:attaches got)))
+                (is (= (count (h/stream-identities (:wire got))) (:attaches got)))
+                (is (= (h/normalize expected) (:value got)) "admitted, and used through the collection"))))
+          (testing (str ", lifted from " (name lane))
+            (if procedure?
+              (h/scoped
+                (fn []
+                  (let [m (:machine (h/on-lane lane build))
+                        n (atom 0)
+                        {:keys [serve!]} (h/served #{:reader})
+                        d (h/error #(h/lane-lift m (fn [x] (swap! n inc) (serve! x))))]
+                    (is (= lane (h/lane-of m)))
+                    (is (vm/blocked? m))
+                    (is (= [:yin.k/non-portable :free-env-value] [(:yin.k/status d) (:yin.k/kind d)]) (pr-str d))
+                    (is (= 'box (:yin.k/key d)))
+                    (is (zero? @n) "no stream was served"))))
+              (is (= (h/normalize expected) (:value (h/crossed lane :semantic-register build)))
+                  "admitted, and used through the collection"))))))))

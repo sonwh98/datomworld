@@ -83,6 +83,13 @@
   (binding [*projected* (atom {})] (f)))
 
 
+(defn file-wide
+  "f's result, the layouts' spaces reading every vector the file ever
+   projected: only the fixtures that show that contamination."
+  [f]
+  (binding [*projected* code-index] (f)))
+
+
 (def stream-modules (module/register-stream-module (module/default-registry)))
 
 
@@ -136,13 +143,15 @@
 
 (defn kernel-space
   "The layout space of the A vectors whose images de Bruijn kernel k
-   holds, among those this world projected (*projected*, when bound) or
-   the file ever projected."
+   holds, among those this world projected (`scoped`), or the file ever
+   projected (`file-wide`). Unbound, it throws: an independent world's
+   lookups never read another fixture's vectors."
   [k]
+  (when-not *projected*
+    (throw (ex-info "kernel-space outside scoped or file-wide" {})))
   (let [id (if (= :stack (lane-of k)) :stack-id :register-id)
         held (into #{} (map first) (:images k))]
-    (layout/space (filter #(contains? held (id %))
-                          (map segment-of (vals (if *projected* @*projected* @code-index)))))))
+    (layout/space (filter #(contains? held (id %)) (map segment-of (vals @*projected*))))))
 
 
 (defn- kernel-load
@@ -1451,9 +1460,10 @@
 
 
 (defn injective
-  "names, asserting no two identities share a logical name (§5.5)."
+  "names, refusing when two identities share a logical name (§5.5)."
   [names]
-  (is (= (count names) (count (distinct (vals names)))) "the correspondence is injective")
+  (when-not (= (count names) (count (distinct (vals names))))
+    (throw (ex-info "The correspondence is not injective" {:law-4 :injective :names names})))
   names)
 
 
@@ -1559,13 +1569,14 @@
 (defn lane-root
   "Build on lane, lift: {:root under the logical names, :reference the
    lane's own run, :lane the kernel the world ran on, :descriptors, and
-   :task :machine :peer for the controls}."
+   :task :machine :peer for the controls}. A world's :served replaces
+   `served`."
   [lane build]
   (scoped
     (fn []
       (let [world (on-lane lane build)
             m (:machine world)
-            {:keys [serve! peer]} (served (or (:surfaces world) #{:reader}))
+            {:keys [serve! peer]} ((or (:served world) served) (or (:surfaces world) #{:reader}))
             task (rows/decode (lane-lift m serve!))]
         (is (nil? (rows/validate-frames task)) "law 6 on every lane")
         {:root (task-root task m peer)
@@ -1577,13 +1588,16 @@
 (defn canonical-equality
   "Law 4 for one case: exactly the three distinct kernel lanes lift to one
    root, their streams' descriptors are equivalent under the
-   correspondence, and each lane's own run answers the reference."
+   correspondence (else it throws, :law-4 :descriptors), and each lane's
+   own run answers the reference."
   [build expected]
   (let [roots (mapv #(lane-root % build) lanes)]
     (is (= 3 (count roots)))
     (is (= [:semantic-register :stack :register] (mapv :lane roots)) "three distinct kernel lanes")
     (is (apply = (map :root roots)) "law 4: one root id on every lane")
-    (is (descriptors-equivalent? (mapv :descriptors roots)) "descriptors equivalent under the correspondence")
+    (when-not (descriptors-equivalent? (mapv :descriptors roots))
+      (throw (ex-info "The descriptors differ under the correspondence"
+                      {:law-4 :descriptors :descriptors (mapv :descriptors roots)})))
     (doseq [{:keys [lane reference]} roots]
       (is (:halted reference) (str lane " completes"))
       (when (some? expected) (is (= expected (:value reference)) (str lane " answers the reference"))))
@@ -1620,12 +1634,26 @@
                                    (fn [t]
                                      (replace-nodes t #(= :cursor-cell-body (:kind %))
                                                     (fn [n] (update-in n [:slots 1 :dao.stream.ringbuffer/position] inc))))))))
-    (testing "a stream descriptor's nonidentity field"
-      (let [ds (mapv :descriptors roots)
-            k (first (keys (first ds)))]
-        (is (some? k))
-        (is (descriptors-equivalent? ds))
-        (is (not (descriptors-equivalent? (update-in ds [2 k :dao.stream/descriptor] assoc :review/extra :different))))))
+    (testing "a stream only the register lane holds: one root, the descriptors differ"
+      (let [build #(cond-> (bare 1)
+                     (= :register *lane*) (update-in [:machine :resources] assoc :control/extra (s/ring 4)))
+            d (error #(canonical-equality build ["A" "B"]))]
+        (is (= :descriptors (:law-4 d)) (pr-str d))
+        (is (= [false false true] (mapv (fn [ds] (contains? ds :control/extra)) (:descriptors d))))))
+    (testing "two served identities under one logical name"
+      (let [twin (fn [surfaces]
+                   (let [{:keys [peer] :as sv} (served surfaces)]
+                     (update sv :serve!
+                             (fn [serve!]
+                               (fn [h]
+                                 (let [r (serve! h)
+                                       id (:dao.stream/identity r)]
+                                   (swap! (:table peer) assoc (str id "-twin") (get @(:table peer) id))
+                                   r))))))
+            build #(cond-> (bare 1) (= :stack *lane*) (assoc :served twin))
+            d (error #(canonical-equality build ["A" "B"]))]
+        (is (= :injective (:law-4 d)) (pr-str d))
+        (is (< (count (distinct (vals (:names d)))) (count (:names d))))))
     (testing "a saved window value"
       (is (not= base (control-root register-lane
                                    (fn [t]
@@ -1829,32 +1857,36 @@
   (testing "a kernel stepped to a non-safepoint pc"
     (doseq [lane [:stack :register]]
       (testing (name lane)
-        (let [m (on-lane lane #(vm/step (load-program (machine) (s/app (s/lam ['p] (s/lit 42)) (s/lit 1)))))
-              n (atom 0)
-              {:keys [serve!]} (served #{:reader})
-              d (error #(lane-lift m (fn [h] (swap! n inc) (serve! h))))]
-          (is (not (vm/halted? m)))
-          (is (= :yin.k/not-at-safepoint (:yin.k/status d)) (pr-str d))
-          (is (zero? @n) "no stream was served")
-          (testing ", its registers read as a payload"
-            (let [entry (if (= :stack lane)
-                          (select-keys m [:pc :frames :stack :continuation])
-                          (assoc (select-keys m [:pc :frames :continuation]) :regs [] :resume-mode :write-result))
-                  cx (layout/lift-context m (kernel-space m) (:owner m))]
-              (is (= :yin.k/not-at-safepoint (:yin.k/status (error #(layout/lift-state cx entry)))))))))))
+        (scoped
+          (fn []
+            (let [m (on-lane lane #(vm/step (load-program (machine) (s/app (s/lam ['p] (s/lit 42)) (s/lit 1)))))
+                  n (atom 0)
+                  {:keys [serve!]} (served #{:reader})
+                  d (error #(lane-lift m (fn [h] (swap! n inc) (serve! h))))]
+              (is (not (vm/halted? m)))
+              (is (= :yin.k/not-at-safepoint (:yin.k/status d)) (pr-str d))
+              (is (zero? @n) "no stream was served")
+              (testing ", its registers read as a payload"
+                (let [entry (if (= :stack lane)
+                              (select-keys m [:pc :frames :stack :continuation])
+                              (assoc (select-keys m [:pc :frames :continuation]) :regs [] :resume-mode :write-result))
+                      cx (layout/lift-context m (kernel-space m) (:owner m))]
+                  (is (= :yin.k/not-at-safepoint (:yin.k/status (error #(layout/lift-state cx entry)))))))))))))
   (testing "a register entry whose live was tampered"
-    (let [m (:machine (on-lane :register #(bare 1)))
-          entry (first (:wait-set m))
-          live (:live entry)
-          spare (spare-register m entry)]
-      (is (nil? (register-judge m entry)) "the untampered entry reconstructs a valid frame")
-      (is (seq live))
-      (is (= :window-missing (register-judge m (assoc entry :live (vec (rest live)) :regs (vec (rest (:regs entry))))))
-          "a live register dropped")
-      (is (some? spare))
-      (is (= :window-extra (register-judge m (assoc entry :live (vec (sort (conj live spare)))
-                                                    :regs (vec (sort-by first (conj (:regs entry) [spare :x]))))))
-          "a dead register added")))
+    (scoped
+      (fn []
+        (let [m (:machine (on-lane :register #(bare 1)))
+              entry (first (:wait-set m))
+              live (:live entry)
+              spare (spare-register m entry)]
+          (is (nil? (register-judge m entry)) "the untampered entry reconstructs a valid frame")
+          (is (seq live))
+          (is (= :window-missing (register-judge m (assoc entry :live (vec (rest live)) :regs (vec (rest (:regs entry))))))
+              "a live register dropped")
+          (is (some? spare))
+          (is (= :window-extra (register-judge m (assoc entry :live (vec (sort (conj live spare)))
+                                                        :regs (vec (sort-by first (conj (:regs entry) [spare :x]))))))
+              "a dead register added")))))
   (testing "a register entry tampered with an ambiguous dead preimage: the layout refuses"
     (let [fixtures (ambiguous-dead-slots)]
       (is (seq fixtures) "C holds one: the allocator reuses slots")
