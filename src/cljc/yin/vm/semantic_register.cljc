@@ -21,6 +21,7 @@
    program        ; segment id of the last loaded batch
    control        ; {:segment id :pc n} or nil
    env            ; persistent lexical scope map
+   free-env       ; checked initial environment, fixed for this instance
    window         ; sparse body-local register map
    id-counter     ; integer counter for unique IDs
    parked         ; parked continuations map
@@ -390,6 +391,7 @@
                                   :program nil,
                                   :control nil,
                                   :env env,
+                                  :free-env env,
                                   :window {},
                                   :k nil,
                                   :value nil,
@@ -484,5 +486,5 @@
                 store-of (assoc engine/store-of-key store-of))})))
   (gc-roots [machine]
     {:kernel [(:control machine) (:k machine)]
-     :values [(:env machine) (:window machine) (:value machine)]})
+     :values [(:free-env machine) (:env machine) (:window machine) (:value machine)]})
   (gc-children [_ _x] nil))
