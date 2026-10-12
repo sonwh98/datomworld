@@ -3040,7 +3040,10 @@ dependency-pin checks, primitive and effect admission, and working
 store-context transitions on all four VMs. Until B lands, a forged
 `:store-of` could reach the prelude's state. Corrected float publication
 rebuilds affected derivations, manifests, and dependency pins before any
-cross-principal address is accepted.
+cross-principal address is accepted. Trust is a separate question:
+which principals' modules a session admits is the admission
+interpreter's answer (`yin.vm.linker.dht.md` section 7.5), and an allow
+never relaxes this check.
 
 Linker prerequisites, the linker seat's to build:
 
@@ -3068,9 +3071,9 @@ Linker prerequisites, the linker seat's to build:
 | L-d  | `module/try-require` plus deferred dependency       | I4              |
 |      | admission (ruling 8)                                |                 |
 +------+-----------------------------------------------------+-----------------+
-| L-e  | D7 slice B, the origin and store check (ruling 19)  | Foreign-        |
-|      |                                                     | principal       |
-|      |                                                     | imports         |
+| L-e  | D7 slice B, the origin and store check (ruling 19)  | Exposure of     |
+|      |                                                     | untrusted-      |
+|      |                                                     | origin closures |
 +------+-----------------------------------------------------+-----------------+
 | L-f  | Large-module linking: default bounds, derivation    | P2              |
 |      | fetch at steps 2 to 4, linear free-name scan        |                 |
@@ -3102,7 +3105,7 @@ Linker prerequisites, the linker seat's to build:
 +-------+----------------------------------------------------------------------+
 | I2    | Packages, mangling, relative imports, `as`, `*`, `__package__`       |
 +-------+----------------------------------------------------------------------+
-| I3    | Publication and DHT import; needs L-e for foreign principals         |
+| I3    | Publication and DHT import; admission per `yin.vm.linker.dht.md` 7.5 |
 +-------+----------------------------------------------------------------------+
 | I4    | Catchable `ImportError`; needs L-d                                   |
 +-------+----------------------------------------------------------------------+
@@ -3218,23 +3221,18 @@ precompiled CST packets or rows, since the parser is JVM-only):
   message bound, which a `dao.space.dht` node does not let a composition
   raise, so `py` is the reader's installed runtime (its pinned manifest
   address, one golden on every host) and the guest modules travel.
-  Foreign principals are refused, not claimed (ruling 19): a Python link
-  source passes `principal-admission` as `yin.repl.link/composition`'s
-  `:admit`, and a name no own principal asserts is refused
-  `:yang.python.antlr/foreign-principal` naming `:requires :L-e`. The
+  Which principals' modules an import admits is the admission stream's
+  question (`yin.vm.linker.dht.md` section 7.5). The
   `__all__` of `from m import *` is read by index (CPython's
   `PySequence_GetItem`), so a generator, set or dict `__all__` raises
   CPython's `TypeError`, and a range is a sequence; the prelude goldens
   moved once.
   I3 gap (REPL): no REPL frontend runs Python under the linked profile.
-  `principal-admission` is enforced wherever a composition passes
-  `:admit` to `yin.repl.link/composition`; the DHT import tests do, the
-  REPL does not. The linked REPL profile is its own slice after F2: a
-  frontend session keyed by [id revision], one Python task and module
-  view per profile, and foreign-principal admission applied where a
-  module is exposed into a session that holds `py`, not only at link
-  time. Until then ruling 19's interim refusal is not a boundary at the
-  REPL. Also: `py` is an installed pin on each reader until large blobs
+  The linked REPL profile is its own slice after F2: a frontend session
+  keyed by [id revision] and one Python task and module view per
+  profile. Admission, its REPL wiring and the session's exposure rule
+  are `yin.vm.linker.dht.md` section 7.5 (slices AD-1 to AD-3). Also:
+  `py` is an installed pin on each reader until large blobs
   travel over the DHT (64 KiB blob cap), and the linker's
   dependency-binding check is today the only guard over a pinned
   dependency (discharge does not independently refuse a republished

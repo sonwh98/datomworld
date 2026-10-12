@@ -69,6 +69,15 @@ specified: a gate awaiting a per-request answer would wait, and no
 operation waits. If a later ShiBi needs that path it is an addition beside
 `verify`, not a change to it.
 
+**First consumer shape.** `yin.vm.linker.dht.md` section 7.5, admission,
+is that addition, and the first shape a ShiBi interpreter can take: the
+linker appends a trust question per resolved module onto an admission
+request medium, and one interpreter answers each with
+`(verify decision context question)` over a snapshot, appending the
+answer to a response medium the linker drains. It is an attachment beside
+the gate, not a change to it: the gate still never waits, so the non-goal
+above stands for the gate, and the waiting is the parked link's.
+
 The contract's refusal outcome is `:dao.stream/refused` and is
 capability-free (`dao.stream.md`, Result Convention). Lease attribution
 rests on per-author media and does not depend on ShiBi
