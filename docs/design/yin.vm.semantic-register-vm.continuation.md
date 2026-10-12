@@ -30,8 +30,20 @@ with its owner (§6.3), E2 requires lexical presence and X1 validates the
 root's free environment (§3.2), the harness oracles of rows 15, 20, 22
 and 23 and the segment-wrapper results are corrected (§5.2), the
 cross-lane re-emission takes an explicit stream correspondence (§5.5),
-and the amendment residue is closed (§10.3 R9, U7). The frozen document
-is not changed by this one.
+and the amendment residue is closed (§10.3 R9, U7). **Revision 4
+(2026-10-13, Architect: claude-fable-5-1)** amends the text after slice
+6b merged (`1db08f7d`: `c3d37586` plus the fixes `a396f996`, `f650e046`,
+`bafdec74`), so that §§2.5-2.6, 5.2, 6.1, 6.3, 7, 8.2 state what
+`src/cljc/yin/vm/ucf/rows.cljc` (`lift-task`, `lower-task`,
+`check-stores!`, `check-pendings!`, `check-dependencies!`,
+`check-custody!`, `discharge!`, `live-pcs`) does; every amended clause
+is marked "**Amended after 6b**" with what changed and why, §10.6
+inventories them, and §11 lists the design choices the code made that
+the owner has not ruled on. Sources: the engineer report
+`collab/1792270000000-engineer-6b-task-transport.report.md` (design bugs
+B1-B4, deviations 1-10) and the three codex reviews
+(`collab/1792280000000-…`, `1792300000000-…`, `1792320000000-…`). The
+frozen document is not changed by this one.
 Subordinate to [`datom.world.md`](./datom.world.md), including its
 unitarity invariant, and to
 [`yin.vm.semantic-register-vm.md`](./yin.vm.semantic-register-vm.md)
@@ -288,6 +300,32 @@ markers (`:request-sent`, `:call-id`, `:op`, `:datom`,
 - **Install children** are whole `:task` rows in the child role (draft
   §5.4, §5.5), unchanged.
 
+**Amended after 6b (2026-10-13), what travels and what does not**
+(engineer deviations 4, 6, 7; codex round 1 accepted all three):
+
+- **The store slice is the whole root store.** `lift-task` walks every
+  entry of `(:store m)` (`store-node`), and every parked record travels
+  (`parked-table` over all of `(:parked m)`), each judged by P4. No
+  reachability pruning of the store is performed. *Why:* the kernel
+  holds no liveness information for store entries; the conservative
+  slice is correct and the draft's "exactly the reachable records" was
+  never implemented.
+- **Module stores travel by reachability.** A `:module-store` row is
+  emitted for every `store-of` an `E` or closure names, transitively
+  through the values of stores already discovered (`module-store-nodes`);
+  a named store the kernel lacks is `:yin.k/non-portable
+  :missing-module-store`.
+- **Linked registry entries do not travel.** The row table has no slot
+  for the receiver's module registry; only module stores do. A name a
+  carried closure resolves through the source's registry is a
+  **composition prerequisite** of the receiver: row 17's receiver is
+  given the source's registry value, and without it the relift refuses
+  `:yin.k/unsatisfied {:obligations #{host.mod/f}}`. The receiver's
+  registry is kept as given; there is no isolated-receiver pruning.
+- **Custody is nil at the root in phase 6.** The lift emits `custody nil`
+  (fork), and the lower refuses any non-nil custody as `:yin.k/unsupported
+  :custody`; the exclusive and holder path is phase 7 (§8.4).
+
 ### 2.6 The root (replacing draft §5.5 in two slots)
 
 **PROPOSED**, with the reviewer's correction of the free environment:
@@ -316,6 +354,11 @@ markers (`:request-sent`, `:call-id`, `:op`, `:datom`,
 No `layout` slot and no native image: those were the positional
 profiles' (v2 amendment §2, §4.1). The custody table of the draft §5.5
 stands, with its version-0 comparison reworded (§10.3 R10).
+**Amended after 6b (2026-10-13):** of that table only the fork rows are
+reachable in phase 6; the lift writes `custody nil` and the lower's step
+10 (`check-custody!`) refuses any non-nil value `:yin.k/unsupported
+:custody` (§2.5, §7.2). *Why:* the exclusive and holder path is phase
+7's; carrying a custody arm no reader admits would be an untested slot.
 
 ### 2.7 The bijection with the keyed frame
 
@@ -801,7 +844,19 @@ mechanically from the bare result `r`: `:bare` → `r`; `:operand` →
 (`nest` wraps `(cat [d] ((fn [x] …) d))` three times, as the old test's
 pinned `[2 [1 [:two 2 "C"]]]` shows for depth 2, `:574`); `:captured` →
 `[:captured :arg r]` (`(cat (cat (cat [] k) y) r)` with `k = :captured`,
-`y = :arg`). **Frames the wrappers add.** The harness marks `:tail?
+`y = :arg`). **Amended after 6b (2026-10-13), one exception to the
+mechanical rule (B2):** `nest`'s own lambda parameter is `x`, so under
+`:depth-3` any row whose program captures the free name `x` captures the
+wrapper's `x` instead. Row 21 is the one such row: its `(fn [] x)` is
+created inside the innermost `nest` application where `x = 1`, so the
+reference run itself answers `[3 [2 [1 1]]]`, not `[3 [2 [1 99]]]`, and
+the harness pins `1` for that one case (`safepoint_harness_test.cljc`,
+the `(and (= 21 n) (= :depth-3 label))` branch). The bare, `:operand`
+and `:captured` results of row 21 keep `99`. The wrapper rule is
+otherwise unchanged; the exception is stated rather than the wrapper
+renamed, because the old harness's segments are shared and the lowered
+run matches the reference either way (law 1 holds on the row). **Frames
+the wrappers add.** The harness marks `:tail?
 true` only where a row says so (`:228`, `:256`; `ast->semantic-bytecode`
 defaults it to false, `vm.cljc:1089`; `mark-tail` is the expander's and
 is not run here), so every `let1` and every `nest` application is a
@@ -836,21 +891,53 @@ landed or stage-2 evaluator.
 | 7 | link request phase | `(require 'host.mod)` parked **before** the request append succeeds (one-slot, warmed request stream) | free the slot, then answer `:ok` | act, `:link-request` | `'host.mod` | 4b stage 2 |
 | 8 | link response phase | `(require 'host.mod)` polling (request appended) | append the `:ok` response | act, `:link-response` | `'host.mod` | 4b stage 2 |
 | 9 | **link, tail** | `((fn [u] (require 'host.mod)) 0)` tail | as 8 | **tail**, `:link-response` | `'host.mod` through `K` | 4b stage 2 |
-| 10 | install, child running | `(require 'host.mod)` where `host.mod`'s body reads a stream the test has not fed, so the child is `:blocked` and the parent's wait is `:install` | feed the child's stream | act, `:install` + install entry, child kind `:blocked`, phase `:running` | `'host.mod` | 4b stage 2 |
-| 11 | install, child parked | as 10 with the child body executing `:park` | resume the child by id | act, `:install`, child kind `:parked`, phase `:parked` | `'host.mod` | 4b stage 2 |
+| 10 | install, blocked child (**amended after 6b**) | `(require 'host.mod)` where `host.mod`'s body reads a stream the test has not fed, so the child is `:blocked` and the parent's wait is `:install` | feed the child's stream | act, `:install` + install entry, child kind `:blocked`, **phase `:parked`** | `'host.mod` | yes |
+| 11 | install, `:running` wire phase (**amended after 6b, synthetic phase**) | row 10's machine with the install entry's phase set to `:running` **by hand** before the lift | as 10 | act, `:install`, child kind `:blocked`, phase `:running` | `'host.mod` | the program is row 10's; the phase is not engine-reachable at a safepoint (see below) |
 | 12 | install, tail | `((fn [u] (require 'host.mod)) 0)` tail with 10's child | as 10 | **tail**, `:install` | `'host.mod` through `K` | 4b stage 2 |
 | 13 | explicit park | `(vm/park)` | `(vm/resume pid "back")` beside | parked record, root `:parked` | `"back"` | yes |
 | 14 | reified capture live in a window | `(let1 k (vm/current-continuation) (cat (cat [] k) (next-of c)))` | append `"B"` | act, `:next`; `k` is a `:reified` value in `W` | `[:continuation "B"]` normalised | yes |
 | 15 | capture invoked after lower | `(let1 k (vm/current-continuation) (if (= k :second) :done (let1 r (next-of c) (k :second))))`: on the first pass `k` is a continuation, so the test fails and the read runs and parks; after satisfaction `(k :second)` delivers `:second` into the capture's `rd` (the `let1` operand) and re-enters at the capture's successor pc, so the body is entered again with `k = :second` and the test succeeds **without repeating the read** (the invocation is abortive on every lane: `:continuation` operator kind, `srvm-phase4b:semantic_register.cljc:212-217` stage 2, `stack.cljc:760-763`). `if` is `{:type :if :test :consequent :alternate}` (`vm.cljc:1069`), a helper the new harness file adds; `=` is the primitive (`vm.cljc:387`), consumed before the read | append `"x"` after lower | act, `:next`; `k` is a `:reified` value in `E` (the closure's) | `:done` | yes |
 | 16 | nested capture | `(let1 k1 (vm/current-continuation) (let1 k2 (vm/current-continuation) (cat (cat (cat [] k1) k2) (next-of c))))` | append `"B"` | act; `k2`'s act window holds `k1` (a `:reified` inside a `:reified`'s window) | `[:continuation :continuation "B"]` | yes |
-| 17 | module context, blocked inside a module closure | `host.mod` exports `f = (fn [c] (stream/next! c))`; root: `(f c)` after `(require 'host.mod)` | append `"B"` | act, `:next`, `E` carries `store-of host.mod` | `"B"` | 4b stage 2 (link) |
-| 18 | module-store snapshot | `parked-module-store-cursors` (`lift_support.cljc:310-333`): an explicit park whose module store holds two cursors named by a module closure | resume | parked record; `:module-store` row | the two cursor cells | yes |
+| 17 | module context, blocked inside a module closure | `host.mod` exports `f = (fn [c] (stream/next! c))`; root: `(f c)` after `(require 'host.mod)` | append `"B"` | act, `:next`, `E` carries `store-of host.mod` | `"B"` | yes; **amended after 6b:** the receiver composition is given the source's registry entry for `host.mod`, a composition prerequisite (§2.5): linked registry entries do not travel |
+| 18 | module-store snapshot | `parked-module-store-cursors` (`lift_support.cljc:310-333`): an explicit park whose module store holds two cursors named by a module closure | resume | parked record; `:module-store` row | the two cursor cells | yes; **amended after 6b:** the fixture's module store is hand-built and keyed by the **symbol** `host.mod`, as `frame_test` does, while the kernel keys installed stores by module address; row 17 exercises a real installation |
 | 19 | halt | `(lit 42)` | — | result | `42` | yes |
 | 20 | **tail-effect halt** | run **outside the wrappers**, in two batches on one machine: a setup batch `(then (def! 's (stream/make 4)) (def! 'c (cursor-of s)))` run to halt (store writes persist across batches, as `lift_support.cljc:320-322` relies on), then the batch `(stream/next! c)` **marked `:tail? true` at the root**, `c` resolving through the store; no application precedes the call, so `K` is empty (any `let1` or wrapper would push a frame, §5.2 above) | append `"B"` | tail, `:next` | halts with `"B"` (4b: a tail effect with no frame to pop halts, `srvm-phase4b:semantic_register.cljc:205-211` stage 2; stack: the seam's empty-`K` case, §4.3), env free of `store-of` | yes |
 | 21 | **free-env shadowing** (the review's row) | initial free env `{x 99}`; `(let1 f (fn [] x) ((fn [x] (f (next-of c))) 1))` | append `"B"` | act, `:next`; `E` at the read binds `x` to 1; root `free-env` carries `x 99` | the lowered `f` returns `99` (not nil, not 1) on every lane; **the one row the earlier design would have failed** | yes |
 | 22 | nil-valued live register | `(let1 pair (fn [p q] (cat (cat [] p) q)) (pair nil (next-of c)))`: the `nil` operand is evaluated **before** the read and is live across it (`(cat nil (next-of c))` would give `(conj nil "B")`, the list `("B")`, so a vector-building `pair` is used; there is no `vector` primitive, `vm.cljc:380-410`, and `pair` builds through the segment's `cat`) | append `"B"` | act, `:next`; `W` has a present key with `[:lit nil]` | `[nil "B"]` | yes |
 | 23 | tail FFI bookkeeping | a `tail` parked record under a call id `P ∈ :ffi-call-ids` | — | parked, context `:parked`, bookkeeping clause of P4 | validator accepts; the **same valid tail under a key not in `:ffi-call-ids`** is `:parked-site` (P4); moving `site` to a non-tail call is `:site` (T1, which runs first) | **synthetic**: no primitive returns an FFI effect through a tail `:call` today (evaluator §1.6) |
 | 24 | `act` FFI bookkeeping | 3's parked bookkeeping record under its call id | — | parked, P4 bookkeeping | validator accepts | 4b stage 2 |
+
+**Amended after 6b (2026-10-13), rows 10-12 and the install contract
+(B1).** The earlier text promised a child "`:blocked`, phase `:running`"
+(row 10) and a child "executing `:park`, kind `:parked`" (row 11).
+Neither is an engine state at a quiescent safepoint. `advance-install`
+(`engine.cljc:1421-1454`) runs the child inside the sweep and then
+records it: a **blocked** child is retained at phase **`:parked`**
+(`:1444-1446`); a **halted** child goes straight to `link-install` in the
+same sweep (`:1447-1452`), so it is never retained; and a child that
+executes `:park` is `:halted?` with a parked value, so it too goes to
+`link-install`, which completes the install if the exports are already
+defined and otherwise refuses it `:export-missing`. Phase `:running` is
+assigned only in the `:else` arm, within one sweep, and is overwritten
+before any safepoint. So: row 10 is the engine's real state (child
+`:blocked`, phase `:parked`); row 11 exercises the `:running` **wire
+phase**, which the codec accepts (`install-node` admits `#{:running
+:parked}` on lift and `check-install!` on lower) and the harness
+constructs by hand on row 10's machine (`installing % false :running`,
+`safepoint_harness_test.cljc:342`); row 12 is row 10's child under tail
+delivery. No row promises an executable kind-`:parked` install child on
+the current engine (owner question §11 Q1). **The install validation
+the lower enforces** (`check-install!`, before any attachment, §7.2):
+the phase is one of `#{:running :parked}` (`:install-phase`); the
+retained response is a map with `:status :ok`, a `:manifest` map whose
+`:yin.module/name` equals the install's module name and whose
+`:yin.module/exports` is a collection of symbols, and an `:image` map
+whose `:value` the receiving kernel's loader admits (`:install-response`);
+and the carried child task's kind is **`:blocked`** (`:install-child`),
+because a halted or parked child would have been linked in the sweep it
+halted in. On lift, `install-node` refuses a phase outside the set as
+`:yin.k/non-portable :incomplete-install` and a response CBOR cannot
+encode as `:yin.k/non-portable :install-response`.
 
 Refusal rows: `:yin.k/not-quiescent` (`a-nonempty-ready-queue-is-not-quiescent`,
 `:591-603`); `:yin.k/not-at-safepoint` (a register kernel stepped one
@@ -861,7 +948,14 @@ lower: a window with an extra live key → `:window-extra`; a live key
 removed → `:window-missing`; `rd` added → `:window-self`; `rd` replaced
 by another register → `:destination`; a return frame's `pc` moved after
 a tail call → `:return-site`; a reason the site does not admit →
-`:reason-mismatch`; a `:tail` row given a fourth slot → `:frame-shape`;
+`:reason-mismatch`; a `:tail` row given a fourth slot → **`:row-shape`
+at the codec's structure step (2), not `:frame-shape`** (amended after
+6b, B3: the row table fixes `:tail` at three slots, so the wire never
+reaches rule S1 with a fourth slot; S1 still governs an abstract frame
+handed to `frame/defect` directly; and because `emit`/`emit-numbered`
+silently drop extra slots from an abstract node, mapping over the
+shorter descriptor list, this tamper must be a **raw row edit with a
+rehash**, never an abstract-task edit);
 the `[:lit nil]` of row 22 dropped → `:window-missing`; a `:reified`
 act whose `pc−1` is not a capture → `:captured-site`; a parked act whose
 `pc−1` is not `:park` → `:parked-site`; for E2, with row 21's initial
@@ -987,6 +1081,19 @@ rule** is phase-5's: an absent entry **or an empty set** is incomplete
 address alone does not establish retrievability (a known address whose
 read fails now is the medium's `:absent`, not a missing association).
 
+**Amended after 6b (2026-10-13), where the association comes from.**
+The kernel holds no source index, so the tree association is a **lift
+input**: `(rows/lift-task m serve! {:source-index {A #{tree-address …}}})`
+from the composition (the harness records `A → segment-key [:yin/tree
+ast]` whenever it projects a vector). After the walk has fixed the
+carried segments, the lift refuses `:yin.k/unsatisfied` (`:yin.k/discovery
+:incomplete`, `:yin.k/missing {:yin.k/trees #{A …}}`) for any carried
+segment whose entry is absent or empty; the lower repeats the same check
+over `requires`' `:yin.k/trees` against `code`'s keys
+(`check-dependencies!`). No source-index slot is persisted in the
+carrier. *Why:* engineer deviation 1, accepted by codex: the index
+belongs to the composition, not the machine.
+
 ### 6.2 Rows, not datoms
 
 **DECIDED** (ruling 4). No vector is projected to datoms; the direct
@@ -1029,6 +1136,19 @@ kernel:
   Phase 6 does **not** edit `semantic_register.cljc`; 6b depends on the
   explicit argument and names the seam as a follow-up (§8.2).
 
+  **Amended after 6b (2026-10-13): the seam has landed and the lift reads
+  it.** The 4b track added the immutable `free-env` field
+  (`semantic_register.cljc:24`, set once in `create-vm` `:394`, a gc root
+  `:489`). `lift-task*` takes `(:free-env opts)` when supplied, else the
+  kernel's `(:free-env m)`, and refuses `:yin.k/non-portable
+  :missing-free-env` only when neither exists. The explicit value
+  **overrides** the field without comparing against it; an override the
+  carried `E`s disagree with is caught by E2 when the lift validates its
+  own frames (`:yin.k/non-portable :inconsistent-state`, e.g. `{x 5}`
+  against an `E` holding `x 99` off the lexical names). Install children
+  are lifted with the `:free-env` option removed, so a child always reads
+  its own kernel field.
+
 Merkle sharing means every `E` whose bindings equal another's shares one
 `:bindings` row; the root slot is one more reference to a row that
 usually already exists.
@@ -1054,6 +1174,78 @@ install children; run `frame/defect` over every
 frame; emit rows and the census. A de Bruijn source walks the frames
 `layout/lift-act`/`lift-tail` reconstruct.
 
+**Amended after 6b (2026-10-13): the order as `lift-task*` runs it (B4),
+and the discharge rule.** The paragraph above put the dependency closure
+before the numbering and the walk, but the carried segments, contexts
+and module stores are known only once the walk has found them, so the
+closure cannot run first. The merged order is:
+
+1. **Quiescence and safepoint.** Refuse `:yin.k/not-quiescent` on a
+   non-empty ready queue; refuse the holds (`unliftable-hold`: `:observe`,
+   `:held`, `:unminted-cursor`, `:pending-close`,
+   `:link-cursor-not-installed`) as `:yin.k/non-portable :reason-mismatch`;
+   refuse `:yin.k/not-at-safepoint` when `:control` is set.
+2. **Kind.** `:parked` when the value is a parked continuation the parked
+   table holds, else `:blocked` on a non-empty wait set, else `:halted`
+   with an empty queue; anything else is `:yin.k/not-at-safepoint`.
+3. **Free environment** (§6.3): the option, else the kernel field, else
+   `:missing-free-env`.
+4. **The walk.** Waits (state and pending), the parked table, the whole
+   store, the result (halted only), install children (each a recursive
+   `lift-task*` in the child role with its own accumulator), then the
+   module stores by reachability. Every value is classified `[:lit x]`,
+   `[:row n]` or `[:cursor-cell source]`; references are authenticated
+   against the kernel's resource table before encoding
+   (`:forged-resource-reference`), a foreign-owned value is
+   `:foreign-value`, a heap cell `:cell`, a host object `:host-object`.
+   The walk records every **segment** reached and every **context**: a
+   closure's `(A, entry, E)`, an `act`'s `(A, pc, E)`, a return frame's
+   `(A, pc, E)`. A `tail` state contributes its `K` frames' contexts and
+   none for its own dead activation.
+5. **Code.** `{A vector}` for the segments reached, from the kernel's
+   code table through its aliases; an unaddressed segment is
+   `:yin.k/non-portable :unaddressed-segment`, an address the kernel
+   cannot produce a vector for is `:yin.k/unsatisfied`.
+6. **Dependency closure** (`discharge!`), **per context, over live
+   code.** For each recorded context `(A, at, E)`, the live pcs are
+   `(live-pcs v at)`: the closure of `at` under `analysis/successors`
+   plus, for every reachable `:closure` instruction, that closure's body
+   from its entry (reachable code can still construct it). Every free
+   occurrence (`scan/free-occurrences`) at a live pc must be **answered
+   in that context**, in `resolve-var`'s order: a reserved name; the
+   context's own `E`; the **one** store `engine/active-store` selects for
+   that `E` (the root store when `E` has no `store-of`, else the module
+   store it names, both of which travel); a profiled primitive (a
+   `:host`-class profile refuses `:yin.k/non-portable
+   :host-state-primitive` at that point, so a host primitive shadowed by
+   `E` or the store lifts); an installing module's export (`m/x` built
+   with `(symbol (name m) (name x))`); a module the registry resolves for
+   a namespaced name. Any unanswered name is `:yin.k/unsatisfied`,
+   `:yin.k/discovery :incomplete`, `:yin.k/missing {:obligations #{…}}`.
+   *Why per context:* codex F3, the union of all module-store keys
+   answered names the running closure could not resolve. *Why live
+   code:* codex F6, a numeric or whole-body scan refused valid
+   continuations whose unreachable branches named a missing symbol.
+   The parser admits no backward jump (§3.1 of the frozen design), so no
+   carried vector exercises the backward edge; `live-pcs` is public and
+   is tested directly on a hand-built vector with a `:jump` to an earlier
+   pc. Discharge runs at lift only; the lower does not re-discharge free
+   names against the receiver (§7.2).
+7. **Trees** (§6.1): every carried segment has a non-empty entry in the
+   `:source-index` option, else `:yin.k/unsatisfied` with `:yin.k/trees`.
+8. **The task.** `requires` is `{:yin.k/cursor-profiles … :yin.k/segments
+   … :yin.k/trees …}`; the root is assembled with `custody nil` (§2.5).
+9. **Frames.** `validate-frames` over the assembled abstract task (X1,
+   every wait, parked state and reified value, children recursively); a
+   defect is `:yin.k/non-portable :inconsistent-state` carrying it. The
+   lift does not decode its own output a second time.
+10. **Emit** (`emit`): canonical cursor-cell numbering and rows.
+
+**Refusals are thrown.** Every refusal of lift and lower is an `ex-info`
+whose ex-data carries `:yin.k/status`, a `:yin.k/kind` where one is
+named, and the defect's data, the same convention as `decode` and `emit`;
+nothing returns a `{:status …}` map (engineer deviation 2, accepted).
+
 ### 7.2 Lower
 
 **DECIDED** (draft §8 in order; §3.3): gate, structure, graph, hashes,
@@ -1069,6 +1261,47 @@ pending's engine fields, `lower-frame!`'s shapes, `handoff.cljc:3182-3246`,
 `:free-env`, and `layout/lower-act`/`lower-tail` each frame (the stack
 lane's `tail` needs 6c-pre). Restoration delivers nothing, runs nothing,
 mints nothing.
+
+**Amended after 6b (2026-10-13): the lower's staged checks as
+`lower-task` runs them, and its refusal kinds.** Steps 1-7 are `decode`
+(gate, structure, graph, hashes, canonical form, numbering, frames,
+§3.3). Steps 8-10 then run as four stages, **each over the whole task
+tree (root and every install child, pre-order) before the next**, and
+**every one of them before the first `attach!`**; a defect in a child's
+later stage therefore cannot be masked by the root's earlier one, and
+zero streams are attached on any refusal (codex F1, F2, F4, F7; mutants
+that attach early are killed by the attach-count law):
+
+| Stage | Function | Checks, in order | Refusal |
+|---|---|---|---|
+| stores | `check-stores!` | no key of the root store or of any module store is a reserved name (`vm/reserved-name?`), refused here rather than by restore's `store-put` | `:yin.k/undecodable :reserved-name` (`:yin.k/role :store-key`) |
+| pendings and install records | `check-pendings!` | the task's role slot equals its position (`:root`/`:child`); every `:install` pending names a carried install row; kind consistency (`:halted` has no waits, `:blocked` has waits, `:parked` names a key of its parked table); then every install record by `check-install!` (§5.2: phase ∈ `#{:running :parked}`, the retained response and image contract, the child `:blocked`) | `:role`, `:incomplete-install`, `:kind`, `:parked-id`, `:install-phase`, `:install-response`, `:install-child`, all `:yin.k/undecodable` |
+| dependencies | `check-dependencies!` | `requires` is a map whose `:yin.k/segments` equals the key set of `code` (`:requires`); every segment has a non-empty `:yin.k/trees` entry; every `store-of` of every `:closure` and `:env` row of **this task** (children excluded, each checked in its own stage pass) names one of this task's `:module-store` rows (§2.6), so a parent's or sibling's store of the same key cannot answer (codex F7, F8); every vector attaches in the receiving kernel under its A (`attaches?`: `module/attach-module` into a throwaway copy, the result discarded) (`:segment`); every `:closure` row names a `:closure` tuple of its vector at its entry (`:closure-origin`) with the same binders (`:closure-binders`); every `:prim` names a primitive the receiver holds | `:yin.k/undecodable :requires`, `:yin.k/unsatisfied` with `:yin.k/trees` or **`:yin.k/stores`** (`:yin.k/discovery :incomplete`), `:yin.k/undecodable :segment`, `:closure-origin`, `:closure-binders`, `:yin.k/unsatisfied {:yin.k/name p}` |
+| custody | `check-custody!` | the root's custody slot is nil (phase 6 carries fork only) | `:yin.k/unsupported :custody` |
+
+Then **attachment** (step 11, `attach-streams!`): one `attach!` per
+distinct stream identity of the whole tree, `:yin.k/unsatisfied
+{:dao.stream/identity …}` when the composition declines. Then **restore**
+(step 12, `restore-task`): the carried vectors attached by A into a
+receiver emptied of code, so frame and closure addresses map through the
+receiver's own aliases and no source-local segment number travels; fresh
+resource keys per stream identity and per cursor cell; values re-sealed
+under the receiver's owner; waits in `lower-frame!`'s entry shapes, a
+`tail` with `{:deliver :return}` and no window, env or pc; parked records
+with a cycle guard; the store through `engine/store-put`; module stores;
+install children spawned by the engine's spawn discipline and then
+restored recursively (the spawn's initial control is replaced, no
+`vm/run`); the free environment as both `:env` and `:free-env`; the id
+counter `max(local, carried)`. Restore meets no carrier defect, by
+construction of the stages above. The lower does **not** re-discharge
+free names against the receiver: a name a closure resolves through the
+registry is the composition prerequisite of §2.5, and the receiver's
+registry is kept as given. The kinds `:role :custody :incomplete-install
+:kind :parked-id :requires :segment :install-phase :install-response
+:install-child :closure-origin :closure-binders` and the `:yin.k/stores`
+census are the engineer's and the fix rounds' naming; the earlier text
+named none of them (deviation 9, accepted with the requirement that every
+defect be a named transport outcome before attachment).
 
 ---
 
@@ -1225,7 +1458,9 @@ pending rows' lift and lower, install children. **Files to create.**
 
 **Depends on:** the explicit `:free-env` lift argument supplied by the
 harness (§6.3; the 4b retention seam is a named follow-up for the 4b
-track, not a 6b prerequisite); 4b stage 2 (FFI retained→sent restoration, link
+track, not a 6b prerequisite; **amended after 6b:** the seam landed
+before 6b and the lift reads the field by default); the composition's
+`:source-index` (§6.1); 4b stage 2 (FFI retained→sent restoration, link
 request/response/install preservation, install children, the
 evaluator's `IModuleKernel` linking methods: `link-format`,
 `spawn-module`, `lift-closure`, `lower-closure`); **phase 5c** (the
@@ -1241,7 +1476,11 @@ Touches nothing of 4b or 5.
 2. `tail-states-carry-no-window`: rows 6, 9, 12, 20 lift to `:tail`
    rows of three slots and lower to through-`K` delivery.
 3. `install-rows-carry-the-child`: rows 10-12; the child's kind and
-   phase as stated; no initialization on lower.
+   phase as stated **in the amended rows (10: `:blocked`/`:parked`; 11:
+   `:blocked`/`:running` set by hand; 12: row 10's child, tail
+   delivery)**; no initialization on lower (the restored child has nil
+   `:control`, is still blocked on its one `:next`, and its code is
+   attached by A).
 4. `captures`: rows 14-16 round-trip; row 15's invocation after lower
    delivers once into the captured `rd` and yields `:done`.
 5. `free-env-shadowing`: row 21 yields `99` after lower.
@@ -1251,7 +1490,11 @@ Touches nothing of 4b or 5.
    `:ffi-call-ids`** is `:parked-site` (P4); the record with `site` moved
    to a non-tail call is `:site` (T1 runs before P4).
 7. `refusals`: every refusal row of §5.2 refuses with the named status
-   and kind before any attachment; `first-defect-order`: a body with a
+   and kind before any attachment (**amended after 6b:** the `:tail`
+   fourth slot is `:row-shape`, B3; the attach count is asserted to be
+   zero on every refusal and equal to the number of distinct stream
+   identities on every success, the law that kills the early-attach and
+   duplicate-attach mutants); `first-defect-order`: a body with a
    noncanonical cursor-cell numbering **and** a tampered window reports
    `:noncanonical-cursor-cells`.
 8. `a-response-cursor-shared-by-two-waiters-crosses-as-one-cursor-cell` and
@@ -1393,7 +1636,14 @@ not edited.
   written against the evaluator design's §1.4-1.6 shapes and the stage-1
   branch and must be re-read when stage 2 lands. The seam of §4.3 is a
   specification of a change to `stack.cljc`, not a reading of code that
-  exists.
+  exists. **Amended after 6b (2026-10-13):** 4b stage 2 landed before
+  6b, and rows 3-4, 7-12, 17 and 24 now run on the reference lane (89
+  labelled row × segment executions, 85 distinct builder/wrapper setups
+  since rows 3 and 24 share one builder by design); rows 10-11 were
+  re-read and corrected (§5.2, B1). The 6b harness ran on the JVM only;
+  Node and Dart execution of `rows.cljc`'s transport and the new harness
+  file remain the three-host gate of §8.2 item 9, not established by the
+  reviews.
 
 ---
 
@@ -1722,13 +1972,119 @@ columns; the evaluator design §1.3-1.6; the draft's §3, §4, §5.1 (except
 shape; the phase-5 §9.2 `:yin.k/trees` text; the register kernel's
 `:return-result` delivery (`register.cljc:458-468`).
 
+### 10.6 Amendments after slice 6b (revision 4, 2026-10-13)
+
+Each item names the clause, what changed, and why; the clause itself
+carries the same marker. Sources are the engineer report's design bugs
+(B1-B4) and deviations (1-10) and the three codex reviews' rulings.
+
+| # | Clause | What changed | Why |
+|---|---|---|---|
+| B1 | §5.2 rows 10-12, the install paragraph; §8.2 item 3 | row 10 is child `:blocked`, phase `:parked`; row 11 is the `:running` wire phase set by hand on row 10's machine; the lower's install contract (phase set, response and image, child `:blocked`) is stated | `advance-install` retains a blocked child at `:parked` and links a halted or parked one in the same sweep; the promised states were unreachable |
+| B2 | §5.2 wrapper paragraph, row 21 | the mechanical wrapper rule has one stated exception: row 21 under `:depth-3` answers `[3 [2 [1 1]]]` | `nest`'s parameter is `x` and shadows the free `x` before `f` is created; the reference run itself answers 1 |
+| B3 | §5.2 refusal rows; §8.2 item 7 | the `:tail` fourth slot is `:row-shape` at structure step 2, and the tamper is a raw row edit with rehash | the row table fixes `:tail` at three slots before S1 runs; `emit` drops extra abstract slots silently |
+| B4 | §7.1 | the lift's order is quiescence, kind, free environment, walk, code, dependency closure, trees, task, frames, emit | segments and contexts are known only after the walk |
+| D1 | §6.1, §8.2 depends-on | `:source-index` is a lift input from the composition | the kernel holds no source index |
+| D2 | §7.1 | refusals are thrown `ex-info` | consistency with `decode`/`emit` |
+| D3 | §2.5, §2.6, §7.2 | custody nil at the root; non-nil is `:yin.k/unsupported :custody` at step 10 | exclusive/holder is phase 7 |
+| D4 | §2.5, §5.2 row 17 | linked registry entries do not travel; the receiver's registry is a composition prerequisite and is kept as given | no registry slot in the row table |
+| D5 | §7.1, §7.2 | discharge is per context over live code (`live-pcs`), answered by `E`, the one active store, primitive, installing export, registry; lift only | codex F3 (union over stores was unsound) and F6 (whole-body scan refused valid states) |
+| D6 | §2.5 | the store slice is the whole root store; every parked record travels; module stores by reachability | conservative and what the code does |
+| D7 | §6.3 | the retention seam landed; the lift reads the kernel's `free-env` field by default, the option overrides, E2 catches a disagreeing override | 4b stage 3 landed before 6b |
+| D8 | §7.2 | the lower's four stages, each across the whole tree before the next, all before attachment; the refusal-kind table including `:yin.k/stores` | codex F1, F2, F4, F7, F8: every carrier defect must be a named refusal before any attach |
+| D9 | §5.2 row 18 | the fixture's module store is symbol-keyed and hand-built | codex asked for the synthetic label |
+| D10 | §9 | 4b stage 2 landed; rows 3-4, 7-12, 17, 24 run; three-host gate still open | honesty |
+
+**Note on `handoff.cljc` (no edit).** The engineer report said
+`export-task` builds installing names as `(symbol (str m "/" x))`, a
+nil-namespace symbol that never equals `m/x`. Read at
+`handoff.cljc:1480-1488`, the code is `(symbol (str (name m) "/" (name
+x)))`. The one-argument `symbol` of Clojure, ClojureScript and the
+pinned ClojureDart core splits its string at `/` into namespace and
+name, so this yields the qualified `host.mod/f` with namespace
+`"host.mod"`, equal to `'host.mod/f`; codex round 1 evaluated it on the
+JVM and found the same. The claim is withdrawn; the old form is not a
+bug. `rows.cljc`'s `installing-names` uses the two-argument `(symbol
+(name mn) (name x))`, which is equivalent. `handoff.cljc` is not edited
+by this phase (§8.5).
+
 ---
 
 ## 11. Owner questions
 
-**None.** The reviewer accepted the engine-less profile and rejected the
-merged-`E` free environment; both are now settled in the text. Nothing
-remaining is owner-level.
+Revisions 2-3 left none: the reviewer accepted the engine-less profile
+and rejected the merged-`E` free environment. **Revision 4 (after 6b)
+lists the design choices the merged code made that no ruling covers.**
+Each is stated as the code behaves today; none is decided by this
+document.
+
+- **Q1, install children, the parked-child scenario.** The engine never
+  retains an install child at a quiescent safepoint except `:blocked` at
+  phase `:parked` (§5.2 B1). The carrier still admits phase `:running`
+  (never engine-reachable at a safepoint) and the lower refuses any
+  child kind but `:blocked`. Should the row table and both checks
+  narrow to the one reachable state (phase `:parked`, child `:blocked`),
+  or does the owner want a reachable parked-child install scenario,
+  which is an engine change (`advance-install`), with row 11 rewritten
+  to it?
+- **Q2, census agreement on lower.** The draft §8 step 9 requires the
+  carried `requires`/`code` to agree **exactly** with a census recomputed
+  from the rows (a declared segment not reached, or a reached segment
+  not declared, is `:yin.k/undecodable`). `check-dependencies!` checks
+  only that `:yin.k/segments` equals the key set of `code`; a vector
+  carried but referenced by no row is accepted and attached. Accept the
+  narrower check, or require the recomputed census?
+- **Q3, install response verification.** The draft §5.4 asks the
+  receiver to verify that the install's link id equals `parent`, that
+  the image hashes to the address it is delivered under and is the image
+  the manifest names, and that format, contract and the child's profile
+  agree. `check-install!` verifies status, manifest name, export shape
+  and that the image loads; not the link id, not the image's address
+  against the manifest. Accept the narrower contract for phase 6, or
+  extend it before phase 7 (which re-bases the export-recovery object)?
+- **Q4, operation ids and correlation on lower.** The draft §8 step 8's
+  op-id rules (below `next-op-seq`, unique across the tree, absent
+  without origin) and its correlation agreement (cursor-cell stream,
+  envelope ids, module names) are not implemented; op-ids travel
+  verbatim, and pending compatibility is only P2's reason check. With
+  fork-only custody there is no `next-op-seq`; is this phase 7's with
+  the custody arm, or a 6-era gap to close?
+- **Q5, no re-discharge on lower.** Free names are discharged at lift
+  only (§7.1); the lower checks carried segments, trees, store census,
+  closures and primitives, and a name a closure resolves through the
+  registry is a composition prerequisite (§2.5). A receiver lacking that
+  registry entry accepts the carrier and fails at run time
+  (`Unable to resolve symbol`). Accept, or require the lower to
+  re-discharge registry-answered names against the receiver's registry
+  before attachment?
+- **Q6, conservatism of the live-code rule.** `live-pcs` follows both
+  successor edges of every branch and enters every reachable closure
+  body, with no constant propagation. The harness's `(if false (fn []
+  ghost) (next-of c))` case transports only because the lift happens at
+  a safepoint **after** the branch (the resume pc is past it, so the
+  dead arm is unreachable by edges); the same program lifted at a
+  safepoint **before** the branch would refuse `ghost` although the arm
+  can never run. Is "reachable by control-flow edges, never by value"
+  the intended precision, accepting the false refusals it implies for
+  constant-dead code?
+- **Q7, host-class primitives behind a shadow.** `:host-state-primitive`
+  refuses only when the name reaches the primitive step of the answering
+  order; the same name bound in `E` or the active store lifts (codex
+  round 2 confirmed). Intended, or should a host-class primitive name
+  refuse regardless of shadowing?
+- **Q8, preflight attachment cost.** `attaches?` validates and analyses
+  every carried vector (and every install image) by attaching it into a
+  throwaway receiver, and restore attaches it again. Codex found it pure
+  and only duplicated CPU. Accept, or ask the kernel for a validate-only
+  entry point?
+- **Q9, Law 2 outside a fresh receiver.** The id counter is adopted as
+  `max(local, carried)`; a receiver whose construction mints more ids
+  than the carrier relifts to a different root (draft §9 already scopes
+  the law to the fresh-receiver context). No harness case has a
+  non-fresh receiver. Add one as a documented non-law, or leave it?
+- **Q10, the `:running` wire phase's future.** If Q1 narrows the phase
+  set, row 11 disappears from the matrix and the `:install` row's phase
+  slot becomes a constant; if not, row 11 stays a synthetic case. Which?
 
 ---
 
