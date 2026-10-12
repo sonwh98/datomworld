@@ -1250,6 +1250,24 @@
         (testing ", its rows removed"
           (is (zero? none) "refused before any attachment")
           (is (= [:yin.k/unsatisfied #{'scoped}] [(:yin.k/status r) (get-in r [:yin.k/missing :yin.k/stores])]))))))
+  (testing "a closure inside a module store's value naming another module store"
+    ;; k lives only in outer's value and is routed to inner; stripping inner
+    ;; alone must refuse, else k attaches and fails reading ghost
+    (let [m0 (halted-on ghost-fn)
+          g (vm/value m0)
+          [ref m] (engine/attach-resource m0 (s/ring 4))
+          m (assoc m :value (routed m g 'outer) :store {'stream ref}
+                   :module-stores {'outer {'ghost 1 'k (routed m g 'inner)} 'inner {'ghost 42}})
+          {:keys [serve! toy]} (served #{:reader})
+          wire (rows/lift-task m serve! (lift-opts))
+          strip (fn [task] (update-at task [7] (fn [ns] (vec (remove #(= 'inner (first (:slots %))) ns)))))
+          [recv attaches] (lowered toy wire)
+          [r none] (lowered toy (rows/emit (strip (root-task wire))))]
+      (is (= #{'outer 'inner} (set (module-store-ids (root-task wire)))))
+      (is (= 1 attaches))
+      (is (= 42 (vm/value (run-beside (assoc recv :store {'f (get-in recv [:module-stores 'outer 'k])}) (s/app (s/v 'f))))))
+      (is (zero? none) "refused before any attachment")
+      (is (= [:yin.k/unsatisfied #{'inner}] [(:yin.k/status r) (get-in r [:yin.k/missing :yin.k/stores])]))))
   (testing "a frame's E naming a store its task does not carry"
     (let [[status _ r] (refused-before-attach 17 (without-module-stores [7]))]
       (is (= :yin.k/unsatisfied status))
