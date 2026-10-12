@@ -923,7 +923,10 @@
                #'imports/star-in-function-packet
                #'imports/alias-rebind-main-packet
                #'imports/from-dict-main-packet
-               #'imports/star-bad-main-packet]]
+               #'imports/star-bad-main-packet
+               #'imports/star-all-main-packet #'imports/k2-packet
+               #'imports/ca-packet #'imports/cb-packet
+               #'imports/star-range-main-packet]]
       (is (= (map node-shape (:yang.cst/nodes (parser/parse-source (:doc (meta v)))))
              (map node-shape (:yang.cst/nodes @v)))
           (str v)))))

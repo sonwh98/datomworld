@@ -3,7 +3,10 @@
    JVM parser produces for their sources (each def's docstring is the
    source). The `i2-*` modules and the I2 mains are the sources
    `collab/1791580000000-engineer-c4-i2.oracle.py` ran under CPython
-   3.9.6, which fixed their expected output.
+   3.9.6, which fixed their expected output. The I3 additions
+   (`star-all-main`, `k2`, `ca`, `cb`, `star-range-main`) follow them;
+   CPython 3.9.6 fixed `star-all-main`'s and `star-range-main`'s output
+   beside `i2-sy`.
    The parser is JVM-only; these let every host run the real lowering.
    `yang.python.antlr.import-test` runs them, and
    `yang.python.antlr.e2e-test` checks each against the parser, so the
@@ -3491,4 +3494,903 @@
                          [:expr [:atom_expr [:atom [:name ["NAME" "q"]]]]]]]]]]]]
                   ["CLOSE_PAREN" ")"]]]]]]]]]]]]
        ["NEWLINE" "\n"]]]
+     ["EOF" "<EOF>"]]))
+
+
+(def star-all-main-packet
+  "import sy\nsy.__all__ = (n for n in [\"r\"])\ntry:\n    from sy import *\nexcept TypeError as e:\n    print(e.args[0])\nsy.__all__ = {\"r\"}\ntry:\n    from sy import *\nexcept TypeError as e:\n    print(e.args[0])\nsy.__all__ = {\"r\": 1}\ntry:\n    from sy import *\nexcept TypeError as e:\n    print(e.args[0])\nsy.__all__ = (\"r\", 3)\ntry:\n    from sy import *\nexcept TypeError as e:\n    print(e.args[0])\nprint(r)\n"
+  (packet
+    [:file_input
+     [:stmt
+      [:simple_stmts
+       [:simple_stmt
+        [:import_stmt
+         [:import_name
+          ["IMPORT" "import"]
+          [:dotted_as_names
+           [:dotted_as_name [:dotted_name [:name ["NAME" "sy"]]]]]]]]
+       ["NEWLINE" "\n"]]]
+     [:stmt
+      [:simple_stmts
+       [:simple_stmt
+        [:expr_stmt
+         [:testlist_star_expr
+          [:test
+           [:or_test
+            [:and_test
+             [:not_test
+              [:comparison
+               [:expr
+                [:atom_expr
+                 [:atom [:name ["NAME" "sy"]]]
+                 [:trailer ["DOT" "."] [:name ["NAME" "__all__"]]]]]]]]]]]
+         ["ASSIGN" "="]
+         [:testlist_star_expr
+          [:test
+           [:or_test
+            [:and_test
+             [:not_test
+              [:comparison
+               [:expr
+                [:atom_expr
+                 [:atom
+                  ["OPEN_PAREN" "("]
+                  [:testlist_comp
+                   [:test
+                    [:or_test
+                     [:and_test
+                      [:not_test
+                       [:comparison
+                        [:expr [:atom_expr [:atom [:name ["NAME" "n"]]]]]]]]]]
+                   [:comp_for
+                    ["FOR" "for"]
+                    [:exprlist
+                     [:expr [:atom_expr [:atom [:name ["NAME" "n"]]]]]]
+                    ["IN" "in"]
+                    [:or_test
+                     [:and_test
+                      [:not_test
+                       [:comparison
+                        [:expr
+                         [:atom_expr
+                          [:atom
+                           ["OPEN_BRACK" "["]
+                           [:testlist_comp
+                            [:test
+                             [:or_test
+                              [:and_test
+                               [:not_test
+                                [:comparison
+                                 [:expr
+                                  [:atom_expr
+                                   [:atom ["STRING" "\"r\""]]]]]]]]]]
+                           ["CLOSE_BRACK" "]"]]]]]]]]]]
+                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
+       ["NEWLINE" "\n"]]]
+     [:stmt
+      [:compound_stmt
+       [:try_stmt
+        ["TRY" "try"]
+        ["COLON" ":"]
+        [:block
+         ["NEWLINE" "\n"]
+         ["INDENT" "    "]
+         [:stmt
+          [:simple_stmts
+           [:simple_stmt
+            [:import_stmt
+             [:import_from
+              ["FROM" "from"]
+              [:dotted_name [:name ["NAME" "sy"]]]
+              ["IMPORT" "import"]
+              ["STAR" "*"]]]]
+           ["NEWLINE" "\n"]]]
+         ["DEDENT" ""]]
+        [:except_clause
+         ["EXCEPT" "except"]
+         [:test
+          [:or_test
+           [:and_test
+            [:not_test
+             [:comparison
+              [:expr [:atom_expr [:atom [:name ["NAME" "TypeError"]]]]]]]]]]
+         ["AS" "as"]
+         [:name ["NAME" "e"]]]
+        ["COLON" ":"]
+        [:block
+         ["NEWLINE" "\n"]
+         ["INDENT" "    "]
+         [:stmt
+          [:simple_stmts
+           [:simple_stmt
+            [:expr_stmt
+             [:testlist_star_expr
+              [:test
+               [:or_test
+                [:and_test
+                 [:not_test
+                  [:comparison
+                   [:expr
+                    [:atom_expr
+                     [:atom [:name ["NAME" "print"]]]
+                     [:trailer
+                      ["OPEN_PAREN" "("]
+                      [:arglist
+                       [:argument
+                        [:test
+                         [:or_test
+                          [:and_test
+                           [:not_test
+                            [:comparison
+                             [:expr
+                              [:atom_expr
+                               [:atom [:name ["NAME" "e"]]]
+                               [:trailer ["DOT" "."] [:name ["NAME" "args"]]]
+                               [:trailer
+                                ["OPEN_BRACK" "["]
+                                [:subscriptlist
+                                 [:subscript_
+                                  [:test
+                                   [:or_test
+                                    [:and_test
+                                     [:not_test
+                                      [:comparison
+                                       [:expr
+                                        [:atom_expr
+                                         [:atom ["NUMBER" "0"]]]]]]]]]]]
+                                ["CLOSE_BRACK" "]"]]]]]]]]]]]
+                      ["CLOSE_PAREN" ")"]]]]]]]]]]]]
+           ["NEWLINE" "\n"]]]
+         ["DEDENT" ""]]]]]
+     [:stmt
+      [:simple_stmts
+       [:simple_stmt
+        [:expr_stmt
+         [:testlist_star_expr
+          [:test
+           [:or_test
+            [:and_test
+             [:not_test
+              [:comparison
+               [:expr
+                [:atom_expr
+                 [:atom [:name ["NAME" "sy"]]]
+                 [:trailer ["DOT" "."] [:name ["NAME" "__all__"]]]]]]]]]]]
+         ["ASSIGN" "="]
+         [:testlist_star_expr
+          [:test
+           [:or_test
+            [:and_test
+             [:not_test
+              [:comparison
+               [:expr
+                [:atom_expr
+                 [:atom
+                  ["OPEN_BRACE" "{"]
+                  [:dictorsetmaker
+                   [:test
+                    [:or_test
+                     [:and_test
+                      [:not_test
+                       [:comparison
+                        [:expr [:atom_expr [:atom ["STRING" "\"r\""]]]]]]]]]]
+                  ["CLOSE_BRACE" "}"]]]]]]]]]]]]
+       ["NEWLINE" "\n"]]]
+     [:stmt
+      [:compound_stmt
+       [:try_stmt
+        ["TRY" "try"]
+        ["COLON" ":"]
+        [:block
+         ["NEWLINE" "\n"]
+         ["INDENT" "    "]
+         [:stmt
+          [:simple_stmts
+           [:simple_stmt
+            [:import_stmt
+             [:import_from
+              ["FROM" "from"]
+              [:dotted_name [:name ["NAME" "sy"]]]
+              ["IMPORT" "import"]
+              ["STAR" "*"]]]]
+           ["NEWLINE" "\n"]]]
+         ["DEDENT" ""]]
+        [:except_clause
+         ["EXCEPT" "except"]
+         [:test
+          [:or_test
+           [:and_test
+            [:not_test
+             [:comparison
+              [:expr [:atom_expr [:atom [:name ["NAME" "TypeError"]]]]]]]]]]
+         ["AS" "as"]
+         [:name ["NAME" "e"]]]
+        ["COLON" ":"]
+        [:block
+         ["NEWLINE" "\n"]
+         ["INDENT" "    "]
+         [:stmt
+          [:simple_stmts
+           [:simple_stmt
+            [:expr_stmt
+             [:testlist_star_expr
+              [:test
+               [:or_test
+                [:and_test
+                 [:not_test
+                  [:comparison
+                   [:expr
+                    [:atom_expr
+                     [:atom [:name ["NAME" "print"]]]
+                     [:trailer
+                      ["OPEN_PAREN" "("]
+                      [:arglist
+                       [:argument
+                        [:test
+                         [:or_test
+                          [:and_test
+                           [:not_test
+                            [:comparison
+                             [:expr
+                              [:atom_expr
+                               [:atom [:name ["NAME" "e"]]]
+                               [:trailer ["DOT" "."] [:name ["NAME" "args"]]]
+                               [:trailer
+                                ["OPEN_BRACK" "["]
+                                [:subscriptlist
+                                 [:subscript_
+                                  [:test
+                                   [:or_test
+                                    [:and_test
+                                     [:not_test
+                                      [:comparison
+                                       [:expr
+                                        [:atom_expr
+                                         [:atom ["NUMBER" "0"]]]]]]]]]]]
+                                ["CLOSE_BRACK" "]"]]]]]]]]]]]
+                      ["CLOSE_PAREN" ")"]]]]]]]]]]]]
+           ["NEWLINE" "\n"]]]
+         ["DEDENT" ""]]]]]
+     [:stmt
+      [:simple_stmts
+       [:simple_stmt
+        [:expr_stmt
+         [:testlist_star_expr
+          [:test
+           [:or_test
+            [:and_test
+             [:not_test
+              [:comparison
+               [:expr
+                [:atom_expr
+                 [:atom [:name ["NAME" "sy"]]]
+                 [:trailer ["DOT" "."] [:name ["NAME" "__all__"]]]]]]]]]]]
+         ["ASSIGN" "="]
+         [:testlist_star_expr
+          [:test
+           [:or_test
+            [:and_test
+             [:not_test
+              [:comparison
+               [:expr
+                [:atom_expr
+                 [:atom
+                  ["OPEN_BRACE" "{"]
+                  [:dictorsetmaker
+                   [:test
+                    [:or_test
+                     [:and_test
+                      [:not_test
+                       [:comparison
+                        [:expr [:atom_expr [:atom ["STRING" "\"r\""]]]]]]]]]
+                   ["COLON" ":"]
+                   [:test
+                    [:or_test
+                     [:and_test
+                      [:not_test
+                       [:comparison
+                        [:expr [:atom_expr [:atom ["NUMBER" "1"]]]]]]]]]]
+                  ["CLOSE_BRACE" "}"]]]]]]]]]]]]
+       ["NEWLINE" "\n"]]]
+     [:stmt
+      [:compound_stmt
+       [:try_stmt
+        ["TRY" "try"]
+        ["COLON" ":"]
+        [:block
+         ["NEWLINE" "\n"]
+         ["INDENT" "    "]
+         [:stmt
+          [:simple_stmts
+           [:simple_stmt
+            [:import_stmt
+             [:import_from
+              ["FROM" "from"]
+              [:dotted_name [:name ["NAME" "sy"]]]
+              ["IMPORT" "import"]
+              ["STAR" "*"]]]]
+           ["NEWLINE" "\n"]]]
+         ["DEDENT" ""]]
+        [:except_clause
+         ["EXCEPT" "except"]
+         [:test
+          [:or_test
+           [:and_test
+            [:not_test
+             [:comparison
+              [:expr [:atom_expr [:atom [:name ["NAME" "TypeError"]]]]]]]]]]
+         ["AS" "as"]
+         [:name ["NAME" "e"]]]
+        ["COLON" ":"]
+        [:block
+         ["NEWLINE" "\n"]
+         ["INDENT" "    "]
+         [:stmt
+          [:simple_stmts
+           [:simple_stmt
+            [:expr_stmt
+             [:testlist_star_expr
+              [:test
+               [:or_test
+                [:and_test
+                 [:not_test
+                  [:comparison
+                   [:expr
+                    [:atom_expr
+                     [:atom [:name ["NAME" "print"]]]
+                     [:trailer
+                      ["OPEN_PAREN" "("]
+                      [:arglist
+                       [:argument
+                        [:test
+                         [:or_test
+                          [:and_test
+                           [:not_test
+                            [:comparison
+                             [:expr
+                              [:atom_expr
+                               [:atom [:name ["NAME" "e"]]]
+                               [:trailer ["DOT" "."] [:name ["NAME" "args"]]]
+                               [:trailer
+                                ["OPEN_BRACK" "["]
+                                [:subscriptlist
+                                 [:subscript_
+                                  [:test
+                                   [:or_test
+                                    [:and_test
+                                     [:not_test
+                                      [:comparison
+                                       [:expr
+                                        [:atom_expr
+                                         [:atom ["NUMBER" "0"]]]]]]]]]]]
+                                ["CLOSE_BRACK" "]"]]]]]]]]]]]
+                      ["CLOSE_PAREN" ")"]]]]]]]]]]]]
+           ["NEWLINE" "\n"]]]
+         ["DEDENT" ""]]]]]
+     [:stmt
+      [:simple_stmts
+       [:simple_stmt
+        [:expr_stmt
+         [:testlist_star_expr
+          [:test
+           [:or_test
+            [:and_test
+             [:not_test
+              [:comparison
+               [:expr
+                [:atom_expr
+                 [:atom [:name ["NAME" "sy"]]]
+                 [:trailer ["DOT" "."] [:name ["NAME" "__all__"]]]]]]]]]]]
+         ["ASSIGN" "="]
+         [:testlist_star_expr
+          [:test
+           [:or_test
+            [:and_test
+             [:not_test
+              [:comparison
+               [:expr
+                [:atom_expr
+                 [:atom
+                  ["OPEN_PAREN" "("]
+                  [:testlist_comp
+                   [:test
+                    [:or_test
+                     [:and_test
+                      [:not_test
+                       [:comparison
+                        [:expr [:atom_expr [:atom ["STRING" "\"r\""]]]]]]]]]
+                   ["COMMA" ","]
+                   [:test
+                    [:or_test
+                     [:and_test
+                      [:not_test
+                       [:comparison
+                        [:expr [:atom_expr [:atom ["NUMBER" "3"]]]]]]]]]]
+                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
+       ["NEWLINE" "\n"]]]
+     [:stmt
+      [:compound_stmt
+       [:try_stmt
+        ["TRY" "try"]
+        ["COLON" ":"]
+        [:block
+         ["NEWLINE" "\n"]
+         ["INDENT" "    "]
+         [:stmt
+          [:simple_stmts
+           [:simple_stmt
+            [:import_stmt
+             [:import_from
+              ["FROM" "from"]
+              [:dotted_name [:name ["NAME" "sy"]]]
+              ["IMPORT" "import"]
+              ["STAR" "*"]]]]
+           ["NEWLINE" "\n"]]]
+         ["DEDENT" ""]]
+        [:except_clause
+         ["EXCEPT" "except"]
+         [:test
+          [:or_test
+           [:and_test
+            [:not_test
+             [:comparison
+              [:expr [:atom_expr [:atom [:name ["NAME" "TypeError"]]]]]]]]]]
+         ["AS" "as"]
+         [:name ["NAME" "e"]]]
+        ["COLON" ":"]
+        [:block
+         ["NEWLINE" "\n"]
+         ["INDENT" "    "]
+         [:stmt
+          [:simple_stmts
+           [:simple_stmt
+            [:expr_stmt
+             [:testlist_star_expr
+              [:test
+               [:or_test
+                [:and_test
+                 [:not_test
+                  [:comparison
+                   [:expr
+                    [:atom_expr
+                     [:atom [:name ["NAME" "print"]]]
+                     [:trailer
+                      ["OPEN_PAREN" "("]
+                      [:arglist
+                       [:argument
+                        [:test
+                         [:or_test
+                          [:and_test
+                           [:not_test
+                            [:comparison
+                             [:expr
+                              [:atom_expr
+                               [:atom [:name ["NAME" "e"]]]
+                               [:trailer ["DOT" "."] [:name ["NAME" "args"]]]
+                               [:trailer
+                                ["OPEN_BRACK" "["]
+                                [:subscriptlist
+                                 [:subscript_
+                                  [:test
+                                   [:or_test
+                                    [:and_test
+                                     [:not_test
+                                      [:comparison
+                                       [:expr
+                                        [:atom_expr
+                                         [:atom ["NUMBER" "0"]]]]]]]]]]]
+                                ["CLOSE_BRACK" "]"]]]]]]]]]]]
+                      ["CLOSE_PAREN" ")"]]]]]]]]]]]]
+           ["NEWLINE" "\n"]]]
+         ["DEDENT" ""]]]]]
+     [:stmt
+      [:simple_stmts
+       [:simple_stmt
+        [:expr_stmt
+         [:testlist_star_expr
+          [:test
+           [:or_test
+            [:and_test
+             [:not_test
+              [:comparison
+               [:expr
+                [:atom_expr
+                 [:atom [:name ["NAME" "print"]]]
+                 [:trailer
+                  ["OPEN_PAREN" "("]
+                  [:arglist
+                   [:argument
+                    [:test
+                     [:or_test
+                      [:and_test
+                       [:not_test
+                        [:comparison
+                         [:expr
+                          [:atom_expr [:atom [:name ["NAME" "r"]]]]]]]]]]]]
+                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
+       ["NEWLINE" "\n"]]]
+     ["EOF" "<EOF>"]]))
+
+
+(def k2-packet
+  "kval = 4\nprint(\"k2-body\")\n"
+  (packet
+    [:file_input
+     [:stmt
+      [:simple_stmts
+       [:simple_stmt
+        [:expr_stmt
+         [:testlist_star_expr
+          [:test
+           [:or_test
+            [:and_test
+             [:not_test
+              [:comparison
+               [:expr [:atom_expr [:atom [:name ["NAME" "kval"]]]]]]]]]]]
+         ["ASSIGN" "="]
+         [:testlist_star_expr
+          [:test
+           [:or_test
+            [:and_test
+             [:not_test
+              [:comparison [:expr [:atom_expr [:atom ["NUMBER" "4"]]]]]]]]]]]]
+       ["NEWLINE" "\n"]]]
+     [:stmt
+      [:simple_stmts
+       [:simple_stmt
+        [:expr_stmt
+         [:testlist_star_expr
+          [:test
+           [:or_test
+            [:and_test
+             [:not_test
+              [:comparison
+               [:expr
+                [:atom_expr
+                 [:atom [:name ["NAME" "print"]]]
+                 [:trailer
+                  ["OPEN_PAREN" "("]
+                  [:arglist
+                   [:argument
+                    [:test
+                     [:or_test
+                      [:and_test
+                       [:not_test
+                        [:comparison
+                         [:expr
+                          [:atom_expr [:atom ["STRING" "\"k2-body\""]]]]]]]]]]]
+                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
+       ["NEWLINE" "\n"]]]
+     ["EOF" "<EOF>"]]))
+
+
+(def ca-packet
+  "import cb\nprint(\"ca-body\")\n"
+  (packet
+    [:file_input
+     [:stmt
+      [:simple_stmts
+       [:simple_stmt
+        [:import_stmt
+         [:import_name
+          ["IMPORT" "import"]
+          [:dotted_as_names
+           [:dotted_as_name [:dotted_name [:name ["NAME" "cb"]]]]]]]]
+       ["NEWLINE" "\n"]]]
+     [:stmt
+      [:simple_stmts
+       [:simple_stmt
+        [:expr_stmt
+         [:testlist_star_expr
+          [:test
+           [:or_test
+            [:and_test
+             [:not_test
+              [:comparison
+               [:expr
+                [:atom_expr
+                 [:atom [:name ["NAME" "print"]]]
+                 [:trailer
+                  ["OPEN_PAREN" "("]
+                  [:arglist
+                   [:argument
+                    [:test
+                     [:or_test
+                      [:and_test
+                       [:not_test
+                        [:comparison
+                         [:expr
+                          [:atom_expr [:atom ["STRING" "\"ca-body\""]]]]]]]]]]]
+                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
+       ["NEWLINE" "\n"]]]
+     ["EOF" "<EOF>"]]))
+
+
+(def cb-packet
+  "import ca\nprint(\"cb-body\")\n"
+  (packet
+    [:file_input
+     [:stmt
+      [:simple_stmts
+       [:simple_stmt
+        [:import_stmt
+         [:import_name
+          ["IMPORT" "import"]
+          [:dotted_as_names
+           [:dotted_as_name [:dotted_name [:name ["NAME" "ca"]]]]]]]]
+       ["NEWLINE" "\n"]]]
+     [:stmt
+      [:simple_stmts
+       [:simple_stmt
+        [:expr_stmt
+         [:testlist_star_expr
+          [:test
+           [:or_test
+            [:and_test
+             [:not_test
+              [:comparison
+               [:expr
+                [:atom_expr
+                 [:atom [:name ["NAME" "print"]]]
+                 [:trailer
+                  ["OPEN_PAREN" "("]
+                  [:arglist
+                   [:argument
+                    [:test
+                     [:or_test
+                      [:and_test
+                       [:not_test
+                        [:comparison
+                         [:expr
+                          [:atom_expr [:atom ["STRING" "\"cb-body\""]]]]]]]]]]]
+                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
+       ["NEWLINE" "\n"]]]
+     ["EOF" "<EOF>"]]))
+
+
+(def star-range-main-packet
+  "import sy\nsy.__all__ = range(0)\nfrom sy import *\ntry:\n    print(r)\nexcept NameError:\n    print(\"r unbound\")\nsy.__all__ = range(2)\ntry:\n    from sy import *\nexcept TypeError as e:\n    print(e.args[0])\n"
+  (packet
+    [:file_input
+     [:stmt
+      [:simple_stmts
+       [:simple_stmt
+        [:import_stmt
+         [:import_name
+          ["IMPORT" "import"]
+          [:dotted_as_names
+           [:dotted_as_name [:dotted_name [:name ["NAME" "sy"]]]]]]]]
+       ["NEWLINE" "\n"]]]
+     [:stmt
+      [:simple_stmts
+       [:simple_stmt
+        [:expr_stmt
+         [:testlist_star_expr
+          [:test
+           [:or_test
+            [:and_test
+             [:not_test
+              [:comparison
+               [:expr
+                [:atom_expr
+                 [:atom [:name ["NAME" "sy"]]]
+                 [:trailer ["DOT" "."] [:name ["NAME" "__all__"]]]]]]]]]]]
+         ["ASSIGN" "="]
+         [:testlist_star_expr
+          [:test
+           [:or_test
+            [:and_test
+             [:not_test
+              [:comparison
+               [:expr
+                [:atom_expr
+                 [:atom [:name ["NAME" "range"]]]
+                 [:trailer
+                  ["OPEN_PAREN" "("]
+                  [:arglist
+                   [:argument
+                    [:test
+                     [:or_test
+                      [:and_test
+                       [:not_test
+                        [:comparison
+                         [:expr [:atom_expr [:atom ["NUMBER" "0"]]]]]]]]]]]
+                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
+       ["NEWLINE" "\n"]]]
+     [:stmt
+      [:simple_stmts
+       [:simple_stmt
+        [:import_stmt
+         [:import_from
+          ["FROM" "from"]
+          [:dotted_name [:name ["NAME" "sy"]]]
+          ["IMPORT" "import"]
+          ["STAR" "*"]]]]
+       ["NEWLINE" "\n"]]]
+     [:stmt
+      [:compound_stmt
+       [:try_stmt
+        ["TRY" "try"]
+        ["COLON" ":"]
+        [:block
+         ["NEWLINE" "\n"]
+         ["INDENT" "    "]
+         [:stmt
+          [:simple_stmts
+           [:simple_stmt
+            [:expr_stmt
+             [:testlist_star_expr
+              [:test
+               [:or_test
+                [:and_test
+                 [:not_test
+                  [:comparison
+                   [:expr
+                    [:atom_expr
+                     [:atom [:name ["NAME" "print"]]]
+                     [:trailer
+                      ["OPEN_PAREN" "("]
+                      [:arglist
+                       [:argument
+                        [:test
+                         [:or_test
+                          [:and_test
+                           [:not_test
+                            [:comparison
+                             [:expr
+                              [:atom_expr [:atom [:name ["NAME" "r"]]]]]]]]]]]]
+                      ["CLOSE_PAREN" ")"]]]]]]]]]]]]
+           ["NEWLINE" "\n"]]]
+         ["DEDENT" ""]]
+        [:except_clause
+         ["EXCEPT" "except"]
+         [:test
+          [:or_test
+           [:and_test
+            [:not_test
+             [:comparison
+              [:expr [:atom_expr [:atom [:name ["NAME" "NameError"]]]]]]]]]]]
+        ["COLON" ":"]
+        [:block
+         ["NEWLINE" "\n"]
+         ["INDENT" "    "]
+         [:stmt
+          [:simple_stmts
+           [:simple_stmt
+            [:expr_stmt
+             [:testlist_star_expr
+              [:test
+               [:or_test
+                [:and_test
+                 [:not_test
+                  [:comparison
+                   [:expr
+                    [:atom_expr
+                     [:atom [:name ["NAME" "print"]]]
+                     [:trailer
+                      ["OPEN_PAREN" "("]
+                      [:arglist
+                       [:argument
+                        [:test
+                         [:or_test
+                          [:and_test
+                           [:not_test
+                            [:comparison
+                             [:expr
+                              [:atom_expr
+                               [:atom ["STRING" "\"r unbound\""]]]]]]]]]]]
+                      ["CLOSE_PAREN" ")"]]]]]]]]]]]]
+           ["NEWLINE" "\n"]]]
+         ["DEDENT" ""]]]]]
+     [:stmt
+      [:simple_stmts
+       [:simple_stmt
+        [:expr_stmt
+         [:testlist_star_expr
+          [:test
+           [:or_test
+            [:and_test
+             [:not_test
+              [:comparison
+               [:expr
+                [:atom_expr
+                 [:atom [:name ["NAME" "sy"]]]
+                 [:trailer ["DOT" "."] [:name ["NAME" "__all__"]]]]]]]]]]]
+         ["ASSIGN" "="]
+         [:testlist_star_expr
+          [:test
+           [:or_test
+            [:and_test
+             [:not_test
+              [:comparison
+               [:expr
+                [:atom_expr
+                 [:atom [:name ["NAME" "range"]]]
+                 [:trailer
+                  ["OPEN_PAREN" "("]
+                  [:arglist
+                   [:argument
+                    [:test
+                     [:or_test
+                      [:and_test
+                       [:not_test
+                        [:comparison
+                         [:expr [:atom_expr [:atom ["NUMBER" "2"]]]]]]]]]]]
+                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
+       ["NEWLINE" "\n"]]]
+     [:stmt
+      [:compound_stmt
+       [:try_stmt
+        ["TRY" "try"]
+        ["COLON" ":"]
+        [:block
+         ["NEWLINE" "\n"]
+         ["INDENT" "    "]
+         [:stmt
+          [:simple_stmts
+           [:simple_stmt
+            [:import_stmt
+             [:import_from
+              ["FROM" "from"]
+              [:dotted_name [:name ["NAME" "sy"]]]
+              ["IMPORT" "import"]
+              ["STAR" "*"]]]]
+           ["NEWLINE" "\n"]]]
+         ["DEDENT" ""]]
+        [:except_clause
+         ["EXCEPT" "except"]
+         [:test
+          [:or_test
+           [:and_test
+            [:not_test
+             [:comparison
+              [:expr [:atom_expr [:atom [:name ["NAME" "TypeError"]]]]]]]]]]
+         ["AS" "as"]
+         [:name ["NAME" "e"]]]
+        ["COLON" ":"]
+        [:block
+         ["NEWLINE" "\n"]
+         ["INDENT" "    "]
+         [:stmt
+          [:simple_stmts
+           [:simple_stmt
+            [:expr_stmt
+             [:testlist_star_expr
+              [:test
+               [:or_test
+                [:and_test
+                 [:not_test
+                  [:comparison
+                   [:expr
+                    [:atom_expr
+                     [:atom [:name ["NAME" "print"]]]
+                     [:trailer
+                      ["OPEN_PAREN" "("]
+                      [:arglist
+                       [:argument
+                        [:test
+                         [:or_test
+                          [:and_test
+                           [:not_test
+                            [:comparison
+                             [:expr
+                              [:atom_expr
+                               [:atom [:name ["NAME" "e"]]]
+                               [:trailer ["DOT" "."] [:name ["NAME" "args"]]]
+                               [:trailer
+                                ["OPEN_BRACK" "["]
+                                [:subscriptlist
+                                 [:subscript_
+                                  [:test
+                                   [:or_test
+                                    [:and_test
+                                     [:not_test
+                                      [:comparison
+                                       [:expr
+                                        [:atom_expr
+                                         [:atom ["NUMBER" "0"]]]]]]]]]]]
+                                ["CLOSE_BRACK" "]"]]]]]]]]]]]
+                      ["CLOSE_PAREN" ")"]]]]]]]]]]]]
+           ["NEWLINE" "\n"]]]
+         ["DEDENT" "<EOF>"]]]]]
      ["EOF" "<EOF>"]]))

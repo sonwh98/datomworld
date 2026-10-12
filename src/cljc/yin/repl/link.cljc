@@ -142,9 +142,15 @@
    `derivation` is the composition's derivation policy (section 8.1) for
    the manifest links it serves from a content source: `:verifying`, the
    default, or `:trusted`, which only a composition that is its own
-   publisher asks for. The response names the trust it applied."
+   publisher asks for. The response names the trust it applied.
+
+   `admit`, optional, is a language runtime's admission of each name the
+   DHT source resolves, `(admit name entry)` with the `names` entry: nil
+   admits, a refusal body refuses the request before any load or link
+   (a Python source's foreign-principal refusal, yang.antlr.md 8.5.6
+   ruling 19)."
   [{:keys [name-env content-store content-client dht? principals key
-           follow derivation]}]
+           follow derivation admit]}]
   (when (and content-store content-client)
     (throw (ex-info "content-store and content-client are exclusive"
                     {:content-store content-store})))
@@ -157,6 +163,7 @@
                                 key (conj (:public key)))))
    :follow (vec follow)
    :derivation (or derivation :verifying)
+   :admit admit
    :content (cond
               dht? {:kind :dht}
 
@@ -387,7 +394,10 @@
             entry (linker.dht/resolve-name node declared name)]
         (cond
           (= :ok (:status entry))
-          (dht-attempt node declared request (:address entry))
+          (if-some [refusal (when-some [admit (:admit source)]
+                              (admit name entry))]
+            {:node node, :body refusal}
+            (dht-attempt node declared request (:address entry)))
 
           (and (= :absent (:reason entry)) (seq (awaited-heads source node)))
           {:node node, :body ::pending, :heads (awaited-heads source node)}

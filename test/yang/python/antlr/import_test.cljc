@@ -900,3 +900,38 @@
 (deftest ^:slow star-import-names-must-be-str-test-test
   (slow/guard "star-import-names-must-be-str-test"
               star-import-names-must-be-str-test))
+
+
+(defn- star-import-all-is-indexed-test
+  []
+  (testing "__all__ is read by index, as CPython's PySequence_GetItem
+            reads it, until IndexError: a generator, a set and a dict are
+            each CPython 3.9.6's TypeError; a tuple copies each item
+            before it reads the next, so r is bound before 3 raises"
+    (every= [true false
+             {:py/out ["'generator' object does not support indexing"
+                       "'set' object does not support indexing"
+                       "dict is not a sequence"
+                       "Item in sy.__all__ must be str, not int" "4"],
+              :py/exception nil}]
+            (on-every-vm programs/star-all-main-packet (i2-source)))))
+
+
+(deftest ^:slow star-import-all-is-indexed-test-test
+  (slow/guard "star-import-all-is-indexed-test"
+              star-import-all-is-indexed-test))
+
+
+(defn- star-import-all-range-test
+  []
+  (testing "a range __all__ is a sequence: an empty one copies nothing,
+            a nonempty one reaches the item check with an int, as
+            CPython 3.9.6"
+    (every= [true false
+             {:py/out ["r unbound" "Item in sy.__all__ must be str, not int"],
+              :py/exception nil}]
+            (on-every-vm programs/star-range-main-packet (i2-source)))))
+
+
+(deftest ^:slow star-import-all-range-test-test
+  (slow/guard "star-import-all-range-test" star-import-all-range-test))

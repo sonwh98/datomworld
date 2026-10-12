@@ -3201,7 +3201,44 @@ precompiled CST packets or rows, since the parser is JVM-only):
 - I3: a JVM-published `pym.m` imports parserless on Node and Dart with
   the same output; a republished dependency is refused as a dependency
   binding with no install; a cyclic pair is refused at publication by
-  name.
+  name. Landed in `dht_import_test` over the `dao.jing.dht` mesh seam on
+  every host. What travels is the JVM's publication, a checked-in
+  artifact (`test/resources/yang/python/dht-import-v1.edn`, written by
+  the generator script beside it): guest blobs, manifests, signed
+  envelopes and importer packets, served on every host without
+  republishing; each host's own publication of the same packets must
+  equal it. A refused import is observed to print nothing and start no
+  guest install child.
+  `yang.python.antlr.publication` orders a unit set by its static
+  imports and publishes it bottom-up, pinning each import, and refuses a
+  cycle before anything is written (`:yang.python.antlr/import-cycle`,
+  naming its modules) and an import nothing supplies; the republished
+  dependency is the linker's `:mismatch` binding. `py` does not travel:
+  three of its code images (about 0.8 to 1 MB) exceed the DHT's 64 KiB
+  message bound, which a `dao.space.dht` node does not let a composition
+  raise, so `py` is the reader's installed runtime (its pinned manifest
+  address, one golden on every host) and the guest modules travel.
+  Foreign principals are refused, not claimed (ruling 19): a Python link
+  source passes `principal-admission` as `yin.repl.link/composition`'s
+  `:admit`, and a name no own principal asserts is refused
+  `:yang.python.antlr/foreign-principal` naming `:requires :L-e`. The
+  `__all__` of `from m import *` is read by index (CPython's
+  `PySequence_GetItem`), so a generator, set or dict `__all__` raises
+  CPython's `TypeError`, and a range is a sequence; the prelude goldens
+  moved once.
+  I3 gap (REPL): no REPL frontend runs Python under the linked profile.
+  `principal-admission` is enforced wherever a composition passes
+  `:admit` to `yin.repl.link/composition`; the DHT import tests do, the
+  REPL does not. The linked REPL profile is its own slice after F2: a
+  frontend session keyed by [id revision], one Python task and module
+  view per profile, and foreign-principal admission applied where a
+  module is exposed into a session that holds `py`, not only at link
+  time. Until then ruling 19's interim refusal is not a boundary at the
+  REPL. Also: `py` is an installed pin on each reader until large blobs
+  travel over the DHT (64 KiB blob cap), and the linker's
+  dependency-binding check is today the only guard over a pinned
+  dependency (discharge does not independently refuse a republished
+  dependency); both are recorded for the DHT and linker seats.
 - I4: an absent module inside `try` runs the `except
   ModuleNotFoundError` branch; an ambiguous name raises `ImportError`
   carrying the refusal.

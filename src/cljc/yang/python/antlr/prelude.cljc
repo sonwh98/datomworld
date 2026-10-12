@@ -3100,15 +3100,39 @@
                                     (data/str-concat what " must be str, not ")))
                  n "")
                (py/type-text "module __name__ must be a string, not " mn ""))))))]
+    [py/star-item
+     ;; __all__[i] as CPython's PySequence_GetItem reads it for from m
+     ;; import *: a str, list, tuple or range item, :py/stop past the end
+     ;; (the IndexError that ends the copy); a dict is a mapping, not a
+     ;; sequence, and anything else does not support indexing
+     (fn [all i]
+       (if (py/str? all)
+         (let [cps (data/str->code-points (get all :py/str))]
+           (if (< i (data/count cps))
+             (py/str (data/code-points->str (py/vconj [] (get cps i))))
+             :py/stop))
+         (let [k (py/kind all)]
+           (if (= k :list)
+             (get (get (cell/get all) :items) i :py/stop)
+             (if (= k :tuple)
+               (get (get all :items) i :py/stop)
+               (if (= k :range)
+                 (py/range-at all i)
+                 (if (= k :dict)
+                   (py/type-error {:py/str "dict is not a sequence"})
+                   (py/type-error
+                     (py/type-text "'" all
+                                   "' object does not support indexing")))))))))]
     [py/star-copy-all
-     ;; from m import * under __all__: each listed name, through getattr
-     (fn [m g names i]
-       (let [n (get names i :py/stop)]
+     ;; from m import * under __all__: each item read by index, checked
+     ;; and copied through getattr before the next is read
+     (fn [m g all i]
+       (let [n (py/star-item all i)]
          (if (= n :py/stop)
            :py/None
            (do (py/star-name m n ".__all__")
                (py/dict-set g n (py/getattr m (get n :py/str)))
-               (py/star-copy-all m g names (+ i 1))))))]
+               (py/star-copy-all m g all (+ i 1))))))]
     [py/star-copy-public
      ;; from m import * with no __all__: each key not starting with `_`
      (fn [m g ks vs i]
@@ -3130,7 +3154,7 @@
          (if (= all :py/missing)
            (let [c (cell/get d)]
              (py/star-copy-public m g (get c :keys) (get c :vals) 0))
-           (py/star-copy-all m g (py/to-vector all) 0))))]
+           (py/star-copy-all m g all 0))))]
     [py/import-fail
      ;; a relative import the lowering could not resolve (I2), raised at
      ;; its executed statement; `msg` is CPython's text
@@ -3165,6 +3189,30 @@
                              :py/None))
                        (fn [e] e)
                        (fn [] :py/None))]
+             (assoc (assoc {} :py/out (cell/get py.rt/out))
+                    :py/exception
+                    (if (= exc :py/None) nil (py/snapshot-exc exc))))))]
+    [py/run-session
+     ;; one REPL submission (ruling 18): `body` runs against the
+     ;; persistent __main__ of sys.modules, made by the first submission,
+     ;; so a name one submission binds is read by the next; the value is
+     ;; run-main's. The bundled REPL runner calls it, so the runner names
+     ;; no runtime key
+     (fn [body]
+       (do (cell/set! py.rt/out [])
+           (cell/set! py.rt/ctx (py/ctx nil 0 0 nil))
+           (let [hit (py/modules-ref (py/str "__main__"))
+                 m (if (= hit :py/missing)
+                     (let [fresh (py/module-new (py/str "__main__") :py/None)]
+                       (do (py/modules-put! (py/str "__main__") fresh)
+                           fresh))
+                     hit)
+                 d (py/module-dict m)
+                 exc (py/try (fn []
+                               (do (body d (py/globals-fn d))
+                                   :py/None))
+                             (fn [e] e)
+                             (fn [] :py/None))]
              (assoc (assoc {} :py/out (cell/get py.rt/out))
                     :py/exception
                     (if (= exc :py/None) nil (py/snapshot-exc exc))))))]])

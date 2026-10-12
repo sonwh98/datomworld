@@ -225,10 +225,14 @@
    (`py/import`, module objects, sys.modules and its two pre-seeded
    modules) and the `ImportError` class. I2 moved it once: py/import-sub,
    py/import-from, py/import-star, py/import-fail and their helpers, and
-   a top-level module's `__package__` ''."
+   a top-level module's `__package__` ''. I3 moved it once:
+   py/star-item, `__all__` read by index (ranges included), and
+   py/run-session, the REPL `__main__` runner. It moved once more with
+   the rebase onto master 4529b5bd: the profile digest in the manifest
+   uses BLAKE3 since 492ff50b."
   (keyword (str "segment/blake3-"
-                "0dee20206b02b4204c1f9e9811a749aa"
-                "96dba8b72f6006ff9f0a9b22e0005134")))
+                "b9dbaeff80b320070d24ec870f1b525e"
+                "4db0c4cd3214d0ba4c3f2f6b56bea427")))
 
 
 (def ^:private vector-formats
