@@ -1859,8 +1859,8 @@ answers one entry per requirement, in walk order:
 
 ### 7.5 Admission: the trust question
 
-Status: designed, not implemented. Slices AD-1 (the seam), AD-2 (the
-Python policy) and AD-3 (the REPL) build it; the binding design is
+Status: AD-1 (the seam) and AD-2 (the Python policy) landed; AD-3 (the
+REPL) is open. The three slices build it; the binding design is
 `collab/1792234000000-architect-admission-stream-r3.claude-fable-5-1.findings.md`
 (approved with nits by
 `collab/1792235000000-reviewer-admission-stream-r3.findings.md`, whose

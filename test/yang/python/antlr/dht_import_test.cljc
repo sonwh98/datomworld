@@ -4,8 +4,7 @@
 
    The fast tests pin the publication: a unit set publishes bottom-up, a
    cyclic pair is refused by name before anything is written, an import
-   no unit or publication supplies is refused, and the foreign-principal
-   admission refuses a name only another principal vouches for.
+   no unit or publication supplies is refused.
 
    The slow test is the acceptance over the `dao.jing.dht` mesh seam, the
    in-process form `yin.vm.linker.dht-end-to-end-test` uses, so it runs on
@@ -26,16 +25,23 @@
    Then `A`'s republication of `k` is indexed, and the reader's import of
    `t`, which pinned the old `k`, is refused as a dependency binding with
    no install child and no output; then `B` vouches for a module, and the
-   reader, declaring `B` too, is refused it by the Python admission until
-   L-e, again with no install child and no output."
+   reader, declaring `B` too, is refused it by the default admission
+   interpreter while it trusts only `A` (yin.vm.linker.dht.md 7.5),
+   again with no install child and no output, and allowed it once it
+   trusts `B`. Last, `B`'s head moves the name to another module between
+   the admission question and its answer: the allow binds the module the
+   question was asked about."
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.datom :as datom]
+    [dao.jing :as jing]
     [dao.jing.dht :as jing.dht]
     [dao.jing.dht.mesh :as mesh]
     [dao.jing.mem :as mem]
     [dao.space.dht :as dht]
     [dao.space.dht-test :as dht-test]
+    [dao.space.index :as index]
+    [dao.stream :as stream]
     [dao.test-slow :as slow]
     [yang.python.antlr.dht-import-fixture :as fixture]
     [yang.python.antlr.import-programs :as programs]
@@ -46,6 +52,9 @@
     [yin.repl.admission :as admission]
     [yin.repl.link :as link]
     [yin.vm :as vm]
+    [yin.vm.linker.dht :as ld]
+    [yin.vm.linker.head :as head]
+    [yin.vm.linker.publish :as publish]
     [yin.vm.linker.sign :as sign]
     [yin.vm.module :as module]))
 
@@ -107,34 +116,6 @@
            (publication/publish-units! store (h/registry) stand-in-address
                                        [(unit "t" programs/t-packet)])))
     (is (empty? ((:entries-fn store))))))
-
-
-(deftest foreign-principals-are-refused-until-l-e-test
-  (let [a (sign/generate)
-        b (sign/generate)
-        pa (sign/principal (:public a))
-        pb (sign/principal (:public b))
-        admit (publication/principal-admission [(:public a)])
-        entry (fn [& asserters]
-                {:status :ok,
-                 :address :test/m,
-                 :yin.link/provenance {:yin.module/asserted-by
-                                       (vec asserters)}})]
-    (testing "the importer's own principal is admitted, alone or beside
-              another asserting the same address (R8)"
-      (is (nil? (admit 'pym.m (entry pa))))
-      (is (nil? (admit 'pym.m (entry pb pa)))))
-    (testing "a direct entry is the composition's own"
-      (is (nil? (admit 'pym.m {:status :ok,
-                               :address :test/m,
-                               :yin.link/provenance :composition}))))
-    (testing "only another principal: refused, qualified, naming L-e"
-      (is (= {:status :refused,
-              :reason :yang.python.antlr/foreign-principal,
-              :name 'pym.m,
-              :asserters [pb],
-              :requires :L-e}
-             (admit 'pym.m (entry pb)))))))
 
 
 ;; =============================================================================
@@ -266,7 +247,12 @@
   [task]
   {:output (py-output task),
    :guests (guest-installs task),
-   :children (or (:origins task) 0)})
+   :children (or (:origins task) 0),
+   :admissions (into {}
+                     (keep (fn [[n entry]]
+                             (when (contains? (guest-installs task) (str n))
+                               [(str n) (:admission entry)])))
+                     (module/module-entries (:modules task)))})
 
 
 (defn- run-over-dht
@@ -279,69 +265,75 @@
    the raise: a refused link raises at its resume, before anything
    else runs.
 
-   Both interpreters are driven and retained across rounds (yin.vm.linker.dht.md
-   7.5): the link server, over the admission state minted beside the
-   pair, and the source's in-process admission interpreter, which
-   answers each question the server asks."
-  [w backend pk src]
-  (let [pair (link/make-pair)
-        adm (admission/make-state link/pair-capacity)
-        interp (when (:admission src)
-                 (admission/interpreter adm (:admission src)))
-        task ((get h/backends backend)
-              (lower/lower-packet pk {:prelude :linked})
-              (h/composition (h/registry) pair))
-        limit (+ (:now w) 1200000)
-        run (fn [task]
-              (try (vm/run task)
-                   (catch #?(:cljd Object :clj Exception :cljs :default) e
-                     {::thrown (ex-message e), ::resumed task})))]
-    (loop [w w
-           task (run task)
-           pair pair
-           adm adm
-           interp interp]
-      (let [response (dissoc (peek (mesh/values (:responses pair)))
-                             :yin.link/id :image)]
-        (cond
-          (::thrown task)
-          [w [:thrown (::thrown task)] response (observed (::resumed task))]
+   Both interpreters are driven and retained across rounds
+   (yin.vm.linker.dht.md 7.5): the link server, over the admission state
+   minted beside the pair, and the source's in-process admission
+   interpreter, when the source composes one, which answers each
+   question the server asks. `between`, `(between w served)` of each
+   serve round's result once the world is stepped, answers the world:
+   the place of an interpreter outside the process."
+  ([w backend pk src] (run-over-dht w backend pk src (fn [w _] w)))
+  ([w backend pk src between]
+   (let [pair (link/make-pair)
+         adm (admission/make-state link/pair-capacity)
+         interp (when (:admission src)
+                  (admission/interpreter adm (:admission src)))
+         task ((get h/backends backend)
+               (lower/lower-packet pk {:prelude :linked})
+               (h/composition (h/registry) pair))
+         limit (+ (:now w) 1200000)
+         run (fn [task]
+               (try (vm/run task)
+                    (catch #?(:cljd Object :clj Exception :cljs :default) e
+                      {::thrown (ex-message e), ::resumed task})))]
+     (loop [w w
+            task (run task)
+            pair pair
+            adm adm
+            interp interp]
+       (let [response (dissoc (peek (mesh/values (:responses pair)))
+                              :yin.link/id :image)]
+         (cond
+           (::thrown task)
+           [w [:thrown (::thrown task)] response (observed (::resumed task))]
 
-          (and (vm/blocked? task) (< (:now w) limit))
-          (let [{:keys [pair dht admission]} (link/serve {:pair pair,
-                                                          :source src,
-                                                          :dht (:reader w),
-                                                          :admission adm})
-                admitted (when interp
-                           (admission/serve
-                             {:interpreter interp,
-                              :policy (:admission src),
-                              :context (admission/context {})}
-                             link/serve-budget))
-                w (step-world (assoc w :reader dht))]
-            (recur w
-                   (run task)
-                   pair
-                   admission
-                   (if admitted (:interpreter admitted) interp)))
+           (and (vm/blocked? task) (< (:now w) limit))
+           (let [{:keys [pair dht admission] :as served}
+                 (link/serve {:pair pair,
+                              :source src,
+                              :dht (:reader w),
+                              :admission adm})
+                 admitted (when interp
+                            (admission/serve
+                              {:interpreter interp,
+                               :policy (:admission src),
+                               :context (admission/context {})}
+                              link/serve-budget))
+                 w (between (step-world (assoc w :reader dht)) served)]
+             (recur w
+                    (run task)
+                    pair
+                    admission
+                    (if admitted (:interpreter admitted) interp)))
 
-          :else
-          [w
-           [(vm/halted? task) (vm/blocked? task)
-            (render/output (vm/value task))]
-           response
-           (observed task)])))))
+           :else
+           [w
+            [(vm/halted? task) (vm/blocked? task)
+             (render/output (vm/value task))]
+            response
+            (observed task)]))))))
 
 
 (defn- source
   "The reader's DHT link source declaring the public keys `publics`, its
-   Python admission naming `own`, and its admission interpreter trusting
-   `own`'s principals."
-  [publics own]
-  (link/composition {:dht? true,
-                     :principals publics,
-                     :admit (publication/principal-admission own),
-                     :admission {:trusted (set (map sign/principal own))}}))
+   in-process admission interpreter trusting the principals of the
+   public keys `trusted` -- none in process when `trusted` is nil."
+  [publics trusted]
+  (link/composition
+    {:dht? true,
+     :principals publics,
+     :admission (when trusted
+                  {:trusted (set (map sign/principal trusted))})}))
 
 
 (defn- on-every-vm
@@ -475,26 +467,181 @@
         w))))
 
 
-(defn- foreign-principal-is-refused
+;; -----------------------------------------------------------------------------
+;; B's module: refused untrusted, allowed trusted, bound to its question
+;; -----------------------------------------------------------------------------
+
+(def ^:private caught-e
+  "x's run once e is linked: e.boom raises, x catches it."
+  [true false {:py/out ["caught-e"], :py/exception nil}])
+
+
+(defn- an-untrusted-principal-is-refused-on-every-vm
   [w artifact]
   (let [{:keys [a b]} (:principals artifact)
-        [w _] (publish-index w (get-in artifact [:indexes :foreign]))
-        both (source [a b] [a])]
-    (testing "a module only B vouches for, B declared: the Python admission
-              refuses it by name until L-e, with no install child and no
-              output"
+        [w _] (publish-index w (get-in artifact [:indexes :foreign]))]
+    (testing "a module only B vouches for, B declared and A alone trusted:
+              the default interpreter refuses it as untrusted, naming B,
+              with no install child and no output"
       (let [[w results] (on-every-vm w (get-in artifact [:importers :x])
-                                     both)]
+                                     (source [a b] [a]))]
         (doseq [[k [outcome response seen]] results]
           (is (= :thrown (first outcome)) (str k " " (pr-str outcome)))
           (is (= {:status :refused,
-                  :reason :yang.python.antlr/foreign-principal,
+                  :reason :yin.admit/untrusted-principal,
                   :name 'pym.e,
-                  :asserters [(sign/principal b)],
-                  :requires :L-e}
-                 response)
+                  :yin.admit/decision :refuse,
+                  :yin.admit/asserters [(sign/principal b)]}
+                 (dissoc response :yin.admit/id))
               (str k " " (pr-str response)))
+          (is (vector? (:yin.admit/id response)) (str k))
           (observes k nothing-ran seen))
+        w))))
+
+
+(defn- a-trusted-principal-is-allowed-on-every-vm
+  [w artifact]
+  (let [{:keys [a b]} (:principals artifact)
+        e (get-in artifact [:units "e"])]
+    (testing "the reader trusts B explicitly: e imports on every VM, its
+              registry entry recording the admission it rode on"
+      (let [[w results] (on-every-vm w (get-in artifact [:importers :x])
+                                     (source [a b] [a b]))]
+        (doseq [[k [outcome response seen]] results]
+          (is (= caught-e outcome) (str k " " (pr-str response)))
+          (observes k {:output ["caught-e"],
+                       :guests #{"pym.e"},
+                       :children 2,
+                       :admissions {"pym.e"
+                                    {:yin.admit/id (:yin.admit/id response),
+                                     :yin.admit/decision :allow,
+                                     :yin.admit/asserters
+                                     [(sign/principal b)],
+                                     :yin.admit/address e}}}
+                    seen))
+        w))))
+
+
+(defn- install-confirmed
+  [follower node events]
+  (reduce (fn [[f n] e]
+            (if (= :confirmed (:yin.head/event e))
+              (let [[f n _] (head/install f n (:principal e) (:trace e))]
+                [f n])
+              [f n]))
+          [follower node]
+          events))
+
+
+(defn- follow-step
+  "One reading of the world, then one pass of the reader's head
+   follower, installing what it confirms."
+  [w]
+  (let [w (step-world w)
+        [f node events] (head/step (:follower w) (:reader w) (:now w))
+        [f node] (install-confirmed f node events)]
+    (assoc w :follower f :reader node)))
+
+
+(defn- move-b-head
+  "Publish B's next index through the publisher -- B's assertion of
+   pym.e retracted, pym.e now naming `m2` -- deposit its head on B's
+   board, and step the world and the reader's follower until the head is
+   installed: the world."
+  [w artifact m2]
+  (let [key-b fixture/key-b
+        pb (sign/principal (:public key-b))
+        [e1] (get-in artifact [:indexes :foreign])
+        signed [(publish/retraction
+                  key-b
+                  {:of (jing/segment-key (:envelope e1)), :seq 2})
+                (publish/assertion key-b
+                                   {:name 'pym.e, :manifest m2, :seq 3})]
+        m (index! (:pub w) signed)
+        w (run-world w 600000 (str "B's head " m " was not reported")
+                     (published? m))
+        dep (head/deposit! (:board w) key-b m
+                           (index/read-datoms (dht/local (:pub w)) m))
+        limit (+ (:now w) 600000)
+        w (loop [w w]
+            (cond
+              (= m (get (ld/installed-heads (:reader w)) pb)) w
+              (> (:now w) limit) (assoc w :failure "B's head not installed")
+              :else (recur (follow-step w))))]
+    (is (= :ok (:status dep)) (pr-str dep))
+    (is (nil? (:failure w)) (:failure w))
+    w))
+
+
+(defn- allow-after-the-head-moves
+  "The `between` of `run-over-dht` for F1, an external interpreter: it
+   allows each question once, every name but pym.e at once (py is A's),
+   and pym.e only after moving B's head to `m2`. It records under
+   `:asked` every admission id a pending pym.e link names."
+  [artifact src m2]
+  (fn [w served]
+    (let [pending (filter :admission (:pending served))
+          e? #(= "pym.e" (str (:name %)))
+          w (update w :asked into (map :admission (filter e? pending)))
+          w (if (or (:moved w) (not-any? e? pending))
+              w
+              (let [w (move-b-head w artifact m2)]
+                (is (= m2 (:address (ld/resolve-name (:reader w)
+                                                     (link/authority src)
+                                                     'pym.e)))
+                    "B's head moved pym.e to M2 while the question was open")
+                (assoc w :moved true)))]
+      (reduce (fn [w {:keys [admission]}]
+                (if (contains? (:answered w) admission)
+                  w
+                  (do (stream/append! (get-in served
+                                              [:admission :pair :answers])
+                                      {:yin.admit/id admission,
+                                       :yin.admit/decision :allow,
+                                       :yin.admit/conditions {}})
+                      (update w :answered conj admission))))
+              w
+              pending))))
+
+
+(defn- an-allow-binds-the-address-the-question-was-asked-about
+  [w artifact]
+  (let [{:keys [a b]} (:principals artifact)
+        pb (sign/principal b)
+        m1 (get-in artifact [:units "e"])
+        m2 (get-in artifact [:republished "k"])
+        src (source [a b] nil)
+        [f reader] (head/follow (:reader w) {:follow [pb],
+                                             :heads :volatile,
+                                             :poll-ticks 10})
+        board (head/board)
+        w (assoc w
+                 :reader reader
+                 :follower (head/attach f pb board)
+                 :board board
+                 :asked #{}
+                 :answered #{})]
+    (testing "M2 is a module the reader has never loaded"
+      (is (not= m1 m2))
+      (is (nil? (ld/module-status (:reader w) m2))))
+    (testing "an allow for the question about M1, answered after B's head
+              moved pym.e to M2, links M1 and never fetches M2 (F1)"
+      (let [[w outcome response seen]
+            (run-over-dht w :semantic (get-in artifact [:importers :x]) src
+                          (allow-after-the-head-moves artifact src m2))
+            id (:yin.admit/id response)]
+        (is (:moved w) "the question was asked and answered")
+        (is (= caught-e outcome) (pr-str response))
+        (is (= m1 (:yin.admit/address response)))
+        (is (= (jing/get (dht/local (:pub w)) m1 nil) (:manifest response)))
+        (is (some? (ld/module-status (:reader w) m1)))
+        (is (nil? (ld/module-status (:reader w) m2)))
+        (is (= {"pym.e" {:yin.admit/id id,
+                         :yin.admit/decision :allow,
+                         :yin.admit/asserters [pb],
+                         :yin.admit/address m1}}
+               (:admissions seen)))
+        (is (= #{id} (:asked w)) "the pending admission id never changed")
         w))))
 
 
@@ -508,7 +655,10 @@
         w (publish-world artifact)
         w (imports-over-the-dht w artifact src)
         w (republished-dependency-is-refused w artifact src)
-        w (foreign-principal-is-refused w artifact)]
+        w (an-untrusted-principal-is-refused-on-every-vm w artifact)
+        w (a-trusted-principal-is-allowed-on-every-vm w artifact)
+        w (an-allow-binds-the-address-the-question-was-asked-about
+            w artifact)]
     (dht/close! (:pub w))
     (dht/close! (:reader w))))
 

@@ -1,7 +1,6 @@
 (ns yang.python.antlr.publication
   "C4 slice I3 (docs/design/yang.antlr.md 8.5.6): a set of compiled Python
-   units published as linker modules, and the import admission a Python
-   link source applies until L-e.
+   units published as linker modules.
 
    A unit set publishes bottom-up. Each unit's static imports
    (`lower/imported-module-names`, the requires `lower/module-packet`
@@ -11,16 +10,9 @@
    written, naming the cycle (ruling 9's first step; SCC units are I5).
    Name assertions stay the linker's (`yin.vm.linker.publish/assertion`
    and `name-envelopes`): this namespace publishes content, it signs
-   nothing.
-
-   Foreign principals (ruling 19): until D7 slice B (L-e) verifies closure
-   origin and store ownership through every export and dependency slice,
-   a module only another principal vouches for could forge a `:store-of`
-   reaching `py`'s state. `principal-admission` is the explicit refusal
-   a Python link source applies to every name it resolves meanwhile."
+   nothing."
   (:require [yang.python.antlr.lower :as lower]
-            [yin.vm.linker.publish :as publish]
-            [yin.vm.linker.sign :as sign]))
+            [yin.vm.linker.publish :as publish]))
 
 
 (defn- refused
@@ -125,24 +117,3 @@
                (assoc-in acc [:addresses n] (:address res)))))
          {:status :ok, :addresses {}}
          (:order plan))))))
-
-
-(defn principal-admission
-  "The admission a Python link source applies to each name it resolves
-   (`yin.repl.link/composition`'s `:admit`), until L-e: a name resolved
-   from signed assertions is admitted when one of the importer's own
-   principals, the public keys `publics` (64 lowercase hex), asserts it
-   -- it vouches for that very manifest address -- and a direct entry,
-   the composition's own, always. Any other is refused
-   `:yang.python.antlr/foreign-principal` with the `:name`, its
-   `:asserters`, and `:requires` `:L-e`, before anything of it links."
-  [publics]
-  (let [own (set (map sign/principal publics))]
-    (fn [name entry]
-      (let [provenance (:yin.link/provenance entry)
-            asserters (:yin.module/asserted-by provenance)]
-        (when-not (or (= :composition provenance) (some own asserters))
-          (refused :yang.python.antlr/foreign-principal
-                   {:name name,
-                    :asserters (vec asserters),
-                    :requires :L-e}))))))

@@ -148,12 +148,6 @@
    default, or `:trusted`, which only a composition that is its own
    publisher asks for. The response names the trust it applied.
 
-   `admit`, optional, is a language runtime's admission of each name the
-   DHT source resolves, `(admit name entry)` with the `names` entry: nil
-   admits, a refusal body refuses the request before any load or link
-   (a Python source's foreign-principal refusal, yang.antlr.md 8.5.6
-   ruling 19).
-
    `admission`, optional, is the policy of the in-process admission
    interpreter (yin.vm.linker.dht.md 7.5, `yin.repl.admission/policy`):
    `{:trusted #{principal} :verify f :decision d :decision-medium m}`,
@@ -161,7 +155,7 @@
    interpreter runs in process: the questions a DHT source asks are
    answered elsewhere or not at all."
   [{:keys [name-env content-store content-client dht? principals key
-           follow derivation admit admission]}]
+           follow derivation admission]}]
   (when (and content-store content-client)
     (throw (ex-info "content-store and content-client are exclusive"
                     {:content-store content-store})))
@@ -174,7 +168,6 @@
                                 key (conj (:public key)))))
    :follow (vec follow)
    :derivation (or derivation :verifying)
-   :admit admit
    :admission (when admission
                 (admission/policy
                   (assoc admission
@@ -428,8 +421,7 @@
   "The DHT branch of `answer`: a request already asked about goes by
    its question (`admitted`); otherwise its name is resolved.  A direct
    `:name-env` entry, provenance `:composition`, is the composition's
-   own and is not asked; a signed name passes the language runtime's
-   `:admit`, when there is one, and is then asked: the question is
+   own and is not asked; a signed name is asked: the question is
    appended and the link parks on it.  With no admission state the
    question cannot be asked, `:yin.admit/unconfigured`."
   [source node admission request]
@@ -438,18 +430,13 @@
         q (some-> admission (admission/asked (:yin.link/id request)))]
     (if q
       (admitted node declared request q (admission/answer-to admission q))
-      (let [entry (linker.dht/resolve-name node declared name)
-            refused (when (= :ok (:status entry))
-                      (when-some [admit (:admit source)] (admit name entry)))]
+      (let [entry (linker.dht/resolve-name node declared name)]
         (cond
           (not= :ok (:status entry))
           (if (and (= :absent (:reason entry))
                    (seq (awaited-heads source node)))
             {:node node, :body ::pending, :heads (awaited-heads source node)}
             {:node node, :body entry})
-
-          (some? refused)
-          {:node node, :body refused}
 
           (= :composition (:yin.link/provenance entry))
           (dht-attempt node declared request (:address entry))
