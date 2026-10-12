@@ -1857,6 +1857,438 @@ answers one entry per requirement, in walk order:
 - The check is the early, named form of what discharge would refuse later
   as `:unresolved-free`; it adds no rule the linker lacks.
 
+### 7.5 Admission: the trust question
+
+Status: designed, not implemented. Slices AD-1 (the seam), AD-2 (the
+Python policy) and AD-3 (the REPL) build it; the binding design is
+`collab/1792234000000-architect-admission-stream-r3.claude-fable-5-1.findings.md`
+(approved with nits by
+`collab/1792235000000-reviewer-admission-stream-r3.findings.md`, whose
+three nits are folded in below). It replaces the `:admit` function of
+`yin.repl.link/composition`.
+
+**Pinned by test.** The reason vocabulary of this section and the values
+of `serve-budget` and `pair-capacity` it names are pinned by
+`admission-spec-test` (`test/yin/repl/admission_doc_test.cljc`, landing
+with AD-1): the test reads this section and fails when it and the code
+diverge.
+
+Owner direction (2026-10-12): a module published by another principal is
+not refused automatically. Which principals a session trusts is a
+configurable policy, and the user of a module may choose to trust its
+principal. The policy is an interpreter of a stream, the shape ShiBi
+already has (`dao.shibi.md`).
+
+#### 7.5.1 The datums
+
+When the DHT link source resolves a name, it appends an admission
+question to an **admission request medium**. One interpreter reads the
+questions and appends answers to an **admission response medium**. The
+two ring media sit beside the link pair. The admission id is
+`[link-id serial]`. `serial` is a per-composition counter, never reused,
+so a retired question and a later question for the same link id never
+share an id.
+
+```clojure
+;; question, appended to the admission request medium at resolution
+{:yin.admit/id         [[:t0 7] 3]
+ :yin.link/id          [:t0 7]
+ :yin.admit/name       'pym.m
+ :yin.admit/address    :segment/blake3-...   ; the resolved manifest address, retained
+ :yin.admit/asserters  ["ed25519:<hex>" ...] ; every asserter of that entry (R8)
+ :yin.admit/provenance {...}                 ; the entry's :yin.link/provenance verbatim
+ :yin.link/format      f                     ; the request's own words, no subject
+ :yin.link/contract    "b2"}
+
+;; answers, appended to the admission response medium
+{:yin.admit/id [[:t0 7] 3] :yin.admit/decision :allow  :yin.admit/conditions {}}
+{:yin.admit/id [[:t0 7] 3] :yin.admit/decision :refuse
+ :yin.admit/reason :yin.admit/untrusted-principal :yin.admit/asserters [...]}
+```
+
+- The question's key set is closed: exactly the keys above. No session
+  and no subject travels in it; the subject is the interpreter's context
+  (7.5.6). No key of the question or of the link request is
+  `:yin.admit/subject`, `:yin.admit/session`, or in the `dao.shibi`
+  namespace.
+- The allow answer's key set is closed: `:yin.admit/id`,
+  `:yin.admit/decision :allow` and `:yin.admit/conditions`. A refuse
+  answer carries `:yin.admit/id`, `:yin.admit/decision :refuse` and
+  `:yin.admit/reason`, and may carry further keys, which are copied into
+  the link refusal.
+- A direct `:name-env` entry (provenance `:composition`) is not asked.
+  A non-DHT link source has no admission pair.
+- The link response on allow gains `:yin.admit/id`,
+  `:yin.admit/decision :allow`, `:yin.admit/asserters` and
+  `:yin.admit/address`. A refusal copies into the link refusal shape with
+  the answer's reason and its open keys.
+
+#### 7.5.2 Ask after resolve, before load: the retained entry (F1)
+
+`link/serve` takes `{:pair :source :dht :admission}` and returns
+`{:pair :pending :progress? :dht :admission}`. The admission state is a
+value:
+
+```clojure
+{:pair    {:questions q-medium :answers a-medium :cursor c}  ; c: the composition's answer cursor
+ :asked   {[:t0 7] question}        ; the retained question, at most one per pair in v1
+ :answers {[[:t0 7] 3] answer}      ; drained, keyed by admission id, first answer wins
+ :serial  4}
+```
+
+The question is asked after the name resolves and before any load
+starts. The DHT branch of the link answer takes three cases, in this
+order:
+
+1. **Asked and unanswered.** `:asked` holds an entry for the link id and
+   `:answers` holds nothing under that entry's admission id: the link is
+   pending, and the pending entry carries `:admission <id>` beside
+   `:name` and `:yin.link/id`. The name is not resolved again.
+2. **Asked and answered.** An allow loads the **retained** address, the
+   `:yin.admit/address` of the asked question, never a fresh
+   `resolve-name`. A refuse is the link refusal. When the link response
+   lands, the asked entry and its answer are dropped.
+3. **Not asked.** The name resolves as before. An `:ok` resolution mints
+   the question with the next serial, appends it to the request medium,
+   records it under `:asked`, and reports the link pending with
+   `:admission`. A question append counts as progress. A refused append
+   leaves nothing asked and reports no progress.
+
+**A question-bound link is never refreshed.** Serve stops at the first
+pending request, so at most one question is open per pair, bound to the
+entry it was minted from until an answer lands or the request is retired.
+A head change after the question is asked does not move the address the
+allow loads. If the retained address fails to load after an allow, the
+link is refused as any failed load is, and the asked entry goes with it.
+The user requires again; the new link id gets a new question over the
+head as it then is.
+
+**The registry record.** `engine/link-install` assocs onto the installed
+registry entry, after the module entry is built and before the module is
+received, an `:admission` map `{:yin.admit/id :yin.admit/decision
+:yin.admit/asserters :yin.admit/address}` copied from a response that
+carries `:yin.admit/decision :allow`. Install children inherit entries
+whole and parents receive transferred entries whole, so the record is
+inherited and transferred with them. A direct `:name-env` entry carries
+no `:admission` key.
+
+#### 7.5.3 Parking, with no deadline
+
+A link whose question is unanswered parks. Nothing times it out: there is
+no clock in admission, and liveness belongs to `dao.lease` and to the
+`:link-policy` (8.3). An unanswered question ends only when an answer
+lands or its request is retired by abandonment.
+
+**Abandonment retires the run.** `mint-link-id` emits the current
+counter and then increments it, and child origins are minted the same way
+(origin `:t0.<n>` with `n` the current `:origins`). Both ranges are
+therefore half-open. `(abandon)` computes a run descriptor
+`{:origin :t0 :ids [from until] :children [from until]}` from `base`, the
+parked run's `(:base parked)`, and `parked`, the VM after the abandoned
+installs and links are folded out, with every counter normalized by
+`(or counter 0)`:
+
+- `:ids` is `[(:id-counter base) (:id-counter parked)]`.
+- `:children` is `[(:origins base) (:origins parked)]`.
+
+`(link/retire {:pair :admission} run)` returns
+`{:pair :admission :retired [ids]}`. Walking the link pair's requests with
+`stream/next` from the pair's request cursor, a request with id `[o k]` is
+retired iff:
+
+- `o` is the run's origin and `base <= k < parked-counter`, that is
+  `from <= k < until` of `:ids`; or
+- for some `m` with `from <= m < until` of `:children`, with
+  `child = (str (name origin) "." m)`, `(name o)` equals `child` or starts
+  with `child + "."`, the exact origin or `origin + "."` of that child.
+
+A raw prefix never matches: `"t0.10"` does not start with `"t0.1."`, so
+`:t0.10` is never a descendant of `:t0.1`. Nested install children
+(`:t0.4.0`, `:t0.4.0.2`) match through the `"t0.4."` prefix. Each retired
+request advances the cursor. The first request that is not retired stops
+the walk, keeping serve's stop-at-first-unanswered rule, so a request
+outside the run is never skipped. Retire removes every `:asked` entry
+whose link id was retired and every `:answers` entry under those ids. No
+link response is appended for a retired request: the engine has already
+retired the id, and a response would be `:late`. An answer arriving later
+for a retired id correlates to nothing and the drain drops it.
+
+`:retired` names the run-owned requests the walk still encounters from the
+current cursor, before the first unrelated request. A root request that
+was already answered and spawned an install child is behind the cursor and
+is not in `:retired`; its child's requests are.
+
+#### 7.5.4 The drain: bounded, consuming, with a persisted cursor
+
+One public `(admission/drain admission budget)` returns the successor
+admission state. It reads the response medium with `stream/next` from
+`:pair :cursor`, at most `budget` elements, and persists the cursor past
+everything it read. Every read consumes; nothing peeks.
+
+- **Admission id comparison is keyed by `[link-id serial]`.** `:asked` is
+  keyed by link id, and an answer by its full admission id. An answer `a`
+  is kept only when its id equals the retained question's id for the
+  answer's link id:
+
+  ```clojure
+  (= (:yin.admit/id a)
+     (:yin.admit/id (get asked (first (:yin.admit/id a)))))
+  ```
+
+  and `:answers` holds nothing under that id yet. An answer with a stale
+  serial for a live link id, a duplicate (the first answer wins), and an
+  answer for an unknown or retired id are consumed and dropped.
+- On `:dao.stream/gap` the drain adopts the recovery cursor the transport
+  returns (the earliest retained position, never an evicted one) and
+  continues within the budget. On `:dao.stream/blocked` or
+  `:dao.stream/end` it stops.
+- Serve calls `drain` with `serve-budget` (64) at the start of each round.
+  The host hook (7.5.5) calls the same function.
+- The media have capacity `pair-capacity` (1024) and evict the oldest
+  element. An answer is lost when the unread backlog on the response
+  medium exceeds that capacity; host composition must bound the
+  accumulated backlog through its production rate and its drain cadence.
+  A lost answer leaves its question pending until retirement. There is no
+  re-answer protocol.
+
+#### 7.5.5 Late answers and host driving
+
+All without a clock.
+
+- **In the drive.** `drive-links` runs `admission/serve` right after
+  `link/serve` and assocs its admission successor on the state before the
+  VM runs, so a raising run carries it (below). A round continues while
+  the link serve, the admission serve or the answer drain made progress.
+  With the in-process interpreter one require costs two extra rounds.
+  With none, the drive ends with the link pending, bounded by
+  `link-round-budget` as before.
+- **The host hook.** `(yin.repl/recheck-on-answers state)` is a sibling of
+  `recheck-on-load-events`, called beside it by `yin.repl.main/step-all`
+  (8.2). It drains with `serve-budget`, persists the successor on the
+  state whether or not anything matched, and calls `recheck-pending` once
+  iff a full key of the retained `:answers` map equals the `:admission` id
+  of a pending entry of the pending run. Otherwise it answers
+  `[state' nil]` with no `:checks` change. Irrelevant answers advance the
+  cursor and are gone; a valid answer behind `serve-budget` irrelevant
+  ones is drained on the next tick. With no pending run the hook still
+  drains.
+- **The command path.** `(trust p)` rebuilds the session decision and,
+  when a run is pending, calls `recheck-pending` once.
+- **Error rollback.** The link raise carries the admission successor beside
+  the link pair, and `carry-served` restores it, so after an install that
+  raises the asked entry is dropped, the answer consumed, and the cursor
+  and serial advanced. `(abandon)` uses `retire` on the live state instead.
+
+#### 7.5.6 The interpreter contract
+
+`yin.repl.admission` is composed from
+`{:trusted #{...} :verify f :decision d :decision-medium m}` and answers
+each question with `(verify decision context question)`: nil allows, a
+reason map refuses. The context is composition-owned, built by
+`admission/context` from the session:
+`{:yin.admit/subject "ed25519:<hex>" | nil, :yin.admit/session <token>}`,
+the session token being the shell token now and `[id revision]` once the
+REPL F2 slice lands. Authorization vocabulary stays in the context and the
+policy; the question and the linker carry none.
+
+- **Composition-bounded synchronous verification.** `verify` runs
+  synchronously inside one serve round on one snapshot. Its cost per
+  question is bounded by the composition, and the interpreter answers at
+  most `serve-budget` questions per round. `verify` opens, fetches and
+  waits for nothing; a rule that would need a remote read is a rule the
+  decision snapshot must already hold (`dao.shibi.md`, limits of the
+  adapter contract).
+- **The snapshot.** The decision snapshot is the static `:decision`
+  value, or the newest value on a capacity-1 `:decision-medium`, read once
+  per round. An **absent** snapshot gives no answer: the question stays
+  pending and the round reports no progress. An **ended** snapshot
+  refuses `:yin.admit/decision-ended`, with no load started.
+- **The default interpreter.** The decision is the session's own
+  principal together with the `:trusted` set. It allows when some
+  asserter of the question is in that set, and otherwise refuses
+  `:yin.admit/untrusted-principal` naming the asserters.
+- **Composition.** Policies compose as verify functions; the first reason
+  wins. One interpreter writes the response medium.
+- **At the REPL.** `(trust p)` adds principal `p` to the session's trusted
+  set, `(untrust p)` removes it, and `(trusted)` prints the own principal
+  and the trusted set. `create-state` takes `:admission` beside
+  `:link-policy`, defaulting to the own key from `:dht-key`. `(reset)`
+  drops the trusted set unless it was given in `create-state`.
+
+This is not the gate seam of `dao.shibi.md`. It reuses the `verify`
+signature and the snapshot, but a request read off a stream and answered
+with one decision per request is the path `dao.shibi.md` names as a
+non-goal for the gate, to be added beside `verify`. This section is that
+addition. A ShiBi interpreter later replaces or composes with the default
+one as another verify function over its own published snapshot, with no
+edit to the linker.
+
+#### 7.5.7 Exposure: the session's registry
+
+Admission governs entry into a session's module registry, and
+authorization follows the session and the registry it inherits. A cache
+hit answers a require from the registry without a question; install
+children inherit registry entries; parents receive what children
+installed; `(lang ...)` preserves the registry. One allow therefore
+authorizes every later require of that module in that session.
+
+- `(untrust p)` is not retroactive: it changes only later answers, and a
+  module already in the registry stays usable.
+- `(reset)` and `(vm ...)` start a fresh registry and a fresh admission
+  state.
+
+#### 7.5.8 Trust versus safety
+
+Trust is which principals a session accepts, and it is the admission
+interpreter's answer. Safety is the linker's and L-e's, enforced whatever
+the answer says: closure origin, store ownership, dependency pins and the
+primitives profile (`yang.antlr.md` 8.5.6, ruling 19). **An allow never
+relaxes L-e.** The interpreter sees names, addresses, asserters and
+provenance, never bytes.
+
+**Conditions are reserved empty in v1.** `:yin.admit/conditions` must be
+`{}`. A primitive or effect bound on a trusted module is future work and
+does not land before L-e.
+
+#### 7.5.9 Fail closed
+
+Every reason below is final for that link:
+
+- A DHT link source with a nil `:admission` refuses
+  `:yin.admit/unconfigured`.
+- A malformed answer refuses `:yin.admit/malformed-answer`.
+- An answer with non-empty conditions refuses
+  `:yin.admit/unsupported-condition`.
+- An ended decision snapshot refuses `:yin.admit/decision-ended`.
+- The default interpreter refuses an untrusted asserter set
+  `:yin.admit/untrusted-principal`.
+
+An absent snapshot and an unanswered question never allow; they leave the
+link pending until an answer or retirement.
+
+**Must not land before L-e:** anything that claims untrusted-origin
+imports are safe; a default decision other than own principals; honoring
+any non-empty condition; a weakening of profile or dependency-pin
+discharge or of export-origin validation; admission on the content pair
+or in any frontend. Everything here is AST-level data on streams, so the
+register-VM cutover does not affect it.
+
+#### 7.5.10 Slices and acceptance
+
+**The parked linked-REPL tests are lost.**
+`collab/1792201000000-parked-linked-repl-tests.cljc.txt` is not on disk
+and was never committed. AD-3 and F2 rewrite them from the acceptance
+lines below (F2, F3, P1-1, P1-2, P2-3 of the design), not from memory of
+the parked file.
+
+Order: AD-1 (with AD-0's `admission-spec-test`), then AD-2 and AD-3 in
+either order.
+
+- **AD-0, docs.** This section, the cross-references in `yang.antlr.md`
+  8.5.6 and `dao.shibi.md`, and the 8.2 hook. Its executable check lands
+  with AD-1: a portable test reads this section and asserts that every
+  keyword in `admission/reasons` appears in it, that it names
+  `serve-budget` and `pair-capacity` with the values the vars hold, and
+  that the retire rule contains the literal `origin + "."`.
+- **AD-1, the seam** (linker engineer). `yin.repl.admission` with
+  `make-state`, `context`, `serve`, `drain`, `reasons`; the admission
+  state through `link/serve`; `link/retire`; `:admit` removed; the
+  `link-install` admission record; the `make-session` default state; a
+  nil `:admission` refuses `:yin.admit/unconfigured`. Portable tests in
+  `admission_test.cljc` on hand-made questions and media. Acceptance:
+  - a trusted asserter's module imports on every VM with the admission
+    record and address in the installed and inherited registry entries;
+  - an untrusted one is refused with no load started;
+  - a question append reports progress;
+  - an unanswered question survives sixty-four rounds unchanged;
+  - a duplicate allow is dropped and the first stands;
+  - an answer for an unknown id is consumed and dropped, and an answer
+    with a stale serial for the same link id is dropped;
+  - non-empty conditions refuse `:yin.admit/unsupported-condition`;
+  - a malformed answer refuses `:yin.admit/malformed-answer`;
+  - `retire` passes P1-1 (i) to (iii) below;
+  - `drain` passes P1-2 (ii) gap recovery at the seam;
+  - F4: a recording `verify` receives exactly the snapshot, the context
+    and the question; an absent snapshot leaves the question unanswered
+    after a round and reports no progress; an ended snapshot refuses
+    `:yin.admit/decision-ended` with no load started; no key of the
+    question or the link request is `:yin.admit/subject`,
+    `:yin.admit/session` or namespaced `dao.shibi`;
+  - F1, the head change: publish M1 for `pym.m` under principal B; import
+    on a reader that declares B but trusts nobody in process, so the
+    question stays open; publish a new head of B moving `pym.m` to M2 and
+    step until the follower installs it; append an allow for the open
+    admission id; drive. The response's `:yin.admit/address` is M1's
+    content address, its `:manifest` value equals M1's manifest value,
+    the node holds a module record for M1 and none for M2, the installed
+    registry entry and an install child's inherited entry both carry
+    `:admission` with that id and address, and the pending entry's
+    `:admission` id never changed.
+- **AD-2, Python** (compiler engineer, coordinated with the yang.python
+  orchestrator). `principal-admission` and its ruling 19 docstring
+  paragraph leave `yang.python.antlr.publication`; the DHT import tests
+  move to the default interpreter. Acceptance: no
+  `:yang.python.antlr/foreign-principal` remains; `run-over-dht` runs both
+  interpreters; the published DHT artifact is unchanged; the F1 test
+  lives here because it needs a second head.
+- **AD-3, the REPL** (VM engineer). The session wiring, the host hook,
+  the trust commands, and the rewritten linked-REPL tests in
+  `test/yin/repl/admission_repl_test.cljc`. Acceptance:
+  - `(trust p)` then an import of p's module completes in the same
+    session;
+  - `(untrust p)` refuses the next question of a new session and leaves
+    the cached module usable;
+  - F2, abandon: an open question for `pym.e`, the drive stops;
+    `(abandon)`; require `pym.m`, trusted, on the same session: it
+    completes, and the response medium holds no response for the retired
+    id; append a late allow for the retired id and drive again: nothing is
+    loaded, nothing printed, the pending set stays empty;
+  - P1-1 (i) and (ii) through `(abandon)`;
+  - F3, the late answer: a session composed with an external admission
+    interpreter (none in process); require `pym.m`; the initial drive
+    ends pending with `:admission` on the pending entry;
+    `recheck-on-load-events` with unrelated events answers `[state nil]`;
+    append an allow; `recheck-on-answers` returns text, the next drive
+    loads and links, with no input line and no load event;
+  - P1-2 (i) and (iii) through the host hook;
+  - P2-3, the rollback: allow, then an install that raises, then a
+    require of another module: the new question's serial is greater than
+    the failed one's, `:asked` holds no entry for the failed link id, the
+    answer map holds nothing under the failed admission id, and the next
+    drive reports progress only for the new question;
+  - `(trusted)` prints own plus trusted;
+  - `(reset)` drops the trusted set unless given in `create-state`.
+
+P1-1, retirement:
+
+- (i) A session with absent or zero counters: the first require mints
+  `[:t0 0]` and opens an unanswered admission; `(abandon)`; an unrelated
+  trusted require completes on the same pair.
+- (ii) A nonzero base: two trusted requires first, then a run whose
+  module installs a child that requires another untrusted module
+  (origins `:t0.<n>` and `:t0.<n>.0`); abandon. `:retired` holds exactly
+  the run-owned requests still encountered from the current cursor
+  before the first unrelated request; no run-owned admission remains in
+  `:asked` or `:answers`; an unrelated trusted require completes. Root
+  retirement is exercised separately in the unanswered-root case (i).
+- (iii) `retire` over a pair holding requests from `:t0.1`, `:t0.1.0` and
+  `:t0.10` with `:children [1 2]` retires the first two and stops at the
+  `:t0.10` request.
+
+P1-2, the drain:
+
+- (i) After the initial drive stops, append `serve-budget` answers for
+  unknown ids and then the valid allow; call `recheck-on-answers` alone,
+  at most twice: the require completes, and `:checks` is 0 after the
+  first call.
+- (ii) Gap recovery: a pair built with capacity 4 (`make-pair` gains an
+  optional capacity, default `pair-capacity`); mint the cursor at the
+  oldest end, append six answers for unknown ids and then the valid
+  allow; the drain adopts the recovery cursor on the gap outcome and the
+  require completes within two calls.
+- (iii) `serve-budget` irrelevant answers and no allow, three hook calls:
+  `:checks` stays 0 and the cursor has advanced past all of them.
+
 ## 8. Evaluation
 
 ### 8.1 Entry
@@ -1883,6 +2315,10 @@ contract through `IModuleKernel/link-format`, and the `:fallback` policy of
   cannot happen without a new load.
 - One re-check serves every pending request in order, so several pending
   module loads completing in one tick need one re-check.
+- Beside it, `step-all` calls `yin.repl/recheck-on-answers` (7.5.5, not
+  yet built), which drains the admission response medium and re-checks
+  once if and only if a drained answer's admission id is one a pending
+  link waits on. An irrelevant answer changes no `:checks`.
 - A typed line still re-checks, as today. `(abandon)`, the retained lines,
   the identity carry and the late-answer skip of M5 are unchanged.
 - `:link-policy` is consulted exactly as `yin.repl.link-policy.md` 3.2
@@ -3074,30 +3510,30 @@ and wait-set order. Test all nine pairs, including the three same-host
 pairs as controls. Serializing a cursor must not translate it to a local
 anchor, offset, newly minted position, or copied stream. Host resource ids
 and seals are fresh; their equality across hosts is neither needed nor
-permitted as a substitute for logical cell identity.
+permitted as a substitute for logical cursor-cell identity.
 
-Every reachable reference to one source cursor resource maps to one cell
+Every reachable reference to one source cursor resource maps to one cursor cell
 and one fresh receiver resource. Distinct cursor resources map to distinct
-cells even when their stream and position contents are equal. Advancing a
-shared cell is visible to its next waiter in the same polling round;
-advancing one independent cell changes no other cell. Wait order comes
-from carried scheduler state, not map iteration or sorted cell ids.
+cursor cells even when their stream and position contents are equal. Advancing a
+shared cursor cell is visible to its next waiter in the same polling round;
+advancing one independent cursor cell changes no other cursor cell. Wait order comes
+from carried scheduler state, not map iteration or sorted cursor-cell ids.
 
 | Safepoint kind | Required resume evidence |
 |---|---|
-| Explicit park | No active wait; reachable cells keep their positions. |
-| Blocked read | Poll the remapped cell at its kept position. |
+| Explicit park | No active wait; reachable cursor cells keep their positions. |
+| Blocked read | Poll the remapped cursor cell at its kept position. |
 | Blocked write | Retry the retained value on the original target. |
-| Sent FFI | Await the original response pair and kept response cell. |
-| Retained FFI | Retry the same request, id, args, and response cell. |
+| Sent FFI | Await the original response pair and kept response cursor cell. |
+| Retained FFI | Retry the same request, id, args, and response cursor cell. |
 | Ordinary/tail effectful call | Use the observed effect's pending shape. |
 | `:link-request` | Retry the retained link envelope and id verbatim. |
-| `:link-response` | Poll the original response cell; match the link id. |
+| `:link-response` | Poll the original response cursor cell; match the link id. |
 | `:install` | Preserve child phase and its waits, or refuse export. |
 | Halt | Carry a result; create no resumable frame or pending wait. |
 
 For write-only rows the position obligation applies to all reachable
-cells, including response cells retained before the append. An outstanding
+cursor cells, including response cursor cells retained before the append. An outstanding
 FFI or link response uses the emitter's pair; a subsequent new operation
 uses the receiver's composed pair. A sent request is never reissued merely
 because a task moves. A retained request is not recomputed. Reflection
@@ -3123,18 +3559,19 @@ routes. Those routes keep the original streams served; this design does
 not re-home a stream or promise export after its serving host disappears.
 
 No cursor wire field is added. UCF 7.5.3 already carries
-`:yin.k/cells`, each cell's stream marker and `:yin.k/position`, and
-`:yin.k/cursor-ref` markers naming cells. Requirements name
-`:dao.stream.remote/v1` and every reachable stream identity. Cell ids
+`:yin.k/cells`, each cursor cell's stream marker and `:yin.k/position`, and
+`:yin.k/cursor-ref` markers naming cursor cells (the version-2 spelling;
+version 3 says `:yin.k/cursor-cells` and `:yin.k/cc-<n>`). Requirements name
+`:dao.stream.remote/v1` and every reachable stream identity. Cursor-cell ids
 are lift-local identities, never content hashes or position hashes.
-A cell mapping is shared by frame, waits, stores, closures, and parked
+A cursor-cell mapping is shared by frame, waits, stores, closures, and parked
 records during one lift; separate encoders per root would erase aliasing.
 
 Lift proceeds as follows:
 
 1. Validate the safepoint and empty ready queue; enter exporting before
    any carrier append. Capture the ordered waits without polling them.
-2. Walk the complete reachable graph with one source-resource-to-cell
+2. Walk the complete reachable graph with one source-resource-to-cursor-cell
    map. Authenticate sealed references against the source's private
    resources; forged references refuse with their existing path and kind.
 3. Enter each logical stream in the exporter's remote table once. Verify
@@ -3142,7 +3579,7 @@ Lift proceeds as follows:
    the returned descriptor and source cursor verbatim, never a handle.
 4. Encode pending variants from runtime evidence, close requirements,
    validate the full body, and publish under its content address. Failure
-   leaves the source exporting; retry retains its occurrence and cells.
+   leaves the source exporting; retry retains its occurrence and cursor cells.
 
 Lower proceeds as follows:
 
@@ -3152,9 +3589,9 @@ Lower proceeds as follows:
 2. Obtain custody when exclusive, then attach each stream identity once
    through its carried descriptor. Missing/gone routes or profiles yield
    `:yin.k/unsatisfied` naming the stream or profile.
-3. Allocate one fresh private cursor resource for each logical cell;
+3. Allocate one fresh private cursor resource for each logical cursor cell;
    seed it with the carried position without calling `cursor` on an
-   anchor. Allocate equal-content distinct cells separately. Re-seal all
+   anchor. Allocate equal-content distinct cursor cells separately. Re-seal all
    references under the receiving task and remap every root consistently.
 4. Restore stores in isolation, counter and parked records, then ordered
    pending waits. Install-child state must pass the same completeness
@@ -3179,11 +3616,11 @@ isolated runtime tables and the portable mesh seam; process transport
 coverage is recorded separately, never inferred from mesh coverage.
 
 - Setup: A string-backed local stream has prefix A already consumed and
-  B,C unread. Put one shared cell in two ordered waiters and in a closure
-  and store, plus two independent cells at the same position. Action:
+  B,C unread. Put one shared cursor cell in two ordered waiters and in a closure
+  and store, plus two independent cursor cells at the same position. Action:
   export, transfer bytes, attach, lower, and poll. Assert: shared waiters
-  see B then C; independent cells each see B. Advancing a closure/store
-  alias advances the same cell. No waiter sees A, and original handles,
+  see B then C; independent cursor cells each see B. Advancing a closure/store
+  alias advances the same cursor cell. No waiter sees A, and original handles,
   ids, and seals occur nowhere in the transferred value.
 - Setup: The same task at each row of 14.1.1, with distinct activation
   depths and ordinary/tail calls. Action: hand off, satisfy the wait,
@@ -3202,7 +3639,7 @@ coverage is recorded separately, never inferred from mesh coverage.
   Assert: eviction yields the source's gap and exact successor cursor;
   route loss yields unsatisfied naming the stream, with no anchor fallback.
   Omit the cursor profile at lift and assert unsatisfied before publication.
-- Setup: Missing, extra, cyclic, or malformed cell references, forged
+- Setup: Missing, extra, cyclic, or malformed cursor-cell references, forged
   resource references, and a correctly hashed malformed body. Action:
   lift/decode. Assert: existing non-portable/undecodable path outcomes;
   no restored wait or committed effect. A non-safepoint pc and queued work

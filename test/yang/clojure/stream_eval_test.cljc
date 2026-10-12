@@ -34,7 +34,7 @@
   ([vm-type] (session vm-type nil))
   ([vm-type output]
    (repl.frontends/create-state (cond-> {:vm-type vm-type}
-                        output (assoc :output-stream output)))))
+                                  output (assoc :output-stream output)))))
 
 
 (defn- evaluate
@@ -165,36 +165,39 @@
           "with a declared capacity, and with the VM's default"))))
 
 
-(deftest a-stream-is-ingested-transformed-and-emitted-across-rounds
-  (doseq [vm-type vm-types]
-    (testing (str vm-type)
-      (let [[state results]
-            (evaluate (session vm-type)
-                      ["(def in (stream/make 8))"
-                       "(stream/put! in 1)"
-                       "(stream/put! in 2)"
-                       "(stream/put! in 3)"
-                       "(stream/close! in)"
-                       "(def out (stream/make 8))"
-                       pump-source
-                       "(pump (stream/cursor in) out)"
-                       "(stream/close! out)"
-                       drain-source
-                       "(drain (stream/cursor out) [])"
-                       "(drain (stream/cursor in) [])"])
-            [in put-1 put-2 put-3 closed out _ pumped closed-out _ drained
-             replayed] results]
-        (is (stream-ref? in) "make answers a stream reference")
-        (is (= ["1" "2" "3"] [put-1 put-2 put-3]) "put! answers the value")
-        (is (= "nil" closed) "close! answers nil")
-        (is (stream-ref? out))
-        (is (= out pumped) "the pump returns the output stream it filled")
-        (is (= "nil" closed-out))
-        (is (= "[10 20 30]" drained)
-            "the transformed elements are read back in order")
-        (is (= "[1 2 3]" replayed)
-            "a second cursor on the source reads its whole history again")
-        (is (= [1 2 3] (:last-value state)))))))
+(deftest ^:slow a-stream-is-ingested-transformed-and-emitted-across-rounds
+  (slow/guard
+    "a-stream-is-ingested-transformed-and-emitted-across-rounds"
+    (fn []
+      (doseq [vm-type vm-types]
+        (testing (str vm-type)
+          (let [[state results]
+                (evaluate (session vm-type)
+                          ["(def in (stream/make 8))"
+                           "(stream/put! in 1)"
+                           "(stream/put! in 2)"
+                           "(stream/put! in 3)"
+                           "(stream/close! in)"
+                           "(def out (stream/make 8))"
+                           pump-source
+                           "(pump (stream/cursor in) out)"
+                           "(stream/close! out)"
+                           drain-source
+                           "(drain (stream/cursor out) [])"
+                           "(drain (stream/cursor in) [])"])
+                [in put-1 put-2 put-3 closed out _ pumped closed-out _ drained
+                 replayed] results]
+            (is (stream-ref? in) "make answers a stream reference")
+            (is (= ["1" "2" "3"] [put-1 put-2 put-3]) "put! answers the value")
+            (is (= "nil" closed) "close! answers nil")
+            (is (stream-ref? out))
+            (is (= out pumped) "the pump returns the output stream it filled")
+            (is (= "nil" closed-out))
+            (is (= "[10 20 30]" drained)
+                "the transformed elements are read back in order")
+            (is (= "[1 2 3]" replayed)
+                "a second cursor on the source reads its whole history again")
+            (is (= [1 2 3] (:last-value state)))))))))
 
 
 (deftest a-cursor-is-one-readers-progress

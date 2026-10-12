@@ -19,8 +19,10 @@
             [yin.repl :as repl]
             [yin.repl.frontends :as repl.frontends]
             [yin.repl.connect :as connect]
+            [yin.repl.link :as link]
             [yin.repl.net-fixture :as fixture]
-            [yin.repl.serve :as serve]))
+            [yin.repl.serve :as serve]
+            [yin.vm.linker :as linker]))
 
 
 ;; =============================================================================
@@ -439,3 +441,11 @@
             sessions (:sessions (serve/summary endpoint))]
         (is (= 1 (count sessions)))
         (is (every? string? sessions))))))
+
+
+(deftest the-composition-registers-the-v4-format-record
+  (is (= 7 (count link/formats)))
+  (is (some #{linker/semantic-register-format} (vals link/formats)))
+  (is (= linker/semantic-register-format
+         (get link/formats :yin.semantic-register/code))
+      "a link request naming the v4 format resolves to its record"))

@@ -104,7 +104,7 @@
            (parser-run (source rows))) (str "fixture batch " i))))
 
 
-(deftest augmented-index-and-comparison-test
+(deftest ^:slow augmented-index-and-comparison-test
   (e2e/every-vm=
     {:py/out ["3 [36893488147419103232]" "True True False"
               "IndexError" "IndexError" "[1, 2, 3] [3]"]
@@ -140,7 +140,7 @@
              (parser-run (source rows))) (str "v2 fixture batch " i)))))
 
 
-(deftest divmod-builtin-test
+(deftest ^:slow divmod-builtin-test
   (e2e/every-vm=
     {:py/out ["(-3, 2) (2.0, 1.5)" "TypeError" "TypeError"]
      :py/exception nil}
@@ -150,7 +150,7 @@
          "except TypeError:\n    print('TypeError')\n")))
 
 
-(deftest augmented-division-power-test
+(deftest ^:slow augmented-division-power-test
   (e2e/every-vm=
     {:py/out ["4 [12.5]"] :py/exception nil}
     (str "calls = 0\na = [18446744073709551617]\n"
@@ -168,7 +168,7 @@
              (parser-run (source batch))) (str "v3 fixture batch " i)))))
 
 
-(deftest conversion-builtins-source-test
+(deftest ^:slow conversion-builtins-source-test
   ;; S4's builtins from source; a module-level def shadows a builtin
   (e2e/every-vm=
     {:py/out ["-31 5 105.0 3.5e-05 'a' False 2.5 0.5 0xff 0o10 -0b101 2 1200"
@@ -190,7 +190,7 @@
          "print(str(1), repr(1.5))\n")))
 
 
-(deftest augmented-bitwise-shifts-test
+(deftest ^:slow augmented-bitwise-shifts-test
   (e2e/every-vm=
     {:py/out ["5 [18446744073709551617]" "True True False 1"]
      :py/exception nil}

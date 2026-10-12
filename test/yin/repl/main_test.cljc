@@ -1,6 +1,7 @@
 (ns yin.repl.main-test
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dao.test-slow :as slow]
             #?@(:cljd [["dart:io" :as dart-io]]
                 :clj [[clojure.java.io :as io]
                       [yin.repl.host :as host]]
@@ -391,6 +392,40 @@
                                                          "--dht-principal" bad])))
                            "--dht-principal")
             bad))
+      (finally
+        (cleanup-dir! dir)))))
+
+
+(deftest trusted-principals-are-strict-and-apart-from-declared-ones
+  (let [public (:public (sign/generate))
+        trusted (str "ed25519:" public)
+        dir (temp-dir)
+        decision #(get-in % [:state :repl :link-source :admission :decision])]
+    (try
+      (testing "a declaration alone trusts nothing"
+        (let [started (repl/startup ["--index-store" (str "dht:" dir)
+                                     "--dht-principal" public])]
+          (is (= #{} (decision started)))
+          (repl/close-index-store! (:state started))))
+      (testing "--dht-trust, repeatable, with or without its ed25519: tag"
+        (let [other (:public (sign/generate))
+              started (repl/startup ["--index-store" (str "dht:" dir)
+                                     "--dht-trust" trusted
+                                     "--dht-trust" other])]
+          (is (= #{trusted (str "ed25519:" other)} (decision started)))
+          (is (empty? (get-in started [:state :repl :link-source
+                                       :principals])))
+          (repl/close-index-store! (:state started))))
+      (doseq [bad [(str/upper-case public) (subs public 1) "ed25519:xyz"]]
+        (is (str/includes? (str (:refusal (repl/startup
+                                            ["--index-store" (str "dht:" dir)
+                                             "--dht-trust" bad])))
+                           "--dht-trust")
+            bad))
+      (is (str/includes? (str (:refusal (repl/startup ["--dht-trust"
+                                                       trusted])))
+                         "dht:")
+          "--dht-trust needs the DHT store")
       (finally
         (cleanup-dir! dir)))))
 
@@ -876,7 +911,7 @@
              (stop-peer! peer-2)))))
 
 
-     (deftest killing-the-connection-is-observable-and-requests-are-lost
+     (deftest ^:slow killing-the-connection-is-observable-and-requests-are-lost
        ;; Fact 2.
        (let [a @process-a
              peer (attach-peer! a)]
@@ -906,7 +941,7 @@
              (stop-peer! peer)))))
 
 
-     (deftest reattaching-resumes-the-served-stream-and-the-deposit-medium
+     (deftest ^:slow reattaching-resumes-the-served-stream-and-the-deposit-medium
        ;; Fact 3.
        (let [a @process-a
              peer (attach-peer! a)]
@@ -1238,29 +1273,32 @@
           values)))))
 
 
-(deftest every-vm-is-selectable-and-answers-through-the-streams
-  (doseq [vm-type vm-types]
-    (testing (str vm-type)
-      (let [[state texts]
-            (run-lines (driver/create-state {:host (host-adapter)})
-                       [(str "(vm " vm-type ")")
-                        "(+ 1 2)"
-                        "((fn [x] (* x x)) 7)"
-                        "(let [x 2 y 3] (* x y))"
-                        "(if (< 1 2) :yes :no)"
-                        "(println \"hi\" 1)"
-                        "(def inc100 (fn [x] (+ x 100)))"
-                        "(inc100 1)"
-                        (str "(defn sum-to [n]"
-                             " (if (= n 0) 0 (+ n (sum-to (- n 1)))))")
-                        "(sum-to 10)"])]
-        (is (= [(str "Switched to " (get shell/vm-labels vm-type)
-                     " (store cleared)")
-                "3" "49" "6" ":yes" "hi 1\nnil"]
-               (subvec texts 0 6)))
-        (is (= ["101" "55"] [(nth texts 7) (nth texts 9)])
-            "a function defined by one input is called by a later one")
-        (is (= vm-type (:vm-type (:repl state))))))))
+(deftest ^:slow every-vm-is-selectable-and-answers-through-the-streams
+  (slow/guard
+    "every-vm-is-selectable-and-answers-through-the-streams"
+    (fn []
+      (doseq [vm-type vm-types]
+        (testing (str vm-type)
+          (let [[state texts]
+                (run-lines (driver/create-state {:host (host-adapter)})
+                           [(str "(vm " vm-type ")")
+                            "(+ 1 2)"
+                            "((fn [x] (* x x)) 7)"
+                            "(let [x 2 y 3] (* x y))"
+                            "(if (< 1 2) :yes :no)"
+                            "(println \"hi\" 1)"
+                            "(def inc100 (fn [x] (+ x 100)))"
+                            "(inc100 1)"
+                            (str "(defn sum-to [n]"
+                                 " (if (= n 0) 0 (+ n (sum-to (- n 1)))))")
+                            "(sum-to 10)"])]
+            (is (= [(str "Switched to " (get shell/vm-labels vm-type)
+                         " (store cleared)")
+                    "3" "49" "6" ":yes" "hi 1\nnil"]
+                   (subvec texts 0 6)))
+            (is (= ["101" "55"] [(nth texts 7) (nth texts 9)])
+                "a function defined by one input is called by a later one")
+            (is (= vm-type (:vm-type (:repl state))))))))))
 
 
 (deftest results-leave-the-vm-on-the-output-medium
@@ -1466,7 +1504,7 @@
                   "--headless" "--index-store" "--help"
                   "--dht-peer" "--dht-publish" "--dht-bind" "--dht-port"
                   "--dht-max-inbound-bytes" "--dht-manifest" "--dht-key"
-                  "--dht-principal" "--dht-follow" "heads.edn"
+                  "--dht-principal" "--dht-trust" "--dht-follow" "heads.edn"
                   "--dht-keygen" "--name" "--dir" "--key"
                   "--listen" "--peer" "--telemetry" "dht init" "dht serve"
                   "dht join" "keygen"]]
@@ -1690,44 +1728,47 @@
         (compose-test/cleanup-world! w)))))
 
 
-(deftest a-release-held-back-for-the-whole-drain-stays-durable-and-a-restart-sends-it-test
-  (let [gate (atom false)
-        w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
-    (try
-      (let [_ (reset! gate true)
-            c (compose/restart (:c w) "h1")
-            server (serve/serve! {:bind-port 8080 :host (host-adapter)})
-            state (custody-state c "(quit)")
-            [state' server' _] (repl/step-all state server 0)
-            ;; the bounded drain exactly as the host loops run it: the
-            ;; endpoint stops on the first drain tick, and the drain keeps
-            ;; stepping for the owed release until the budget ends
-            [state'' server'' spent?] (drain-until state' server')
-            c'' (get-in state'' [:repl :custody])
-            attempts (release-attempts c'')]
-        (is (true? (serve/stopped? server''))
-            "the endpoint stopped at once: the drain that followed was
+(deftest ^:slow a-release-held-back-for-the-whole-drain-stays-durable-and-a-restart-sends-it-test
+  (slow/guard
+    "a-release-held-back-for-the-whole-drain-stays-durable-and-a-restart-sends-it-test"
+    (fn []
+      (let [gate (atom false)
+            w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
+        (try
+          (let [_ (reset! gate true)
+                c (compose/restart (:c w) "h1")
+                server (serve/serve! {:bind-port 8080 :host (host-adapter)})
+                state (custody-state c "(quit)")
+                [state' server' _] (repl/step-all state server 0)
+                ;; the bounded drain exactly as the host loops run it: the
+                ;; endpoint stops on the first drain tick, and the drain keeps
+                ;; stepping for the owed release until the budget ends
+                [state'' server'' spent?] (drain-until state' server')
+                c'' (get-in state'' [:repl :custody])
+                attempts (release-attempts c'')]
+            (is (true? (serve/stopped? server''))
+                "the endpoint stopped at once: the drain that followed was
              custody's alone")
-        (is (true? spent?)
-            "the owed release held the drain open for the whole budget: the
+            (is (true? spent?)
+                "the owed release held the drain open for the whole budget: the
              budget, not the endpoint and not the release, ended it")
-        (is (= (+ repl/stop-ticks 2) (count attempts))
-            "a custody control tick for every drain tick -- the stopping
+            (is (= (+ repl/stop-ticks 2) (count attempts))
+                "a custody control tick for every drain tick -- the stopping
              tick, the whole budget, and the budget's own last tick")
-        (is (every? #(= :dao.stream/full (:yin.k/append %)) attempts)
-            "the stream stayed full for the whole drain")
-        (is (some #(and (= :yin.k/intent (:yin.k/journal %))
-                        (= :yin.k/release (:yin.k/action %)))
-                  (compose-test/journal-records-of c'' "h1"))
-            "the release intent is durable in the progress journal")
-        (testing "a restart sends it"
-          (reset! gate false)
-          (let [c''' (compose/control-step (compose/restart c'' "h1"))]
-            (is (some #(= :dao.stream/ok (:yin.k/append %))
-                      (release-attempts c'''))
-                "the recovered holder sent the identical release"))))
-      (finally
-        (compose-test/cleanup-world! w)))))
+            (is (every? #(= :dao.stream/full (:yin.k/append %)) attempts)
+                "the stream stayed full for the whole drain")
+            (is (some #(and (= :yin.k/intent (:yin.k/journal %))
+                            (= :yin.k/release (:yin.k/action %)))
+                      (compose-test/journal-records-of c'' "h1"))
+                "the release intent is durable in the progress journal")
+            (testing "a restart sends it"
+              (reset! gate false)
+              (let [c''' (compose/control-step (compose/restart c'' "h1"))]
+                (is (some #(= :dao.stream/ok (:yin.k/append %))
+                          (release-attempts c'''))
+                    "the recovered holder sent the identical release"))))
+          (finally
+            (compose-test/cleanup-world! w)))))))
 
 
 (deftest the-exit-path-closes-the-custody-journals-before-the-host-exits-test

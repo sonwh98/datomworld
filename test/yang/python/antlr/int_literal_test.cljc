@@ -13,6 +13,7 @@
   (:require
     [clojure.string :as str]
     [clojure.test :refer [deftest is testing]]
+    [dao.test-slow :as slow]
     [dao.jing :as jing]
     [dao.jing.cbor :as cbor]
     [dao.jing.cbor-fixtures :as cfx]
@@ -527,28 +528,31 @@
                     (f/cbor-hex (first (first (:py/dict dk))))]))))))))
 
 
-(deftest huge-hex-test
-  (testing "a 5000-digit hex literal runs under max-digits 4300, and
+(deftest ^:slow huge-hex-test
+  (slow/guard
+    "huge-hex-test"
+    (fn []
+      (testing "a 5000-digit hex literal runs under max-digits 4300, and
             printing it raises the digit-limit ValueError before anything
             is printed (S4: print checks every integer first)"
-    (let [hex (apply str (repeat 5000 "f"))]
-      (doseq [[k result] (run-everywhere @runners
-                                         (print-program [(str "0x" hex)]))]
-        (is (= {:py/out [],
-                :py/exception
-                {:type "ValueError",
-                 :args [(str "Exceeds the limit (4300 digits) for integer"
-                             " string conversion")]}}
-               (render/output result))
-            (str k)))))
-  (testing "0x1 and 1100 zero digits (2^4400) under max-bits 4096: a
+        (let [hex (apply str (repeat 5000 "f"))]
+          (doseq [[k result] (run-everywhere @runners
+                                             (print-program [(str "0x" hex)]))]
+            (is (= {:py/out [],
+                    :py/exception
+                    {:type "ValueError",
+                     :args [(str "Exceeds the limit (4300 digits) for integer"
+                                 " string conversion")]}}
+                   (render/output result))
+                (str k)))))
+      (testing "0x1 and 1100 zero digits (2^4400) under max-bits 4096: a
             catchable MemoryError"
-    (let [token (apply str "0x1" (repeat 1100 "0"))]
-      (doseq [[k result] (run-everywhere @runners-4096
-                                         (caught-program token))]
-        (is (= {:py/out ["caught"], :py/exception nil}
-               (render/output result))
-            (str k))))))
+        (let [token (apply str "0x1" (repeat 1100 "0"))]
+          (doseq [[k result] (run-everywhere @runners-4096
+                                             (caught-program token))]
+            (is (= {:py/out ["caught"], :py/exception nil}
+                   (render/output result))
+                (str k))))))))
 
 
 ;; =============================================================================

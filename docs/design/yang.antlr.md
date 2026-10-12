@@ -3040,7 +3040,10 @@ dependency-pin checks, primitive and effect admission, and working
 store-context transitions on all four VMs. Until B lands, a forged
 `:store-of` could reach the prelude's state. Corrected float publication
 rebuilds affected derivations, manifests, and dependency pins before any
-cross-principal address is accepted.
+cross-principal address is accepted. Trust is a separate question:
+which principals' modules a session admits is the admission
+interpreter's answer (`yin.vm.linker.dht.md` section 7.5), and an allow
+never relaxes this check.
 
 Linker prerequisites, the linker seat's to build:
 
@@ -3068,9 +3071,9 @@ Linker prerequisites, the linker seat's to build:
 | L-d  | `module/try-require` plus deferred dependency       | I4              |
 |      | admission (ruling 8)                                |                 |
 +------+-----------------------------------------------------+-----------------+
-| L-e  | D7 slice B, the origin and store check (ruling 19)  | Foreign-        |
-|      |                                                     | principal       |
-|      |                                                     | imports         |
+| L-e  | D7 slice B, the origin and store check (ruling 19)  | Exposure of     |
+|      |                                                     | untrusted-      |
+|      |                                                     | origin closures |
 +------+-----------------------------------------------------+-----------------+
 | L-f  | Large-module linking: default bounds, derivation    | P2              |
 |      | fetch at steps 2 to 4, linear free-name scan        |                 |
@@ -3102,7 +3105,7 @@ Linker prerequisites, the linker seat's to build:
 +-------+----------------------------------------------------------------------+
 | I2    | Packages, mangling, relative imports, `as`, `*`, `__package__`       |
 +-------+----------------------------------------------------------------------+
-| I3    | Publication and DHT import; needs L-e for foreign principals         |
+| I3    | Publication and DHT import; admission per `yin.vm.linker.dht.md` 7.5 |
 +-------+----------------------------------------------------------------------+
 | I4    | Catchable `ImportError`; needs L-d                                   |
 +-------+----------------------------------------------------------------------+
@@ -3201,7 +3204,39 @@ precompiled CST packets or rows, since the parser is JVM-only):
 - I3: a JVM-published `pym.m` imports parserless on Node and Dart with
   the same output; a republished dependency is refused as a dependency
   binding with no install; a cyclic pair is refused at publication by
-  name.
+  name. Landed in `dht_import_test` over the `dao.jing.dht` mesh seam on
+  every host. What travels is the JVM's publication, a checked-in
+  artifact (`test/resources/yang/python/dht-import-v1.edn`, written by
+  the generator script beside it): guest blobs, manifests, signed
+  envelopes and importer packets, served on every host without
+  republishing; each host's own publication of the same packets must
+  equal it. A refused import is observed to print nothing and start no
+  guest install child.
+  `yang.python.antlr.publication` orders a unit set by its static
+  imports and publishes it bottom-up, pinning each import, and refuses a
+  cycle before anything is written (`:yang.python.antlr/import-cycle`,
+  naming its modules) and an import nothing supplies; the republished
+  dependency is the linker's `:mismatch` binding. `py` does not travel:
+  three of its code images (about 0.8 to 1 MB) exceed the DHT's 64 KiB
+  message bound, which a `dao.space.dht` node does not let a composition
+  raise, so `py` is the reader's installed runtime (its pinned manifest
+  address, one golden on every host) and the guest modules travel.
+  Which principals' modules an import admits is the admission stream's
+  question (`yin.vm.linker.dht.md` section 7.5). The
+  `__all__` of `from m import *` is read by index (CPython's
+  `PySequence_GetItem`), so a generator, set or dict `__all__` raises
+  CPython's `TypeError`, and a range is a sequence; the prelude goldens
+  moved once.
+  I3 gap (REPL): no REPL frontend runs Python under the linked profile.
+  The linked REPL profile is its own slice after F2: a frontend session
+  keyed by [id revision] and one Python task and module view per
+  profile. Admission, its REPL wiring and the session's exposure rule
+  are `yin.vm.linker.dht.md` section 7.5 (slices AD-1 to AD-3). Also:
+  `py` is an installed pin on each reader until large blobs
+  travel over the DHT (64 KiB blob cap), and the linker's
+  dependency-binding check is today the only guard over a pinned
+  dependency (discharge does not independently refuse a republished
+  dependency); both are recorded for the DHT and linker seats.
 - I4: an absent module inside `try` runs the `except
   ModuleNotFoundError` branch; an ambiguous name raises `ImportError`
   carrying the refusal.

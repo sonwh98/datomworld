@@ -1105,7 +1105,7 @@ declare a lift morphism, `[:yin.debruijn.code/dimension :dim/lift-to [:yin.code/
 (`dl/lift`, `rc/lift`) and the `:yin.code/*` named vector they target are
 deleted at phase 8 with `yin.vm.linearize`; keeping a declaration of a
 morphism that no longer exists would be legacy. **At phase 8 the
-`:dim/lift-to` row is removed from both descriptors**; `lowering-contract-version`
+`:dim/lift-to` row is removed from both descriptors**, and the H and R checksums and the descriptor hashes move from SHA-256 to BLAKE3 (owner 2026-10-12; the capability seal, owner tag and profile digest already use BLAKE3); `lowering-contract-version`
 2 and `contract-version` 4 are **not** bumped (ruling 2), so the
 descriptor change is a regeneration, and every H and R checksum is
 regenerated once more (§8.1 rows). During phases 5-7 the descriptors do

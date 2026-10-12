@@ -920,8 +920,8 @@
                                            "--dht-manifest" (str ":"
                                                                  manifest)]
                                           (mapcat (fn [k]
-                                                    ["--dht-principal"
-                                                     k]))
+                                                    ["--dht-principal" k
+                                                     "--dht-trust" k]))
                                           principals))]
                       (swap! procs conj p)
                       p))]
@@ -1128,7 +1128,8 @@
               [join (fn [label command dir]
                       (let [p (spawn-stateful! label command
                                                ["dht" "join" token "--dir" dir
-                                                "--peer" (peer x)])]
+                                                "--peer" (peer x)
+                                                "--dht-trust" principal])]
                         (swap! procs conj p)
                         p))
                b (join "reader-b-jvm" (jvm-command) (dirs 1))

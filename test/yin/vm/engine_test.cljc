@@ -1,5 +1,6 @@
 (ns yin.vm.engine-test
   (:require [clojure.test :refer [deftest is testing]]
+            [dao.jing :as jing]
             [dao.stream :as stream]
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
@@ -29,6 +30,28 @@
   ([] (state {}))
   ([opts] (vm/empty-state (merge {:make-stream tu/make-stream,
                                   :capability-secret tu/secret} opts))))
+
+
+;; =============================================================================
+;; Seals and owner tags are BLAKE3
+;; =============================================================================
+
+(deftest seal-is-blake3-test
+  (testing "a reference's seal is the BLAKE3 content-hash of the seal
+            tuple under the task's secret, not the SHA-256 one"
+    (let [ref (engine/issue-ref (state) :stream-ref :stream-0)
+          tuple [:yin.k/seal tu/secret :stream-ref :stream-0]]
+      (is (= (jing/content-hash tuple {:algorithm :blake3}) (:seal ref)))
+      (is (not= (jing/content-hash tuple {:algorithm :sha256}) (:seal ref))))))
+
+
+(deftest owner-tag-is-blake3-test
+  (testing "the task's owner tag is the BLAKE3 content-hash of its secret,
+            not the SHA-256 one"
+    (let [owner (:owner (state))
+          tuple [:yin.k/owner tu/secret]]
+      (is (= (jing/content-hash tuple {:algorithm :blake3}) owner))
+      (is (not= (jing/content-hash tuple {:algorithm :sha256}) owner)))))
 
 
 ;; =============================================================================

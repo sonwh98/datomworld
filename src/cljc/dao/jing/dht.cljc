@@ -20,13 +20,12 @@
 
    The wire is section 7's, one CBOR value per datagram through
    dao.stream.cbor, with bounded chunk records for larger messages. The
-   cookie protocol of section 8 uses host HMAC-SHA-256.
+   cookie protocol of section 8 uses HMAC-BLAKE3.
 
    (store-handle ...) is the portable dao.jing byte-store handle over the
    same composition: its put returns the local verdict at once and appends
    a replicate request; its get reads :local only."
-  (:require #?@(:cljd [["dart:typed_data" :as typed]
-                       ["package:crypto/crypto.dart" :as crypto]])
+  (:require #?@(:cljd [["dart:typed_data" :as typed]])
             [clojure.string :as str]
             [dao.jing :as jing]
             [dao.jing.dht.kad :as kad]
@@ -159,29 +158,41 @@
 ;; Section 8: cookies
 ;; =============================================================================
 
-(defn- hmac-sha256
+(def ^:private blake3-block-length
+  "BLAKE3's block length in bytes: the HMAC block size B (RFC 2104)."
+  64)
+
+
+(defn- blake3-ints
+  "BLAKE3 digest of a vector of byte ints, as a vector of byte ints."
+  [ints]
+  (byte-ints (hex->bytes (jing/blake3-bytes (ints->bytes ints)))))
+
+
+(defn- hmac-blake3
+  "RFC 2104 HMAC over BLAKE3 (B = 64, L = 32), built on the dao.jing BLAKE3
+   seam so every host runs this one definition. BLAKE3's native keyed mode
+   is not used: it takes exactly 32 key bytes, the root secret is any
+   length of at least 32, and the seam exposes only the unkeyed hash."
   [key data]
-  #?(:cljd (typed/Uint8List.fromList
-             (.-bytes (.convert (crypto/Hmac. crypto/sha256 key) data)))
-     :clj (let [mac (javax.crypto.Mac/getInstance "HmacSHA256")]
-            (.init mac (javax.crypto.spec.SecretKeySpec. ^bytes key "HmacSHA256"))
-            (.doFinal mac ^bytes data))
-     ;; Node's crypto is required when a cookie is computed, not when the
-     ;; namespace loads, so a browser build that composes the REPL without
-     ;; ever opening a DHT socket still compiles (as dao.space.store.fs
-     ;; reaches `fs`).
-     :cljs (js/Uint8Array.from
-             (.digest (.update (.createHmac (js/require "crypto") "sha256" key)
-                               data)))))
+  (let [k (byte-ints key)
+        k (if (> (count k) blake3-block-length) (blake3-ints k) k)
+        k (into k (repeat (- blake3-block-length (count k)) 0))
+        pad (fn [x] (mapv #(bit-xor % x) k))]
+    (ints->bytes
+      (blake3-ints
+        (into (pad 0x5c)
+              (blake3-ints (into (pad 0x36) (byte-ints data))))))))
 
 
 (defn cookie-for
-  "First 16 bytes of HMAC(epoch-secret, observed address). Epoch secrets
-   derive from the composition's root secret and rotate only with ticks."
+  "First 16 bytes of HMAC-BLAKE3(epoch-secret, observed address). Epoch
+   secrets derive from the composition's root secret and rotate only with
+   ticks."
   [secret epoch host port]
   (ints->bytes
     (take cookie-length
-          (byte-ints (hmac-sha256 (hmac-sha256 secret (wire/encode epoch))
+          (byte-ints (hmac-blake3 (hmac-blake3 secret (wire/encode epoch))
                                   (wire/encode [host port]))))))
 
 

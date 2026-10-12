@@ -11,6 +11,7 @@
    content store and the exporter's server -- is supplied as functions
    and handles over that world."
   (:require [clojure.test :refer [deftest is testing]]
+            [dao.test-slow :as slow]
             [dao.datom :as datom]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
@@ -3616,42 +3617,45 @@
                             (frame-facts (:frames world'))))))))
 
 
-(deftest exit-journal-cuts-never-restore-execution-test
-  (let [reference-world (world :holders ["holder-a"])
-        reference (hand-off-run reference-world
-                                (source-driver reference-world "holder-a" (source-machine) nil))
-        initial-count (count @(:journal-frames reference))
-        completed (drive-to reference-world reference (phase-of :exited) 24 :judge {:s 3})
-        delta (- (count @(:journal-frames completed)) initial-count)]
-    (is (pos? delta))
-    (doseq [offset (range delta)
-            cut [:before-frame :after-frame-before-visible]]
-      (testing (pr-str [offset cut])
-        (let [world' (world :holders ["holder-a"])
-              original (hand-off-run world' (source-driver world' "holder-a" (source-machine) nil))
-              frames (atom (vec @(:journal-frames original)))
-              progress (:dao.stream/handle
-                         (journal/open! (cut-backend frames (+ (count @frames) offset) cut)))
-              initial (assoc-in (:state original) [:seams :journal] progress)
-              crashed (loop [state initial remaining 30]
-                        (if (or (= :stalled (:phase state)) (zero? remaining))
-                          state
-                          (let [next-state (driver/step state)]
-                            (carry! world')
-                            (judge! world' {:s 3})
-                            (recur next-state (dec remaining)))))
-              recovered (driver/reopen (-> (:config original)
-                                           (dissoc :machine)
-                                           (assoc :receiver (s/new-machine)
-                                                  :clock (constantly {:s 100})
-                                                  :journal (reopened-journal frames))))]
-          (is (= :stalled (:phase crashed)))
-          (is (nil? (:machine recovered)))
-          (is (not (contains? #{:running :safepoint} (:phase recovered))))
-          (when (get-in recovered [:exit :m])
-            (is (= :exporting (vm/gate-mode (get-in recovered [:exit :m]))))
-            (is (empty? (get-in recovered [:exit :m :wait-set]))))
-          (is (nil? (:machine (driver/step recovered)))))))))
+(deftest ^:slow exit-journal-cuts-never-restore-execution-test
+  (slow/guard
+    "exit-journal-cuts-never-restore-execution-test"
+    (fn []
+      (let [reference-world (world :holders ["holder-a"])
+            reference (hand-off-run reference-world
+                                    (source-driver reference-world "holder-a" (source-machine) nil))
+            initial-count (count @(:journal-frames reference))
+            completed (drive-to reference-world reference (phase-of :exited) 24 :judge {:s 3})
+            delta (- (count @(:journal-frames completed)) initial-count)]
+        (is (pos? delta))
+        (doseq [offset (range delta)
+                cut [:before-frame :after-frame-before-visible]]
+          (testing (pr-str [offset cut])
+            (let [world' (world :holders ["holder-a"])
+                  original (hand-off-run world' (source-driver world' "holder-a" (source-machine) nil))
+                  frames (atom (vec @(:journal-frames original)))
+                  progress (:dao.stream/handle
+                             (journal/open! (cut-backend frames (+ (count @frames) offset) cut)))
+                  initial (assoc-in (:state original) [:seams :journal] progress)
+                  crashed (loop [state initial remaining 30]
+                            (if (or (= :stalled (:phase state)) (zero? remaining))
+                              state
+                              (let [next-state (driver/step state)]
+                                (carry! world')
+                                (judge! world' {:s 3})
+                                (recur next-state (dec remaining)))))
+                  recovered (driver/reopen (-> (:config original)
+                                               (dissoc :machine)
+                                               (assoc :receiver (s/new-machine)
+                                                      :clock (constantly {:s 100})
+                                                      :journal (reopened-journal frames))))]
+              (is (= :stalled (:phase crashed)))
+              (is (nil? (:machine recovered)))
+              (is (not (contains? #{:running :safepoint} (:phase recovered))))
+              (when (get-in recovered [:exit :m])
+                (is (= :exporting (vm/gate-mode (get-in recovered [:exit :m]))))
+                (is (empty? (get-in recovered [:exit :m :wait-set]))))
+              (is (nil? (:machine (driver/step recovered)))))))))))
 
 
 (deftest a-later-grant-outranks-an-earlier-completed-exit-test

@@ -16,6 +16,7 @@
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
             [yang.frontend :as frontend]
+            [yin.repl.admission :as admission]
             [yin.repl.ast-index :as ast-index]
             [yin.repl.dht :as repl.dht]
             [yin.repl.index :as index]
@@ -753,6 +754,12 @@
    interpreter serves from are the shell's (`:link-source`), and outlive
    a session rebuild.
 
+   The admission state is the session's too (`yin.repl.admission`,
+   yin.vm.linker.dht.md 7.5): the question and answer media beside the
+   link pair under `:admission`, and, when the shell's link source names
+   an admission `policy`, the in-process interpreter's own state over
+   them under `:admitter`.
+
    The query call pair is the session's too (`yin.repl.query/make-pair`):
    the VM's half is its FFI pair, the interpreter's half with its request
    cursor sits under `:query-pair`, and the interpreter answers from the
@@ -762,8 +769,9 @@
    A durable store's HEAD write travels with the store handle
    (`:head-fn`, yin.repl.store): every session the store outlives
    publishes through the same one."
-  [vm-type output-stream extra-primitives shell-token index-store]
+  [vm-type output-stream extra-primitives shell-token index-store policy]
   (let [pair (link/make-pair)
+        admission (admission/make-state link/pair-capacity)
         query-pair (query/make-pair query-pair-capacity)
         vm (make-vm vm-type output-stream extra-primitives pair query-pair)
         program-in (make-attachment ingress-capacity)
@@ -782,6 +790,8 @@
                                    :after-publish (:head-fn index-store)})
      :ast-indexer (ast-index/make-indexer {:observer ((:attach program-out))})
      :link-pair pair
+     :admission admission
+     :admitter (when policy (admission/interpreter admission policy))
      :query-pair (dissoc query-pair :out-cursor)}))
 
 
@@ -825,6 +835,15 @@
    require parks and after each re-check that leaves the run pending,
    answering `:keep`, `:abandon` or `{:abandon reason}`; `:lease` is
    reserved for phase 2 and refused, as is anything else, at assembly.
+
+   `:admission` is the policy of the session's in-process admission
+   interpreter (yin.vm.linker.dht.md 7.5, `yin.repl.link/composition`'s
+   option): by default `{}`, which trusts the `:dht-key`'s own principal
+   alone; `{:trusted #{principal}}`, each `ed25519:<hex>`, trusts more;
+   `:verify`, `:decision` and `:decision-medium` replace the default
+   rule.
+   `:external` runs no interpreter in process: the questions a require
+   asks wait for an answer appended to the session's answer medium.
 
    `index-store` is the `dao.jing` byte store the code indexer publishes
    its covered indexes into (docs/design/yin.repl.dao.space-index.md); it
@@ -895,8 +914,8 @@
   ([{:keys [lang output-cursor output-stream vm-type primitives
             content-store content-client name-env link-policy index-store
             index-store-spec dht-key principals ws-host write-heads! custody
-            frontends]
-     :or {lang :clojure vm-type :semantic}}]
+            frontends admission]
+     :or {lang :clojure vm-type :semantic admission {}}}]
    (let [output-stream (or output-stream (make-output-medium!))
          output-cursor (or output-cursor (mint-cursor output-stream))
          shell-token (str (random-uuid))
@@ -922,6 +941,8 @@
                         :dht? (= :dht (:type index-store-spec))
                         :principals principals
                         :key dht-key
+                        :admission (when-not (= :external admission)
+                                     admission)
                         :follow (when (= :dht (:type index-store-spec))
                                   (repl.dht/followed-principals
                                     index-store-spec))})
@@ -934,7 +955,7 @@
                            (store/open index-store-spec)))]
      (merge
        (update (make-session vm-type output-stream primitives shell-token
-                             index-store)
+                             index-store (:admission link-source))
                :indexer index/rehydrate (:recovery index-store))
        {:lang lang
         :frontends (or frontends frontend/empty-catalog)
@@ -1234,7 +1255,10 @@
    evaluation has minted so far -- the counters of the VM the raise
    interrupted, whose every earlier run is in them -- so a rollback
    cannot reuse it.  It carries the query interpreter's pair too: the
-   requests it has answered stay answered when the shell rolls back."
+   requests it has answered stay answered when the shell rolls back.
+   So are the admission state and the in-process admission
+   interpreter's, as they stand after the serve that answered: a
+   question the raise settled is not asked or answered again."
   [error vm state]
   (ex-info (or (ex-message error) "Link failed")
            (assoc (or (ex-data error) {})
@@ -1242,6 +1266,8 @@
                   ::link-origins (:origins vm)
                   ::query-pair (:query-pair state)
                   ::link-pair (:link-pair state)
+                  ::admission (:admission state)
+                  ::admitter (:admitter state)
                   ::dht (:dht state)
                   ::indexer (:indexer state))))
 
@@ -1249,12 +1275,15 @@
 (defn- carry-served
   "`state` rolled back by a link raise, keeping what the interpreters
    already concluded: the query pair, the link pair past every request
-   answered, the DHT node a load started or forgot on, and the indexer
-   a `yin.link/publish` committed its name envelopes through."
+   answered, the admission state and its interpreter's past every
+   question settled, the DHT node a load started or forgot on, and the
+   indexer a `yin.link/publish` committed its name envelopes through."
   [state d]
   (cond-> state
     (::query-pair d) (assoc :query-pair (::query-pair d))
     (::link-pair d) (assoc :link-pair (::link-pair d))
+    (::admission d) (assoc :admission (::admission d))
+    (::admitter d) (assoc :admitter (::admitter d))
     (contains? d ::dht) (assoc :dht (::dht d))
     (::indexer d) (assoc :indexer (::indexer d))))
 
@@ -1272,6 +1301,25 @@
    :round (:round state)})
 
 
+(defn- admission-context
+  "The context the session's admission interpreter answers under
+   (`yin.repl.admission/context`): its own key's principal and the
+   shell token."
+  [state]
+  (admission/context {:key (:dht-key state) :session (:shell-token state)}))
+
+
+(defn- serve-admission
+  "One round of the session's in-process admission interpreter, or nil
+   when the session runs none."
+  [state]
+  (when-let [interp (:admitter state)]
+    (admission/serve {:interpreter interp
+                      :policy (get-in state [:link-source :admission])
+                      :context (admission-context state)}
+                     link/serve-budget)))
+
+
 (defn- drive-links
   "Serve the linker interpreter and run the parked VM alternately, at most
    `link-round-budget` rounds, while `vm` waits on a link.  A round that
@@ -1284,6 +1332,11 @@
    on (yin.repl.link-policy.md section 3.1).  A refused or lost link
    raises as the VM's own, carrying the interrupted VM's minted
    identity.
+
+   The admission interpreter serves right after the linker interpreter
+   (yin.vm.linker.dht.md 7.5): a question appended and a question
+   answered are each progress, so a require asked about and answered in
+   process completes within the drive, two rounds later.
 
    A VM waiting on a `dao.space.query/q` call is driven the same way: the
    query interpreter (`yin.repl.query/serve`) answers from the session's
@@ -1317,10 +1370,15 @@
         (let [served (when link?
                        (link/serve {:pair (:link-pair state)
                                     :source (:link-source state)
-                                    :dht (:dht state)}))
+                                    :dht (:dht state)
+                                    :admission (:admission state)}))
               state (cond-> state
                       served (assoc :link-pair (:pair served)
-                                    :dht (:dht served)))
+                                    :dht (:dht served)
+                                    :admission (:admission served)))
+              admitted (when link? (serve-admission state))
+              state (cond-> state
+                      admitted (assoc :admitter (:interpreter admitted)))
               answered (when query?
                          (query/serve {:pair (:query-pair state)
                                        :indexer (:indexer state)
@@ -1337,7 +1395,9 @@
                                       :dht (:dht answered)
                                       :indexer (:indexer answered)))
               pending (if (seq (:pending served)) (:pending served) pending)]
-          (if (or (:progress? served) (:progress? answered))
+          (if (or (:progress? served)
+                  (:progress? admitted)
+                  (:progress? answered))
             (let [vm' (try (vm/run vm)
                            (catch #?(:cljd Object :clj Exception :cljs js/Error)
                                   error
@@ -1366,7 +1426,10 @@
     (str ";; require pending: "
          (str/join ", " (map (fn [p]
                                (str (pr-str (:name p))
-                                    " (link " (pr-str (:yin.link/id p)) ")"))
+                                    " (link " (pr-str (:yin.link/id p))
+                                    (when (:admission p)
+                                      ", awaiting admission")
+                                    ")"))
                              pending))
          "); lines typed meanwhile run when it completes, (abandon) gives"
          " up\n")
@@ -1395,8 +1458,12 @@
    the require's error, and the shell returns to the round the require
    began in, whose store and value history the parked evaluation never
    wrote.  Lines typed while the require was pending are dropped with
-   it, and said so.  The linker side learns nothing: no response was
-   ever promised, and one that still arrives is skipped as late.  The
+   it, and said so.  The linker side retires the run's requests
+   (`yin.repl.link/retire`, yin.vm.linker.dht.md 7.5): each one still
+   unread on the link pair is passed over with no response, and its
+   admission question and answer are dropped, so a later require on the
+   same pair is served; a response already in flight is skipped as
+   late.  The
    identity the parked evaluation minted -- link ids and child origins
    -- is carried onto the base, so nothing is minted twice on the
    surviving pair.  The `(abandon)` command retires with
@@ -1419,11 +1486,16 @@
                                    (:wait-set vm)))
                    nil
                    (catch #?(:cljd Object :clj Exception :cljs js/Error) e
-                     e))]
+                     e))
+           retired (link/retire {:pair (:link-pair state')
+                                 :admission (:admission state')}
+                                (link/run-descriptor (:base parked) vm))]
        [(assoc state'
                :vm (query/discard-answers
                      (carry-link-identity (:base parked) vm)
                      (:query-pair state'))
+               :link-pair (:pair retired)
+               :admission (:admission retired)
                :pending-run nil)
         (str text
              ended-text
@@ -1765,7 +1837,8 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
          (cond-> (make-session vm-type (:output-stream state)
                                (:extra-primitives state)
                                (:shell-token state)
-                               (:index-store state))
+                               (:index-store state)
+                               (get-in state [:link-source :admission]))
            (store/durable? (:index-store state))
            (update :indexer index/carry-over (:indexer state)))
          {:vm-type vm-type
@@ -1962,6 +2035,32 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
               events)
       (recheck-pending state)
       [state nil])))
+
+
+(defn recheck-on-answers
+  "The host ticker's re-check of a pending run parked on an admission
+   question (yin.vm.linker.dht.md 7.5 and 8.2), beside
+   `recheck-on-load-events`: serve the in-process admission interpreter
+   when the session runs one, drain at most `serve-budget` answers off
+   the answer medium, and keep the successor state whatever matched --
+   irrelevant answers are consumed and gone.  `recheck-pending` runs
+   once if and only if a retained answer's admission id is the
+   `:admission` of a pending link; otherwise the answer is `[state'
+   nil]`, with no re-check and no `:checks`.  With nothing pending it
+   still drains.  No clock: the host decides when to call it."
+  [state]
+  (if-let [adm (:admission state)]
+    (let [admitted (serve-admission state)
+          state (cond-> state
+                  admitted (assoc :admitter (:interpreter admitted)))
+          adm (admission/drain adm link/serve-budget)
+          state (assoc state :admission adm)
+          waiting (set (keep :admission
+                             (get-in state [:pending-run :links])))]
+      (if (some #(contains? waiting %) (keys (:answers adm)))
+        (recheck-pending state)
+        [state nil]))
+    [state nil]))
 
 
 (defn- resume-pending

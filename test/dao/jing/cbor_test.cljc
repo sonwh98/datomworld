@@ -125,7 +125,7 @@
                  bs (cbor/encode v)]
              (check! failures id (= (get c "hex") (hex-of bs))
                      "encodes to the frozen bytes")
-             (check! failures id (= (get c "sha256") (jing/sha256-bytes bs))
+             (check! failures id (= (get c "blake3") (jing/blake3-bytes bs))
                      "frozen digest")
              (let [back (cbor/decode (fx/hex->bytes (get c "hex")))]
                (check! failures id (= (get c "hex") (hex-of (cbor/encode back)))

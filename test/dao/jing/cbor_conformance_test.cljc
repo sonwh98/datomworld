@@ -6,8 +6,8 @@
    independent reading of the bytes, so three internally consistent but
    mutually incompatible codecs cannot pass:
 
-   1. Every host builds a manifest keyed by fixture id (canonical hex, SHA-256
-      and a semantic signature) and checks it against the resource. Each host
+   1. Every host builds a manifest keyed by fixture id (canonical hex, BLAKE3
+      digest and a semantic signature) and checks it against the resource. Each host
       then digests the same set of cases and asserts the digest equals the
       value derived from the resource (and a pinned literal), and prints it,
       so a disagreement between any two hosts fails a lane.
@@ -15,7 +15,7 @@
       decoder) inspects the bytes each host produces.
    3. Pairwise injectivity and the equivalence groups are re-asserted over the
       manifest.
-   4. The resource is pinned by the SHA-256 of its own bytes, and no source
+   4. The resource is pinned by the BLAKE3 digest of its own bytes, and no source
       file that names it may write files.
 
    Skips are documented by id (README Obligations, cbor-v1.errata.md E1, E2,
@@ -524,16 +524,16 @@
         v (fx/input->value (get c "input"))
         bs (cbor/encode v)
         hex (fx/bytes->hex bs)
-        sha (jing/sha256-bytes bs)
+        digest (jing/blake3-bytes bs)
         back (cbor/decode (fx/hex->bytes (get c "hex")))
         rt? (= hex (fx/bytes->hex (cbor/encode back)))
         w (walk hex)]
     (check! failures id (= (get c "hex") hex) "hex differs from the resource")
-    (check! failures id (= (get c "sha256") sha) "SHA-256 differs from the resource")
+    (check! failures id (= (get c "blake3") digest) "BLAKE3 digest differs from the resource")
     (check! failures id rt? "decoding the frozen hex then encoding differs")
     {:kind "canonical"
      :hex hex
-     :sha sha
+     :digest digest
      :sig (str "ok|rt=" (if rt? 1 0) "|" (:diag w))
      :walk-errors (:errors w)}))
 
@@ -552,7 +552,7 @@
                 (check! failures id (= want got) [:refused got :wanted want])
                 {:kind "encode-refusal"
                  :hex "-"
-                 :sha "-"
+                 :digest "-"
                  :sig (str "refuse|" (refusal-name got))})]
     (cond
       (not= ::none built) (entry built)
@@ -567,12 +567,12 @@
         bs (fx/hex->bytes (get c "hex"))
         want (keyword (get c "refusal"))
         got (refusal-of (fn [] (cbor/decode bs)))
-        sha (jing/sha256-bytes bs)]
+        digest (jing/blake3-bytes bs)]
     (check! failures id (= want got) [:refused got :wanted want])
-    (check! failures id (= (get c "sha256") sha) "SHA-256 of the offered bytes differs")
+    (check! failures id (= (get c "blake3") digest) "BLAKE3 digest of the offered bytes differs")
     {:kind "decode-refusal"
      :hex (get c "hex")
-     :sha sha
+     :digest digest
      :sig (str "refuse|" (refusal-name got))}))
 
 
@@ -616,11 +616,11 @@
   [c]
   (case (get c "kind")
     "canonical" {:hex (get c "hex")
-                 :sha (get c "sha256")
+                 :digest (get c "blake3")
                  :sig (str "ok|rt=1|" (:diag (walk (get c "hex"))))}
-    "encode-refusal" {:hex "-" :sha "-" :sig (str "refuse|" (get c "refusal"))}
+    "encode-refusal" {:hex "-" :digest "-" :sig (str "refuse|" (get c "refusal"))}
     "decode-refusal" {:hex (get c "hex")
-                      :sha (get c "sha256")
+                      :digest (get c "blake3")
                       :sig (str "refuse|" (get c "refusal"))}))
 
 
@@ -637,7 +637,7 @@
   (str/join "\n"
             (map (fn [id]
                    (let [e (get entries id)]
-                     (str id "\t" (:hex e) "\t" (:sha e) "\t" (:sig e))))
+                     (str id "\t" (:hex e) "\t" (:digest e) "\t" (:sig e))))
                  (sort ids))))
 
 
@@ -645,7 +645,7 @@
   [entries ids]
   (let [text (digest-lines entries ids)]
     (when (ascii? text)
-      (jing/sha256-bytes (ascii-bytes text)))))
+      (jing/blake3-bytes (ascii-bytes text)))))
 
 
 (defn- resource-entries
@@ -656,12 +656,12 @@
 (def canonical-digest-pin
   "Pinned literal of the canonical manifest digest (derived from the resource
    by the walker; see the printed CONFORMANCE-DIGEST lines)."
-  "6d1c64719d96c11f79d575bd3122ad1bba1ba9efcc56dce63b195423575cf2cb")
+  "8268b4d38ae11743dc6fc9f36191c7e68077c84f4abcbc2a7392aabff6c9c299")
 
 
 (def refusal-digest-pin
   "Pinned literal of the refusal manifest digest."
-  "1b929147af85f703c700a1f0d9cfbe74c55e5e28302a862086516fe749ec1b82")
+  "915515bce151be0dd0123834f4f2772ad17a15dcea98964084a938357ff22daa")
 
 
 ;; ==========================================================================
@@ -911,7 +911,7 @@
         entries (:entries (manifest))
         cases (filter #(contains? entries (get % "id")) (fx/cases-of-kind "canonical"))
         hex-of #(get-in entries [(get % "id") :hex])
-        sha-of #(get-in entries [(get % "id") :sha])]
+        address-of #(get-in entries [(get % "id") :digest])]
     (testing "same bytes if and only if the same equivalence group"
       (doseq [[hx members] (group-by hex-of cases)
               :let [groups (set (map #(get % "equivalence") members))]]
@@ -930,11 +930,11 @@
                                   {} cases)]
         (check! failures g (= (count members) (count (set (map hex-of members))))
                 :distinction-group-bytes-collide)
-        (check! failures g (= (count members) (count (set (map sha-of members))))
+        (check! failures g (= (count members) (count (set (map address-of members))))
                 :distinction-group-addresses-collide)))
     (testing "the address is a function of the bytes"
       (doseq [[hx members] (group-by hex-of cases)]
-        (check! failures hx (= 1 (count (set (map sha-of members)))) :one-address-per-bytes)))
+        (check! failures hx (= 1 (count (set (map address-of members)))) :one-address-per-bytes)))
     (assert-none! failures "injectivity and groups")))
 
 
@@ -942,15 +942,16 @@
 ;; Tests: the resource is immutable
 ;; ==========================================================================
 
-(def resource-sha256
-  "SHA-256 of cbor-v1.json's bytes: the resource frozen at commit f5f71e95."
-  "c8f5ef38124110bca48d0c7e5596eef00028ecc66c7d032e4e12bb1477f97351")
+(def resource-blake3
+  "BLAKE3 of cbor-v1.json's bytes: the resource frozen at commit f5f71e95,
+   regenerated with BLAKE3 fixture digests (CBOR bytes unchanged)."
+  "a03dd17964fb1d7af564d7be20fd623b4d11bcc70cdbe8e28fb8b3c1f4c9aca5")
 
 
 (deftest the-resource-bytes-are-the-frozen-bytes
   (let [text (fx/read-text)]
     (is (ascii? text) "the corpus is pure ASCII, so its text is its bytes")
-    (is (= resource-sha256 (jing/sha256-bytes (ascii-bytes text)))
+    (is (= resource-blake3 (jing/blake3-bytes (ascii-bytes text)))
         "cbor-v1.json is byte-identical to the digest pinned at freeze")))
 
 
@@ -1066,7 +1067,7 @@
        []
        (let [text (fx/read-text)]
          (and (ascii? text)
-              (= resource-sha256 (jing/sha256-bytes (ascii-bytes text))))))
+              (= resource-blake3 (jing/blake3-bytes (ascii-bytes text))))))
 
 
      ;; One run cannot both modify the resource and pass: after every test of

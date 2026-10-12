@@ -512,6 +512,19 @@
                    :images (:images base)})))
 
 
+(defn- return-transition
+  "Deliver a result through the caller's frame, or halt when K is empty."
+  [vm val]
+  (if-let [frame (peek (:continuation vm))]
+    (assoc vm
+           :pc (:return-pc frame)
+           :frames (:frames frame)
+           :stack (conj (subvec (:stack vm) 0 (:stack-base frame)) val)
+           :continuation (pop (:continuation vm))
+           :store-of (:store-of frame))
+    (assoc vm :halted? true :stack [val] :value val :store-of nil)))
+
+
 (defn stack-restore
   "This machine's one restore function, `base entry val -> state`
    (`yin.vm.engine.md` section 2.1; design section 4.1, item 4). `base` is
@@ -537,6 +550,7 @@
      envelope, so `ffi/call-result` unwraps it and checks correlation, and
      the parked call leaves `:parked` rather than accumulating.
 
+   A `:return-result` entry delivers through the return transition.
    Otherwise the registers are written from the entry and `val` is conjed
    onto the restored `:stack` -- the B3 obligation that every
    value-producing opcode lands on the stack, since there is no
@@ -556,18 +570,18 @@
                :halted? false))
     (let [call-id (:call-id entry)
           base (if call-id (update base :parked dissoc call-id) base)
-          val (if call-id (ffi/call-result val call-id) val)]
-      (assoc base
-             :pc (:pc entry)
-             :frames (:frames entry)
-             :continuation (:continuation entry)
-             :stack (conj (vec (:stack entry)) val)
-             :store-of (:store-of entry)
-             :value val
-             ;; Restored registers are active work: a driver resuming a
-             ;; halted machine directly through `engine/resume-continuation`
-             ;; gets a running one back, as the semantic VM's restore gives.
-             :halted? false))))
+          val (if call-id (ffi/call-result val call-id) val)
+          restored (assoc base
+                          :pc (:pc entry)
+                          :frames (:frames entry)
+                          :continuation (:continuation entry)
+                          :stack (vec (:stack entry))
+                          :store-of (:store-of entry)
+                          :value val
+                          :halted? false)]
+      (if (= :return-result (:resume-mode entry))
+        (return-transition restored val)
+        (assoc restored :stack (conj (:stack restored) val))))))
 
 
 (defn- park-entry-fns
@@ -577,7 +591,10 @@
    handler's result. Nothing else is attached: no handle, no closure, no
    restore function."
   [vm pc' stack']
-  (let [regs (registers vm pc' stack')]
+  (let [site (nth (:segment vm) (:pc vm))
+        regs (cond-> (registers vm pc' stack')
+               (and (= :call (first site)) (true? (nth site 2)))
+               (assoc :resume-mode :return-result))]
     {:stream/put (fn [_state _effect result]
                    (assoc regs
                           :reason :put
@@ -763,17 +780,7 @@
                          (engine/continuation-argument args))))
 
       :return
-      (let [val (peek stack)
-            frame (peek continuation)]
-        (if frame
-          (assoc vm
-                 :pc (:return-pc frame)
-                 :frames (:frames frame)
-                 :stack (conj (subvec stack 0 (:stack-base frame)) val)
-                 :continuation (pop continuation)
-                 :store-of (:store-of frame))
-          (assoc vm
-                 :halted? true, :stack [val], :value val, :store-of nil)))
+      (return-transition vm (peek stack))
 
       :jump
       (assoc vm :pc (nth inst 1))

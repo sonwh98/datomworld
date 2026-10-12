@@ -24,6 +24,8 @@
     [clojure.pprint :as pprint]
     [clojure.string :as str])
   (:import
+    (io.github.rctcwyvrn.blake3
+      Blake3)
     (java.net
       URI)
     (java.net.http
@@ -31,8 +33,6 @@
       HttpClient$Redirect
       HttpRequest
       HttpResponse$BodyHandlers)
-    (java.security
-      MessageDigest)
     (javax.tools
       ToolProvider)))
 
@@ -42,10 +42,11 @@
 (def build-dir "build/antlr/python3")
 
 
-(defn- sha256
+(defn- blake3
   [^bytes bs]
-  (let [d (.digest (MessageDigest/getInstance "SHA-256") bs)]
-    (apply str (map #(format "%02x" (bit-and % 0xff)) d))))
+  (let [b (Blake3/newInstance)]
+    (.update b bs)
+    (.hexdigest b)))
 
 
 (defn- http-get-bytes
@@ -99,11 +100,11 @@
   (let [src-dir (io/file build-dir "upstream")]
     (.mkdirs src-dir)
     (let [mismatches
-          (vec (for [[file {expected :sha256, :as entry}]
+          (vec (for [[file {expected :blake3, :as entry}]
                      (sort-by key (:files grammar))
                      :let [target (io/file src-dir (str/replace file "/" "__"))
                            bs (source-bytes! grammar file entry target)
-                           actual (sha256 bs)
+                           actual (blake3 bs)
                            ascii? (every? #(<= 0 % 127) bs)]
                      :when (or (println (if (:vendored entry) "vendored" "fetched")
                                         file actual)
@@ -188,7 +189,7 @@
         (for [f (.listFiles (io/file pkg-dir))
               :when (str/ends-with? (.getName f) ".java")]
           [(.getName f)
-           (sha256 (java.nio.file.Files/readAllBytes (.toPath f)))])))
+           (blake3 (java.nio.file.Files/readAllBytes (.toPath f)))])))
 
 
 (defn- non-ascii-files

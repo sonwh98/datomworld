@@ -573,9 +573,9 @@
           (let [refusal (run-with use-m
                                   (body [{:name '+}]
                                         {:yin.module/primitives
-                                         {'+ :yin.k.pp/sha256-other}}))]
+                                         {'+ :yin.k.pp/blake3-other}}))]
             (is (= :unresolved-free (:reason refusal)))
-            (is (= :yin.k.pp/sha256-other (:expected refusal)))))
+            (is (= :yin.k.pp/blake3-other (:expected refusal)))))
         (testing "an equal profile discharges"
           (is (nil? (run-with use-m
                               (body [{:name '+}]

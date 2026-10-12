@@ -52,24 +52,9 @@
 
 
 (def ^:private run-form
-  '(do (cell/set! py.rt/out [])
-       (cell/set! py.rt/ctx (py/ctx nil 0 0 nil))
-       (let [hit (py/modules-ref (py/str "__main__"))
-             m (if (= hit :py/missing)
-                 (let [fresh (py/module-new (py/str "__main__") :py/None)]
-                   (do (py/modules-put! (py/str "__main__") fresh)
-                       fresh))
-                 hit)
-             d (py/module-dict m)
-             exc (py/try (fn []
-                           (do (%repl-body d (py/globals-fn d))
-                               :py/None))
-                         (fn [e] e)
-                         (fn [] :py/None))
-             text (py-report
-                    (cell/get py.rt/out)
-                    (if (= exc :py/None) nil (py/snapshot-exc exc)))]
-         (if (= text "") nil (println text)))))
+  '(let [r (py/run-session %repl-body)
+         text (py-report (get r :py/out) (get r :py/exception))]
+     (if (= text "") nil (println text))))
 
 
 (defn- ok-packet!

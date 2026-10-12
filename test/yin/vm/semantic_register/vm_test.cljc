@@ -2,6 +2,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
+            [yin.vm.module :as module]
             [yin.vm.values :as values]
             [yin.vm.semantic-register :as sr]
             [yin.vm.semantic-register.analysis :as analysis]
@@ -257,3 +258,29 @@
     (is (= {:segment -1 :pc 3} (:control ret)))
     (is (nil? (:k ret)))
     (is (= :deliver (:rule (error-data #(sr/register-restore base {} 1)))))))
+
+
+(deftest free-environment-retention
+  (let [initial {'x 1}
+        ast (corpus/tail (corpus/app (corpus/lam '[x] (corpus/v 'x)) (corpus/lit 2)))
+        machine (parity/register-machine ast {:env initial})
+        states (take-while (complement vm/halted?) (iterate vm/step machine))
+        result (vm/run machine)]
+    (is (= initial (:free-env machine)))
+    (is (= {} (:free-env (sr/create-vm))))
+    (is (every? #(= initial (:free-env %)) states))
+    (is (= 2 (vm/value result)))
+    (is (= {'x 2} (:env result)))
+    (is (= initial (:free-env result)))
+    (is (some #(= initial %) (:values (module/gc-roots result))))
+    (is (= initial (:free-env (vm/reset result))))
+    (is (= initial (:free-env (vm/eval result nil))))
+    (is (= initial (:free-env (sr/attach-image result (golden :literal) code/contract))))
+    (is (= initial (:free-env (sr/load-vector result (golden :literal) code/contract))))
+    (let [restored (sr/register-restore result
+                                        {:segment (:program machine) :pc 0
+                                         :env {'x 3} :window {} :k nil
+                                         :deliver {:deliver :rd :rd 0}}
+                                        9)]
+      (is (= {'x 3} (:env restored)))
+      (is (= initial (:free-env restored))))))

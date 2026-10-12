@@ -104,7 +104,7 @@
 (def ^:private dht-flags
   #{"--dht-peer" "--dht-publish" "--dht-bind" "--dht-port"
     "--dht-max-inbound-bytes" "--dht-manifest" "--dht-key" "--dht-principal"
-    "--dht-follow"})
+    "--dht-trust" "--dht-follow"})
 
 
 (def max-follow
@@ -151,6 +151,21 @@
     text
     (throw (ex-info (str "--dht-principal takes a public key of 64 lowercase "
                          "hexadecimal characters, not " (pr-str text))
+                    {:value text}))))
+
+
+(defn parse-trust
+  "A `--dht-trust` value: a principal whose modules this node admits,
+   `ed25519:<64 lowercase hex>` (the tag optional), as the principal id
+   (yin.vm.linker.dht.md 7.5).  Trust is apart from `--dht-principal`:
+   declaring a publisher honors its signed names, it does not admit its
+   modules."
+  [text]
+  (if-some [[_ hex] (and (string? text)
+                         (re-matches #"^(?:ed25519:)?([0-9a-f]{64})$" text))]
+    (sign/principal hex)
+    (throw (ex-info (str "--dht-trust takes ed25519:<64 lowercase "
+                         "hexadecimal characters>, not " (pr-str text))
                     {:value text}))))
 
 
@@ -512,7 +527,10 @@
    `--dht-manifest address`, a remote index to hydrate before the first
    evaluation; `--dht-key file`, the publisher's stable key file
    (yin.vm.linker.dht.md 6.5); `--dht-principal hex`, repeatable, a
-   publisher whose signed names this node honors (7.1); and
+   publisher whose signed names this node honors (7.1);
+   `--dht-trust ed25519:hex`, repeatable, a principal whose modules the
+   session's admission interpreter admits (7.5), apart from the
+   declarations; and
    `--dht-follow hex@host:port`, repeatable, a declared publisher whose
    published head this node follows at that loopback address
    (yin.vm.linker.dht.head.md 5.5, 5.8).  Any of them
@@ -575,6 +593,10 @@
                                    (update opts :principals (fnil conj [])
                                            (parse-principal value))
                                    dht)
+          "--dht-trust" (recur (nnext args)
+                               (update-in opts [:admission :trusted]
+                                          (fnil conj #{}) (parse-trust value))
+                               dht)
           "--dht-follow" (recur (nnext args) opts
                                 (update dht :follow (fnil conj [])
                                         (parse-follow value)))
@@ -599,7 +621,12 @@
    through.  The parsed `:index-store-spec` reaches the shell's store
    selection, which resolves and opens it once at construction.  A custody
    composition (:custody, yin.vm.ucf.compose) rides the shell as data; the
-   step owner below is the only thing that steps it."
+   step owner below is the only thing that steps it.
+
+   `:admission` is the session's admission policy (yin.vm.linker.dht.md
+   7.5; `--dht-trust` sets its `:trusted`), by default `{}`: the key's
+   own principal only.  It is apart from `:principals`: a declared
+   publisher is not a trusted one."
   ([] (boot {}))
   ([opts] (driver/create-state
             {:host (or (:adapter opts) (host/websocket))
@@ -607,6 +634,7 @@
                      (cond-> {:index-store-spec (:index-store-spec opts)
                               :dht-key (:dht-key opts)
                               :principals (:principals opts)
+                              :admission (:admission opts {})
                               :ws-host (:ws-host opts)
                               :write-heads! (:write-heads! opts)
                               :custody (:custody opts)}
@@ -709,9 +737,10 @@
    ""
    "saved state: the flags a node starts with are kept in <node dir>/state.edn,"
    "and a bare `yin-repl` starts that node again. Flags change it: a repeated"
-   "flag (--dht-peer, --dht-principal, --dht-follow) replaces its saved"
-   "values, and the result is saved. --dht-manifest and --dht-keygen are"
-   "never saved. A followed head is kept in <dht dir>/heads.edn."
+   "flag (--dht-peer, --dht-principal, --dht-trust, --dht-follow) replaces"
+   "its saved values, and the result is saved. --dht-manifest and"
+   "--dht-keygen are never saved. A followed head is kept in"
+   "<dht dir>/heads.edn."
    ""
    "dht flags (need --index-store dht:<dir>, except --dht-keygen):"
    "  --dht-peer host:port        bootstrap contact (IP literal); repeatable"
@@ -722,7 +751,10 @@
    "  --dht-manifest :segment/... remote index to hydrate first; needs a peer;"
    "                              a pin: this run follows nothing"
    "  --dht-key file              the publisher's key file"
-   "  --dht-principal hex         a publisher to trust; repeatable"
+   "  --dht-principal hex         a publisher whose signed names to honor;"
+   "                              repeatable"
+   "  --dht-trust ed25519:hex     a principal whose modules to admit (not"
+   "                              implied by --dht-principal); repeatable"
    "  --dht-follow hex@host:port  follow a declared publisher's head at its"
    "                              loopback address; repeatable"
    "  --dht-keygen file           write a new key file and exit"
@@ -999,8 +1031,10 @@
    replaced by the stop latch, so no custody program call runs after
    `:running?` turns false.  A require parked on a closure load the node
    ended this tick is re-checked once, before any typed line, with no line
-   of its own (yin.repl/recheck-on-load-events, yin.vm.linker.dht.md 8.2):
-   its text prints after the node's lines.  Returns `[state server lines]`;
+   of its own (yin.repl/recheck-on-load-events, yin.vm.linker.dht.md 8.2),
+   and so is one parked on an admission question whose answer the tick
+   drained (yin.repl/recheck-on-answers, 7.5): its text prints after the
+   node's lines.  Returns `[state server lines]`;
    the caller only prints."
   [state server now]
   (let [[repl dht-lines events] (repl.dht/step (:repl state) now)
@@ -1014,8 +1048,10 @@
 
       :else
       (let [[repl rechecked] (shell/recheck-on-load-events (:repl state) events)
+            [repl answered] (shell/recheck-on-answers repl)
             dht-lines (cond-> dht-lines
-                        (seq rechecked) (conj rechecked))
+                        (seq rechecked) (conj rechecked)
+                        (seq answered) (conj answered))
             state (assoc state :repl repl)
             stepped (driver/repl-step state now)
             stepped (if (:running? stepped)

@@ -14,6 +14,7 @@
    real sockets are yin.repl.dht-process-test."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dao.test-slow :as slow]
             #?@(:cljd [["dart:io" :as dart-io]])
             [dao.jing.dht.mesh :as mesh]
             [dao.space.store :as durable]
@@ -76,7 +77,8 @@
 
 
 (defn- shell
-  "The step owner's state of a shell over `dir` at mesh `port`."
+  "The step owner's state of a shell over `dir` at mesh `port`, trusting
+   the principals it declares."
   [{:keys [mesh ws dir port peers key principals follow write! bind-host
            bind!]}]
   (quick
@@ -91,6 +93,10 @@
                           (seq follow) (assoc :follow follow))
                         :dht-key key
                         :principals principals
+                        ;; the shells import their declared publishers'
+                        ;; modules: trusted explicitly (7.5)
+                        :admission {:trusted (set (map sign/principal
+                                                       principals))}
                         :ws-host (when ws (ws-host ws))}
                  write! (assoc :write-heads! write!)))))
 
@@ -260,86 +266,89 @@
 ;; Following: first contact, the moved line, (reset), and a bare restart
 ;; =============================================================================
 
-(deftest a-reader-follows-requires-moves-and-restarts-from-heads-edn
-  (let [key (sign/generate)
-        principal (sign/principal (:public key))
-        [dir-a dir-b] [(temp-dir) (temp-dir)]
-        w (world)
-        w (assoc w :a (publisher w key dir-a) :b (reader w key dir-b))
-        w (type! w :b "(require (quote alib))")]
-    (testing "a require typed before the first head parks pending on it"
-      (is (pending? w :b) (pr-str (get-in w [:lines :b])))
-      (is (= [principal]
-             (mapcat :principals (get-in w [:b :repl :pending-run :links]))))
-      (is (seq (lines-with w :b ";; require pending: alib"))))
-    (let [w (publish! w 42)
-          w (run w 3000 #(and (not (pending? % :b)) ((installed? :b key) %)))
-          m1 (:manifest (heads-of w :b key))]
-      (testing "the install completes it with no typed line"
-        (is (some? m1) (pr-str (get-in w [:lines :b])))
-        (is (not (pending? w :b)))
-        (is (= 'alib (value w :b)) (pr-str (get-in w [:lines :b])))
-        (is (seq (lines-with w :b (str "dht: installed the head of "
-                                       principal))))
-        (is (= [["127.0.0.1" pub-port]] (distinct (:dialed @(:ws w))))
-            "only the address the principal was given is dialed"))
-      (testing "the head is durable before it is used"
-        (is (= m1 (get-in (repl.dht/read-heads dir-b)
-                          [:records :heads principal :yin.head/envelope
-                           :yin.head/manifest]))))
-      (let [w (type! w :b "(alib/f)")
-            _ (is (= 42 (value w :b)))
-            w (type! w :b "(require (quote yin.head))")
-            w (type! w :b "(yin.head/heads)")]
-        (testing "(yin.head/heads) answers what is installed"
-          (is (= m1 (get-in (value w :b) [principal :manifest]))
-              (pr-str (value w :b))))
-        (let [w (publish! w 43)
-              w (run w 3000 #(not= m1 (:manifest (heads-of % :b key))))
-              m2 (:manifest (heads-of w :b key))
-              moved (lines-with w :b "dht: alib moved: linked ")]
-          (testing "an installed head that moves a linked name prints one line"
-            (is (and m2 (not= m1 m2)) (pr-str (get-in w [:lines :b])))
-            (is (= 1 (count moved)) (pr-str (get-in w [:lines :b])))
-            (is (str/includes? (str (first moved)) principal))
-            (is (str/includes? (str (first moved))
-                               "(reset) then (require 'alib) links it")))
-          (let [w (type! w :b "(yin.head/moved)")
-                [moved-entry] (value w :b)
-                w (type! w :b "(require (quote alib))")
-                w (type! w :b "(alib/f)")]
-            (testing "(yin.head/moved) names the moved name"
-              (is (= 'alib (:name moved-entry)) (pr-str (value w :b)))
-              (is (not= (:linked moved-entry) (:resolved moved-entry))))
-            (testing "the repeat require is unchanged"
-              (is (= 42 (value w :b))))
-            (let [w (type! w :b "(reset)")
-                  w (type! w :b "(require (quote alib))")
-                  w (run w 3000 #(not (pending? % :b)))
-                  w (type! w :b "(alib/f)")]
-              (testing "(reset) then require links the new module"
-                (is (= 43 (value w :b)) (pr-str (get-in w [:lines :b])))))
-            (testing "a bare restart resolves from heads.edn before any
+(deftest ^:slow a-reader-follows-requires-moves-and-restarts-from-heads-edn
+  (slow/guard
+    "a-reader-follows-requires-moves-and-restarts-from-heads-edn"
+    (fn []
+      (let [key (sign/generate)
+            principal (sign/principal (:public key))
+            [dir-a dir-b] [(temp-dir) (temp-dir)]
+            w (world)
+            w (assoc w :a (publisher w key dir-a) :b (reader w key dir-b))
+            w (type! w :b "(require (quote alib))")]
+        (testing "a require typed before the first head parks pending on it"
+          (is (pending? w :b) (pr-str (get-in w [:lines :b])))
+          (is (= [principal]
+                 (mapcat :principals (get-in w [:b :repl :pending-run :links]))))
+          (is (seq (lines-with w :b ";; require pending: alib"))))
+        (let [w (publish! w 42)
+              w (run w 3000 #(and (not (pending? % :b)) ((installed? :b key) %)))
+              m1 (:manifest (heads-of w :b key))]
+          (testing "the install completes it with no typed line"
+            (is (some? m1) (pr-str (get-in w [:lines :b])))
+            (is (not (pending? w :b)))
+            (is (= 'alib (value w :b)) (pr-str (get-in w [:lines :b])))
+            (is (seq (lines-with w :b (str "dht: installed the head of "
+                                           principal))))
+            (is (= [["127.0.0.1" pub-port]] (distinct (:dialed @(:ws w))))
+                "only the address the principal was given is dialed"))
+          (testing "the head is durable before it is used"
+            (is (= m1 (get-in (repl.dht/read-heads dir-b)
+                              [:records :heads principal :yin.head/envelope
+                               :yin.head/manifest]))))
+          (let [w (type! w :b "(alib/f)")
+                _ (is (= 42 (value w :b)))
+                w (type! w :b "(require (quote yin.head))")
+                w (type! w :b "(yin.head/heads)")]
+            (testing "(yin.head/heads) answers what is installed"
+              (is (= m1 (get-in (value w :b) [principal :manifest]))
+                  (pr-str (value w :b))))
+            (let [w (publish! w 43)
+                  w (run w 3000 #(not= m1 (:manifest (heads-of % :b key))))
+                  m2 (:manifest (heads-of w :b key))
+                  moved (lines-with w :b "dht: alib moved: linked ")]
+              (testing "an installed head that moves a linked name prints one line"
+                (is (and m2 (not= m1 m2)) (pr-str (get-in w [:lines :b])))
+                (is (= 1 (count moved)) (pr-str (get-in w [:lines :b])))
+                (is (str/includes? (str (first moved)) principal))
+                (is (str/includes? (str (first moved))
+                                   "(reset) then (require 'alib) links it")))
+              (let [w (type! w :b "(yin.head/moved)")
+                    [moved-entry] (value w :b)
+                    w (type! w :b "(require (quote alib))")
+                    w (type! w :b "(alib/f)")]
+                (testing "(yin.head/moved) names the moved name"
+                  (is (= 'alib (:name moved-entry)) (pr-str (value w :b)))
+                  (is (not= (:linked moved-entry) (:resolved moved-entry))))
+                (testing "the repeat require is unchanged"
+                  (is (= 42 (value w :b))))
+                (let [w (type! w :b "(reset)")
+                      w (type! w :b "(require (quote alib))")
+                      w (run w 3000 #(not (pending? % :b)))
+                      w (type! w :b "(alib/f)")]
+                  (testing "(reset) then require links the new module"
+                    (is (= 43 (value w :b)) (pr-str (get-in w [:lines :b])))))
+                (testing "a bare restart resolves from heads.edn before any
                       connection, with the publisher stopped"
-              (close! w)
-              (let [w2 (world)
-                    b (shell {:mesh (:mesh w2) :ws nil :dir dir-b
-                              :port reader-port :peers [pub-port]
-                              :principals [(:public key)]
-                              :follow (follow-of key)})
-                    node (get-in b [:repl :dht])]
-                (is (= m2 (get (ld/installed-heads node) principal))
-                    "installed at open, before any step")
-                (is (= :ok (:status (ld/resolve-name
-                                      node
-                                      (ld/authority {:principals [(:public key)]})
-                                      'alib))))
-                (let [w2 (-> (assoc w2 :b b)
-                             (type! :b "(require (quote alib))")
-                             (run 3000 #(not (pending? % :b)))
-                             (type! :b "(alib/f)"))]
-                  (is (= 43 (value w2 :b)) (pr-str (get-in w2 [:lines :b])))
-                  (close! w2))))))))))
+                  (close! w)
+                  (let [w2 (world)
+                        b (shell {:mesh (:mesh w2) :ws nil :dir dir-b
+                                  :port reader-port :peers [pub-port]
+                                  :principals [(:public key)]
+                                  :follow (follow-of key)})
+                        node (get-in b [:repl :dht])]
+                    (is (= m2 (get (ld/installed-heads node) principal))
+                        "installed at open, before any step")
+                    (is (= :ok (:status (ld/resolve-name
+                                          node
+                                          (ld/authority {:principals [(:public key)]})
+                                          'alib))))
+                    (let [w2 (-> (assoc w2 :b b)
+                                 (type! :b "(require (quote alib))")
+                                 (run 3000 #(not (pending? % :b)))
+                                 (type! :b "(alib/f)"))]
+                      (is (= 43 (value w2 :b)) (pr-str (get-in w2 [:lines :b])))
+                      (close! w2))))))))))))
 
 
 (deftest abandon-ends-a-first-contact-require
@@ -417,85 +426,88 @@
      :cljs (set (js->clj (.readdirSync (js/require "fs") dir)))))
 
 
-(deftest a-simulated-crash-restarts-at-the-head-heads-edn-holds
+(deftest ^:slow a-simulated-crash-restarts-at-the-head-heads-edn-holds
   ;; SIMULATED, by the Architect's ruling for H3: no OS process is killed.
   ;; The crash is a write seam that fails, then the shell is closed and
   ;; opened again from the same directory.  What a real kill adds is the
   ;; atomicity of `dao.space.store.fs/atomic-replace!`, which is that
   ;; function's own contract.
-  (let [key (sign/generate)
-        principal (sign/principal (:public key))
-        [dir-a dir-b] [(temp-dir) (temp-dir)]
-        mode (atom :ok)
-        written #(get-in (repl.dht/read-heads dir-b)
-                         [:records :heads principal :yin.head/envelope
-                          :yin.head/manifest])
-        w (world)
-        w (assoc w
-                 :a (publisher w key dir-a)
-                 :b (reader w key dir-b {:write! (failing-write #(deref mode))}))
-        w (run (publish! w 1) 3000 (installed? :b key))
-        m1 (:manifest (heads-of w :b key))
-        heads-text #(fs/read-file-text dir-b repl.dht/heads-file)]
-    (is (= m1 (written)))
-    (testing "simulated crash before the write: the restart is at the old
-              head"
-      (reset! mode :fail)
-      (let [w (publish! w 2)
-            w (run w 3000 #(seq (lines-with % :b ":yin.head/unpersisted")))
-            confirmed (get-in (heads-of w :b key) [:candidate :manifest])
-            _ (close! w)
-            b (reader w key dir-b)]
-        (is (and confirmed (not= m1 confirmed)))
-        (is (= m1 (get (ld/installed-heads (get-in b [:repl :dht])) principal)))
-        (main/close-index-store! b)))
-    (testing "a real write interrupted before its rename leaves the old
-              heads.edn bytes untouched and a stale temp file, which startup
-              ignores and the next write replaces past"
-      (let [before (heads-text)
+  (slow/guard
+    "a-simulated-crash-restarts-at-the-head-heads-edn-holds"
+    (fn []
+      (let [key (sign/generate)
+            principal (sign/principal (:public key))
+            [dir-a dir-b] [(temp-dir) (temp-dir)]
+            mode (atom :ok)
+            written #(get-in (repl.dht/read-heads dir-b)
+                             [:records :heads principal :yin.head/envelope
+                              :yin.head/manifest])
             w (world)
             w (assoc w
                      :a (publisher w key dir-a)
-                     :b (reader w key dir-b {:write! crash-before-rename}))
-            w (publish! w 3)
-            w (run w 3000 #(seq (lines-with % :b "crashed before the rename")))
-            stale (filterv #(str/starts-with? % (str repl.dht/heads-file ".tmp-"))
-                           (dir-names dir-b))]
-        (is (seq (lines-with w :b "crashed before the rename"))
-            (pr-str (get-in w [:lines :b])))
-        (is (= before (heads-text)) "the old bytes, exactly")
-        (is (seq stale) "the interrupted write left its temp file")
-        (close! w)
-        (let [w (world)
-              w (assoc w
-                       :a (publisher w key dir-a)
-                       :b (reader w key dir-b))]
-          (is (= m1 (get (ld/installed-heads (get-in w [:b :repl :dht]))
-                         principal))
-              "startup reads heads.edn and ignores the temp file")
-          (let [newest (get-in w [:a :repl :indexer :manifest-address])
-                w (run w 3000 #(= newest (:manifest (heads-of % :b key))))]
-            (is (= newest (written)) "the next write replaces heads.edn")
-            (close! w)))))
-    (testing "simulated crash between the write and the install: the restart
-              is at the new head"
-      (reset! mode :write-then-fail)
-      (let [w (world)
-            w (assoc w
-                     :a (publisher w key dir-a)
                      :b (reader w key dir-b {:write! (failing-write #(deref mode))}))
-            w (publish! w 4)
-            newest (get-in w [:a :repl :indexer :manifest-address])
-            w (run w 3000 (fn [_] (= newest (written))))
-            _ (is (= newest (written)) (pr-str (get-in w [:lines :b])))
-            _ (is (seq (lines-with w :b "killed after the write")))
-            _ (is (not= newest (:manifest (heads-of w :b key)))
-                  "not installed in this process")
-            _ (close! w)
-            b (reader w key dir-b)]
-        (is (= newest (get (ld/installed-heads (get-in b [:repl :dht])) principal))
-            "the restart is at the head the file holds")
-        (main/close-index-store! b)))))
+            w (run (publish! w 1) 3000 (installed? :b key))
+            m1 (:manifest (heads-of w :b key))
+            heads-text #(fs/read-file-text dir-b repl.dht/heads-file)]
+        (is (= m1 (written)))
+        (testing "simulated crash before the write: the restart is at the old
+              head"
+          (reset! mode :fail)
+          (let [w (publish! w 2)
+                w (run w 3000 #(seq (lines-with % :b ":yin.head/unpersisted")))
+                confirmed (get-in (heads-of w :b key) [:candidate :manifest])
+                _ (close! w)
+                b (reader w key dir-b)]
+            (is (and confirmed (not= m1 confirmed)))
+            (is (= m1 (get (ld/installed-heads (get-in b [:repl :dht])) principal)))
+            (main/close-index-store! b)))
+        (testing "a real write interrupted before its rename leaves the old
+              heads.edn bytes untouched and a stale temp file, which startup
+              ignores and the next write replaces past"
+          (let [before (heads-text)
+                w (world)
+                w (assoc w
+                         :a (publisher w key dir-a)
+                         :b (reader w key dir-b {:write! crash-before-rename}))
+                w (publish! w 3)
+                w (run w 3000 #(seq (lines-with % :b "crashed before the rename")))
+                stale (filterv #(str/starts-with? % (str repl.dht/heads-file ".tmp-"))
+                               (dir-names dir-b))]
+            (is (seq (lines-with w :b "crashed before the rename"))
+                (pr-str (get-in w [:lines :b])))
+            (is (= before (heads-text)) "the old bytes, exactly")
+            (is (seq stale) "the interrupted write left its temp file")
+            (close! w)
+            (let [w (world)
+                  w (assoc w
+                           :a (publisher w key dir-a)
+                           :b (reader w key dir-b))]
+              (is (= m1 (get (ld/installed-heads (get-in w [:b :repl :dht]))
+                             principal))
+                  "startup reads heads.edn and ignores the temp file")
+              (let [newest (get-in w [:a :repl :indexer :manifest-address])
+                    w (run w 3000 #(= newest (:manifest (heads-of % :b key))))]
+                (is (= newest (written)) "the next write replaces heads.edn")
+                (close! w)))))
+        (testing "simulated crash between the write and the install: the restart
+              is at the new head"
+          (reset! mode :write-then-fail)
+          (let [w (world)
+                w (assoc w
+                         :a (publisher w key dir-a)
+                         :b (reader w key dir-b {:write! (failing-write #(deref mode))}))
+                w (publish! w 4)
+                newest (get-in w [:a :repl :indexer :manifest-address])
+                w (run w 3000 (fn [_] (= newest (written))))
+                _ (is (= newest (written)) (pr-str (get-in w [:lines :b])))
+                _ (is (seq (lines-with w :b "killed after the write")))
+                _ (is (not= newest (:manifest (heads-of w :b key)))
+                      "not installed in this process")
+                _ (close! w)
+                b (reader w key dir-b)]
+            (is (= newest (get (ld/installed-heads (get-in b [:repl :dht])) principal))
+                "the restart is at the head the file holds")
+            (main/close-index-store! b)))))))
 
 
 ;; =============================================================================
@@ -1036,68 +1048,74 @@
     lines))
 
 
-(deftest the-moved-line-names-the-principal-that-moved-each-name
-  (let [key (sign/generate)
-        other (sign/generate)
-        p1 (sign/principal (:public key))
-        p2 (sign/principal (:public other))
-        head-of (fn [line] (re-find #"\(head of [^)]*\)" (str line)))]
-    (testing "two principals installed in one step, each moving its own name"
-      (let [lines (moved-by-installs key other "blib" [1 2] [10 20])
-            line-of (fn [n]
-                      (first (filter #(str/starts-with?
-                                        % (str "dht: " n " moved: "))
-                                     lines)))]
-        (is (= 2 (count lines)) (pr-str lines))
-        (is (str/includes? (str (head-of (line-of "alib"))) p1) (pr-str lines))
-        (is (not (str/includes? (str (head-of (line-of "alib"))) p2))
-            (pr-str lines))
-        (is (str/includes? (str (head-of (line-of "blib"))) p2) (pr-str lines))
-        (is (not (str/includes? (str (head-of (line-of "blib"))) p1))
-            (pr-str lines))))
-    (testing "two principals installed in one step, moving the same name
+(deftest ^:slow the-moved-line-names-the-principal-that-moved-each-name
+  (slow/guard
+    "the-moved-line-names-the-principal-that-moved-each-name"
+    (fn []
+      (let [key (sign/generate)
+            other (sign/generate)
+            p1 (sign/principal (:public key))
+            p2 (sign/principal (:public other))
+            head-of (fn [line] (re-find #"\(head of [^)]*\)" (str line)))]
+        (testing "two principals installed in one step, each moving its own name"
+          (let [lines (moved-by-installs key other "blib" [1 2] [10 20])
+                line-of (fn [n]
+                          (first (filter #(str/starts-with?
+                                            % (str "dht: " n " moved: "))
+                                         lines)))]
+            (is (= 2 (count lines)) (pr-str lines))
+            (is (str/includes? (str (head-of (line-of "alib"))) p1) (pr-str lines))
+            (is (not (str/includes? (str (head-of (line-of "alib"))) p2))
+                (pr-str lines))
+            (is (str/includes? (str (head-of (line-of "blib"))) p2) (pr-str lines))
+            (is (not (str/includes? (str (head-of (line-of "blib"))) p1))
+                (pr-str lines))))
+        (testing "two principals installed in one step, moving the same name
               together: both are named"
-      (let [lines (moved-by-installs key other "alib" [1 2] [1 2])]
-        (is (= 1 (count lines)) (pr-str lines))
-        (is (str/includes? (str (head-of (first lines))) p1) (pr-str lines))
-        (is (str/includes? (str (head-of (first lines))) p2)
-            (pr-str lines))))))
+          (let [lines (moved-by-installs key other "alib" [1 2] [1 2])]
+            (is (= 1 (count lines)) (pr-str lines))
+            (is (str/includes? (str (head-of (first lines))) p1) (pr-str lines))
+            (is (str/includes? (str (head-of (first lines))) p2)
+                (pr-str lines))))))))
 
 
-(deftest a-move-is-reported-once-and-each-name-its-own
-  (let [key (sign/generate)
-        w (world)
-        w (assoc w :a (publisher w key (temp-dir)) :b (reader w key (temp-dir)))
-        w (-> w
-              (type! :a "(def f (fn [] 1))")
-              (type! :a "(def g (fn [] 1))")
-              (type! :a "(require (quote yin.link))")
-              (type! :a "(yin.link/publish (quote alib) (quote [f]))")
-              (type! :a "(yin.link/publish (quote blib) (quote [g]))"))
-        newest #(get-in % [:a :repl :indexer :manifest-address])
-        caught-up #(= (newest %) (:manifest (heads-of % :b key)))
-        w (run w 3000 caught-up)
-        w (-> w
-              (type! :b "(require (quote alib))")
-              (type! :b "(require (quote blib))")
-              (run 3000 #(not (pending? % :b))))
-        moved (fn [w n] (lines-with w :b (str "dht: " n " moved: ")))]
-    (is (= 'blib (value w :b)) (pr-str (get-in w [:lines :b])))
-    (let [w (-> w
-                (type! :a "(def f (fn [] 2))")
-                (type! :a "(yin.link/publish (quote alib) (quote [f]))")
-                (run 3000 caught-up))
-          _ (is (= 1 (count (moved w "alib"))) (pr-str (get-in w [:lines :b])))
-          w (-> w (type! :a "(def unrelated 3)") (run 3000 caught-up))
-          _ (is (= 1 (count (moved w "alib")))
-                "a later install that leaves alib where it moved prints nothing")
-          w (-> w
-                (type! :a "(def g (fn [] 2))")
-                (type! :a "(yin.link/publish (quote blib) (quote [g]))")
-                (run 3000 caught-up))]
-      (is (= 1 (count (moved w "blib"))) (pr-str (get-in w [:lines :b])))
-      (is (= 1 (count (moved w "alib"))) "alib is not printed again")
-      (close! w))))
+(deftest ^:slow a-move-is-reported-once-and-each-name-its-own
+  (slow/guard
+    "a-move-is-reported-once-and-each-name-its-own"
+    (fn []
+      (let [key (sign/generate)
+            w (world)
+            w (assoc w :a (publisher w key (temp-dir)) :b (reader w key (temp-dir)))
+            w (-> w
+                  (type! :a "(def f (fn [] 1))")
+                  (type! :a "(def g (fn [] 1))")
+                  (type! :a "(require (quote yin.link))")
+                  (type! :a "(yin.link/publish (quote alib) (quote [f]))")
+                  (type! :a "(yin.link/publish (quote blib) (quote [g]))"))
+            newest #(get-in % [:a :repl :indexer :manifest-address])
+            caught-up #(= (newest %) (:manifest (heads-of % :b key)))
+            w (run w 3000 caught-up)
+            w (-> w
+                  (type! :b "(require (quote alib))")
+                  (type! :b "(require (quote blib))")
+                  (run 3000 #(not (pending? % :b))))
+            moved (fn [w n] (lines-with w :b (str "dht: " n " moved: ")))]
+        (is (= 'blib (value w :b)) (pr-str (get-in w [:lines :b])))
+        (let [w (-> w
+                    (type! :a "(def f (fn [] 2))")
+                    (type! :a "(yin.link/publish (quote alib) (quote [f]))")
+                    (run 3000 caught-up))
+              _ (is (= 1 (count (moved w "alib"))) (pr-str (get-in w [:lines :b])))
+              w (-> w (type! :a "(def unrelated 3)") (run 3000 caught-up))
+              _ (is (= 1 (count (moved w "alib")))
+                    "a later install that leaves alib where it moved prints nothing")
+              w (-> w
+                    (type! :a "(def g (fn [] 2))")
+                    (type! :a "(yin.link/publish (quote blib) (quote [g]))")
+                    (run 3000 caught-up))]
+          (is (= 1 (count (moved w "blib"))) (pr-str (get-in w [:lines :b])))
+          (is (= 1 (count (moved w "alib"))) "alib is not printed again")
+          (close! w))))))
 
 
 (deftest a-dial-failure-prints-once-per-change

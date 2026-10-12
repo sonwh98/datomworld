@@ -23,6 +23,7 @@
    - Row 10 canonical-byte agreement: exercised cross-host in stage-e-process-test
      (ordered JVM/Node pairs over file media)."
   (:require [clojure.test :refer [deftest]]
+            [dao.test-slow :as slow]
             [yin.vm.ucf.stage-e-scenarios :as sc]))
 
 
@@ -36,16 +37,22 @@
   (run-all [sc/fork-row]))
 
 
-(deftest row-7-kills-around-completion-test
-  (run-all (map sc/row7 sc/row7-cuts)))
+(deftest ^:slow row-7-kills-around-completion-test
+  (slow/guard
+    "row-7-kills-around-completion-test"
+    (fn []
+      (run-all (map sc/row7 sc/row7-cuts)))))
 
 
 (deftest row-7-failure-lower-and-lost-authority-test
   (run-all [sc/row7-failure-lower sc/row7-lost-authority]))
 
 
-(deftest row-4-kills-around-result-delivery-test
-  (run-all (map sc/row4 sc/row4-cuts)))
+(deftest ^:slow row-4-kills-around-result-delivery-test
+  (slow/guard
+    "row-4-kills-around-result-delivery-test"
+    (fn []
+      (run-all (map sc/row4 sc/row4-cuts)))))
 
 
 (deftest row-3-reclaim-test
@@ -56,30 +63,48 @@
   (run-all (map sc/row5 sc/row5-variants)))
 
 
-(deftest row-2-export-phases-test
-  (run-all (map sc/row2 (concat sc/row2-pre-fence-cuts sc/row2-post-fence-cuts))))
+(deftest ^:slow row-2-export-phases-test
+  (slow/guard
+    "row-2-export-phases-test"
+    (fn []
+      (run-all (map sc/row2 (concat sc/row2-pre-fence-cuts sc/row2-post-fence-cuts))))))
 
 
-(deftest row-2-carrier-failures-test
-  (run-all (map sc/row2-carrier sc/row2-carriers)))
+(deftest ^:slow row-2-carrier-failures-test
+  (slow/guard
+    "row-2-carrier-failures-test"
+    (fn []
+      (run-all (map sc/row2-carrier sc/row2-carriers)))))
 
 
 (deftest row-1-candidates-and-encodings-test
   (run-all [sc/row1]))
 
 
-(deftest row-6-partition-test
-  (run-all [sc/row6-request-partition sc/row6-consumer-partition sc/row6-lost-reply]))
+(deftest ^:slow row-6-partition-test
+  (slow/guard
+    "row-6-partition-test"
+    (fn []
+      (run-all [sc/row6-request-partition sc/row6-consumer-partition sc/row6-lost-reply]))))
 
 
-(deftest clause-8-admission-order-test
-  (run-all (concat (map sc/clause8 sc/clause8-variants) [sc/clause8-closed])))
+(deftest ^:slow clause-8-admission-order-test
+  (slow/guard
+    "clause-8-admission-order-test"
+    (fn []
+      (run-all (concat (map sc/clause8 sc/clause8-variants) [sc/clause8-closed])))))
 
 
-(deftest clause-3-sequence-and-regrant-test
-  (run-all [sc/clause3-regrant sc/clause3-carried]))
+(deftest ^:slow clause-3-sequence-and-regrant-test
+  (slow/guard
+    "clause-3-sequence-and-regrant-test"
+    (fn []
+      (run-all [sc/clause3-regrant sc/clause3-carried]))))
 
 
-(deftest inbox-and-journal-cuts-test
-  (run-all (concat (map #(sc/journal-row {:cut %}) sc/journal-cuts)
-                   (map #(sc/journal-row {:fail %}) sc/uncertain-retentions))))
+(deftest ^:slow inbox-and-journal-cuts-test
+  (slow/guard
+    "inbox-and-journal-cuts-test"
+    (fn []
+      (run-all (concat (map #(sc/journal-row {:cut %}) sc/journal-cuts)
+                       (map #(sc/journal-row {:fail %}) sc/uncertain-retentions))))))

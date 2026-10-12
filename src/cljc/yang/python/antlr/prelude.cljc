@@ -1013,7 +1013,10 @@
      (fn [o f] (assoc (assoc (assoc {} :py/type :method) :self o) :fn f))]
     [py/bind (fn [o m] (if (py/function? m) (py/method o m) m))]
     [py/attr-error (fn [name] (py/raise-new py.b/AttributeError (py/str name)))]
-    [py/getattr
+    [py/lookup-attr
+     ;; o's attribute `name` (plain text), or :py/missing: CPython's
+     ;; _PyObject_LookupAttr, the lookup py/getattr raises over and
+     ;; py/import-from falls back from (I2)
      (fn [o name]
        (if (py/cell? o)
          (let [c (cell/get o)
@@ -1022,7 +1025,7 @@
              (let [own (get (get c :attrs) name :py/missing)]
                (if (= own :py/missing)
                  (let [m (py/class-lookup (get c :class) name)]
-                   (if (= m :py/missing) (py/attr-error name) (py/bind o m)))
+                   (if (= m :py/missing) :py/missing (py/bind o m)))
                  own))
              (if (= t :module)
                ;; the module's dict is its namespace, so every attribute
@@ -1036,23 +1039,23 @@
                                  (assoc {} :py/str name)
                                  :py/missing)]
                    (if (= slot :py/missing)
-                     (py/attr-error name)
+                     :py/missing
                      (get (get dc :vals) slot))))
                (if (= t :class)
                  (let [m (py/class-lookup o name)]
                    (if (= m :py/missing)
-                     (if (= name "__name__") (py/str (get c :name)) (py/attr-error name))
+                     (if (= name "__name__") (py/str (get c :name)) :py/missing)
                      m))
                  (if (= t :list)
                    (if (= name "append")
                      (py/method o py.b/list-append)
-                     (py/attr-error name))
+                     :py/missing)
                    (if (= t :function)
                      (if (= name "__name__")
                        (py/str (get c :name))
-                       (py/attr-error name))
+                       :py/missing)
                      (if (= t :set)
-                       (if (= name "add") (py/method o py.b/set-add) (py/attr-error name))
+                       (if (= name "add") (py/method o py.b/set-add) :py/missing)
                        (if (= t :dict)
                          (if (= name "items")
                            (py/method o py.b/dict-items)
@@ -1062,7 +1065,7 @@
                                (py/method o py.b/dict-values)
                                (if (= name "get")
                                  (py/method o py.b/dict-get)
-                                 (py/attr-error name)))))
+                                 :py/missing))))
                          (if (= t :generator)
                            (py/gen-attr o name)
                            (if (= t :iterator)
@@ -1070,9 +1073,13 @@
                                (py/method o py.b/gen-next)
                                (if (= name "__iter__")
                                  (py/method o py.b/gen-iter)
-                                 (py/attr-error name)))
-                             (py/attr-error name)))))))))))
-         (py/attr-error name)))]
+                                 :py/missing))
+                             :py/missing))))))))))
+         :py/missing))]
+    [py/getattr
+     (fn [o name]
+       (let [x (py/lookup-attr o name)]
+         (if (= x :py/missing) (py/attr-error name) x)))]
     [py/setattr
      (fn [o name x]
        (if (py/cell? o)
@@ -2995,11 +3002,18 @@
                      (fn [e] (do (py/modules-del! name) (py/raise e)))
                      (fn [] :py/None))
              m)))]
+    [py/no-module
+     (fn [name]
+       (py/raise-new
+         py.b/ImportError
+         (py/str (data/str-concat "No module named '"
+                                  (data/str-concat (get name :py/str) "'")))))]
     [py/import
      ;; the import statement's runtime (I1), the 8.5.6 resolution order:
      ;; sys.modules first -- a hit is the module object, the body never
      ;; re-executes; a miss instantiates from the linker-delivered spec
-     ;; and body, __package__ from the spec's package-ness. spec and body
+     ;; and body, __package__ from the spec's package-ness: a package is
+     ;; its own, a top-level module's '' (I2, as CPython). spec and body
      ;; None name a runtime-synthesized module (`sys`, `builtins`),
      ;; pre-seeded by py/init!, so a miss is ImportError
      (fn [name spec body]
@@ -3007,13 +3021,144 @@
          (if (not (= hit :py/missing))
            hit
            (if (= body :py/None)
-             (py/raise-new
-               py.b/ImportError
-               (py/str (data/str-concat "No module named '"
-                                        (data/str-concat (get name :py/str) "'"))))
+             (py/no-module name)
              (py/module-run name
-                            (if (get spec :package?) name :py/None)
+                            (if (get spec :package?) name (py/str ""))
                             body)))))]
+    [py/import-sub
+     ;; one later link of a dotted import's chain (I2): as py/import, a
+     ;; non-package submodule's __package__ its parent's name, and a fresh
+     ;; load sets the module as the attribute `attr` (a py str) of the
+     ;; module object `parent` once its body has run (ruling 13); a
+     ;; sys.modules hit sets nothing, as in CPython
+     (fn [name spec body parent attr]
+       (let [hit (py/modules-ref name)]
+         (if (not (= hit :py/missing))
+           hit
+           (if (= body :py/None)
+             (py/no-module name)
+             (let [m (py/module-run name
+                                    (if (get spec :package?)
+                                      name
+                                      (py/str (get (cell/get parent) :name)))
+                                    body)]
+               (do (py/setattr parent (get attr :py/str) m)
+                   m))))))]
+    [py/dict-ref
+     ;; d[k], or :py/missing
+     (fn [d k]
+       (let [c (cell/get d)
+             slot (get (get c :index) (py/key k) :py/missing)]
+         (if (= slot :py/missing) :py/missing (get (get c :vals) slot))))]
+    [py/import-from
+     ;; `from m import name` (I2), and each component past the root of
+     ;; `import a.b as x`, as CPython's IMPORT_FROM: m's attribute, the
+     ;; lookup py/getattr makes, else the sys.modules entry of
+     ;; `<m.__name__>.name` -- CPython's fallback -- and never a
+     ;; submodule auto-import (ruling 13); else ImportError with CPython's
+     ;; text for a module with no __file__, which none of ours has
+     (fn [m name]
+       (let [own (py/lookup-attr m (get name :py/str))]
+         (if (not (= own :py/missing))
+           own
+           (let [mname (py/lookup-attr m "__name__")
+                 known (if (= mname :py/missing) false (py/str? mname))
+                 sub (if known
+                       (py/modules-ref
+                         (py/str (data/str-concat
+                                   (get mname :py/str)
+                                   (data/str-concat "." (get name :py/str)))))
+                       :py/missing)]
+             (if (not (= sub :py/missing))
+               sub
+               (py/raise-new
+                 py.b/ImportError
+                 (py/str
+                   (data/str-concat
+                     "cannot import name '"
+                     (data/str-concat
+                       (get name :py/str)
+                       (data/str-concat
+                         "' from '"
+                         (data/str-concat
+                           (if known (get mname :py/str) "<unknown module name>")
+                           "' (unknown location)")))))))))))]
+    [py/star-name
+     ;; a from-import-* name n of module m, checked as CPython checks it
+     ;; before any use: a str, else TypeError naming where it came from,
+     ;; `what` ".__all__" or ".__dict__"
+     (fn [m n what]
+       (if (py/str? n)
+         n
+         (let [mn (py/getattr m "__name__")]
+           (py/type-error
+             (if (py/str? mn)
+               (py/type-text
+                 (data/str-concat
+                   (if (= what ".__all__") "Item in " "Key in ")
+                   (data/str-concat (get mn :py/str)
+                                    (data/str-concat what " must be str, not ")))
+                 n "")
+               (py/type-text "module __name__ must be a string, not " mn ""))))))]
+    [py/star-item
+     ;; __all__[i] as CPython's PySequence_GetItem reads it for from m
+     ;; import *: a str, list, tuple or range item, :py/stop past the end
+     ;; (the IndexError that ends the copy); a dict is a mapping, not a
+     ;; sequence, and anything else does not support indexing
+     (fn [all i]
+       (if (py/str? all)
+         (let [cps (data/str->code-points (get all :py/str))]
+           (if (< i (data/count cps))
+             (py/str (data/code-points->str (py/vconj [] (get cps i))))
+             :py/stop))
+         (let [k (py/kind all)]
+           (if (= k :list)
+             (get (get (cell/get all) :items) i :py/stop)
+             (if (= k :tuple)
+               (get (get all :items) i :py/stop)
+               (if (= k :range)
+                 (py/range-at all i)
+                 (if (= k :dict)
+                   (py/type-error {:py/str "dict is not a sequence"})
+                   (py/type-error
+                     (py/type-text "'" all
+                                   "' object does not support indexing")))))))))]
+    [py/star-copy-all
+     ;; from m import * under __all__: each item read by index, checked
+     ;; and copied through getattr before the next is read
+     (fn [m g all i]
+       (let [n (py/star-item all i)]
+         (if (= n :py/stop)
+           :py/None
+           (do (py/star-name m n ".__all__")
+               (py/dict-set g n (py/getattr m (get n :py/str)))
+               (py/star-copy-all m g all (+ i 1))))))]
+    [py/star-copy-public
+     ;; from m import * with no __all__: each key not starting with `_`
+     (fn [m g ks vs i]
+       (let [k (get ks i :py/stop)]
+         (if (= k :py/stop)
+           :py/None
+           (do (py/star-name m k ".__dict__")
+               (if (= 0 (data/str-index-of (get k :py/str) "_"))
+                 :py/None
+                 (py/dict-set g k (get vs i)))
+               (py/star-copy-public m g ks vs (+ i 1))))))]
+    [py/import-star
+     ;; `from m import *` (I2) into the module namespace dict g: m's
+     ;; __all__ when it has one, else its names without a leading
+     ;; underscore (ruling 13); copying every key is insufficient
+     (fn [m g]
+       (let [d (py/module-dict m)
+             all (py/dict-ref d (py/str "__all__"))]
+         (if (= all :py/missing)
+           (let [c (cell/get d)]
+             (py/star-copy-public m g (get c :keys) (get c :vals) 0))
+           (py/star-copy-all m g all 0))))]
+    [py/import-fail
+     ;; a relative import the lowering could not resolve (I2), raised at
+     ;; its executed statement; `msg` is CPython's text
+     (fn [msg] (py/raise-new py.b/ImportError msg))]
     [py/run-module
      ;; a body against a fresh module namespace, the outcome snapshotted:
      ;; the test-runner form of the entry wrapper. No module object and no
@@ -3044,6 +3189,30 @@
                              :py/None))
                        (fn [e] e)
                        (fn [] :py/None))]
+             (assoc (assoc {} :py/out (cell/get py.rt/out))
+                    :py/exception
+                    (if (= exc :py/None) nil (py/snapshot-exc exc))))))]
+    [py/run-session
+     ;; one REPL submission (ruling 18): `body` runs against the
+     ;; persistent __main__ of sys.modules, made by the first submission,
+     ;; so a name one submission binds is read by the next; the value is
+     ;; run-main's. The bundled REPL runner calls it, so the runner names
+     ;; no runtime key
+     (fn [body]
+       (do (cell/set! py.rt/out [])
+           (cell/set! py.rt/ctx (py/ctx nil 0 0 nil))
+           (let [hit (py/modules-ref (py/str "__main__"))
+                 m (if (= hit :py/missing)
+                     (let [fresh (py/module-new (py/str "__main__") :py/None)]
+                       (do (py/modules-put! (py/str "__main__") fresh)
+                           fresh))
+                     hit)
+                 d (py/module-dict m)
+                 exc (py/try (fn []
+                               (do (body d (py/globals-fn d))
+                                   :py/None))
+                             (fn [e] e)
+                             (fn [] :py/None))]
              (assoc (assoc {} :py/out (cell/get py.rt/out))
                     :py/exception
                     (if (= exc :py/None) nil (py/snapshot-exc exc))))))]])

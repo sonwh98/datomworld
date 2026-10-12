@@ -284,7 +284,7 @@ register of a body that no longer runs.
 
 $$\begin{aligned}
 &ok\ v,\ c':&& \to \langle seg,pc{+}1,\,W[rd \leftarrow v],E,\,S[c \mapsto c'],K\rangle\\
-&blocked:&& \to \text{wait}\ \{\mathrm{act}(seg,pc{+}1,E,\mathrm{saved}(pc{+}1,rd),K),\ \{\text{:deliver :rd :rd } rd\},\ \text{pending: cell } c\}\\
+&blocked:&& \to \text{wait}\ \{\mathrm{act}(seg,pc{+}1,E,\mathrm{saved}(pc{+}1,rd),K),\ \{\text{:deliver :rd :rd } rd\},\ \text{pending: cursor cell } c\}\\
 &end:&& \to \langle seg,pc{+}1,\,W[rd \leftarrow \mathrm{nil}],E,S,K\rangle\\
 &gap\ c':&& \to \langle seg,pc{+}1,\,W[rd \leftarrow \text{:dao.stream/gap}],E,\,S[c \mapsto c'],K\rangle
 \end{aligned}$$
@@ -629,9 +629,9 @@ tail call raises the `tail` form of whichever row its effect falls in.
 
 | Safepoint kind | Raised by | State | Delivery |
 |---|---|---|---|
-| blocked read | `:stream-next rd c` → `blocked` | `act`, pending cell `c` | `rd` ← read value; nil on `end`; `:dao.stream/gap` on gap |
+| blocked read | `:stream-next rd c` → `blocked` | `act`, pending cursor cell `c` | `rd` ← read value; nil on `end`; `:dao.stream/gap` on gap |
 | blocked write | `:stream-put rd s v` → `full` | `act`, pending retains `W[v]` and the stream | `rd` ← written value on retry `ok` |
-| FFI call, sent | `:ffi-call rd op args` → `ok` | `act`, pending `:ffi` (call id, response cell); in-VM `:reason :next` with `:call-id` | `rd` ← correlated `ok` value; `error` raises; bookkeeping removed |
+| FFI call, sent | `:ffi-call rd op args` → `ok` | `act`, pending `:ffi` (call id, response cursor cell); in-VM `:reason :next` with `:call-id` | `rd` ← correlated `ok` value; `error` raises; bookkeeping removed |
 | FFI call, retained | `:ffi-call` → `full` | `act`, pending `:ffi-request` (envelope verbatim); in-VM `:reason :put` with `:request-sent` | none at this phase; on append `ok` the entry becomes the sent phase |
 | effectful call, non-tail | `:call rd f args false` whose operator yields a blocking effect | `act`, pending per the effect kind | per the kind's row |
 | effectful call, tail | `:call rd f args true` likewise | `tail`, pending per the effect kind | **through return** against `K` |

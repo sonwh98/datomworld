@@ -17,6 +17,7 @@
   (:require #?@(:cljd [["dart:io" :as dart-io]])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dao.test-slow :as slow]
             [dao.datom :as datom]
             [dao.jing :as jing]
             [dao.jing.dht :as jing.dht]
@@ -232,55 +233,58 @@
   [:ast-walker :semantic :stack :register])
 
 
-(deftest a-reader-requires-a-published-module-by-name-on-all-four-vms
-  (let [[adir bdir] [(temp-dir) (temp-dir)]
-        net (mesh/mesh)
-        key (sign/generate)
-        principal (sign/principal (:public key))]
-    (try
-      (let [[w m] (publish-world net adir key)
-            w (hydrate w :b bdir 4 m [(:public key)])
-            names (ld/names (get-in w [:shells :b :dht])
-                            (ld/authority {:principals [(:public key)]}))]
-        (testing "the reader resolves both names, each signed by the publisher"
-          (doseq [n '[my.lib my.store]]
-            (is (= [principal] (get-in names [:names n :yin.link/provenance
-                                              :yin.module/asserted-by]))
-                (pr-str (get-in names [:names n])))))
-        (reduce
-          (fn [w vm-type]
-            (let [[w _] (eval-at w :b (str "(vm " vm-type ")"))
-                  [w text] (require-at w :b 'my.lib)
-                  linked (get-in w [:shells :b :last-value])
-                  lib-response (last-response w :b)
-                  [w answer] (eval-at w :b "(my.lib/f 1)")
-                  [w _] (require-at w :b 'my.store)
-                  store-response (last-response w :b)
-                  [_ value] (eval-at w :b "(my.store/g)")]
-              (testing (name vm-type)
-                (when (= :ast-walker vm-type)
-                  (is (str/includes? text "pending")
-                      "the first require waits on the closure load"))
-                (is (= 'my.lib linked) (pr-str lib-response))
-                (is (= "4201" answer))
-                (testing "the store corpus"
-                  (when (= :ast-walker vm-type)
-                    (is (= {:status :refused :reason :undeclared-free :name
-                            'base}
-                           (select-keys store-response [:status :reason :name]))
-                        (str "the linker's reason, naming the read: "
-                             (pr-str store-response))))
-                  (when-not (= :ast-walker vm-type)
-                    (is (= :ok (:status store-response)) (pr-str
-                                                           store-response))
-                    (is (= "8" value))))
-                nil)
-              w))
-          w
-          vm-types)
-        (close-all! w))
-      (finally
-        (run! cleanup-dir! [adir bdir])))))
+(deftest ^:slow a-reader-requires-a-published-module-by-name-on-all-four-vms
+  (slow/guard
+    "a-reader-requires-a-published-module-by-name-on-all-four-vms"
+    (fn []
+      (let [[adir bdir] [(temp-dir) (temp-dir)]
+            net (mesh/mesh)
+            key (sign/generate)
+            principal (sign/principal (:public key))]
+        (try
+          (let [[w m] (publish-world net adir key)
+                w (hydrate w :b bdir 4 m [(:public key)])
+                names (ld/names (get-in w [:shells :b :dht])
+                                (ld/authority {:principals [(:public key)]}))]
+            (testing "the reader resolves both names, each signed by the publisher"
+              (doseq [n '[my.lib my.store]]
+                (is (= [principal] (get-in names [:names n :yin.link/provenance
+                                                  :yin.module/asserted-by]))
+                    (pr-str (get-in names [:names n])))))
+            (reduce
+              (fn [w vm-type]
+                (let [[w _] (eval-at w :b (str "(vm " vm-type ")"))
+                      [w text] (require-at w :b 'my.lib)
+                      linked (get-in w [:shells :b :last-value])
+                      lib-response (last-response w :b)
+                      [w answer] (eval-at w :b "(my.lib/f 1)")
+                      [w _] (require-at w :b 'my.store)
+                      store-response (last-response w :b)
+                      [_ value] (eval-at w :b "(my.store/g)")]
+                  (testing (name vm-type)
+                    (when (= :ast-walker vm-type)
+                      (is (str/includes? text "pending")
+                          "the first require waits on the closure load"))
+                    (is (= 'my.lib linked) (pr-str lib-response))
+                    (is (= "4201" answer))
+                    (testing "the store corpus"
+                      (when (= :ast-walker vm-type)
+                        (is (= {:status :refused :reason :undeclared-free :name
+                                'base}
+                               (select-keys store-response [:status :reason :name]))
+                            (str "the linker's reason, naming the read: "
+                                 (pr-str store-response))))
+                      (when-not (= :ast-walker vm-type)
+                        (is (= :ok (:status store-response)) (pr-str
+                                                               store-response))
+                        (is (= "8" value))))
+                    nil)
+                  w))
+              w
+              vm-types)
+            (close-all! w))
+          (finally
+            (run! cleanup-dir! [adir bdir])))))))
 
 
 (deftest without-the-principal-the-require-is-absent-undeclared
@@ -408,40 +412,43 @@
         (run! cleanup-dir! [adir edir])))))
 
 
-(deftest an-empty-export-list-publishes-the-no-op-module-at-the-prompt
-  (let [[adir bdir] [(temp-dir) (temp-dir)]
-        net (mesh/mesh)
-        key (sign/generate)]
-    (try
-      (let [[w _] (publish-world net adir key)
-            [w text] (eval-at w :a
-                              "(yin.link/publish (quote empty.lib) (quote []))")
-            res (get-in w [:shells :a :last-value])
-            m (head-of w :a)
-            w (run-world w (+ (:now w) 60000)
-                         "the publisher's HEAD was not reported"
-                         #(published % :a m))]
-        (testing "answered as data, not thrown"
-          (is (= 'empty.lib (:module res)) text)
-          (is (= {:yin.ast/code :ok :yin.semantic/code :ok
-                  :yin.debruijn.code :ok :yin.debruijn.register :ok}
-                 (:links res))
-              text))
-        (testing "a reader requires it by name on every VM"
-          (let [w (hydrate w :b bdir 9 m [(:public key)])
-                w (reduce (fn [w vm-type]
-                            (let [[w _] (eval-at w :b (str "(vm " vm-type ")"))
-                                  [w _] (require-at w :b 'empty.lib)]
-                              (is (= 'empty.lib (get-in w [:shells :b
-                                                           :last-value]))
-                                  (str vm-type " " (pr-str (last-response w
-                                                                          :b))))
-                              w))
-                          w
-                          vm-types)]
-            (close-all! w))))
-      (finally
-        (run! cleanup-dir! [adir bdir])))))
+(deftest ^:slow an-empty-export-list-publishes-the-no-op-module-at-the-prompt
+  (slow/guard
+    "an-empty-export-list-publishes-the-no-op-module-at-the-prompt"
+    (fn []
+      (let [[adir bdir] [(temp-dir) (temp-dir)]
+            net (mesh/mesh)
+            key (sign/generate)]
+        (try
+          (let [[w _] (publish-world net adir key)
+                [w text] (eval-at w :a
+                                  "(yin.link/publish (quote empty.lib) (quote []))")
+                res (get-in w [:shells :a :last-value])
+                m (head-of w :a)
+                w (run-world w (+ (:now w) 60000)
+                             "the publisher's HEAD was not reported"
+                             #(published % :a m))]
+            (testing "answered as data, not thrown"
+              (is (= 'empty.lib (:module res)) text)
+              (is (= {:yin.ast/code :ok :yin.semantic/code :ok
+                      :yin.debruijn.code :ok :yin.debruijn.register :ok}
+                     (:links res))
+                  text))
+            (testing "a reader requires it by name on every VM"
+              (let [w (hydrate w :b bdir 9 m [(:public key)])
+                    w (reduce (fn [w vm-type]
+                                (let [[w _] (eval-at w :b (str "(vm " vm-type ")"))
+                                      [w _] (require-at w :b 'empty.lib)]
+                                  (is (= 'empty.lib (get-in w [:shells :b
+                                                               :last-value]))
+                                      (str vm-type " " (pr-str (last-response w
+                                                                              :b))))
+                                  w))
+                              w
+                              vm-types)]
+                (close-all! w))))
+          (finally
+            (run! cleanup-dir! [adir bdir])))))))
 
 
 (defn- forged-index!

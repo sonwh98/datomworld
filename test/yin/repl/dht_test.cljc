@@ -1196,10 +1196,13 @@
             (is (= 'mod (:last-value repl)))
             (is (= fetched (:fetched (ld/module-status (node-of state) m)))
                 "no new load"))
-          (testing "the abandoned request's late answer was skipped"
+          (testing "the abandoned request was retired, never answered late"
             (let [ids (mapv :yin.link/id (requests state))]
-              (is (= [{:kind :unknown :id (first ids) :entry (second ids)}]
-                     (first (engine/take-link-diagnostics (:vm repl)))))))
+              (is (= [(second ids)] (mapv :yin.link/id
+                                          (mesh/values
+                                            (get-in state [:repl :link-pair
+                                                           :responses])))))
+              (is (empty? (first (engine/take-link-diagnostics (:vm repl)))))))
           (is (= "42" (second (type! state "(mod/f)"))))
           (close-world! (assoc w :state state))))
       (finally
@@ -1882,7 +1885,7 @@
 
 (defn- shell-at
   "A publishing shell over a dht store at `dir`, socket `bind!`, contacts
-   `peer-ports`, holding `key` and declaring `principals`."
+   `peer-ports`, holding `key` and declaring and trusting `principals`."
   [dir bind! peer-ports key principals]
   (repl.frontends/create-state
     {:index-store-spec (dht-spec dir {:bind! bind!
@@ -1892,7 +1895,8 @@
                                                       :port p})
                                                    peer-ports)})
      :dht-key key
-     :principals principals}))
+     :principals principals
+     :admission {:trusted (set (map sign/principal principals))}}))
 
 
 (defn- plain-node
@@ -2297,51 +2301,54 @@
 ;; -----------------------------------------------------------------------------
 
 (deftest
-  with-peers-that-never-accept-twenty-rounds-report-and-the-ticker-idles
-  (let
-    [dir (temp-dir)
-     net (mesh/mesh)
-     peers {2 (peer-node net 2) 3 (peer-node net 3)}]
-    (try
+  ^:slow with-peers-that-never-accept-twenty-rounds-report-and-the-ticker-idles
+  (slow/guard
+    "with-peers-that-never-accept-twenty-rounds-report-and-the-ticker-idles"
+    (fn []
       (let
-        [state (keyed-state
-                 net dir 10 [2 3] nil [] (refusing-bind
-                                           net 10
-                                           (atom (constantly true))))
-         step (fn [{:keys [state peers now] :as w}]
-                (let [[state _ lines] (main/step-all state nil now)]
-                  (-> w
-                      (assoc :state state :peers (step-peers peers now) :now
-                             (+ now 250)
-                             :moved? (main/moved? state nil lines))
-                      (update :lines into lines)
-                      (update :moved into [(main/moved? state nil lines)]))))
-         w (reduce (fn [w i]
-                     (let [[state text] (type! (:state w) (str "(def v" i
-                                                               " " i ")"))
-                           m (get-in state [:repl :indexer
-                                            :manifest-address])]
-                       (is (= (str i) text) "the prompt answers at once")
-                       (loop [w (assoc w :state state)]
-                         (if (or (line-with (:lines w) (str "published " m))
-                                 (> (:now w) 2000000))
-                           w
-                           (recur (step w))))))
-                   {:state state :peers peers :now 0 :lines [] :moved []}
-                   (range 20))
-         firsts (filter #(re-find #"dht: published " %) (:lines w))
-         idle (reduce (fn [w _] (step w)) (assoc w :moved []) (range 400))]
-        (is (= 20 (count firsts)) (pr-str (count firsts)))
-        (is (every? #(str/includes? % "NOT acknowledged") firsts))
-        (is (not-any? #(str/includes? % "acknowledged: sent") (:lines idle))
-            "no event ever reports acknowledged")
-        (testing "between repair cycles the ticker returns to its idle cadence"
-          (is (some true? (:moved idle)) "repair cycles keep the base cadence")
-          (is (some false? (drop-while false? (:moved idle)))
-              "and the idle curve resumes after a cycle"))
-        (main/close-index-store! (:state idle)))
-      (finally
-        (cleanup-dir! dir)))))
+        [dir (temp-dir)
+         net (mesh/mesh)
+         peers {2 (peer-node net 2) 3 (peer-node net 3)}]
+        (try
+          (let
+            [state (keyed-state
+                     net dir 10 [2 3] nil [] (refusing-bind
+                                               net 10
+                                               (atom (constantly true))))
+             step (fn [{:keys [state peers now] :as w}]
+                    (let [[state _ lines] (main/step-all state nil now)]
+                      (-> w
+                          (assoc :state state :peers (step-peers peers now) :now
+                                 (+ now 250)
+                                 :moved? (main/moved? state nil lines))
+                          (update :lines into lines)
+                          (update :moved into [(main/moved? state nil lines)]))))
+             w (reduce (fn [w i]
+                         (let [[state text] (type! (:state w) (str "(def v" i
+                                                                   " " i ")"))
+                               m (get-in state [:repl :indexer
+                                                :manifest-address])]
+                           (is (= (str i) text) "the prompt answers at once")
+                           (loop [w (assoc w :state state)]
+                             (if (or (line-with (:lines w) (str "published " m))
+                                     (> (:now w) 2000000))
+                               w
+                               (recur (step w))))))
+                       {:state state :peers peers :now 0 :lines [] :moved []}
+                       (range 20))
+             firsts (filter #(re-find #"dht: published " %) (:lines w))
+             idle (reduce (fn [w _] (step w)) (assoc w :moved []) (range 400))]
+            (is (= 20 (count firsts)) (pr-str (count firsts)))
+            (is (every? #(str/includes? % "NOT acknowledged") firsts))
+            (is (not-any? #(str/includes? % "acknowledged: sent") (:lines idle))
+                "no event ever reports acknowledged")
+            (testing "between repair cycles the ticker returns to its idle cadence"
+              (is (some true? (:moved idle)) "repair cycles keep the base cadence")
+              (is (some false? (drop-while false? (:moved idle)))
+                  "and the idle curve resumes after a cycle"))
+            (main/close-index-store! (:state idle)))
+          (finally
+            (cleanup-dir! dir)))))))
 
 
 ;; -----------------------------------------------------------------------------

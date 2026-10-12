@@ -127,7 +127,7 @@
    secret has owner nil."
   [secret]
   (when (some? secret)
-    (jing/content-hash [:yin.k/owner secret] {:algorithm :sha256})))
+    (jing/content-hash [:yin.k/owner secret] {:algorithm :blake3})))
 
 
 (defn closure
