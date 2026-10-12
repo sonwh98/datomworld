@@ -43,6 +43,7 @@
     [yang.python.antlr.lower :as lower]
     [yang.python.antlr.publication :as publication]
     [yang.python.antlr.render :as render]
+    [yin.repl.admission :as admission]
     [yin.repl.link :as link]
     [yin.vm :as vm]
     [yin.vm.linker.sign :as sign]
@@ -276,9 +277,17 @@
    is `observed` of the task the program ended as -- for a thrown run,
    of the task the throwing run resumed, which holds every step before
    the raise: a refused link raises at its resume, before anything
-   else runs."
+   else runs.
+
+   Both interpreters are driven and retained across rounds (yin.vm.linker.dht.md
+   7.5): the link server, over the admission state minted beside the
+   pair, and the source's in-process admission interpreter, which
+   answers each question the server asks."
   [w backend pk src]
   (let [pair (link/make-pair)
+        adm (admission/make-state link/pair-capacity)
+        interp (when (:admission src)
+                 (admission/interpreter adm (:admission src)))
         task ((get h/backends backend)
               (lower/lower-packet pk {:prelude :linked})
               (h/composition (h/registry) pair))
@@ -289,7 +298,9 @@
                      {::thrown (ex-message e), ::resumed task})))]
     (loop [w w
            task (run task)
-           pair pair]
+           pair pair
+           adm adm
+           interp interp]
       (let [response (dissoc (peek (mesh/values (:responses pair)))
                              :yin.link/id :image)]
         (cond
@@ -297,11 +308,22 @@
           [w [:thrown (::thrown task)] response (observed (::resumed task))]
 
           (and (vm/blocked? task) (< (:now w) limit))
-          (let [{:keys [pair dht]} (link/serve {:pair pair,
-                                                :source src,
-                                                :dht (:reader w)})
+          (let [{:keys [pair dht admission]} (link/serve {:pair pair,
+                                                          :source src,
+                                                          :dht (:reader w),
+                                                          :admission adm})
+                admitted (when interp
+                           (admission/serve
+                             {:interpreter interp,
+                              :policy (:admission src),
+                              :context (admission/context {})}
+                             link/serve-budget))
                 w (step-world (assoc w :reader dht))]
-            (recur w (run task) pair))
+            (recur w
+                   (run task)
+                   pair
+                   admission
+                   (if admitted (:interpreter admitted) interp)))
 
           :else
           [w
@@ -313,11 +335,13 @@
 
 (defn- source
   "The reader's DHT link source declaring the public keys `publics`, its
-   Python admission naming `own`."
+   Python admission naming `own`, and its admission interpreter trusting
+   `own`'s principals."
   [publics own]
   (link/composition {:dht? true,
                      :principals publics,
-                     :admit (publication/principal-admission own)}))
+                     :admit (publication/principal-admission own),
+                     :admission {:trusted (set (map sign/principal own))}}))
 
 
 (defn- on-every-vm

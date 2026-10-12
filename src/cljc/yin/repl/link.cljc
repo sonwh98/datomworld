@@ -32,12 +32,15 @@
    step fetches.  A failed load is refused in its section 9 shape and
    forgotten; a loaded one has its dependency bindings checked, then
    links over a local runtime on the node's store, asking no peer."
-  (:require [dao.jing.content :as content]
+  (:require [clojure.string :as str]
+            [dao.jing.content :as content]
             [dao.space.dht :as dht]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
+            [yin.repl.admission :as admission]
             [yin.vm.linker :as linker]
-            [yin.vm.linker.dht :as linker.dht]))
+            [yin.vm.linker.dht :as linker.dht]
+            [yin.vm.linker.sign :as sign]))
 
 
 (def pair-capacity
@@ -104,15 +107,16 @@
 
 (defn make-pair
   "The link pair of one session (section 6.1): the request and response
-   media, and the interpreter's own request cursor, minted before any
-   request exists."
-  []
-  (let [requests (medium pair-capacity)
-        responses (medium pair-capacity)]
-    {:requests requests
-     :responses responses
-     :cursor (:dao.stream/cursor
-               (stream/cursor requests stream/anchor-oldest))}))
+   media, `capacity` elements each (`pair-capacity` by default), and the
+   interpreter's own request cursor, minted before any request exists."
+  ([] (make-pair pair-capacity))
+  ([capacity]
+   (let [requests (medium capacity)
+         responses (medium capacity)]
+     {:requests requests
+      :responses responses
+      :cursor (:dao.stream/cursor
+                (stream/cursor requests stream/anchor-oldest))})))
 
 
 (defn composition
@@ -148,9 +152,16 @@
    DHT source resolves, `(admit name entry)` with the `names` entry: nil
    admits, a refusal body refuses the request before any load or link
    (a Python source's foreign-principal refusal, yang.antlr.md 8.5.6
-   ruling 19)."
+   ruling 19).
+
+   `admission`, optional, is the policy of the in-process admission
+   interpreter (yin.vm.linker.dht.md 7.5, `yin.repl.admission/policy`):
+   `{:trusted #{principal} :verify f :decision d :decision-medium m}`,
+   the key's own principal joining it as `:own`.  Without it no
+   interpreter runs in process: the questions a DHT source asks are
+   answered elsewhere or not at all."
   [{:keys [name-env content-store content-client dht? principals key
-           follow derivation admit]}]
+           follow derivation admit admission]}]
   (when (and content-store content-client)
     (throw (ex-info "content-store and content-client are exclusive"
                     {:content-store content-store})))
@@ -164,6 +175,10 @@
    :follow (vec follow)
    :derivation (or derivation :verifying)
    :admit admit
+   :admission (when admission
+                (admission/policy
+                  (assoc admission
+                         :own (when key #{(sign/principal (:public key))}))))
    :content (cond
               dht? {:kind :dht}
 
@@ -368,17 +383,103 @@
     (vec (remove #(contains? installed %) (:follow source)))))
 
 
+(defn- admission-refusal
+  "The link refusal an admission refusal `r` (`admission/judge`'s
+   shape) of question `q` amounts to: the answer's reason and open keys
+   in the link refusal shape."
+  [q r]
+  (merge (dissoc r :yin.admit/reason)
+         {:status :refused
+          :reason (:yin.admit/reason r)
+          :name (:yin.admit/name q)
+          :yin.admit/id (:yin.admit/id q)
+          :yin.admit/decision :refuse}))
+
+
+(defn- admitted
+  "A request whose admission question was asked (yin.vm.linker.dht.md
+   7.5): pending while unanswered, with no re-resolution; refused as the
+   answer says; or, allowed, attempted against the address the question
+   was bound to, never a fresh resolution.  An `:ok` response names the
+   admission it rode on."
+  [node declared request q a]
+  (cond
+    (nil? a) {:node node, :body ::pending, :asking (:yin.admit/id q)}
+
+    (some? (admission/judge a))
+    {:node node, :body (admission-refusal q (admission/judge a))}
+
+    :else
+    (let [{:keys [node body waits]}
+          (dht-attempt node declared request (:yin.admit/address q))]
+      {:node node
+       :waits waits
+       :asking (when (= ::pending body) (:yin.admit/id q))
+       :body (if (= :ok (:status body))
+               (assoc body
+                      :yin.admit/id (:yin.admit/id q)
+                      :yin.admit/decision :allow
+                      :yin.admit/asserters (:yin.admit/asserters q)
+                      :yin.admit/address (:yin.admit/address q))
+               body)})))
+
+
+(defn- dht-answer
+  "The DHT branch of `answer`: a request already asked about goes by
+   its question (`admitted`); otherwise its name is resolved.  A direct
+   `:name-env` entry, provenance `:composition`, is the composition's
+   own and is not asked; a signed name passes the language runtime's
+   `:admit`, when there is one, and is then asked: the question is
+   appended and the link parks on it.  With no admission state the
+   question cannot be asked, `:yin.admit/unconfigured`."
+  [source node admission request]
+  (let [declared (authority source)
+        name (:yin.link/name request)
+        q (some-> admission (admission/asked (:yin.link/id request)))]
+    (if q
+      (admitted node declared request q (admission/answer-to admission q))
+      (let [entry (linker.dht/resolve-name node declared name)]
+        (cond
+          (not= :ok (:status entry))
+          (if (and (= :absent (:reason entry))
+                   (seq (awaited-heads source node)))
+            {:node node, :body ::pending, :heads (awaited-heads source node)}
+            {:node node, :body entry})
+
+          (some? (when-some [admit (:admit source)] (admit name entry)))
+          {:node node, :body ((:admit source) name entry)}
+
+          (= :composition (:yin.link/provenance entry))
+          (dht-attempt node declared request (:address entry))
+
+          (nil? admission)
+          {:node node
+           :body {:status :refused
+                  :reason :yin.admit/unconfigured
+                  :name name}}
+
+          :else
+          (let [{:keys [id] :as asked} (admission/ask admission request entry)]
+            {:node node
+             :body ::pending
+             :admission (:admission asked)
+             :asking id
+             :asked? (some? id)}))))))
+
+
 (defn- answer
   "The response body for one link request under `:body`, or `::pending`
    when nothing this round can answer it: no content source, an attempt
    that spent its budget, a DHT closure load not yet ended (its
-   manifest under `:waits`), or a name `:absent` while a followed
+   manifest under `:waits`), a name `:absent` while a followed
    principal has no installed head (those principals under `:heads`,
-   yin.vm.linker.dht.head.md 5.6).  `:node` is the shell's DHT node after the
-   answer.  A request that is not by name is refused: the interpreter
-   serves what the shell's own VMs send, the by-name manifest requests
-   of section 7.2, and nothing else."
-  [source node request]
+   yin.vm.linker.dht.head.md 5.6), or an admission question not yet
+   answered (its id under `:asking`, `:asked?` when this round appended
+   it, the successor admission state under `:admission`).  `:node` is
+   the shell's DHT node after the answer.  A request that is not by name
+   is refused: the interpreter serves what the shell's own VMs send, the
+   by-name manifest requests of section 7.2, and nothing else."
+  [source node admission request]
   (let [name (:yin.link/name request)
         dht? (= :dht (get-in source [:content :kind]))]
     (cond
@@ -389,20 +490,7 @@
        :body {:status :refused, :reason :invalid-request,
               :defect :yin.repl/name-required}}
 
-      dht?
-      (let [declared (authority source)
-            entry (linker.dht/resolve-name node declared name)]
-        (cond
-          (= :ok (:status entry))
-          (if-some [refusal (when-some [admit (:admit source)]
-                              (admit name entry))]
-            {:node node, :body refusal}
-            (dht-attempt node declared request (:address entry)))
-
-          (and (= :absent (:reason entry)) (seq (awaited-heads source node)))
-          {:node node, :body ::pending, :heads (awaited-heads source node)}
-
-          :else {:node node, :body entry}))
+      dht? (dht-answer source node admission request)
 
       :else
       {:node node
@@ -434,39 +522,115 @@
    `:verifying` unless the composition asked for `:trusted`), and an
    `:ok` response of a lowered format names its `:trust`.  `dht` is the
    shell's DHT node, which a DHT source reads and advances.  Returns
-   `{:pair pair :pending pending :progress? bool :dht node}`,
-   `:progress?` true when at least one response was appended, so the
-   shell knows the round moved something; a pending entry a DHT load
-   holds names that load's manifest under `:manifest`, and one awaiting
-   a first head names those principals under `:principals`."
+   `{:pair pair :pending pending :progress? bool :dht node :admission a}`,
+   `:progress?` true when at least one response or admission question
+   was appended, so the shell knows the round moved something; a
+   pending entry a DHT load holds names that load's manifest under
+   `:manifest`, one awaiting a first head names those principals under
+   `:principals`, and one parked on an admission question names its id
+   under `:admission`.
+
+   `admission` is the composition's admission state
+   (`yin.repl.admission/make-state`, yin.vm.linker.dht.md 7.5): the
+   round first drains the answer medium (`admission/drain`, at most
+   `budget` elements), and the successor state is answered under
+   `:admission`, with the question and answer of every request whose
+   response landed dropped."
   ([comp] (serve comp serve-budget))
-  ([{:keys [pair source dht]} budget]
+  ([{:keys [pair source dht admission]} budget]
    (loop [pair pair
           node dht
+          admission (some-> admission (admission/drain budget))
           remaining budget
           pending []
           progress? false]
-     (if (zero? remaining)
-       {:pair pair, :pending pending, :progress? progress?, :dht node}
-       (let [r (stream/next (:requests pair) (:cursor pair))]
-         (if-not (= :dao.stream/ok (:dao.stream/outcome r))
-           ;; blocked, or a gap: nothing more is answerable this round
-           {:pair pair, :pending pending, :progress? progress?, :dht node}
-           (let [request (:dao.stream/value r)
-                 {:keys [node body waits heads]} (answer source node request)
-                 answered? (and (not= ::pending body)
-                                (respond! pair request body))]
-             (if answered?
-               (recur (assoc pair :cursor (:dao.stream/cursor r))
-                      node
-                      (dec remaining)
-                      pending
-                      true)
-               {:pair pair
-                :pending (conj pending
-                               (cond-> {:name (:yin.link/name request)
-                                        :yin.link/id (:yin.link/id request)}
-                                 waits (assoc :manifest waits)
-                                 heads (assoc :principals heads)))
-                :progress? progress?
-                :dht node}))))))))
+     (let [done {:pair pair, :pending pending, :progress? progress?,
+                 :dht node, :admission admission}]
+       (if (zero? remaining)
+         done
+         (let [r (stream/next (:requests pair) (:cursor pair))]
+           (if-not (= :dao.stream/ok (:dao.stream/outcome r))
+             ;; blocked, or a gap: nothing more is answerable this round
+             done
+             (let [request (:dao.stream/value r)
+                   link-id (:yin.link/id request)
+                   res (answer source node admission request)
+                   {:keys [node body waits heads asking asked?]} res
+                   admission (get res :admission admission)
+                   answered? (and (not= ::pending body)
+                                  (respond! pair request body))]
+               (if answered?
+                 (recur (assoc pair :cursor (:dao.stream/cursor r))
+                        node
+                        (some-> admission (admission/settle link-id))
+                        (dec remaining)
+                        pending
+                        true)
+                 {:pair pair
+                  :pending (conj pending
+                                 (cond-> {:name (:yin.link/name request)
+                                          :yin.link/id link-id}
+                                   waits (assoc :manifest waits)
+                                   heads (assoc :principals heads)
+                                   asking (assoc :admission asking)))
+                  :progress? (or progress? (true? asked?))
+                  :dht node
+                  :admission admission})))))))))
+
+
+;; =============================================================================
+;; Retirement of an abandoned run (yin.vm.linker.dht.md 7.5)
+;; =============================================================================
+
+(defn run-descriptor
+  "The run an abandon retires: link ids `[origin k]` with `from <= k <
+   until` of `:ids`, and every install child origin `origin.m` with
+   `from <= m < until` of `:children`, with its descendants.  `base` is
+   the VM the run began from, `parked` the VM it was given up as; an
+   absent counter is zero.  Both counters mint the current value then
+   increment, so each interval is half-open."
+  [base parked]
+  {:origin (or (:origin parked) :t0)
+   :ids [(or (:id-counter base) 0) (or (:id-counter parked) 0)]
+   :children [(or (:origins base) 0) (or (:origins parked) 0)]})
+
+
+(defn- run-owned?
+  "Whether link id `id` belongs to `run`: its own origin within `:ids`,
+   or an install child origin within `:children` exactly, or one of its
+   descendants -- matched on the child's name followed by \".\", never
+   a raw prefix, so `:t0.10` is not a descendant of `:t0.1`."
+  [id {:keys [origin ids children]}]
+  (when (and (vector? id) (= 2 (count id)) (keyword? (first id))
+             (integer? (second id)))
+    (let [[o k] id
+          [from until] ids
+          [cfrom cuntil] children
+          on (name o)]
+      (or (and (= o origin) (<= from k) (< k until))
+          (some (fn [m]
+                  (let [child (str (name origin) "." m)]
+                    (or (= on child)
+                        (str/starts-with? on (str child ".")))))
+                (range cfrom cuntil))))))
+
+
+(defn retire
+  "Retire the requests of an abandoned `run` (`run-descriptor`) still
+   unread on `pair`: walking from the request cursor, each request the
+   run owns is passed over with no response -- the engine has already
+   retired its id, so a response would be late -- and the first request
+   it does not own stops the walk, keeping request order.  Every
+   admission question and answer of a retired request is dropped.
+   Returns `{:pair p :admission a :retired [link-id ...]}`."
+  [{:keys [pair admission]} run]
+  (loop [pair pair
+         retired []]
+    (let [r (stream/next (:requests pair) (:cursor pair))
+          id (:yin.link/id (:dao.stream/value r))]
+      (if (and (= :dao.stream/ok (:dao.stream/outcome r))
+               (run-owned? id run))
+        (recur (assoc pair :cursor (:dao.stream/cursor r)) (conj retired id))
+        {:pair pair
+         :admission (some-> admission (admission/forget retired))
+         :retired retired}))))

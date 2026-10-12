@@ -1196,10 +1196,13 @@
             (is (= 'mod (:last-value repl)))
             (is (= fetched (:fetched (ld/module-status (node-of state) m)))
                 "no new load"))
-          (testing "the abandoned request's late answer was skipped"
+          (testing "the abandoned request was retired, never answered late"
             (let [ids (mapv :yin.link/id (requests state))]
-              (is (= [{:kind :unknown :id (first ids) :entry (second ids)}]
-                     (first (engine/take-link-diagnostics (:vm repl)))))))
+              (is (= [(second ids)] (mapv :yin.link/id
+                                          (mesh/values
+                                            (get-in state [:repl :link-pair
+                                                           :responses])))))
+              (is (empty? (first (engine/take-link-diagnostics (:vm repl)))))))
           (is (= "42" (second (type! state "(mod/f)"))))
           (close-world! (assoc w :state state))))
       (finally
@@ -1882,7 +1885,7 @@
 
 (defn- shell-at
   "A publishing shell over a dht store at `dir`, socket `bind!`, contacts
-   `peer-ports`, holding `key` and declaring `principals`."
+   `peer-ports`, holding `key` and declaring and trusting `principals`."
   [dir bind! peer-ports key principals]
   (repl.frontends/create-state
     {:index-store-spec (dht-spec dir {:bind! bind!
@@ -1892,7 +1895,8 @@
                                                       :port p})
                                                    peer-ports)})
      :dht-key key
-     :principals principals}))
+     :principals principals
+     :admission {:trusted (set (map sign/principal principals))}}))
 
 
 (defn- plain-node

@@ -1352,7 +1352,9 @@
    receives, first, the entry -- its store snapshots win over the plain
    registry snapshot of a dependency, since the child's mutations are
    what the slice carries -- and then every module the child linked that
-   it lacks (acts 3 and 4), and every waiter is restored with the name."
+   it lacks (acts 3 and 4), and every waiter is restored with the name.
+   A response that rode on an admission allow records it on the entry
+   under `:admission`."
   [state module-name {:keys [vm response]}]
   (let [manifest (:manifest response)
         address (manifest-address response)
@@ -1392,6 +1394,16 @@
                                         nil manifest (:derivation response)
                                         (assoc lifted :images images)))
                             module-name)
+                    ;; the admission the link rode on (yin.vm.linker.dht.md
+                    ;; 7.5): inherited and transferred with the entry
+                    entry (cond-> entry
+                            (= :allow (:yin.admit/decision response))
+                            (assoc :admission
+                                   (select-keys response
+                                                [:yin.admit/id
+                                                 :yin.admit/decision
+                                                 :yin.admit/asserters
+                                                 :yin.admit/address])))
                     received (receive-module state module-name entry)
                     received (reduce
                                (fn [s [m dep]]

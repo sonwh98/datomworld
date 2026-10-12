@@ -134,8 +134,8 @@
    and whose name environment resolves `env`."
   [vm-type store env]
   (repl.frontends/create-state {:vm-type vm-type
-                      :content-store store
-                      :name-env env}))
+                                :content-store store
+                                :name-env env}))
 
 
 (defn- silent-client
@@ -190,16 +190,28 @@
                 (close! [_] (stream/close! wire))))))
 
 
-(defn- pair-requests
-  "Every link request on `pair`, oldest first."
-  [pair]
-  (loop [c (:dao.stream/cursor (stream/cursor (:requests pair)
+(defn- pair-values
+  "Every value on the `side` medium of `pair`, oldest first."
+  [pair side]
+  (loop [c (:dao.stream/cursor (stream/cursor (side pair)
                                               stream/anchor-oldest))
          acc []]
-    (let [r (stream/next (:requests pair) c)]
+    (let [r (stream/next (side pair) c)]
       (if (= :dao.stream/ok (:dao.stream/outcome r))
         (recur (:dao.stream/cursor r) (conj acc (:dao.stream/value r)))
         acc))))
+
+
+(defn- pair-requests
+  "Every link request on `pair`, oldest first."
+  [pair]
+  (pair-values pair :requests))
+
+
+(defn- pair-responses
+  "The ids of every link response on `pair`, oldest first."
+  [pair]
+  (mapv :yin.link/id (pair-values pair :responses)))
 
 
 (defn- require-and-apply
@@ -328,8 +340,9 @@
   "The pair survives a rollback, so a response that lands after the
    rollback -- here the pending round's own request, finally answered --
    must never settle the later require: identity minted before the
-   rollback is carried onto the base, and the late response is skipped
-   as unknown (yin.vm.linker.md section 7.2, step 7)."
+   rollback is carried onto the base, and the abandon retires the
+   request on the pair, so no late response is ever appended
+   (yin.vm.linker.md section 7.2, step 7; yin.vm.linker.dht.md 7.5)."
   (let [store (mem/create-content-mem)
         {:keys [address]} (publish-module store closed-module 'mod
                                           closed-exports)
@@ -346,10 +359,10 @@
                                                   'mod address}}))
         [linked _] (repl/eval-input working "(require (quote mod))")
         [done _] (repl/eval-input linked "(mod/f)")]
-    (testing "the late answer to the abandoned request was skipped"
+    (testing "the abandoned request was retired: never answered late"
       (let [ids (mapv :yin.link/id (pair-requests (:link-pair linked)))]
-        (is (= [{:kind :unknown, :id (first ids), :entry (second ids)}]
-               (first (engine/take-link-diagnostics (:vm linked)))))
+        (is (= [(second ids)] (pair-responses (:link-pair linked))))
+        (is (empty? (first (engine/take-link-diagnostics (:vm linked)))))
         (is (not= (first ids) (second ids))
             "the carried identity kept the later require off the retired id")))
     (testing "the later require linked for real and its export applies"
@@ -398,14 +411,15 @@
     (testing "the shell returns to the base with the child origin carried"
       (is (nil? (:pending-run freed)))
       (is (>= (or (:origins (:vm freed)) 0) 1)))
-    (testing "the child's late response is skipped, not settled"
+    (testing "the child's request was retired, never answered late"
       (let [ids (mapv :yin.link/id (pair-requests (:link-pair linked)))]
         (is (= ['foo 'bar 'foo 'bar]
                (mapv :yin.link/name (pair-requests (:link-pair linked)))))
         (is (= (count ids) (count (distinct ids)))
             "the second child never reused the abandoned child's id")
-        (is (= [{:kind :unknown, :id (second ids), :entry (nth ids 2)}]
-               (first (engine/take-link-diagnostics (:vm linked)))))))
+        (is (= [(first ids) (nth ids 2) (nth ids 3)]
+               (pair-responses (:link-pair linked))))
+        (is (empty? (first (engine/take-link-diagnostics (:vm linked)))))))
     (testing "the next require links through a child of its own"
       (is (= 'foo (:last-value linked))))))
 
@@ -419,8 +433,8 @@
         {:keys [address]} (publish-module store closed-module 'mod
                                           closed-exports)
         state (repl.frontends/create-state {:vm-type :stack
-                                  :content-client (silent-client)
-                                  :name-env {'mod address}})
+                                            :content-client (silent-client)
+                                            :name-env {'mod address}})
         [pending _] (repl/eval-input state "(require (quote mod))")
         [held text2] (repl/eval-input pending "(+ 1 2)")
         working (assoc held
@@ -452,8 +466,8 @@
         as-other (:address (publish-module store closed-module 'other
                                            closed-exports))
         state (repl.frontends/create-state {:vm-type :stack
-                                  :content-client (silent-client)
-                                  :name-env {'mod address}})
+                                            :content-client (silent-client)
+                                            :name-env {'mod address}})
         [pending _] (repl/eval-input state "(require (quote mod))")
         [held _] (repl/eval-input pending "(+ 1 2)")
         [held' _] (repl/eval-input held "(require (quote other))")
@@ -507,7 +521,7 @@
     (is (= :manual (:link-policy (repl.frontends/create-state {:vm-type :stack}))))
     (is (= :manual (:link-policy
                      (repl.frontends/create-state {:vm-type :stack
-                                         :link-policy nil})))))
+                                                   :link-policy nil})))))
   (let [state (repl.frontends/create-state {:vm-type :stack})
         [pending text] (repl/eval-input state "(require (quote mod))")
         [held _] (repl/eval-input pending "(+ 1 2)")
@@ -556,7 +570,7 @@
 
 (deftest a-keep-policy-never-ends-a-pending-run-test
   (let [state (repl.frontends/create-state {:vm-type :stack
-                                  :link-policy (constantly :keep)})
+                                            :link-policy (constantly :keep)})
         [pending _] (repl/eval-input state "(require (quote mod))")
         [held _] (repl/eval-input pending "(+ 1 2)")]
     (is (some? (:pending-run held)))
@@ -567,7 +581,7 @@
 
 (deftest a-bare-abandon-uses-the-policy-reason-test
   (let [state (repl.frontends/create-state {:vm-type :stack
-                                  :link-policy (constantly :abandon)})
+                                            :link-policy (constantly :abandon)})
         [_ text] (repl/eval-input state "(require (quote mod))")]
     (is (str/includes? text "the session link policy ended the require"))
     (is (str/includes? text "Module link refused: link-policy"))
@@ -583,7 +597,7 @@
       (is (str/includes? text "pending"))
       (is (some? (:pending-run pending)))))
   (let [state (repl.frontends/create-state {:vm-type :stack
-                                  :link-policy (constantly :bogus)})
+                                            :link-policy (constantly :bogus)})
         [pending text] (repl/eval-input state "(require (quote mod))")]
     (testing "an out-of-contract return is kept and reported too"
       (is (str/includes? text "outside its contract"))
@@ -671,10 +685,10 @@
 
 (deftest a-late-response-after-a-policy-abandon-is-skipped-test
   "The pair survives the policy abandon as it survives `(abandon)`: the
-   abandoned round's request, answered late over the same pair by the
-   source that finally works, is skipped as unknown, and the next
-   require mints an id of its own (yin.vm.linker.md section 7.2, step
-   7)."
+   abandoned round's request is retired on the pair, so the source
+   that finally works never answers it late, and the next require
+   mints an id of its own (yin.vm.linker.md section 7.2, step 7;
+   yin.vm.linker.dht.md 7.5)."
   (let [store (mem/create-content-mem)
         {:keys [address]} (publish-module store closed-module 'mod
                                           closed-exports)
@@ -701,10 +715,11 @@
       (is (str/includes? text "the session link policy ended the require"))
       (is (str/includes? text "dropped 1 line"))
       (is (nil? (:pending-run held))))
-    (testing "the late answer was skipped; the later require linked for real"
+    (testing "the abandoned request was retired; the later require linked
+              for real"
       (let [ids (mapv :yin.link/id (pair-requests (:link-pair linked)))]
-        (is (= [{:kind :unknown, :id (first ids), :entry (second ids)}]
-               (first (engine/take-link-diagnostics (:vm linked)))))
+        (is (= [(second ids)] (pair-responses (:link-pair linked))))
+        (is (empty? (first (engine/take-link-diagnostics (:vm linked)))))
         (is (not= (first ids) (second ids))
             "the carried identity kept the later require off the retired id"))
       (is (= 'mod (:last-value linked)))
@@ -743,7 +758,7 @@
    -- so the shell carries the public step an unattended host drives at
    its own cadence."
   (let [state (repl.frontends/create-state {:vm-type :stack
-                                  :link-policy (constantly :keep)})
+                                            :link-policy (constantly :keep)})
         [pending _] (repl/eval-input state "(require (quote mod))")
         [step1 _] (repl/recheck-pending pending)
         [step2 text] (repl/recheck-pending step1)]
@@ -789,12 +804,12 @@
   (testing "the :content-store and :content-client attempt budget is unchanged"
     (is (= 64 link/attempt-budget))
     (let [state (repl.frontends/create-state {:vm-type :stack
-                                    :content-client (silent-client)
-                                    :name-env {'mod (:address
-                                                      (publish-module
-                                                        (mem/create-content-mem)
-                                                        closed-module 'mod
-                                                        closed-exports))}})
+                                              :content-client (silent-client)
+                                              :name-env {'mod (:address
+                                                                (publish-module
+                                                                  (mem/create-content-mem)
+                                                                  closed-module 'mod
+                                                                  closed-exports))}})
           [pending text] (repl/eval-input state "(require (quote mod))")]
       (is (str/includes? text "pending"))
       (is (nil? (:manifest (first (:links (:pending-run pending)))))

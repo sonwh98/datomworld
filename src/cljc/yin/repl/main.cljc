@@ -599,7 +599,11 @@
    through.  The parsed `:index-store-spec` reaches the shell's store
    selection, which resolves and opens it once at construction.  A custody
    composition (:custody, yin.vm.ucf.compose) rides the shell as data; the
-   step owner below is the only thing that steps it."
+   step owner below is the only thing that steps it.
+
+   The `--dht-principal` declarations are the user's explicit trust at
+   this host: the session's admission interpreter (yin.vm.linker.dht.md
+   7.5) trusts them beside the key's own principal."
   ([] (boot {}))
   ([opts] (driver/create-state
             {:host (or (:adapter opts) (host/websocket))
@@ -607,6 +611,9 @@
                      (cond-> {:index-store-spec (:index-store-spec opts)
                               :dht-key (:dht-key opts)
                               :principals (:principals opts)
+                              :admission {:trusted (set
+                                                     (map sign/principal
+                                                          (:principals opts)))}
                               :ws-host (:ws-host opts)
                               :write-heads! (:write-heads! opts)
                               :custody (:custody opts)}
@@ -999,8 +1006,10 @@
    replaced by the stop latch, so no custody program call runs after
    `:running?` turns false.  A require parked on a closure load the node
    ended this tick is re-checked once, before any typed line, with no line
-   of its own (yin.repl/recheck-on-load-events, yin.vm.linker.dht.md 8.2):
-   its text prints after the node's lines.  Returns `[state server lines]`;
+   of its own (yin.repl/recheck-on-load-events, yin.vm.linker.dht.md 8.2),
+   and so is one parked on an admission question whose answer the tick
+   drained (yin.repl/recheck-on-answers, 7.5): its text prints after the
+   node's lines.  Returns `[state server lines]`;
    the caller only prints."
   [state server now]
   (let [[repl dht-lines events] (repl.dht/step (:repl state) now)
@@ -1014,8 +1023,10 @@
 
       :else
       (let [[repl rechecked] (shell/recheck-on-load-events (:repl state) events)
+            [repl answered] (shell/recheck-on-answers repl)
             dht-lines (cond-> dht-lines
-                        (seq rechecked) (conj rechecked))
+                        (seq rechecked) (conj rechecked)
+                        (seq answered) (conj answered))
             state (assoc state :repl repl)
             stepped (driver/repl-step state now)
             stepped (if (:running? stepped)
