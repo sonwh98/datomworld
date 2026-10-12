@@ -148,9 +148,25 @@
 (deftest cookie-for-is-keyed-and-epoch-scoped
   (let [c (dht/cookie-for mesh/secret 3 "127.0.0.1" 4100)]
     (is (= 16 (mesh/byte-count c)))
-    (is (not= (subs (jing/sha256 "3|127.0.0.1|4100") 0 32) (hex c)))
+    (is (not= (subs (jing/blake3 "3|127.0.0.1|4100") 0 32) (hex c)))
     (is (not= (hex c) (hex (dht/cookie-for mesh/secret 4 "127.0.0.1" 4100))))
     (is (not= (hex c) (hex (dht/cookie-for mesh/secret 3 "127.0.0.1" 4101))))))
+
+
+(deftest cookie-for-is-hmac-blake3
+  ;; Known answers from Python's stdlib hmac over a BLAKE3 reference
+  ;; implementation (block size 64): the inner HMAC keys the epoch, the
+  ;; outer one the CBOR [host port]. The second secret is longer than the
+  ;; block, so the key is hashed first.
+  (is (= "affa19ff54a66124179e3cf8d2e87ef3"
+         (hex (dht/cookie-for mesh/secret 3 "127.0.0.1" 4100))))
+  (is (= "fd1332629151c8a3a1e1ccc6591331ce"
+         (hex (dht/cookie-for (dht/hex->bytes
+                                (apply str
+                                       (map #(str (nth "0123456789abcdef" (quot % 16))
+                                                  (nth "0123456789abcdef" (rem % 16)))
+                                            (range 100))))
+                              3 "127.0.0.1" 4100)))))
 
 
 (deftest

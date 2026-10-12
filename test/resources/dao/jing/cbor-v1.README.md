@@ -93,7 +93,7 @@ Each case has every key below, with `null` or `[]` where it does not apply:
 | `categories` | Coverage categories; `injectivity` is added to every case in a distinction group. |
 | `input` | The semantic input in the DSL below (`null` for decode refusals). |
 | `hex` | Canonical bytes (canonical), or the offered bytes (decode refusal); `null` for encode refusals. |
-| `sha256` | Lowercase hex SHA-256 of `hex`'s bytes. The fixture address is this digest. |
+| `blake3` | Lowercase hex BLAKE3 (standard unkeyed 256-bit) of `hex`'s bytes. The fixture address is this digest. |
 | `refusal` | The refusal class a conforming codec must raise, or `null`. |
 | `equivalence` | Equivalence group id: every member has identical bytes. |
 | `distinct` | Retained-distinction group ids: members differ pairwise in bytes and address. |
@@ -115,7 +115,7 @@ Case kinds:
 Injectivity rule over the whole corpus: two canonical cases have equal bytes
 if and only if they share an `equivalence` group. The generator and the
 self-tests both enforce it, so every distinct normalized identity in the
-corpus has distinct bytes and a distinct address. SHA-256 collision resistance
+corpus has distinct bytes and a distinct address. BLAKE3 collision resistance
 is the addressing assumption; nothing here claims digest injectivity.
 
 ## Input DSL
@@ -174,8 +174,9 @@ J1 must map its error data onto them.
 
 ## Generation method
 
-`cbor-v1.generate.py` (standard library only: `struct`, `hashlib`, `json`,
-`fractions`, `math`, `os`, `sys`) holds the case list, a small
+`cbor-v1.generate.py` (standard library only: `struct`, `json`,
+`fractions`, `math`, `os`, `sys`; `hashlib` has no BLAKE3, so the script
+carries the BLAKE3 reference algorithm) holds the case list, a small
 deterministic-CBOR encoder, and the Jing profile rules written from the plan.
 It never writes the resource. Running it:
 
@@ -373,8 +374,8 @@ the architect.
 - **A16. Float32 on Node and Dart.** Neither host has a native float32 value;
   `float32` DSL cases mean the exactly widened double there. Only the JVM
   exercises a true float32 input.
-- **A17. Address keyword.** Fixtures record the raw SHA-256 hex. Deriving
-  `:segment/sha256-<hex>` from it is the step-3 wrapper's job and is not
+- **A17. Address keyword.** Fixtures record the raw BLAKE3 hex. Deriving
+  `:segment/blake3-<hex>` from it is the step-3 wrapper's job and is not
   pinned here.
 
 ## Rulings
