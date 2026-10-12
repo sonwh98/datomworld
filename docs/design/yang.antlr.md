@@ -3204,7 +3204,12 @@ precompiled CST packets or rows, since the parser is JVM-only):
 - I3: a JVM-published `pym.m` imports parserless on Node and Dart with
   the same output; a republished dependency is refused as a dependency
   binding with no install; a cyclic pair is refused at publication by
-  name. Landed in `dht_import_test` over the `dao.jing.dht` mesh seam on
+  name; a module only another principal asserts is refused
+  `:yin.admit/untrusted-principal` by the default admission interpreter
+  and imports once the reader trusts that principal, and an allow binds
+  the module its question was asked about though the publisher's head
+  moves the name meanwhile (`yin.vm.linker.dht.md` 7.5, AD-2). Landed in
+  `dht_import_test` over the `dao.jing.dht` mesh seam on
   every host. What travels is the JVM's publication, a checked-in
   artifact (`test/resources/yang/python/dht-import-v1.edn`, written by
   the generator script beside it): guest blobs, manifests, signed

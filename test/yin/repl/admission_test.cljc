@@ -442,19 +442,43 @@
       (is (empty? (questions-of (:adm s)))))))
 
 
-(deftest the-legacy-admit-hook-is-called-once-per-refusal-test
+(deftest the-admission-pair-is-the-only-policy-surface-test
   (let [w (world)
         calls (atom 0)
         hook (fn [n _]
-               {:status :refused :reason :test/hook :name n
-                :call (swap! calls inc)})
-        s (until-response (ask! (assoc-in (seam w) [:src :admit] hook)
-                                [:t0 0] 'own.m))]
-    (is (= 1 @calls))
-    (is (= {:status :refused :reason :test/hook :call 1}
-           (select-keys (first (responses s)) [:status :reason :call])))
-    (is (empty? (questions-of (:adm s))) "refused before it is asked")
-    (is (nil? (status (:node s) w 'own.m)))))
+               (swap! calls inc)
+               {:status :refused :reason :test/hook :name n})
+        src (link/composition {:dht? true
+                               :principals [(:public b)]
+                               :key a
+                               :admission {}
+                               :admit hook})
+        s (until-response (ask! (assoc (seam w) :src src) [:t0 0] 'their.m))]
+    (is (not (contains? src :admit)) "a composition keeps no :admit")
+    (is (zero? @calls) "an :admit function is never called")
+    (is (= 1 (count (questions-of (:adm s)))) "the name is asked")
+    (is (= :yin.admit/untrusted-principal (:reason (first (responses s)))))))
+
+
+(deftest an-untrusted-principal-is-refused-by-the-default-interpreter-test
+  (let [p (admission/policy {:own #{pa}})
+        verify (:verify p)
+        q (fn [& asserters]
+            {:yin.admit/name 'their.m :yin.admit/asserters (vec asserters)})]
+    (testing "the decision is the own principals with no trusted set"
+      (is (= #{pa} (:decision p))))
+    (testing "the importer's own principal is allowed, alone or beside
+              another asserting the same address (R8)"
+      (is (nil? (verify (:decision p) ctx (q pa))))
+      (is (nil? (verify (:decision p) ctx (q pb pa)))))
+    (testing "only another principal: refused untrusted, naming it"
+      (is (= {:yin.admit/reason :yin.admit/untrusted-principal
+              :yin.admit/asserters [pb]}
+             (verify (:decision p) ctx (q pb)))))
+    (testing "an explicit trusted set joins the decision"
+      (let [p (admission/policy {:own #{pa} :trusted #{pb}})]
+        (is (= #{pa pb} (:decision p)))
+        (is (nil? ((:verify p) (:decision p) ctx (q pb))))))))
 
 
 (deftest verify-receives-the-snapshot-the-context-and-the-question-test
