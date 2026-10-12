@@ -595,8 +595,10 @@ records.
 
 ## Implementation sequence and validation
 
-1. Write encoding-contract tests and frozen CBOR hex/SHA-256 fixtures before
-   implementation. Pin Boring and implement the JVM/JavaScript codec wrapper,
+1. Write encoding-contract tests and frozen CBOR hex/BLAKE3 fixtures before
+   implementation. (The corpus first recorded SHA-256; on 2026-10-12 its
+   digest field became `blake3` and every digest was regenerated, with the
+   CBOR bytes unchanged.) Pin Boring and implement the JVM/JavaScript codec wrapper,
    normalization, named extensions, and numeric constructors.
 2. Implement the matching Dart codec and carriers, either hand-rolled or
    over a Dart CBOR package, behind the shared interface — frozen fixtures

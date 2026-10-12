@@ -134,7 +134,7 @@
 (defn node-id
   "A test node id for port: 64 lowercase hex characters."
   [port]
-  (jing/sha256 (str "dht-test-node-" port)))
+  (jing/blake3 (str "dht-test-node-" port)))
 
 
 (defn contact

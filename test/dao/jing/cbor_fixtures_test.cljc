@@ -91,7 +91,7 @@
             "canonical" (is (and (map? input) (string? hex) (pos? (count hex))
                                  (nil? refusal)))
             "encode-refusal" (is (and (map? input) (nil? hex)
-                                      (nil? (get c "sha256"))
+                                      (nil? (get c "blake3"))
                                       (contains? classes refusal)
                                       (nil? (get c "equivalence"))
                                       (empty? (get c "distinct"))))
@@ -110,15 +110,15 @@
           :when (some? hex)]
     (testing (id c)
       (is (fx/hex? hex))
-      (is (fx/hex? (get c "sha256")))
-      (is (= 64 (count (get c "sha256")))))))
+      (is (fx/hex? (get c "blake3")))
+      (is (= 64 (count (get c "blake3")))))))
 
 
-(deftest recorded-sha256-is-the-digest-of-the-bytes
+(deftest recorded-blake3-is-the-digest-of-the-bytes
   (doseq [c (fx/cases)
           :let [hex (get c "hex")]
           :when (some? hex)]
-    (is (= (get c "sha256") (jing/sha256-bytes (fx/hex->bytes hex))) (id c))))
+    (is (= (get c "blake3") (jing/blake3-bytes (fx/hex->bytes hex))) (id c))))
 
 
 (deftest equivalence-groups-share-bytes
@@ -149,7 +149,7 @@
         (is (<= 2 (count members)))
         (is (= (count members) (count (set (map #(get % "hex") members)))))
         (is (= (count members)
-               (count (set (map #(get % "sha256") members)))))))))
+               (count (set (map #(get % "blake3") members)))))))))
 
 
 (deftest equal-bytes-only-within-one-equivalence-group
@@ -160,7 +160,7 @@
         (is (and (= 1 (count groups)) (some? (first groups)))
             (str "shared bytes outside one group: " (mapv id members)))))
     (is (= (count (set (map #(get % "hex") cs)))
-           (count (set (map #(get % "sha256") cs))))
+           (count (set (map #(get % "blake3") cs))))
         "distinct canonical bytes have distinct fixture addresses")))
 
 
@@ -168,7 +168,7 @@
   (let [members (get (distinction-groups) "pathological-identifiers")]
     (is (<= 20 (count members)))
     (is (= (count members) (count (set (map #(get % "hex") members)))))
-    (is (= (count members) (count (set (map #(get % "sha256") members)))))))
+    (is (= (count members) (count (set (map #(get % "blake3") members)))))))
 
 
 (deftest every-required-category-is-covered

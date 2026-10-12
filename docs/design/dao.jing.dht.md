@@ -690,8 +690,11 @@ exposure requires the S4 secret and inbound bound in the socket composition.
     forgeable, which is why exposure stays loopback-only.
   - *S4 replacement:* the first 16 bytes of `MAC(epoch-secret, observed-host |
     observed-port)` with `epoch-secret = MAC(:dao.jing.dht/secret, epoch)`.
-    The MAC is HMAC-SHA-256 from each host's library; nothing is
-    hand-rolled. The root secret is, per node, at least 32 random bytes
+    The MAC is HMAC-BLAKE3 (RFC 2104, block size 64): one portable
+    definition over the `dao.jing` BLAKE3 provider, so the hash comes from
+    each host's library and only the RFC 2104 wrapper is shared code.
+    BLAKE3's native keyed mode is not used: it takes exactly 32 key bytes,
+    and the provider exposes only the registered unkeyed hash. The root secret is, per node, at least 32 random bytes
     from the host CSPRNG, minted at composition, in-memory only, never
     persisted or shared. Note that the tests share one secret for
     predictability.

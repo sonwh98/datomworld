@@ -38,7 +38,7 @@
   [profile codec-encode codec-decode bs]
   (let [wire (codec-encode (jing-stream/wrap-bytes profile bs))
         back (jing-stream/unwrap-bytes profile (codec-decode wire))]
-    (= (jing/sha256-bytes bs) (jing/sha256-bytes back))))
+    (= (jing/blake3-bytes bs) (jing/blake3-bytes back))))
 
 
 (deftest jing-bytes-cross-both-stream-profiles-losslessly

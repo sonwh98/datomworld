@@ -27,7 +27,6 @@ Before printing, the generator self-verifies every case:
     equivalence group (injectivity over the corpus).
 """
 
-import hashlib
 import json
 import os
 import struct
@@ -142,8 +141,92 @@ def named(name, payload):
     return head(6, 27) + head(4, 2) + raw_text(name) + payload
 
 
-def sha256_hex(b):
-    return hashlib.sha256(b).hexdigest()
+# BLAKE3 (standard unkeyed 256-bit hash), after the BLAKE3 team's reference
+# implementation: hashlib has no BLAKE3, and the standard library only rule
+# stands.
+
+_B3_IV = [0x6A09E667, 0xBB67AE85, 0x3C6EF372, 0xA54FF53A,
+          0x510E527F, 0x9B05688C, 0x1F83D9AB, 0x5BE0CD19]
+_B3_PERM = [2, 6, 3, 10, 7, 0, 4, 13, 1, 11, 12, 5, 9, 14, 15, 8]
+_B3_CHUNK_START, _B3_CHUNK_END, _B3_PARENT, _B3_ROOT = 1, 2, 4, 8
+_B3_CHUNK_LEN, _B3_BLOCK_LEN = 1024, 64
+_M32 = 0xFFFFFFFF
+
+
+def _b3_g(s, a, b, c, d, x, y):
+    s[a] = (s[a] + s[b] + x) & _M32
+    s[d] = ((s[d] ^ s[a]) >> 16 | (s[d] ^ s[a]) << 16) & _M32
+    s[c] = (s[c] + s[d]) & _M32
+    s[b] = ((s[b] ^ s[c]) >> 12 | (s[b] ^ s[c]) << 20) & _M32
+    s[a] = (s[a] + s[b] + y) & _M32
+    s[d] = ((s[d] ^ s[a]) >> 8 | (s[d] ^ s[a]) << 24) & _M32
+    s[c] = (s[c] + s[d]) & _M32
+    s[b] = ((s[b] ^ s[c]) >> 7 | (s[b] ^ s[c]) << 25) & _M32
+
+
+def _b3_compress(cv, m, counter, block_len, flags):
+    s = list(cv) + _B3_IV[:4] + [counter & _M32, (counter >> 32) & _M32, block_len, flags]
+    m = list(m)
+    for _ in range(7):
+        _b3_g(s, 0, 4, 8, 12, m[0], m[1])
+        _b3_g(s, 1, 5, 9, 13, m[2], m[3])
+        _b3_g(s, 2, 6, 10, 14, m[4], m[5])
+        _b3_g(s, 3, 7, 11, 15, m[6], m[7])
+        _b3_g(s, 0, 5, 10, 15, m[8], m[9])
+        _b3_g(s, 1, 6, 11, 12, m[10], m[11])
+        _b3_g(s, 2, 7, 8, 13, m[12], m[13])
+        _b3_g(s, 3, 4, 9, 14, m[14], m[15])
+        m = [m[i] for i in _B3_PERM]
+    for i in range(8):
+        s[i] ^= s[i + 8]
+        s[i + 8] ^= cv[i]
+    return s
+
+
+def _b3_words(block):
+    return list(struct.unpack("<16I", block.ljust(_B3_BLOCK_LEN, b"\0")))
+
+
+def _b3_chunk(data, counter):
+    """The output node of one chunk: (cv, words, counter, block_len, flags)."""
+    cv = _B3_IV
+    blocks = [data[i:i + _B3_BLOCK_LEN] for i in range(0, len(data), _B3_BLOCK_LEN)] or [b""]
+    for n, block in enumerate(blocks[:-1]):
+        start = _B3_CHUNK_START if n == 0 else 0
+        cv = _b3_compress(cv, _b3_words(block), counter, _B3_BLOCK_LEN, start)[:8]
+    start = _B3_CHUNK_START if len(blocks) == 1 else 0
+    return (cv, _b3_words(blocks[-1]), counter, len(blocks[-1]), start | _B3_CHUNK_END)
+
+
+def _b3_parent(left_cv, right_cv):
+    return (_B3_IV, left_cv + right_cv, 0, _B3_BLOCK_LEN, _B3_PARENT)
+
+
+def _b3_cv(node):
+    cv, words, counter, block_len, flags = node
+    return _b3_compress(cv, words, counter, block_len, flags)[:8]
+
+
+def blake3_hex(b):
+    chunks = [b[i:i + _B3_CHUNK_LEN] for i in range(0, len(b), _B3_CHUNK_LEN)] or [b""]
+    stack = []
+    for n, chunk in enumerate(chunks[:-1]):
+        cv = _b3_cv(_b3_chunk(chunk, n))
+        total = n + 1
+        while total & 1 == 0:
+            cv = _b3_cv(_b3_parent(stack.pop(), cv))
+            total >>= 1
+        stack.append(cv)
+    node = _b3_chunk(chunks[-1], len(chunks) - 1)
+    while stack:
+        node = _b3_parent(stack.pop(), _b3_cv(node))
+    cv, words, _, block_len, flags = node
+    out = _b3_compress(cv, words, 0, block_len, flags | _B3_ROOT)[:8]
+    return struct.pack("<8I", *out).hex()
+
+
+assert blake3_hex(b"") == "af1349b9f5f9a1a6a0404dea36dcc9499bcb25c9adc112b7cc9a93cae41f3262"
+assert blake3_hex(b"abc") == "6437b3ac38465133ffb63b75273a8db548c558465d79db03fd359c6cd5bd9d85"
 
 
 # =============================================================================
@@ -1371,14 +1454,14 @@ def build():
     out = []
     for c in CASES:
         cid = c["id"]
-        hexs = sha = None
+        hexs = digest = None
         if c["kind"] == "canonical":
             b = enc(c["input"])
             if c["_expect"] is not None:
                 assert b.hex() == c["_expect"], "%s: %s != expected %s" % (cid, b.hex(), c["_expect"])
             again = jing_decode(b)
             assert enc(again) == b, "%s: round trip" % cid
-            hexs, sha = b.hex(), sha256_hex(b)
+            hexs, digest = b.hex(), blake3_hex(b)
         elif c["kind"] == "encode-refusal":
             try:
                 enc(c["input"])
@@ -1394,12 +1477,12 @@ def build():
                 assert r.cls == c["refusal"], "%s: refused %s, declared %s" % (cid, r.cls, c["refusal"])
             else:
                 raise AssertionError("%s: accepted" % cid)
-            hexs, sha = b.hex(), sha256_hex(b)
+            hexs, digest = b.hex(), blake3_hex(b)
         cats = list(c["categories"])
         if c["distinct"] and "injectivity" not in cats:
             cats.append("injectivity")
         out.append({"id": cid, "kind": c["kind"], "categories": cats, "input": c["input"],
-                    "hex": hexs, "sha256": sha, "refusal": c["refusal"],
+                    "hex": hexs, "blake3": digest, "refusal": c["refusal"],
                     "equivalence": c["equivalence"], "distinct": c["distinct"],
                     "plan": c["plan"], "notes": c["notes"]})
     verify_groups(out)
@@ -1531,7 +1614,7 @@ def inspect(path):
             continue
         buf = bytes.fromhex(c["hex"])
         print("    hex %s" % (c["hex"] or "(empty)"))
-        print("    sha256 %s" % c["sha256"])
+        print("    blake3 %s" % c["blake3"])
         lines = []
         try:
             if not buf:
