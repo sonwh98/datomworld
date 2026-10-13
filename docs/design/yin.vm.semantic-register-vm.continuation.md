@@ -339,9 +339,11 @@ markers (`:request-sent`, `:call-id`, `:op`, `:datom`,
   given the source's registry value, and without it the relift refuses
   `:yin.k/unsatisfied {:obligations #{host.mod/f}}`. The receiver's
   registry is kept as given; there is no isolated-receiver pruning.
-- **Custody is nil at the root in phase 6.** The lift emits `custody nil`
-  (fork), and the lower refuses any non-nil custody as `:yin.k/unsupported
-  :custody`; the exclusive and holder path is phase 7 (§8.4).
+- **Amended after 7 (2026-10-14)** — Reason: phase 7 admits exclusive custody on rows.
+  Fork custody is nil on every task row. An exclusive blocked or parked
+  root carries policy, occurrence, arbitration and next-op-seq, with
+  origin on a successor; a halted exclusive root carries origin only.
+  Every child has nil custody and is checked in the root's context.
 
 ### 2.6 The root (replacing draft §5.5 in two slots)
 
@@ -369,13 +371,17 @@ markers (`:request-sent`, `:call-id`, `:op`, `:datom`,
 ```
 
 No `layout` slot and no native image: those were the positional
-profiles' (v2 amendment §2, §4.1). The custody table of the draft §5.5
-stands, with its version-0 comparison reworded (§10.3 R10).
-**Amended after 6b (2026-10-13):** of that table only the fork rows are
-reachable in phase 6; the lift writes `custody nil` and the lower's step
-10 (`check-custody!`) refuses any non-nil value `:yin.k/unsupported
-:custody` (§2.5, §7.2). *Why:* the exclusive and holder path is phase
-7's; carrying a custody arm no reader admits would be an untested slot.
+profiles' (v2 amendment §2, §4.1).
+
+**Amended after 7 (2026-10-14)** — Reason: the owner chose nil fork custody and phase 7 enforces the slot grammar.
+The custody slot admits only `:yin.k/policy`, `:yin.k/occurrence`,
+`:yin.k/arbitration`, `:yin.k/next-op-seq` and `:yin.k/origin`.
+Fork roots of every kind and all children carry nil. Exclusive blocked
+or parked roots require the first four keys, with policy
+`:yin.k/exclusive`, and carry origin when present; halted exclusive
+roots carry origin only. A header-bearing halt without origin refuses.
+No current lease, epoch or holder enters the body; the predecessor lease
+inside origin is lineage evidence.
 
 ### 2.7 The bijection with the keyed frame
 
@@ -898,8 +904,10 @@ harness's `unlowerable` set `#{[4 :stack] [4 :register]}` keeps those
 transfers out of law 5 (§5.3). The semantic-register kernel's
 `register-restore` already honours the carried pair
 (`semantic_register.cljc:105-111`). *Why:* phase 6 edits no kernel but
-6c-pre's one seam (§8.5); this second seam is cheap but dies at phase 8
-with the kernels, so it is the owner's call (§11, 6c Q2).
+6c-pre's one seam (§8.5).
+**Amended after 7 (2026-10-14)** — Reason: the owner retains the backends without widening their fragment.
+This second seam remains outside the documented fragment (§4.6), with
+6c Q2 left open; retaining the kernels does not implement it.
 
 ### 4.4 Positional lexical frames, the free environment and `E`
 
@@ -979,6 +987,24 @@ invents a safepoint: a kernel pc whose predecessor is not a parking
 instruction is `:yin.k/not-at-safepoint` (UCF §7.4.2).
 
 ---
+
+### 4.6 The retained backend fragment
+
+**Amended after 7 (2026-10-14)** — Reason: the owner retains both de Bruijn kernels as semantic-register VM backends.
+The stack and register kernels are backends of the semantic-register VM,
+checked through the layouts on the shared fragment in §5.3. They remain
+through and after phase 8; the fragment is not widened. It excludes link
+and install rows 7-12 and 17, and row 4 is not lowered into either
+backend while the retained-FFI seam remains absent. This row-4 exclusion
+is a harness limit, not a general pre-attach rejection in `lower-defect`
+(§11 6c Q2); the owner's refuse-the-remainder requirement is not evidence
+of such a gate. A closure or
+continuation in the free environment, ambiguous images, install children,
+and the register payload's unsupported primitives refuse as documented
+in §4.1-4.4 and §7.2, before attachment on lower. Stage E uses the
+canonical semantic-register kernel only. A is the only code identity;
+native images are derived forms, and the source AST remains retrievable
+through the linker's source-index, fetch and admission path (§6.1).
 
 ## 5. The safepoint harness
 
@@ -1160,9 +1186,10 @@ Bruijn lanes execute the shared fragment of the matrix: rows 1-6, 13-16,
 module responses carry A, and §4 defines no layout for install children.
 Row 4 is lifted from a de Bruijn source but not lowered into a de Bruijn
 receiver until the retained-FFI seam (§4, 6c-post-D2) lands: the
-kernel's re-park names its own call pair. These lanes are a cross-engine
-check of the canonical frame and are removed with their kernels at phase
-8; the reference lane runs the whole matrix. *What the code does:* the
+kernel's re-park names its own call pair. **Amended after 7 (2026-10-14)** — Reason: the owner retains the de Bruijn kernels as backends after phase 8.
+These lanes check the canonical frame on the documented backend fragment
+(§4.6); they remain after phase 8 and are not widened. The canonical
+lane runs the whole matrix. *What the code does:* the
 harness's `*lane*` (`:semantic-register`, `:stack`, `:register`) selects
 the kernel `machine` builds; `load-program` on a de Bruijn lane attaches
 `v`'s derived image beside what the kernel holds and starts it at the
@@ -1182,8 +1209,8 @@ link rows need the harness to answer a `require` in
 the kernel's own format (H or R) while module responses carry A, install
 children are whole kernels the layout would lift and lower recursively,
 and the retained-FFI re-park is a kernel edit (§4.3); 2-3 days of
-harness and layout code for kernels deleted at phase 8 was not worth
-it (R2). The sentence above on `lift-act`/`lift-tail` is superseded by
+harness and layout code was excluded by the fragment ruling (R2,
+updated by §4.6). The sentence above on `lift-act`/`lift-tail` is superseded by
 §4.1: the lift is `lift-state`, dispatching on the kernel's kind.
 
 ### 5.4 Laws
@@ -1497,7 +1524,18 @@ reconstructs.
 and the discharge rule.** The paragraph above put the dependency closure
 before the numbering and the walk, but the carried segments, contexts
 and module stores are known only once the walk has found them, so the
-closure cannot run first. The merged order is:
+closure cannot run first.
+
+**Amended after 7 (2026-10-14)** — Reason: `lift-task` now takes `:header` and runs custody checks after the walk.
+The header is nil for a fork; otherwise it contains occurrence,
+arbitration, next-op-seq, optional origin and the local `:yin.k/enrolled`
+set. That set never enters the pack. The linker/composition supplies
+`:source-index` as `{A #{tree-address}}`; code and trees use its existing
+fetch and admission path, with A the only code identity and the AST
+retained. The holder retains serve answers by `[task-path resource-id]`;
+encode uses those answers without serving externally.
+
+The merged order is:
 
 1. **Quiescence and safepoint.** Refuse `:yin.k/not-quiescent` on a
    non-empty ready queue; refuse the holds (`unliftable-hold`: `:observe`,
@@ -1553,12 +1591,23 @@ closure cannot run first. The merged order is:
 7. **Trees** (§6.1): every carried segment has a non-empty entry in the
    `:source-index` option, else `:yin.k/unsatisfied` with `:yin.k/trees`.
 8. **The task.** `requires` is `{:yin.k/cursor-profiles … :yin.k/segments
-   … :yin.k/trees …}`; the root is assembled with `custody nil` (§2.5).
+   … :yin.k/trees …}`; the abstract task is initially assembled with nil custody.
 9. **Frames.** `validate-frames` over the assembled abstract task (X1,
    every wait, parked state and reified value, children recursively); a
    defect is `:yin.k/non-portable :inconsistent-state` carrying it. The
    lift does not decode its own output a second time.
-10. **Emit** (`emit`): canonical cursor-cell numbering and rows.
+10. **Header and custody, then emit.** After `lift-task*` has validated
+    frames, a non-nil header refuses `:op-seq-exhausted` at 2^52-1 for
+    blocked/parked roots, checks every retained write of the tree against
+    enrollment (`:unprotected-pending` when an enrolled target lacks an
+    op-id; `:yin.k/unsatisfied` when an id targets an unenrolled stream),
+    and writes the root's custody slot by kind. `custody-baseline` then
+    validates the whole tree, including fork op-id refusal. `emit`
+    numbers cursor cells canonically and sorts rows by the string of
+    their id. The BLAKE3 pack address hashes the encoded whole pack;
+    the root id hashes the structural task row. The walk can already
+    have served streams before a custody/protection refusal; retained
+    successful answers are reused on retry.
 
 **Refusals are thrown.** Every refusal of lift and lower is an `ex-info`
 whose ex-data carries `:yin.k/status`, a `:yin.k/kind` where one is
@@ -1629,11 +1678,12 @@ before the first `attach!`, as every carrier defect is (§7.2 above;
 codex M8, which moved `lower-defect` after `rows/lower-task`, is killed
 by the attach-count assertions).
 
-**Amended after 6b (2026-10-13): the lower's staged checks as
-`lower-task` runs them, and its refusal kinds.** Steps 1-7 are `decode`
+**Amended after 7 (2026-10-14)** — Reason: phase 7 adds install verification and one tree-wide custody stage.
+The staged checks and refusal kinds follow the code. Steps 1-7 are `decode`
 (gate, structure, graph, hashes, canonical form, numbering, frames,
-§3.3). Steps 8-10 then run as four stages, **each over the whole task
-tree (root and every install child, pre-order) before the next**, and
+§3.3). Steps 8-10 run stores, pendings/install records and dependencies,
+**each over the whole task tree (root and every install child, pre-order)
+before the next**, then custody **once for the whole tree**, and
 **every one of them before the first `attach!`**; a defect in a child's
 later stage therefore cannot be masked by the root's earlier one, and
 zero streams are attached on any refusal (codex F1, F2, F4, F7; mutants
@@ -1642,9 +1692,9 @@ that attach early are killed by the attach-count law):
 | Stage | Function | Checks, in order | Refusal |
 |---|---|---|---|
 | stores | `check-stores!` | no key of the root store or of any module store is a reserved name (`vm/reserved-name?`), refused here rather than by restore's `store-put` | `:yin.k/undecodable :reserved-name` (`:yin.k/role :store-key`) |
-| pendings and install records | `check-pendings!` | the task's role slot equals its position (`:root`/`:child`); every `:install` pending names a carried install row; kind consistency (`:halted` has no waits, `:blocked` has waits, `:parked` names a key of its parked table); then every install record by `check-install!` (§5.2: phase ∈ `#{:running :parked}`, the retained response and image contract, the child `:blocked`) | `:role`, `:incomplete-install`, `:kind`, `:parked-id`, `:install-phase`, `:install-response`, `:install-child`, all `:yin.k/undecodable` |
+| pendings and install records | `check-pendings!` | the task's role slot equals its position (`:root`/`:child`); every `:install` pending names a carried install row; kind consistency (`:halted` has no waits, `:blocked` has waits, `:parked` names a key of its parked table); then every install record by `check-install!` (§5.2: phase ∈ `#{:running :parked}`, the retained response and image contract, response `:yin.link/id` equals non-nil parent, manifest-named derivation record hashes correctly and connects the manifest tree to the image A, the child `:blocked`) | `:role`, `:incomplete-install`, `:kind`, `:parked-id`, `:install-phase`, `:install-response`, `:install-link-id`, `:install-image`, `:install-child`, all `:yin.k/undecodable` |
 | dependencies | `check-dependencies!` | `requires` is a map whose `:yin.k/segments` equals the key set of `code` (`:requires`); every segment has a non-empty `:yin.k/trees` entry; every `store-of` of every `:closure` and `:env` row of **this task** (children excluded, each checked in its own stage pass) names one of this task's `:module-store` rows (§2.6), so a parent's or sibling's store of the same key cannot answer (codex F7, F8); every vector attaches in the receiving kernel under its A (`attaches?`: `module/attach-module` into a throwaway copy, the result discarded) (`:segment`); every `:closure` row names a `:closure` tuple of its vector at its entry (`:closure-origin`) with the same binders (`:closure-binders`); every `:prim` names a primitive the receiver holds | `:yin.k/undecodable :requires`, `:yin.k/unsatisfied` with `:yin.k/trees` or **`:yin.k/stores`** (`:yin.k/discovery :incomplete`), `:yin.k/undecodable :segment`, `:closure-origin`, `:closure-binders`, `:yin.k/unsatisfied {:yin.k/name p}` |
-| custody | `check-custody!` | the root's custody slot is nil (phase 6 carries fork only) | `:yin.k/unsupported :custody` |
+| custody | `check-custody!` | `custody-baseline` over the tree; fork refused under `:exclusive`; halted exclusive needs no grant; blocked/parked exclusive validates grant evidence, pack checkpoint, binding, lease/holder, arbitration, epoch, live tenure and input prefix, then protection in both directions and op-id presence against enrollment; `:fenced` skips grant/protection | grammar's `:yin.k/undecodable` kinds; `:yin.k/profile-mismatch`, `:yin.k/awaiting-grant`, `:yin.k/not-holder`, `:yin.k/unsatisfied` |
 
 Then **attachment** (step 11, `attach-streams!`): one `attach!` per
 distinct stream identity of the whole tree, `:yin.k/unsatisfied
@@ -1659,7 +1709,8 @@ with a cycle guard; the store through `engine/store-put`; module stores;
 install children spawned by the engine's spawn discipline and then
 restored recursively (the spawn's initial control is replaced, no
 `vm/run`); the free environment as both `:env` and `:free-env`; the id
-counter `max(local, carried)`. Restore meets no carrier defect, by
+counter `max(local, carried)` for ordinary resume. Restore meets no carrier
+defect, by
 construction of the stages above. The lower does **not** re-discharge
 free names against the receiver: a name a closure resolves through the
 registry is the composition prerequisite of §2.5, and the receiver's
@@ -1669,6 +1720,18 @@ registry is kept as given. The kinds `:role :custody :incomplete-install
 census are the engineer's and the fix rounds' naming; the earlier text
 named none of them (deviation 9, accepted with the requirement that every
 defect be a named transport outcome before attachment).
+
+**Amended after 7 (2026-10-14)** — Reason: fenced lowering is administrative recovery, not grant admission.
+With `:fenced true`, every task is gated `:exporting`; waits move to
+`:yin.k/recovery-waits`, every parked record to `:yin.k/recovery-parked`,
+and the id counter is exactly the carried value. Resource keys are
+associated with their cursor-cell ids in `:yin.k/recovery-cell-ids`.
+Child spawning temporarily disables `:make-stream`, initializes nothing
+and restores the constructor afterward. `holder.export/rehydrate-fenced`
+checks the recovery header and local state before lower, moves waits and
+parked records into the retained export record, and proves byte-identical
+re-emission. It restores no tenure or runnable gate; recovered abort refuses.
+A grant's `:checkpoint` names the pack address, never the root id.
 
 ---
 
@@ -1998,16 +2061,19 @@ boundaries.
 
 ### 8.4 Phase 7's entry conditions
 
-**DECIDED** (frozen §10 phase 7). 6a-6c green on three hosts; the row
-carrier the only writer and reader the semantic-register kernel has; a
-documented seam for the holder, checkpoint, ledger and authority paths
-(phase 7 wires it; phase 6 edits none of them); the Stage D/E scenarios
-(`stage_e_scenarios.cljc`, `checkpoint_fixtures.cljc`) listed with, for
-each, the §5.2 row that exercises its parking shape; the export-recovery
-object (UCF §7.7.4, format version 1 over the old codec) re-based on the
-row carrier by phase 7, since it embeds a body; and the free-environment
-retention seam (§6.3) either landed by the 4b track or the explicit
-`:free-env` argument threaded through the holder's export path.
+**Amended after 7 (2026-10-14)** — Reason: phases 6 and 7a-7c now provide the entry seams; 7d reports the Stage E port.
+Phase 7's entry conditions are met: the phase-6 row carrier and frame/layout
+harness are available; the holder, rows checkpoint inspector, ledger and
+authority use packs; free-environment retention is threaded through the
+lift; recovery format 2 is based on rows. The Stage D composition uses
+semantic-register machines and the composition's function `:source-index`
+seam. The 7d report records the corresponding Stage E world/scenario port
+and local JVM results; 7d is still in review. Entry readiness is not
+tri-host phase acceptance: Node/Dart Stage E and the killed four-pair
+JVM/Node process matrix remain the orchestrator's gates. The owner accepts
+the REPL custody gap until phase 8. Versions 0/1/2 remain only as direct
+legacy codecs/tests until phase 8, without compatibility or version dispatch
+in the row holder/authority path. The two backends remain as §4.6 specifies.
 
 ### 8.5 Ordering and concurrency
 
@@ -2477,9 +2543,9 @@ wording is applied verbatim where a ruling says so.
 | R5 | §4.2, §8.3 item 12 | the unique-preimage rule for `virt`: live-out* first, else the sole named preimage for validation only, else `:yin.k/non-portable :register-layout`; item 12 permits that refusal for an ambiguous tamper | engineer deviation 7, codex D3 and M9 (take the first preimage survived) |
 | D4 | §4.2, §7.2, §8.3 item 6 | a primitive is an admitted carrier value; the register kernel refuses one in its payload `:yin.k/unsupported :continuation-registers` with the path before attach; "is no carrier value" withdrawn; four refusal fixtures | engineer deviation 8, codex D4: the limit is the receiver's, not the carrier's |
 | S1 | §4.3 | 6c-pre landed; the tail lowering shapes stated as `lower-state` emits them | the seam was a specification; it is code |
-| D2 | §4.3 | the retained-FFI response-pair seam specified as slice 6c-post-D2, gated by the owner, not a prerequisite of 6c; `unlowerable` empties and the counts rise to 366/96 when it lands | engineer D2, codex probe 3: the kernels' re-park names their own call pair; a kernel edit that dies at phase 8 |
+| D2 | §4.3 | the retained-FFI response-pair seam specified as slice 6c-post-D2, gated by the owner, not a prerequisite of 6c; `unlowerable` empties and the counts rise to 366/96 when it lands | engineer D2, codex probe 3: the kernels' re-park names their own call pair; a kernel edit outside the retained backend fragment (§4.6); **Amended after 7 (2026-10-14)**, reason: owner retains backends |
 | D5 | §5.2 row 21 | the expectation on every lane: `E` binds `x` to 1 under `:depth-3`, the free environment keeps 99, pinned separately | codex D5; the cross-engine lanes could have hidden a lane agreeing on one and not the other |
-| R2 | §5.3, §5.6 item 8, §8.3 items 10-11 | the native lanes run the shared fragment: 61 law-4 cases over three lanes, 350 law-5 transfers (92/16 in the quick tier); tail acceptance rows 6 and 20 on the native lanes; the reference lane keeps 89/534 | engineer deviations 3-4, codex F3; link and install rows need 2-3 days of code for kernels deleted at phase 8; ACCEPTED by the owner on 2026-10-13 (6c Q1) |
+| R2 | §5.3, §5.6 item 8, §8.3 items 10-11 | the native lanes run the shared fragment: 61 law-4 cases over three lanes, 350 law-5 transfers (92/16 in the quick tier); tail acceptance rows 6 and 20 on the native lanes; the reference lane keeps 89/534 | engineer deviations 3-4, codex F3; link and install rows need 2-3 days of code outside the retained backend fragment (§4.6); ACCEPTED by the owner on 2026-10-13 (6c Q1); **Amended after 7 (2026-10-14)**, reason: retained backend fragment |
 | D1 | §5.5 | positions carry identities; the renaming operation, injective correspondence, separate descriptor equivalence and five negative controls; three distinct lanes asserted per case | engineer D1, codex F4, M11 and M12 survived, probe 4 |
 | R3 | §6.3, §7.2 | a closure or continuation in the free environment is refused on the native lanes both ways (`:free-env-value`), admitted by the carrier and the reference lane; nested values included | codex F1: no finite canonical form through the shared free environment; refuse, do not convert |
 | L1 | §7.1 | the lift from a de Bruijn kernel is `rows/lift-task` over `canonical-task`; the refusals it raises before serving | engineer deviation 2 |
@@ -2490,13 +2556,35 @@ wording is applied verbatim where a ruling says so.
 
 ---
 
+### 10.8 Amendments after phase 7 (2026-10-14)
+
+**Amended after 7 (2026-10-14)** — Reason: inventory the row custody, recovery and acceptance amendments against code.
+
+| # | Clause | What changed | Why |
+|---|---|---|---|
+| P1 | §2.5-2.6; tuples §5.5 | fork nil in every row; exclusive custody by kind, only five keys | owner fork ruling and `custody-baseline` |
+| P2 | §7.1 | header/enrollment checks follow walk/frame validation; retained serves survive retry | `lift-task` order, 7a D4 |
+| P3 | §7.2; tuples §5.4, §8-9 | three per-tree stages, custody once, then attach; grant uses pack address; install derivation checks | 7a/7b code and zero-attach law |
+| P4 | §7.2; UCF §7.7.4 | fenced lower; recovery format 2 with one pack and local metadata | no second snapshot, no runnable recovery |
+| P5 | tuples §7; §11 | sorted emission, pack/root identity split, same-root reordered equal variant | root-inclusive baseline; 7a D2 |
+| P6 | §8.4; UCF §7.11.1 | entry conditions met; Stage D/E port and remaining host gates distinguished | 7d report is JVM evidence only |
+| P7 | §11 | 6b Q3 closed; Q4 op-ids closed, correlation left open | implemented checks, no invented validation |
+| P8 | §4.6, §5.3; UCF §7.11 | canonical kernel and retained backends, documented fragment | owner ruling: kept after phase 8, not widened |
+
 ## 11. Owner questions
 
 Revisions 2-3 left none: the reviewer accepted the engine-less profile
 and rejected the merged-`E` free environment. **Revision 4 (after 6b)
 lists the design choices the merged code made that no ruling covers.**
-Each is stated as the code behaves today; none is decided by this
-document.
+Each is stated as the code behaves today; phase-7 closures below leave
+all other questions open.
+
+**Amended after 7 (2026-10-14)** — Reason: 7a D2 corrects the plan's equal-baseline variant claim.
+The baseline includes `:yin.k/root`. Re-emitting an id-counter change
+changes that root and is `:variant-conflict`. The equal-baseline encoding
+variant retains the same root with another row order. `emit` sorts rows;
+`decode` still accepts unsorted packs, so one root/one pack is an emission
+property, not a reader restriction.
 
 - **Q1, install children, the parked-child scenario.** The engine never
   retains an install child at a quiescent safepoint except `:blocked` at
@@ -2514,21 +2602,24 @@ document.
   only that `:yin.k/segments` equals the key set of `code`; a vector
   carried but referenced by no row is accepted and attached. Accept the
   narrower check, or require the recomputed census?
-- **Q3, install response verification.** The draft §5.4 asks the
-  receiver to verify that the install's link id equals `parent`, that
-  the image hashes to the address it is delivered under and is the image
-  the manifest names, and that format, contract and the child's profile
-  agree. `check-install!` verifies status, manifest name, export shape
-  and that the image loads; not the link id, not the image's address
-  against the manifest. Accept the narrower contract for phase 6, or
-  extend it before phase 7 (which re-bases the export-recovery object)?
-- **Q4, operation ids and correlation on lower.** The draft §8 step 8's
-  op-id rules (below `next-op-seq`, unique across the tree, absent
-  without origin) and its correlation agreement (cursor-cell stream,
-  envelope ids, module names) are not implemented; op-ids travel
-  verbatim, and pending compatibility is only P2's reason check. With
-  fork-only custody there is no `next-op-seq`; is this phase 7's with
-  the custody arm, or a 6-era gap to close?
+- **Amended after 7 (2026-10-14)** — Reason: 7b implements the owner-required install checks before attach.
+  **6b Q3, CLOSED as implemented: install response verification.**
+  `check-install!` verifies phase, response status, manifest module/export
+  shape, image admission and blocked child, then requires a non-nil parent
+  equal to response `:yin.link/id`. The manifest's semantic derivation
+  address must hash the response's derivation record; its input equals
+  the manifest tree and its output equals the image vector's A.
+  This verifies response self-consistency; binding to composition-known
+  content addresses remains the linker's fetch/admission responsibility.
+- **Amended after 7 (2026-10-14)** — Reason: 7a implements the op-id grammar; correlation checks remain narrower.
+  **6b Q4, CLOSED for operation ids; correlation agreement remains open.**
+  `custody-baseline` checks retained put/FFI-request/link-request ids
+  throughout the tree: exact sequences below next-op-seq, uniqueness,
+  origin required, and no id naming the root's own occurrence. Fork trees
+  refuse any id. Lower checks protection/enrollment in both directions
+  before attachment. The broader cursor-cell stream, envelope-id and module
+  correlation agreement promised by draft §8 is not implemented as a
+  general check; Q3's install-parent agreement is implemented.
 - **Q5, no re-discharge on lower.** Free names are discharged at lift
   only (§7.1); the lower checks carried segments, trees, store census,
   closures and primitives, and a name a closure resolves through the
@@ -2573,15 +2664,19 @@ numbered on their own, as 6c Q1-Q3, so the 6b numbering above stands.**
 - **6c Q1, the native-lane matrix scope (changes acceptance counts).
   ACCEPTED by the owner on 2026-10-13.** The de Bruijn lanes run the
   shared fragment: law 4 on 61 of the 89 cases, law 5 on 350 of the 534
-  transfers, tail acceptance on rows 6 and 20 only, because those
-  kernels die at phase 8 and the reference lane keeps the full matrix.
+  transfers, tail acceptance on rows 6 and 20 only.
+  **Amended after 7 (2026-10-14)** — Reason: the owner retains the backends after phase 8 on the same fragment.
+  The canonical lane keeps the full matrix; the retained backends keep
+  this fragment (§4.6).
   The owner confirmed the matrix of 61 law-4 cases and 350 law-5
   transfers as normative; §5.3 and §8.3 items 10-11 state it so.
 - **6c Q2, the retained-FFI seam (kernel edit, own slice). Open.** Land
   6c-post-D2, the four-line response-pair seam in both de Bruijn kernels
-  (§4.3; half a day, dies at phase 8), raising law 5 to 366 and 96 and
-  emptying `unlowerable`. Recommendation: only if the owner wants row 4
-  cross-engine before phase 8; otherwise skip.
+  (§4.3; half a day), raising law 5 to 366 and 96 and emptying
+  `unlowerable`.
+  **Amended after 7 (2026-10-14)** — Reason: kernel retention does not widen the fragment.
+  The question remains open; the phase-7 ruling retains the current
+  fragment, so these extra transfers are not acceptance claims.
 - **6c Q3, closures in the free environment (information; a decision
   only if the owner disagrees). Open.** Closures and continuations in
   the task-wide free environment are refused on the native lanes (§6.3,

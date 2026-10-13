@@ -380,19 +380,20 @@ site is an explicit park and an `:act` at an `:ffi-call` site or a
 Resource entries never appear in `:store`; streams and cursor cells lower into
 the receiver's private resource table beside the program store (linker
 M4, `yin.vm.linker.md` 7.3). `:module-store` rows are the per-module
-snapshots of §7.6.2's M4 paragraph. The parked table holds exactly the
-reachable records. An `:install` row carries the complete entry of
-§7.4.3 r5: phase `:running` or `:parked`, parent link id (nil where the
-contract permits), the response verbatim as structural data, and the
-child as a cref to a whole `:task` row in the child role. "Verified"
-means verified by the **receiver**, never trusted because it decodes:
+snapshots of §7.6.2's M4 paragraph. The parked table carries every
+parked record (continuation §2.5). An `:install` row carries the complete
+entry of
+§7.4.3 r5: phase `:running` or `:parked`, non-nil parent link id, the
+response verbatim as structural data, and the
+child as a cref to a whole `:task` row in the child role. The intended "verified" contract
+requires receiver verification, never trust merely because it decodes:
 the response's manifest names the module the row is keyed by, its link
 id equals `parent`, its image is well formed, hashes to the address it
 is delivered under, is the image the manifest names, and its format,
 contract and the child's profile agree (`yin.vm.linker.md` §5, §9;
 amendment §2). A failure is `:yin.k/undecodable` naming the row.
-**Amended after 6b (2026-10-13; continuation §5.2 B1, §7.2):** the
-merged lower (`rows/check-install!`) verifies, before any attachment:
+**Amended after 7 (2026-10-14)** — Reason: 7b enforces install link and manifest/image agreement at lower.
+The merged lower (`rows/check-install!`) verifies, before any attachment:
 the phase is one of `#{:running :parked}` (`:install-phase`); the
 response is a map with `:status :ok`, a `:manifest` whose
 `:yin.module/name` is the row's module and whose `:yin.module/exports`
@@ -401,9 +402,16 @@ receiving kernel's loader admits (`:install-response`); and the carried
 child task's kind is `:blocked` (`:install-child`), the only kind the
 engine retains at a safepoint (a halted or parked child is linked in the
 sweep it halts in, so phase `:running` is a wire phase the codec accepts
-but the engine never exposes at a safepoint). The link-id-equals-parent
-and image-address-equals-manifest checks of the paragraph above are
-**not** implemented (continuation §11 Q3).
+but the engine never exposes at a safepoint). Lower also requires
+non-nil `parent` equal to response `:yin.link/id` (`:install-link-id`).
+The response's `:derivation` record must hash to the manifest's
+`[:yin.module/derivations :yin.semantic/code]` address; its
+`:yin.ledger/input` must equal `:yin.module/tree` and its output must
+hash-identify the image's `:value` vector (`:install-image`). These are
+response self-consistency checks; the linker's source-index, fetch and
+admission path binds code and trees to composition-known addresses.
+A remains the only code identity and the Universal AST is never lost.
+No new resolver or independent claimed-image-address check is added.
 
 ### 5.5 The root
 
@@ -440,25 +448,27 @@ neither frames nor parked-id. Frames restore in carried order and are
 never collapsed to one; a task with an empty ready queue may hold several
 ordered waits.
 
+**Amended after 7 (2026-10-14)** — Reason: the owner chose nil forks and phase 7 restricts custody keys.
 `custody` is the custody arm carried as plain data, under the rules of
 §7.2.1 and amendment §3, by role, kind and policy:
 
 | role | kind | policy | `custody` |
 |---|---|---|---|
 | root | blocked / parked | exclusive | `{:yin.k/policy :yin.k/exclusive :yin.k/occurrence :yin.k/arbitration :yin.k/next-op-seq}` plus `:yin.k/origin` on every successor, absent on a first export |
-| root | blocked / parked | fork | `{:yin.k/policy :yin.k/fork}` |
+| root | blocked / parked | fork | nil |
 | root | halted | exclusive | `{:yin.k/origin …}` only: a result is not a lease subject |
 | root | halted | fork | nil: a fork halt has no custody data and a first fork halt has no origin to carry |
 | child | any | — | nil; validated with its root's occurrence, origin and counter passed down |
 
-The explicit fork policy spelling projects onto the amendment's
-empty-header fork representation: a fork root proposes nothing and is
-never upgraded to custody; an exclusive-only receiver refuses it as
-`:yin.k/profile-mismatch`. Admission semantics are the governing ones
-unchanged; only the spelling is new. No body carries an epoch.
+Fork custody is nil in every row; it proposes nothing and is never
+upgraded to custody. An exclusive-only receiver refuses a fork as
+`:yin.k/profile-mismatch`. The slot admits only `:yin.k/policy`,
+`:yin.k/occurrence`, `:yin.k/arbitration`, `:yin.k/next-op-seq` and
+`:yin.k/origin`. No current lease, epoch or holder enters a body;
+origin's predecessor lease is lineage evidence.
 
 The root is a content row and **its id is the transported state's
-address**, the `B` of UCF §7.3.4 for this carrier. Occurrence and origin
+semantic identity**, the `B` of UCF §7.3.4 for this carrier. Occurrence and origin
 are inside it, as the governing rule keeps them (§10.1). The code map is
 plain data in the root rather than a row kind: each instruction vector
 keeps its own address `A` computed exactly as UCF §7.3.2 computes it, and
@@ -687,22 +697,23 @@ reference per cursor cell keeps its own (UCF §7.5.3).
 
 ## 7. Equality and the content address
 
-The transported state is a DAG rooted at the `:task` row. Its address is
-the root id, which commits to every reachable content row, to every cursor cell
-id through the references, and to every cursor cell's contents through the
-census. Two transported states are equal iff their root ids are equal,
-and under §6 that holds iff they were lifted from states equal up to the
-renaming of cursor-cell ids that §6 makes canonical. No physical enumeration of
-the row set needs an order, because the root commits to everything and
-the pack, if one is addressed, has its own canonical encoding (§10.2).
-Jing supplies canonical bytes and the digest of each body; this document
-supplies the order within each body and the numbering of cursor cells. Jing is
-asked to sort nothing it does not already sort.
+**Amended after 7 (2026-10-14)** — Reason: content stores verify the whole pack's bytes, not the root row's hash.
+The transported state is a DAG rooted at the `:task` row. The root id
+commits to reachable content and cursor-cell contents through the census;
+equal root ids express semantic equality under §6's canonical numbering.
+The **pack address** is BLAKE3 of the canonical CBOR bytes of the whole
+pack. It is the content-store key, ledger `:yin.k/id`, grant checkpoint,
+offer variant id and report `:yin.k/result`; it differs from the root id.
+The baseline records the root as `:yin.k/root`.
 
-Occurrence and origin are inside the hash, as in versions 1 and 2 where
-the body address is the hash of the whole body. Snapshot variants of one
-occurrence may therefore have distinct addresses while remaining one
-occurrence, exactly as UCF §7.3.4 intends.
+`emit` sorts `:yin.k/rows` by the string of each row id, so canonical
+emission yields one pack for one root on each host. `decode` still
+accepts other row orders. Reversing rows therefore gives another pack
+address with the same root and baseline; re-emitting an id-counter change
+changes the root and is `:variant-conflict` (7a D2). Occurrence and origin
+remain inside the root's hash. The holder stores the whole pack as one
+object, after recovery format 2 and before journaling the fence; it does
+not store rows separately.
 
 ## 8. Validation on lower
 
@@ -800,15 +811,15 @@ one attachment. The order follows amendment §8 and is binding:
     operation inspector and admission checks of §7.7.8; an authority
     never adds missing header keys.
 
-**Amended after 6b (2026-10-13; continuation §7.2).** The merged
-`rows/lower-task` runs steps 8-10 as four stages, **each over the whole
-task tree before the next, and all before the first attachment** (step
-11): (a) stores: no reserved name keys the root store or a module store
+**Amended after 7 (2026-10-14)** — Reason: phase 7 runs custody once after three per-tree stages.
+`rows/lower-task` runs stores, pendings/install records and dependencies
+**each over the whole task tree before the next**, then custody once for
+the tree, all before the first attachment (step 11): (a) stores: no reserved name keys the root store or a module store
 (`:yin.k/undecodable :reserved-name`); (b) pendings and install
 records: role, every `:install` pending names a carried install, kind
 consistency, parked id, every install record as §5.4 as amended
 (`:role :incomplete-install :kind :parked-id :install-phase
-:install-response :install-child`); (c) dependencies: `requires`'
+:install-response :install-link-id :install-image :install-child`); (c) dependencies: `requires`'
 `:yin.k/segments` equals `code`'s key set (`:requires`), every segment
 has a non-empty `:yin.k/trees` entry, every `store-of` of this task's
 closures and environments names one of **this task's** module-store
@@ -816,10 +827,15 @@ rows (`:yin.k/unsatisfied`, `:yin.k/missing {:yin.k/stores …}`), every
 vector attaches in the receiving kernel under its A (`:segment`), every
 closure row names a closure tuple of its vector with the same binders
 (`:closure-origin`, `:closure-binders`), every `:prim` is the receiver's
-(`:yin.k/unsatisfied`); (d) custody: nil only (`:yin.k/unsupported
-:custody`). Of step 8's text, the op-id rules and the correlation
-agreement are not implemented (fork-only custody has no `next-op-seq`;
-continuation §11 Q4); of step 9's, the census is not recomputed from the
+(`:yin.k/unsatisfied`); (d) custody: `custody-baseline` validates the
+slot and op-ids across the tree, refusing fork ids, missing origin,
+self-occurrence, out-of-range sequences and duplicates. A fork under
+`:exclusive` refuses; halted exclusive needs no grant; blocked/parked
+exclusive checks grant evidence, the pack checkpoint, binding, tenure,
+input prefix and protection/enrollment in both directions before attach.
+`:fenced` skips grant/protection and restores exporting state (§9).
+The broader correlation agreement remains unimplemented
+(continuation §11 Q4); of step 9's, the census is not recomputed from the
 rows (continuation §11 Q2), and `requires` beyond segments, trees and
 primitives (modules, streams, cursor profiles) is not evaluated on
 lower; free names are discharged at lift only (continuation §7.1).
@@ -856,11 +872,31 @@ environment, the walk (which fixes the segments, contexts and module
 stores), code, the per-context dependency closure over live code, tree
 coverage from the composition's `:source-index`, frame validation of
 the assembled task, then canonical numbering and emit; the slice is the
-whole root store and every parked record; custody is nil. The nested carrier's value table
+whole root store and every parked record.
+
+**Amended after 7 (2026-10-14)** — Reason: phase 7 adds the header and custody checks after frame validation.
+`:header` nil means fork; otherwise enrollment remains local and the root
+slot is written by kind after exhaustion/protection checks. The lift then
+runs `custody-baseline` for the tree and emits sorted rows (§7). It can
+serve streams during the walk before a custody refusal; the holder
+retains successful answers for retries. The nested carrier's value table
 (`:yin.k/values`) has no counterpart, sharing being Merkle; its cursor cell
 table becomes the census.
 
 **Lower**: §8 in order, then restore.
+
+**Amended after 7 (2026-10-14)** — Reason: format-2 recovery uses an administrative fenced lower.
+`rows/lower-task {:fenced true}` runs the carrier checks and custody
+grammar before attach, skips grant/protection, then gates every task
+`:exporting`. Waits and all parked records move to
+`:yin.k/recovery-waits` and `:yin.k/recovery-parked`, outside the scheduler;
+the id counter is the carried value exactly and
+`:yin.k/recovery-cell-ids` retains resource-key/cursor-cell associations.
+Child spawning disables stream construction and initializes nothing.
+The recovery reader checks its local header and `:yin.k/state` against
+the pack before lower, extracts the export record, and requires identical
+re-encoded pack bytes. It restores no tenure or runnable gate and refuses
+abort after restart. Ordinary resume still adopts `max(local, carried)`.
 
 The laws, with the domains the Architect's finding 12 requires:
 
