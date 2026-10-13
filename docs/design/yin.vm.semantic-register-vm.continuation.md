@@ -43,7 +43,24 @@ the owner has not ruled on. Sources: the engineer report
 `collab/1792270000000-engineer-6b-task-transport.report.md` (design bugs
 B1-B4, deviations 1-10) and the three codex reviews
 (`collab/1792280000000-…`, `1792300000000-…`, `1792320000000-…`). The
-frozen document is not changed by this one.
+frozen document is not changed by this one. **Revision 5 (2026-10-13,
+Architect: claude-fable-5-1)** amends the text after slice 6c merged
+(`781a9ba8`: `47ddb1d9` plus the fix round `dc545aaa`, `30730c51`), so
+that §§4.1-4.3, 5.2, 5.3, 5.5, 5.6, 6.3, 7, 8.3, 8.5, 9 state what
+`src/cljc/yin/vm/semantic_register/layout.cljc` (`segment`, `space`,
+`phys`, `virt`, `lift-state`, `lower-state`, `canonical-task`,
+`kernel-task`, `lower-defect`, `lift-task`, `lower-task`) and the 6c
+tests (`layout_test.cljc`, the harness's cross-engine lanes,
+`store_write_audit_test.clj`) do; every amended clause is marked
+"**Amended after 6c (2026-10-13)**" with what changed and why, §10.7
+inventories them, and §11 gains the three questions slice 6c left for
+the owner, one of them answered. Sources: the
+engineer report `collab/1792340000000-engineer-6c-layouts.report.md`
+(deviations 1-8, design defects D1-D5), the codex review
+`collab/1792350000000-review-6c-layouts.gpt-6.1-sol.findings.md` (F1-F6,
+D1-D5) and the Architect's rulings
+`collab/1792360000000-architect-6c-rulings.report.md` (R1-R6), whose
+wording is applied verbatim where it says so.
 Subordinate to [`datom.world.md`](./datom.world.md), including its
 unitarity invariant, and to
 [`yin.vm.semantic-register-vm.md`](./yin.vm.semantic-register-vm.md)
@@ -523,6 +540,37 @@ canonical frames: the de Bruijn register kernel over `R(A)` and the de
 Bruijn stack kernel over `H(A)` (phase 5). The AST walker is not (frozen
 §10 phase 6 names the three kernels; the walker has no pc).
 
+**Amended after 6c (2026-10-13), identity under image collision (R1,
+replacing codex's F2 amendment).** A is the code identity even when
+distinct A derive identical H or R. Native-image hashes remain checksums
+and must not select a source segment. The de Bruijn kernels' offset
+tables carry only the image checksum and refuse a second attach of a
+known checksum, so a de Bruijn kernel cannot hold two segments of one
+image. Until phase 8 removes those kernels, a de Bruijn receiver refuses
+a carried task whose code holds two A of one image before any stream is
+attached (`:yin.k/unsupported :ambiguous-image`), and a de Bruijn source
+whose space resolves one image to several A refuses the lift
+(`:yin.k/non-portable :ambiguous-image`); no enumeration order selects
+an A. The semantic-register kernel keys code by A and holds
+alpha-equivalent segments side by side; this limit is the native
+kernels', not the carrier's. *What the code does:* `layout/space`
+indexes segments by A and, as checksums, by `:register-id` and
+`:stack-id`; `image-segment` refuses `:yin.k/non-portable
+:ambiguous-image {:yin.k/image ident}` when an identity names more than
+one A and `:unknown-image` when it names none, so a lift that resolves a
+kernel pc, a return pc or a positional closure's body pc through a
+collided image refuses inside `canonical-task`, before `rows/lift-task`
+serves anything. `lower-defect`'s first clause (`image-collision`)
+derives the receiver's image for every carried vector and refuses
+`:yin.k/unsupported :ambiguous-image {:yin.k/image ident :yin.k/segments
+#{A …}}` for the first identity two A share (identities ordered by their
+printed form), before `rows/lower-task` and before any attach. *Why:*
+codex F2 showed `(fn [x] x)` and `(fn [y] y)` have distinct A and one R
+and one H; editing both kernels' offset tables for a phase-8 deletion
+was not worth a slice. Tested by
+`layout-test/alpha-equivalent-segments`, including the reference-lane
+survivor round trip (laws 1 and 2 over both closures).
+
 **PROPOSED** namespace `yin.vm.semantic-register.layout`, file
 `src/cljc/yin/vm/semantic_register/layout.cljc`, requiring
 `yin.vm.semantic-register.code`, `.analysis`, `.derive` (phase 5),
@@ -530,7 +578,27 @@ Bruijn stack kernel over `H(A)` (phase 5). The AST walker is not (frozen
 the two kernels' public state. Public: `register-layout`,
 `stack-layout` (static, per segment), `lift-act`, `lift-tail`,
 `lower-act`, `lower-tail` (per kernel, dispatching on the kernel's
-`link-format`).
+`link-format`). **Amended after 6c (2026-10-13), the public API as
+landed (engineer deviation 1, codex: acceptable).** The namespace and
+file are as proposed; the requires are `dao.jing`,
+`yin.vm.debruijn-code`, `yin.vm.debruijn-register-code`, the two kernels
+(`yin.vm.debruijn.register`, `yin.vm.debruijn.stack`), `yin.vm`,
+`yin.vm.engine`, `yin.vm.module`, `.analysis`, `.code`, `.derive`,
+`yin.vm.ucf.rows` and `yin.vm.values`; `yin.vm.debruijn` is not
+required (the chain is read from A's `:closure` owners, not through
+`resolve-name`). The static half is `segment` (one map per A: `:pairs`,
+`:phys`, `:a->h`, `:h->a`, `:layouts`, `:register`, `:stack`, the two
+image ids), `space`, `segment-of`, `register-pairs`, `correspondence`,
+`phys`, `virt`, `live-out`, `register-live`, `stack-layout`, `chain`,
+`env-of`, `frames-of`, `slices`, `offset`, `kernel-kind`. The dynamic
+half is one dispatching function each way, `lift-state` and
+`lower-state` (contexts from `lift-context` and `lower-context`), with
+the `act` and `tail` algorithms separate inside; `canonical-value` and
+`positional-value` convert closures and continuations through guest
+collections. The task level is `canonical-task`, `kernel-task`,
+`attach-space`, `machine-space`, `lower-defect`, `lift-task` and
+`lower-task` (§7). *Why:* one entry per direction keeps the kernel
+dispatch in one place; the algorithms of §4.2-4.3 are unchanged.
 
 ### 4.2 The register kernel's layout
 
@@ -619,6 +687,54 @@ them from the popped frame, `register.cljc:461-468`; the harness checks
 that the values chosen here are never observable, §5.6 item 8);
 `:continuation` as for `act`. The register kernel already supports this
 delivery (`:return-result`, `register.cljc:458-468`).
+
+**Amended after 6c (2026-10-13), the unique-preimage rule for `virt`
+(codex D3, adopted verbatim by R5).** At a reachable boundary, virt
+first considers preimages in live-out*. Exactly one is returned. If
+there are none, it may return the body's sole named virtual preimage,
+solely to reconstruct a tampered window for validation. Zero or
+multiple such preimages, or multiple live preimages, are refused as
+:yin.k/non-portable :register-layout; no enumeration order selects a
+preimage. The harness checks an ambiguous dead physical slot is
+refused, a unique dead slot yields :window-extra through the frame
+validator, and a missing live slot yields :window-missing. *What the
+code does:* `layout/virt` filters the body's `phys` map for `s` over
+the sorted `live-out*` set, answers the one live preimage, else the one
+named preimage when no live one exists, else refuses with `{:yin.k/pc p
+:yin.k/register s}`. *Why:* the restricted inverse of the paragraph
+above left a tampered-upward `live` with no reconstruction at all
+(engineer deviation 7), and codex's M9 (take the first of several
+preimages) survived the suite until `harness/layout-refusals` pinned
+the ambiguous case over C's reused slots (§8.3 item 12). The fallback
+is a diagnostic extension, not a layout claim, and lives only until
+phase 8.
+
+**Amended after 6c (2026-10-13), primitives in the register kernel's
+payload (codex D4, adopted verbatim by R6).** A primitive function is
+an admitted carrier value (:prim). The current de Bruijn register
+kernel cannot restore a primitive function reachable through its saved
+register or lexical-frame payload, including nested guest collections,
+closure captures and reified continuation state. Lowering a task with
+such a wait or parked-state payload into that kernel refuses
+:yin.k/unsupported :continuation-registers, with the payload path,
+before stream attachment. This restriction does not prohibit
+primitives in the task-wide free environment or in carrier values a
+kernel can otherwise hold. Cross-engine acceptance explicitly records
+unsupported payload cases; expanding this receiver domain requires a
+separate kernel seam. *What the code does:* `lower-defect`'s register
+clause (`state-prim` over every `:wait` row's state, path `[:frames i
+…]`, then every parked-table state, path `[:parked P …]`) finds the
+first `:prim` row reachable through a window (`… :window r`), a lexical
+binding of an `:env` (`… :env sym`, only the names the chain binds at
+that pc; the free part of `E` is the kernel's `:free-env` and is
+exempt), a closure's lexical bindings (`… :env sym …`), a reified
+state's act, and the elements of `:vec`, `:list`, `:set` and `:map`
+rows (index appended). The stack kernel has no such limit and holds
+the same carriers (`harness/layout-refusals` runs each refused program
+into the stack lane and checks the reference value). *Why:* the register
+kernel's restore refuses primitives in registers (`vm/machine-data?`,
+`:continuation-registers`); the refusal belongs before attachment and
+in the layout, not in the carrier (engineer deviation 8).
 
 ### 4.3 The stack kernel's layout
 
@@ -742,6 +858,48 @@ contributes no slice); the `:frames`/`:store-of` values are unobservable
 item 8). File:
 `src/cljc/yin/vm/debruijn/stack.cljc` (not a 4b or phase-5 file); the
 register kernel needs no change.
+
+**Amended after 6c (2026-10-13), the seam has landed; what the code
+does for a tail.** 6c-pre merged (`296f75fd`,
+`stack_tail_completion_test.cljc`); the paragraph above is now a reading
+of code. `lower-state` for a canonical `tail` into the stack kernel emits
+`{:pc (+ off (a->h site) 1) :resume-mode :return-result :stack (the K
+slices, in order) :frames (get fill :frames []) :continuation …}`, with
+`:store-of` only when `fill` names one; into the register kernel `{:site-pc
+(+ off site) :pc (+ off site 1) :regs [] :live [] :dest nil :resume-mode
+:return-result :frames (get fill :frames [])}` likewise. The lift of a
+stack entry decides `tail?` by `(code/tail-call? (inst seg site))` at the
+A site, the register lift by the entry's `:resume-mode`;
+`layout-test/tail-lowering-is-unobservable` lowers rows 6 and 20 into
+both kernels with `[]`/nil and with junk `:frames`/`:store-of` and sees
+equal observables (§5.6 item 8, four cases). *Why:* the seam was a
+specification when this section was written; it is now code, and the
+layout's tail shapes are stated as emitted.
+
+**Amended after 6c (2026-10-13), the retained-FFI response-pair seam
+(codex D2, accepted by R6 as a seam specification; the last sentence is
+R2's).** On completion of a retained FFI request, each de Bruijn kernel
+preserves the carried response cursor and response stream when
+constructing the response wait. If both are present, response-wait-entry
+is overridden with cursor-ref {:type :cursor-ref :id response-cursor}
+and stream-id response-stream. A partial carried pair is rejected; the
+kernel's composition-owned response pair is used only for entries that
+carry neither field. Response decoding precedes delivery, including tail
+delivery. Row 4 must continue on all six ordered engine pairs with the
+receiving composition's call pair distinct from the source's pair. This
+seam is slice 6c-post-D2, a kernel edit of its own, gated by the owner;
+it is not a prerequisite of 6c. When it lands, `unlowerable` is emptied
+and the law-5 counts rise to 366 and 96. *What the code does today:*
+both kernels' `:request-sent` re-park builds `ffi/response-wait-entry`
+over the composition's own call pair (`register.cljc:508-514`,
+`stack.cljc:564-570`), so a carried row 4 never wakes on a de Bruijn
+receiver (codex probe 3 reproduced it on all four such pairs); the
+harness's `unlowerable` set `#{[4 :stack] [4 :register]}` keeps those
+transfers out of law 5 (§5.3). The semantic-register kernel's
+`register-restore` already honours the carried pair
+(`semantic_register.cljc:105-111`). *Why:* phase 6 edits no kernel but
+6c-pre's one seam (§8.5); this second seam is cheap but dies at phase 8
+with the kernels, so it is the owner's call (§11, 6c Q2).
 
 ### 4.4 Positional lexical frames, the free environment and `E`
 
@@ -870,6 +1028,22 @@ adds three (`nest`'s applications, each with two values, `cat` and
 `(f :arg)`). A row's own `let1`s add theirs. Row 20 alone runs outside
 the wrappers.
 
+**Amended after 6c (2026-10-13), row 21's expectation on every lane
+(codex D5, accepted verbatim by R6).** Under :depth-3, the closure
+captures the innermost wrapper binding x = 1; the task's free-env
+retains x = 99. The blocked read's E therefore binds x to 1, and all
+three lanes agree on that lexical result. The bare row tests the free
+binding 99. This wrapper-induced lexical capture is intentional and is
+pinned separately from free-environment preservation. *What the code
+does:* `layout-test/env-reconstruction`'s row-21 clause lifts the bare
+row on all three lanes (`free-env-world`) and asserts `(get-in p [:env
+'x])` is `1` and the machine's `:free-env` is `{x 99}`; its matrix clause
+compares every `E` of every lane case (61 cases plus the three B2 env
+programs, times two de Bruijn lanes: 128 comparisons) with the reference
+lane's. *Why:* B2 was carried from 6b and the cross-engine lanes could
+have hidden a lane that agreed on the free binding but not the lexical
+one; no production change.
+
 Programs use `v2_support`'s AST helpers (`v2_support.cljc:56-104`:
 `lit v lam app def! then cursor-of next-of let1`) and the four segments
 of the old harness (`safepoint_harness_test.cljc:92-106`: `:bare`,
@@ -978,6 +1152,40 @@ through `dvm/create-vm`/`rvm/create-vm`, run to the safepoint and lift
 through `layout/lift-act`/`lift-tail`; the stack lane's tail rows (6,
 9, 12, 20) require the seam of §4.3 and are gated on 6c-pre.
 
+**Amended after 6c (2026-10-13), the shared fragment (R2; count
+amendment ACCEPTED by the owner on 2026-10-13, §11 6c Q1).** The de
+Bruijn lanes execute the shared fragment of the matrix: rows 1-6, 13-16,
+18-19, 21-22 and 24 under the four wrappers, and row 20. Rows 7-12 and
+17 are not built on them: a de Bruijn kernel links a native image while
+module responses carry A, and §4 defines no layout for install children.
+Row 4 is lifted from a de Bruijn source but not lowered into a de Bruijn
+receiver until the retained-FFI seam (§4, 6c-post-D2) lands: the
+kernel's re-park names its own call pair. These lanes are a cross-engine
+check of the canonical frame and are removed with their kernels at phase
+8; the reference lane runs the whole matrix. *What the code does:* the
+harness's `*lane*` (`:semantic-register`, `:stack`, `:register`) selects
+the kernel `machine` builds; `load-program` on a de Bruijn lane attaches
+`v`'s derived image beside what the kernel holds and starts it at the
+image's offset (`kernel-load`), so parked records keep naming their
+rows; `lane-lift` is `rows/lift-task` on the reference lane and
+`layout/lift-task` over the world's `kernel-space` otherwise;
+`lane-lower` is `rows/lower-task` or `layout/lower-task` with a fresh
+scratch machine. `link-rows` is `#{7 8 9 10 11 12 17}`, `lane-cases`
+filters `matrix-cases` by it (61 cases), `unlowerable` is `#{[4 :stack]
+[4 :register]}`. Every world's layout lookups run inside `scoped`: a
+`binding`-scoped atom `*projected*` records the vectors that world
+projected and `kernel-space` reads that set, so an alpha-equivalent A an
+unrelated fixture projected widens no lookup; `kernel-space` throws when
+unbound, and only `file-wide` reads the whole file's `code-index`, in
+the one fixture that shows the contamination (§8.3 item 14). *Why:*
+link rows need the harness to answer a `require` in
+the kernel's own format (H or R) while module responses carry A, install
+children are whole kernels the layout would lift and lower recursively,
+and the retained-FFI re-park is a kernel edit (§4.3); 2-3 days of
+harness and layout code for kernels deleted at phase 8 was not worth
+it (R2). The sentence above on `lift-act`/`lift-tail` is superseded by
+§4.1: the lift is `lift-state`, dispatching on the kernel's kind.
+
 ### 5.4 Laws
 
 1. **Reference parity**: result and effect trace of the lowered,
@@ -1033,6 +1241,49 @@ enumeration order, so
 a permutation of the erased identities cannot change the result once
 the markers are substituted. It is never used outside the harness.
 
+**Amended after 6c (2026-10-13), positions carry identities and what
+`canonical-under` may erase (codex D1, accepted verbatim by R4;
+replacing the claim above that after marker substitution the
+procedure's inputs no longer depend on any lane's identities).** A
+cursor position may contain a stream identity. The fixture supplies an
+explicit, injective logical-stream correspondence and a
+transport-specific position renaming operation. That operation replaces
+only identity-bearing fields, preserves every nonidentity field
+including offsets, and rejects missing coverage or disagreement with the
+cursor body's stream. Stream descriptors must be shown equivalent under
+the same correspondence before comparison; replacing a whole descriptor
+with a logical name alone does not prove equivalence. After these
+checks, canonical-under re-emits and renumbers the task. The harness
+includes negative controls proving that a changed position offset,
+descriptor nonidentity field, saved value or lexical value changes the
+compared state, and asserts exactly the three distinct kernel lanes for
+every law-4 case. *What the code does:* `canonical-under` erases exactly
+one thing, a stream marker's identity and descriptor, replaced by the
+logical name (`rows.cljc:971-974`); a `dao.stream.ringbuffer` cursor
+position embeds its stream's identity, which that erasure does not
+reach. The harness's `logical-positions` rewrites only
+`:dao.stream.ringbuffer/identity` inside each `:cursor-cell-body`'s
+position under `ring-names` (resource key per stream identity) and keeps
+every other field, the offset included; `logical-names` (served identity
+to resource key) and `ring-names` both pass through `injective`, which
+throws `{:law-4 :injective}` when two identities share a name;
+`task-root` asserts that no lane identity survives in the emitted rows;
+`logical-descriptors` renames the identities inside each stream's
+`stream/descriptor` under the same correspondence and
+`canonical-equality` throws `{:law-4 :descriptors}` unless the three
+lanes' maps are equal; `canonical-equality` asserts `(= 3 (count
+roots))` and `(= [:semantic-register :stack :register] (mapv :lane
+roots))` for every case. `harness/law-4-controls` (quick tier, row 1
+bare) pins: a cursor position's offset incremented on one lane changes
+the root; a stream only the register lane holds fails with
+`:descriptors`; two served identities under one logical name fail with
+`:injective`; a saved window value and a lexical value replaced on one
+lane each change the root. *Why:* codex M11 (compare one lane) and M12
+(replace every position by a constant) survived the suite, and probe 4
+showed a descriptor field added on one lane was invisible to
+`canonical-under`; the erasure is design-sanctioned and stays, and what
+it cannot prove the harness proves separately (R4).
+
 ### 5.6 Static checks the harness runs once per corpus segment
 
 1. `frame/defect` on every frame the reference lane mints: nil.
@@ -1058,7 +1309,10 @@ the markers are substituted. It is never used outside the harness.
    `:duplicate-param`.
 8. Tail lowering: the `:frames`/`:store-of` chosen for a lowered `tail`
    entry are unobservable: lowering with `[]`/`nil` and with arbitrary
-   values gives equal observables on rows 6, 9, 12, 20.
+   values gives equal observables on rows 6, 9, 12, 20. **Amended after
+   6c (2026-10-13)**, R2: rows 6 and 20 on the native lanes (four cases,
+   `layout-test/tail-lowering-is-unobservable`); rows 9 and 12 are link
+   rows and run on the reference lane only (§5.3).
 9. Slices: for every non-tail safepoint with `m` return frames, the
    `m+1` slices of §4.3 partition the stack kernel's operand stack
    exactly, and each has the length of its `stack-layout`.
@@ -1153,6 +1407,42 @@ Merkle sharing means every `E` whose bindings equal another's shares one
 `:bindings` row; the root slot is one more reference to a row that
 usually already exists.
 
+**Amended after 6c (2026-10-13), closures and continuations in the free
+environment on the native lanes (R3).** A de Bruijn kernel resolves free
+names through its single `free-env` while a canonical closure snapshots
+its `env`; a closure or continuation held in the free environment
+therefore has no finite canonical form on a de Bruijn kernel. Until
+phase 8, a de Bruijn receiver refuses such a value in the carried
+`free-env` before attach (`:yin.k/unsupported :free-env-value`, with the
+path), and a de Bruijn source refuses it at lift before serving. The
+carrier and the semantic-register kernel admit it. *What the code does:*
+`lower-defect`'s third clause (`free-env-procedure`) walks the root's
+`free-env` bindings row in its sorted order and the `:vec`, `:list`,
+`:set` and `:map` rows under each value, and refuses the first
+`:closure` or `:reified` row it reaches with `:yin.k/path [:free-env sym
+…]` (indices appended through collections, e.g. `[:free-env box 1 0]`);
+`canonical-task` refuses `:yin.k/non-portable :free-env-value
+{:yin.k/key sym}` for the first key, in `str` order, whose value is or
+holds a closure or continuation (`holds-procedure?`), before any stream
+is served; every other free-environment value, primitives, data and
+cursor references included, is copied as it is in both directions
+(`walk-value` converts only closures and continuations). Tested by
+`layout-test/free-env-values` (codex probe 2 as a fixture: the reference
+lane answers `"B"`, `handed-off` on the reference lane answers `"B"`,
+both native receivers refuse with path `[:free-env f]` and zero
+attaches, both native sources refuse with key `f` and zero serves) and
+`layout-test/free-env-nested-values` (a closure and a continuation one
+vector or map deep under `box` refuse both ways with the nested path or
+the key `box`; a primitive and an authentic cursor reference under the
+same nesting cross both ways and are used through the collection).
+*Why:* codex F1 showed a carried canonical closure in `free-env` left in
+canonical shape in the receiving kernel and a NullPointerException on
+invocation; conversion on lower would be sound only under an E2-like
+agreement condition the validator does not check (E2 checks frame
+environments, never a closure value's `env`), and conversion on lift is
+undefined because the canonical closure would contain itself through
+the shared free environment; refuse, do not convert (R3; §11 6c Q3).
+
 ---
 
 ## 7. Lift and lower
@@ -1173,6 +1463,35 @@ environment (from the kernel's `:free-env` field or the lift's explicit
 install children; run `frame/defect` over every
 frame; emit rows and the census. A de Bruijn source walks the frames
 `layout/lift-act`/`lift-tail` reconstruct.
+
+**Amended after 6c (2026-10-13), the lift from a de Bruijn kernel as
+`layout/lift-task` runs it (engineer deviation 2, codex: acceptable).**
+A de Bruijn source is not walked by a second lift: `layout/lift-task k
+space template serve! opts` is `(rows/lift-task (canonical-task k space
+template) serve! opts)`, where `canonical-task` presents the quiescent
+kernel as a semantic-register machine built on `template` (a fresh
+machine of the kernel's composition), so the ten steps below run
+unchanged over it. `canonical-task`, in order: refuses
+`:yin.k/not-at-safepoint` when the kernel has an active continuation;
+refuses `:yin.k/unsupported :installs` when it holds install children;
+refuses `:yin.k/non-portable :free-env-value` for a closure or
+continuation in its `:free-env` (§6.3); then, under a lift context
+(`:kind` by `kernel-kind`, the kernel, the space, the kernel's
+`:free-env`, the template's owner), sets `:code` to `{A {:vector :address
+:analysis}}` over the space's segments with identity aliases, converts
+the store, the module stores and the value through `canonical-value`,
+each parked record through `lift-state` (typed `:parked-continuation`
+with its id) and each wait entry through `lift-state`, and carries
+`:resources`, `:capability-secret`, `:free-env` (also as `:env`),
+`:ready-queue`, `:id-counter`, `:halted?` and `:blocked?`. Any
+`:yin.k/non-portable :ambiguous-image` or `:unknown-image` of
+`image-segment` (§4.1), `:not-at-safepoint` of `safepoint!`,
+`:register-layout` of `virt` (§4.2), `:stack-layout`, `:stack-base`,
+`:frame-depth`, `:closure-origin` or `:closure-binders` is raised here,
+before `rows/lift-task` serves anything; the tests that pin
+`:ambiguous-image`, `:free-env-value` and `:not-at-safepoint` assert
+zero serves. *Why:* one carrier, one lift; the layout only
+reconstructs.
 
 **Amended after 6b (2026-10-13): the order as `lift-task*` runs it (B4),
 and the discharge rule.** The paragraph above put the dependency closure
@@ -1261,6 +1580,54 @@ pending's engine fields, `lower-frame!`'s shapes, `handoff.cljc:3182-3246`,
 `:free-env`, and `layout/lower-act`/`lower-tail` each frame (the stack
 lane's `tail` needs 6c-pre). Restoration delivers nothing, runs nothing,
 mints nothing.
+
+**Amended after 6c (2026-10-13), the lower into a de Bruijn kernel as
+`layout/lower-task` runs it (engineer deviation 2, codex: acceptable;
+D4 by R6).** `layout/lower-task scratch k wire attach! opts`, in order:
+(i) `rows/decode` of the wire under the budget (steps 1-7 of the
+carrier); (ii) `lower-defect` on the decoded task, judged by the
+receiver's `kernel-kind`, **before any attach**, thrown as the carrier's
+refusals are; (iii) `rows/lower-task` of the same wire into `scratch`, a
+fresh semantic-register machine of the same composition (the carrier's
+stages, attachment and restore, §7.2 above, unchanged); (iv)
+`kernel-task` of the restored machine into `k`. `lower-defect`'s clauses
+run in this order and the first that holds is the refusal: two carried A
+whose vectors derive one image of the receiver's kind,
+`:yin.k/unsupported :ambiguous-image {:yin.k/image ident :yin.k/segments
+#{A …}}` (§4.1; a vector that derives no image is left to the carrier's
+own checks); install children, `:yin.k/unsupported :installs`; a closure
+or continuation in the free environment, `:yin.k/unsupported
+:free-env-value {:yin.k/path …}` (§6.3); and, for the register kernel
+only, a `:prim` row reachable through a wait's or a parked state's
+window, lexical binding, closure capture, reified state or guest
+collection, `:yin.k/unsupported :continuation-registers {:yin.k/path
+…}` (§4.2). A primitive function is an admitted carrier value (`:prim`);
+the restriction is the register kernel's, not the carrier's, and does not
+reach the free environment. `kernel-task` then builds the receiver: the
+space of the machine's vectors (`machine-space`, with the map from the
+scratch machine's segment ids to A), every image derived and attached in
+A order (`attach-space`: `stack/attach-image` under `vm/stack-contract`
+or `register/attach-image` under `vm/register-contract`), and under a
+lower context over that space the store, module stores, parked records
+(`lower-state`, typed `:parked-continuation`), wait entries
+(`lower-state`) and the value converted through `positional-value`; the
+free environment set as `:free-env`; `:resources`, `:id-counter`,
+`:halted?` and `:blocked?` carried, `:ready-queue` empty. It delivers
+nothing and runs nothing. The scratch machine's `:env` and
+`:capability-secret` are not read: refs verify only when the scratch
+receiver and the kernel share a composition, which the harness
+guarantees and a production caller must. The two `assoc` sites of
+`canonical-task` and `kernel-task` are on the store-write audit's
+allowlist (`store_write_audit_test.clj`) with the reason of
+`rows/restore-task`'s entry: both copy a store whose every key already
+passed the one program-write gate and convert values only, so routing
+them through `store-put` would re-check what the carrier's step checked.
+*Why:* restoring through the carrier's own `lower-task` reuses its
+twelve steps and every validation rather than writing a second restore
+(engineer deviation 2); the defects a kernel cannot hold must be named
+before the first `attach!`, as every carrier defect is (§7.2 above;
+codex M8, which moved `lower-defect` after `rows/lower-task`, is killed
+by the attach-count assertions).
 
 **Amended after 6b (2026-10-13): the lower's staged checks as
 `lower-task` runs them, and its refusal kinds.** Steps 1-7 are `decode`
@@ -1541,7 +1908,12 @@ lanes added to the 6b harness file. **Depends on:** 5a, 5b (`derive`),
    (let1 c (cursor-of s) …))` around it (the stream is made inside the
    program, as every row does: that is this fixture's chosen setup. A
    primitive `cat` supplied in the free environment would sit in a live
-   slot and is no carrier value, `:continuation-registers`,
+   slot; a primitive is an admitted carrier value (`:prim`) that the
+   register kernel cannot restore from its saved-register payload, so
+   the register lane would refuse it `:yin.k/unsupported
+   :continuation-registers` before attach (**Amended after 6c
+   (2026-10-13)**, codex D4 by R6: the earlier phrase "is no carrier
+   value" misplaced the limit on the carrier; §4.2, §7.2),
    `debruijn_register_effects.cljc:196`; an authentic cursor reference is
    machine data with an explicit carrier marker, `engine.cljc:899-905`, so
    in-program construction of `c` is a fixture choice, not a carrier
@@ -1565,14 +1937,64 @@ lanes added to the 6b harness file. **Depends on:** 5a, 5b (`derive`),
 7. `layout-test/env-reconstruction`: §5.6 item 6.
 8. `layout-test/closures-round-trip`: §5.6 item 7.
 9. `layout-test/tail-lowering-is-unobservable`: §5.6 item 8.
-10. `harness/cross-engine-canonical-equality`: law 4 for every row ×
-    segment under `canonical-under`.
-11. `harness/cross-engine-lowering`: law 5, six ordered pairs.
+10. `harness/cross-engine-canonical-equality`: law 4 for every case of
+    the shared fragment under `canonical-under`: 61 cases, each over
+    exactly three distinct kernel lanes. (**Amended after 6c
+    (2026-10-13)**, R2, ACCEPTED by the owner on 2026-10-13; was "every
+    row × segment", 89. The quick tier runs
+    `cross-engine-canonical-equality-bare`, the 16 bare cases; the 61
+    are `^:slow` under `slow/guard`.)
+11. `harness/cross-engine-lowering`: law 5, six ordered pairs over the
+    shared fragment: 350 transfers (366 once 6c-post-D2 lands, when
+    `unlowerable` is emptied). (**Amended after 6c (2026-10-13)**, R2;
+    was every row × segment × pair, 534. The quick tier runs
+    `cross-engine-lowering-bare`: 92 transfers, 96 with the seam; row
+    4's two admitted pairs are asserted by count.)
 12. `harness/layout-refusals`: `:yin.k/not-at-safepoint` from a kernel
     stepped to a non-safepoint pc; a register entry whose `live` was
     tampered reconstructs a frame the validator refuses (`:window-extra`
-    or `:window-missing` by the tamper's direction).
+    for a unique dead slot, `:window-missing` for a dropped live slot),
+    or is refused by the layout itself as `:yin.k/non-portable
+    :register-layout` when the added slot is an ambiguous dead preimage;
+    the test pins all three. (**Amended after 6c (2026-10-13)**, R5: the
+    second clause replaced; an ambiguous tamper cannot honestly be
+    promised `:window-extra`. The ambiguous fixtures are found over C by
+    `ambiguous-dead-slots`, a reachable parking pc and a slot R gives two
+    or more virtuals outside `live-out*` and the destination; the test
+    asserts at least one exists, and the refusal carries the pc and the
+    slot. The same deftest pins the four `:continuation-registers`
+    refusals of §4.2: a primitive in a window, in a lexical binding, in
+    a closure's capture and nested in a window's guest collection, each
+    with its path and zero attaches, and each program crossing into the
+    stack lane with the reference value.)
 13. kondo clean; `bb test:sub yin.vm` green on three hosts.
+
+**Amended after 6c (2026-10-13), the acceptance the fix round added
+(R1, R3, R4; codex F6; the store-write audit).**
+
+14. `layout-test/alpha-equivalent-segments`: `(fn [x] x)` and `(fn [y]
+    y)` have distinct `:address` and equal `:register-id` and
+    `:stack-id`; a de Bruijn source whose space resolves one image to two
+    A refuses `:yin.k/non-portable :ambiguous-image` on both lanes with
+    zero serves, the file-wide index widens the refusal and the world's
+    own space lifts; a reference-lane task carrying both closures as
+    store values refuses `:yin.k/unsupported :ambiguous-image` into each
+    native lane with the receiver's own image identity, both A and zero
+    attaches; one of the pair carried and the other only projected
+    lowers with one attach and answers; the reference lane holds both
+    under laws 1 and 2 (the survivor check).
+15. `layout-test/free-env-values` and `free-env-nested-values`: §6.3's
+    refusals both ways with their paths and keys, zero attaches and zero
+    serves; a primitive and a cursor reference under the same nesting
+    cross and are used.
+16. `harness/law-4-controls`: the five controls of §5.5.
+17. `store-write-audit-test`: the two layout `assoc` sites on the
+    allowlist with their reason (§7.2); kondo reports no unused require
+    in `layout_test.cljc` (codex F6).
+
+The `^:slow` matrices and the quick-tier slices follow the test-tier
+cadence: quick at every checkpoint, slow before big merges and at phase
+boundaries.
 
 ### 8.4 Phase 7's entry conditions
 
@@ -1599,7 +2021,13 @@ retention seam (§6.3) either landed by the 4b track or the explicit
 No file of 4b or phase 5 is edited. The old kernel file
 `debruijn/stack.cljc` is edited by 6c-pre only, for the seam; the
 register kernel is not edited. `handoff.cljc` and the old harness are
-not edited.
+not edited. **Amended after 6c (2026-10-13):** 6c proper held to this:
+it created `layout.cljc` and `layout_test.cljc`, extended the 6b harness
+file and the store-write audit's allowlist, and edited no kernel, no
+`rows.cljc` and no 4b or phase-5 file. The one further kernel edit this
+design names, the retained-FFI response-pair seam of both de Bruijn
+kernels (§4.3, 6c-post-D2), is its own slice behind an owner decision
+(§11, 6c Q2) and is not part of 6c.
 
 ---
 
@@ -1644,6 +2072,32 @@ not edited.
   Node and Dart execution of `rows.cljc`'s transport and the new harness
   file remain the three-host gate of §8.2 item 9, not established by the
   reviews.
+- **Amended after 6c (2026-10-13).** 6c-pre landed (`296f75fd`) and the
+  stack kernel delivers a tail effect through `K`; §4.3's seam is now a
+  reading of code. The layouts' counts are the tests' own assertions,
+  run on the JVM by the engineer and by codex (quick: 60 tests, 3,615
+  assertions; slow: 4 tests, 2,419 assertions, before the fix round):
+  law 4 on 16 bare and 61 full cases over three distinct lanes, law 5 on
+  92 and 350 transfers, 128 `E` comparisons, four tail cases, more than
+  twenty slice partitions and more than fifty reachable boundaries. The
+  rulings' claims that are checks, not theorems: that C holds an
+  ambiguous dead preimage (asserted, §8.3 item 12); that the alpha pair
+  derives one R and one H (asserted, item 14). **What this document has
+  no record of:** a Node or Dart run of `layout.cljc` and the 6c tests.
+  Codex read the pinned ClojureDart source and found `satisfies?`,
+  `memoize` and `binding` implemented; that is a source reading, not a
+  run. The slice merged (`781a9ba8`) and §8.3 item 13 names the gate;
+  the sources this revision read (the engineer report, the codex review,
+  the rulings, the merged diff) contain no three-host result, so this
+  document does not claim one.
+- **Limits stated as such, with their shelf life.** Image collision
+  (§4.1), free-environment procedures on the native lanes (§6.3),
+  primitives in the register kernel's payload (§4.2), the unique
+  dead-preimage fallback of `virt` (§4.2) and the shared fragment (§5.3)
+  are limits of the de Bruijn kernels and are removed with them at phase
+  8; none is a limit of the carrier or of the semantic-register kernel,
+  and each is pinned by a refusal test rather than left as an
+  unobserved gap.
 
 ---
 
@@ -2008,6 +2462,32 @@ bug. `rows.cljc`'s `installing-names` uses the two-argument `(symbol
 (name mn) (name x))`, which is equivalent. `handoff.cljc` is not edited
 by this phase (§8.5).
 
+### 10.7 Amendments after slice 6c (revision 5, 2026-10-13)
+
+Each item names the clause, what changed, and why; the clause itself
+carries the marker "**Amended after 6c (2026-10-13)**". Sources are the
+engineer report's deviations (1-8) and design defects (D1-D5), the codex
+review (F1-F6, D1-D5) and the Architect's rulings (R1-R6), whose
+wording is applied verbatim where a ruling says so.
+
+| # | Clause | What changed | Why |
+|---|---|---|---|
+| R1 | §4.1 | A stays the identity under image collision; a de Bruijn receiver refuses `:yin.k/unsupported :ambiguous-image` before attach, a de Bruijn source refuses `:yin.k/non-portable :ambiguous-image` before serving; no enumeration order selects an A; the harness scopes `kernel-space` to the vectors a world projected | codex F2: `(fn [x] x)` and `(fn [y] y)` have distinct A, one R and one H; both kernels dedupe attaches by checksum; editing their offset tables for a phase-8 deletion was not worth a slice |
+| A1 | §4.1 | the public API as landed: `segment`, `space`, `lift-state`, `lower-state`, `canonical-task`, `kernel-task`, `lower-defect`, `lift-task`, `lower-task` and the rest; `lift-act`/`lift-tail`/`lower-act`/`lower-tail` superseded | engineer deviation 1, accepted by codex: one dispatching entry per direction |
+| R5 | §4.2, §8.3 item 12 | the unique-preimage rule for `virt`: live-out* first, else the sole named preimage for validation only, else `:yin.k/non-portable :register-layout`; item 12 permits that refusal for an ambiguous tamper | engineer deviation 7, codex D3 and M9 (take the first preimage survived) |
+| D4 | §4.2, §7.2, §8.3 item 6 | a primitive is an admitted carrier value; the register kernel refuses one in its payload `:yin.k/unsupported :continuation-registers` with the path before attach; "is no carrier value" withdrawn; four refusal fixtures | engineer deviation 8, codex D4: the limit is the receiver's, not the carrier's |
+| S1 | §4.3 | 6c-pre landed; the tail lowering shapes stated as `lower-state` emits them | the seam was a specification; it is code |
+| D2 | §4.3 | the retained-FFI response-pair seam specified as slice 6c-post-D2, gated by the owner, not a prerequisite of 6c; `unlowerable` empties and the counts rise to 366/96 when it lands | engineer D2, codex probe 3: the kernels' re-park names their own call pair; a kernel edit that dies at phase 8 |
+| D5 | §5.2 row 21 | the expectation on every lane: `E` binds `x` to 1 under `:depth-3`, the free environment keeps 99, pinned separately | codex D5; the cross-engine lanes could have hidden a lane agreeing on one and not the other |
+| R2 | §5.3, §5.6 item 8, §8.3 items 10-11 | the native lanes run the shared fragment: 61 law-4 cases over three lanes, 350 law-5 transfers (92/16 in the quick tier); tail acceptance rows 6 and 20 on the native lanes; the reference lane keeps 89/534 | engineer deviations 3-4, codex F3; link and install rows need 2-3 days of code for kernels deleted at phase 8; ACCEPTED by the owner on 2026-10-13 (6c Q1) |
+| D1 | §5.5 | positions carry identities; the renaming operation, injective correspondence, separate descriptor equivalence and five negative controls; three distinct lanes asserted per case | engineer D1, codex F4, M11 and M12 survived, probe 4 |
+| R3 | §6.3, §7.2 | a closure or continuation in the free environment is refused on the native lanes both ways (`:free-env-value`), admitted by the carrier and the reference lane; nested values included | codex F1: no finite canonical form through the shared free environment; refuse, do not convert |
+| L1 | §7.1 | the lift from a de Bruijn kernel is `rows/lift-task` over `canonical-task`; the refusals it raises before serving | engineer deviation 2 |
+| L2 | §7.2 | the lower is decode, `lower-defect` (collision, installs, free-env procedure, register primitives, in that order, before any attach), `rows/lower-task` into a scratch machine, `kernel-task`; the audit allowlist entries | engineer deviation 2; codex M8; the audit's precedent of `restore-task` |
+| T1 | §8.3 items 14-17 | the fix round's tests named as acceptance | R1, R3, R4, F6, the audit |
+| C1 | §8.5 | 6c edited no kernel; 6c-post-D2 is the one named kernel edit, its own slice | honesty |
+| V1 | §9 | counts as asserted; no three-host record in the sources read; the limits and their shelf life | honesty |
+
 ---
 
 ## 11. Owner questions
@@ -2085,6 +2565,29 @@ document.
 - **Q10, the `:running` wire phase's future.** If Q1 narrows the phase
   set, row 11 disappears from the matrix and the `:install` row's phase
   slot becomes a constant; if not, row 11 stays a synthetic case. Which?
+
+**Revision 5 (after 6c) adds the three questions the rulings left
+(`collab/1792360000000-architect-6c-rulings.report.md`); they are
+numbered on their own, as 6c Q1-Q3, so the 6b numbering above stands.**
+
+- **6c Q1, the native-lane matrix scope (changes acceptance counts).
+  ACCEPTED by the owner on 2026-10-13.** The de Bruijn lanes run the
+  shared fragment: law 4 on 61 of the 89 cases, law 5 on 350 of the 534
+  transfers, tail acceptance on rows 6 and 20 only, because those
+  kernels die at phase 8 and the reference lane keeps the full matrix.
+  The owner confirmed the matrix of 61 law-4 cases and 350 law-5
+  transfers as normative; §5.3 and §8.3 items 10-11 state it so.
+- **6c Q2, the retained-FFI seam (kernel edit, own slice). Open.** Land
+  6c-post-D2, the four-line response-pair seam in both de Bruijn kernels
+  (§4.3; half a day, dies at phase 8), raising law 5 to 366 and 96 and
+  emptying `unlowerable`. Recommendation: only if the owner wants row 4
+  cross-engine before phase 8; otherwise skip.
+- **6c Q3, closures in the free environment (information; a decision
+  only if the owner disagrees). Open.** Closures and continuations in
+  the task-wide free environment are refused on the native lanes (§6.3,
+  R3) and admitted everywhere else. If any real composition seeds a de
+  Bruijn kernel's free environment with a closure, say so and R3
+  becomes a design question instead of a refusal.
 
 ---
 
