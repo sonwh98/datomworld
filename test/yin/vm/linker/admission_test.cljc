@@ -24,7 +24,7 @@
             [yin.repl.frontends :as repl.frontends]
             [yin.repl.main :as main]
             [yin.vm :as vm]
-            [yin.vm.ffi :as ffi]
+            #?(:cljd nil :clj [yin.vm.ffi :as ffi])
             [yin.vm.linker.admission :as admission]
             [yin.vm.linker.closure-test :as ct]
             [yin.vm.linker.dht :as ld]
@@ -1060,45 +1060,82 @@
 ;; =============================================================================
 
 (defn- traced-tick
-  "Observe round/drain/live-root-run order without changing behavior."
+  "JVM-only call-order evidence; other hosts observe state and streams."
   [state]
-  (let [trace (atom [])
-        successors (atom [])
-        round-fn link/round
-        drain-fn admission/drain
-        run-fn ffi/maybe-run
-        origin (:origin (:vm (:pending-run state)))
-        result (with-redefs
-                 [link/round
-                  (fn [value node]
-                    (swap! trace conj :round)
-                    (let [r (round-fn value node link/serve-budget)]
-                      (swap! successors conj (:linker r))
-                      r))
-                  admission/drain
-                  (fn [value budget]
-                    (swap! trace conj :drain)
-                    (drain-fn value budget))
-                  ffi/maybe-run
-                  (fn [v f]
-                    ;; Output tokenization also runs the already halted VM.
-                    (when (and (= origin (:origin v)) (not (vm/halted? v)))
-                      (swap! trace conj :run))
-                    (run-fn v f))]
-                 (repl/recheck-on-tick state []))]
-    {:result result :trace @trace :successors @successors}))
+  #?(:cljd {:result (repl/recheck-on-tick state [])}
+     :cljs {:result (repl/recheck-on-tick state [])}
+     :clj
+     (let [trace (atom [])
+           successors (atom [])
+           round-fn link/round
+           drain-fn admission/drain
+           run-fn ffi/maybe-run
+           origin (:origin (:vm (:pending-run state)))
+           result (with-redefs
+                    [link/round
+                     (fn [value node]
+                       (swap! trace conj :round)
+                       (let [r (round-fn value node link/serve-budget)]
+                         (swap! successors conj (:linker r))
+                         r))
+                     admission/drain
+                     (fn [value budget]
+                       (swap! trace conj :drain)
+                       (drain-fn value budget))
+                     ffi/maybe-run
+                     (fn [v f]
+                       ;; Output tokenization also runs the already halted VM.
+                       (when (and (= origin (:origin v)) (not (vm/halted? v)))
+                         (swap! trace conj :run))
+                       (run-fn v f))]
+                    (repl/recheck-on-tick state []))]
+       {:result result :trace @trace :successors @successors})))
 
 
 (defn- assert-handoff
-  [trace]
-  (is (= [:round :drain :run] (vec (take 3 trace))))
-  (is (= 1 (count (filter #{:run}
-                          (take-while #(not= :round %)
-                                      (drop 2 trace))))))
-  (is (= (count (filter #{:round} trace))
-         (count (filter #{:drain} trace))))
-  (is (every? #(= :drain (second %))
-              (filter #(= :round (first %)) (partition 2 1 trace)))))
+  [_trace]
+  #?(:cljd nil
+     :clj
+     (do
+       (is (= [:round :drain :run] (vec (take 3 _trace))))
+       (is (= 1 (count (filter #{:run}
+                               (take-while #(not= :round %)
+                                           (drop 2 _trace))))))
+       (is (= (count (filter #{:round} _trace))
+              (count (filter #{:drain} _trace))))
+       (is (every? #(= :drain (second %))
+                   (filter #(= :round (first %))
+                           (partition 2 1 _trace)))))))
+
+
+(defn- newest-cursor
+  [medium]
+  (:dao.stream/cursor (stream/cursor medium stream/anchor-newest)))
+
+
+(defn- settled-successor
+  "Expected whole successor from parked state and emitted stream ends.
+   No interpreter or VM is run to compute this portable expectation."
+  [state medium decision]
+  (let [value (:linker state)
+        expected (-> value
+                     (assoc :source (:link-source state))
+                     (assoc-in [:pair :cursor]
+                               (newest-cursor (get-in value
+                                                      [:pair :requests])))
+                     (assoc-in [:admission :pair :cursor]
+                               (newest-cursor
+                                 (get-in value [:admission :pair :answers])))
+                     (assoc-in [:admission :asked] {})
+                     (assoc-in [:admission :answers] {}))]
+    (if (:interpreter value)
+      (-> expected
+          (assoc-in [:interpreter :cursor]
+                    (newest-cursor (get-in value [:interpreter :questions])))
+          (assoc-in [:interpreter :decision-cursor] (newest-cursor medium))
+          (assoc-in [:interpreter :snapshot] decision)
+          (assoc-in [:interpreter :snapshot?] true))
+      expected)))
 
 
 (deftest one-tick-hands-external-and-snapshot-progress-to-the-vm-test
@@ -1113,6 +1150,8 @@
                                    'own.m)
             id (pending-admission state)
             _ (is (some? id) text)
+            _ (is (some? (:pending-run state)))
+            _ (is (empty? (shell-responses state)))
             _ (is (= 1 (count (questions-of
                                 (get-in state [:linker :admission])))))
             _ (if external?
@@ -1126,7 +1165,10 @@
         (is (= 'own.m (:last-value done)))
         (is (= 1 (count (questions-of
                           (get-in done [:linker :admission])))))
-        (is (= 1 (count (shell-responses done))))))))
+        (is (= 1 (count (shell-responses done))))
+        (is (= 1 (count (mesh/values
+                          (get-in done [:linker :admission :pair :answers])))))
+        (is (= (settled-successor state medium #{pa}) (:linker done)))))))
 
 
 (deftest tick-rollbacks-carry-the-entire-linker-successor-test
@@ -1154,11 +1196,14 @@
                                    :yin.admit/decision :refuse
                                    :yin.admit/reason
                                    :yin.admit/untrusted-principal}))
-            {:keys [result trace successors]} (traced-tick state)
+            {result :result trace :trace _successors :successors}
+            (traced-tick state)
             [rolled text] result
-            successor (peek successors)
+            decision (if (= mode :snapshot-refuse) #{} #{pa})
+            successor (settled-successor state medium decision)
             value (:linker rolled)]
         (assert-handoff trace)
+        #?(:cljd nil :clj (is (= successor (peek _successors))))
         (is (str/includes? text "Error") text)
         (is (nil? (:pending-run rolled)))
         (is (nil? (entry rolled n)))
@@ -1181,9 +1226,11 @@
 (deftest idle-tick-does-not-run-or-increment-checks-test
   (let [w (world)
         [state _] (require! (shell w :semantic {:admission :external}) 'own.m)
-        {:keys [result trace]} (traced-tick state)
+        {result :result _trace :trace} (traced-tick state)
         [successor text] result]
-    (is (= [:round :drain] trace))
+    #?(:cljd nil :clj (is (= [:round :drain] _trace)))
+    (is (= (:vm (:pending-run state))
+           (:vm (:pending-run successor))))
     (is (nil? text))
     (is (= (:pending-run state) (:pending-run successor)))
     (is (= 0 (get-in successor [:pending-run :checks])))))
@@ -1192,21 +1239,58 @@
 (deftest continuing-tick-progress-is-bounded-test
   (let [w (world)
         [state _] (require! (shell w :semantic {:admission :external}) 'own.m)
-        rounds (atom 0)
-        runs (atom 0)
-        round-fn link/round
-        [successor _]
-        (with-redefs [link/round
-                      (fn [value node]
-                        (swap! rounds inc)
-                        (assoc (round-fn value node link/serve-budget)
-                               :progress? true))
-                      ffi/maybe-run
-                      (fn [v _f] (swap! runs inc) v)]
-          (repl/recheck-on-tick state []))]
-    (is (= repl/link-round-budget @rounds @runs))
+        n (* link/serve-budget (inc repl/link-round-budget))
+        pair (link/make-pair (inc n))
+        requests (:requests pair)
+        ;; Real invalid requests emit responses without settling the VM's
+        ;; parked require. More than the round bound remain answerable.
+        _ (reduce (fn [_ i]
+                    (stream/append! requests {:yin.link/id [:noise i]}))
+                  nil (range n))
+        parked (first (mesh/values (get-in state [:linker :pair :requests])))
+        _ (stream/append! requests parked)
+        pair (assoc pair :responses (get-in state [:linker :pair :responses]))
+        state (assoc-in state [:linker :pair] pair)
+        [successor text] (repl/recheck-on-tick state [])
+        cursor (get-in successor [:linker :pair :cursor])
+        ;; The tick plus its initial VM handoff count as the first round.
+        answered (* link/serve-budget repl/link-round-budget)
+        expected (reduce (fn [c _]
+                           (:dao.stream/cursor (stream/next requests c)))
+                         (:cursor pair) (range answered))]
+    (is (= expected cursor))
+    (is (= [:noise answered]
+           (:yin.link/id (:dao.stream/value (stream/next requests cursor)))))
     (is (some? (:pending-run successor)))
-    (is (= 0 (get-in successor [:pending-run :checks])))))
+    (is (= (get-in state [:linker :admission])
+           (get-in successor [:linker :admission])))
+    (is (str/includes? text "require still pending"))
+    (is (= 0 (get-in successor [:pending-run :checks]))))
+
+
+  ;; Exact VM run counts use the original JVM-only spy. The stream
+  ;; fixture above proves the production bound on every host.
+  #?(:cljd nil
+     :clj
+     (let [w (world)
+           [state _] (require! (shell w :semantic
+                                      {:admission :external})
+                               'own.m)
+           rounds (atom 0)
+           runs (atom 0)
+           round-fn link/round
+           [successor _]
+           (with-redefs [link/round
+                         (fn [value node]
+                           (swap! rounds inc)
+                           (assoc (round-fn value node link/serve-budget)
+                                  :progress? true))
+                         ffi/maybe-run
+                         (fn [v _f] (swap! runs inc) v)]
+             (repl/recheck-on-tick state []))]
+       (is (= repl/link-round-budget @rounds @runs))
+       (is (some? (:pending-run successor)))
+       (is (= 0 (get-in successor [:pending-run :checks]))))))
 
 
 (deftest only-signed-name-sources-mint-admission-state-test
