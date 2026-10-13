@@ -7,7 +7,7 @@
    One checkpoint serves every tenure: a real gated machine parked on a
    read of a string-backed source whose continuation writes the value it
    read to the authority's enrolled target.  It is lifted once to
-   version-1 bytes, offered to the real authority, and every tenure --
+   row-pack bytes, offered to the real authority, and every tenure --
    first grant and each regrant -- lowers those bytes into a fresh
    machine over the toy channel, so the cursor and the write the holder
    performs are the lowered ones, reached through reflections.
@@ -35,7 +35,9 @@
             [yin.vm.ucf.authority.front :as front]
             [yin.vm.ucf.authority.grant :as grant]
             [yin.vm.ucf.custody :as custody]
-            [yin.vm.ucf.handoff :as handoff]
+            [yin.vm.ucf.rows :as rows]
+            [yin.vm.ucf.rows-checkpoint-fixtures :as f]
+            [yin.vm.ucf.rows-support :as rs]
             [yin.vm.ucf.holder.export :as export]
             [yin.vm.ucf.holder.reader :as reader]
             [yin.vm.ucf.holder.writer :as writer]
@@ -157,9 +159,9 @@
   "A real gated machine parked on one read of `source`, whose
    continuation writes the value it read to `target`."
   [source target]
-  (let [m0 (s/load-ast :semantic (s/new-machine :semantic)
-                       (s/let1 'v (s/next-of (s/v 'c))
-                               {:type :stream/put, :target (s/v 'w), :val (s/v 'v)}))
+  (let [m0 (rs/load-ast (rs/new-machine)
+                        (s/let1 'v (s/next-of (s/v 'c))
+                                {:type :stream/put, :target (s/v 'w), :val (s/v 'v)}))
         [sref m1] (engine/attach-resource m0 source)
         [cref m2] (engine/handle-cursor m1 {:stream sref} :k1)
         [wref m3] (engine/attach-resource m2 target)]
@@ -179,14 +181,15 @@
         _ (stream/append! source "A")
         t (s/toy)
         peer (s/served-peer t)
-        export (handoff/export-task
-                 (reading-writer source (:reader w))
-                 (same-id-server peer (:channel t))
-                 {:header {:yin.k/occurrence occ
-                           :yin.k/arbitration arbitration
-                           :yin.k/next-op-seq 0
-                           :yin.k/enrolled #{(:target w)}}})]
-    (assert (= :ok (:status export)) (pr-str export))
+        wire (rows/lift-task
+               (reading-writer source (:reader w))
+               (same-id-server peer (:channel t))
+               {:source-index @rs/source-index
+                :header {:yin.k/occurrence occ
+                         :yin.k/arbitration arbitration
+                         :yin.k/next-op-seq 0
+                         :yin.k/enrolled #{(:target w)}}})
+        export {:status :ok :bytes (cbor/encode wire) :address (rows/pack-address wire)}]
     (grant/offer! (:a w) (:store w) (:address export) (:bytes export) "carrier")
     {:source source :export export :t t :peer peer}))
 
@@ -207,26 +210,28 @@
         base (s/attacher (:t cp))
         attach! (fn [d] (swap! attaches inc) (base d))
         address (:address (:export cp))
-        r (handoff/resume-task
-            (s/new-machine :semantic {:attach-stream attach!})
-            (:bytes (:export cp)) attach!
-            {:address address
-             :exclusive true
-             :protection {(:target w) :enrolled
-                          (identity-of (:source cp)) :at-least-once}
-             :grant {:checkpoint address
-                     :dao.lease/lease lease-id
-                     :dao.lease/holder "holder-a"
-                     :tenure {:now 10 :bound 20 :live true}
-                     :evidence {:yin.k/status :yin.k/ready
-                                :yin.k/binding {:yin.k/occurrence occ
-                                                :dao.lease/lease lease-id
-                                                :dao.lease/holder "holder-a"
-                                                :yin.k/epoch epoch
-                                                :yin.k/transaction
-                                                {:yin.k/arbitration arb}}
-                                :yin.k/enrolled #{(:target w)}
-                                :yin.k/prefix p}}})]
+        r (try
+            {:vm (rows/lower-task
+                   (rs/new-machine {:attach-stream attach!})
+                   (cbor/decode (:bytes (:export cp))) attach!
+                   {:exclusive true
+                    :protection {(:target w) :enrolled
+                                 (identity-of (:source cp)) :at-least-once}
+                    :grant {:checkpoint address
+                            :dao.lease/lease lease-id
+                            :dao.lease/holder "holder-a"
+                            :tenure {:now 10 :bound 20 :live true}
+                            :evidence {:yin.k/status :yin.k/ready
+                                       :yin.k/binding {:yin.k/occurrence occ
+                                                       :dao.lease/lease lease-id
+                                                       :dao.lease/holder "holder-a"
+                                                       :yin.k/epoch epoch
+                                                       :yin.k/transaction
+                                                       {:yin.k/arbitration arb}}
+                                       :yin.k/enrolled #{(:target w)}
+                                       :yin.k/prefix p}}})
+             :status :ok}
+            (catch #?(:cljd Object :clj Throwable :cljs :default) e (ex-data e)))]
     [r @attaches]))
 
 
@@ -436,21 +441,40 @@
     {:dao.stream/outcome :dao.stream/transport-error}))
 
 
+(defn- retained-caller
+  []
+  (let [in (rs/one-slot-stream "call-in")
+        out (s/ring 8)
+        _ (stream/append! in :warmed)]
+    (vm/run (rs/load-ast
+              (rs/new-machine {:call-in in :call-out out
+                               :call-out-cursor (vm/mint-oldest out :test)})
+              (s/then (s/call-node :op/echo "hello")
+                      (s/call-node :op/echo "world"))))))
+
+
+(defn- retained-linker
+  []
+  (let [request (rs/one-slot-stream "link-request")
+        response (s/ring 64)
+        _ (stream/append! request :warmed)]
+    (vm/run (rs/load-ast
+              (rs/new-machine {:link-request request :link-response response})
+              (s/app (s/v 'require) (s/lit 'host.the-module))))))
+
+
 (def ^:private retained-writes
-  "[reason parked-machine-builder enrolled-identity]: a real machine
-   whose one retained write targets the enrolled stream."
-  [[:put #(first (s/parked-writer :semantic)) "w"]
-   [:ffi-request #(first (s/parked-retained-caller :semantic)) "call-in"]
-   [:link-request #(s/parked-link-request :semantic) "link-request"]])
+  "[reason parked-machine-builder enrolled-identity] on the reference kernel."
+  [[:put rs/parked-writer "w"]
+   [:ffi-request retained-caller "call-in"]
+   [:link-request retained-linker "link-request"]])
 
 
 (defn- markers
-  "Every stream identity a body names."
-  [body]
-  (into #{}
-        (comp (filter #(and (map? %) (= :yin.k/stream (:yin.k/tag %))))
-              (map :dao.stream/identity))
-        (tree-seq coll? seq body)))
+  "Every stream identity a pack names."
+  [wire]
+  (into #{} (keep (fn [[_ kind & slots]] (when (= :stream kind) (first slots))))
+        (:yin.k/rows wire)))
 
 
 (defn- custody-of
@@ -487,36 +511,38 @@
                                    :dao.lease/lease "lease-1"
                                    :yin.k/emitter "holder-a"}}
             prepared (export/prepare (:machine entered) (:record entered)
-                                     (same-id-server peer (:channel t)) header)
+                                     (same-id-server peer (:channel t)) header @rs/source-index)
             ;; bytes
             export (export/encode (:machine entered) (:record prepared))
             body (cbor/decode (:bytes export))
-            pending (get-in body [:yin.k/frames 0 :yin.k/pending])
+            pending (f/pending-of (first (f/waits (rows/decode body))))
             classes (assoc (zipmap (markers body) (repeat :at-least-once))
                            enrolled :enrolled)
             ;; lower: the successor's first grant
-            r (handoff/resume-task
-                (s/new-machine :semantic {:attach-stream (s/attacher t)})
-                (:bytes export) (s/attacher t)
-                {:address (:address export)
-                 :exclusive true
-                 :protection classes
-                 :grant {:checkpoint (:address export)
-                         :dao.lease/lease "lease-2"
-                         :dao.lease/holder "holder-b"
-                         :tenure {:now 10 :bound 20 :live true}
-                         :evidence {:yin.k/status :yin.k/ready
-                                    :yin.k/binding {:yin.k/occurrence successor
-                                                    :dao.lease/lease "lease-2"
-                                                    :dao.lease/holder "holder-b"
-                                                    :yin.k/epoch 0
-                                                    :yin.k/transaction
-                                                    {:yin.k/arbitration arb}}
-                                    :yin.k/enrolled #{enrolled}
-                                    :yin.k/prefix {:yin.k/occurrence successor
-                                                   :dao.lease/lease "lease-2"
-                                                   :yin.k/frontier 0
-                                                   :yin.k/inputs []}}}})
+            r (try
+                {:status :ok
+                 :vm (rows/lower-task
+                       (rs/new-machine {:attach-stream (s/attacher t)})
+                       body (s/attacher t)
+                       {:exclusive true
+                        :protection classes
+                        :grant {:checkpoint (:address export)
+                                :dao.lease/lease "lease-2"
+                                :dao.lease/holder "holder-b"
+                                :tenure {:now 10 :bound 20 :live true}
+                                :evidence {:yin.k/status :yin.k/ready
+                                           :yin.k/binding {:yin.k/occurrence successor
+                                                           :dao.lease/lease "lease-2"
+                                                           :dao.lease/holder "holder-b"
+                                                           :yin.k/epoch 0
+                                                           :yin.k/transaction
+                                                           {:yin.k/arbitration arb}}
+                                           :yin.k/enrolled #{enrolled}
+                                           :yin.k/prefix {:yin.k/occurrence successor
+                                                          :dao.lease/lease "lease-2"
+                                                          :yin.k/frontier 0
+                                                          :yin.k/inputs []}}}})}
+                (catch #?(:cljd Object :clj Throwable :cljs :default) e (ex-data e)))
             lowered (:vm r)
             retry (writer/emit lowered (recording sent))
             [first-send resend] @sent]
@@ -524,8 +550,9 @@
             "the writer assigned the id at the park")
         (is (= 1 (count (:appended emitted))))
         (is (= :ok (:status export)) (pr-str export))
-        (is (= reason (:yin.k/reason pending)))
-        (is (= id (:yin.k/op-id pending)) "the id rides the bytes unchanged")
+        (is (= reason (first (:slots pending))))
+        (is (= id (nth (:slots pending) (case reason :put 3 :ffi-request 6 :link-request 7)))
+            "the id rides the bytes unchanged")
         (is (= :ok (:status r)) (pr-str r))
         (is (= id (:op-id (first (:wait-set lowered))))
             "the lower restores the id on the retained write")
@@ -576,11 +603,13 @@
                                :yin.k/emitter "holder-a"}}
         prepared (export/prepare exporting (:record entered)
                                  (same-id-server (s/served-peer t2) (:channel t2))
-                                 header)
+                                 header @rs/source-index)
         ;; a failed carrier append retries from the retained record
         first-try (export/encode exporting (:record prepared))
         retry (export/encode exporting (:record prepared))
-        pending (get-in first-try [:body :yin.k/frames 0 :yin.k/pending])]
+        wire (cbor/decode (:bytes first-try))
+        task (rows/decode wire)
+        pending (f/pending-of (first (f/waits task)))]
     (is (= {:yin.k/occurrence occ :yin.k/seq 0} id))
     (is (= 1 (:yin.k/next-op-seq header)) "the counter moved once, past the id")
     (is (= :ok (:status entered)) (pr-str entered))
@@ -594,7 +623,7 @@
       (is (= :ok (:status first-try)) (pr-str first-try))
       (is (= (:address first-try) (:address retry))
           "one record, one occurrence, equal bytes: the address is their digest")
-      (is (= successor (get-in first-try [:body :yin.k/occurrence])))
-      (is (= :put (:yin.k/reason pending)))
-      (is (= id (:yin.k/op-id pending)) "the retained id, unchanged")
-      (is (= 1 (get-in first-try [:body :yin.k/next-op-seq]))))))
+      (is (= successor (:yin.k/occurrence (f/custody wire))))
+      (is (= :put (first (:slots pending))))
+      (is (= id (nth (:slots pending) 3)) "the retained id, unchanged")
+      (is (= 1 (:yin.k/next-op-seq (f/custody wire)))))))

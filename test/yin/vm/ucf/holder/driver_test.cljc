@@ -3193,6 +3193,12 @@
             body ((:get-bytes-fn (:store w)) (:yin.k/address fence)
                                              ::absent)
             stored (cbor/decode rec-bytes)]
+        (is (= [(:yin.k/record fence) (:yin.k/address fence)]
+               (mapv #(get-in % [:yin.k/request :yin.k/address])
+                     (filter #(and (= :yin.k/intent (:yin.k/journal %))
+                                   (= :yin.k/store (:yin.k/action %)))
+                             (journal-of (:journal-frames candidacy)))))
+            "recovery is stored before the pack")
         (is (not= ::absent rec-bytes))
         (is (not= ::absent body))
         (is (= (get-in mint [:yin.k/header :yin.k/occurrence])

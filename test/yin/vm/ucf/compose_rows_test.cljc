@@ -52,7 +52,11 @@
             [yin.vm.ucf.custody :as custody]
             [yin.vm.ucf.compose :as compose]
             [yin.vm.ucf.compose-test :as ct]
-            [yin.vm.ucf.lift-support :as s]
+            [yin.vm.ucf.rows-support :as s]
+            [yin.vm.ucf.rows :as rows]
+            [yin.vm.ucf.holder.export :as export]
+            [yin.vm.ucf.rows-checkpoint-fixtures :as f]
+            [yin.vm.ucf.rows.checkpoint :as checkpoint]
             [yin.vm.ucf.v2-support :as s2]))
 
 
@@ -308,7 +312,8 @@
   "Open the rows world's composition over the world's stable pieces and
   `backend`."
   [w backend]
-  (let [opened (compose/open! {:mode :exclusive
+  (let [opened (compose/open! {:source-index (fn [] @s/source-index)
+                               :mode :exclusive
                                :failure-model :process-crash
                                :backend backend
                                :duration {:s 30}
@@ -422,12 +427,12 @@
 
 
 (defn- variant-of
-  "A second encoding of the occurrence whose body stands at `address`:
-  the same baseline in different bytes, the way the variant fixtures
-  mutate a base."
+  "A second encoding of the pack at `address`: reverse its row order,
+  retaining the root id and baseline while changing the pack address.
+  A changed task is a conflicting baseline, because the root travels in it."
   [store address]
   (let [body (cbor/decode ((:get-bytes-fn store) address ::absent))
-        bytes (cbor/encode (assoc body :yin.k/id-counter 9))
+        bytes (cbor/encode (update body :yin.k/rows #(vec (reverse %))))
         v-address (keyword "segment"
                            (str "blake3-" (jing/digest-bytes :blake3 bytes)))]
     (is (not= address v-address) "the second encoding is different bytes")
@@ -1251,7 +1256,8 @@
 
 (defn- reopen-composition-with
   [world backend]
-  (compose/open! {:mode :exclusive :failure-model :process-crash
+  (compose/open! {:source-index (fn [] @s/source-index)
+                  :mode :exclusive :failure-model :process-crash
                   :backend backend :duration {:s 30} :renewal-interval {:s 10}
                   :store (:store world) :diagnostics (ct/log-writer)
                   :medium "compose-test" :clock (fn [] @(:clock world))
@@ -1402,9 +1408,9 @@
               body (cbor/decode (:bytes successor))
               origin-lease (if (= :lease mismatch) "other-closing-lease" (:lease state))
               body (case mismatch
-                     :lease (assoc-in body [:yin.k/origin :dao.lease/lease] origin-lease)
-                     :body (assoc body :yin.k/id-counter 9)
-                     :successor (assoc body :yin.k/occurrence (str (random-uuid))))
+                     :lease (f/edit-custody body #(assoc-in % [:yin.k/origin :dao.lease/lease] origin-lease))
+                     :body (f/edit-task body #(assoc-in % [:slots 4] 9))
+                     :successor (f/edit-custody body #(assoc % :yin.k/occurrence (str (random-uuid)))))
               bytes (cbor/encode body)
               address (keyword "segment" (str "blake3-" (jing/digest-bytes :blake3 bytes)))
               _ (when (= :lease mismatch)
@@ -1800,7 +1806,8 @@
    memory authority, fork labelled fork -- are D15's landed rows in
    compose-test; this row re-verifies them beside the D16 rows so the
    gate's evidence stands in one run."
-  (let [opened (compose/open! {:mode :exclusive
+  (let [opened (compose/open! {:source-index (fn [] @s/source-index)
+                               :mode :exclusive
                                :failure-model :process-crash
                                :backend (journal/memory-backend
                                           (atom []) nil)
@@ -2519,6 +2526,21 @@
                       (if (or (some? @fired) (>= k 12)) c' (recur c' (inc k)))))
                 cut-address @fired]
             (is (some? cut-address) "the cut fired on a freeze put")
+            (let [cell (get-in c [:holders "h1" :export])
+                  frozen (export/freeze (:m cell) (:record cell))
+                  recovery (:address frozen)
+                  pack (:pack-address frozen)]
+              (is (= (if (= position 1) recovery pack) cut-address)
+                  "the first put is recovery v2; the second is the pack")
+              (when (= :after cut)
+                (let [wire (cbor/decode (get-bytes cut-address ::absent))]
+                  (if (= position 1)
+                    (do (is (= 2 (:yin.k/version wire)))
+                        (is (= pack (:yin.k/pack-address wire))))
+                    (do (is (= cut-address (rows/pack-address wire)))
+                        (is (= (:yin.k/root wire)
+                               (:yin.k/root (checkpoint/inspect cut-address
+                                                                (get-bytes cut-address ::absent))))))))))
             (is (= position (count (store-records c "h1" :yin.k/intent)))
                 "each object's intent is durable before its put")
             (is (= (dec position) (count (store-records c "h1" :yin.k/ack)))
@@ -2556,3 +2578,20 @@
           (finally
             (ct/cleanup-dir! (:dir w))
             (ct/cleanup-dir! (:jroot w))))))))
+
+
+(deftest a-composed-authority-refuses-an-unfenced-result-report-test
+  (exclusive-row
+    (fn [w]
+      (let [c (step-until (:c w) #(= :running (get-in % [:holders "h1" :phase])) 60)
+            st (get-in c [:holders "h1"])
+            wire (s/lift (s/halted-machine) nil)
+            bytes (cbor/encode wire)
+            address (rows/pack-address wire)
+            before (authority/projection (:authority c))
+            r (completion/report! (:authority c) "h1"
+                                  (completion/resumed (:occurrence st) (:lease st) address)
+                                  bytes)]
+        (is (= {:yin.k/status :refused :yin.k/reason :wrong-origin} r))
+        (is (= before (authority/projection (:authority c)))
+            "an unfenced fork result establishes no completion")))))
