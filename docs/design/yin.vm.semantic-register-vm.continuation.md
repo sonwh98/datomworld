@@ -552,9 +552,9 @@ distinct A derive identical H or R. Native-image hashes remain checksums
 and must not select a source segment. The de Bruijn kernels' offset
 tables carry only the image checksum and refuse a second attach of a
 known checksum, so a de Bruijn kernel cannot hold two segments of one
-image. Until phase 8 removes those kernels, a de Bruijn receiver refuses
-a carried task whose code holds two A of one image before any stream is
-attached (`:yin.k/unsupported :ambiguous-image`), and a de Bruijn source
+image. **Amended after 7 (2026-10-14)** — Reason: the owner retains the de Bruijn backends on the same fragment (§4.6).
+A de Bruijn receiver refuses a carried task whose code holds two A of one
+image before any stream is attached (`:yin.k/unsupported :ambiguous-image`), and a de Bruijn source
 whose space resolves one image to several A refuses the lift
 (`:yin.k/non-portable :ambiguous-image`); no enumeration order selects
 an A. The semantic-register kernel keys code by A and holds
@@ -572,8 +572,9 @@ derives the receiver's image for every carried vector and refuses
 #{A …}}` for the first identity two A share (identities ordered by their
 printed form), before `rows/lower-task` and before any attach. *Why:*
 codex F2 showed `(fn [x] x)` and `(fn [y] y)` have distinct A and one R
-and one H; editing both kernels' offset tables for a phase-8 deletion
-was not worth a slice. Tested by
+and one H. **Amended after 7 (2026-10-14)** — Reason: kernel retention preserves the documented backend limit.
+Editing both kernels' offset tables is outside the retained backend
+fragment (§4.6). Tested by
 `layout-test/alpha-equivalent-segments`, including the reference-lane
 survivor round trip (laws 1 and 2 over both closures).
 
@@ -711,9 +712,10 @@ named preimage when no live one exists, else refuses with `{:yin.k/pc p
 above left a tampered-upward `live` with no reconstruction at all
 (engineer deviation 7), and codex's M9 (take the first of several
 preimages) survived the suite until `harness/layout-refusals` pinned
-the ambiguous case over C's reused slots (§8.3 item 12). The fallback
-is a diagnostic extension, not a layout claim, and lives only until
-phase 8.
+the ambiguous case over C's reused slots (§8.3 item 12).
+**Amended after 7 (2026-10-14)** — Reason: the register backend and its layout remain after phase 8.
+The fallback remains a diagnostic extension of the retained register
+backend (§4.6), not a layout claim.
 
 **Amended after 6c (2026-10-13), primitives in the register kernel's
 payload (codex D4, adopted verbatim by R6).** A primitive function is
@@ -995,14 +997,21 @@ The stack and register kernels are backends of the semantic-register VM,
 checked through the layouts on the shared fragment in §5.3. They remain
 through and after phase 8; the fragment is not widened. It excludes link
 and install rows 7-12 and 17, and row 4 is not lowered into either
-backend while the retained-FFI seam remains absent. This row-4 exclusion
-is a harness limit, not a general pre-attach rejection in `lower-defect`
-(§11 6c Q2); the owner's refuse-the-remainder requirement is not evidence
-of such a gate. A closure or
-continuation in the free environment, ambiguous images, install children,
-and the register payload's unsupported primitives refuse as documented
-in §4.1-4.4 and §7.2, before attachment on lower. Stage E uses the
-canonical semantic-register kernel only. A is the only code identity;
+backend while the retained-FFI seam remains absent.
+**Amended after 7 (2026-10-14)** — Reason: the code's four pre-attach checks do not gate the whole harness fragment.
+`lower-defect` checks, in order, image collision (`:ambiguous-image`),
+install children (`:installs`), closures or continuations in the free
+environment (`:free-env-value`, including nested collections), and, for
+the register backend, primitive functions in wait or parked-state
+payloads (`:continuation-registers`). These refuse before attachment
+on lower (§4.1-4.4 and §7.2). Of the excluded rows, only the install
+rows 10-12 are refused before attach (`lower-defect` `:installs`); rows
+4, 7-9 and 17 are excluded by the harness only, not by a general
+pre-attach fragment gate (§11 6c Q2). The harness's `link-rows` excludes
+rows 7-12 and 17 from backend lanes; `unlowerable` excludes row 4 when
+the receiver is a stack or register backend. The owner's
+refuse-the-remainder requirement is not evidence of a general gate.
+Stage E uses the canonical semantic-register kernel only. A is the only code identity;
 native images are derived forms, and the source AST remains retrievable
 through the linker's source-index, fetch and admission path (§6.1).
 
@@ -1438,9 +1447,10 @@ usually already exists.
 environment on the native lanes (R3).** A de Bruijn kernel resolves free
 names through its single `free-env` while a canonical closure snapshots
 its `env`; a closure or continuation held in the free environment
-therefore has no finite canonical form on a de Bruijn kernel. Until
-phase 8, a de Bruijn receiver refuses such a value in the carried
-`free-env` before attach (`:yin.k/unsupported :free-env-value`, with the
+therefore has no finite canonical form on a de Bruijn kernel.
+**Amended after 7 (2026-10-14)** — Reason: the retained backends keep the free-environment refusal.
+A de Bruijn receiver (retained after phase 8, §4.6) refuses such a value
+in the carried `free-env` before attach (`:yin.k/unsupported :free-env-value`, with the
 path), and a de Bruijn source refuses it at lift before serving. The
 carrier and the semantic-register kernel admit it. *What the code does:*
 `lower-defect`'s third clause (`free-env-procedure`) walks the root's
@@ -2156,12 +2166,14 @@ kernels (§4.3, 6c-post-D2), is its own slice behind an owner decision
   the sources this revision read (the engineer report, the codex review,
   the rulings, the merged diff) contain no three-host result, so this
   document does not claim one.
-- **Limits stated as such, with their shelf life.** Image collision
+- **Limits of the retained backends.**
+  **Amended after 7 (2026-10-14)** — Reason: the kernels remain after phase 8 on the same fragment (§4.6).
+  Image collision
   (§4.1), free-environment procedures on the native lanes (§6.3),
   primitives in the register kernel's payload (§4.2), the unique
   dead-preimage fallback of `virt` (§4.2) and the shared fragment (§5.3)
-  are limits of the de Bruijn kernels and are removed with them at phase
-  8; none is a limit of the carrier or of the semantic-register kernel,
+  remain limits of the retained de Bruijn backends after phase 8; none
+  is a limit of the carrier or of the canonical semantic-register kernel,
   and each is pinned by a refusal test rather than left as an
   unobserved gap.
 
@@ -2506,7 +2518,7 @@ carries the same marker. Sources are the engineer report's design bugs
 | B4 | §7.1 | the lift's order is quiescence, kind, free environment, walk, code, dependency closure, trees, task, frames, emit | segments and contexts are known only after the walk |
 | D1 | §6.1, §8.2 depends-on | `:source-index` is a lift input from the composition | the kernel holds no source index |
 | D2 | §7.1 | refusals are thrown `ex-info` | consistency with `decode`/`emit` |
-| D3 | §2.5, §2.6, §7.2 | custody nil at the root; non-nil is `:yin.k/unsupported :custody` at step 10 | exclusive/holder is phase 7 |
+| D3 | §2.5, §2.6, §7.2 | custody nil at the root; non-nil is `:yin.k/unsupported :custody` at step 10 | exclusive/holder is phase 7; superseded by §10.8 P1. **Amended after 7 (2026-10-14)** — Reason: 7a implements the by-kind custody slot |
 | D4 | §2.5, §5.2 row 17 | linked registry entries do not travel; the receiver's registry is a composition prerequisite and is kept as given | no registry slot in the row table |
 | D5 | §7.1, §7.2 | discharge is per context over live code (`live-pcs`), answered by `E`, the one active store, primitive, installing export, registry; lift only | codex F3 (union over stores was unsound) and F6 (whole-body scan refused valid states) |
 | D6 | §2.5 | the store slice is the whole root store; every parked record travels; module stores by reachability | conservative and what the code does |
@@ -2538,7 +2550,7 @@ wording is applied verbatim where a ruling says so.
 
 | # | Clause | What changed | Why |
 |---|---|---|---|
-| R1 | §4.1 | A stays the identity under image collision; a de Bruijn receiver refuses `:yin.k/unsupported :ambiguous-image` before attach, a de Bruijn source refuses `:yin.k/non-portable :ambiguous-image` before serving; no enumeration order selects an A; the harness scopes `kernel-space` to the vectors a world projected | codex F2: `(fn [x] x)` and `(fn [y] y)` have distinct A, one R and one H; both kernels dedupe attaches by checksum; editing their offset tables for a phase-8 deletion was not worth a slice |
+| R1 | §4.1 | A stays the identity under image collision; a de Bruijn receiver refuses `:yin.k/unsupported :ambiguous-image` before attach, a de Bruijn source refuses `:yin.k/non-portable :ambiguous-image` before serving; no enumeration order selects an A; the harness scopes `kernel-space` to the vectors a world projected | codex F2: `(fn [x] x)` and `(fn [y] y)` have distinct A, one R and one H; both kernels dedupe attaches by checksum; editing both kernels' offset tables is outside the retained backend fragment (§4.6); **Amended after 7 (2026-10-14)** — Reason: the owner retains both backends |
 | A1 | §4.1 | the public API as landed: `segment`, `space`, `lift-state`, `lower-state`, `canonical-task`, `kernel-task`, `lower-defect`, `lift-task`, `lower-task` and the rest; `lift-act`/`lift-tail`/`lower-act`/`lower-tail` superseded | engineer deviation 1, accepted by codex: one dispatching entry per direction |
 | R5 | §4.2, §8.3 item 12 | the unique-preimage rule for `virt`: live-out* first, else the sole named preimage for validation only, else `:yin.k/non-portable :register-layout`; item 12 permits that refusal for an ambiguous tamper | engineer deviation 7, codex D3 and M9 (take the first preimage survived) |
 | D4 | §4.2, §7.2, §8.3 item 6 | a primitive is an admitted carrier value; the register kernel refuses one in its payload `:yin.k/unsupported :continuation-registers` with the path before attach; "is no carrier value" withdrawn; four refusal fixtures | engineer deviation 8, codex D4: the limit is the receiver's, not the carrier's |
@@ -2552,7 +2564,7 @@ wording is applied verbatim where a ruling says so.
 | L2 | §7.2 | the lower is decode, `lower-defect` (collision, installs, free-env procedure, register primitives, in that order, before any attach), `rows/lower-task` into a scratch machine, `kernel-task`; the audit allowlist entries | engineer deviation 2; codex M8; the audit's precedent of `restore-task` |
 | T1 | §8.3 items 14-17 | the fix round's tests named as acceptance | R1, R3, R4, F6, the audit |
 | C1 | §8.5 | 6c edited no kernel; 6c-post-D2 is the one named kernel edit, its own slice | honesty |
-| V1 | §9 | counts as asserted; no three-host record in the sources read; the limits and their shelf life | honesty |
+| V1 | §9 | counts as asserted; no three-host record in the sources read; the limits of the retained backends | honesty; **Amended after 7 (2026-10-14)** — Reason: the backend limits remain after phase 8 (§4.6) |
 
 ---
 

@@ -1981,15 +1981,16 @@ attached descriptors and requires byte-identical pack re-emission. No
 tenure, custody permission or runnable gate is recovered; abort after
 restart refuses. Composition functions and handles remain environment.
 
-The driver's exit persists recovery and body, journals the fence, attempts
-the stable successor offer, reports that exact successor/body, carries
-release of the matching origin lease, observes the authoritative closure
+**Amended after 7 (2026-10-14)** — Reason: the row driver persists a recovery object and a pack.
+The driver's exit persists the recovery object and the pack, journals the
+fence, attempts the stable successor offer, reports that exact
+successor/pack, carries release of the matching origin lease, observes the authoritative closure
 and successor edge, then retries the same offer until admitted. The
 recovery object is stored first and a store that refuses stops the step
-before the body is attempted; a retry re-brackets from the recovery
+before the pack is attempted; a retry re-brackets from the recovery
 object, idempotent through the store. An
 `:awaiting-completion` offer answer does not block reporting. A halt reports
-its result body and observes the terminal edge, with no successor offer.
+its result pack and observes the terminal edge, with no successor offer.
 Every external attempt has a durable intent before delivery and an
 acknowledgment afterward; an unmatched intent retains unknown delivery.
 A non-admitted report answer either retries -- `:suspended` resends the
@@ -3241,15 +3242,17 @@ Clauses, with the stage that owes the evidence
 
 1. **Amended after 7 (2026-10-14)** — Reason: the active carrier gates version 3, not legacy mixed-version bodies.
    Version gate (7.2.1). Fixtures omit the version, give a different
-   version or a float `3.0`, or corrupt a child task's profile. Carrier
-   gate/structure validation refuses before attach, proposals or restore;
+   version or a float `3.0`.
+   **Amended after 7 (2026-10-14)** — Reason: the inspector fixtures do not include a corrupt child profile.
+   Carrier gate/structure validation refuses before attach, proposals or restore;
    an exclusive composition refuses a nil-custody fork. There is no
    legacy fallback. Stage: C inspector fixtures (7a), D lower (7a/7b).
 2. **Amended after 7 (2026-10-14)** — Reason: custody now occupies one restricted root slot.
    Custody header (7.2.1). Fixtures drop required exclusive keys,
    use explicit fork policy, nil occurrence, self-origin, extra keys
-   (including current lease, epoch or holder), or non-origin keys on
-   a halted root. Every child custody slot must be nil. The five-key
+   (e.g. current lease or epoch), or non-origin keys on a halted root.
+   **Amended after 7 (2026-10-14)** — Reason: lease and epoch fixtures exist; a holder-key fixture is absent.
+   Every child custody slot must be nil. The five-key
    grammar and by-kind rules refuse `:yin.k/undecodable` with a path.
    Fork is nil for all kinds. Stage: C inspector, D lift/lower (7a).
 3. **Amended after 7 (2026-10-14)** — Reason: counter/issue restoration now runs through rows and fenced recovery.
@@ -3330,8 +3333,10 @@ Clauses, with the stage that owes the evidence
 10. **Amended after 7 (2026-10-14)** — Reason: 7d ports Stage E to the canonical kernel and distinguishes host evidence.
     Composition (linker 14.2.4). Crash, partition, reclaim and completion
     contracts run through semantic-register source/receiver compositions
-    using packs. Recovery format 2 is stored before the whole pack, both
-    fenced before publication. Pack addresses name offers, checkpoints
+    using packs.
+    **Amended after 7 (2026-10-14)** — Reason: the fence is journaled after both durable stores.
+    Recovery format 2 is stored before the whole pack; both are stored durably before the fence is journaled and before any offer.
+    Pack addresses name offers, checkpoints
     and report results; the baseline includes the structural root.
     Equal-baseline alternatives retain that root in another row order;
     an id-counter variant changes root and is `:variant-conflict`.
