@@ -679,6 +679,24 @@
         (cleanup-world! w)))))
 
 
+(deftest a-source-index-is-checked-at-open-test
+  (doseq [mode [:fork :exclusive]
+          index [nil {}]]
+    (let [cfg {:mode mode :source-index index
+               :renewal-interval {:s 10}
+               :store (mem/create-content-mem)
+               :diagnostics (log-writer)
+               :medium "compose-test"
+               :clock (fn [] {:s 1})
+               :failure-model :process-crash
+               :backend (journal/memory-backend (atom []) nil)
+               :duration {:s 30}}]
+      (is (thrown-with-msg?
+            #?(:cljd Object :clj Exception :cljs js/Error)
+            #"source index"
+            (compose/open! (if (nil? index) (dissoc cfg :source-index) cfg)))))))
+
+
 (deftest a-journal-substrate-is-checked-at-open-test
   (let [open! (fn [journals]
                 (compose/open! {:source-index (fn [] @s/source-index)

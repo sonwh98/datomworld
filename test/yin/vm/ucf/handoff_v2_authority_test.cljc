@@ -1,6 +1,7 @@
 (ns yin.vm.ucf.handoff-v2-authority-test
   "Direct version-2 inspector coverage: fork operation ids are refused.
-   Authority paths use row packs and are covered by rows-custody-test."
+   Authority paths use row packs and are covered by authority.grant-test,
+   authority.completion-test and compose-rows-test."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing.cbor :as jing.cbor]
             [yin.vm.ucf.checkpoint :as checkpoint]
