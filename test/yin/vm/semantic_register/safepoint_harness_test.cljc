@@ -1210,8 +1210,8 @@
 
 
 (deftest carrier-steps-run-in-order-over-the-tree
-  (testing "custody (10) alone"
-    (is (= [:yin.k/unsupported :custody] (take 2 (refused-before-attach 1 exclusive)))))
+  (testing "custody (10) alone: a slot outside the custody grammar (phase 7a)"
+    (is (= [:yin.k/undecodable :custody-key] (take 2 (refused-before-attach 1 exclusive)))))
   (testing "the dependency closure (9) before custody (10)"
     (let [[status _ r] (refused-before-attach 1 (comp exclusive (without-trees [10])))]
       (is (= :yin.k/unsatisfied status) (pr-str r))

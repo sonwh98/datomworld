@@ -22,7 +22,7 @@ the way the composition's resolver would."
             [yin.vm.ucf.authority.admission :as admission]
             [yin.vm.ucf.authority.front :as front]
             [yin.vm.ucf.authority.grant :as grant]
-            [yin.vm.ucf.checkpoint-fixtures :as fx]
+            [yin.vm.ucf.rows-checkpoint-fixtures :as fx]
             [yin.vm.ucf.custody :as custody]
             [yin.vm.ucf.ledger :as ledger]
             [yin.vm.ucf.holder.writer :as writer]
@@ -101,12 +101,11 @@ the way the composition's resolver would."
   "The first-park fixture body as occurrence `o` with counter `n`, over
 this world's arbitration."
   [o n]
-  (assoc (get fx/fixtures "first-park")
-         :yin.k/occurrence o
-         :yin.k/next-op-seq n
-         :yin.k/arbitration {:dao.stream/identity arb
-                             :dao.stream/descriptor
-                             {:dao.stream/type :dao.stream/journal}}))
+  (fx/edit-custody (fx/pack-of "first-park")
+                   #(assoc % :yin.k/occurrence o :yin.k/next-op-seq n
+                           :yin.k/arbitration {:dao.stream/identity arb
+                                               :dao.stream/descriptor
+                                               {:dao.stream/type :dao.stream/journal}})))
 
 
 (defn- world

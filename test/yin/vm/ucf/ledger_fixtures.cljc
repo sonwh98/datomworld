@@ -3,13 +3,17 @@
    ledger holding every fact kind of yin.vm.ucf.ledger, built by a
    portable script (`build`) and pinned as its journal frames.
 
-   The pins live in test/resources/yin/vm/ucf/ledger-v1.txt: a first
-   line `ledger-v1`, a second `projection <digest>`, the BLAKE3 hex of
+   The pins live in test/resources/yin/vm/ucf/ledger-v2.txt: a first
+   line `ledger-v2`, a second `projection <digest>`, the BLAKE3 hex of
    the canonical bytes of the projection the frames fold to, then one
    journal frame per line as lowercase hex, header first.  Regenerate
    the file from a one-off JVM script with the string `render` returns,
    saved to `path`; the test proves on every host that the file equals
    `render`, so every host's rebuild has the pinned bytes.
+
+   Version 2 (phase 7a): the offered and reported checkpoints are
+   version-3 row packs (yin.vm.ucf.rows-checkpoint-fixtures), each stored
+   and recorded under its pack address, its root id inside the baseline.
 
    Nothing here writes a file."
   (:require [clojure.string :as str]
@@ -26,13 +30,13 @@
             [yin.vm.ucf.authority.completion :as completion]
             [yin.vm.ucf.authority.grant :as grant]
             [yin.vm.ucf.authority.input :as input]
-            [yin.vm.ucf.checkpoint-fixtures :as fx]
+            [yin.vm.ucf.rows-checkpoint-fixtures :as fx]
             [yin.vm.ucf.custody :as custody]))
 
 
 (def path
   "The fixture file, relative to the repository root."
-  "test/resources/yin/vm/ucf/ledger-v1.txt")
+  "test/resources/yin/vm/ucf/ledger-v2.txt")
 
 
 (def arb "arb-c12")
@@ -69,19 +73,20 @@
    nil for a first park."
   ([o n] (park o n nil))
   ([o n org]
-   (cond-> (assoc (get fx/fixtures "first-park")
-                  :yin.k/occurrence o
-                  :yin.k/next-op-seq n
-                  :yin.k/arbitration {:dao.stream/identity arb
-                                      :dao.stream/descriptor
-                                      {:dao.stream/type :dao.stream/journal}})
-     (some? org) (assoc :yin.k/origin org))))
+   (fx/edit-custody (fx/base "first-park")
+                    #(cond-> (assoc %
+                                    :yin.k/occurrence o
+                                    :yin.k/next-op-seq n
+                                    :yin.k/arbitration {:dao.stream/identity arb
+                                                        :dao.stream/descriptor
+                                                        {:dao.stream/type :dao.stream/journal}})
+                       (some? org) (assoc :yin.k/origin org)))))
 
 
 (defn halted
   "A halted result of occurrence `o` under lease `l`."
   [o l]
-  (assoc (get fx/fixtures "halted-root") :yin.k/origin (origin o l)))
+  (fx/edit-custody (fx/base "halted-root") #(assoc % :yin.k/origin (origin o l))))
 
 
 (defn world
@@ -240,7 +245,7 @@
   "The fixture file's text, computed from `build` on this host."
   []
   (let [{:keys [a frames]} (build)]
-    (str "ledger-v1\n"
+    (str "ledger-v2\n"
          "projection " (digest (authority/projection a)) "\n"
          (str/join (map #(str (hex %) "\n") @frames)))))
 
@@ -250,8 +255,8 @@
   []
   (let [[magic pin & frames] (remove str/blank?
                                      (str/split-lines (cfx/read-path path)))]
-    (when-not (= "ledger-v1" magic)
-      (throw (ex-info "not a ledger-v1 fixture" {:path path})))
+    (when-not (= "ledger-v2" magic)
+      (throw (ex-info "not a ledger-v2 fixture" {:path path})))
     {:digest (subs pin (count "projection "))
      :frames (mapv cfx/hex->bytes frames)}))
 

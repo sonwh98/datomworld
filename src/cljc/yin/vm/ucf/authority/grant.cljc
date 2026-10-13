@@ -4,9 +4,10 @@
    docs/design/yin.vm.linker.dht.md 14.2.2 and 14.2.3).
 
    `offer!` admits one snapshot variant of an occurrence: it inspects
-   the bytes (yin.vm.ucf.checkpoint), stores the accepted body in a
-   content store, and only then commits the offer fact with its
-   operation baseline, so the ledger never references missing content.
+   the bytes (yin.vm.ucf.rows.checkpoint, a version-3 row pack), stores
+   the accepted pack in a content store under its pack address, and only
+   then commits the offer fact with its operation baseline, so the ledger
+   never references missing content.
    An uninspectable body commits nothing and stores nothing.  An offer
    of a recorded variant is a replay; a known occurrence offered with
    another origin, or a variant with another baseline, is refused.
@@ -45,7 +46,7 @@
             [dao.stream :as stream]
             [yin.vm.ucf.authority :as authority]
             [yin.vm.ucf.authority.completion :as completion]
-            [yin.vm.ucf.checkpoint :as checkpoint]
+            [yin.vm.ucf.rows.checkpoint :as checkpoint]
             [yin.vm.ucf.custody :as custody]
             [yin.vm.ucf.ledger :as ledger]))
 

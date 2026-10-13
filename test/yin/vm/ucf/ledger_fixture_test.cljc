@@ -1,6 +1,6 @@
 (ns yin.vm.ucf.ledger-fixture-test
   "The cross-host ledger fixture of M-next C slice C12: frames written on
-   the JVM and checked in (test/resources/yin/vm/ucf/ledger-v1.txt) fold
+   the JVM and checked in (test/resources/yin/vm/ucf/ledger-v2.txt) fold
    to the pinned projection on every host, over a memory backend and over
    a file backend they are replayed into, and every host's own run of the
    script renders the same bytes, frame by frame."

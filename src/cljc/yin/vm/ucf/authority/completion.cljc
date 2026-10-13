@@ -7,8 +7,8 @@
    `:yin.k/resumed` naming the successor's address, then release.
    `report!` admits the report: the reporting author must be the
    lease's holder, the lease live, its occurrence not quarantined, and
-   the successor's bytes must pass the inspector (yin.vm.ucf.checkpoint:
-   the address, version 1, the root role) with an origin naming this
+   the successor's bytes must pass the inspector (yin.vm.ucf.rows.checkpoint:
+   the pack address, version 3, the root's custody slot) with an origin naming this
    occurrence and lease.  A continuation must also name the same
    arbitration identity, be an occurrence the ledger has never seen, and
    carry a counter that continues the predecessor's (`:yin.k/next-op-seq`
@@ -41,7 +41,7 @@
    grantable."
   (:require [dao.jing.cbor :as cbor]
             [yin.vm.ucf.authority :as authority]
-            [yin.vm.ucf.checkpoint :as checkpoint]
+            [yin.vm.ucf.rows.checkpoint :as checkpoint]
             [yin.vm.ucf.custody :as custody]
             [yin.vm.ucf.ledger :as ledger]))
 
