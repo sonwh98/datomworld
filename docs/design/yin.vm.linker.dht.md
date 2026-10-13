@@ -1856,22 +1856,19 @@ answers one entry per requirement, in walk order:
   (section 4.1). The first entry that is not `:ok` refuses the require with
   `:yin.link.dht/dependency-binding` carrying that entry. No install child
   starts.
-- The check is today the **only** guard for a Python import. Discharge
-  (step 5b) compares a pin only through a module obligation, and
-  `declared-obligation` mints one only for a retained free name equal to
-  the required module or qualified by it. A Python import supplies its
-  dependency through a quoted require and module-object operations, not
-  such a retained name, so no module obligation exists and discharge
-  compares nothing. A dependency that reaches the install child some
-  other way (an inherited registry entry, a fresh install) is therefore
-  not checked against its pin after this point.
-- The engine fix is independent of admission and lands with L-d: in the
-  `link-install` `linked` transition, before the installed slice is
+- Discharge (step 5b) compares a pin only through a module obligation,
+  and `declared-obligation` mints one only for a retained free name equal
+  to the required module or qualified by it. A Python import supplies its
+  dependency through a quoted require and module-object operations, so
+  no module obligation exists and discharge compares nothing.
+- The engine checks independently of admission and the link source: in
+  the `link-install` `linked` transition, before the installed slice is
   lifted or published, every pinned require of the manifest is checked
-  against the halted child's linked entry for that name, and an absent or
-  unequal entry refuses `:dependency-pin-mismatch`. Its acceptance
-  bypasses this early guard and covers inherited and freshly installed
-  mismatches on all four VMs.
+  against the halted child's linked entry for that name. An absent or
+  unequal entry refuses `:dependency-pin-mismatch`, carrying `:module`,
+  `:name`, `:pinned`, and `:linked` (nil when absent). The first mismatch
+  in dependency-name string order wins. Its acceptance bypasses the DHT
+  binding check and covers inherited and freshly installed mismatches.
 
 ### 7.5 Admission: the linker's trust question
 

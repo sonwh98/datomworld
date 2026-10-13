@@ -1071,6 +1071,153 @@
 ;; The install child's refusals
 ;; =============================================================================
 
+(defn- drive-to-wakeup
+  "Poll scheduler rounds without restoring the ready continuations."
+  [task r]
+  (loop [task task
+         r r
+         i 0]
+    (if (or (seq (:ready-queue task)) (< 40 i))
+      [task r]
+      (let [r (respond! r)]
+        (recur (engine/check-wait-set task) r (inc i))))))
+
+
+(defn- pin-refusal
+  [pinned linked]
+  {:status :refused,
+   :reason :dependency-pin-mismatch,
+   :module 'foo,
+   :name 'bar,
+   :pinned pinned,
+   :linked linked})
+
+
+(def ^:private quoted-import-module
+  "A hand-built Python-shaped import: quoted require, then operations on
+   a module object's namespace dict. No dependency-qualified free name."
+  (then (req 'bar)
+        (def! 'n (app (v 'get)
+                      (app (v 'get)
+                           (lit {:py/type :module, :dict {'g 7}})
+                           (lit :dict))
+                      (lit 'g)))))
+
+
+(deftest dependency-pins-are-checked-without-module-obligations-test
+  (doseq [backend (keys backends)]
+    (testing (name backend)
+      (let [b (get backends backend)
+            dep (module-response backend 'bar bar-module ['g])
+            other (module-response backend 'bar
+                                   (def! 'g (lam [] (lit 8))) ['g])
+            address (jing/segment-key (:manifest dep))
+            ;; Different manifests, not merely different image values.
+            other (assoc-in other [:manifest :yin.module/version] 2)
+            wrong (jing/segment-key (:manifest other))]
+        (doseq [mode [:matching :inherited :fresh :absent]]
+          (testing (name mode)
+            (let [pair (link-pair)
+                  inherited? (= :inherited mode)
+                  root ((:vm b) (if inherited? (req 'bar) (req 'foo))
+                                (composition pair))
+                  r (responder pair {'bar (if (= :matching mode) dep other)})
+                  [root r] (if inherited? (drive root r) [root r])
+                  root (if inherited?
+                         ((:continue b) root (req 'foo))
+                         root)
+                  body (if (contains? #{:matching :fresh} mode)
+                         quoted-import-module
+                         (def! 'n (lit 7)))
+                  response (module-response
+                             backend 'foo body ['n]
+                             {:yin.module/requires {'bar address}})
+                  r (assoc-in r [:table 'foo] response)
+                  prior-stores (:module-stores root)
+                  [task r] (drive-to-wakeup (vm/run root) r)
+                  refusal (:refusal (first (:ready-queue task)))
+                  entry (module/module-entry (:modules (:modules task))
+                                             'foo)]
+              (is (empty? (:obligations response)))
+              (is (not-any?
+                    (fn [o]
+                      (let [n (if (map? o) (:name o) o)]
+                        (or (= 'bar n)
+                            (and (symbol? n) (= "bar" (namespace n))))))
+                    ((:obligations b) ((:image b) body))))
+              (is (empty? (:installs task)))
+              (if (= :matching mode)
+                (do (is (some? entry))
+                    (is (= 7 (get-in entry [:slice 'n])))
+                    (is (= 'foo (vm/value (vm/run task)))))
+                (do (is (= (pin-refusal address
+                                        (when-not (= :absent mode) wrong))
+                           refusal))
+                    (is (nil? entry))
+                    (is (= prior-stores (:module-stores task)))
+                    (when (= :fresh mode)
+                      (is (nil? (module/module-entry
+                                  (:modules (:modules task)) 'bar))))
+                    (is (= (assoc refusal :link-module 'foo)
+                           (refusal-of #(vm/run task))))))
+              (is (= (if (= :absent mode) ['foo]
+                         (if inherited? ['bar 'foo] ['foo 'bar]))
+                     (mapv :yin.link/name (:requests r)))))))))))
+
+
+(deftest pin-refusal-restores-every-waiter-and-allows-retry-test
+  (doseq [backend (keys backends)]
+    (testing (name backend)
+      (let [b (get backends backend)
+            pair (link-pair)
+            dep (module-response backend 'bar bar-module ['g])
+            address (jing/segment-key (:manifest dep))
+            root (vm/run ((:vm b) (req 'foo) (composition pair)))
+            waiter (first (:wait-set root))
+            ;; A second continuation has joined the same install slot.
+            root (update root :wait-set conj
+                         (assoc waiter :reason :install :name 'foo))
+            bad (module-response backend 'foo (def! 'n (lit 7)) ['n]
+                                 {:yin.module/requires {'bar address}})
+            [task r] (drive-to-wakeup root (responder pair {'foo bad}))
+            refusal (pin-refusal address nil)
+            good (module-response backend 'foo quoted-import-module ['n]
+                                  {:yin.module/requires {'bar address}})
+            ;; The same halted scheduler state accepts the next input.
+            retry ((:continue b) (assoc task :ready-queue []) (req 'foo))
+            [done r] (drive retry (assoc r :table {'foo good, 'bar dep}))]
+        (is (= 2 (count (:ready-queue task))))
+        (is (= [:link-refused :link-refused]
+               (mapv :status (:ready-queue task))))
+        (is (= [refusal refusal] (mapv :refusal (:ready-queue task))))
+        (doseq [woken (:ready-queue task)]
+          (is (= (assoc refusal :link-module 'foo)
+                 (refusal-of #(vm/run (assoc task :ready-queue [woken]))))))
+        (is (empty? (:wait-set task)))
+        (is (empty? (:installs task)))
+        (is (nil? (module/module-entry (:modules (:modules task)) 'foo)))
+        (is (= 'foo (vm/value done)))
+        (is (= ['foo 'foo 'bar]
+               (mapv :yin.link/name (:requests r))))
+        (is (apply distinct? (map :yin.link/id (:requests r))))))))
+
+
+(deftest the-first-pin-mismatch-is-in-name-string-order-test
+  (doseq [backend (keys backends)]
+    (let [pair (link-pair)
+          b (get backends backend)
+          dep (module-response backend 'bar bar-module ['g])
+          address (jing/segment-key (:manifest dep))
+          response (module-response
+                     backend 'foo (def! 'n (lit 7)) ['n]
+                     {:yin.module/requires (assoc {} 'z address 'bar address)})
+          root ((:vm b) (req 'foo) (composition pair))
+          [task _] (drive-to-wakeup (vm/run root)
+                                    (responder pair {'foo response}))]
+      (is (= (pin-refusal address nil)
+             (:refusal (first (:ready-queue task))))))))
+
+
 (deftest an-install-refuses-a-missing-export-and-a-loader-defect-test
   (doseq [backend (keys backends)]
     (testing (name backend)
@@ -1150,8 +1297,9 @@
   (spawn-module [t image opts]
     (let [child (module/spawn-module (as-stack t) image opts)]
       ;; a child that lifts its closures from an image nobody verified
-      (if (= :foreign (:stage (:fault t)))
-        (as-faulty child {:stage :forge-origin})
+      (case (:stage (:fault t))
+        :foreign (as-faulty child {:stage :forge-origin})
+        :lift (as-faulty child {:stage :lift})
         child)))
   (image-identity [t image] (module/image-identity (as-stack t) image))
   (image-holds? [t image segment]
@@ -1162,6 +1310,7 @@
         (injected! :attach))
       (as-faulty (module/attach-module (as-stack t) image) (:fault t))))
   (lift-closure [t closure encode]
+    (when (= :lift (:stage (:fault t))) (injected! :lift))
     (cond-> (module/lift-closure (as-stack t) closure encode)
       (= :forge-origin (:stage (:fault t)))
       (assoc :yin.k/segment "an image this scheduler never verified")))
@@ -1201,6 +1350,18 @@
         (if (or (seq (:ready-queue task)) (< 20 i))
           task
           (recur task r (inc i)))))))
+
+
+(deftest a-pin-mismatch-refuses-before-lifting-test
+  (let [dep (module-response :stack 'bar bar-module ['g])
+        address (jing/segment-key (:manifest dep))
+        response (module-response :stack 'foo (returning 1) ['f]
+                                  {:yin.module/requires {'bar address}})
+        task (faulted-install {'foo response} {:stage :lift})]
+    (is (= (pin-refusal address nil)
+           (:refusal (first (:ready-queue task)))))
+    (is (empty? (:installs task)))
+    (is (nil? (module/module-entry (:modules (:modules task)) 'foo)))))
 
 
 (deftest a-publication-defect-refuses-the-install-test

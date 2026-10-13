@@ -697,6 +697,9 @@ evidence, exactly as `yin.vm.linker/refused` builds it.
 |                         |        | export the manifest names                |
 | `:require-cycle`        | 7.4    | a child install requires a module that   |
 |                         |        | is itself installing in its ancestry     |
+| `:dependency-pin-mismatch` | 7.3    | a pinned require is absent from the      |
+|                         |        | halted child's registry, or its          |
+|                         |        | manifest address differs                 |
 | `:foreign-image`        | 7.3    | an exported closure originates in an     |
 |                         |        | image this scheduler never verified      |
 | `:binding-mismatch`     | 7.3    | a positional closure marker lowered into |
@@ -1272,7 +1275,7 @@ stateDiagram-v2
   running --> parked: child effect blocks (stream, ffi, require)
   parked --> running: child wait satisfied
   running --> validated: halt; every export bound in child store
-  running --> refused: halt; :export-missing, or error
+  running --> refused: halt; :export-missing, :dependency-pin-mismatch, or error
   validated --> linked: slice lifted; registry value updated
   linked --> [*]
   refused --> [*]
@@ -1319,6 +1322,11 @@ Rules:
   and 2 run once, at `validated`; acts 3 and 4 run once per
   receiving task -- the parent at `linked`, and each waiter or later
   requirer at its own restore.
+  Before act 1, every `:yin.module/requires` pin must equal the halted
+  child's linked entry's manifest address. An absent or unequal entry
+  refuses `:dependency-pin-mismatch` with `:module`, `:name`, `:pinned`,
+  and `:linked` (nil when absent), choosing the first mismatch by name
+  string order. Nothing is published; every waiter receives the refusal.
   1. *The child's export slice is lifted* to UCF's portable encoding
      (section 7.5.1, amended below): each closure becomes a
      `:yin.k/closure` marker naming its **origin image** and its entry
