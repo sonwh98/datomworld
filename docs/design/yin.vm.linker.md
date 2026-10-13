@@ -1054,7 +1054,8 @@ loads a fetched image supplies the format record's `:contract`.
 exported so tests and compositions holding a payload can run the checks
 without a stream.
 
-The REPL's serving composition (`yin.repl.link/composition`) links each
+The serving composition (`yin.repl.link/composition`, which AL-1 moves
+to `yin.vm.linker.interpreter`, 6.5) links each
 manifest it serves under its own `:derivation` option, `:verifying` by
 default; a composition that is its own publisher, such as a test
 harness that published the module into the store it serves, may ask for
@@ -1063,6 +1064,53 @@ record and names the `:trust` the policy applied (section 8.1).
 
 No new interpreter may be written against `fetch`. The VM path of
 section 7 is written against `step`.
+
+### 6.5 The link-pair interpreter
+
+The process that reads the link request medium, answers each request
+under its id, and appends to the link response medium is the linker's
+**link-pair interpreter**, `yin.vm.linker.interpreter`. It is linker
+semantics, not a REPL driver: the rule is that whatever a plain Clojure
+consumer (`yin.vm.linker.dht.md` section 10) must have to resolve, ask,
+bind, deliver, discharge or retire a link lives under `yin.vm.linker`,
+and only cadence, display, retained lines and which principals a session
+names stay in `yin.repl`. Neither `yin.vm.linker.interpreter` nor its
+admission protocol, `yin.vm.linker.admission`, requires any `yin.repl*`
+namespace; follow, authority and configuration are supplied data.
+
+Both namespaces are created by slice AL-1 of `yin.vm.linker.dht.md`
+7.5.14, which moves `yin.repl.link` and `yin.repl.admission` to them
+with every public var preserved. Until it lands, the code below lives at
+the old names.
+
+- **Composition and serving.** `composition` builds the request source
+  (local content, remote content, or the DHT source) and `authority`
+  the declared principals; `serve` answers requests in order, stopping
+  at the first pending one, and delivers each answer as a link response
+  of section 7.2. After AL-2, `make` mints the link pair, and for a DHT
+  source only the admission pair, into one `:linker` value, and
+  `(round linker node budget)` is the unit of work: one bounded answer
+  drain, the request serve, and the in-process admission interpreter
+  when there is one, returning the successor, the node, the pending
+  entries and a progress flag. After AL-3, `reconfigure` replaces the
+  admission policy and keeps cursors, retained questions and serials.
+- **Admission.** For a DHT source the interpreter asks a trust question
+  after a name resolves and before any load starts, and binds the
+  answer to the resolved address it asked about. The wait is the parked
+  request itself: nothing lands on the link response medium until the
+  answer does, so the VM's `:link` wait entry (7.2) is unchanged and
+  never learns admission exists. An admission refusal is an ordinary
+  link refusal. The datums, the drain, attachment (in process, external,
+  ShiBi) and the exposure rule are `yin.vm.linker.dht.md` 7.5.
+- **Retirement.** `run-descriptor` and `retire` retire an abandoned
+  run's requests and their admission state with no link response, so a
+  late answer correlates to nothing.
+- **Language-blind.** No request, response or admission datum carries a
+  language, a frontend or an `[id revision]`; the closed request key set
+  of 6.3 is unchanged. The holder asking is a composition-owned context
+  the admission interpreter receives, never a datum.
+- **Discharge is untouched.** The interpreter's work ends at delivery;
+  step 5b runs at the receiver as before.
 
 ## 7. `(require 'foo)` lowers to the linker
 
@@ -2213,8 +2261,16 @@ Renamed:  src/cljc/yin/vm/debruijn_linker.cljc
             -> src/cljc/yin/vm/linker.cljc            (M1)
           test/yin/vm/debruijn_linker_test.cljc
             -> test/yin/vm/linker_test.cljc           (M1)
+Moved:    src/cljc/yin/repl/link.cljc
+            -> src/cljc/yin/vm/linker/interpreter.cljc     (AL-1)
+          src/cljc/yin/repl/admission.cljc
+            -> src/cljc/yin/vm/linker/admission.cljc       (AL-1)
+          test/yin/repl/admission_test.cljc
+            -> test/yin/vm/linker/admission_test.cljc      (AL-1)
+          test/yin/repl/admission_doc_test.cljc
+            -> test/yin/vm/linker/admission_doc_test.cljc  (AL-1)
 New:      src/cljc/yin/vm/linker/authority.cljc            (M4 entry)
-          src/cljc/yin/repl/link.cljc                      (M5)
+          src/cljc/yin/repl/link.cljc         (M5; moved by AL-1)
           test/yin/repl/require_test.cljc                  (M5)
           test/yin/vm/linker_manifest_test.cljc            (M4)
           test/yin/vm/linker_authority_ingestion_test.cljc (M4)
@@ -2274,6 +2330,16 @@ Must not change:
 scanners, `row-local-defect`, `index-from-datoms`, `address-attribute`,
 `trusted-fallback`, `verifying-fallback`, `refused`, `refused?`, `ok?`,
 `refusal-reasons`.
+
+`yin.vm.linker.interpreter` exports (section 6.5, from AL-1): `make-pair`,
+`composition`, `authority`, `serve`, `run-descriptor`, `retire`,
+`formats`, and the constants `pair-capacity`, `content-capacity`,
+`attempt-budget`, `serve-steps` and `serve-budget`; after AL-2 also
+`make` and `round`; after AL-3 also `reconfigure`.
+`yin.vm.linker.admission` exports (from AL-1, unchanged): `make-state`,
+`drain`, `ask`, `asked`, `answer-to`, `judge`, `settle`, `forget`,
+`context`, `trusted-asserter`, `policy`, `interpreter`, `serve`,
+`reasons`. Neither requires a `yin.repl*` namespace.
 
 ## 11. Completion criteria
 

@@ -69,9 +69,14 @@ specified: a gate awaiting a per-request answer would wait, and no
 operation waits. If a later ShiBi needs that path it is an addition beside
 `verify`, not a change to it.
 
-**First consumer shape.** `yin.vm.linker.dht.md` section 7.5, admission,
-is that addition, and the first shape a ShiBi interpreter can take: the
-linker appends a trust question per resolved module onto an admission
+**First consumer shape.** The first consumer is the linker:
+`yin.vm.linker.dht.md` section 7.5, the linker's admission
+(`yin.vm.linker.interpreter` and `yin.vm.linker.admission`), is that
+addition, and the first shape a ShiBi interpreter can take. A ShiBi
+interpreter attaches in process as a verify function or as an external
+reader of the questions, with no linker edit; the holder asking is the
+`context`, never a field of the question. The linker's link-pair
+interpreter appends a trust question per resolved module onto an admission
 request medium, and one interpreter answers each with
 `(verify decision context question)` over a snapshot, appending the
 answer to a response medium the linker drains. It is an attachment beside

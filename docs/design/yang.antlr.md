@@ -3041,9 +3041,10 @@ store-context transitions on all four VMs. Until B lands, a forged
 `:store-of` could reach the prelude's state. Corrected float publication
 rebuilds affected derivations, manifests, and dependency pins before any
 cross-principal address is accepted. Trust is a separate question:
-which principals' modules a session admits is the admission
-interpreter's answer (`yin.vm.linker.dht.md` section 7.5), and an allow
-never relaxes this check.
+which principals' modules a holder admits is the linker's admission
+(`yin.vm.linker.dht.md` section 7.5, slices AL-1 to AL-4), which is
+language-blind and the same for every frontend, and an allow never
+relaxes this check.
 
 Linker prerequisites, the linker seat's to build:
 
@@ -3226,8 +3227,9 @@ precompiled CST packets or rows, since the parser is JVM-only):
   message bound, which a `dao.space.dht` node does not let a composition
   raise, so `py` is the reader's installed runtime (its pinned manifest
   address, one golden on every host) and the guest modules travel.
-  Which principals' modules an import admits is the admission stream's
-  question (`yin.vm.linker.dht.md` section 7.5). The
+  Which principals' modules an import admits is the linker's admission
+  question, asked the same way for every frontend
+  (`yin.vm.linker.dht.md` section 7.5). The
   `__all__` of `from m import *` is read by index (CPython's
   `PySequence_GetItem`), so a generator, set or dict `__all__` raises
   CPython's `TypeError`, and a range is a sequence; the prelude goldens
@@ -3235,13 +3237,16 @@ precompiled CST packets or rows, since the parser is JVM-only):
   I3 gap (REPL): no REPL frontend runs Python under the linked profile.
   The linked REPL profile is its own slice after F2: a frontend session
   keyed by [id revision] and one Python task and module view per
-  profile. Admission, its REPL wiring and the session's exposure rule
-  are `yin.vm.linker.dht.md` section 7.5 (slices AD-1 to AD-3). Also:
+  profile. Admission is the linker's, not this frontend's or the
+  REPL's, which only configures it: its layering, attachment and
+  exposure rule (the registry and its installation family) are
+  `yin.vm.linker.dht.md` section 7.5 (slices AL-1 to AL-4). Also:
   `py` is an installed pin on each reader until large blobs
   travel over the DHT (64 KiB blob cap), and the linker's
   dependency-binding check is today the only guard over a pinned
-  dependency (discharge does not independently refuse a republished
-  dependency); both are recorded for the DHT and linker seats.
+  dependency for a Python import (discharge does not independently
+  refuse a republished dependency); the engine `link-install` pin check
+  that closes this lands with L-d (`yin.vm.linker.dht.md` 7.4).
 - I4: an absent module inside `try` runs the `except
   ModuleNotFoundError` branch; an ambiguous name raises `ImportError`
   carrying the refusal.

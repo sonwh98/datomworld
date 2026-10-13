@@ -118,6 +118,7 @@ Syntax rendering is non-deterministic: one AST maps to many valid syntaxes.
 Syntax preferences are user/context-specific: the AST remains canonical.
 Runtime macros existed under the deleted semantic VM: code could transform itself using the same structures the VM executed. They do not exist under `ast-walker`.
 Cross-language interop works through the Universal AST as a shared semantic layer.
+Linker layering: whatever a plain Clojure consumer needs to resolve, ask, bind, deliver, discharge or retire a link, module admission included, lives in `yin.vm.linker*` and is language-blind, and the REPL only configures it (`docs/design/yin.vm.linker.dht.md` 7.5.1).
 Semantic drift must be prevented at all compositional levels, not just atomic nodes.
 The Universal AST is lower-level than Lisp: it makes evaluation, mutation, and types explicit.
 

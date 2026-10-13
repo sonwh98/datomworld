@@ -465,6 +465,10 @@ own store, and the directory's lock keeps one owner per directory. A
 retraction whose target no loaded snapshot holds is reported once,
 globally, by `(yin.link/names)`, never as a per-name diagnostic.
 `docs/design/yin.vm.linker.dht.md` is the contract for all of it.
+Whether this session accepts a resolved module from its principal is a
+separate question, admission, and it is the linker's, not the shell's:
+the shell only configures it (`--dht-trust`, the `:admission` option of
+`create-state`), and that design's section 7.5 is its contract.
 
 **The plain-Clojure path.** A non-REPL client takes the same path through
 plain functions: `dao.space.dht/join` over a store, `load-index` for a

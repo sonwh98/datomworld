@@ -1802,8 +1802,10 @@ considered: a candidate head, loading or loaded, is in no snapshot set.
 
 ### 7.4 Transitive requires
 
-A module's `:yin.module/requires` pins each dependency's manifest address,
-and discharge accepts only a linked module of that address. The closure
+A module's `:yin.module/requires` pins each dependency's manifest address.
+Discharge compares that pin with the linked module only through a module
+obligation, which exists only for a retained free name (see the binding
+check below for when there is none). The closure
 walker loads the pinned closure. The install child still requires the
 dependency **by name**. So each dependency name must resolve, in the
 reader's own name environment, to the address the publisher pinned.
@@ -1854,40 +1856,96 @@ answers one entry per requirement, in walk order:
   (section 4.1). The first entry that is not `:ok` refuses the require with
   `:yin.link.dht/dependency-binding` carrying that entry. No install child
   starts.
-- The check is the early, named form of what discharge would refuse later
-  as `:unresolved-free`; it adds no rule the linker lacks.
+- The check is today the **only** guard for a Python import. Discharge
+  (step 5b) compares a pin only through a module obligation, and
+  `declared-obligation` mints one only for a retained free name equal to
+  the required module or qualified by it. A Python import supplies its
+  dependency through a quoted require and module-object operations, not
+  such a retained name, so no module obligation exists and discharge
+  compares nothing. A dependency that reaches the install child some
+  other way (an inherited registry entry, a fresh install) is therefore
+  not checked against its pin after this point.
+- The engine fix is independent of admission and lands with L-d: in the
+  `link-install` `linked` transition, before the installed slice is
+  lifted or published, every pinned require of the manifest is checked
+  against the halted child's linked entry for that name, and an absent or
+  unequal entry refuses `:dependency-pin-mismatch`. Its acceptance
+  bypasses this early guard and covers inherited and freshly installed
+  mismatches on all four VMs.
 
-### 7.5 Admission: the trust question
+### 7.5 Admission: the linker's trust question
 
-Status: AD-1 (the seam) and AD-2 (the Python policy) landed; AD-3 (the
-REPL) is open. The three slices build it; the binding design is
-`collab/1792234000000-architect-admission-stream-r3.claude-fable-5-1.findings.md`
+Status: AD-1 (the seam) and AD-2 (the Python policy) landed in
+`yin.repl.*`. This section moves the responsibility into the linker; the
+AL slices (7.5.14) build it. The binding design is
+`collab/1792262000000-architect-admission-in-linker-r2.claude-fable-5-1.findings.md`
 (approved with nits by
-`collab/1792235000000-reviewer-admission-stream-r3.findings.md`, whose
-three nits are folded in below). It replaces the `:admit` function of
-`yin.repl.link/composition`.
+`collab/1792263000000-reviewer-admission-in-linker-r2.findings.md` and
+`collab/1791809519945-reviewer-admission-in-linker-r2-confirm.gpt-6.1-sol.findings.md`,
+whose nits are folded in below). It supersedes the earlier admission
+design (`collab/1792234000000-architect-admission-stream-r3.claude-fable-5-1.findings.md`),
+whose mechanisms it keeps and whose layering it reverses. AD-3 (the REPL
+trust commands) becomes AL-4.
 
-**Pinned by test.** The reason vocabulary of this section and the values
-of `serve-budget` and `pair-capacity` it names are pinned by
-`admission-spec-test` (`test/yin/repl/admission_doc_test.cljc`, landing
-with AD-1): the test reads this section and fails when it and the code
-diverge.
+**Pinned by test.** The reason vocabulary of this section, the values of
+`serve-budget` and `pair-capacity` it names, and the retire rule's
+literal `origin + "."` are pinned by `admission-spec-test`
+(`test/yin/repl/admission_doc_test.cljc` today, moved to
+`test/yin/vm/linker/` by AL-1): the test reads this section and fails
+when it and the code diverge. The namespace names
+`yin.vm.linker.interpreter` and `yin.vm.linker.admission` are pinned
+literals of this section too: AL-1 makes the relocated test assert that
+the section names the namespaces whose vars it reads.
 
-Owner direction (2026-10-12): a module published by another principal is
-not refused automatically. Which principals a session trusts is a
-configurable policy, and the user of a module may choose to trust its
-principal. The policy is an interpreter of a stream, the shape ShiBi
-already has (`dao.shibi.md`).
+Owner directions (2026-10-12). Importing a module over a network is the
+linker's job (`yin.vm.linker`); the REPL gets no machinery for it and
+only configures. A module published by another principal is not refused
+automatically: which principals a holder trusts is a configurable policy,
+and the user of a module may choose to trust its principal. The policy is
+an interpreter of a stream, the shape ShiBi capability tokens already
+have (`dao.shibi.md`). The linker is language-blind (7.5.10).
 
-#### 7.5.1 The datums
+#### 7.5.1 Layering: admission is the linker's
 
-When the DHT link source resolves a name, it appends an admission
-question to an **admission request medium**. One interpreter reads the
-questions and appends answers to an **admission response medium**. The
-two ring media sit beside the link pair. The admission id is
-`[link-id serial]`. `serial` is a per-composition counter, never reused,
-so a retired question and a later question for the same link id never
-share an id.
+**The rule.** Linker semantics is what a plain Clojure consumer (section
+10) must have to resolve, ask, bind, deliver, discharge or retire a link.
+The REPL is what disappears with the REPL: cadence, display, retained
+lines, and which principals this session names.
+
+| Lives in | Contents |
+|---|---|
+| `yin.vm.linker.interpreter` (from `yin.repl.link`) | pair minting, `composition`, `authority`, `serve`, `run-descriptor`, `retire`, `formats`, the constants; after AL-2 also `make` and `round`; after AL-3 also `reconfigure` |
+| `yin.vm.linker.admission` (from `yin.repl.admission`) | the protocol, unchanged: `make-state`, `drain`, `ask`, `asked`, `answer-to`, `judge`, `settle`, `forget`, `context`, `trusted-asserter`, `policy`, `interpreter`, `serve`, `reasons` |
+| `yin.vm.engine` / `yin.vm.module` | the `:admission` registry record as landed (7.5.3); the pinned-dependency check (7.4, with L-d) |
+| `yin.repl` | configuration only: `:link-source`, the `:admission` option, `--dht-trust`, `:external`; one `:linker` value after AL-2; one tick hook (7.5.7); the trust commands (AL-4); display text |
+
+Neither linker namespace requires any `yin.repl*` namespace. Follow,
+authority and configuration stay supplied data. AL-1 does the move
+(`git mv` of both namespaces and both admission tests, public API and
+session topology preserved); the old namespaces are deleted with no
+shim. Until AL-1 lands, the code of this section lives at the old names,
+and every `interpreter/` and `admission/` var named below is the
+`yin.repl.link` or `yin.repl.admission` var of the same name.
+
+The request-serving semantics (resolve, ask, bind, deliver, retire)
+exists only in this interpreter, which the VM-level tests
+(`linker_require_test`, `semantic_register/derive_test`) and the Python
+DHT import test already require. `dao.jing.content.driver` is not a
+consumer in that direction: it requires only `dao.jing`,
+`dao.jing.content.step` and `dao.stream`, and only its docstring, which
+names the interpreter as a downstream consumer, changes in AL-1.
+
+#### 7.5.2 The datums
+
+The datum shapes and the reason vocabulary are unchanged by the move.
+
+When the DHT request interpreter resolves a name, it appends an
+admission question to an **admission request medium**. One interpreter
+reads the questions and appends answers to an **admission response
+medium**. The two ring media sit beside the link pair. The admission id
+is `[link-id serial]`. `serial` is a per-composition counter, never
+reused, so a retired question and a later question for the same link id
+never share an id.
 
 ```clojure
 ;; question, appended to the admission request medium at resolution
@@ -1906,11 +1964,12 @@ share an id.
  :yin.admit/reason :yin.admit/untrusted-principal :yin.admit/asserters [...]}
 ```
 
-- The question's key set is closed: exactly the keys above. No session
-  and no subject travels in it; the subject is the interpreter's context
-  (7.5.6). No key of the question or of the link request is
-  `:yin.admit/subject`, `:yin.admit/session`, or in the `dao.shibi`
-  namespace.
+- The question's key set is closed: exactly the keys above. No session,
+  no subject, no language and no frontend travels in it; the subject is
+  the interpreter's context (7.5.8). No key of the question or of the
+  link request is `:yin.admit/subject`, `:yin.admit/session`, or in the
+  `dao.shibi` namespace. The link request's closed key set
+  (`yin.vm.linker.md` 6.3) is not edited.
 - The allow answer's key set is closed: `:yin.admit/id`,
   `:yin.admit/decision :allow` and `:yin.admit/conditions`. A refuse
   answer carries `:yin.admit/id`, `:yin.admit/decision :refuse` and
@@ -1923,9 +1982,14 @@ share an id.
   `:yin.admit/address`. A refusal copies into the link refusal shape with
   the answer's reason and its open keys.
 
-#### 7.5.2 Ask after resolve, before load: the retained entry (F1)
+**Minting** (AL-2). `(interpreter/make ...)` mints the link pair and,
+only for a `:dht?` source, the admission pair and its answer cursor. A
+local or remote content source has no admission pair. Until AL-2 the
+REPL's `make-session` mints the admission state beside the link pair.
 
-`link/serve` takes `{:pair :source :dht :admission}` and returns
+#### 7.5.3 Ask after resolve, before load: the retained entry (F1)
+
+`interpreter/serve` takes `{:pair :source :dht :admission}` and returns
 `{:pair :pending :progress? :dht :admission}`. The admission state is a
 value:
 
@@ -1972,12 +2036,23 @@ whole and parents receive transferred entries whole, so the record is
 inherited and transferred with them. A direct `:name-env` entry carries
 no `:admission` key.
 
-#### 7.5.3 Parking, with no deadline
+**Discharge and L-d.** Admission asks after resolve and before load;
+discharge is step 5b after delivery, untouched. An admission refusal is
+a section 9 link refusal, so `try-require` catches it as it catches
+`:absent`. An install child's transitive requirement is asked on its own
+request.
 
-A link whose question is unanswered parks. Nothing times it out: there is
-no clock in admission, and liveness belongs to `dao.lease` and to the
-`:link-policy` (8.3). An unanswered question ends only when an answer
-lands or its request is retired by abandonment.
+#### 7.5.4 Parking, with no deadline, and retirement
+
+A link whose question is unanswered parks. The wait lives in the link
+pair's own protocol and adds no state: a parked link is a request the
+interpreter's request cursor has not passed, plus a retained question
+under `:asked`. Nothing lands on the link response medium until the
+answer does, so the VM's `:link` wait entry never learns admission
+exists. Nothing times the wait out: there is no clock in admission, and
+liveness belongs to `dao.lease` and to the `:link-policy` (8.3). An
+unanswered question ends only when an answer lands or its request is
+retired by abandonment.
 
 **Abandonment retires the run.** `mint-link-id` emits the current
 counter and then increments it, and child origins are minted the same way
@@ -1991,7 +2066,7 @@ installs and links are folded out, with every counter normalized by
 - `:ids` is `[(:id-counter base) (:id-counter parked)]`.
 - `:children` is `[(:origins base) (:origins parked)]`.
 
-`(link/retire {:pair :admission} run)` returns
+`(interpreter/retire {:pair :admission} run)` returns
 `{:pair :admission :retired [ids]}`. Walking the link pair's requests with
 `stream/next` from the pair's request cursor, a request with id `[o k]` is
 retired iff:
@@ -2018,7 +2093,11 @@ current cursor, before the first unrelated request. A root request that
 was already answered and spawned an install child is behind the cursor and
 is not in `:retired`; its child's requests are.
 
-#### 7.5.4 The drain: bounded, consuming, with a persisted cursor
+`run-descriptor` and `retire` are the interpreter's; `(abandon)` is the
+REPL's command and, after AL-2, makes one `retire` call on the session's
+`:linker` value.
+
+#### 7.5.5 The drain: bounded, consuming, with a persisted cursor
 
 One public `(admission/drain admission budget)` returns the successor
 admission state. It reads the response medium with `stream/next` from
@@ -2042,8 +2121,9 @@ everything it read. Every read consumes; nothing peeks.
   returns (the earliest retained position, never an evicted one) and
   continues within the budget. On `:dao.stream/blocked` or
   `:dao.stream/end` it stops.
-- Serve calls `drain` with `serve-budget` (64) at the start of each round.
-  The host hook (7.5.5) calls the same function.
+- Each `round` (7.5.6) drains exactly once, with `serve-budget` (64), at
+  its start. After AL-2 nothing else drains; until then the AD-1 hook
+  `recheck-on-answers` drains with the same function and budget.
 - The media have capacity `pair-capacity` (1024) and evict the oldest
   element. An answer is lost when the unread backlog on the response
   medium exceeds that capacity; host composition must bound the
@@ -2051,51 +2131,106 @@ everything it read. Every read consumes; nothing peeks.
   A lost answer leaves its question pending until retirement. There is no
   re-answer protocol.
 
-#### 7.5.5 Late answers and host driving
+#### 7.5.6 One round
 
-All without a clock.
+`(interpreter/round linker node budget)` (AL-2) is the linker's unit of
+work over one `:linker` value, in this order:
 
-- **In the drive.** `drive-links` runs `admission/serve` right after
-  `link/serve` and assocs its admission successor on the state before the
-  VM runs, so a raising run carries it (below). A round continues while
-  the link serve, the admission serve or the answer drain made progress.
-  With the in-process interpreter one require costs two extra rounds.
-  With none, the drive ends with the link pending, bounded by
-  `link-round-budget` as before.
-- **The host hook.** `(yin.repl/recheck-on-answers state)` is a sibling of
-  `recheck-on-load-events`, called beside it by `yin.repl.main/step-all`
-  (8.2). It drains with `serve-budget`, persists the successor on the
-  state whether or not anything matched, and calls `recheck-pending` once
-  iff a full key of the retained `:answers` map equals the `:admission` id
-  of a pending entry of the pending run. Otherwise it answers
-  `[state' nil]` with no `:checks` change. Irrelevant answers advance the
-  cursor and are gone; a valid answer behind `serve-budget` irrelevant
-  ones is drained on the next tick. With no pending run the hook still
-  drains.
-- **The command path.** `(trust p)` rebuilds the session decision and,
-  when a run is pending, calls `recheck-pending` once.
-- **Error rollback.** The link raise carries the admission successor beside
-  the link pair, and `carry-served` restores it, so after an install that
-  raises the asked entry is dropped, the answer consumed, and the cursor
-  and serial advanced. `(abandon)` uses `retire` on the live state instead.
+1. Drain answers: one bounded drain (7.5.5).
+2. Serve link requests, stopping at the first pending one (7.5.3).
+3. Serve the in-process admission interpreter, when the value holds one
+   (7.5.8).
 
-#### 7.5.6 The interpreter contract
+It returns the successor value, the node, the pending entries and a
+progress flag. **Progress** is any of: a link response appended, a
+question appended, an in-process answer appended, or a drained answer
+that matched a retained question. A drained answer that matched nothing
+is consumed and is not progress. The successor is always carried, with
+or without progress: the drain's cursor may advance while consuming
+irrelevant answers, and the serial is preserved unless a question is
+successfully appended.
 
-`yin.repl.admission` is composed from
-`{:trusted #{...} :verify f :decision d :decision-medium m}` and answers
-each question with `(verify decision context question)`: nil allows, a
-reason map refuses. The context is composition-owned, built by
-`admission/context` from the session:
-`{:yin.admit/subject "ed25519:<hex>" | nil, :yin.admit/session <token>}`,
-the session token being the shell token now and `[id revision]` once the
-REPL F2 slice lands. Authorization vocabulary stays in the context and the
-policy; the question and the linker carry none.
+Until AL-2, `drive-links` runs `admission/serve` right after the link
+`serve` and assocs the admission successor before the VM runs; the link
+serve drains at the start of each of its rounds.
+
+#### 7.5.7 The tick-to-VM handoff
+
+A round that delivers a link response advances the request cursor past
+the parked request. If the VM is not then run, the next round finds no
+work and reports no progress, and a driver that runs the VM only on its
+own round's progress strands the delivered response. The handoff closes
+that gap: **the tick retains the round's successor and passes its
+progress into the pending driver, which runs the VM once before
+requiring another round to report progress.**
+
+One host hook, `(recheck-on-tick state events)`, replaces both
+`recheck-on-load-events` and `recheck-on-answers` (AL-2). Per tick:
+
+1. Run one `round` on the session's `:linker` with the session node, and
+   assoc the successor and the node into the state before anything else,
+   so a raising VM run carries them.
+2. If the round reported progress, call the pending driver with that
+   progress carried in. `drive-links` gains an initial-progress argument:
+   its first iteration runs the VM once with no round of its own (no
+   second drain before that run), then continues the existing loop,
+   bounded by `link-round-budget`.
+3. Else, if the events hold a `:loaded` or `:load-failed` event for a
+   manifest a pending link waits on, or an installed head of an awaited
+   principal, re-check as today (8.2). The no-progress `:checks` counter
+   and the link policy are unchanged.
+4. Else nothing happens: no re-check and no `:checks` change.
+
+Branches 2 and 3 are exclusive, so one tick never re-checks twice.
+`yin.repl.main/step-all` makes one `recheck-on-tick` call per tick and
+collects one returned text.
+
+**Error rollback.** The link raise carries one `::linker` key, the whole
+interpreter value, and `carry-served` restores it (AL-2). After an
+install that raises, the asked entry is dropped, the answer consumed, and
+the request, answer and question cursors, the serial and the settled
+state stay as the round left them. `(abandon)` uses `retire` on the live
+value instead. Until AL-2 the raise carries the link pair and the
+admission successor as two keys.
+
+#### 7.5.8 Attachment and the interpreter contract
+
+The admission interpreter answers each question with
+`(verify decision context question)`: nil allows, a reason map refuses.
+It is composed from `{:trusted #{...} :verify f :decision d
+:decision-medium m}`. It attaches in one of three ways, none of which
+edits the linker:
+
+- **In process, the default.** The `:admission` configuration builds the
+  policy: `trusted-asserter` over the own principal plus `:trusted`, or a
+  composed `:verify` over a static `:decision` or a capacity-1
+  `:decision-medium`. `round` serves it (7.5.6, step 3).
+- **External.** `:admission :external` mints the admission pair and runs
+  no interpreter in process. Another process reads the questions and
+  appends the answers over any `dao.stream` exposure of the pair. There
+  is no privileged node: the external interpreter is a peer of the
+  medium like any other.
+- **ShiBi.** A ShiBi interpreter attaches as either: a verify function
+  over its own published snapshot, in process, or an external reader of
+  the questions.
+
+**The context is the holder.** "Who is asking" is a composition-owned
+holder context the interpreter receives as the `context` argument of
+`verify`; it never travels in a datum. Today `admission/context` builds
+it from the session: `{:yin.admit/subject "ed25519:<hex>" | nil,
+:yin.admit/session <token>}`, the subject being the own key's principal.
+`:yin.admit/session` stays through AL-1 and AL-2. AL-3 replaces it: the
+composition gains an optional `:holder` (a principal id, or a token the
+verify understands), `context` answers the subject from it, defaulting to
+the own key's principal, and `:yin.admit/session` is deleted.
+Authorization vocabulary stays in the context and the policy; the
+question and the linker carry none.
 
 - **Composition-bounded synchronous verification.** `verify` runs
-  synchronously inside one serve round on one snapshot. Its cost per
-  question is bounded by the composition, and the interpreter answers at
-  most `serve-budget` questions per round. `verify` opens, fetches and
-  waits for nothing; a rule that would need a remote read is a rule the
+  synchronously inside one round on one snapshot. Its cost per question
+  is bounded by the composition, and the interpreter answers at most
+  `serve-budget` questions per round. `verify` opens, fetches and waits
+  for nothing; a rule that would need a remote read is a rule the
   decision snapshot must already hold (`dao.shibi.md`, limits of the
   adapter contract).
 - **The snapshot.** The decision snapshot is the static `:decision`
@@ -2103,54 +2238,93 @@ policy; the question and the linker carry none.
   per round. An **absent** snapshot gives no answer: the question stays
   pending and the round reports no progress. An **ended** snapshot
   refuses `:yin.admit/decision-ended`, with no load started.
-- **The default interpreter.** The decision is the session's own
+- **The default interpreter.** The decision is the holder's own
   principal together with the `:trusted` set. It allows when some
   asserter of the question is in that set, and otherwise refuses
   `:yin.admit/untrusted-principal` naming the asserters.
 - **Composition.** Policies compose as verify functions; the first reason
   wins. One interpreter writes the response medium.
-- **At the REPL.** `(trust p)` adds principal `p` to the session's trusted
-  set, `(untrust p)` removes it, and `(trusted)` prints the own principal
-  and the trusted set. `create-state` takes `:admission` beside
-  `:link-policy`, defaulting to the own key from `:dht-key`. `(reset)`
+- **Reconfiguration** (AL-3). `(interpreter/reconfigure linker config)`
+  replaces the policy of a `:linker` value and preserves the
+  interpreter's cursors, retained questions, serials and external mode.
+- **At the REPL, configuration only.** `create-state` takes `:admission`
+  beside `:link-policy`, defaulting to the own key from `:dht-key`;
+  `--dht-trust` sets its `:trusted`; `:external` selects the external
+  attachment. AL-4 adds `(trust p)`, `(untrust p)` and `(trusted)`: they
+  edit the `:trusted` configuration and call `reconfigure`, and
+  `(trusted)` prints the own principal and the trusted set. `(reset)`
   drops the trusted set unless it was given in `create-state`.
 
 This is not the gate seam of `dao.shibi.md`. It reuses the `verify`
 signature and the snapshot, but a request read off a stream and answered
 with one decision per request is the path `dao.shibi.md` names as a
 non-goal for the gate, to be added beside `verify`. This section is that
-addition. A ShiBi interpreter later replaces or composes with the default
-one as another verify function over its own published snapshot, with no
-edit to the linker.
+addition, and the linker is its first consumer.
 
-#### 7.5.7 Exposure: the session's registry
+#### 7.5.9 Authority versus admission
 
-Admission governs entry into a session's module registry, and
-authorization follows the session and the registry it inherits. A cache
-hit answers a require from the registry without a question; install
-children inherit registry entries; parents receive what children
-installed; `(lang ...)` preserves the registry. One allow therefore
-authorizes every later require of that module in that session.
+Two independent inputs. The declared principals (R8, 7.1) decide which
+assertions count in the fold, and so what a name resolves to. The
+trusted principals decide which resolved entries the holder accepts. A
+principal can be declared and untrusted (its names resolve and are
+asked, and the default interpreter refuses them) or trusted and
+undeclared (its assertions never enter the fold, so nothing of its is
+asked). A `:composition` provenance entry is never asked.
 
-- `(untrust p)` is not retroactive: it changes only later answers, and a
-  module already in the registry stays usable.
+#### 7.5.10 Language-blindness
+
+All languages compile to the universal AST; neither `yin.vm` nor the
+linker knows the source language. No linker datum carries a language, a
+frontend or an `[id revision]`: there is no importer key in the question,
+the answer or the link request, the closed request key set is unchanged,
+and no kernel constructor or `spawn-module` changes. Admission is about
+principals (the signing keys that asserted a name), addresses (A, the
+only code identity) and names. A published module is AST at an address;
+any frontend may import it when the holder's policy admits that
+principal for that address. Registry reuse between frontends is not a
+linker security question. Frontend runtime-state isolation (ruling 18,
+Python's `py.rt` cells) is a frontend and session concern outside the
+linker and is not designed here.
+
+#### 7.5.11 Exposure: the registry and its installation family
+
+Admission governs entry into a registry. An allow admits one address
+into the requesting task's registry, and authorization follows that
+registry and its installation-family inheritance:
+
+- `link-install` spawns the install child over the parent's linked
+  entries and receives each into it;
+- the child's installs transfer back to the parent with their
+  `:admission` record;
+- a name already resolvable in the registry answers with no link request
+  and hence no question.
+
+The exposure domain is therefore the installation family for its life,
+not one task. It is about principal plus address plus holder context,
+and it is language-blind: any frontend compiling to a require of that
+name hits the same entry.
+
+- **Untrust is not retroactive.** `(untrust p)` changes the decision
+  snapshot for questions not yet answered. It evicts no registry entry,
+  revokes no appended response, and leaves a question already answered
+  allow allowed.
 - `(reset)` and `(vm ...)` start a fresh registry and a fresh admission
   state.
 
-#### 7.5.8 Trust versus safety
+#### 7.5.12 Trust versus safety
 
-Trust is which principals a session accepts, and it is the admission
+Trust is which principals a holder accepts, and it is the admission
 interpreter's answer. Safety is the linker's and L-e's, enforced whatever
-the answer says: closure origin, store ownership, dependency pins and the
-primitives profile (`yang.antlr.md` 8.5.6, ruling 19). **An allow never
-relaxes L-e.** The interpreter sees names, addresses, asserters and
+the answer says: closure origin, store ownership, dependency pins (7.4)
+and the primitives profile (`yang.antlr.md` 8.5.6, ruling 19). **An allow
+never relaxes L-e.** The interpreter sees names, addresses, asserters and
 provenance, never bytes.
 
 **Conditions are reserved empty in v1.** `:yin.admit/conditions` must be
 `{}`. A primitive or effect bound on a trusted module is future work and
 does not land before L-e.
 
-#### 7.5.9 Fail closed
+#### 7.5.13 Fail closed
 
 Every reason below is final for that link:
 
@@ -2166,96 +2340,136 @@ Every reason below is final for that link:
 An absent snapshot and an unanswered question never allow; they leave the
 link pending until an answer or retirement.
 
-**Must not land before L-e:** anything that claims untrusted-origin
-imports are safe; a default decision other than own principals; honoring
-any non-empty condition; a weakening of profile or dependency-pin
-discharge or of export-origin validation; admission on the content pair
-or in any frontend. Everything here is AST-level data on streams, so the
-register-VM cutover does not affect it.
+**Must not land before L-e:** anything that claims an untrusted-origin
+import is safe; a default decision beyond own principals; honoring any
+non-empty condition; a weakening of profile, dependency-pin or
+export-origin checks; admission in a frontend or on the content pair.
+Everything here is AST-level data on streams, so the register-VM cutover
+does not affect it.
 
-#### 7.5.10 Slices and acceptance
+#### 7.5.14 Slices and acceptance
+
+Order: AD-2 (landed), AL-0, AL-1, AL-2, AL-3, AL-4. Gates per
+`docs/agents/build-n-test.md`: G0 iterate `bb test:sub:clj <own>`; G1
+checkpoint `bb test:sub yin.vm yin.repl yang.python`, adding `dao.jing`
+when a `dao.jing` file is edited (AL-1's driver docstring is one); G2
+land `bb test:changed` on three lanes plus `bb test:sub <own> --slow`
+where slow tests exist; G3 master `bb test` after merge; G4 the slow
+tier after AL-2 and after AL-4. Before any Dart lane after a rename,
+`rm -rf test/cljd-out` so the aggregator picks up no stale generated
+files. Acceptance runs on three hosts unless it says otherwise.
+
+**Landed.** AD-1 built the seam in `yin.repl.admission` and
+`yin.repl.link` (the datums, the retained entry, `retire`, the drain, the
+`link-install` admission record, `:unconfigured`), with its acceptance in
+`test/yin/repl/admission_test.cljc` (F1, F4, the duplicate, stale-serial
+and unknown-id drops, conditions, malformed answers, P1-1 (iii), P1-2
+(ii)). AD-2 removed Python's `principal-admission` and the `:admit` hook
+and moved the DHT import tests to the default interpreter. Both keep
+their acceptance through every AL slice.
 
 **The parked linked-REPL tests are lost.**
 `collab/1792201000000-parked-linked-repl-tests.cljc.txt` is not on disk
-and was never committed. AD-3 and F2 rewrite them from the acceptance
-lines below (F2, F3, P1-1, P1-2, P2-3 of the design), not from memory of
-the parked file.
+and was never committed. AL-2 and AL-4 write their REPL tests from the
+acceptance lines below, not from memory of the parked file.
 
-Order: AD-1 (with AD-0's `admission-spec-test`), then AD-2 and AD-3 in
-either order.
+- **AL-0, docs.** This section, 7.4 corrected, the 8.2 hook,
+  `yin.vm.linker.md` 6.5 and 10, the pointers in `yang.antlr.md`,
+  `dao.shibi.md`, `docs/agents/architecture.md` and the `yin.repl`
+  guide. Acceptance: `admission-doc-test` green on three hosts against
+  this section.
+- **AL-1, relocation** (linker seat). `git mv` of `yin.repl.link` to
+  `yin.vm.linker.interpreter`, `yin.repl.admission` to
+  `yin.vm.linker.admission`, and `admission_test` and
+  `admission_doc_test` to `test/yin/vm/linker/`. Every public var and
+  the session topology are preserved: `composition` and `serve` keep
+  their names; `:link-pair`, `:admission`, `:admitter`,
+  `serve-admission` and `recheck-on-answers` are untouched; `context`
+  keeps `:yin.admit/session`. Every require form is updated (the
+  inventory of the binding design, section 6); the store-write allowlist
+  key moves to `src/cljc/yin/vm/linker/interpreter.cljc` with the same
+  `composition` entry; the `dao.jing.content.driver` docstring is
+  updated. A collab note goes to the yang.python orchestrator before its
+  tests are touched. Acceptance: the admission tests, `require_test`,
+  `dht_test`, `linker_require_test` and `derive_test` green on three
+  hosts; `bb test:sub:list yin.vm` shows the two relocated test
+  namespaces; the slow `dht_import_test` green on the JVM; and the
+  namespace-dependency check is empty:
 
-- **AD-0, docs.** This section, the cross-references in `yang.antlr.md`
-  8.5.6 and `dao.shibi.md`, and the 8.2 hook. Its executable check lands
-  with AD-1: a portable test reads this section and asserts that every
-  keyword in `admission/reasons` appears in it, that it names
-  `serve-budget` and `pair-capacity` with the values the vars hold, and
-  that the retire rule contains the literal `origin + "."`.
-- **AD-1, the seam** (linker engineer). `yin.repl.admission` with
-  `make-state`, `context`, `serve`, `drain`, `reasons`; the admission
-  state through `link/serve`; `link/retire`; `:admit` removed; the
-  `link-install` admission record; the `make-session` default state; a
-  nil `:admission` refuses `:yin.admit/unconfigured`. Portable tests in
-  `admission_test.cljc` on hand-made questions and media. Acceptance:
-  - a trusted asserter's module imports on every VM with the admission
-    record and address in the installed and inherited registry entries;
-  - an untrusted one is refused with no load started;
-  - a question append reports progress;
-  - an unanswered question survives sixty-four rounds unchanged;
-  - a duplicate allow is dropped and the first stands;
-  - an answer for an unknown id is consumed and dropped, and an answer
-    with a stale serial for the same link id is dropped;
-  - non-empty conditions refuse `:yin.admit/unsupported-condition`;
-  - a malformed answer refuses `:yin.admit/malformed-answer`;
-  - `retire` passes P1-1 (i) to (iii) below;
-  - `drain` passes P1-2 (ii) gap recovery at the seam;
-  - F4: a recording `verify` receives exactly the snapshot, the context
-    and the question; an absent snapshot leaves the question unanswered
-    after a round and reports no progress; an ended snapshot refuses
-    `:yin.admit/decision-ended` with no load started; no key of the
-    question or the link request is `:yin.admit/subject`,
-    `:yin.admit/session` or namespaced `dao.shibi`;
-  - F1, the head change: publish M1 for `pym.m` under principal B; import
-    on a reader that declares B but trusts nobody in process, so the
-    question stays open; publish a new head of B moving `pym.m` to M2 and
-    step until the follower installs it; append an allow for the open
-    admission id; drive. The response's `:yin.admit/address` is M1's
-    content address, its `:manifest` value equals M1's manifest value,
-    the node holds a module record for M1 and none for M2, the installed
-    registry entry and an install child's inherited entry both carry
-    `:admission` with that id and address, and the pending entry's
-    `:admission` id never changed.
-- **AD-2, Python** (compiler engineer, coordinated with the yang.python
-  orchestrator). `principal-admission` and its ruling 19 docstring
-  paragraph leave `yang.python.antlr.publication`; the DHT import tests
-  move to the default interpreter. Acceptance: no
-  `:yang.python.antlr/foreign-principal` remains; `run-over-dht` runs both
-  interpreters; the published DHT artifact is unchanged; the F1 test
-  lives here because it needs a second head.
-- **AD-3, the REPL** (VM engineer). The session wiring, the host hook,
-  the trust commands, and the rewritten linked-REPL tests in
-  `test/yin/repl/admission_repl_test.cljc`. Acceptance:
-  - `(trust p)` then an import of p's module completes in the same
-    session;
-  - `(untrust p)` refuses the next question of a new session and leaves
-    the cached module usable;
-  - F2, abandon: an open question for `pym.e`, the drive stops;
-    `(abandon)`; require `pym.m`, trusted, on the same session: it
-    completes, and the response medium holds no response for the retired
-    id; append a late allow for the retired id and drive again: nothing is
-    loaded, nothing printed, the pending set stays empty;
-  - P1-1 (i) and (ii) through `(abandon)`;
+  ```
+  grep -rn -E '^\s*\[yin\.repl(\.[a-z-]+)? ' src/cljc/yin/vm src/cljc/yang src/clj/dao --include='*.clj*'
+  ```
+
+  It matches require vectors only, so docs and datum vocabulary such as
+  `:yin.repl/root` and error keywords do not match.
+- **AL-2, the REPL reduction and the handoff** (REPL seat, with the
+  linker-side `make` and `round` in the same slice). The session holds
+  one `:linker` value; `serve-admission`, `admission-context`,
+  `:admitter` and `recheck-on-answers` are deleted; `link-raise` and
+  `carry-served` carry one `::linker` key; `abandon-pending` makes one
+  `retire` call. The hook migration is explicit: `yin.repl.main/step-all`
+  replaces its two hook calls with one `recheck-on-tick` call and one
+  returned-text collection, and the direct callers in
+  `test/yin/vm/linker/dht_end_to_end_test.cljc`,
+  `test/yin/repl/dht_test.cljc` and `admission_test.cljc` move to the
+  one hook. Acceptance:
+  - (a) A require parks on an external question and the initial drive
+    stops; an allow is appended; one tick's round delivers the response
+    and the run completes with no further question, input line, load
+    event or answer. The tick runs the VM exactly once before another
+    round, and each round drains exactly once.
+  - (b) The same with an empty decision medium at park time and a
+    snapshot appended after parking: the in-process interpreter answers
+    in one tick's round, the drain matches and the response lands inside
+    the driver's loop, and the run completes, again with exactly one
+    initial VM run before another round and one drain per round.
+  - (c) A refusal arriving the same way raises as the VM's own, with the
+    successor `:linker` carried into the rolled-back state; and an
+    allowed response whose installation then raises does the same. In
+    both, after rollback, the request, answer and question cursors, the
+    serial and the settled admission state equal the round's successor.
+  - (d) A tick with no progress and no relevant event re-checks nothing
+    and leaves `:checks` unchanged.
+  - Under continuing progress the driver stops at `link-round-budget`
+    rounds.
   - F3, the late answer: a session composed with an external admission
     interpreter (none in process); require `pym.m`; the initial drive
-    ends pending with `:admission` on the pending entry;
-    `recheck-on-load-events` with unrelated events answers `[state nil]`;
-    append an allow; `recheck-on-answers` returns text, the next drive
-    loads and links, with no input line and no load event;
-  - P1-2 (i) and (iii) through the host hook;
+    ends pending with `:admission` on the pending entry; a
+    `recheck-on-tick` with unrelated events and no answer answers
+    `[state nil]`; append an allow; the next `recheck-on-tick` returns
+    text and the run loads and links, with no input line and no load
+    event.
+  - P1-2 (i) and (iii) through `recheck-on-tick`, below.
   - P2-3, the rollback: allow, then an install that raises, then a
     require of another module: the new question's serial is greater than
     the failed one's, `:asked` holds no entry for the failed link id, the
     answer map holds nothing under the failed admission id, and the next
-    drive reports progress only for the new question;
+    round reports progress only for the new question.
+  - Lexical: `repl.cljc` requires `yin.vm.linker.interpreter` and not
+    `yin.vm.linker.admission`; no session key `:admission` or
+    `:admitter`; no call to `drain`, `judge`, `ask`, `settle` or the
+    admission `serve`; exactly one tick hook. Configuration plumbing and
+    display text are allowed.
+- **AL-3, the holder context** (linker seat). `composition` gains the
+  optional `:holder`; `context` answers the subject from it, defaulting
+  to the own key's principal; `:yin.admit/session` is deleted;
+  `reconfigure` lands (7.5.8). Acceptance: a recording verify receives
+  the subject the composition supplied; reconfiguring to a new trusted
+  set answers a still-parked question under the new decision with
+  cursors and serials unchanged.
+- **AL-4, the trust commands** (REPL seat). `(trust p)`, `(untrust p)`
+  and `(trusted)` edit the `:trusted` configuration and call
+  `reconfigure`. Acceptance, through `round`:
+  - `(trust p)` then an import of p's module completes in the same
+    session;
+  - `(untrust p)` refuses the next question, and leaves the cached
+    module usable and an already-answered allow allowed (7.5.11);
+  - F2, abandon: an open question for `pym.e`, the drive stops;
+    `(abandon)`; require `pym.m`, trusted, on the same session: it
+    completes, and the response medium holds no response for the retired
+    id; append a late allow for the retired id and tick again: nothing
+    is loaded, nothing printed, the pending set stays empty;
+  - P1-1 (i) and (ii) through `(abandon)`;
   - `(trusted)` prints own plus trusted;
   - `(reset)` drops the trusted set unless given in `create-state`.
 
@@ -2278,10 +2492,10 @@ P1-1, retirement:
 P1-2, the drain:
 
 - (i) After the initial drive stops, append `serve-budget` answers for
-  unknown ids and then the valid allow; call `recheck-on-answers` alone,
-  at most twice: the require completes, and `:checks` is 0 after the
-  first call.
-- (ii) Gap recovery: a pair built with capacity 4 (`make-pair` gains an
+  unknown ids and then the valid allow; call `recheck-on-tick` alone, at
+  most twice: the require completes, and `:checks` is 0 after the first
+  call.
+- (ii) Gap recovery: a pair built with capacity 4 (`make-pair` takes an
   optional capacity, default `pair-capacity`); mint the cursor at the
   oldest end, append six answers for unknown ids and then the valid
   allow; the drain adopts the recovery cursor on the gap outcome and the
@@ -2315,10 +2529,12 @@ contract through `IModuleKernel/link-format`, and the `:fallback` policy of
   cannot happen without a new load.
 - One re-check serves every pending request in order, so several pending
   module loads completing in one tick need one re-check.
-- Beside it, `step-all` calls `yin.repl/recheck-on-answers` (7.5.5, not
-  yet built), which drains the admission response medium and re-checks
-  once if and only if a drained answer's admission id is one a pending
-  link waits on. An irrelevant answer changes no `:checks`.
+- Beside it, `step-all` calls the AD-1 hook `yin.repl/recheck-on-answers`,
+  which drains the admission response medium and re-checks once if and
+  only if a drained answer's admission id is one a pending link waits on.
+  An irrelevant answer changes no `:checks`. AL-2 replaces both hooks with
+  one `recheck-on-tick` (7.5.7): a round whose progress is handed to the
+  pending driver, and otherwise the load-event re-check above.
 - A typed line still re-checks, as today. `(abandon)`, the retained lines,
   the identity carry and the late-answer skip of M5 are unchanged.
 - `:link-policy` is consulted exactly as `yin.repl.link-policy.md` 3.2
