@@ -291,6 +291,9 @@
     (testing "a derivation record the manifest does not name"
       (is (= [:yin.k/undecodable :install-image 'host.mod]
              (kind #(assoc-in % [:response :derivation] (:derivation other))))))
+    (testing "a changed record with the honest input and output"
+      (is (= [:yin.k/undecodable :install-image 'host.mod]
+             (kind #(assoc-in % [:response :derivation :yin.ledger/profile :x] 1)))))
     (testing "a manifest and record of another image than the one delivered"
       (is (= [:yin.k/undecodable :install-image 'host.mod]
              (kind #(update % :response merge (select-keys other [:manifest :derivation]))))))
