@@ -1,4 +1,4 @@
-(ns yin.repl.admission
+(ns yin.vm.linker.admission
   "The admission pair (yin.vm.linker.dht.md section 7.5): the trust
    question a DHT link source asks before it loads a name another
    principal asserts, and the interpreter that answers it.

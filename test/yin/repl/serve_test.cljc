@@ -19,10 +19,10 @@
             [yin.repl :as repl]
             [yin.repl.frontends :as repl.frontends]
             [yin.repl.connect :as connect]
-            [yin.repl.link :as link]
             [yin.repl.net-fixture :as fixture]
             [yin.repl.serve :as serve]
-            [yin.vm.linker :as linker]))
+            [yin.vm.linker :as linker]
+            [yin.vm.linker.interpreter :as link]))
 
 
 ;; =============================================================================

@@ -20,12 +20,12 @@
     [yang.python.antlr.lower-portable-test :as portable]
     [yang.python.antlr.prelude :as prelude]
     [yang.python.antlr.uast :as u]
-    [yin.repl.link :as link]
     [yin.vm :as vm]
     [yin.vm.data :as data]
     [yin.vm.engine :as engine]
     [yin.vm.integer :as integer]
     [yin.vm.linker :as linker]
+    [yin.vm.linker.interpreter :as link]
     [yin.vm.linker.publish :as publish]
     [yin.vm.module :as module]))
 

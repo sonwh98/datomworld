@@ -1,15 +1,16 @@
-(ns yin.repl.admission-doc-test
+(ns yin.vm.linker.admission-doc-test
   "The executable check of slice AD-0 (yin.vm.linker.dht.md section 7.5,
    \"Pinned by test\"): the section and the code must not diverge.  It
    reads the section and asserts that every reason the admission seam
    refuses with is named in it, that it names `serve-budget` and
-   `pair-capacity` with the values the vars hold, and that its retire
-   rule spells the delimited prefix `origin + \".\"`."
+   `pair-capacity` with the values the vars hold, that its retire rule
+   spells the delimited prefix `origin + \".\"`, and that it names the
+   two namespaces the code lives in."
   (:require #?@(:cljd [["dart:io" :as dart-io]])
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
-            [yin.repl.admission :as admission]
-            [yin.repl.link :as link]))
+            [yin.vm.linker.admission :as admission]
+            [yin.vm.linker.interpreter :as link]))
 
 
 (def ^:private spec-path
@@ -69,7 +70,13 @@
                :code link/pair-capacity})
 
         (not (str/includes? section "origin + \".\""))
-        (conj {:missing "origin + \".\""})))))
+        (conj {:missing "origin + \".\""})
+
+        :always
+        (into (keep (fn [ns-name]
+                      (when-not (str/includes? section ns-name)
+                        {:missing ns-name})))
+              ["yin.vm.linker.admission" "yin.vm.linker.interpreter"])))))
 
 
 (deftest admission-spec-test

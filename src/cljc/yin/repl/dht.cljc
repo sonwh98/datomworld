@@ -60,11 +60,11 @@
             [dao.stream.remote-channel :as remote-channel]
             [dao.stream.ringbuffer :as ringbuffer]
             [yin.repl.index :as index]
-            [yin.repl.link :as link]
             [yin.repl.store :as store]
             [yin.vm.linker.dht :as ld]
             [yin.vm.linker.head :as head]
             [yin.vm.linker.head.board :as head.board]
+            [yin.vm.linker.interpreter :as link]
             [yin.vm.linker.sign :as sign]
             [yin.vm.module :as module]))
 

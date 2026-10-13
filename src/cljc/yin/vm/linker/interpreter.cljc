@@ -1,4 +1,4 @@
-(ns yin.repl.link
+(ns yin.vm.linker.interpreter
   "The REPL's linker-side composition (yin.vm.linker.md sections 6.1 and 9,
    M5): the interpreter box of the four-stream topology.
 
@@ -37,8 +37,8 @@
             [dao.space.dht :as dht]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
-            [yin.repl.admission :as admission]
             [yin.vm.linker :as linker]
+            [yin.vm.linker.admission :as admission]
             [yin.vm.linker.dht :as linker.dht]
             [yin.vm.linker.sign :as sign]))
 
@@ -149,7 +149,8 @@
    publisher asks for. The response names the trust it applied.
 
    `admission`, optional, is the policy of the in-process admission
-   interpreter (yin.vm.linker.dht.md 7.5, `yin.repl.admission/policy`):
+   interpreter (yin.vm.linker.dht.md 7.5,
+   `yin.vm.linker.admission/policy`):
    `{:trusted #{principal} :verify f :decision d :decision-medium m}`,
    the key's own principal joining it as `:own`.  Without it no
    interpreter runs in process: the questions a DHT source asks are
@@ -520,7 +521,7 @@
    under `:admission`.
 
    `admission` is the composition's admission state
-   (`yin.repl.admission/make-state`, yin.vm.linker.dht.md 7.5): the
+   (`yin.vm.linker.admission/make-state`, yin.vm.linker.dht.md 7.5): the
    round first drains the answer medium (`admission/drain`, at most
    `budget` elements), and the successor state is answered under
    `:admission`, with the question and answer of every request whose

@@ -29,9 +29,9 @@
             [yin.vm.engine :as engine]
             [yin.vm.linearize :as linearize]
             [yin.vm.linker :as linker]
+            [yin.vm.linker.interpreter :as link]
             [yin.vm.linker.publish :as publish]
             [yin.repl :as repl]
-            [yin.repl.link :as link]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.semantic-register :as sr]
@@ -1320,9 +1320,9 @@
 
 (defn- served-response
   "Publish `answer-module` as `foo` in a fresh store, serve one by-name
-   link request for `format-kw` over a `yin.repl.link` composition of
-   `opts` on that store, and return the response body the interpreter
-   appended."
+   link request for `format-kw` over a `yin.vm.linker.interpreter`
+   composition of `opts` on that store, and return the response body
+   the interpreter appended."
   [opts format-kw]
   (let [store (mem/create-content-mem)
         {:keys [address]} (publish/publish-module!

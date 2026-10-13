@@ -3,10 +3,10 @@
    and P3, docs/design/yang.antlr.md 8.5.6): the namespace that requires
    this is the publisher of `py` and `pysp`, so it publishes each module
    once per process into one in-memory content store and serves them to
-   every linked run over a `yin.repl.link` composition under `:trusted`
-   derivation (the remediation ruling's R6). The `:verifying` evidence is
-   `publish-module!`'s own `link-local` links, which `linked-prelude-test`
-   asserts.
+   every linked run over a `yin.vm.linker.interpreter` composition under
+   `:trusted` derivation (the remediation ruling's R6). The `:verifying`
+   evidence is `publish-module!`'s own `link-local` links, which
+   `linked-prelude-test` asserts.
 
    A linked run builds the program's task on one of the three vector VMs
    with a link pair, then runs the VM and serves the pair alternately
@@ -17,7 +17,6 @@
     [dao.jing.mem :as mem]
     [yang.python.antlr.prelude :as prelude]
     [yang.python.antlr.safepoint :as safepoint]
-    [yin.repl.link :as link]
     [yin.vm :as vm]
     [yin.vm.data :as data]
     [yin.vm.debruijn-code :as dcode]
@@ -28,6 +27,7 @@
     [yin.vm.debruijn.stack :as dvm]
     [yin.vm.integer :as integer]
     [yin.vm.linearize :as linearize]
+    [yin.vm.linker.interpreter :as link]
     [yin.vm.linker.publish :as publish]
     [yin.vm.module :as module]
     [yin.vm.semantic :as semantic]

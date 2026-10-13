@@ -4,9 +4,10 @@
    sleeps, returning a synchronous dao.jing content handle. It replaces
    the deleted dao.jing.remote blocking constructor; its consumers are
    the coordinate opener (dao.jing.coordinate/open!) and, through it,
-   dao.space and yin.repl.link on the JVM. yin.vm's materialize-tree!
-   and yin.vm.code's materialize-vector! have no remote path of their
-   own: they gain one only by being handed a coordinate-built handle.
+   dao.space and yin.vm.linker.interpreter on the JVM. yin.vm's
+   materialize-tree! and yin.vm.code's materialize-vector! have no
+   remote path of their own: they gain one only by being handed a
+   coordinate-built handle.
 
    The returned handle is the plain-data map dao.jing/materialize!,
    dao.jing/get, and dao.jing/close! dispatch through:

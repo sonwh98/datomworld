@@ -1,4 +1,4 @@
-(ns yin.repl.admission-test
+(ns yin.vm.linker.admission-test
   "The admission seam, slice AD-1 (yin.vm.linker.dht.md section 7.5;
    collab design r3): the trust question a DHT link source asks before
    it loads a name, the interpreter that answers it, and the shell
@@ -7,10 +7,10 @@
    Every world here is one solo `dao.space.dht` node whose local store
    holds the modules and an index of their signed names, loaded: own
    principal A asserts most names, B asserts `their.m`.  The seam tests
-   drive `yin.repl.link/serve` and `yin.repl.admission/serve` over
-   hand-written link requests; the shell tests drive a REPL whose link
-   source is that node.  Nothing waits on a clock: a node step is handed
-   its reading."
+   drive `yin.vm.linker.interpreter/serve` and
+   `yin.vm.linker.admission/serve` over hand-written link requests; the
+   shell tests drive a REPL whose link source is that node.  Nothing
+   waits on a clock: a node step is handed its reading."
   (:require [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dao.datom :as datom]
@@ -22,13 +22,13 @@
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
             [yin.repl :as repl]
-            [yin.repl.admission :as admission]
             [yin.repl.frontends :as repl.frontends]
-            [yin.repl.link :as link]
             [yin.repl.main :as main]
             [yin.vm :as vm]
+            [yin.vm.linker.admission :as admission]
             [yin.vm.linker.closure-test :as ct]
             [yin.vm.linker.dht :as ld]
+            [yin.vm.linker.interpreter :as link]
             [yin.vm.linker.publish :as publish]
             [yin.vm.linker.sign :as sign]
             [yin.vm.module :as module]))

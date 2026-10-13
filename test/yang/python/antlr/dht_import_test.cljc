@@ -49,11 +49,11 @@
     [yang.python.antlr.lower :as lower]
     [yang.python.antlr.publication :as publication]
     [yang.python.antlr.render :as render]
-    [yin.repl.admission :as admission]
-    [yin.repl.link :as link]
     [yin.vm :as vm]
+    [yin.vm.linker.admission :as admission]
     [yin.vm.linker.dht :as ld]
     [yin.vm.linker.head :as head]
+    [yin.vm.linker.interpreter :as link]
     [yin.vm.linker.publish :as publish]
     [yin.vm.linker.sign :as sign]
     [yin.vm.module :as module]))

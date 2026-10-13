@@ -16,11 +16,9 @@
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
             [yang.frontend :as frontend]
-            [yin.repl.admission :as admission]
             [yin.repl.ast-index :as ast-index]
             [yin.repl.dht :as repl.dht]
             [yin.repl.index :as index]
-            [yin.repl.link :as link]
             [yin.repl.query :as query]
             [yin.repl.store :as store]
             [yin.vm :as vm]
@@ -36,6 +34,8 @@
             [yin.vm.engine :as engine]
             [yin.vm.integer :as integer]
             [yin.vm.linearize :as linearize]
+            [yin.vm.linker.admission :as admission]
+            [yin.vm.linker.interpreter :as link]
             [yin.vm.macro :as macro]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
@@ -748,13 +748,14 @@
    indexer (`yin.repl.ast-index`), holding the session's `$ast` and `$occ`
    relations, is a third such peer.
 
-   The link pair is the session's (`yin.repl.link/make-pair`): the VM's
-   half lives in its private `:resources`, the interpreter's half beside
-   it under `:link-pair`.  The content pair and the name environment the
+   The link pair is the session's
+   (`yin.vm.linker.interpreter/make-pair`): the VM's half lives in its
+   private `:resources`, the interpreter's half beside it under
+   `:link-pair`.  The content pair and the name environment the
    interpreter serves from are the shell's (`:link-source`), and outlive
    a session rebuild.
 
-   The admission state is the session's too (`yin.repl.admission`,
+   The admission state is the session's too (`yin.vm.linker.admission`,
    yin.vm.linker.dht.md 7.5): the question and answer media beside the
    link pair under `:admission`, and, when the shell's link source names
    an admission `policy`, the in-process interpreter's own state over
@@ -825,8 +826,8 @@
    `dao.stream.rpc` client state on a connection whose far end serves
    content) and `name-env` (module name -> manifest address) compose the
    content pair and the name environment the linker interpreter serves
-   `(require ...)` from (yin.repl.link/composition); with neither content
-   source, a require stays `:pending` and says so.
+   `(require ...)` from (yin.vm.linker.interpreter/composition); with
+   neither content source, a require stays `:pending` and says so.
 
    `:link-policy` is the session's pending-link rule
    (yin.repl.link-policy.md), kept beside `:link-source` so `(reset)` and
@@ -837,9 +838,10 @@
    reserved for phase 2 and refused, as is anything else, at assembly.
 
    `:admission` is the policy of the session's in-process admission
-   interpreter (yin.vm.linker.dht.md 7.5, `yin.repl.link/composition`'s
-   option): by default `{}`, which trusts the `:dht-key`'s own principal
-   alone; `{:trusted #{principal}}`, each `ed25519:<hex>`, trusts more;
+   interpreter (yin.vm.linker.dht.md 7.5,
+   `yin.vm.linker.interpreter/composition`'s option): by default `{}`,
+   which trusts the `:dht-key`'s own principal alone;
+   `{:trusted #{principal}}`, each `ed25519:<hex>`, trusts more;
    `:verify`, `:decision` and `:decision-medium` replace the default
    rule.
    `:external` runs no interpreter in process: the questions a require
@@ -1303,7 +1305,7 @@
 
 (defn- admission-context
   "The context the session's admission interpreter answers under
-   (`yin.repl.admission/context`): its own key's principal and the
+   (`yin.vm.linker.admission/context`): its own key's principal and the
    shell token."
   [state]
   (admission/context {:key (:dht-key state) :session (:shell-token state)}))
@@ -1459,8 +1461,8 @@
    began in, whose store and value history the parked evaluation never
    wrote.  Lines typed while the require was pending are dropped with
    it, and said so.  The linker side retires the run's requests
-   (`yin.repl.link/retire`, yin.vm.linker.dht.md 7.5): each one still
-   unread on the link pair is passed over with no response, and its
+   (`yin.vm.linker.interpreter/retire`, yin.vm.linker.dht.md 7.5): each
+   one still unread on the link pair is passed over with no response, and its
    admission question and answer are dropped, so a later require on the
    same pair is served; a response already in flight is skipped as
    late.  The

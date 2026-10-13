@@ -28,7 +28,7 @@
                        [yang.python.antlr.repl-probe :as probe]])
     [yin.repl :as repl]
     [yin.repl.frontends :as frontends]
-    [yin.repl.link :as link]
+    [yin.vm.linker.interpreter :as link]
     [yin.vm.linker.publish :as publish]))
 
 

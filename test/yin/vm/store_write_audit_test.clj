@@ -328,7 +328,7 @@
     ["make-expander" :map] 1}
    ;; the content source descriptor: `:store` names a dao.jing byte-store
    ;; handle the linker interpreter serves content from, never a VM store
-   "src/cljc/yin/repl/link.cljc"
+   "src/cljc/yin/vm/linker/interpreter.cljc"
    {["composition" :map] 1}
    ;; the handoff demo: shipped definitions, checked
    "src/cljc/datomworld/demo/continuation_handoff.cljc"
@@ -365,7 +365,8 @@
    ;; the custody composition's carrier descriptors (D15): `:store` names
    ;; the node's dao.jing content store the composition serves bodies and
    ;; code from -- offers put bodies in it, drivers fence into it -- never
-   ;; a VM store; the same shape as yin.repl.link's composition
+   ;; a VM store; the same shape as yin.vm.linker.interpreter's
+   ;; composition
    "src/cljc/yin/vm/ucf/compose.cljc"
    {["bare-composition" :map] 1
     ["driver-config" :map] 1

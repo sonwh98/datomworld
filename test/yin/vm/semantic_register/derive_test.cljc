@@ -9,7 +9,7 @@
             [yang.python.antlr.safepoint :as safepoint]
             [yang.python.antlr.render :as render]
             [yang.python.antlr.uast :as u]
-            [yin.repl.link :as link]
+            [yin.vm.linker.interpreter :as link]
             [yin.vm.debruijn-register-code :as rcode]
             [yin.vm.debruijn-register-compile :as rc]
             [yin.vm.debruijn.register :as rvm]
