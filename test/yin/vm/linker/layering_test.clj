@@ -5,10 +5,13 @@
    under src/cljc/yin/vm, src/cljc/yang or src/clj/dao requires a
    `yin.repl` namespace.  This gate reads the `ns` form of every source
    file there (tools.reader, reader conditionals preserved, so every
-   branch is read) and fails on any `yin.repl` or `yin.repl.*` symbol in
-   a `:require`, `:require-macros` or `:use` clause, and on any file it
-   cannot read.  Docstrings and datum vocabulary such as `:yin.repl/root`
-   are not requires and do not count.  JVM only: it reads source files."
+   branch is read, whether inside a clause or around whole clauses) and
+   fails on any `yin.repl` or `yin.repl.*` symbol in a `:require`,
+   `:require-macros` or `:use` clause, on any file it cannot read, on
+   any file whose first form is not `ns` (empty files included), and on
+   a root that is missing or holds no source file.  Docstrings and datum
+   vocabulary such as `:yin.repl/root` are not requires and do not
+   count.  JVM only: it reads source files."
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is testing]]
             [clojure.tools.reader :as reader]
@@ -39,35 +42,53 @@
     :else nil))
 
 
+(defn- clauses
+  "The `ns` body elements with every reader conditional opened: each
+   branch of a `#?` is one element, each branch of a `#?@` a sequence
+   of elements, recursively, whatever the host."
+  [body]
+  (mapcat (fn [x]
+            (if (reader-conditional? x)
+              (let [branches (take-nth 2 (rest (:form x)))]
+                (clauses (if (:splicing? x) (apply concat branches) branches)))
+              [x]))
+          body))
+
+
 (defn repl-requires
   "The `yin.repl` namespaces the `ns` form of `text` requires, as a
-   sorted vector, or `[:unreadable message]` when its first form cannot
-   be read."
+   sorted vector; `[:unreadable message]` when its first form cannot be
+   read; `[:no-ns-form]` when its first form is not an `ns` form, which
+   includes an empty file (every source file under `roots` is a
+   namespace)."
   [text]
   (try
     (binding [reader/*default-data-reader-fn* (fn [_ v] v)
               *ns* (create-ns 'yin.vm.linker.layering-reader)]
-      (let [form (reader/read {:read-cond :preserve, :eof nil}
+      (let [eof (Object.)
+            form (reader/read {:read-cond :preserve, :eof eof}
                               (rt/indexing-push-back-reader text))]
-        (->> (when (and (seq? form) (= 'ns (first form))) form)
-             (filter #(and (seq? %) (contains? require-clauses (first %))))
-             (mapcat symbols-in)
-             (filter repl-ns?)
-             distinct
-             sort
-             vec)))
+        (if (and (seq? form) (= 'ns (first form)))
+          (->> (clauses (rest form))
+               (filter #(and (seq? %) (contains? require-clauses (first %))))
+               (mapcat symbols-in)
+               (filter repl-ns?)
+               distinct
+               sort
+               vec)
+          [:no-ns-form])))
     (catch Exception e
       [:unreadable (ex-message e)])))
 
 
 (defn- source-files
-  []
-  (->> roots
-       (mapcat #(file-seq (io/file %)))
-       (filter #(.isFile ^java.io.File %))
-       (map #(.getPath ^java.io.File %))
-       (filter #(re-find #"\.clj[csd]?$" %))
-       sort))
+  ([] (mapcat source-files roots))
+  ([root]
+   (->> (file-seq (io/file root))
+        (filter #(.isFile ^java.io.File %))
+        (map #(.getPath ^java.io.File %))
+        (filter #(re-find #"\.clj[csd]?$" %))
+        sort)))
 
 
 (defn violations
@@ -88,6 +109,36 @@
              (str "(ns a.b (:require [dao.stream :as s]"
                   " #?(:cljd [yin.repl.link :as l] :clj [x.y :as y])"
                   " #?@(:cljs [[yin.repl :as r]])))")))))
+  (testing "#? wrapping a whole clause is read"
+    (is (= '[yin.repl.store]
+           (repl-requires
+             "(ns a.b #?(:clj (:require [yin.repl.store :as store])))"))))
+  (testing "#?@ wrapping whole clauses is read"
+    (is (= '[yin.repl yin.repl.link]
+           (repl-requires
+             (str "(ns a.b #?@(:clj [(:require [dao.stream :as s])"
+                  " (:use [yin.repl.link])]"
+                  " :cljs [(:require-macros [yin.repl :as r])]))")))))
+  (testing "a violation only in an inactive host branch is found"
+    (is (= '[yin.repl.store]
+           (repl-requires
+             (str "(ns a.b #?(:clj (:require [dao.stream :as s])"
+                  " :cljd (:require [yin.repl.store :as store])))"))))
+    (is (= '[yin.repl]
+           (repl-requires
+             (str "(ns a.b #?(:cljs (:require [dao.stream :as s])"
+                  " :default #?@(:clj [] :cljd [(:require [yin.repl])])))")))))
+  (testing "a clean namespace with whole-clause conditionals stays clean"
+    (is (= []
+           (repl-requires
+             (str "(ns a.b #?(:clj (:require [dao.stream :as s])"
+                  " :cljd (:require [yin.vm.linker :as l]))"
+                  " #?@(:clj [(:import (java.io File))]"
+                  " :cljs [(:require [yin.repl-like :as x])]))")))))
+  (testing "a file whose first form is not ns is an inspection failure"
+    (is (= :no-ns-form (first (repl-requires "(def x 1) (ns a.b)"))))
+    (is (= :no-ns-form (first (repl-requires ""))))
+    (is (= :no-ns-form (first (repl-requires ";; only a comment\n")))))
   (testing "datum vocabulary and docstrings are not requires"
     (is (= []
            (repl-requires
@@ -95,7 +146,13 @@
                   " (def k :yin.repl/root)"))))))
 
 
+(deftest every-root-is-inspected-test
+  (doseq [root roots]
+    (testing (str root " exists and holds source files")
+      (is (.isDirectory (io/file root)))
+      (is (seq (source-files root))))))
+
+
 (deftest linker-requires-no-repl-test
   (testing (str "no namespace under " roots " requires yin.repl")
-    (is (seq (source-files)))
     (is (= {} (violations)))))
