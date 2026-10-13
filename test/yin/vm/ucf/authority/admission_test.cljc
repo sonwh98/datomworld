@@ -11,7 +11,7 @@
             [yin.vm.ucf.authority :as authority]
             [yin.vm.ucf.authority.admission :as admission]
             [yin.vm.ucf.authority.grant :as grant]
-            [yin.vm.ucf.checkpoint-fixtures :as fx]
+            [yin.vm.ucf.rows-checkpoint-fixtures :as fx]
             [yin.vm.ucf.custody :as custody]
             [yin.vm.ucf.ledger :as ledger]))
 
@@ -47,10 +47,10 @@
 
 (defn- body
   [n]
-  (assoc (get fx/fixtures n)
-         :yin.k/arbitration {:dao.stream/identity arb
-                             :dao.stream/descriptor
-                             {:dao.stream/type :dao.stream/journal}}))
+  (fx/edit-custody (fx/pack-of n)
+                   #(assoc % :yin.k/arbitration {:dao.stream/identity arb
+                                                 :dao.stream/descriptor
+                                                 {:dao.stream/type :dao.stream/journal}})))
 
 
 (defn- offer!

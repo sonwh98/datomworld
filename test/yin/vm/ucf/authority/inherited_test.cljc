@@ -10,7 +10,8 @@
             [yin.vm.ucf.authority.admission :as admission]
             [yin.vm.ucf.authority.completion :as completion]
             [yin.vm.ucf.authority.grant :as grant]
-            [yin.vm.ucf.checkpoint-fixtures :as fx]
+            [yin.vm.ucf.rows :as rows]
+            [yin.vm.ucf.rows-checkpoint-fixtures :as fx]
             [yin.vm.ucf.custody :as custody]
             [yin.vm.ucf.ledger :as ledger]))
 
@@ -72,86 +73,48 @@
 (defn- park
   "A first park of occurrence `o`: no origin, no carried id."
   [o]
-  (assoc (get fx/fixtures "first-park")
-         :yin.k/occurrence o
-         :yin.k/arbitration arbitration))
+  (fx/edit-custody (fx/base "first-park")
+                   #(assoc % :yin.k/occurrence o :yin.k/arbitration arbitration)))
 
 
-(defn- frame-of
-  "The first frame of `body` whose pending reason is `reason`."
-  [body reason]
-  (some (fn [f] (when (= reason (get-in f [:yin.k/pending :yin.k/reason])) f))
-        (:yin.k/frames body)))
-
-
-(defn- write-pending
-  "The pending path of the first write frame of the body at `in`, `[]`
-   for the root itself."
-  ([body] (write-pending body []))
-  ([body in]
-   (some (fn [[i f]]
-           (when (= :put (get-in f [:yin.k/pending :yin.k/reason]))
-             (into (vec in) [:yin.k/frames i :yin.k/pending])))
-         (map-indexed vector (:yin.k/frames body)))))
+(defn- successor-task
+  "The successor base's root task as occurrence `o` with origin `org`
+   and counter `n`, over this world's arbitration."
+  [o org n]
+  (rows/decode (fx/edit-custody (fx/base "successor")
+                                #(assoc % :yin.k/occurrence o :yin.k/origin org
+                                        :yin.k/next-op-seq n :yin.k/arbitration arbitration))))
 
 
 (defn- carrying
   "A blocked root of occurrence `o` with origin `org` and counter 3,
-   whose frames carry the ids `ids`: the successor base's own write
-   frame once per id, a clone under each.  The regenerated successor
-   base (D9) lifts one write, so the clones carry what its hand-built
-   three-variant body used to."
+   whose waits carry the ids `ids`: the successor base's own write wait
+   once per id, a clone under each."
   [o org ids]
-  (let [base (assoc (get fx/fixtures "successor")
-                    :yin.k/occurrence o
-                    :yin.k/origin org
-                    :yin.k/arbitration arbitration)
-        write (frame-of base :put)]
-    (assoc base
-           :yin.k/frames
-           (mapv #(assoc-in write [:yin.k/pending :yin.k/op-id] %) ids))))
-
-
-(def ^:private foo [:yin.k/installs 'host.mod :yin.k/child])
+  (let [t (successor-task o org 3)
+        write (nth (fx/waits t) (fx/wait-index t :put))]
+    (rows/emit (fx/with-waits t (mapv #(fx/set-op-id write %) ids)))))
 
 
 (defn- with-installs
   "A blocked root of occurrence `o` with origin `org` and counter 6,
-   carrying R's id 0 itself, id 4 in its install child and id 5 in the
-   child's own child.  The regenerated installs base (D9) lifts a root
-   waiting on one install whose child holds one write, so the root
-   takes the child's write frame as its own id-0 clone, the child's
-   write carries id 4, and a clone of the child under 'bar carries
-   id 5 as the grandchild."
+   carrying R's id 0 itself, id 4 in its install child 'host.mod and id 5
+   in the child's own child 'bar.  Each task of the tree is the
+   successor base's own task (its code, its one write), in the child role
+   below the root, under the installs base's install row."
   [o org]
-  (let [base (assoc (get fx/fixtures "installs")
-                    :yin.k/occurrence o
-                    :yin.k/origin org
-                    :yin.k/arbitration arbitration)
-        child (get-in base foo)
-        entry (-> (get-in base [:yin.k/installs 'host.mod])
-                  (dissoc :yin.k/child))
-        install (frame-of base :install)
-        write (frame-of child :put)
-        under (fn [id] (assoc-in write [:yin.k/pending :yin.k/op-id] id))]
-    (-> base
-        (update :yin.k/frames conj (under (op r 0)))
-        (update-in foo
-                   (fn [c]
-                     (-> c
-                         (assoc-in (conj (write-pending c) :yin.k/op-id)
-                                   (op r 4))
-                         (update :yin.k/frames conj
-                                 (assoc-in install
-                                           [:yin.k/pending]
-                                           {:yin.k/reason :install
-                                            :yin.k/name 'bar}))
-                         (assoc :yin.k/installs
-                                {'bar (assoc entry
-                                             :yin.k/child
-                                             (assoc child
-                                                    :yin.k/frames
-                                                    [(under (op r 5))]))})))))))
+  (let [t (successor-task o org 6)
+        inst (first (nth (:slots (rows/decode (fx/base "installs"))) 12))
+        install (fn [mn c] (assoc inst :slots (-> (:slots inst) (assoc 0 mn) (assoc 4 c))))
+        task (fn [role id installs]
+               (-> t
+                   (assoc-in [:slots 3] role)
+                   (cond-> (= :child role) (assoc-in [:slots 16] nil))
+                   (fx/update-put #(fx/set-op-id % id))
+                   (assoc-in [:slots 12] installs)))]
+    (rows/emit (task :root (op r 0)
+                     [(install 'host.mod (task :child (op r 4)
+                                               [(install 'bar (task :child (op r 5) []))]))]))))
 
 
 (def ^:private succ-1
@@ -241,8 +204,8 @@
    (let [frames (fresh-frames)
          a (auth frames)
          store (mem/create-content-mem)
-         halted (assoc (get fx/fixtures "halted-root")
-                       :yin.k/origin (origin y "lease-y"))
+         halted (fx/edit-custody (fx/base "halted-root")
+                                 #(assoc % :yin.k/origin (origin y "lease-y")))
          steps [(offer! a store (park y))
                 (grant! a y "lease-y" "holder-y")
                 (report! a "holder-y" y "lease-y" halted)
@@ -640,17 +603,13 @@
   (let [succ (with-installs s1 (origin r "lease-1"))
         {:keys [frames a store]} (world succ)
         before @frames
-        grand (conj foo :yin.k/installs 'bar :yin.k/child)]
+        payload #(fx/update-put % (fn [w] (fx/set-pending-slot w 2 [:lit :z])))]
     (doseq [[what variant]
             [["a child's payload"
-              (assoc-in succ (conj (write-pending (get-in succ foo) foo)
-                                   :yin.k/value)
-                        :z)]
+              (fx/edit-task succ #(fx/update-child % 'host.mod payload))]
              ["a grandchild's payload"
-              (assoc-in succ (conj (write-pending (get-in succ grand) grand)
-                                   :yin.k/value)
-                        :z)]
-             ["the root counter" (assoc succ :yin.k/next-op-seq 7)]]]
+              (fx/edit-task succ #(fx/update-child % 'host.mod (fn [c] (fx/update-child c 'bar payload))))]
+             ["the root counter" (fx/edit-custody succ #(assoc % :yin.k/next-op-seq 7))]]]
       (testing what
         (let [{:keys [address bytes]} (enc variant)]
           (is (= {:yin.k/status :refused :yin.k/reason :variant-conflict
@@ -662,7 +621,8 @@
 
 (deftest any-accepted-variant-is-the-checkpoint
   (let [{:keys [a] :as w} (world)
-        variant (assoc succ-1 :yin.k/id-counter 9)
+        ;; the same root in another row order: another pack address
+        variant (update succ-1 :yin.k/rows (comp vec reverse))
         store (mem/create-content-mem)
         {:keys [address bytes]} (enc variant)]
     (is (= :committed (offer! a store variant)) "an equal-baseline variant")

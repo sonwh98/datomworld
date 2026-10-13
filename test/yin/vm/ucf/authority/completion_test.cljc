@@ -10,7 +10,7 @@
             [yin.vm.ucf.authority.completion :as completion]
             [yin.vm.ucf.authority.grant :as grant]
             [yin.vm.ucf.authority.seam :as seam]
-            [yin.vm.ucf.checkpoint-fixtures :as fx]
+            [yin.vm.ucf.rows-checkpoint-fixtures :as fx]
             [yin.vm.ucf.custody :as custody]))
 
 
@@ -63,13 +63,14 @@
    nil for a first park."
   ([o n] (park o n nil))
   ([o n org]
-   (cond-> (assoc (get fx/fixtures "first-park")
-                  :yin.k/occurrence o
-                  :yin.k/next-op-seq n
-                  :yin.k/arbitration {:dao.stream/identity arb
-                                      :dao.stream/descriptor
-                                      {:dao.stream/type :dao.stream/journal}})
-     (some? org) (assoc :yin.k/origin org))))
+   (fx/edit-custody (fx/base "first-park")
+                    #(cond-> (assoc %
+                                    :yin.k/occurrence o
+                                    :yin.k/next-op-seq n
+                                    :yin.k/arbitration {:dao.stream/identity arb
+                                                        :dao.stream/descriptor
+                                                        {:dao.stream/type :dao.stream/journal}})
+                       (some? org) (assoc :yin.k/origin org)))))
 
 
 (defn- enc
@@ -154,7 +155,7 @@
 (defn- halted
   "R's halted result under lease `l`."
   ([] (halted "lease-1"))
-  ([l] (assoc (get fx/fixtures "halted-root") :yin.k/origin (origin r l))))
+  ([l] (fx/edit-custody (fx/base "halted-root") #(assoc % :yin.k/origin (origin r l)))))
 
 
 (defn- quarantine!
@@ -291,9 +292,10 @@
               #(report! a r "lease-1" (park s1 3 (origin r "lease-9")))]
              ["another arbitration identity" :foreign-arbitration
               #(report! a r "lease-1"
-                        (assoc-in succ-1 [:yin.k/arbitration
-                                          :dao.stream/identity]
-                                  "arb-other"))]
+                        (fx/edit-custody succ-1 (fn [c]
+                                                  (assoc-in c [:yin.k/arbitration
+                                                               :dao.stream/identity]
+                                                            "arb-other"))))]
              ["an occurrence the ledger has seen" :seen-occurrence
               #(report! a r "lease-1" (park x 3 (origin r "lease-1")))]
              ["another author" :not-holder
@@ -447,7 +449,8 @@
       (is (= :committed (:yin.k/status (offer! a succ-2))))))
   (testing "a variant the report did not name"
     (let [[_ a] (completed)
-          other (assoc succ-1 :yin.k/id-counter 7)]
+          ;; the same root in another row order: another pack address
+          other (update succ-1 :yin.k/rows (comp vec reverse))]
       (is (= :orphan (refusal (offer! a other))))
       (is (= :committed (:yin.k/status (offer! a succ-1))))
       (is (= :committed (:yin.k/status (offer! a other)))
@@ -707,8 +710,8 @@
         before @frames]
     (is (= :wrong-origin
            (refusal (report! a r "lease-1"
-                             (assoc (halted) :yin.k/origin
-                                    (origin x "lease-1"))))))
+                             (fx/edit-custody (halted) #(assoc % :yin.k/origin
+                                                               (origin x "lease-1")))))))
     (is (= :wrong-origin (refusal (report! a r "lease-1" (halted "lease-9")))))
     (is (= before @frames))))
 
