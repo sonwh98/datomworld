@@ -1920,10 +1920,11 @@ kind `:reason-mismatch`, with the holding task's path; the lift
 refuses the same holds on its own behalf. A task is not at a liftable
 safepoint while it holds any of these.
 
+**Amended after 7 (2026-10-14)** — Reason: the holder now exports rows with a local header and source index.
 The lift's custody input is one **header** argument -- supplied to
-`holder.export/prepare [machine record serve! header]`, stored in the
-export record as `:header`, and passed to `export-task` through its
-`:header` option -- `nil` or:
+`holder.export/prepare [machine record serve! header source-index]`,
+stored as `:header`, and passed to `rows/lift-task` through its `:header`
+option -- `nil` or:
 
     {:yin.k/occurrence  O
      :yin.k/arbitration {:dao.stream/identity i
@@ -1934,49 +1935,62 @@ export record as `:header`, and passed to `export-task` through its
      :yin.k/next-op-seq n
      :yin.k/enrolled    #{stream-identity ...}}
 
-A `nil` header lifts today's version-0 fork; a header lifts version 1,
-exclusive, in the canonical codec, with `:yin.k/policy
-:yin.k/exclusive` added by the lift. The occurrence is minted once by
-the driver and persisted before prepare is called; `:yin.k/enrolled`
-is the composition's declaration from the ledger reader; it is never
-encoded into the UCF body, but the header stays in the retained export
-record. The live record can contain authentic closures and is not itself
+A nil header lifts a version-3 fork with nil custody; a header lifts an
+exclusive root with custody by kind (continuation §2.6). The driver mints
+and persists the occurrence before prepare. Enrollment stays local,
+never in the pack. The source index is the composition/linker's
+`{A #{tree-address}}`, supplied by `compose/open!` as a function and
+read by the driver; holder configs cannot override it. Code and trees
+load through the linker's source-index, fetch and admission; A is the
+only code identity and the Universal AST remains retrievable.
+
+**Amended after 7 (2026-10-14)** — Reason: export recovery is format 2, one pack plus holder-local state.
+The live export record can contain authentic closures and is not itself
 a canonical data object. `holder.export/freeze [machine prepared-record]`
-encodes a separate content-addressed export-recovery object, tagged
-`:yin.k/export-recovery` with format version 1, using the handoff value/cursor-cell
-codec. It returns recovery bytes/address beside the exact handoff body
-bytes/address; both are stored durably before the journal's fenced event.
-Recovery retains the local enrolled declaration, prior gate, ordered waits,
-parked continuations, issue stamps, descriptors and dependency closure.
-The enrolled declaration still never travels in a published handoff body.
+emits this separate content-addressed object:
 
-`holder.export/rehydrate-fenced` validates the recovery object and its
-embedded body before administrative attachment. It creates authentic
-fresh-receiver-owned values and preserves resource aliases and distinct
-cursor cells without program reads, cursor minting, writes, closes, initialization
-or execution. Every task stays exporting, with waits outside scheduler
-queues. The prior gate is retained only as data; recovery is neither grant
-admission nor permission to abort back into execution. Runtime composition
-functions and handles are the environment, not the canonical journal.
-Incomplete preparations cannot manufacture a missing snapshot on restart.
-Recovery also retains a complete codec snapshot when legacy fork bytes
-omit transitive dependencies; the published version-0 bytes stay unchanged.
-For version 1, the module-store fixed point is a correctness repair:
-canonical ordering uses a separate scratch census and did not populate
-the emitted dependency table. Bodies that previously omitted transitive
-module stores now contain them and have different content addresses; this
-is not a new handoff version or closure format. The transitive-store test
-pins the old one-pass body and corrected body bytes by their addresses.
+```clojure
+{:yin.k/export-recovery true
+ :yin.k/version 2
+ :yin.k/pack-address a
+ :yin.k/root B
+ :yin.k/pack-bytes base64
+ :yin.k/header h
+ :yin.k/state {:gate g :origins n :issued n :issues [..]
+               :children {module-name state}}}
+```
 
-The driver's exit persists recovery and body, journals the fence, attempts
-the stable successor offer, reports that exact successor/body, carries
-release of the matching origin lease, observes the authoritative closure
+Here a is BLAKE3 of the published pack bytes and B is its structural
+root id. The recovery object's address hashes its own canonical bytes.
+The header is nil for fork and retains the local enrolled declaration for
+exclusive; state retains each task's prior gate, origin/issued counters,
+ordered wait issue stamps and recursive child metadata. The pack already
+carries the whole store, every parked record and reachable module stores.
+There is no second snapshot body or duplicate descriptor set.
+
+**Amended after 7 (2026-10-14)** — Reason: fenced row lowering reconstructs data without admitting execution.
+`holder.export/rehydrate-fenced` checks format, recovery address,
+pack address/grammar, root, header/custody agreement and state/tree shape
+before attachment. It calls `rows/lower-task` with `:fenced true`,
+attaches once per stream identity, and creates fresh receiver-owned values
+with cursor-cell aliases and distinct cursor cells preserved. Every task
+stays exporting; waits and parked records are outside the scheduler and
+move into the retained export record. Counters are exact; child spawning
+initializes nothing and performs no program IO. Re-preparation uses
+attached descriptors and requires byte-identical pack re-emission. No
+tenure, custody permission or runnable gate is recovered; abort after
+restart refuses. Composition functions and handles remain environment.
+
+**Amended after 7 (2026-10-14)** — Reason: the row driver persists a recovery object and a pack.
+The driver's exit persists the recovery object and the pack, journals the
+fence, attempts the stable successor offer, reports that exact
+successor/pack, carries release of the matching origin lease, observes the authoritative closure
 and successor edge, then retries the same offer until admitted. The
 recovery object is stored first and a store that refuses stops the step
-before the body is attempted; a retry re-brackets from the recovery
+before the pack is attempted; a retry re-brackets from the recovery
 object, idempotent through the store. An
 `:awaiting-completion` offer answer does not block reporting. A halt reports
-its result body and observes the terminal edge, with no successor offer.
+its result pack and observes the terminal edge, with no successor offer.
 Every external attempt has a durable intent before delivery and an
 acknowledgment afterward; an unmatched intent retains unknown delivery.
 A non-admitted report answer either retries -- `:suspended` resends the
@@ -1992,24 +2006,20 @@ release opens with the next step, after the terminal record.
 Reopened holders do not regain tenure from persisted clock readings:
 they reconcile, release and re-enter candidacy, never resume execution.
 
-Kind and
-header agree at lift: blocked and parked roots carry occurrence,
-arbitration, counter and policy, and origin when present; a halted
-root carries origin only, and a header-bearing halt without an origin
-is refused -- it is not automatically downgraded (a halt with no
-origin at all is a version-0 result under a `nil` header); install
-children carry no header. Before answering `:ok`, a version-1 root
-lift runs `checkpoint/inspect` on its own bytes and address, then
-`handoff/validate-body` on the decoded body; install children do not
-independently undergo the root custody inspection. Any refusal
-returns as the lift's refusal and nothing is published. A lift under a
-header refuses `:yin.k/non-portable`, kind `:op-seq-exhausted`, at the
-2^52-1 counter of a blocked or parked root (a halted root ignores that
-header value), kind `:unprotected-pending` for a retained `:put`,
-`:ffi-request` or `:link-request` entry, in the root or an install
-child, with no operation id whose target identity is enrolled, and
-`:yin.k/unsatisfied` naming the stream for an operation id on an
-unenrolled target.
+**Amended after 7 (2026-10-14)** — Reason: custody is checked on the abstract row task, not by re-reading legacy bytes.
+Kind and header agree at lift: blocked/parked exclusive roots carry
+policy, occurrence, arbitration, counter and optional origin; halted
+exclusive roots carry origin only and a header-bearing halt without
+origin refuses. Forks and all children carry nil. After walking and frame
+validation, `rows/lift-task` checks exhaustion at 2^52-1 on a
+blocked/parked exclusive root and protection across all retained
+put/FFI-request/link-request waits, then runs `custody-baseline` before
+emit. Enrolled writes without an id refuse `:unprotected-pending`; an id
+on an unenrolled target refuses `:yin.k/unsatisfied` naming the stream.
+Fork ids refuse. Successful serves may precede these refusals; the holder
+retains them for retry. The authority uses `yin.vm.ucf.rows.checkpoint`,
+whose baseline includes the root id. No current lease, epoch or holder
+enters a body; origin carries predecessor lineage.
 
 Abort is permitted only before any possibly accepted offer attempt, or
 upon authoritative evidence that this occurrence has never been
@@ -2890,7 +2900,12 @@ the review's named architectural obligations; they are blockers to
   to row sets with equal root ids after the harness's specified
   re-emission (`yin.vm.semantic-register-vm.continuation.md` §5.5) from
   the semantic-register kernel and from the stack and register kernels
-  through their layouts, the stack kernel with its tail-completion seam;
+  through their layouts, the stack kernel with its tail-completion seam.
+  **Amended after 7 (2026-10-14)** — Reason: the owner retains both kernels as backends on a fixed fragment.
+  The stack and register kernels are backends of the semantic-register
+  VM, checked on their documented fragment and required to refuse the
+  unsupported remainder before attach (continuation design §4.6). They are retained
+  after phase 8 without widening the fragment;
   and the §7.3.4 image-equality assertion (the two AST projection lanes
   and the direct vector load yield one image and address).
 - **Exporting-state integration.** The lift driver's exporting transition
@@ -3052,9 +3067,11 @@ claim that all five blockers have closed.
   item 12). Exercise distinct activation depths and captured environments
   at one pc, a nonempty ready queue, a nonsafepoint pc, and a kept response
   cursor shared by two waiters. Omit the portable cursor profile for the
-  refusal case. Separately prepare the three engines intended to
-  reconstruct canonical frames (the semantic-register kernel; the
-  register kernel; the stack kernel after its tail-completion seam) with
+  refusal case.
+  **Amended after 7 (2026-10-14)** — Reason: cross-engine conformance covers the documented backend fragment.
+  Separately prepare the canonical kernel and its two backends
+  (semantic-register; register; stack after its tail-completion seam),
+  within continuation design §4.6's fragment, with
   a nontrivial call stack, a captured closure, and a blocked effect at
   the handoff point.
 - Action and expected outcome: On each host, lift a parked task and lower
@@ -3201,12 +3218,19 @@ they are not moved here and nothing below relies on them as custody
 evidence. The ownership row keeps its own contract; the rows below
 are the wire-level clauses that row's tests must also exercise.
 
-- Invariant: A version-1 body, envelope, binding, and admission
+**Amended after 7 (2026-10-14)** — Reason: phase 7 re-bases custody evidence on row packs without codec dispatch.
+The clauses below now use version-3 packs and the inspector
+`yin.vm.ucf.rows.checkpoint`. Stage C is authority/admission (7a),
+Stage D is holder/composition (7b/7c), and Stage E is the scenario/process
+matrix (7d). Direct versions 0/1/2 codec tests remain only until phase 8;
+the holder and authority have no compatibility reader or version dispatch.
+
+- Invariant: A version-3 pack, envelope, binding, and admission
   outcome mean the same on JVM, Node, and Dart, and every breach of
   their grammar is a data outcome before a machine is restored or an
   effect is committed.
-- What M-next B claims: the grammar is published. It lands no code,
-  passes no test, and closes no row. `handoff-version` is still 0.
+- Historical M-next B claim: publication of grammar alone closed no
+  runtime row. Phase-7 gates below require row-carrier evidence.
 - How each clause is tested on three hosts: by canonical byte
   fixtures decoded on each host, so a rule about integer kind or key
   presence is checked on the bytes and not on a host number type;
@@ -3216,53 +3240,51 @@ are the wire-level clauses that row's tests must also exercise.
 Clauses, with the stage that owes the evidence
 (`yin.vm.linker.dht.md` 14.3):
 
-1. Version gate (7.2.1). Fixtures: version 2, absent, a float `1.0`,
-   a version-0 child in a version-1 root. Assert
-   `:yin.k/profile-mismatch` with the found and supported versions,
-   or `:yin.k/undecodable` for the mixed tree, with zero attach
-   calls, zero proposals, and no machine: recursive validation has
-   no side effect. The integral float is refused on Node as on the
-   others. A version-0-only reader refuses a version-1 body. A
-   version-0 body still lowers as a fork on a reader that speaks
-   both; a composition requiring exclusive refuses it. Stage: D.
-2. Custody header (7.2.1). Fixtures omit each required key, give a
-   fork policy, a nil occurrence, an origin equal to the body's
-   occurrence, and header keys other than the origin on a halted
-   root. Root and embedded child are distinguished: any header key
-   on a child, a halted child with an origin included, is refused,
-   and a halted child without one validates. Assert
-   `:yin.k/undecodable` with the path. Stage: D.
-3. Sequence state (7.7.8). Assign-before-append, one increment,
-   retention across `full`, unknown effect, and `:suspended`; the
-   counter restored exactly; children drawing from the root.
-   Stage: D for assignment and restoration; C for durable input
-   replay; E for crash and regrant through the composition.
-4. Carried ids (7.4.3, 7.7.8). An id crosses park, bytes, and lower
-   unchanged on `:put`, `:ffi-request`, and `:link-request`, and the
-   retry is fenced. Fixtures: an id on `:next`, a sequence at or
-   above the counter, a duplicate id, an id in a body without an
-   origin, an id naming the body's own occurrence. Assert
-   `:yin.k/undecodable`. Protection mismatch in each direction is
-   `:yin.k/unsatisfied` naming the stream; a first exclusive export
-   over an attempted write is `:unprotected-pending`. Stage: D for
-   these structural checks. Stage: C for authoritative membership
-   and ancestry: an ancestor id the granted checkpoint never
-   carried is refused, a carried one is admitted, a child's carried
-   id counts, and an orphan successor gives no ancestry.
-5. Explicit park and install completeness (7.4.3), both versions.
-   A `:park` or `:call-effect` reason and an `:install` pending
-   without its entry refuse at decode; a `:parked` body's frames
-   restore in order; a response that fails verification and a phase
-   outside `:running` and `:parked` refuse; each of the two phases
-   crosses with each child kind `:blocked`, `:parked` and `:halted`,
-   a `:running` phase over a blocked child and an explicitly parked
-   child included, and lower preserves both fields; a runnable
-   child refuses export; a restored child continues from its saved
-   state without rerunning initialization or replaying the link
-   request. Version 1 adds: phase and parent required, and a
-   child's carried ids checked in the root's context. The two
-   version-0 defects of `yin.vm.linker.dht.md` 14.3 are fixed with
-   version-0 tests. Stage: D.
+1. **Amended after 7 (2026-10-14)** — Reason: the active carrier gates version 3, not legacy mixed-version bodies.
+   Version gate (7.2.1). Fixtures omit the version, give a different
+   version or a float `3.0`.
+   **Amended after 7 (2026-10-14)** — Reason: the inspector fixtures do not include a corrupt child profile.
+   Carrier gate/structure validation refuses before attach, proposals or restore;
+   an exclusive composition refuses a nil-custody fork. There is no
+   legacy fallback. Stage: C inspector fixtures (7a), D lower (7a/7b).
+2. **Amended after 7 (2026-10-14)** — Reason: custody now occupies one restricted root slot.
+   Custody header (7.2.1). Fixtures drop required exclusive keys,
+   use explicit fork policy, nil occurrence, self-origin, extra keys
+   (e.g. current lease or epoch), or non-origin keys on a halted root.
+   **Amended after 7 (2026-10-14)** — Reason: lease and epoch fixtures exist; a holder-key fixture is absent.
+   Every child custody slot must be nil. The five-key
+   grammar and by-kind rules refuse `:yin.k/undecodable` with a path.
+   Fork is nil for all kinds. Stage: C inspector, D lift/lower (7a).
+3. **Amended after 7 (2026-10-14)** — Reason: counter/issue restoration now runs through rows and fenced recovery.
+   Sequence state (7.7.8). Assign-before-append, one increment,
+   retention across full/unknown effect/suspended, exact operation-counter
+   restoration and children drawing from the root remain required.
+   Fenced recovery also restores the carried id counter exactly and
+   ordered issue stamps from local recovery state; ordinary resume adopts
+   max(local, carried) for id-counter. Stage: D (7a/7b), C durable input
+   replay, E crash/regrant (7d).
+4. **Amended after 7 (2026-10-14)** — Reason: the rows custody grammar checks carried ids across the tree.
+   Carried ids (7.4.3, 7.7.8). Put, FFI-request and link-request ids
+   cross park/pack/lower unchanged and retry through fencing. Fixtures
+   cover sequences at/above counter, duplicate ids, missing origin,
+   self-occurrence and ids anywhere in a fork tree; next has no op-id slot.
+   Protection/enrollment mismatch in either direction refuses before
+   attach. An enrolled retained write without an id refuses lift as
+   `:unprotected-pending`. Stage: D (7a/7b/7c); C retains authoritative
+   checkpoint membership and ancestry checks. General pending correlation
+   agreement remains open in continuation §11 Q4.
+5. **Amended after 7 (2026-10-14)** — Reason: install validation now enforces parent and manifest/image agreement.
+   Explicit park and install completeness (7.4.3). Parked-id names a
+   carried explicit record and waits restore in order; an install pending
+   names a carried record. Both wire phases running/parked are admitted,
+   but lower requires child kind blocked. Parked/halted children refuse;
+   running phase is synthetic, with narrowing left open in continuation
+   §11 Q1/Q10. Lower checks response status, manifest module/exports and
+   image admission, non-nil parent equals response link id, and the
+   manifest-named derivation record's hash/tree-input/image-A-output.
+   Failures refuse before attach; restored children do not initialize or
+   replay the link request. Composition-known content binding remains
+   linker's fetch/admission responsibility. Stage: D (7b/7c).
 6. Envelope (7.7.8). Fixtures drop each key, change the dispatch
    value, give a wrong author, an unbound lease, and a foreign id,
    and nest an envelope-shaped program value. Assert each defective
@@ -3308,10 +3330,22 @@ Clauses, with the stage that owes the evidence
    no successor is eligible, and admission answers `:suspended`
    before tenure. The values 2^52 and -1 are refused on the bytes.
    Stage: C for the epoch, D for the sequence.
-10. Composition (linker 14.2.4). The crash, partition, reclaim, and
-    successor-completion contracts run through the wired handoff
-    composition on both host matrices, with crash cuts around
-    completion and around result delivery. Stage: E.
+10. **Amended after 7 (2026-10-14)** — Reason: 7d ports Stage E to the canonical kernel and distinguishes host evidence.
+    Composition (linker 14.2.4). Crash, partition, reclaim and completion
+    contracts run through semantic-register source/receiver compositions
+    using packs.
+    **Amended after 7 (2026-10-14)** — Reason: the fence is journaled after both durable stores.
+    Recovery format 2 is stored before the whole pack; both are stored durably before the fence is journaled and before any offer.
+    Pack addresses name offers, checkpoints
+    and report results; the baseline includes the structural root.
+    Equal-baseline alternatives retain that root in another row order;
+    an id-counter variant changes root and is `:variant-conflict`.
+    Canonical emit sorts rows, while decode admits unsorted alternatives.
+    The 7d report records local JVM acceptance and a clean JVM/JVM
+    process gate; it does not close Node/Dart or killed four-pair JVM/Node
+    acceptance. Stage: E (7d), pending the orchestrator's host matrix.
+    The REPL custody gap is accepted until phase 8; backend fragment
+    checks (continuation §4.6) remain separate from Stage E.
 
 Canonical fixtures prove grammar parity. They do not prove
 atomicity, attribution, or recovery; those need the durable
