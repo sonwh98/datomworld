@@ -17,6 +17,7 @@
             [dao.stream.ringbuffer :as ringbuffer]
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
+            [yin.vm.ledger :as ledger]
             [yin.vm.module :as module]
             [yin.vm.semantic-register :as sr]
             [yin.vm.semantic-register.code :as code]
@@ -141,13 +142,29 @@
               (assoc :yin.k/gate :running))))
 
 
+(defn linked-response
+  "A link response as the linker answers one (yin.vm.linker/link-manifest):
+   the image of ast, the manifest naming its tree and its :yin.semantic/code
+   derivation record, and that record, from the tree to the image's A. The
+   lower checks that chain (rows/check-install!, continuation §11 Q3)."
+  [ast module-name exports]
+  (let [image (project ast)
+        tree (jing/segment-key [:yin/tree ast])
+        record (ledger/derive-record tree (jing/segment-key image))]
+    {:status :ok
+     :image {:value image}
+     :manifest {:yin.module/name module-name :yin.module/exports exports
+                :yin.module/tree tree
+                :yin.module/derivations {:yin.semantic/code (jing/segment-key record)}}
+     :derivation record
+     :obligations []}))
+
+
 (defn module-response
   []
-  {:status :ok
-   :image {:value (project (let1 's {:type :stream/make :buffer 4}
-                                 (then (next-of (cursor-of (v 's))) (def! 'f (lam [] (lit 42))))))}
-   :manifest {:yin.module/name 'host.mod :yin.module/exports #{'f}}
-   :obligations []})
+  (linked-response (let1 's {:type :stream/make :buffer 4}
+                         (then (next-of (cursor-of (v 's))) (def! 'f (lam [] (lit 42)))))
+                   'host.mod #{'f}))
 
 
 (defn parked-installer
@@ -236,3 +253,43 @@
 (defn receiver
   ([] (receiver {}))
   ([opts] (new-machine opts)))
+
+
+(defn parked-writer-shared
+  "A real machine parked on a write whose one stream handle is held
+   under two resource ids: the write's own target and the environment's
+   second reference.  Prepare must ask `serve!` once and key the answer
+   under both."
+  []
+  (let [w (one-slot-stream "w")]
+    (stream/append! w :warmed)
+    (let [m0 (load-ast (new-machine)
+                       (let1 'again (v 'w2)
+                             {:type :stream/put, :target (v 'w)
+                              :val (lit "v")}))
+          [ra m1] (engine/attach-resource m0 w)
+          [rb m2] (engine/attach-resource m1 w)]
+      (vm/run (assoc m2 :store {'w ra 'w2 rb})))))
+
+
+(defn parked-writer-shared-late
+  "A real machine parked on a write whose one stream handle is held
+   under two resource ids, with a third, independent stream reached
+   between them -- the environment's bindings put the first alias, the
+   independent stream, then the pending's alias -- so a prepare that
+   serves the first alias and refuses the third leaves the second alias
+   unserved, and the retry must resolve it from the record without
+   serving the handle again."
+  []
+  (let [w (one-slot-stream "w")
+        x (one-slot-stream "x")]
+    (stream/append! w :warmed)
+    (let [m0 (load-ast (new-machine)
+                       (let1 'again (v 'w2)
+                             (let1 'later-than-again (v 'x2)
+                                   {:type :stream/put, :target (v 'w),
+                                    :val (lit "v")})))
+          [ra m1] (engine/attach-resource m0 w)
+          [rb m2] (engine/attach-resource m1 w)
+          [rx m3] (engine/attach-resource m2 x)]
+      (vm/run (assoc m3 :store {'w ra, 'w2 rb, 'x2 rx})))))

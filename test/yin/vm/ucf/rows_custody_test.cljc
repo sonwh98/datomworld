@@ -264,6 +264,46 @@
     (is (= [:put] (mapv :reason (:yin.k/recovery-waits m))))))
 
 
+(deftest the-install-response-is-verified-before-any-attachment
+  ;; continuation §11 Q3 (owner, 2026-10-13: lands in 7b): the response's
+  ;; link id is the row's parent, and its image is the one the manifest
+  ;; names, through the manifest's :yin.semantic/code derivation record
+  (let [m (s/parked-installer)
+        response (get-in m [:installs 'host.mod :response])
+        other (s/linked-response (s/def! 'f (s/lam [] (s/lit 7))) 'host.mod #{'f})
+        lift-with (fn [f] (s/lift (update-in m [:installs 'host.mod] f) nil))
+        kind (fn [inst-f]
+               (let [r (refused (lift-with inst-f) {})]
+                 [(:yin.k/status r) (:yin.k/kind r) (:yin.k/name r)]))]
+    (testing "an honest response lowers"
+      (let [[r n] (lowered (s/lift m nil) {})]
+        (is (pos? n))
+        (is (vm/blocked? r))))
+    (testing "a response of another link"
+      (is (= [:yin.k/undecodable :install-link-id 'host.mod]
+             (kind #(assoc-in % [:response :yin.link/id] [:other 9])))))
+    (testing "no parent"
+      (is (= [:yin.k/undecodable :install-link-id 'host.mod]
+             (kind #(assoc % :parent nil)))))
+    (testing "no derivation record"
+      (is (= [:yin.k/undecodable :install-image 'host.mod]
+             (kind #(update % :response dissoc :derivation)))))
+    (testing "a derivation record the manifest does not name"
+      (is (= [:yin.k/undecodable :install-image 'host.mod]
+             (kind #(assoc-in % [:response :derivation] (:derivation other))))))
+    (testing "a manifest and record of another image than the one delivered"
+      (is (= [:yin.k/undecodable :install-image 'host.mod]
+             (kind #(update % :response merge (select-keys other [:manifest :derivation]))))))
+    (testing "a record from another tree than the manifest's"
+      (is (= [:yin.k/undecodable :install-image 'host.mod]
+             (kind #(assoc-in % [:response :manifest :yin.module/tree]
+                              (get-in other [:manifest :yin.module/tree]))))))
+    (testing "the image the record names, delivered under another vector"
+      (is (= [:yin.k/undecodable :install-image 'host.mod]
+             (kind #(assoc-in % [:response :image] (:image other))))))
+    (is (= response (get-in m [:installs 'host.mod :response])))))
+
+
 (deftest install-children-lower-under-their-roots-custody
   (let [wire (f/base "installs")
         [m n] (lowered wire (exclusive-opts wire #{"s0"}))

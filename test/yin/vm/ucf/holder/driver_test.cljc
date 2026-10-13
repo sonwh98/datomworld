@@ -33,7 +33,7 @@
             [yin.vm.ucf.holder.driver :as driver]
             [yin.vm.ucf.holder.export :as export]
             [yin.vm.ucf.ledger :as ledger]
-            [yin.vm.ucf.lift-support :as s]))
+            [yin.vm.ucf.rows-support :as s]))
 
 
 (deftest split-public-entries-test
@@ -337,32 +337,43 @@
                           :dao.stream/identity identity}}))
 
 
+(defn- index
+  "The composition's source index, read as the composition reads it."
+  []
+  @s/source-index)
+
+
 (defn- lift-under
-  "Enter exporting from `machine`, prepare under `header` with `serve!`,
-  and encode: the bytes, address and body of one real snapshot
-  variant."
+  "Enter exporting from `machine`, prepare under `header` with `serve!`
+  and the composition's source index, and encode: the bytes, the pack
+  address and the root id of one real pack."
   [machine header serve!]
   (let [e (export/enter machine)]
     (when-not (= :ok (:status e))
       (throw (ex-info "The source did not enter exporting" e)))
-    (let [p (export/prepare (:machine e) (:record e) serve! header)]
+    (let [p (export/prepare (:machine e) (:record e) serve! header (index))]
       (when-not (= :ok (:status p))
         (throw (ex-info "The source did not prepare" (dissoc p :record))))
       (let [r (export/encode (:machine e) (:record p))]
         (when-not (= :ok (:status r))
           (throw (ex-info "The source did not encode" (dissoc r :record))))
-        (select-keys r [:bytes :address :body])))))
+        (select-keys r [:bytes :address :root])))))
+
+
+(defn- address-of
+  [bytes]
+  (keyword "segment" (str "blake3-" (jing/digest-bytes :blake3 bytes))))
 
 
 (defn- variant-of
-  "A second encoding of the occurrence `lifted` names: the same baseline
-  (occurrence, arbitration, counter, carried ids) in different bytes,
-  the way the C4 variant fixtures mutate a base."
+  "A second encoding of the occurrence `lifted` names: the same root and
+  baseline in other bytes -- its rows in another order, which the reader
+  accepts and `emit` never makes (phase-7a D2: a different root is a
+  conflicting variant, not an equal one)."
   [lifted]
-  (let [bytes (cbor/encode (assoc (:body lifted) :yin.k/id-counter 9))]
+  (let [bytes (cbor/encode (update (cbor/decode (:bytes lifted)) :yin.k/rows (comp vec reverse)))]
     {:bytes bytes
-     :address (keyword "segment"
-                       (str "blake3-" (jing/digest-bytes :blake3 bytes)))}))
+     :address (address-of bytes)}))
 
 
 (defn- reader-source
@@ -603,6 +614,7 @@
                :observe! observe!
                :append-diagnostic! (fn [d] (stream/append! diagnostics d))
                :serve! (serve-as "prog-r")
+               :source-index index
                :journal (:journal j)
                :store (:store w)
                :medium "carrier"})
@@ -2479,16 +2491,22 @@
     (is (= :yin.k/not-holder (:status st)))))
 
 
-(deftest profile-refusal-precedes-wrong-address-test
+(deftest profile-and-address-refusals-precede-any-attachment-test
+  ;; the rows inspector checks the address against the bytes first, then
+  ;; the carrier (phase 7a): a pack of another version under its own
+  ;; address is a profile mismatch, under the original pack's address a
+  ;; hash mismatch
   (let [{:keys [sources]} (reader-source)
         w (world :holders ["holder-a"] :sources sources)
-        bytes (cbor/encode (assoc (:body (get sources "v1")) :yin.k/version 2))
-        d (driver-for w "holder-a" nil nil
-                      :raw {:bytes bytes :address (:address (get sources "v1"))})
-        st (:state (drive w d))]
-    (is (= :yin.k/profile-mismatch (:status st)))
-    (is (zero? @(:attaches d)))
-    (is (empty? (inbound w "holder-a")))))
+        bytes (cbor/encode (assoc (cbor/decode (:bytes (get sources "v1"))) :yin.k/version 2))]
+    (doseq [[address status] [[(address-of bytes) :yin.k/profile-mismatch]
+                              [(:address (get sources "v1")) :yin.k/hash-mismatch]]]
+      (let [d (driver-for w "holder-a" nil nil :raw {:bytes bytes :address address})
+            st (:state (drive w d))]
+        (is (= status (:status st)))
+        (is (= :failed (:phase st)))
+        (is (zero? @(:attaches d)))
+        (is (empty? (inbound w "holder-a")))))))
 
 
 (deftest stale-own-grant-mints-only-one-successor-proposal-test
@@ -2908,6 +2926,7 @@
                             :cursor (stream/cursor h arg)))
               :append-diagnostic! (fn [d] (stream/append! diagnostics d))
               :serve! (serve-as "prog-r")
+              :source-index index
               :store (:store w)
               :medium "carrier"}
      :clock clock
@@ -3165,8 +3184,7 @@
             "the enrolled set is the ledger fold's")
         (is (some? (:yin.k/bytes-at intent))
             "the offer intent names where the bytes stand")))
-    (testing "the fenced record's projection and the body bytes are in
-              the store"
+    (testing "the recovery object and the pack bytes are in the store"
       (let [[mint fence] (take 2 (filter #(contains? #{:yin.k/minted :yin.k/fenced}
                                                      (:yin.k/journal %))
                                          (journal-of (:journal-frames candidacy))))
@@ -3179,8 +3197,11 @@
         (is (not= ::absent body))
         (is (= (get-in mint [:yin.k/header :yin.k/occurrence])
                (get-in stored [:yin.k/header :yin.k/occurrence])))
-        (is (set? (:yin.k/descriptors stored))
-            "the recovery object retains portable descriptors")))
+        (is (= 2 (:yin.k/version stored)) "recovery version 2")
+        (is (= (:yin.k/address fence) (:yin.k/pack-address stored))
+            "the recovery names the fenced pack")
+        (is (= (vec body) (vec (jing/base64->bytes (:yin.k/pack-bytes stored))))
+            "and holds it byte for byte: one body, no snapshot")))
     (testing "the source became a candidate over its own bytes"
       (is (= :proposing (:phase st)))
       (is (= (:yin.k/occurrence (first (journal-of
@@ -4232,24 +4253,3 @@
         (is (seq (requests-of world' "holder-a" :yin.k/release)))
         (is (= 1 (count (read-all (:diagnostics prepared))))
             "one diagnostic, the run end's own")))))
-
-
-(deftest a-version-two-fork-lift-is-the-composition-choice-test
-  (let [machine (source-machine)
-        w (world :holders ["holder-a"])
-        d (source-driver w "holder-a" machine nil)
-        d (-> d
-              (update-in [:state :export] assoc :role nil :arbitration nil)
-              (assoc-in [:state :export-version] 2))
-        lifted (drive-to w d (fn [st] (= :lifted (:phase st))) 5)
-        bytes (get-in lifted [:state :detail :bytes])
-        body (cbor/decode bytes)]
-    (is (= :lifted (:phase (:state lifted))))
-    (is (= :yin.k/ok (:status (:state lifted))))
-    (is (= 2 (:yin.k/version body))
-        "the version-2 lift is selected by the composition, never inferred")
-    (is (not-any? #(contains? body %)
-                  [:yin.k/policy :yin.k/occurrence :yin.k/arbitration
-                   :yin.k/origin :yin.k/next-op-seq])
-        "a fork carries no custody header")
-    (is (= [] (journal-of (:journal-frames lifted))))))

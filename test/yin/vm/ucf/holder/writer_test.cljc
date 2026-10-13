@@ -26,7 +26,8 @@ the way the composition's resolver would."
             [yin.vm.ucf.custody :as custody]
             [yin.vm.ucf.ledger :as ledger]
             [yin.vm.ucf.holder.writer :as writer]
-            [yin.vm.ucf.lift-support :as s]))
+            [yin.vm.ucf.rows :as rows]
+            [yin.vm.ucf.rows-support :as s]))
 
 
 (def ^:private arb "arb-d11")
@@ -388,12 +389,12 @@ queue empty."
            (first (:wait-set (:machine run))))
         "the writer sets exactly the id the helper set, nothing else")
     (is (= (s/op-id 0) (:op-id (first (:wait-set helper)))))
-    (testing "and both lift to the same canonical bytes"
+    (testing "and both lift to the same canonical pack"
       (let [a (s/lift helper header)
             b (s/lift (:machine run) header)]
-        (is (= :ok (:status a)) (pr-str (dissoc a :record :machine)))
-        (is (= :ok (:status b)) (pr-str (dissoc b :record :machine)))
-        (is (= (:address a) (:address b))
+        (is (nil? (:yin.k/status a)) (pr-str a))
+        (is (nil? (:yin.k/status b)) (pr-str b))
+        (is (= (rows/pack-address a) (rows/pack-address b))
             "one canonical address: no fixture regeneration is owed")))))
 
 

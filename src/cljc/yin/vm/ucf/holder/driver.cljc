@@ -20,13 +20,15 @@
 
    The phases, one `:phase` key:
 
-   :validating -- fetch and validate with zero side effects: the D7
-   reader over the bytes (`resume-task` before `checkpoint/inspect`, that
-   supplies no grant, so nothing is attached and no machine is exposed)
-   answers `:yin.k/awaiting-grant` for a valid version-1 blocked or
-   parked root; anything else is a data refusal with no cleanup owed.  A
-   halted version-1 root is not a lease subject: it lowers once, gated
-   `:ended`, and the driver publishes it with no custody.
+   :validating -- fetch and validate with zero side effects: the rows
+   inspector over the bytes and address (`rows.checkpoint/inspect`), then
+   `rows/lower-task` under `:exclusive` with no grant, which refuses
+   before any attachment, so nothing is attached and no machine is
+   exposed: it answers `:yin.k/awaiting-grant` for a valid exclusive
+   blocked or parked root; anything else is a data refusal with no
+   cleanup owed.  A halted exclusive root is not a lease subject: it
+   lowers once, gated `:ended`, and the driver publishes it with no
+   custody.
 
    :proposing -- check the authority attachment (a missing one is
    `:yin.k/unsatisfied` naming the arbitration), propose through the
@@ -83,13 +85,13 @@
    :exporting -- the source half over a machine the composition hands
    the driver (`source`, below): enter exporting, mint the occurrence
    once and journal it before prepare (the D9 ruling), prepare, encode,
-   put the prepared record and the body bytes in the content store,
+   put the export-recovery object and the pack bytes in the content store,
    journal the fenced record, then the bracketed offer -- an intent
    record durable before each send, an attempt record after it, an
    acknowledgment once the front's authenticated reply admits the offer.
    A nil :arbitration in the config is the composition's fork decision:
-   the lift is version 0, nothing is minted, offered or journaled, and
-   the driver answers the bytes (:lifted).
+   the row lift carries no custody, nothing is minted, offered or
+   journaled, and the driver answers the bytes (:lifted).
 
    :exiting -- the exit half of a restarted holder, journaled but
    machine-less: it reconciles committed reports, carries release and
@@ -116,15 +118,15 @@
             [yin.vm :as vm]
             [yin.vm.ucf.authority.completion :as completion]
             [yin.vm.ucf.authority.front :as front]
-            [yin.vm.ucf.checkpoint :as checkpoint]
             [yin.vm.ucf.custody :as custody]
-            [yin.vm.ucf.handoff :as handoff]
             [yin.vm.ucf.holder.evidence :as evidence]
             [yin.vm.ucf.holder.export :as export]
             [yin.vm.ucf.holder.inbox :as inbox]
             [yin.vm.ucf.holder.reader :as reader]
             [yin.vm.ucf.holder.writer :as writer]
-            [yin.vm.ucf.ledger :as ledger]))
+            [yin.vm.ucf.ledger :as ledger]
+            [yin.vm.ucf.rows :as rows]
+            [yin.vm.ucf.rows.checkpoint :as checkpoint]))
 
 
 ;; =============================================================================
@@ -139,7 +141,7 @@
 (def ^:private seams
   "The composition-supplied functions the driver steps through."
   [:append-request! :read-ledger!
-   :clock :observe! :append-diagnostic! :attach! :serve!])
+   :clock :observe! :append-diagnostic! :attach! :serve! :source-index])
 
 
 (def ^:private optional-seams
@@ -218,7 +220,6 @@
    :renewal-interval (:renewal-interval config)
    :units units
    :receiver (:receiver config)
-   :export-version (:export-version config)
    :seams (-> (select-keys config (into (into seams optional-seams) (vals inbox/lanes)))
               (assoc :journal (:journal config)
                      :content-store (:store config)
@@ -280,14 +281,19 @@
                         diagnostic stream
      :serve!            (fn [handle] descriptor), the exporter's server,
                         for the exit a grant may reach
+     :source-index      (fn [] {A #{tree-address}}), the composition's
+                        source index (yin.vm.linker.md section 3): every
+                        export passes it to the row lift, which names
+                        the trees of each carried A from it
      :journal           the composition's progress journal (a
                         dao.stream.journal handle): every durable act of
                         the driver -- each bracketed external action, the
                         mint, the fence, the accepted grant -- is
                         write-ahead in it
-     :store             the composition's content store: the prepared
-                        record and the body bytes are put in it before
-                        the fenced record references them
+     :store             the composition's content store: the
+                        export-recovery object and the pack bytes are
+                        put in it before the fenced record references
+                        them
      :medium            the carrier medium name the offer carries
      :enroll!           optional (fn [] enrollment-answer), the
                         composition's enrollment seam
@@ -313,11 +319,11 @@
                         blocked or halted), gate :running; never one
                         that already holds custody (a holder exports its
                         successor through `hand-off`)
-     :arbitration       the arbitration medium the composition names, a
-                        version-1 exclusive export; nil is the
-                        composition's fork decision: the lift is
-                        version 0, nothing is minted, offered or
-                        journaled, and the driver answers the bytes
+     :arbitration       the arbitration medium the composition names, an
+                        exclusive export; nil is the composition's fork
+                        decision: the row lift carries no custody,
+                        nothing is minted, offered or journaled, and the
+                        driver answers the bytes
 
    The driver enters exporting, mints the occurrence once, journals it
    before prepare, prepares, encodes, fences and offers; once the offer
@@ -378,6 +384,11 @@
 (defn- serve!
   [state handle]
   ((get-in state [:seams :serve!]) handle))
+
+
+(defn- source-index
+  [state]
+  ((get-in state [:seams :source-index])))
 
 
 (defn- enroll!
@@ -849,7 +860,8 @@
                                      :yin.k/occurrence (:occurrence cell)
                                      :yin.k/request-id request-id :yin.k/answer descriptor}))
                   descriptor)))
-            (:header cell))]
+            (:header cell)
+            (source-index state))]
     (if (= :ok (:status r))
       (-> state
           (assoc-in [k :record] (:record r))
@@ -865,7 +877,7 @@
 
 (defn- export-fence-step
   "Freeze the complete record and persist both addressed objects before
-   journaling the fence: the recovery object first, then the body, and a
+   journaling the fence: the recovery object first, then the pack, and a
    store that refuses stops the step before the next object is
    attempted. The journal contains canonical progress only; the runtime
    environment retains composition functions and handles."
@@ -877,8 +889,8 @@
       (unsatisfied state :export-refused
                    (select-keys e [:yin.k/status :yin.k/reason
                                    :yin.k/kind :yin.k/path]))
-      (let [bytes (:body-bytes e)
-            address (:body-address e)
+      (let [bytes (:pack-bytes e)
+            address (:pack-address e)
             record-bytes (:bytes e)
             record-address (:address e)
             store-object
@@ -984,7 +996,7 @@
    ledger fold."
   [state]
   (let [cell (:export state)
-        e (export/enter (:machine cell) {:version (:export-version state)})]
+        e (export/enter (:machine cell))]
     (if (not= :ok (:status e))
       (failed state e)
       (let [[enrolled reason] (enrolled-of state)]
@@ -1012,15 +1024,16 @@
 
 
 (defn- fork-step
-  "The composition's fork decision (a nil arbitration): the version-0
-   lift over the machine -- enter, prepare under a nil header, encode --
+  "The composition's fork decision (a nil arbitration): the row lift
+   over the machine with no custody -- enter, prepare under a nil header,
+   encode --
    with no occurrence, no offer and no journal bracket.  The answer is
    the bytes."
   [state]
   (let [cell (:export state)]
     (cond
       (nil? (:m cell))
-      (let [e (export/enter (:machine cell) {:version (:export-version state)})]
+      (let [e (export/enter (:machine cell))]
         (if (= :ok (:status e))
           (assoc state :export (assoc cell
                                       :m (:machine e)
@@ -1087,7 +1100,7 @@
    :machine and travels in the cell; the answer is the armed state or
    the refusal, never both."
   [state role]
-  (let [e (export/enter (:machine state) {:version (:export-version state)})]
+  (let [e (export/enter (:machine state))]
     (if (= :ok (:status e))
       {:state (-> state
                   (assoc :machine (:machine e))
@@ -1537,6 +1550,25 @@
              :dao.lease/proposal (:id proposal')})))))
 
 
+(defn- lowered
+  "`rows/lower-task` of the state's checkpoint bytes into the receiver
+   under `opts`: `{:status :ok :kind k :vm m}`, or the lower's refusal as
+   data (undecodable bytes are `:yin.k/undecodable`).  Every refusal is
+   decided before the first attachment."
+  [state opts]
+  (let [attach! (get-in state [:seams :attach!])
+        wire (try (cbor/decode (:bytes state))
+                  (catch #?(:cljd Object :clj Throwable :cljs :default) _ ::undecodable))]
+    (if (or (= ::undecodable wire) (not (map? wire)))
+      {:yin.k/status :yin.k/undecodable}
+      (try
+        (let [m (rows/lower-task (assoc (:receiver state) :attach-stream attach!) wire attach! opts)]
+          {:status :ok :vm m})
+        (catch #?(:cljd Object :clj Throwable :cljs :default) e
+          (let [d (ex-data e)]
+            (if (and (map? d) (contains? d :yin.k/status)) d (throw e))))))))
+
+
 (defn- lower
   "D10's lower with the accepted grant's inputs, over the receiver:
   the checkpoint address, the composition's protection declaration, and
@@ -1551,12 +1583,9 @@
         base (fn [d]
                (let [entry (first d)]
                  (* (val entry) (get units (key entry)))))]
-    (handoff/resume-task
-      (assoc (:receiver state) :attach-stream (get-in state [:seams :attach!]))
-      (:bytes state)
-      (get-in state [:seams :attach!])
+    (lowered
+      state
       {:exclusive true
-       :address (:address state)
        :protection (:protection state)
        :grant {:checkpoint (:address state)
                :dao.lease/lease l
@@ -2261,33 +2290,30 @@
 
 (defn- step-validating
   [state]
-  (let [r (handoff/resume-task
-            (assoc (:receiver state)
-                   :attach-stream (get-in state [:seams :attach!]))
-            (:bytes state)
-            (get-in state [:seams :attach!])
-            {:exclusive true :address (:address state)})]
+  (let [b (checkpoint/inspect (:address state) (:bytes state))
+        r (if (:yin.k/status b) b (lowered state {:exclusive true}))]
     (cond
       ;; a valid blocked or parked root answers awaiting-grant at
       ;; the custody gate, before any attachment
       (= :yin.k/awaiting-grant (:yin.k/status r))
-      (let [b (checkpoint/inspect (:address state) (:bytes state))]
-        (assoc state :phase :proposing
-               :occurrence (:yin.k/occurrence b)
-               :arbitration (get-in b
-                                    [:yin.k/arbitration
-                                     :dao.stream/identity])
-               :kind (:yin.k/kind b)))
+      (assoc state :phase :proposing
+             :occurrence (:yin.k/occurrence b)
+             :arbitration (get-in b
+                                  [:yin.k/arbitration
+                                   :dao.stream/identity])
+             :kind (:yin.k/kind b))
 
-      ;; a halted version-1 root is no lease subject: it lowers
+      ;; a halted exclusive root is no lease subject: it lowers
       ;; once, gated ended, and no custody is manufactured
-      (and (= :ok (:status r)) (= :halted (:kind r)))
+      (and (= :ok (:status r)) (= :halted (:yin.k/kind b)))
       (assoc state :phase :safepoint
              :status :yin.k/ok
              :detail {:yin.k/kind :halted}
              :machine (:vm r))
 
-      :else (failed state r))))
+      (:yin.k/status r) (failed state r)
+
+      :else (failed state {:yin.k/status :yin.k/undecodable}))))
 
 
 ;; =============================================================================
@@ -2421,10 +2447,10 @@
         recovery-bytes (when fence (store-get state (:record fence)))
         _ (check! (and (some? bytes) (some? recovery-bytes)) "complete fenced snapshot" {})
         recovery (cbor/decode recovery-bytes)
-        _ (check! (and (= (:address fence) (:yin.k/body-address recovery))
+        _ (check! (and (= (:address fence) (:yin.k/pack-address recovery))
                        (= (:header mint) (:yin.k/header recovery))
                        (jing/segment-bytes-match? (:address fence) bytes)
-                       (= (vec bytes) (vec (jing/base64->bytes (:yin.k/body-bytes recovery)))))
+                       (= (vec bytes) (vec (jing/base64->bytes (:yin.k/pack-bytes recovery)))))
                   "matching fenced recovery references" {})
         recovered (export/rehydrate-fenced (:receiver state) recovery-bytes
                                            {:address (:record fence)

@@ -184,7 +184,9 @@
           "a content store: a dao.jing byte-store handle" {})
   (check! (some? (:diagnostics config)) "a diagnostic stream: a writer" {})
   (check! (some? (:medium config)) "a carrier medium name" {})
-  (check! (fn? (:clock config)) "a lease clock: (fn [] reading)" {}))
+  (check! (fn? (:clock config)) "a lease clock: (fn [] reading)" {})
+  (check! (fn? (:source-index config))
+          "a source index: (fn [] {A #{tree-address}})" {}))
 
 
 (defn- log-handle
@@ -420,7 +422,7 @@
 
 (defn- bare-composition
   [{:keys [mode failure-model renewal-interval store diagnostics medium
-           clock units export-version inbound-capacity journals]}]
+           clock units source-index inbound-capacity journals]}]
   {:mode mode
    :yin.k/policy (case mode :exclusive :yin.k/exclusive :yin.k/fork)
    :failure-model failure-model
@@ -430,7 +432,7 @@
    :medium medium
    :clock clock
    :units units
-   :export-version export-version
+   :source-index source-index
    :inbound-capacity (or inbound-capacity default-inbound-capacity)
    :journals journals
    :authority nil
@@ -520,7 +522,10 @@
      :medium           the carrier medium name offers carry
      :clock            (fn [] reading), the lease clock
      :units            an optional unit table, dao.lease's default
-     :export-version   an optional body-version override of the lift
+     :source-index     (fn [] {A #{tree-address}}), the composition's
+                       source index (yin.vm.linker.md section 3): every
+                       holder's export lifts under it, so each carried
+                       A names its trees
      :inbound-capacity the default inbound ring capacity
      :journals         the journal substrate (required for :exclusive):
                        `file-journals` over one directory is the
@@ -662,7 +667,7 @@
    (consumed by holder-media, not passed to the driver).  Every other key
    -- :journal, :reply-inbox, :outcome-inbox, :read-ledger!,
    :append-request!, :append-diagnostic!, :clock, :store, :medium, :me,
-   :units, :export-version, :enroll!, :journals -- is a composition seam,
+   :units, :source-index, :enroll!, :journals -- is a composition seam,
    refused at add-holder, never overridable by a holder config."
   [:bytes :address :machine :arbitration :protection :receiver
    :attach! :observe! :serve! :renewal-interval :inbound])
@@ -689,7 +694,7 @@
   (merge {:me h
           :renewal-interval (:renewal-interval c)
           :units (:units c)
-          :export-version (:export-version c)
+          :source-index (:source-index c)
           :clock (:clock c)
           :store (:store c)
           :medium (:medium c)
