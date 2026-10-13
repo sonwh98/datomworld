@@ -45,7 +45,9 @@
             [yin.vm.ucf.authority :as authority]
             [yin.vm.ucf.authority.admission :as admission]
             [yin.vm.ucf.compose :as compose]
-            [yin.vm.ucf.lift-support :as s]))
+            [yin.vm.ucf.rows-support :as s]
+            [yin.vm.ucf.rows :as rows]
+            [yin.vm.ucf.rows.checkpoint :as checkpoint]))
 
 
 ;; =============================================================================
@@ -788,6 +790,7 @@
 (defn- composition-config
   [w mode]
   (cond-> {:mode mode
+           :source-index (fn [] @s/source-index)
            :renewal-interval {:s 10}
            :store (:store w)
            :diagnostics (:diagnostics w)
@@ -975,6 +978,19 @@
                                    bs ((:get-bytes-fn (:store w)) a nil)]
                                [a (when bs (digest-of bs))]))))
                    (mapcat #(journal-records-of c %) hs))
+     :packs (into {}
+                  (keep (fn [r]
+                          (when (= :yin.k/fenced (:yin.k/journal r))
+                            (let [a (:yin.k/address r)
+                                  bs ((:get-bytes-fn (:store w)) a nil)]
+                              (when bs
+                                (let [wire (cbor/decode bs)]
+                                  [a {:root (:yin.k/root wire)
+                                      :baseline (checkpoint/inspect a bs)
+                                      :sorted? (= (mapv first (:yin.k/rows wire))
+                                                  (vec (sort (map first (:yin.k/rows wire)))))
+                                      :canonical-bytes (digest-of (cbor/encode (rows/emit (rows/decode wire))))}]))))))
+                  (mapcat #(journal-records-of c %) hs))
      :diagnostics (->data (read-values (:diagnostics w)))
      :arbitration (->data (compose/arbitration c))
      :counts {:attaches @(:attaches ctx) :observes @(:observes ctx)}
@@ -1040,15 +1056,15 @@
 
 
 (defn- offer-variant!
-  "A second encoding of the occurrence holder `h` fenced: the same body
-   in different canonical bytes (another id counter), put in the store
+  "A second encoding of the occurrence holder `h` fenced: the same root
+   with reversed rows in different canonical bytes, put in the store
    and offered through `h`'s own inbound.  Answers {:address :bytes}."
   [w h]
   (let [{:keys [address bytes]} (checkpoint-from w {:kind :fence :of h})
         body (cbor/decode bytes)
-        o (get-in body [:yin.k/custody :yin.k/occurrence])
-        v-bytes (cbor/encode (assoc body :yin.k/id-counter 9))
-        v-address (keyword "segment" (str "blake3-" (jing/digest-bytes :blake3 v-bytes)))]
+        o (:yin.k/occurrence (checkpoint/inspect address bytes))
+        v-bytes (cbor/encode (update body :yin.k/rows #(vec (reverse %))))
+        v-address (rows/pack-address (cbor/decode v-bytes))]
     ((:put-bytes-fn (:store w)) v-address v-bytes)
     (stream/append! (get-in w [:c :inbounds h])
                     {:yin.k/request :yin.k/offer
@@ -1236,7 +1252,8 @@
     :offer-variant (let [[h] args
                          v (offer-variant! w h)]
                      ((:emit! ctx) {:event :variant :address (:address v)})
-                     [(assoc w :variant v) {:variant (->data (:address v))}])
+                     [(assoc w :variant v) {:variant (->data (:address v))
+                                            :variant-baseline (checkpoint/inspect (:address v) (:bytes v))}])
     :carrier (do (reset! (:carrier w) (first args)) [w nil])
     :hold (do (reset! (:held w) (first args)) [w nil])
     :partition-authority (do (reset! (:partitioned w) (first args)) [w nil])
@@ -1257,7 +1274,8 @@
    exclusive requirement over a memory authority is refused, never
    downgraded."
   [ctx spec]
-  (let [refused (compose/open! {:mode :exclusive
+  (let [refused (compose/open! {:source-index (fn [] @s/source-index)
+                                :mode :exclusive
                                 :failure-model :process-crash
                                 :backend (journal/memory-backend (atom []) nil)
                                 :duration {:s 30}
