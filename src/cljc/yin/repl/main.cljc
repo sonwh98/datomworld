@@ -155,18 +155,9 @@
 
 
 (defn parse-trust
-  "A `--dht-trust` value: a principal whose modules this node admits,
-   `ed25519:<64 lowercase hex>` (the tag optional), as the principal id
-   (yin.vm.linker.dht.md 7.5).  Trust is apart from `--dht-principal`:
-   declaring a publisher honors its signed names, it does not admit its
-   modules."
+  "Parse the shared CLI/session trust configuration principal."
   [text]
-  (if-some [[_ hex] (and (string? text)
-                         (re-matches #"^(?:ed25519:)?([0-9a-f]{64})$" text))]
-    (sign/principal hex)
-    (throw (ex-info (str "--dht-trust takes ed25519:<64 lowercase "
-                         "hexadecimal characters>, not " (pr-str text))
-                    {:value text}))))
+  (state/parse-trust text))
 
 
 ;; =============================================================================
@@ -755,6 +746,8 @@
    "                              repeatable"
    "  --dht-trust ed25519:hex     a principal whose modules to admit (not"
    "                              implied by --dht-principal); repeatable"
+   "  (trust p), (untrust p), (trusted) edit/show session trust; reset"
+   "                              restores the configured --dht-trust set"
    "  --dht-follow hex@host:port  follow a declared publisher's head at its"
    "                              loopback address; repeatable"
    "  --dht-keygen file           write a new key file and exit"

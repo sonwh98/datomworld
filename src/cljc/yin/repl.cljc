@@ -21,6 +21,7 @@
             [yin.repl.index :as index]
             [yin.repl.query :as query]
             [yin.repl.store :as store]
+            [yin.repl.state :as config]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.data :as data]
@@ -244,7 +245,8 @@
   "Commands this shell answers.  `connect` and `disconnect` belong to the
    driver, which owns the RPC client; `telemetry` is answered only to say that
    this REPL slice does not have it."
-  #{'vm 'lang 'compile 'reset 'help 'repl-state 'quit 'telemetry 'abandon})
+  #{'vm 'lang 'compile 'reset 'help 'repl-state 'quit 'telemetry 'abandon
+    'trust 'untrust 'trusted})
 
 
 (def help-text
@@ -253,6 +255,8 @@
        "  (lang :clojure | :python | :php)\n"
        "  (compile expr)\n"
        "  (reset)\n"
+       "  (trust \"ed25519:<64 hex>\") / (untrust \"ed25519:<64 hex>\")\n"
+       "  (trusted)  - own principal and trusted set (--dht-trust)\n"
        "  (connect \"daostream:ws://host:port\")\n"
        "  (disconnect)\n"
        "  (require (quote m))  - link module m; with a dht:<dir> index store"
@@ -759,8 +763,8 @@
    A durable store's HEAD write travels with the store handle
    (`:head-fn`, yin.repl.store): every session the store outlives
    publishes through the same one."
-  [vm-type output-stream extra-primitives shell-token index-store source key]
-  (let [linker (link/make source {:key key :session shell-token})
+  [vm-type output-stream extra-primitives shell-token index-store source]
+  (let [linker (link/make source)
         pair (:pair linker)
         query-pair (query/make-pair query-pair-capacity)
         vm (make-vm vm-type output-stream extra-primitives pair query-pair)
@@ -944,7 +948,7 @@
                            (store/open index-store-spec)))]
      (merge
        (update (make-session vm-type output-stream primitives shell-token
-                             index-store link-source dht-key)
+                             index-store link-source)
                :indexer index/rehydrate (:recovery index-store))
        {:lang lang
         :frontends (or frontends frontend/empty-catalog)
@@ -966,6 +970,8 @@
         :last-value-3 nil
         :pending-input nil
         :link-source link-source
+        :admission admission
+        :initial-admission admission
         :link-policy (checked-link-policy link-policy)
         :dht-key dht-key
         :pending-run nil
@@ -1794,7 +1800,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                                (:extra-primitives state)
                                (:shell-token state)
                                (:index-store state)
-                               (:link-source state) (:dht-key state))
+                               (:link-source state))
            (store/durable? (:index-store state))
            (update :indexer index/carry-over (:indexer state)))
          {:vm-type vm-type
@@ -1804,6 +1810,34 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
           :last-value-3 nil
           :frontend-session nil
           :pending-run nil}))
+
+
+(defn- configure-admission
+  "Apply session configuration to the linker, retaining its live state."
+  [state admission]
+  (let [linker (link/reconfigure (:linker state) admission)]
+    (assoc state :admission admission :linker linker
+           :link-source (:source linker))))
+
+
+(defn- trust-command
+  [state command args]
+  (try
+    (let [p (first args)]
+      (when-not (and (= 1 (count args)) (string? p)
+                     (str/starts-with? p "ed25519:"))
+        (throw (ex-info "Expected one ed25519:<64 hex> principal id" {})))
+      (let [p (config/parse-trust p)
+            admission (if (= :external (:admission state))
+                        {} (:admission state))]
+        [(configure-admission
+           state (update admission :trusted
+                         (fn [trusted]
+                           ((if (= command 'trust) conj disj)
+                            (set trusted) p))))
+         (str (if (= command 'trust) "Trusted " "Untrusted ") p)]))
+    (catch #?(:cljd Object :clj Exception :cljs :default) e
+      [state (str "Error: " (ex-message e))])))
 
 
 (declare repl-state)
@@ -1834,7 +1868,14 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
       compile [state (render-compile-output
                        state
                        (compile-command-ast state (first args)))]
-      reset [(rebuild-session state (:vm-type state))
+      trust (trust-command state command args)
+      untrust (trust-command state command args)
+      trusted [state (str "Own: " (pr-str (first (:own (:link-source state))))
+                          "\nTrusted: "
+                          (pr-str (vec (sort (:trusted (:admission state))))))]
+      reset [(rebuild-session
+               (configure-admission state (:initial-admission state))
+               (:vm-type state))
              (str (get vm-labels (:vm-type state)) " reset")]
       abandon (abandon-pending state)
       help [state help-text]

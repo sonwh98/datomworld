@@ -154,9 +154,11 @@
    `{:trusted #{principal} :verify f :decision d :decision-medium m}`,
    the key's own principal joining it as `:own`.  Without it no
    interpreter runs in process: the questions a DHT source asks are
-   answered elsewhere or not at all."
+   answered elsewhere or not at all. `:holder` is the context subject,
+   a principal id or a token understood by verify; it defaults to the
+   own key's principal."
   [{:keys [name-env content-store content-client dht? principals key
-           follow derivation admission]}]
+           follow derivation admission] :as opts}]
   (when (and content-store content-client)
     (throw (ex-info "content-store and content-client are exclusive"
                     {:content-store content-store})))
@@ -167,6 +169,9 @@
   {:name-env (or name-env {})
    :principals (vec (distinct (cond-> (vec principals)
                                 key (conj (:public key)))))
+   :holder (:yin.admit/subject (admission/context
+                                 (select-keys opts [:key :holder])))
+   :own (when key #{(sign/principal (:public key))})
    :follow (vec follow)
    :derivation (or derivation :verifying)
    :admission (when admission
@@ -578,7 +583,7 @@
   "Mint one linker value over `source`, with optional holder `context`.
    Only signed-name sources mint an admission pair. A configured policy
    attaches its in-process interpreter; external policy attaches none."
-  ([source] (make source nil))
+  ([source] (make source {}))
   ([source context]
    (let [signed? (= :dht (get-in source [:content :kind]))
          adm (when signed? (admission/make-state pair-capacity))
@@ -587,7 +592,26 @@
        adm (assoc :admission adm)
        (and adm policy)
        (assoc :interpreter (admission/interpreter adm policy)
-              :context (admission/context context))))))
+              :context (admission/context
+                         (merge (select-keys source [:holder]) context)))))))
+
+
+(defn reconfigure
+  "Replace the admission policy without changing protocol state.
+   External attachment stays external. Without an admission pair this
+   is a no-op. Config is the composition's admission option map.
+   Own principals and holder context remain composition-owned."
+  [linker config]
+  (if-not (:admission linker)
+    linker
+    (let [before (get-in linker [:source :admission])
+          after (when (:interpreter linker)
+                  (admission/policy
+                    (assoc config :own (get-in linker [:source :own]))))]
+      (cond-> (assoc-in linker [:source :admission] after)
+        (:interpreter linker)
+        (update :interpreter admission/reconfigure-interpreter
+                before after)))))
 
 
 (defn round
