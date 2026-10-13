@@ -818,6 +818,7 @@
           [state text] (type! state "(abandon)")
           _ (is (str/includes? text "abandoned") text)
           _ (is (= {} (get-in state [:linker :admission :asked])))
+          _ (is (not (contains? (:linker state) :retired)))
           [state _] (require! (preload state w 'own.m) 'own.m)
           id2 (pending-admission state)
           _ (is (= 1 (second id2)))

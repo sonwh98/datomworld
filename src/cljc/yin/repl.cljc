@@ -1297,6 +1297,9 @@
    raises as the VM's own, carrying the interrupted VM's minted
    identity.
 
+   `initial-progress` records progress from the caller's round.  When
+   true, the first iteration runs the VM once without a round of its own.
+
    A VM waiting on a `dao.space.query/q` call is driven the same way: the
    query interpreter (`yin.repl.query/serve`) answers from the session's
    indexer and the VM runs on.  Only a round the VM spends waiting on a
@@ -1448,7 +1451,7 @@
                :vm (query/discard-answers
                      (carry-link-identity (:base parked) vm)
                      (:query-pair state'))
-               :linker retired
+               :linker (dissoc retired :retired)
                :pending-run nil)
         (str text
              ended-text
@@ -1977,7 +1980,10 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                            (:dht state))
         successor (assoc state :linker (:linker served)
                          :dht (:dht served))
-        state (if (= state successor) state successor)
+        state (if (and (= (:linker state) (:linker served))
+                       (= (:dht state) (:dht served)))
+                state
+                successor)
         links (get-in state [:pending-run :links])
         waits (set (keep :manifest links))
         heads (set (mapcat :principals links))]
