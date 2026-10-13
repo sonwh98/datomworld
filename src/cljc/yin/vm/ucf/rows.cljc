@@ -1348,13 +1348,15 @@
 
 
 (defn- stream-row!
-  "The :stream row of resource sid, served once per resource."
+  "The :stream row of resource sid, served once per resource: through
+   :serve-keyed with [task-path sid] when the caller supplied it."
   [ctx sid]
   (or (get-in @(:acc ctx) [:streams sid])
-      (let [h (get (:resources (:m ctx)) sid)]
+      (let [h (get (:resources (:m ctx)) sid)
+            keyed (:serve-keyed ctx)]
         (when (nil? h)
           (outcome! :yin.k/non-portable :forged-resource-reference {:yin.k/hint sid}))
-        (let [marker (remote/lift-marker (:serve! ctx) h)]
+        (let [marker (remote/lift-marker (if keyed #(keyed [(:path ctx) sid] %) (:serve! ctx)) h)]
           (when (nil? marker) (outcome! :yin.k/unsatisfied nil {}))
           (let [n (node :stream [(:dao.stream/identity marker) (:dao.stream/descriptor marker)])]
             (swap! (:acc ctx) assoc-in [:streams sid] n)
@@ -1631,7 +1633,8 @@
                    (catch #?(:cljd Object :clj Throwable :cljs :default) _e false))
       (outcome! :yin.k/non-portable :install-response {:yin.k/name mn}))
     (node :install [mn phase parent response
-                    (lift-task* (:vm inst) (:serve! ctx) (dissoc opts :free-env) :child)])))
+                    (lift-task* (:vm inst) (:serve! ctx)
+                                (assoc (dissoc opts :free-env) :path (conj (:path ctx) mn)) :child)])))
 
 
 (defn- lift-task*
@@ -1652,7 +1655,8 @@
         free-env (cond (some? (:free-env opts)) (:free-env opts)
                        (some? (:free-env m)) (:free-env m)
                        :else (outcome! :yin.k/non-portable :missing-free-env {}))
-        ctx {:m m :serve! serve! :acc (atom {:streams {} :cells {} :stores #{} :segments #{} :contexts #{}})}
+        ctx {:m m :serve! serve! :serve-keyed (:serve-keyed opts) :path (or (:path opts) [])
+             :acc (atom {:streams {} :cells {} :stores #{} :segments #{} :contexts #{}})}
         free-node (bindings-node ctx free-env)
         waits (mapv (fn [e] (node :wait [(state-node ctx e) (pending-node ctx e)])) (:wait-set m))
         parked (node :parked-table (mapcat (fn [[p rec]] [p (state-node ctx rec)]) (:parked m)))
@@ -1734,7 +1738,11 @@
    :header, the exclusive custody header (occurrence, arbitration,
    next-op-seq, origin when the task has a predecessor, and
    :yin.k/enrolled, the enrolled stream identities, a lift input that
-   never travels). No header is the fork: custody nil. A header writes the
+   never travels); :serve-keyed, (f [task-path resource-id] handle), which
+   replaces serve! and is asked once per resource of each task, the task
+   path being the install names from the root ([] for the root itself),
+   so a caller can retain each answer under its key (holder.export's
+   record). No header is the fork: custody nil. A header writes the
    root's slot by kind (header-custody), refuses :op-seq-exhausted at
    2^52-1 on a blocked or parked root, and protects every retained write
    of the tree (protect!). Before emitting, the lift runs custody-baseline
@@ -1814,10 +1822,15 @@
 (defn- check-install!
   "One install record: a phase the engine holds a carried child in, the
    retained response link-install reads (status, manifest naming this
-   module, exports) with the image spawn-child loads, and a child that
-   is blocked: the engine links a halted child in the sweep it halts in."
+   module, exports) with the image spawn-child loads, the response's link
+   id equal to the row's parent (the engine settles only the response of
+   its own link), the image the manifest names (continuation §11 Q3: the
+   manifest's :yin.semantic/code derivation record is the response's
+   :derivation, from the manifest's tree to the image's A), and a child
+   that is blocked: the engine links a halted child in the sweep it
+   halts in."
   [recv inst]
-  (let [[mn phase _ response child] (:slots inst)
+  (let [[mn phase parent response child] (:slots inst)
         manifest (when (map? response) (:manifest response))
         child-kind (nth (:slots child) 2)]
     (when-not (contains? #{:running :parked} phase)
@@ -1827,6 +1840,14 @@
                    (coll? (:yin.module/exports manifest)) (every? symbol? (:yin.module/exports manifest))
                    (map? (:image response)) (attaches? recv (:value (:image response)) nil))
       (outcome! :yin.k/undecodable :install-response {:yin.k/name mn}))
+    (when-not (and (some? parent) (= parent (:yin.link/id response)))
+      (outcome! :yin.k/undecodable :install-link-id {:yin.k/name mn}))
+    (let [record (:derivation response)]
+      (when-not (and (map? record)
+                     (= (jing/segment-key record) (get-in manifest [:yin.module/derivations :yin.semantic/code]))
+                     (= (:yin.ledger/input record) (:yin.module/tree manifest))
+                     (= (:yin.ledger/output record) (jing/segment-key (:value (:image response)))))
+        (outcome! :yin.k/undecodable :install-image {:yin.k/name mn})))
     (when-not (= :blocked child-kind)
       (outcome! :yin.k/undecodable :install-child {:yin.k/name mn :yin.k/task-kind child-kind}))))
 
@@ -2000,7 +2021,9 @@
    its retained :put waits (:yin.k/issue, :yin.k/issued, in carried
    order) and gates :running, a halted exclusive root :ended, the root
    holding the grant's custody state; a fenced tree gates :exporting with
-   its waits outside the scheduler (:yin.k/recovery-waits)."
+   its waits and every parked record outside the scheduler
+   (:yin.k/recovery-waits, :yin.k/recovery-parked), the shape
+   holder.export's exporting machine has."
   [m {:keys [exclusive? fenced? state]} kind root?]
   (let [m (if exclusive?
             (let [[entries issued] (reduce (fn [[acc i] e]
@@ -2013,7 +2036,8 @@
                 (and root? (some? state)) (assoc :yin.k/custody state)))
             m)]
     (if fenced?
-      (assoc m :yin.k/gate :exporting :yin.k/recovery-waits (:wait-set m) :wait-set [])
+      (assoc m :yin.k/gate :exporting :yin.k/recovery-waits (:wait-set m) :wait-set []
+             :yin.k/recovery-parked (:parked m) :parked {})
       m)))
 
 
@@ -2032,17 +2056,22 @@
 
 (defn- spawn-child
   "A fresh install child of recv's composition (the engine's spawn
-   discipline): answers [child recv']."
-  [recv response mn]
+   discipline): answers [child recv']. A fenced rehydration spawns it
+   without the stream constructor, so the child's construction creates no
+   stream (its default call pair): rehydration initializes nothing. The
+   constructor is the child's again afterwards."
+  [recv response mn fenced?]
   (let [n (or (:origins recv) 0)
         origin (keyword (str (name (or (:origin recv) :t0)) "." n))
         registry (reduce (fn [r [m e]] (module/assoc-module r m (dissoc e :bindings)))
                          (:modules recv) (module/module-entries (:modules recv)))
-        source (:secret-source recv)]
-    [(module/spawn-module recv (:value (:image response))
-                          {:modules registry :origin origin
-                           :ancestry (conj (vec (:ancestry recv)) mn)
-                           :capability-secret (when (fn? source) (source origin))})
+        source (:secret-source recv)
+        child (module/spawn-module (cond-> recv fenced? (assoc :make-stream nil))
+                                   (:value (:image response))
+                                   {:modules registry :origin origin
+                                    :ancestry (conj (vec (:ancestry recv)) mn)
+                                    :capability-secret (when (fn? source) (source origin))})]
+    [(cond-> child fenced? (assoc :make-stream (:make-stream recv)))
      (assoc recv :origins (inc n))]))
 
 
@@ -2168,7 +2197,7 @@
                        waits)
             [base installs'] (reduce (fn [[r acc] inst]
                                        (let [[mn phase parent response child] (:slots inst)
-                                             [spawned r'] (spawn-child r response mn)]
+                                             [spawned r'] (spawn-child r response mn (:fenced? custody))]
                                          [r' (assoc acc mn {:phase phase :parent parent :response response
                                                             :vm (restore-task spawned child handles custody false)})]))
                                      [base {}] installs)
@@ -2182,9 +2211,19 @@
                              (when-let [[req resp] link]
                                {module/link-request-resource (get handles (first (:slots req)))
                                 module/link-response-resource (get handles (first (:slots resp)))}))
-            machine (assoc base :store store' :module-stores stores :parked parked' :installs installs'
-                           :resources resources :env fe :free-env fe :window {} :k nil :control nil
-                           :ready-queue [] :id-counter (max (or (:id-counter base) 0) id-counter))]
+            ;; a fenced rehydration carries the counter exactly, so the
+            ;; relift reproduces the published root; a resumption adopts
+            ;; max(local, carried)
+            machine (cond-> (assoc base :store store' :module-stores stores :parked parked' :installs installs'
+                                   :resources resources :env fe :free-env fe :window {} :k nil :control nil
+                                   :ready-queue []
+                                   :id-counter (if (:fenced? custody)
+                                                 id-counter
+                                                 (max (or (:id-counter base) 0) id-counter)))
+                      ;; resource key -> the carrier's cursor cell, so one
+                      ;; cell is one key and two cells two (UCF 7.7.4)
+                      (:fenced? custody)
+                      (assoc :yin.k/recovery-cell-ids (into {} (map (fn [[c k]] [k c])) cell-keys)))]
         (with-custody
           (case kind
             :halted (assoc machine :halted? true :blocked? false :value (value result) :wait-set [])
@@ -2206,7 +2245,11 @@
    contract: the grant names :checkpoint, the pack address, its lease,
    holder, tenure and evidence; :protection maps every stream identity of
    the tree to its class); :fenced, an administrative rehydration that
-   skips the grant."
+   skips the grant and restores every task of the tree gated :exporting,
+   its waits in :yin.k/recovery-waits and its parked records in
+   :yin.k/recovery-parked (none in the scheduler), its id counter the
+   carried one exactly and :yin.k/recovery-cell-ids mapping each cursor
+   cell's resource key to its carried cell id."
   ([recv wire attach!] (lower-task recv wire attach! {}))
   ([recv wire attach! opts]
    (let [task (decode wire (merge default-budget (:budget opts)))]

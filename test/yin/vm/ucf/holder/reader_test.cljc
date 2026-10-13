@@ -27,7 +27,7 @@ observer attribute and observe the way the composition's resolver would."
             [yin.vm.ucf.custody :as custody]
             [yin.vm.ucf.holder.reader :as reader]
             [yin.vm.ucf.holder.writer :as writer]
-            [yin.vm.ucf.lift-support :as s]))
+            [yin.vm.ucf.rows-support :as s]))
 
 
 (def ^:private arb "arb-d12")

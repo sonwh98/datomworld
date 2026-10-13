@@ -17,7 +17,7 @@
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]
-            [yin.vm.ucf.holder.export :as export]
+            [yin.vm.ucf.handoff :as handoff]
             [yin.vm.values :as values]))
 
 
@@ -448,25 +448,7 @@
      (some? o) (assoc :yin.k/origin o))))
 
 
-(defn prepared
-  "Enter exporting from `machine` and prepare it under `header` with a
-   fresh deterministic exporter: `{:machine m :record r :prepared p}`.
-   A refusal of `enter` is `:prepared`."
-  [machine header]
-  (let [e (export/enter machine)]
-    (if (= :ok (:status e))
-      {:machine (:machine e)
-       :record (:record e)
-       :prepared (export/prepare (:machine e) (:record e) (serve-table)
-                                 header)}
-      {:prepared e})))
-
-
 (defn lift
-  "The whole path over `machine`: enter, prepare, encode.  Answers the
-   encode result, or the refusal prepare (or enter) answered."
+  "The retained old codec exercised directly, without a holder export path."
   [machine header]
-  (let [{m :machine p :prepared} (prepared machine header)]
-    (if (= :ok (:status p))
-      (export/encode m (:record p))
-      p)))
+  (handoff/export-task machine (serve-table) {:header header}))
