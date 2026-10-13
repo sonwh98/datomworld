@@ -1002,7 +1002,7 @@
   "Advance the shell's node once at the host's clock reading `now`
    (dao.space.dht/step) and answer `[shell' lines events]`: its events as
    lines, and as the data the ticker reads to re-check a pending require
-   (yin.repl/recheck-on-load-events), a completed hydration installed, a
+   (yin.repl/recheck-on-tick), a completed hydration installed, a
    failed one or a failed bind recorded as the shell's refusal.  The
    head composition steps after the node: the board's endpoint (and the
    join token once it is bound), then the follower, whose events join

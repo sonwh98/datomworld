@@ -117,7 +117,7 @@
   (let [now (:now w)
         stepped (map (fn [[k s]]
                        (let [[s lines events] (repl.dht/step s now)
-                             [s text] (repl/recheck-on-load-events s events)]
+                             [s text] (repl/recheck-on-tick s events)]
                          [k s (cond-> lines text (conj text))
                           (map #(assoc % :who k) events)]))
                      (:shells w))]
@@ -163,7 +163,7 @@
 
 (defn- last-response
   [w k]
-  (dissoc (peek (mesh/values (get-in w [:shells k :link-pair :responses])))
+  (dissoc (peek (mesh/values (get-in w [:shells k :linker :pair :responses])))
           :yin.link/id))
 
 

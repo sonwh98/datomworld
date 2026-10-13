@@ -499,7 +499,7 @@
     (= :dao.stream/ok (:dao.stream/outcome o))))
 
 
-(defn serve
+(defn- serve-requests
   "One serve round of the interpreter over the link pair: read every
    request `pair`'s cursor has not yet consumed and answer each in
    request order, at most `budget` of them.  The first request nothing
@@ -522,50 +522,100 @@
 
    `admission` is the composition's admission state
    (`yin.vm.linker.admission/make-state`, yin.vm.linker.dht.md 7.5): the
-   round first drains the answer medium (`admission/drain`, at most
-   `budget` elements), and the successor state is answered under
-   `:admission`, with the question and answer of every request whose
-   response landed dropped."
+   successor state is answered under `:admission`, with the question
+   and answer of every request whose response landed dropped."
+  [{:keys [pair source dht admission]} budget]
+  (loop [pair pair
+         node dht
+         admission admission
+         remaining budget
+         pending []
+         progress? false]
+    (let [done {:pair pair, :pending pending, :progress? progress?,
+                :dht node, :admission admission}]
+      (if (zero? remaining)
+        done
+        (let [r (stream/next (:requests pair) (:cursor pair))]
+          (if-not (= :dao.stream/ok (:dao.stream/outcome r))
+            ;; blocked, or a gap: nothing more is answerable this round
+            done
+            (let [request (:dao.stream/value r)
+                  link-id (:yin.link/id request)
+                  res (answer source node admission request)
+                  {:keys [node body waits heads asking asked?]} res
+                  admission (get res :admission admission)
+                  answered? (and (not= ::pending body)
+                                 (respond! pair request body))]
+              (if answered?
+                (recur (assoc pair :cursor (:dao.stream/cursor r))
+                       node
+                       (some-> admission (admission/settle link-id))
+                       (dec remaining)
+                       pending
+                       true)
+                {:pair pair
+                 :pending (conj pending
+                                (cond-> {:name (:yin.link/name request)
+                                         :yin.link/id link-id}
+                                  waits (assoc :manifest waits)
+                                  heads (assoc :principals heads)
+                                  asking (assoc :admission asking)))
+                 :progress? (or progress? (true? asked?))
+                 :dht node
+                 :admission admission}))))))))
+
+
+(defn serve
+  "Serve requests over the legacy composition, draining answers once."
   ([comp] (serve comp serve-budget))
-  ([{:keys [pair source dht admission]} budget]
-   (loop [pair pair
-          node dht
-          admission (some-> admission (admission/drain budget))
-          remaining budget
-          pending []
-          progress? false]
-     (let [done {:pair pair, :pending pending, :progress? progress?,
-                 :dht node, :admission admission}]
-       (if (zero? remaining)
-         done
-         (let [r (stream/next (:requests pair) (:cursor pair))]
-           (if-not (= :dao.stream/ok (:dao.stream/outcome r))
-             ;; blocked, or a gap: nothing more is answerable this round
-             done
-             (let [request (:dao.stream/value r)
-                   link-id (:yin.link/id request)
-                   res (answer source node admission request)
-                   {:keys [node body waits heads asking asked?]} res
-                   admission (get res :admission admission)
-                   answered? (and (not= ::pending body)
-                                  (respond! pair request body))]
-               (if answered?
-                 (recur (assoc pair :cursor (:dao.stream/cursor r))
-                        node
-                        (some-> admission (admission/settle link-id))
-                        (dec remaining)
-                        pending
-                        true)
-                 {:pair pair
-                  :pending (conj pending
-                                 (cond-> {:name (:yin.link/name request)
-                                          :yin.link/id link-id}
-                                   waits (assoc :manifest waits)
-                                   heads (assoc :principals heads)
-                                   asking (assoc :admission asking)))
-                  :progress? (or progress? (true? asked?))
-                  :dht node
-                  :admission admission})))))))))
+  ([comp budget]
+   (serve-requests
+     (update comp :admission #(some-> % (admission/drain budget)))
+     budget)))
+
+
+(defn make
+  "Mint one linker value over `source`, with optional holder `context`.
+   Only signed-name sources mint an admission pair. A configured policy
+   attaches its in-process interpreter; external policy attaches none."
+  ([source] (make source nil))
+  ([source context]
+   (let [signed? (= :dht (get-in source [:content :kind]))
+         adm (when signed? (admission/make-state pair-capacity))
+         policy (:admission source)]
+     (cond-> {:pair (make-pair) :source source}
+       adm (assoc :admission adm)
+       (and adm policy)
+       (assoc :interpreter (admission/interpreter adm policy)
+              :context (admission/context context))))))
+
+
+(defn round
+  "Drain once, serve requests to the first pending, then answer in process.
+   Always return the successor, even when nothing reports progress."
+  ([linker node] (round linker node serve-budget))
+  ([linker node budget]
+   (let [before (:admission linker)
+         drained (some-> before (admission/drain budget))
+         matched? (not= (:answers before) (:answers drained))
+         served (serve-requests (assoc linker :dht node :admission drained)
+                                budget)
+         successor (cond-> (assoc linker :pair (:pair served))
+                     before (assoc :admission (:admission served)))
+         answered (when (:interpreter successor)
+                    (admission/serve
+                      {:interpreter (:interpreter successor)
+                       :policy (get-in successor [:source :admission])
+                       :context (:context successor)}
+                      budget))
+         successor (cond-> successor
+                     answered (assoc :interpreter (:interpreter answered)))]
+     {:linker successor
+      :dht (:dht served)
+      :pending (:pending served)
+      :answered (:answered answered 0)
+      :progress? (boolean (or matched? (:progress? served)
+                              (:progress? answered)))})))
 
 
 ;; =============================================================================
@@ -612,8 +662,8 @@
    retired its id, so a response would be late -- and the first request
    it does not own stops the walk, keeping request order.  Every
    admission question and answer of a retired request is dropped.
-   Returns `{:pair p :admission a :retired [link-id ...]}`."
-  [{:keys [pair admission]} run]
+   Returns the successor value with `:retired [link-id ...]`."
+  [{:keys [pair admission] :as linker} run]
   (loop [pair pair
          retired []]
     (let [r (stream/next (:requests pair) (:cursor pair))
@@ -621,6 +671,5 @@
       (if (and (= :dao.stream/ok (:dao.stream/outcome r))
                (run-owned? id run))
         (recur (assoc pair :cursor (:dao.stream/cursor r)) (conj retired id))
-        {:pair pair
-         :admission (some-> admission (admission/forget retired))
-         :retired retired}))))
+        (cond-> (assoc linker :pair pair :retired retired)
+          admission (assoc :admission (admission/forget admission retired)))))))

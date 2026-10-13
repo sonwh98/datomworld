@@ -1031,9 +1031,8 @@
    replaced by the stop latch, so no custody program call runs after
    `:running?` turns false.  A require parked on a closure load the node
    ended this tick is re-checked once, before any typed line, with no line
-   of its own (yin.repl/recheck-on-load-events, yin.vm.linker.dht.md 8.2),
-   and so is one parked on an admission question whose answer the tick
-   drained (yin.repl/recheck-on-answers, 7.5): its text prints after the
+   of its own (yin.repl/recheck-on-tick, yin.vm.linker.dht.md 8.2),
+   and linker progress resumes a parked run (7.5): its text prints after the
    node's lines.  Returns `[state server lines]`;
    the caller only prints."
   [state server now]
@@ -1047,11 +1046,9 @@
       [state server dht-lines]
 
       :else
-      (let [[repl rechecked] (shell/recheck-on-load-events (:repl state) events)
-            [repl answered] (shell/recheck-on-answers repl)
+      (let [[repl rechecked] (shell/recheck-on-tick (:repl state) events)
             dht-lines (cond-> dht-lines
-                        (seq rechecked) (conj rechecked)
-                        (seq answered) (conj answered))
+                        (seq rechecked) (conj rechecked))
             state (assoc state :repl repl)
             stepped (driver/repl-step state now)
             stepped (if (:running? stepped)

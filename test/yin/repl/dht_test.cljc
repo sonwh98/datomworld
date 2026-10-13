@@ -1002,13 +1002,13 @@
    without its id."
   [state]
   (mapv #(dissoc % :yin.link/id)
-        (mesh/values (get-in state [:repl :link-pair :responses]))))
+        (mesh/values (get-in state [:repl :linker :pair :responses]))))
 
 
 (defn- requests
   "Every link request on the shell's link pair, oldest first."
   [state]
-  (mesh/values (get-in state [:repl :link-pair :requests])))
+  (mesh/values (get-in state [:repl :linker :pair :requests])))
 
 
 (defn- close-world!
@@ -1051,10 +1051,10 @@
                      "k changes nothing")
             (let [late {::space.dht/event :loaded :manifest m
                         :kind ld/module-kind :fetched 1}
-                  [repl' text'] (repl/recheck-on-load-events repl [late late])
+                  [repl' text'] (repl/recheck-on-tick repl [late late])
                   [waiting _] (repl/eval-input repl "(require (quote gone))")
-                  [waiting' text''] (repl/recheck-on-load-events waiting
-                                                                 [late])]
+                  [waiting' text''] (repl/recheck-on-tick waiting
+                                                          [late])]
               (is (identical? repl repl'))
               (is (nil? text'))
               (testing "nor while another require waits on its own load"
@@ -1200,7 +1200,7 @@
             (let [ids (mapv :yin.link/id (requests state))]
               (is (= [(second ids)] (mapv :yin.link/id
                                           (mesh/values
-                                            (get-in state [:repl :link-pair
+                                            (get-in state [:repl :linker :pair
                                                            :responses])))))
               (is (empty? (first (engine/take-link-diagnostics (:vm repl)))))))
           (is (= "42" (second (type! state "(mod/f)"))))
@@ -1928,7 +1928,7 @@
         mark (fn [who events] (map #(assoc % :who who :at now) events))
         shells (map (fn [[k s]]
                       (let [[s lines events] (repl.dht/step s now)
-                            [s text] (repl/recheck-on-load-events s events)]
+                            [s text] (repl/recheck-on-tick s events)]
                         [k s (cond-> lines text (conj text)) (mark k events)]))
                     (:shells w))
         nodes (map (fn [[k n]]
@@ -2397,7 +2397,7 @@
            _ (is (str/includes? text "pending"))
            w (run-world w 10 (+ (:now w) 120000)
                         #(nil? (get-in % [:shells :r :pending-run])))
-           refusal (peek (mesh/values (get-in w [:shells :r :link-pair
+           refusal (peek (mesh/values (get-in w [:shells :r :linker :pair
                                                  :responses])))]
           (testing (str
                      "until repair completes the require is refused"
@@ -2455,7 +2455,7 @@
 
 (defn- last-response
   [w k]
-  (dissoc (peek (mesh/values (get-in w [:shells k :link-pair :responses])))
+  (dissoc (peek (mesh/values (get-in w [:shells k :linker :pair :responses])))
           :yin.link/id))
 
 
