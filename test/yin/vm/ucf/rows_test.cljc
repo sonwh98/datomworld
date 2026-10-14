@@ -1,5 +1,6 @@
 (ns yin.vm.ucf.rows-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.stream :as stream]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
             [dao.jing.cbor-fixtures :as fx]
@@ -1083,6 +1084,97 @@
     (let [fixture (ints/read-file)]
       (doseq [n ints/int-names]
         (is (= (ints/column fixture n "cbor") (encoded (ints/value n))) n)))))
+
+
+(deftest lowering-isolates-task-state-from-a-populated-receiver
+  (doseq [[label source path expected]
+          [[:reader (vm/run (support/load-ast
+                              (support/new-machine)
+                              (support/then
+                                (support/def! 'reader-owned (support/lit 7))
+                                (support/next-of
+                                  (support/cursor-of {:type :stream/make :buffer 4})))))
+            [] "B"]
+           [:install-child (support/parked-installer) [:installs 'host.mod :vm] 42]]]
+    (testing (name label)
+      (let [pack (support/lift source nil)
+            ;; Share attached handles so install records can be compared
+            ;; directly, including the child's entire VM. No constructor
+            ;; runs during either lower; the task's streams are attached.
+            handles (atom {})
+            attach! (fn [descriptor]
+                      (let [id (:dao.stream/identity descriptor)
+                            h (or (get @handles id)
+                                  (let [h (support/one-slot-stream id)]
+                                    (swap! handles assoc id h)
+                                    h))]
+                        {:dao.stream/outcome :dao.stream/ok :dao.stream/handle h}))
+            fresh (support/receiver {:make-stream nil :attach-stream attach!})
+            receiver-stream (support/one-slot-stream "receiver-only")
+            ;; A fixed composition key is already reserved by lower-task,
+            ;; so adding it does not rename the task's fresh keys. This
+            ;; permits exact equality of all seven fields, without masking
+            ;; differences behind a relift or a normalization of VM state.
+            resource-key vm/call-in-stream-key
+            populated (assoc (support/load-ast fresh (support/lit :receiver-only))
+                             :store (assoc {} 'receiver-only :wrong)
+                             :module-stores (assoc {} 'receiver.mod (assoc {} 'x :wrong))
+                             :parked (assoc {} :receiver-only {:type :parked-continuation})
+                             :installs (assoc {} 'receiver.mod {:phase :running})
+                             :wait-set [{:reason :next :receiver-only true}]
+                             :ready-queue [{:receiver-only true}]
+                             :resources (assoc {} resource-key receiver-stream))
+            clean (rows/lower-task fresh pack attach!)
+            restored (rows/lower-task populated pack attach!)
+            fields [:code :store :module-stores :parked :installs :wait-set :ready-queue]
+            clean-task (get-in clean path)
+            restored-task (get-in restored path)
+            stream-key (:stream-id (first (:wait-set restored-task)))
+            cursor-key (get-in restored-task [:wait-set 0 :cursor-ref :id])
+            ;; Also occupy the exact key the clean task would use. This
+            ;; lower must allocate different keys, rather than overwrite
+            ;; or reuse the receiver's stream (including its cursor key).
+            collision-receiver (assoc populated :resources (assoc {} stream-key receiver-stream))
+            collision (when (= :reader label)
+                        (rows/lower-task collision-receiver pack attach!))
+            collision-task (get-in collision path)
+            collision-stream-key (:stream-id (first (:wait-set collision-task)))
+            collision-cursor-key (get-in collision-task [:wait-set 0 :cursor-ref :id])]
+        (is (seq (:code populated)) "the receiver already owns code")
+        (doseq [field fields]
+          (is (not= (get populated field) (get clean field))
+              (str field " has receiver-only state to discard"))
+          (is (= (get clean field) (get restored field))
+              (str field " equals a fresh receiver's lower"))
+          (is (= (get clean-task field) (get restored-task field))
+              (str field " is isolated in the resumed task, including an install child")))
+        (is (not (contains? (:store restored) 'receiver-only)))
+        (is (not (contains? (:module-stores restored) 'receiver.mod)))
+        (is (not (contains? (:parked restored) :receiver-only)))
+        (is (not (contains? (:installs restored) 'receiver.mod)))
+        (is (not-any? :receiver-only (:wait-set restored)))
+        (is (= receiver-stream (get (:resources restored) resource-key))
+            "resource merging retains the receiver's composition stream")
+        (is (not (contains? (:resources populated) stream-key)))
+        (is (not (contains? (:resources populated) cursor-key)))
+        (is (contains? (:resources restored-task) stream-key))
+        (is (contains? (:resources restored-task) cursor-key))
+        (when collision
+          (is (= receiver-stream (get (:resources collision) stream-key)))
+          (is (not (contains? (:resources collision-receiver) collision-stream-key)))
+          (is (not (contains? (:resources collision-receiver) collision-cursor-key))))
+        (is (= (:stream-id (first (:wait-set clean-task))) stream-key))
+        (is (= :next (:reason (first (:wait-set restored-task)))))
+        (is (empty? (:ready-queue restored-task)))
+        (doseq [m (cond-> [clean restored] collision (conj collision))]
+          (let [task (get-in m path)
+                _ (is (= :dao.stream/ok
+                         (:dao.stream/outcome
+                           (stream/append! (support/stream-of task) "B"))))
+                done (vm/run (vm/run m))]
+            (is (vm/halted? done))
+            (is (= expected (vm/value done))
+                "the source read resumes to the same value in every receiver")))))))
 
 
 (deftest result-only-values-complete-the-census
