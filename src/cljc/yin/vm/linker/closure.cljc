@@ -3,7 +3,7 @@
    4.2): a pure function over a `dao.jing` handle that answers whether
    every blob a module manifest needs -- the manifest, every row of its
    tree, its three derivation records, the three lowered images, and the
-   closure of every required manifest -- is held locally and passes its
+   closure of every eagerly required manifest -- is held locally and passes its
    shape and address checks.  It reads bytes through the handle with a
    sentinel, performs no stream operation, and never throws for absent or
    invalid content: the first absent blob ends the walk `:missing`, the
@@ -14,7 +14,9 @@
    the same store."
   (:require #?@(:cljd [["dart:typed_data" :as typed]])
             [dao.jing :as jing]
-            [yin.vm.linker :as linker]))
+            [yin.vm :as vm]
+            [yin.vm.linker :as linker]
+            [yin.vm.linker.requirements :as requirements]))
 
 
 (def lowered-formats
@@ -190,24 +192,36 @@
 
 
 (defn- walk-requires
-  "Step 5: list every requirement of the module, then walk each required
-   manifest not walked before, one level deeper."
+  "Step 5: list every pin with derived eagerness, then descend only into
+   eager manifests not walked before. Deferred pins load at statement time."
   [st manifest-address manifest path depth]
-  (reduce (fn [st [n pinned]]
-            (let [st (update st :requires conj
-                             {:module manifest-address :name n :manifest pinned})]
-              (cond
-                (contains? (:visited st) pinned) st
+  (let [eager-set (requirements/eager
+                    (:yin.module/tree manifest)
+                    (fn [address]
+                      (let [[tag & slots] (get (:seen st) address)]
+                        (into {:type tag}
+                              (map (fn [[[field _] value]] [field value]))
+                              (map vector (get vm/semantic-bytecode-grammar tag)
+                                   slots)))))]
+    (reduce (fn [st [n pinned]]
+              (let [eager? (contains? eager-set n)
+                    st (update st :requires conj
+                               {:module manifest-address :name n :manifest pinned
+                                :eager? eager?})]
+                (cond
+                  (not eager?) st
 
-                (> (inc depth) (get-in st [:bounds :max-depth]))
-                (reduced (stop st (invalid pinned :require (conj path pinned)
-                                           :parts-limit {:bound :max-depth})))
+                  (contains? (:visited st) pinned) st
 
-                :else
-                (let [st (walk-module st pinned :require path (inc depth))]
-                  (if (:stop st) (reduced st) st)))))
-          st
-          (sort-by (fn [[n _]] (str n)) (:yin.module/requires manifest))))
+                  (> (inc depth) (get-in st [:bounds :max-depth]))
+                  (reduced (stop st (invalid pinned :require (conj path pinned)
+                                             :parts-limit {:bound :max-depth})))
+
+                  :else
+                  (let [st (walk-module st pinned :require path (inc depth))]
+                    (if (:stop st) (reduced st) st)))))
+            st
+            (sort-by (fn [[n _]] (str n)) (:yin.module/requires manifest)))))
 
 
 (defn- walk-module
@@ -243,7 +257,7 @@
       :address a :role role :path [...]}
      {:yin.link.closure/outcome :complete
       :manifest m :blobs n :modules [m ...]
-      :requires [{:module m :name n :manifest pinned} ...]}
+      :requires [{:module m :name n :manifest pinned :eager? boolean} ...]}
      {:yin.link.closure/outcome :invalid
       :address a :role role :path [...] :defect {:code c :detail d}}
 
