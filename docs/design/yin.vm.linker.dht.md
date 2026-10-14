@@ -473,7 +473,8 @@ b}})
  :address a :role role :path [...]}
 {:yin.link.closure/outcome :complete
  :manifest manifest-address :blobs n :modules [manifest-address ...]
- :requires [{:module manifest-address :name 'other.lib :manifest pinned} ...]}
+ :requires [{:module manifest-address :name 'other.lib :manifest pinned
+             :eager? true} ...]}
 {:yin.link.closure/outcome :invalid
  :address a :role role :path [...]
  :defect {:code code :detail {...}}}
@@ -481,7 +482,15 @@ b}})
 
 `:requires` lists every `:yin.module/requires` entry of every module in the
 closure, in walk order: the requiring module, the dependency's name, and the
-address the publisher pinned.
+address the publisher pinned, and the derived boolean `:eager?`. Eagerness
+is never persisted in the manifest: `publish/requirements` scans the tree
+for unconditional module-level `(require 'm)` applications, including the
+bodies of immediately applied lambdas. A require inside a stored function
+or a conditional branch, and a `try-require`, does not make a pin eager.
+The walker derives this set from the checked rows already read in step 2.
+It descends only into eager pins in v1; deferred content arrives through
+the importer's statement-time request. An absent deferred dependency does
+not prevent the closure from being `:complete`.
 
 `:code` is one of a closed set. `:detail` is the underlying validator's
 defect map when there is one; no consumer compares it.
@@ -636,10 +645,12 @@ entry is <code>:invalid</code>. The image satisfies its format record's
 5
 </td>
 <td>
-The closure of every manifest under <code>:yin.module/requires</code>
+The closure of every eager manifest under <code>:yin.module/requires</code>
 </td>
 <td>
 Recursively, depth bounded; a manifest already visited is not walked again.
+Every pin is listed with derived <code>:eager?</code>; deferred pins are not
+descended into, even when their content is local.
 </td>
 </tr>
 </table>
@@ -1806,9 +1817,13 @@ A module's `:yin.module/requires` pins each dependency's manifest address.
 Discharge compares that pin with the linked module only through a module
 obligation, which exists only for a retained free name (see the binding
 check below for when there is none). The closure
-walker loads the pinned closure. The install child still requires the
-dependency **by name**. So each dependency name must resolve, in the
-reader's own name environment, to the address the publisher pinned.
+walker loads the eager pinned closures and records deferred pins without
+descending into them (section 4.2). Eagerness is derived from unconditional
+module-level `require` applications in the tree, never from a manifest flag.
+The install child requires eager dependencies **by name**; deferred imports
+resolve by name at statement time. Whenever a dependency binds, its name
+must resolve in the reader's own name environment to the address the
+publisher pinned, enforced by the registry pin invariant.
 
 **A dependency name is resolved exactly as any name is: by the fold of 7.3
 over the reader's snapshot set, under the reader's declared principals.**
@@ -1829,7 +1844,13 @@ over the reader's snapshot set, under the reader's declared principals.**
 
 **The binding check.** `(yin.vm.linker.dht/dependency-bindings node authority
 manifest-address)` reads the loaded closure's `:requires` (section 4.2) and
-answers one entry per requirement, in walk order:
+answers one entry per eager requirement, in walk order. Entries whose
+derived `:eager?` is false are skipped entirely: neither early `:absent` nor
+early `:mismatch` may refuse a module for an import it may never execute.
+At statement time the importer makes its own request through the same
+reader fold; `try-require` returns a refusal as data, including the fold
+diagnostics, and a successful binding is checked by the registry pin
+invariant. The eager binding entries are:
 
 ```clojure
 {:module requiring-manifest :name 'other.lib :pinned a
@@ -1864,11 +1885,23 @@ answers one entry per requirement, in walk order:
 - The engine checks independently of admission and the link source: in
   the `link-install` `linked` transition, before the installed slice is
   lifted or published, every pinned require of the manifest is checked
-  against the halted child's linked entry for that name. An absent or
-  unequal entry refuses `:dependency-pin-mismatch`, carrying `:module`,
-  `:name`, `:pinned`, and `:linked` (nil when absent). The first mismatch
+  against the halted child's linked entry for that name. A present-and-unequal
+  entry refuses `:dependency-pin-mismatch`, carrying `:module`, `:name`,
+  `:pinned`, and `:linked`. Absence is permitted at install: a deferred or
+  optional dependency need not have been required yet. The first mismatch
   in dependency-name string order wins. Its acceptance bypasses the DHT
   binding check and covers inherited and freshly installed mismatches.
+- The registry pin invariant guarantees safety at receive: no linked module
+  may have an address different from any linked manifest's pin for its name.
+  `module/pin-conflict` derives this from registry manifests and the incoming
+  entry, without persisted pin state. `receive-module` refuses before attaching
+  or lowering if an existing manifest pins the incoming name at another
+  address, or the incoming manifest pins a held name at another address.
+  This covers child inheritance at spawn and parent receives of the installed
+  entry and the child's linked entries (acts 3 and 4), including a parent
+  registry changed while the child installed. A later deferred require at
+  another address refuses as data under `try-require`, or raises under
+  `require`; the receiving registry and stores remain unchanged.
 
 ### 7.5 Admission: the linker's trust question
 
@@ -2035,9 +2068,10 @@ no `:admission` key.
 
 **Discharge and L-d.** Admission asks after resolve and before load;
 discharge is step 5b after delivery, untouched. An admission refusal is
-a section 9 link refusal, so `try-require` catches it as it catches
-`:absent`. An install child's transitive requirement is asked on its own
-request.
+a section 9 link refusal. The bare `try-require` primitive emits
+`:module/try-require` and receives that refusal as data, as with `:absent`,
+instead of raising an effect error. An install child's transitive requirement
+is asked on its own request.
 
 #### 7.5.4 Parking, with no deadline, and retirement
 
@@ -2704,6 +2738,8 @@ Each row is one exact response shape,
 `{:status :refused :reason <outcome> ...carried data}`, identical on the
 JVM, Node and Dart. A consumer matches `:reason` and, for
 `:descriptor-defect`, `:code`; it never matches `:text`.
+The `:module/try-require` effect resumes its continuation with refusal
+maps as data; plain `:module/require` raises them as effect errors.
 
 Publication refusals, returned by the plain functions and printed by the
 REPL: `:yin.link.publish/no-key`, `/undefined-export`, `/undeclared-free`,

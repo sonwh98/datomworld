@@ -697,9 +697,10 @@ evidence, exactly as `yin.vm.linker/refused` builds it.
 |                         |        | export the manifest names                |
 | `:require-cycle`        | 7.4    | a child install requires a module that   |
 |                         |        | is itself installing in its ancestry     |
-| `:dependency-pin-mismatch` | 7.3    | a pinned require is absent from the      |
-|                         |        | halted child's registry, or its          |
-|                         |        | manifest address differs                 |
+| `:dependency-pin-mismatch` | 7.3    | a present dependency's address differs  |
+|                         |        | from its pin, or receiving an entry      |
+|                         |        | would violate the registry pin invariant |
+|                         |        | (absence is permitted at install)        |
 | `:foreign-image`        | 7.3    | an exported closure originates in an     |
 |                         |        | image this scheduler never verified      |
 | `:binding-mismatch`     | 7.3    | a positional closure marker lowered into |
@@ -1253,7 +1254,11 @@ The steps, as rules:
    against its live state and, if discharged, starts the install child
    (section 7.3). On a matching refusal, or a failed discharge, the
    program resumes with the refusal raised as the effect's error, the
-   same way an `:ffi` `error` raises. On `gap` the honest outcome is a
+   same way an `:ffi` `error` raises. The bare `try-require` primitive
+   emits `:module/try-require` through the same linker seat. Its waiter
+   resumes with refusal or loss data instead of raising, and success
+   returns `{:status :ok :module name}`. Each waiter keeps its own return
+   contract, including co-waiters on one install. On `gap` the outcome is a
    `gap`, and the composition's policy decides.
 
 Revision r1 claimed steps 3 to 7 needed no new engine machinery. That
@@ -1322,11 +1327,16 @@ Rules:
   and 2 run once, at `validated`; acts 3 and 4 run once per
   receiving task -- the parent at `linked`, and each waiter or later
   requirer at its own restore.
-  Before act 1, every `:yin.module/requires` pin must equal the halted
-  child's linked entry's manifest address. An absent or unequal entry
-  refuses `:dependency-pin-mismatch` with `:module`, `:name`, `:pinned`,
-  and `:linked` (nil when absent), choosing the first mismatch by name
-  string order. Nothing is published; every waiter receives the refusal.
+  Before act 1, every present `:yin.module/requires` dependency must have
+  the halted child's linked entry at its pinned manifest address.
+  Present-and-unequal refuses `:dependency-pin-mismatch` with `:module`,
+  `:name`, `:pinned`, and `:linked`, choosing the first mismatch by name
+  string order. Absence is permitted at install for deferred dependencies.
+  At each receive (child inheritance and parent acts 3 and 4), the registry
+  pin invariant checks both existing manifests' pins for the incoming name
+  and the incoming manifest's pins for held names, before any attachment or
+  lowering. Thus a deferred name can only bind at its pinned address.
+  Nothing is published on refusal; every waiter receives the refusal.
   1. *The child's export slice is lifted* to UCF's portable encoding
      (section 7.5.1, amended below): each closure becomes a
      `:yin.k/closure` marker naming its **origin image** and its entry

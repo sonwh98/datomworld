@@ -115,7 +115,7 @@ Keep explicit functions where they make fixed contracts readable:
 (blake3-bytes bytes)
 ```
 
-These functions never follow the default. `sha256` remains useful to VM and DHT contracts independently of its membership in the DaoJing address registry.
+These functions never follow the default. `sha256` remains useful to the DHT routing contract independently of its membership in the DaoJing address registry.
 
 ### `canonical-bytes`
 
@@ -342,25 +342,19 @@ Hash use outside `dao.jing` falls into four classes:
 
 The classification is a maintained design artifact. Minting and verification must not be conflated.
 
-### Direct `jing/sha256` consumers
+### Explicit hash contracts
 
-The current tree contains five direct consumers:
+The six de Bruijn consumers and the DHT routing hash are independent of
+DaoJing's minting default. They have their own encoders and contracts.
 
-- `yin.vm.debruijn_code/descriptor-hash`
-- `yin.vm.debruijn_code/image-hash`
-- `yin.vm.debruijn/dimension-hash`, a `def` computed once at namespace load
-- `yin.vm.debruijn/node-hash`
-- `dao.jing.dht/node-id`
+The six surviving de Bruijn hash sites use explicit BLAKE3 after the
+phase-8ab regeneration (2026-10-14): stack and register descriptor hashes,
+H and R checksums, and the projection dimension and node hashes. Their
+encoders remain independent of DaoJing's addressing encoder and minting
+default. A is the sole code identity; H and R are derived checksums.
 
-These calls do not follow DaoJing's default.
-
-The four de Bruijn hashes are SHA-256 today and are VM-format contracts, not default selections. Owner decision 2026-10-12: the H and R checksums and the descriptor hashes move to BLAKE3 at the phase-8 cutover of the semantic-register VM (derivations design §8.2), where every golden is regenerated once. Until then they stay explicit SHA-256 and must not follow DaoJing's default.
-
-The DHT node ID remains SHA-256 because it defines the DHT routing identity space rather than a content-address selection. Changing it is a separate DHT protocol decision.
-
-Neither disposition is a legacy-support exception. They are independent contract boundaries that happen to specify SHA-256.
-
-The task that originated this plan named `src/cljc/yin/vm/debruijn_register_code.cljc` and register contract tests, but those files do not exist in the reviewed checkout. The register design nevertheless specifies R as SHA-256. Its implementation follows that frozen format contract when it lands.
+The DHT node ID remains SHA-256 because it defines the DHT routing
+identity space. Changing it is a separate DHT protocol decision.
 
 ### Primitive-profile identifier
 
@@ -450,28 +444,21 @@ The DHT may route by the carried 256-bit digest. Both initial algorithms produce
 
 ## yin.vm H and R disposition
 
-H and R remain explicitly SHA-256.
+Phase 8ab regenerates H and R with explicit `jing/blake3`, and both
+descriptor encoding rows declare `:hash :blake3`. The obsolete
+`:dim/lift-to` rows are removed. `lowering-contract-version` 2 and
+`contract-version` 4 remain unchanged under owner ruling 2; this is a
+regeneration, with no compatibility shim. Projection dimension and node
+hashes also use explicit BLAKE3. Every pin is recomputable from printed
+intermediates (derivations §8.1).
 
-For the implemented stack format (until the phase-8 cutover moves it to BLAKE3):
-
-- keep `descriptor-hash` and `image-hash` on explicit SHA-256;
-- keep descriptor data declaring `:hash :sha256`;
-- do not repin the golden H corpus before the cutover;
-- add a regression proving that DaoJing's BLAKE3 default does not change H.
-
-The older `yin.vm.debruijn` dimension and node hashes likewise remain explicit SHA-256 under their existing format contract until the same cutover.
-
-For the planned register format:
-
-- implement `register-descriptor-hash` and `register-hash` with explicit SHA-256 now and BLAKE3 from the phase-8 cutover;
-- retain the documented R formula and descriptor declaration;
-- do not couple R to `default-hash-algorithm`.
-
-This is neither compatibility support nor an application of DaoJing's multihash registry. H and R are executable-format identities with their own canonical encoders, descriptor hashes, contract versions, and pinned golden values. Changing them requires a VM format-version decision and complete re-pin under that process.
+A is the sole code identity. H and R are checksums of derived backend
+images, with their own canonical encoders and descriptor hashes; they
+never follow `default-hash-algorithm`.
 
 Jing addresses for stored stack or register images are separate identities. An image may have:
 
-- H or R, identifying its executable-format bytes; and
+- H or R, checking its derived backend-format bytes; and
 - a DaoJing segment address, identifying the stored Jing value under its selected registry algorithm.
 
 The two identities must not be conflated merely because both can use the same algorithm.
@@ -488,7 +475,7 @@ Pin exact versions. A content-identity dependency must not use floating ranges.
 
 The portability spike's cross-provider result left no durable repository artifact. The implementation therefore commits official-vector fixtures and the cross-provider digest table as the evidence of record.
 
-SHA-256 keeps its current per-host implementations, including the hand-written ClojureDart implementation. That code serves both the first-class SHA-256 registry entry and the explicit VM/DHT contracts.
+SHA-256 keeps its current per-host implementations, including the hand-written ClojureDart implementation. That code serves the first-class SHA-256 registry entry and the explicit DHT contract.
 
 ### Maintenance risks
 
@@ -620,7 +607,7 @@ Complete when:
 - `dao.jing.md` distinguishes algorithm, digest, address, minting, verification, and copying;
 - `dao.jing.md` states: "Verification must be address-directed; minting primitives are not validators";
 - `dao.jing.md` states that copying addressed content preserves the address-carried algorithm;
-- yin.vm documentation states that H/R remain SHA-256 because of VM contract freeze, not compatibility policy or DaoJing's default;
+- yin.vm documentation records the phase-8ab explicit BLAKE3 regeneration of H/R, independent of DaoJing's default;
 - the call-site classification and lint rule are documented as maintenance obligations; and
 - source docstrings agree with the implemented grammar and defaults.
 
@@ -647,8 +634,7 @@ The minimum acceptance matrix is:
 - DaoSpace candidates containing only `:schema-address`.
 - Direct coverage or an integration path for every validation and copy site in the committed classification.
 - A source-level guard against reintroducing default-following verification.
-- Unchanged stack H and de Bruijn format-hash goldens.
-- Unchanged R goldens when register code lands.
+- Stack H, R and de Bruijn format-hash goldens regenerated at phase 8ab.
 
 No test is required solely to demonstrate migration from a pre-registry store, address graph, fixture, or checkpoint shape. CBOR-address fixtures and dual-encoder dispatch tests belong to the separate CBOR clean-break epic.
 

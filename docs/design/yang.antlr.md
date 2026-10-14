@@ -2668,31 +2668,27 @@ So C4 needs no heap-slice lift, and nothing is copied per receiving task
 (section 8.5.1, amended). `py/init!` initializes the prelude's own
 active module store once, idempotently, with defined failure behavior;
 entry wrappers call it and install children never do. An imported body
-runs under the importing task's declared effects and may itself suspend:
-"no code-delivery wait inside `py/import`" is not a promise that body
-execution cannot park.
+runs under the importing task's declared effects. Statement-time delivery
+and body execution may both suspend on their explicit stream effects.
 
 Module shape. A Python unit compiled as module `a.b` becomes one linker
 module:
 
 ```clojure
 (do (require 'py)              ; hoisted: code delivery only
-    (require 'pym.c)           ; one per static import in the unit
     (yin/def spec {:name "a.b" :package? false})
     (yin/def body (fn [%globals %globals-fn] <lowered module body>)))
 ;; :yin.module/exports #{spec body}
 ```
 
-- Hoisted, pinned requires are an explicit eager-dependency restriction,
-  not an invisible transformation (ruling 4). `if False: import
-  missing`, a caught failed import, and a pre-populated `sys.modules`
-  all tell it apart from Python's statement-time import, and the support
-  profile says so. The required module names are derivable from rows;
-  their manifest addresses additionally need the pinned resolution
-  snapshot.
-- Body execution stays lazy. `import c` lowers at the statement to
-  `(py/import "c" pym.c/spec pym.c/body)` plus the binding, and the body
-  runs in the importing task, in statement order.
+- Only `py` is eagerly required. Static guest imports remain pinned in
+  the manifest; guest delivery runs at the executed statement through
+  `try-require`, after the `sys.modules` check (ruling 8).
+- `import c` lowers to the binding plus:
+  `(py/import "c" (fn [] (let [r (try-require 'pym.c)]
+  (if (= :ok (get r :status)) [pym.c/spec pym.c/body] r))))`.
+  Exports are read only on success; the body then runs in the importing
+  task, in statement order.
 - `__package__` comes from `spec`: package-ness is source layout, not
   derivable from rows.
 
@@ -2824,20 +2820,31 @@ directory trees over `dao.space.store` and `dao.stream` without introducing
 ambient host syscalls or new host seams, preserving continuation mobility
 and replay determinism.
 
-Catchable imports (ruling 8). A link refusal is raised as the effect's
-error, which the VM has no guest-catchable form of. Refusal-as-data
-linking (`module/try-require`, following the `stream/poll!` precedent of
-decision 5) is adopted, but alone it does not make
-`try: import x / except ImportError` work: a hoisted eager dependency
-can fail before the body reaches the `try`. The claim also needs
-deferred dependency admission with statement-time resolution: check
-`sys.modules` first, attempt delivery at the import statement under the
-pinned resolution environment, and read exports only after success. I4
-stays gated until publication and free-name validation can represent
-such deferred dependencies, absent names included, without weakening
-address verification or admission. Until then an absent dependency
-refuses the dependent's link before any Python runs, and the support
-profile records it.
+Catchable imports (ruling 8, I4-a). Only `py` is eagerly required.
+Each guest import passes a delivery thunk to `py/import` or
+`py/import-sub`. The runtime checks `sys.modules` first; on a miss the
+thunk executes the bare VM primitive `try-require`, then reads the
+module's `spec` and `body` only after `:status :ok`. The effect kind
+is `:module/try-require`, not a host module. Static imports remain
+concretely pinned in the module manifest's `:requires`; delivery is
+deferred, address verification and admission are preserved.
+
+`py/import-refused` turns delivery refusals into exceptions at the
+executed Python statement. An unresolved name (`:reason :absent` with
+`:name`) raises `ModuleNotFoundError`, a subclass of `ImportError`,
+with `No module named '<name>'`. Missing content at a resolved address
+(`:reason :absent` with `:address`) raises `ImportError`; its message
+identifies the module and its `refusal` attribute records the address.
+Other refusals, including ambiguous names, untrusted principals, pin
+mismatches and require cycles, raise `ImportError`. Every delivery
+refusal retains the complete structured map on the exception's
+`refusal` attribute. Failed delivery creates no `sys.modules` entry,
+so a caught failure permits the next import to retry. A cached import
+does not invoke the delivery thunk.
+
+Publication still requires a concrete address for each static import;
+a dependency unavailable at publication cannot be represented by an
+unpinned optional import. The DHT end-to-end acceptance is I4-b.
 
 Cycles (ruling 9). Python-level cycle semantics follow from
 insert-before-execute, including "cannot import name" on a partially
@@ -3108,7 +3115,7 @@ Linker prerequisites, the linker seat's to build:
 +-------+----------------------------------------------------------------------+
 | I3    | Publication and DHT import; admission per `yin.vm.linker.dht.md` 7.5 |
 +-------+----------------------------------------------------------------------+
-| I4    | Catchable `ImportError`; needs L-d                                   |
+| I4    | Statement-time `ModuleNotFoundError` / `ImportError` (I4-a); I4-b DHT |
 +-------+----------------------------------------------------------------------+
 | I5    | SCC units and alias modules                                          |
 +-------+----------------------------------------------------------------------+
@@ -3179,9 +3186,10 @@ precompiled CST packets or rows, since the parser is JVM-only):
   `py/getattr`/`py/setattr`/`py/delattr` answer for, sys.modules
   (`py.rt/modules`) with `sys` and `builtins` pre-seeded, and the
   `ImportError` class; the module emitter is `lower/module-packet` and
-  `lower/module-spec` (`pym.m` for module `m`), one `(require 'pym.i)`
-  hoisted per static import in the unit beside the wrapper's `py`
-  require — an import-free program's tree is unchanged, so its linked
+  `lower/module-spec` (`pym.m` for module `m`). I4-a replaces the
+  hoisted guest requires with statement-time `try-require` delivery
+  thunks, retaining the wrapper's eager `py` require and concrete
+  manifest pins. An import-free program's tree is unchanged, so its linked
   program root golden did not move. Each import-free golden moved once
   with the prelude change: the `py` manifest to
   `:segment/blake3-ad6f34e349ce527382ddd039236197a700c6c1182f163bc3b8bcf13449f1c3d8`
@@ -3194,9 +3202,8 @@ precompiled CST packets or rows, since the parser is JVM-only):
   the bundled profile is refused (`Imports require the linked prelude`),
   as is every I2 form — dotted, aliased, and `from` — and `del` is
   lowered for name and attribute targets. `import sys` and
-  `import builtins` resolve under either profile with no delivery: spec
-  and body are `None` and no `pym.sys` require is hoisted, the
-  pre-seeded `sys.modules` entry answering; the pre-seeded `sys` exposes
+  `import builtins` resolve under either profile with `None` delivery,
+  the pre-seeded `sys.modules` entry answering; the pre-seeded `sys` exposes
   `modules` only, so the interpreter hooks stay unreachable.
 - I2: `import a.b.c` runs three bodies once, in order, with attributes
   set; a relative import in a packageless unit raises an `ImportError`
@@ -3247,9 +3254,13 @@ precompiled CST packets or rows, since the parser is JVM-only):
   dependency for a Python import (discharge does not independently
   refuse a republished dependency); the engine `link-install` pin check
   that closes this lands with L-d (`yin.vm.linker.dht.md` 7.4).
-- I4: an absent module inside `try` runs the `except
-  ModuleNotFoundError` branch; an ambiguous name raises `ImportError`
-  carrying the refusal.
+- I4-a: an unresolved name inside `try` runs the `except
+  ModuleNotFoundError` branch; `except ImportError` also catches it.
+  Content misses, ambiguous names, pin mismatches and untrusted principals
+  raise `ImportError`, retaining the structured refusal. Failed delivery
+  leaves no cache entry and retries; cache hits skip delivery. Landed in
+  `import_test`, including unchanged I1/I2 behavior and the unchanged
+  import-free linked program root. I4-b covers DHT end to end.
 - I5: mutually importing `a` and `b` both import; `from b import x`
   during partial initialization gives CPython's error text.
 - I6: `reload(m)` re-runs the body against the same dict with `m`'s

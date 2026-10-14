@@ -29,6 +29,8 @@
             [yin.repl.frontends :as repl.frontends]
             [yin.repl.dht :as repl.dht]
             [yin.repl.store :as store]
+            [yin.vm :as vm]
+            [yin.vm.linker.closure-test :as ct]
             [yin.vm.linker.dht :as ld]
             [yin.vm.linker.publish :as publish]
             [yin.vm.linker.sign :as sign]))
@@ -494,3 +496,72 @@
         (close-all! w))
       (finally
         (run! cleanup-dir! [adir ddir])))))
+
+
+(deftest a-deferred-import-is-absent-as-data-after-the-dependent-links
+  (doseq [claim? [false true]]
+    (let [[adir bdir] [(temp-dir) (temp-dir)]
+          net (mesh/mesh)
+          key (sign/generate)
+          other (sign/generate)]
+      (try
+        (let [w (-> (world net [2 3])
+                    (assoc-in [:shells :a]
+                              (shell-at net adir 1 [2 3] {:key key})))
+              node (get-in w [:shells :a :dht])
+              base (ct/publish-base! (dht/local node))
+              optional (ld/publish!
+                         node {:name 'optional :ast ct/deferred-ast :exports #{'g}
+                               :requires {'base (:address base)}
+                               :primitives {'try-require
+                                            (vm/profile-of vm/primitives
+                                                           'try-require)}})
+              claims (cond-> [(publish/assertion key {:name 'optional
+                                                      :manifest (:address optional)
+                                                      :seq 1})]
+                       claim? (conj (publish/assertion other
+                                                       {:name 'base
+                                                        :manifest (:address base)
+                                                        :seq 1})))
+              index (dht-test/publish-datoms!
+                      node (mapv (fn [i r]
+                                   {:db/id (+ datom/first-user-id i)
+                                    :yin.module/envelope (:envelope r)
+                                    :yin.module/proof (:proof r)})
+                                 (range) claims))
+              w (run-world w 60000 "the optional module index was not reported"
+                           #(published % :a index))
+              w (hydrate w :b bdir 4 index [(:public key)])
+              w (reduce
+                  (fn [w vm-type]
+                    (let [[w _] (eval-at w :b (str "(vm " vm-type ")"))
+                          [w _] (require-at w :b 'optional)
+                          linked (get-in w [:shells :b :last-value])
+                          reader (get-in w [:shells :b :dht])
+                          expected (:diagnostics
+                                     (ld/resolve-name reader
+                                                      (ld/authority
+                                                        {:principals [(:public key)]})
+                                                      'base))
+                          [w _] (eval-at w :b "(optional/g)")
+                          w (run-world w (+ (:now w) 60000)
+                                       "the deferred try-require never answered"
+                                       #(nil? (get-in % [:shells :b :pending-run])))
+                          result (get-in w [:shells :b :last-value])]
+                      (testing (str vm-type " claim=" claim?)
+                        (is (= 'optional linked))
+                        (is (= :loaded (:status (ld/module-status reader
+                                                                  (:address optional)))))
+                        (is (= ::absent (jing/get (dht/local reader)
+                                                  (:address base) ::absent)))
+                        (is (= {:status :refused :reason :absent :name 'base}
+                               (select-keys result [:status :reason :name]))
+                            (pr-str result))
+                        (is (= expected (:diagnostics result)))
+                        (is (= (if claim? [:undeclared-principal] [])
+                               (mapv :reason (:diagnostics result)))))
+                      w))
+                  w vm-types)]
+          (close-all! w))
+        (finally
+          (run! cleanup-dir! [adir bdir]))))))

@@ -672,31 +672,29 @@
     (ok? (p/root pk))))
 
 
-(defn- import-requires
-  "The linker modules a unit's static imports deliver: `pym.<mangled>`
-   per imported module, source order. The module's own `py` require is
-   not here; the wrappers add it ahead of these."
-  [pk unit]
-  (mapv module-symbol (imported-module-names pk unit)))
-
-
 (defn- delivered
-  "The spec and body nodes an import of `nm` passes: None for a
-   pre-seeded module and for the unit itself (sys.modules answers both),
-   else the delivered `pym.<mangled>/spec` and `/body`."
+  "Statement-time delivery: None for a pre-seeded module or the unit
+   itself; otherwise a thunk that reads exports only after try-require
+   succeeds, returning the structured refusal on failure."
   [ctx nm]
   (if (or (contains? preseeded-modules nm) (= nm (get-in ctx [:unit :name])))
-    [none none]
+    none
     (let [mod (str (module-symbol nm))]
-      [(u/v (symbol mod "spec")) (u/v (symbol mod "body"))])))
+      (u/lam []
+             (u/let1 'r (app* 'try-require (u/lit (module-symbol nm)))
+                     (u/if-node (app* '= (u/lit :ok)
+                                      (app* 'get (u/v 'r) (u/lit :status)))
+                                (app* 'conj (u/lit []) (u/v (symbol mod "spec"))
+                                      (u/v (symbol mod "body")))
+                                (u/v 'r)))))))
 
 
 (defn- import-chain
   "Import the module `nm` and its ancestors, root first, each module
    object bound to a fresh temporary of node `n`; `k` receives the
    temporaries, root first, and returns the body they scope. The root is
-   `(py/import name spec body)`; each later link `(py/import-sub name spec
-   body parent attr)`, which on a fresh load sets the module as its
+   `(py/import name delivery)`; each later link `(py/import-sub name
+   delivery parent attr)`, which on a fresh load sets the module as its
    parent's attribute (ruling 13)."
   [ctx n nm k]
   (let [chain (name-chain nm)
@@ -706,10 +704,10 @@
               (if (= i (count chain))
                 (k tmps)
                 (let [full (nth chain i)
-                      [spec body] (delivered ctx full)
+                      delivery (delivered ctx full)
                       call (if (zero? i)
-                             (app* 'py/import (u/lit {:py/str full}) spec body)
-                             (app* 'py/import-sub (u/lit {:py/str full}) spec body
+                             (app* 'py/import (u/lit {:py/str full}) delivery)
+                             (app* 'py/import-sub (u/lit {:py/str full}) delivery
                                    (u/v (nth tmps (dec i)))
                                    (u/lit {:py/str (last (str/split full #"\."))})))]
                   (u/let1 (nth tmps i) call (step (inc i))))))]
@@ -724,7 +722,7 @@
    attribute, else the sys.modules entry). `sys.modules` answers first, a
    body runs lazily in the importing task, once. `sys` and `builtins`
    need no delivery:
-   spec and body are None, and the pre-seeded sys.modules entry answers."
+   delivery is None, and the pre-seeded sys.modules entry answers."
   [ctx n]
   (let [das (first (rules ctx n "dotted_as_names"))]
     (u/seq-nodes
@@ -1931,12 +1929,10 @@
    task's runtime state with `(py/init!)`. Either way the body names only
    `py/` exports, never a runtime key.
 
-   A unit that statically imports a module needs it delivered: under
-   `:linked` one `(require 'pym.<mangled>)` per imported module (a dotted
-   import's ancestors included) is hoisted after the `py` require (ruling
-   4's explicit eager-dependency restriction; an import-free unit's tree
-   is unchanged). The program is `__main__`, a packageless unit, so its
-   relative imports raise. Imports need the linked
+   Guest imports deliver through try-require thunks at the executed
+   statement, after checking sys.modules. Only py is eagerly required;
+   an import-free unit's tree is unchanged. The program is __main__, a
+   packageless unit, so its relative imports raise. Imports need the linked
    prelude -- a module closure's free reads never see the ambient store,
    so a bundled importer's `py/*` definitions are invisible to an
    imported body -- and a bundled unit holding any import statement but
@@ -1944,7 +1940,6 @@
   ([packet] (lower-packet packet {}))
   ([packet {:keys [prelude], :or {prelude :bundled}}]
    (let [pk (p/validate! packet)
-         requires (import-requires pk nil)
          main (app* 'py/run-main
                     (u/lam [globals-sym globals-fn-sym]
                            (lower-module-body packet)))]
@@ -1957,9 +1952,8 @@
                               :construct "import under the bundled prelude"}))
                     (u/then prelude/uast main))
          :linked (u/seq-nodes
-                   (into [(app* 'require (u/lit prelude/module-name))]
-                         (concat (mapv #(app* 'require (u/lit %)) requires)
-                                 [(app* 'py/init!) main]))))))))
+                   [(app* 'require (u/lit prelude/module-name))
+                    (app* 'py/init!) main]))))))
 
 
 ;; =============================================================================
@@ -1980,9 +1974,9 @@
 
 (defn module-packet
   "One ok packet as the linker module `pym.<mangled>`: one wide
-   application whose operands are `(require 'py)`, one `(require
-   'pym.<i>)` per statically imported module (delivery hoisted and
-   pinned, bodies lazy), then the spec and body definitions. `name` is
+   application whose operands are `(require 'py)`, then the spec and
+   body definitions. Guest imports deliver at statement time; module-spec
+   still pins every static import. `name` is
    the dotted Python module name and `package?` (default false) whether
    the unit is a package, which is source layout, not derivable from
    rows: the spec records both, the runtime derives `__package__` from
@@ -2000,12 +1994,10 @@
                      :construct "malformed module name",
                      :name name})))
   (let [unit {:name name, :package? (boolean package?)}
-        requires (import-requires (p/validate! packet) unit)
-        nodes (into [prelude/module-name] requires)
         defs [(u/def! 'spec (u/lit unit))
               (u/def! 'body (u/lam [globals-sym globals-fn-sym]
                                    (lower-module-body packet unit)))]
-        operands (into (mapv require-node nodes) defs)
+        operands (into [(require-node prelude/module-name)] defs)
         params (mapv (fn [i] (symbol (str "%d" i))) (range (count operands)))]
     (u/mark-tails (apply u/app (u/lam params (u/lit nil)) operands))))
 

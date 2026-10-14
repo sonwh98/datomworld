@@ -46,9 +46,22 @@
   (def! 'f (lam [] (app (v '+) (lit 40) (lit 2)))))
 
 
+(defn eager
+  "Run module-level requires before `body`."
+  [names body]
+  (reduce (fn [body n]
+            (app (lam ['_] body) (app (v 'require) (lit n))))
+          body (reverse names)))
+
+
+(def deferred-ast
+  "A function that optionally requires base only when called."
+  (def! 'g (lam [] (app (v 'try-require) (lit 'base)))))
+
+
 (def app-ast
-  "`(yin/def g (+ (base/f) 1))`: calls the export of `base` as it runs."
-  (def! 'g (app (v '+) (app (v 'base/f)) (lit 1))))
+  "Require base, then define g from its export."
+  (eager ['base] (def! 'g (app (v '+) (app (v 'base/f)) (lit 1)))))
 
 
 (def plus
@@ -68,7 +81,8 @@
   [store base-address]
   (publish/publish-module!
     store {:name 'app :ast app-ast :exports #{'g}
-           :requires {'base base-address} :primitives plus}))
+           :requires {'base base-address}
+           :primitives (assoc plus 'require (vm/profile-of vm/primitives 'require))}))
 
 
 (defn entries
@@ -202,7 +216,7 @@
     (is (= [(:address app) (:address base)] (:modules w)))
     (is (= (count (entries store)) (:blobs w))
         "the publisher wrote exactly the two closures")
-    (is (= [{:module (:address app) :name 'base :manifest (:address base)}]
+    (is (= [{:module (:address app) :name 'base :manifest (:address base) :eager? true}]
            (:requires w)))))
 
 
@@ -210,23 +224,24 @@
   (let [store (mem/create-content-mem)
         base (publish-base! store)
         mid (publish/publish-module!
-              store {:name 'mid :ast (def! 'h (lam [] (app (v 'base/f))))
+              store {:name 'mid :ast (eager ['base] (def! 'h (lam [] (app (v 'base/f)))))
                      :exports #{'h} :requires {'base (:address base)}
-                     :primitives {}})
+                     :primitives {'require (vm/profile-of vm/primitives 'require)}})
         top (publish/publish-module!
               store {:name 'top
-                     :ast (def! 't (lam [] (app (v '+) (app (v 'base/f))
-                                                (app (v 'mid/h)))))
+                     :ast (eager ['base 'mid]
+                                 (def! 't (lam [] (app (v '+) (app (v 'base/f))
+                                                       (app (v 'mid/h))))))
                      :exports #{'t}
                      :requires {'base (:address base) 'mid (:address mid)}
-                     :primitives plus})
+                     :primitives (assoc plus 'require (vm/profile-of vm/primitives 'require))})
         w (closure/walk store (:address top))]
     (is (= :complete (:yin.link.closure/outcome w)) (pr-str w))
     (is (= [(:address top) (:address base) (:address mid)] (:modules w))
         "a manifest already visited is not walked again")
-    (is (= [{:module (:address top) :name 'base :manifest (:address base)}
-            {:module (:address top) :name 'mid :manifest (:address mid)}
-            {:module (:address mid) :name 'base :manifest (:address base)}]
+    (is (= [{:module (:address top) :name 'base :manifest (:address base) :eager? true}
+            {:module (:address top) :name 'mid :manifest (:address mid) :eager? true}
+            {:module (:address mid) :name 'base :manifest (:address base) :eager? true}]
            (:requires w)))))
 
 
@@ -405,3 +420,38 @@
                 :path [(:address base)]}
                (:walk res)))
         (is (= before (addresses partial)) "nothing was written")))))
+
+
+(deftest deferred-pins-are-listed-without-reading-their-content
+  (let [store (mem/create-content-mem)
+        base (publish-base! store)
+        deferred (publish/publish-module!
+                   store {:name 'optional :ast deferred-ast :exports #{'g}
+                          :requires {'base (:address base)}
+                          :primitives {'try-require (vm/profile-of vm/primitives
+                                                                   'try-require)}})
+        eager-module (publish-app! store (:address base))
+        reader (without store (:address base))
+        w (closure/walk reader (:address deferred))]
+    (is (some? (:address deferred)) (pr-str deferred))
+    (is (= :complete (:yin.link.closure/outcome w)) (pr-str w))
+    (is (= [(:address deferred)] (:modules w)))
+    (is (= [{:module (:address deferred) :name 'base :manifest (:address base)
+             :eager? false}]
+           (:requires w)))
+    (is (= :missing (:yin.link.closure/outcome
+                      (closure/walk reader (:address eager-module)))))
+    (is (= :complete (:yin.link.closure/outcome
+                       (closure/walk reader (:address deferred)
+                                     {:bounds {:max-depth 4}}))))))
+
+
+(deftest requirements-derive-only-unconditional-module-level-requires
+  (let [require-base (app (v 'require) (lit 'base))]
+    (is (= #{'base} (publish/requirements require-base)))
+    (is (= #{'base} (publish/requirements (eager ['base] deferred-ast))))
+    (is (= #{} (publish/requirements deferred-ast)))
+    (is (= #{} (publish/requirements (app (v 'try-require) (lit 'base)))))
+    (is (= #{} (publish/requirements (lam [] require-base))))
+    (is (= #{} (publish/requirements {:type :if :test (lit true)
+                                      :consequent require-base :alternate (lit nil)})))))

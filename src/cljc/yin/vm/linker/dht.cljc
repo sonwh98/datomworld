@@ -300,13 +300,13 @@
 
 
 (defn dependency-bindings
-  "One entry per requirement of the loaded closure of `manifest-address`,
+  "One entry per eager requirement of the loaded closure of `manifest-address`,
    in walk order: whether the dependency's name resolves, in the reader's
    own name environment, to the address its publisher pinned.  `:binding`
    is `:ok`, `:absent` (with the fold's `:diagnostics` for that name),
    `:ambiguous` (`:addresses`, `:asserters`) or `:mismatch` (`:resolved`,
    `:asserters`).  Refused `:yin.link.dht/not-loaded` unless the closure
-   is `:loaded`."
+   is `:loaded`. Deferred pins are checked when imported at statement time."
   [node authority manifest-address]
   (if-some [w (loaded-closure node manifest-address)]
     (let [folded (fold node authority)]
@@ -332,7 +332,7 @@
                   (assoc base :binding :mismatch
                          :resolved (:address entry)
                          :asserters (or asserters [:composition])))))
-            (:requires w)))
+            (filter :eager? (:requires w))))
     (not-loaded node manifest-address)))
 
 

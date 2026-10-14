@@ -14,7 +14,7 @@ Adopted by the owner 2026-10-14 (mob consolidation Q6).
 ## Ledger
 | gap | evidence | owner seat | closing slice | severity |
 |---|---|---|---|---|
-| a host entry under a pinned name refuses with `:linked nil`, same as absent | fable L-d review P3-2 | linker | open | P3 |
+| absent is permitted; a host entry under a pinned name refuses with `:linked nil` | fable L-d review P3-2 / L-d-2 | linker | open | P3 |
 | `semantic-register.scan-test` C4 golden mismatch (JVM, Node) | slow tier at 355bd84b | semantic-register-vm | golden regeneration | P2 |
 | JVM `hash-registry-contract-test` sweep flags `ucf/rows.cljc` `decode*` | quick tier | semantic-register-vm | open | P2 |
 | Node `store-test` two-worker-threads flaky | quick and slow tiers | store | open | P3 |
@@ -23,3 +23,7 @@ Adopted by the owner 2026-10-14 (mob consolidation Q6).
 | DHT 64 KiB blob cap: `py` cannot travel over DHT | docs 7.5 | DHT seat | chunked transport | P2 |
 | CLI refusal for a bad `--dht-trust` value no longer names the flag (`main/parse-trust` could prefix it); shared parser docstring still says "A `--dht-trust` value" | fable AL-4-nits review P3-1 | yin.repl | next yin.repl slice | P3 |
 | `(untrust <own>)` says "always trusted" on an `:external` session, where the external admitter decides | fable AL-4-nits review P3-2 | yin.repl | next yin.repl slice | P3 |
+| `:try?` not carried by UCF pending entries; a lifted try waiter resumes under the `require` contract | fable L-d-1 architect review; `ucf/rows.cljc:1014`, `ucf/handoff.cljc:2036`, `ucf/remote.cljc:368` | UCF | L-d-1b, before I4-a | P1 |
+| try joiner's `:link-id` is the install's parent id; drop `:link-id` from install waiters, loss datum carries `:module` | fable L-d-1 review P3-1 | linker | L-d-1b | P3 |
+| `publish/requirements` pins only operator `require`; module-level `try-require` yields no pin | fable L-d-1 review P3-3 | linker | closed in L-d-3 | P3 |
+| publication-time-unavailable optional imports cannot be represented without concrete segment pins | mob consensus I4 Q1 | yang.python / linker | open | P3 |

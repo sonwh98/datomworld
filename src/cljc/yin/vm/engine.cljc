@@ -1097,8 +1097,11 @@
    under this task's secret (r10); and instantiate each store snapshot
    into `:module-stores` unless the task already holds that module's
    store -- first link wins, a live instance is never overwritten.
-   Nothing is written into the task's own `:store`."
+   Nothing is written into the task's own `:store`. A registry pin
+   conflict throws its refusal data before any attachment or lowering."
   [state module-name entry]
+  (when-let [refusal (module/pin-conflict (:modules state) module-name entry)]
+    (throw (ex-info "Module dependency pin mismatch" refusal)))
   (let [attached (reduce module/attach-module state
                          (map val (sort-by key (:images entry))))
         held (or (:module-stores attached) {})
@@ -1151,10 +1154,23 @@
 
 
 (defn- refused-entry
-  "A woken ready entry that raises `refusal` as the effect's error at its
-   resume, the way an FFI `error` raises."
+  "Resume a try waiter with outcome data; plain require raises at resume."
   [entry refusal]
-  (assoc (ready entry nil) :status :link-refused :refusal refusal))
+  (if (:try? entry)
+    (ready entry (cond-> refusal
+                   (= :refused (:status refusal))
+                   (assoc :module (or (:module refusal) (:name entry)))
+                   (= :lost (:status refusal))
+                   (assoc :link-id (or (:link-id refusal) (:link-id entry)))))
+    (assoc (ready entry nil) :status :link-refused :refusal refusal)))
+
+
+(defn- linked-entry
+  "Resume an installed module, respecting each waiter's return contract."
+  [entry module-name]
+  (ready entry (if (:try? entry)
+                 {:status :ok, :module module-name}
+                 module-name)))
 
 
 (defn- retire
@@ -1310,7 +1326,7 @@
 
 (defn- wake-installed
   "Move every `:install` wait entry naming `module-name` to the ready
-   queue, woken with `value`, or with `refusal` raised."
+   queue, delivering success or refusal under each waiter's contract."
   [state module-name value refusal]
   (let [waiter? (fn [e]
                   (and (= :install (:reason e)) (= module-name (:name e))))
@@ -1319,13 +1335,15 @@
         (update :wait-set (fn [ws] (filterv (complement waiter?) ws)))
         (update :ready-queue (fnil into [])
                 (map (fn [e]
-                       (if refusal (refused-entry e refusal) (ready e value))))
+                       (if refusal
+                         (refused-entry e refusal)
+                         (linked-entry e value))))
                 waiters))))
 
 
 (defn- refuse-install
   "`refused` (section 7.3): nothing from the child's store is published,
-   every waiter is restored with the refusal as the effect's error, and
+   every waiter receives the refusal under its own effect contract, and
    the install entry is removed so a later require may try again."
   [state module-name refusal]
   (-> state
@@ -1366,7 +1384,7 @@
                 (let [entry (module/module-entry (:modules (:modules vm))
                                                  name)
                       linked (:address entry)]
-                  (when (or (nil? entry) (not= pinned linked))
+                  (when (and (some? entry) (not= pinned linked))
                     {:status :refused,
                      :reason :dependency-pin-mismatch,
                      :module module-name,
@@ -1494,7 +1512,8 @@
 
 (defn- settle
   "Act on the response correlated with `entry`: a refusal (or loss) is
-   raised as the effect's error; `:ok` runs step 5b against the live
+   returned as data for try-require, raised for require; `:ok` runs
+   step 5b against the live
    state and, discharged, starts the install child, the entry becoming
    an `:install` waiter. A module linked or installing meanwhile answers
    or joins instead, and a manifest naming another module than the one
@@ -1505,13 +1524,14 @@
         module-name (:name entry)
         waiter (-> entry
                    (dissoc :envelope :request :response :cursor :link-id)
-                   (assoc :reason :install))]
+                   (assoc :reason :install)
+                   (cond-> (:try? entry) (assoc :link-id (:link-id entry))))]
     (cond
       (not= :ok (:status response))
       [state nil (refused-entry entry response)]
 
       (some? (module/resolve-module (:modules state) module-name))
-      [state nil (ready entry module-name)]
+      [state nil (linked-entry entry module-name)]
 
       (contains? (:installs state) module-name) [state waiter nil]
 
@@ -1698,8 +1718,8 @@
 
 (defn abandon-link
   "A composition gives up on link `link-id` (section 7.2, step 7): the
-   entry leaves the wait set and is restored with `reason` raised as the
-   effect's error; the id is retired, so a response arriving later is
+   entry leaves the wait set and receives loss data for try-require or
+   an effect error for require; the id is retired, so a later response is
    `:late`. The linker side's `abandon` is the composition's call. An id
    no entry holds leaves the state unchanged."
   [state link-id reason]
@@ -1722,8 +1742,8 @@
   "A composition gives up on every install in flight (the abandoned case
    of section 7.2, step 7, reaching section 7.3's `refused`): each child
    is dropped -- nothing from its store is published -- and every
-   `:install` waiter is restored with the reason as the require's error,
-   so the install entry is removed and a later require may try again. A
+   `:install` waiter receives loss data for try-require or an effect error
+   for require. The install entry is removed; a later require may retry. A
    state with no installs is unchanged. The dropped children's own link
    ids are never minted again by a state that carries `:origins` forward
    past them."

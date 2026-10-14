@@ -117,12 +117,7 @@
 (def descriptor
   "The `:yin.debruijn.code/*` dimension declared as data (S2): a lowering-
    contract version, arity (the opcode table's own mnemonic count), the
-   ordered opcode table, the canonical encoding rule, and one lift
-   morphism from `:yin.debruijn.code/*` to `:yin.code/*` -- declared and
-   exported here as a documented contract point only. The morphism's
-   exact shape and implementation are B2's file box; this phase names
-   only its target (`:yin.code/*`) here as data; its intended rule
-   (diagnostic binder names or synthesized names for bound positions) is
+   ordered opcode table and the canonical encoding rule. The H formula is
    prose, kept in this docstring rather than hashed, per P3-4 of the
    debruijn-b1-fix review: this whole vector feeds `descriptor-hash` (via
    `encode-scalar`), so an editorial change to a hashed sentence would
@@ -135,14 +130,13 @@
    [:yin.debruijn.code/dimension :dim/slots opcode-table]
    [:yin.debruijn.code/dimension
     :dim/encoding
-    {:hash :sha256,
+    {:hash :blake3,
      :scalar-classes scalar-classes,
      :framing :tagged-and-length-delimited,
      :fixed-width-kinds [:uint :pc],
      :nfc false,
      :integral-double-folding false,
-     :map-set-order :canonical-encoded-bytes}]
-   [:yin.debruijn.code/dimension :dim/lift-to [:yin.code/*]]])
+     :map-set-order :canonical-encoded-bytes}]])
 
 
 ;; =============================================================================
@@ -545,23 +539,23 @@
    encoder' shape `yin.vm.debruijn/dimension-hash` uses for its
    descriptor, computed here with this dimension's distinct encoder
    rather than that one."
-  (jing/sha256 (encode-scalar descriptor)))
+  (jing/blake3 (encode-scalar descriptor)))
 
 
 (defn image-hash
-  "The ONE function that computes H (S2 item 6): `jing/sha256` over the
+  "The ONE function that computes H (S2 item 6): `jing/blake3` over the
    descriptor hash (which already folds in the lowering-contract
    version) concatenated with the canonical instruction vector's own
    bytes -- pc-indexed tuples, refs already resolved to pcs, no header,
-   exact scalar bytes. `jing/sha256`, not `jing/sha256-bytes`: this
+   exact scalar bytes. `jing/blake3`, not `jing/blake3-bytes`: this
    dimension's canonical encoding is hex text (`encode-image` returns a
-   string, via `framed`/`to-hex`), the same shape `jing/sha256` hashes
+   string, via `framed`/`to-hex`), the same shape `jing/blake3` hashes
    for `yin.vm.debruijn/dimension-hash`, so hashing the string directly
-   is the fit; `sha256-bytes` would apply to a raw byte buffer this
-   encoder never produces. H is the ONLY executable and sharing identity
-   this file computes: no projection fingerprint, no second identity."
+   is the fit; `blake3-bytes` would apply to a raw byte buffer this
+   encoder never produces. H is a derived checksum of this backend image;
+   A is the sole code identity."
   [v]
-  (jing/sha256 (str descriptor-hash (encode-image v))))
+  (jing/blake3 (str descriptor-hash (encode-image v))))
 
 
 ;; =============================================================================

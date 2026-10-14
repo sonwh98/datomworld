@@ -507,7 +507,7 @@
                 app-run (vm/run (loaded-vm :yin.ast/code
                                            (ld/link (:node r) (:app r)
                                                     :yin.ast/code)
-                                           {'base/f f}))]
+                                           {'base/f f 'require (constantly 'base)}))]
             (is (= 43 (get (vm/store app-run) 'g)))))
         (dht/close! (:node r))))
     (testing "missing: P1's snapshot is not loaded"
@@ -872,4 +872,27 @@
       (let [env (resolve-in [m1 m2])]
         (is (= new (get-in env [:names 'my.lib :address])))
         (is (empty? (:diagnostics env)))))
+    (dht/close! node)))
+
+
+(deftest deferred-dependency-bindings-never-refuse-early
+  (let [store (mem/create-content-mem)
+        base (ct/publish-base! store)
+        optional (publish/publish-module!
+                   store {:name 'optional :ast ct/deferred-ast :exports #{'g}
+                          :requires {'base (:address base)}
+                          :primitives {'try-require (vm/profile-of vm/primitives
+                                                                   'try-require)}})
+        node (dht/join {:local (ct/without store (:address base))})
+        node (ld/load-module node (:address optional))
+        [node _] (dht/step node 0)]
+    (is (= :loaded (:status (ld/module-status node (:address optional)))))
+    (is (= false (get-in (ld/module-status node (:address optional))
+                         [:value :requires 0 :eager?])))
+    (doseq [authority [{} {:name-env {'base (:address base)}}
+                       {:name-env {'base (jing/segment-key "another manifest")}}]]
+      (is (= [] (ld/dependency-bindings node authority (:address optional)))
+          (pr-str authority)))
+    (doseq [f formats]
+      (is (linker/ok? (ld/link node (:address optional) f)) (name f)))
     (dht/close! node)))

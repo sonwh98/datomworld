@@ -305,18 +305,14 @@
   ;; contract) and the image bytes too: `:define` joined the sorted
   ;; mnemonic tag table, shifting the tag of every mnemonic after it.
   {:const-long ["0302000000102a000000000000000f"
-                (str "62ddeadc830b05d643c0421e541b2bb7"
-                     "8483805987ea84c7166f439f867f3927")]
+                "fa643897ef8a5377b4db7682ec9118149e7c4c01d6b3a1491c4bbe8fe60fd2ba"]
    :const-string ["030700000005hello0f"
-                  (str "6b8dea73d5a098238eadb0667458631a"
-                       "1f48d3aed702bfb8de9d2601e70188f5")]
+                  "d748b428803c06b957fb945df2ca2627633fc8e1cdde0caadb1e90df6f19c5d3"]
    :closure-bound [(str "02010000000000000002000000000000000f0a0000000000"
                         "00000000000000000000000f")
-                   (str "3d2f65270b0aebba07e361b79b536fd1"
-                        "c7c08a9ad4fc222fab8da2811d0637fd")]
+                   "64afffdc1e88fe97911cfac010b98c5f147123942486b947f60c66d20a03f6d7"]
    :load-free ["0b090000001500000000000700000001x0f"
-               (str "e00c3b0d63258ae66741fe1c499ee95a"
-                    "31d89a56e945baf0687b659b8ecd142e")]})
+               "9ab244f27567aa96519d602c3555c85bbf283489e8c5d919f70976c3a42e8c63"]})
 
 
 (deftest golden-corpus-bytes-and-hash
@@ -361,11 +357,7 @@
          (some #(when (= :dim/lowering-contract-version (second %)) (nth % 2)) dc/descriptor)))
   (is (= (count dc/opcode-table)
          (some #(when (= :dim/arity (second %)) (nth % 2)) dc/descriptor)))
-  (is (some #(= :dim/lift-to (second %)) dc/descriptor)
-      "the lift morphism to :yin.code/* is declared as data")
-  (is (= [:yin.code/*]
-         (some #(when (= :dim/lift-to (second %)) (nth % 2)) dc/descriptor)))
-  (is (string? dc/descriptor-hash))
+  (is (= "7b7c6ae92e5fe53577718b615a3ed0bdd81796bf8074efe8c07d7005c45f3489" dc/descriptor-hash))
   (testing "the hashed descriptor is pure data: no string value anywhere in it (P3-4)"
     (is (not (some #(some string? (tree-seq coll? seq %)) dc/descriptor)))))
 
