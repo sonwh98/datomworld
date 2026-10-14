@@ -22,7 +22,7 @@
             [yin.vm.semantic-register.layout :as layout]
             [yin.vm.semantic-register.linearize :as linearize]
             [yin.vm.semantic-register.safepoint-harness-test :as h]
-            [yin.vm.ucf.v2-support :as s]))
+            [yin.vm.ucf.rows-support :as s]))
 
 
 (def C

@@ -10,8 +10,7 @@
             [yin.vm.semantic-register.frame :as frame]
             [yin.vm.semantic-register.corpus :as corpus]
             [yin.vm.semantic-register.parity-test :as parity]
-            [yin.vm.ucf.v2-support :as s]
-            [yin.vm.ucf.lift-support :as support]
+            [yin.vm.ucf.rows-support :as s]
             [dao.stream :as stream]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]))
@@ -103,7 +102,7 @@
   (into
     (mapv (fn [[n [label wrap]]]
             (let [ring (s/ring 4)
-                  w (support/one-slot-stream (str "frame-" n))
+                  w (s/one-slot-stream (str "frame-" n))
                   _ (stream/append! w :warmed)
                   env (if (= n 21) {'x 99 'y 7} {})
                   m (parity/register-machine (wrap (rows-program n)) {:env env :modules (module/register-stream-module (module/default-registry))})

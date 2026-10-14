@@ -28,8 +28,8 @@
     [yin.vm.module :as module]
     [yin.vm.semantic :as semantic]
     [yin.vm.test-utils :as tu]
-    [yin.vm.ucf.handoff :as handoff]
-    [yin.vm.ucf.lift-support :as s]))
+    [yin.vm.ucf.rows :as rows]
+    [yin.vm.ucf.rows-support :as s]))
 
 
 (def ^:private fixture (delay (f/read-file)))
@@ -466,8 +466,8 @@
 
 (deftest an-image-carries-no-profile-test
   (testing "a halted result holding 2^100, lifted under the wide
-            composition with a version-1 header, resumes under `small`
-            intact: the body names no limit, and under `small` the value
+            composition with a version-3 row pack, resumes under `small`
+            intact: the pack names no limit, and under `small` the value
             meets the S0 `small` column"
     (let [wide (prelude/admit (registry-under items
                                               prelude/register-integer-module
@@ -479,18 +479,17 @@
           m (vm/run (s/load-ast (s/new-machine {:modules wide})
                                 (s/app (s/v 'integer/pow) (s/lit 2)
                                        (s/lit 100))))
-          r (s/lift m (s/header 0 s/origin #{}))
-          out (handoff/resume-task (s/new-machine {:modules small})
-                                   (:bytes r) (fn [_] nil))
-          resumed? (= :ok (:status out))]
-      (is (= :ok (:status r)) (pr-str (dissoc r :bytes)))
-      (is (= 1 (:yin.k/version (:body r))))
+          r (s/lift m nil)
+          out (rows/lower-task (s/new-machine {:modules small}) r (fn [_] nil))
+          resumed? (vm/halted? out)]
+      (is (= true (:yin.k/handoff r)))
+      (is (= 3 (:yin.k/version r)))
       (is (not-any? #{::integer/max-bits ::integer/max-digits
                       ::data/max-items}
-                    (tree-seq coll? seq (:body r))))
+                    (tree-seq coll? seq r)))
       (is resumed? (pr-str (dissoc out :vm)))
       (when resumed?
-        (let [n (vm/value (:vm out))]
+        (let [n (vm/value out)]
           (is (= (f/column @fixture "2^100" "dec")
                  (f/call (f/module 128 64) 'format n)))
           (is (= (f/column @fixture "2^100" "small")
