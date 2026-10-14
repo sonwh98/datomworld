@@ -1346,7 +1346,8 @@
 
 (defn- link-install
   "`validated` then `linked` (section 7.3): the child reached halt; every
-   export must be a key of its store (`:export-missing`); the slice is
+   export must be a key of its store (`:export-missing`); the child
+   registry is checked against every dependency pin before the slice is
    lifted (act 1) and its origins checked against the images this
    scheduler verified (act 2, `:foreign-image`); the receiving task then
    receives, first, the entry -- its store snapshots win over the plain
@@ -1359,13 +1360,31 @@
   (let [manifest (:manifest response)
         address (manifest-address response)
         exports (sort-by str (:yin.module/exports manifest))
-        missing (vec (remove #(contains? (:store vm) %) exports))]
-    (if (seq missing)
+        missing (vec (remove #(contains? (:store vm) %) exports))
+        mismatch
+        (some (fn [[name pinned]]
+                (let [entry (module/module-entry (:modules (:modules vm))
+                                                 name)
+                      linked (:address entry)]
+                  (when (or (nil? entry) (not= pinned linked))
+                    {:status :refused,
+                     :reason :dependency-pin-mismatch,
+                     :module module-name,
+                     :name name,
+                     :pinned pinned,
+                     :linked linked})))
+              (sort-by (comp str key) (:yin.module/requires manifest)))]
+    (cond
+      (seq missing)
       (refuse-install state module-name
                       {:status :refused,
                        :reason :export-missing,
                        :module module-name,
                        :names missing})
+
+      mismatch (refuse-install state module-name mismatch)
+
+      :else
       (let [lifted (try (lift-slice vm address exports)
                         (catch #?(:cljd Object :clj Throwable :cljs :default) e
                           {:refusal (error-refusal module-name e)}))]

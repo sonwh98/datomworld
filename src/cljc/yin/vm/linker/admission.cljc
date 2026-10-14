@@ -231,13 +231,13 @@
 ;; =============================================================================
 
 (defn context
-  "The composition-owned context `verify` receives, from the session:
-   the subject, the principal of the composition's own key (nil without
-   one), and the session token.  Authorization vocabulary stays here and
-   in the policy; the question and the linker carry none."
-  [{:keys [key session]}]
-  {:yin.admit/subject (when key (sign/principal (:public key)))
-   :yin.admit/session session})
+  "The composition-owned holder context passed to verify, never a datum.
+   An explicit holder passes through untouched; otherwise use the own
+   key's principal (nil without a key)."
+  [{:keys [key holder] :as opts}]
+  {:yin.admit/subject (if (contains? opts :holder)
+                        holder
+                        (when key (sign/principal (:public key))))})
 
 
 (defn trusted-asserter
@@ -291,6 +291,17 @@
              :answers answers
              :cursor (oldest questions)}
       decisions (assoc :decision-cursor (oldest decisions)))))
+
+
+(defn reconfigure-interpreter
+  "Keep the question cursor. A changed decision medium starts a fresh
+   snapshot reader; cursors belong to their medium, not its replacement."
+  [interp before after]
+  (if (= (:decision-medium before) (:decision-medium after))
+    interp
+    (cond-> (dissoc interp :decision-cursor :snapshot :snapshot? :ended?)
+      (:decision-medium after)
+      (assoc :decision-cursor (oldest (:decision-medium after))))))
 
 
 (defn- read-decisions

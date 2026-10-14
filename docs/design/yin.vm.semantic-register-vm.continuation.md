@@ -60,7 +60,15 @@ engineer report `collab/1792340000000-engineer-6c-layouts.report.md`
 `collab/1792350000000-review-6c-layouts.gpt-6.1-sol.findings.md` (F1-F6,
 D1-D5) and the Architect's rulings
 `collab/1792360000000-architect-6c-rulings.report.md` (R1-R6), whose
-wording is applied verbatim where it says so.
+wording is applied verbatim where it says so. **Revision 6 (2026-10-13,
+Architect: claude-fable-5-1)** corrects every clause that called the de
+Bruijn kernels, the native lanes or their refusals short-lived: by the
+owner's ruling of 2026-10-13 the two de Bruijn kernels are **backends**
+(lowerings of the semantic-register bytecode, A to H and A to R), are
+not deleted at phase 8, support a documented fragment that is not
+widened, and refuse before any attach what they cannot represent (§4.6);
+each corrected clause is marked "**Amended 2026-10-13 (backends)**", 6c
+Q1's rationale is restated and 6c Q2 is closed as rejected (§11).
 Subordinate to [`datom.world.md`](./datom.world.md), including its
 unitarity invariant, and to
 [`yin.vm.semantic-register-vm.md`](./yin.vm.semantic-register-vm.md)
@@ -111,6 +119,15 @@ questions · §12 portability.
 7. **No file of phase 4b or phase 5 is touched**, so this phase runs
    concurrently with them (§8.5 names the dependencies that remain, and
    the one old-kernel file 6c must change).
+8. **The de Bruijn kernels are backends** (owner, 2026-10-13; **Amended
+   2026-10-13 (backends)**: ruling added). `debruijn/stack.cljc` and
+   `debruijn/register.cljc` execute lowerings of the semantic-register
+   bytecode (A to H, A to R; derivations design §8.3); they are not
+   peers of `yin.vm.semantic-register` and are **not deleted at phase
+   8** (frozen §10 phase 8 deletes only the old evaluator and the old
+   lowerers). Each supports a documented fragment (§4.6), behaves
+   identically to the reference on what it accepts, refuses before any
+   attach what it cannot represent, and is not widened.
 
 ### 0.2 The answer
 
@@ -559,7 +576,10 @@ whose space resolves one image to several A refuses the lift
 (`:yin.k/non-portable :ambiguous-image`); no enumeration order selects
 an A. The semantic-register kernel keys code by A and holds
 alpha-equivalent segments side by side; this limit is the native
-kernels', not the carrier's. *What the code does:* `layout/space`
+kernels', not the carrier's. (**Amended 2026-10-13 (backends)**: was
+"until phase 8 removes those kernels"; the kernels are backends kept
+after phase 8 and this refusal is a documented limit of their fragment,
+§4.6, not widened.) *What the code does:* `layout/space`
 indexes segments by A and, as checksums, by `:register-id` and
 `:stack-id`; `image-segment` refuses `:yin.k/non-portable
 :ambiguous-image {:yin.k/image ident}` when an identity names more than
@@ -729,7 +749,9 @@ before stream attachment. This restriction does not prohibit
 primitives in the task-wide free environment or in carrier values a
 kernel can otherwise hold. Cross-engine acceptance explicitly records
 unsupported payload cases; expanding this receiver domain requires a
-separate kernel seam. *What the code does:* `lower-defect`'s register
+separate kernel seam, and none is planned: this is a documented limit
+of the register backend's fragment (**Amended 2026-10-13 (backends)**,
+§4.6; the fragment is not widened). *What the code does:* `lower-defect`'s register
 clause (`state-prim` over every `:wait` row's state, path `[:frames i
 …]`, then every parked-table state, path `[:parked P …]`) finds the
 first `:prim` row reachable through a window (`… :window r`), a lexical
@@ -886,7 +908,9 @@ layout's tail shapes are stated as emitted.
 
 **Amended after 6c (2026-10-13), the retained-FFI response-pair seam
 (codex D2, accepted by R6 as a seam specification; the last sentence is
-R2's).** On completion of a retained FFI request, each de Bruijn kernel
+R2's). Amended 2026-10-13 (backends): the seam is REJECTED by the owner
+(§11, 6c Q2); the specification below is kept as the record of what was
+proposed and is not to be built.** On completion of a retained FFI request, each de Bruijn kernel
 preserves the carried response cursor and response stream when
 constructing the response wait. If both are present, response-wait-entry
 is overridden with cursor-ref {:type :cursor-ref :id response-cursor}
@@ -895,9 +919,13 @@ kernel's composition-owned response pair is used only for entries that
 carry neither field. Response decoding precedes delivery, including tail
 delivery. Row 4 must continue on all six ordered engine pairs with the
 receiving composition's call pair distinct from the source's pair. This
-seam is slice 6c-post-D2, a kernel edit of its own, gated by the owner;
-it is not a prerequisite of 6c. When it lands, `unlowerable` is emptied
-and the law-5 counts rise to 366 and 96. *What the code does today:*
+seam was slice 6c-post-D2, a kernel edit of its own, gated by the owner;
+it was not a prerequisite of 6c. **Amended 2026-10-13 (backends):** the
+owner rejected it. Retained FFI across a de Bruijn receiver is outside
+the backends' documented fragment (§4.6); `unlowerable` stays `#{[4
+:stack] [4 :register]}` and the law-5 counts stay 350 and 92 (was "when
+it lands, `unlowerable` is emptied and the counts rise to 366 and 96").
+*What the code does:*
 both kernels' `:request-sent` re-park builds `ffi/response-wait-entry`
 over the composition's own call pair (`register.cljc:508-514`,
 `stack.cljc:564-570`), so a carried row 4 never wakes on a de Bruijn
@@ -987,6 +1015,66 @@ store or free environment (the free environment is the **carried** one,
 §6.3), never reads a native image's hash as an identity, and never
 invents a safepoint: a kernel pc whose predecessor is not a parking
 instruction is `:yin.k/not-at-safepoint` (UCF §7.4.2).
+
+### 4.6 The de Bruijn kernels are backends
+
+**DECIDED** (owner ruling, 2026-10-13; **Amended 2026-10-13
+(backends)**: section added because earlier revisions called these
+kernels, their lanes and their refusals short-lived).
+
+**The model.** `yin.vm.semantic-register` is the canonical semantic VM;
+it is register-shaped because a register-shaped canonical machine is
+easier to lower than the old stack-shaped one. `debruijn/stack.cljc`
+and `debruijn/register.cljc` are **backends** of it: they execute the
+lowerings `A → H` (the stack image) and `A → R` (the register image) of
+the derivations design §8.2-8.3, and they are not peers of the
+canonical kernel. Frozen §10 phase 8 deletes the old `yin.vm.semantic`,
+`yin.vm.debruijn-resolve`, `debruijn-linearize` and
+`debruijn-register-compile` (and their tests after replacement
+coverage), removes `:dim/lift-to` from both de Bruijn descriptors,
+regenerates H and R, and switches the REPL, the linker and
+`publish-closure!` to the A-derived lowerings; **it does not delete the
+two kernels.** Every clause of this document that says otherwise is
+corrected and marked.
+
+**The fragment.** A backend supports a **documented fragment** of what
+the carrier and the canonical kernel admit, behaves identically to the
+reference on everything it accepts (laws 1, 4, 5 of §5.4 on the shared
+fragment), and refuses before any attach, with a named kind and path,
+what it cannot represent. The fragment is **not widened**: no seam is
+planned for any of the five limits. The five documented limits are:
+
+1. **Ambiguous images** (§4.1): two A of one H or R. Receiver refuses
+   `:yin.k/unsupported :ambiguous-image` before attach; source refuses
+   `:yin.k/non-portable :ambiguous-image` before serving.
+2. **Closures and continuations in the free environment** (§6.3, R3):
+   no finite canonical form through a single task-wide `free-env`.
+   Receiver refuses `:yin.k/unsupported :free-env-value` with the path
+   before attach; source refuses at lift.
+3. **Primitives in the register kernel's payload** (§4.2, D4): the
+   register backend refuses `:yin.k/unsupported
+   :continuation-registers` with the path before attach; the stack
+   backend holds them.
+4. **Link and install rows** (§5.3, R2; matrix rows 7-12 and 17): a
+   backend links a native image while module responses carry A, and §4
+   defines no layout for install children. These rows are outside the
+   native-lane matrix; the reference lane runs them.
+5. **Retained FFI across a de Bruijn receiver** (§4.3, 6c Q2
+   rejected; matrix row 4): the backend's re-park names its own call
+   pair. Row 4 lifts from a de Bruijn source and is not lowered into a
+   de Bruijn receiver (`unlowerable`).
+
+Each limit is pinned by a refusal test (§8.3 items 12, 14, 15; §5.3)
+and is a limit of the backends, never of the carrier or of the
+canonical kernel. The owner-accepted native-lane matrix (61 law-4 cases
+over three lanes, 350 law-5 transfers; 16 and 92 in the quick tier) is
+the supported fragment measured, and its justification is this
+section, not any shelf life (§11, 6c Q1).
+
+**Cross-references.** Frozen design §4.3 and §10 phases 5, 6 and 8;
+derivations design §8.2-8.3 (the lowerings and what phase 8 deletes);
+UCF §7.4.2 (layouts); `yin.vm.ucf-transport-tuples.md` §10 item 6 (the
+three repository lanes); §0.1 ruling 8, §5.3, §8.5, §9 and §11 here.
 
 ---
 
@@ -1452,7 +1540,10 @@ therefore has no finite canonical form on a de Bruijn kernel.
 A de Bruijn receiver (retained after phase 8, §4.6) refuses such a value
 in the carried `free-env` before attach (`:yin.k/unsupported :free-env-value`, with the
 path), and a de Bruijn source refuses it at lift before serving. The
-carrier and the semantic-register kernel admit it. *What the code does:*
+carrier and the semantic-register kernel admit it. (**Amended
+2026-10-13 (backends)**: was "until phase 8"; this is a documented
+limit of the backends' fragment, kept and not widened, §4.6.) *What the
+code does:*
 `lower-defect`'s third clause (`free-env-procedure`) walks the root's
 `free-env` bindings row in its sorted order and the `:vec`, `:list`,
 `:set` and `:map` rows under each value, and refuses the first
@@ -2018,11 +2109,14 @@ lanes added to the 6b harness file. **Depends on:** 5a, 5b (`derive`),
     `cross-engine-canonical-equality-bare`, the 16 bare cases; the 61
     are `^:slow` under `slow/guard`.)
 11. `harness/cross-engine-lowering`: law 5, six ordered pairs over the
-    shared fragment: 350 transfers (366 once 6c-post-D2 lands, when
-    `unlowerable` is emptied). (**Amended after 6c (2026-10-13)**, R2;
+    shared fragment: 350 transfers; `unlowerable` stays `#{[4 :stack]
+    [4 :register]}`. (**Amended after 6c (2026-10-13)**, R2;
     was every row × segment × pair, 534. The quick tier runs
-    `cross-engine-lowering-bare`: 92 transfers, 96 with the seam; row
-    4's two admitted pairs are asserted by count.)
+    `cross-engine-lowering-bare`: 92 transfers; row
+    4's two admitted pairs are asserted by count. **Amended 2026-10-13
+    (backends)**: "366 once 6c-post-D2 lands" and "96 with the seam"
+    withdrawn; the seam is rejected and retained FFI is outside the
+    fragment, §4.6.)
 12. `harness/layout-refusals`: `:yin.k/not-at-safepoint` from a kernel
     stepped to a non-safepoint pc; a register entry whose `live` was
     tampered reconstructs a frame the validator refuses (`:window-extra`
@@ -2101,9 +2195,10 @@ not edited. **Amended after 6c (2026-10-13):** 6c proper held to this:
 it created `layout.cljc` and `layout_test.cljc`, extended the 6b harness
 file and the store-write audit's allowlist, and edited no kernel, no
 `rows.cljc` and no 4b or phase-5 file. The one further kernel edit this
-design names, the retained-FFI response-pair seam of both de Bruijn
-kernels (§4.3, 6c-post-D2), is its own slice behind an owner decision
-(§11, 6c Q2) and is not part of 6c.
+design named, the retained-FFI response-pair seam of both de Bruijn
+kernels (§4.3, 6c-post-D2), was rejected by the owner (§11, 6c Q2); this
+design names no kernel edit beyond 6c-pre (**Amended 2026-10-13
+(backends)**: the backends' fragment is not widened, §4.6).
 
 ---
 

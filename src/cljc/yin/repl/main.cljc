@@ -155,18 +155,9 @@
 
 
 (defn parse-trust
-  "A `--dht-trust` value: a principal whose modules this node admits,
-   `ed25519:<64 lowercase hex>` (the tag optional), as the principal id
-   (yin.vm.linker.dht.md 7.5).  Trust is apart from `--dht-principal`:
-   declaring a publisher honors its signed names, it does not admit its
-   modules."
+  "Parse the shared CLI/session trust configuration principal."
   [text]
-  (if-some [[_ hex] (and (string? text)
-                         (re-matches #"^(?:ed25519:)?([0-9a-f]{64})$" text))]
-    (sign/principal hex)
-    (throw (ex-info (str "--dht-trust takes ed25519:<64 lowercase "
-                         "hexadecimal characters>, not " (pr-str text))
-                    {:value text}))))
+  (state/parse-trust text))
 
 
 ;; =============================================================================
@@ -755,6 +746,8 @@
    "                              repeatable"
    "  --dht-trust ed25519:hex     a principal whose modules to admit (not"
    "                              implied by --dht-principal); repeatable"
+   "  (trust p), (untrust p), (trusted) edit/show session trust; reset"
+   "                              restores the configured --dht-trust set"
    "  --dht-follow hex@host:port  follow a declared publisher's head at its"
    "                              loopback address; repeatable"
    "  --dht-keygen file           write a new key file and exit"
@@ -1031,9 +1024,8 @@
    replaced by the stop latch, so no custody program call runs after
    `:running?` turns false.  A require parked on a closure load the node
    ended this tick is re-checked once, before any typed line, with no line
-   of its own (yin.repl/recheck-on-load-events, yin.vm.linker.dht.md 8.2),
-   and so is one parked on an admission question whose answer the tick
-   drained (yin.repl/recheck-on-answers, 7.5): its text prints after the
+   of its own (yin.repl/recheck-on-tick, yin.vm.linker.dht.md 8.2),
+   and linker progress resumes a parked run (7.5): its text prints after the
    node's lines.  Returns `[state server lines]`;
    the caller only prints."
   [state server now]
@@ -1047,11 +1039,9 @@
       [state server dht-lines]
 
       :else
-      (let [[repl rechecked] (shell/recheck-on-load-events (:repl state) events)
-            [repl answered] (shell/recheck-on-answers repl)
+      (let [[repl rechecked] (shell/recheck-on-tick (:repl state) events)
             dht-lines (cond-> dht-lines
-                        (seq rechecked) (conj rechecked)
-                        (seq answered) (conj answered))
+                        (seq rechecked) (conj rechecked))
             state (assoc state :repl repl)
             stepped (driver/repl-step state now)
             stepped (if (:running? stepped)

@@ -360,8 +360,9 @@
         [linked _] (repl/eval-input working "(require (quote mod))")
         [done _] (repl/eval-input linked "(mod/f)")]
     (testing "the abandoned request was retired: never answered late"
-      (let [ids (mapv :yin.link/id (pair-requests (:link-pair linked)))]
-        (is (= [(second ids)] (pair-responses (:link-pair linked))))
+      (let [ids (mapv :yin.link/id (pair-requests
+                                     (get-in linked [:linker :pair])))]
+        (is (= [(second ids)] (pair-responses (get-in linked [:linker :pair]))))
         (is (empty? (first (engine/take-link-diagnostics (:vm linked)))))
         (is (not= (first ids) (second ids))
             "the carried identity kept the later require off the retired id")))
@@ -412,13 +413,15 @@
       (is (nil? (:pending-run freed)))
       (is (>= (or (:origins (:vm freed)) 0) 1)))
     (testing "the child's request was retired, never answered late"
-      (let [ids (mapv :yin.link/id (pair-requests (:link-pair linked)))]
+      (let [ids (mapv :yin.link/id (pair-requests
+                                     (get-in linked [:linker :pair])))]
         (is (= ['foo 'bar 'foo 'bar]
-               (mapv :yin.link/name (pair-requests (:link-pair linked)))))
+               (mapv :yin.link/name (pair-requests
+                                      (get-in linked [:linker :pair])))))
         (is (= (count ids) (count (distinct ids)))
             "the second child never reused the abandoned child's id")
         (is (= [(first ids) (nth ids 2) (nth ids 3)]
-               (pair-responses (:link-pair linked))))
+               (pair-responses (get-in linked [:linker :pair]))))
         (is (empty? (first (engine/take-link-diagnostics (:vm linked)))))))
     (testing "the next require links through a child of its own"
       (is (= 'foo (:last-value linked))))))
@@ -717,8 +720,9 @@
       (is (nil? (:pending-run held))))
     (testing "the abandoned request was retired; the later require linked
               for real"
-      (let [ids (mapv :yin.link/id (pair-requests (:link-pair linked)))]
-        (is (= [(second ids)] (pair-responses (:link-pair linked))))
+      (let [ids (mapv :yin.link/id (pair-requests
+                                     (get-in linked [:linker :pair])))]
+        (is (= [(second ids)] (pair-responses (get-in linked [:linker :pair]))))
         (is (empty? (first (engine/take-link-diagnostics (:vm linked)))))
         (is (not= (first ids) (second ids))
             "the carried identity kept the later require off the retired id"))

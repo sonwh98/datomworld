@@ -21,6 +21,7 @@
             [yin.repl.index :as index]
             [yin.repl.query :as query]
             [yin.repl.store :as store]
+            [yin.repl.state :as config]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.data :as data]
@@ -34,7 +35,6 @@
             [yin.vm.engine :as engine]
             [yin.vm.integer :as integer]
             [yin.vm.linearize :as linearize]
-            [yin.vm.linker.admission :as admission]
             [yin.vm.linker.interpreter :as link]
             [yin.vm.macro :as macro]
             [yin.vm.module :as module]
@@ -245,7 +245,8 @@
   "Commands this shell answers.  `connect` and `disconnect` belong to the
    driver, which owns the RPC client; `telemetry` is answered only to say that
    this REPL slice does not have it."
-  #{'vm 'lang 'compile 'reset 'help 'repl-state 'quit 'telemetry 'abandon})
+  #{'vm 'lang 'compile 'reset 'help 'repl-state 'quit 'telemetry 'abandon
+    'trust 'untrust 'trusted})
 
 
 (def help-text
@@ -254,6 +255,8 @@
        "  (lang :clojure | :python | :php)\n"
        "  (compile expr)\n"
        "  (reset)\n"
+       "  (trust \"ed25519:<64 hex>\") / (untrust \"ed25519:<64 hex>\")\n"
+       "  (trusted)  - own principal and trusted set (--dht-trust)\n"
        "  (connect \"daostream:ws://host:port\")\n"
        "  (disconnect)\n"
        "  (require (quote m))  - link module m; with a dht:<dir> index store"
@@ -748,18 +751,8 @@
    indexer (`yin.repl.ast-index`), holding the session's `$ast` and `$occ`
    relations, is a third such peer.
 
-   The link pair is the session's
-   (`yin.vm.linker.interpreter/make-pair`): the VM's half lives in its
-   private `:resources`, the interpreter's half beside it under
-   `:link-pair`.  The content pair and the name environment the
-   interpreter serves from are the shell's (`:link-source`), and outlive
+   The session owns one linker value. Its source configuration outlives
    a session rebuild.
-
-   The admission state is the session's too (`yin.vm.linker.admission`,
-   yin.vm.linker.dht.md 7.5): the question and answer media beside the
-   link pair under `:admission`, and, when the shell's link source names
-   an admission `policy`, the in-process interpreter's own state over
-   them under `:admitter`.
 
    The query call pair is the session's too (`yin.repl.query/make-pair`):
    the VM's half is its FFI pair, the interpreter's half with its request
@@ -770,9 +763,9 @@
    A durable store's HEAD write travels with the store handle
    (`:head-fn`, yin.repl.store): every session the store outlives
    publishes through the same one."
-  [vm-type output-stream extra-primitives shell-token index-store policy]
-  (let [pair (link/make-pair)
-        admission (admission/make-state link/pair-capacity)
+  [vm-type output-stream extra-primitives shell-token index-store source]
+  (let [linker (link/make source)
+        pair (:pair linker)
         query-pair (query/make-pair query-pair-capacity)
         vm (make-vm vm-type output-stream extra-primitives pair query-pair)
         program-in (make-attachment ingress-capacity)
@@ -790,9 +783,7 @@
                                    :content-store index-store
                                    :after-publish (:head-fn index-store)})
      :ast-indexer (ast-index/make-indexer {:observer ((:attach program-out))})
-     :link-pair pair
-     :admission admission
-     :admitter (when policy (admission/interpreter admission policy))
+     :linker linker
      :query-pair (dissoc query-pair :out-cursor)}))
 
 
@@ -837,7 +828,7 @@
    answering `:keep`, `:abandon` or `{:abandon reason}`; `:lease` is
    reserved for phase 2 and refused, as is anything else, at assembly.
 
-   `:admission` is the policy of the session's in-process admission
+   `:admission` configures the signed-name source's in-process
    interpreter (yin.vm.linker.dht.md 7.5,
    `yin.vm.linker.interpreter/composition`'s option): by default `{}`,
    which trusts the `:dht-key`'s own principal alone;
@@ -957,7 +948,7 @@
                            (store/open index-store-spec)))]
      (merge
        (update (make-session vm-type output-stream primitives shell-token
-                             index-store (:admission link-source))
+                             index-store link-source)
                :indexer index/rehydrate (:recovery index-store))
        {:lang lang
         :frontends (or frontends frontend/empty-catalog)
@@ -979,6 +970,8 @@
         :last-value-3 nil
         :pending-input nil
         :link-source link-source
+        :admission admission
+        :initial-admission admission
         :link-policy (checked-link-policy link-policy)
         :dht-key dht-key
         :pending-run nil
@@ -1258,18 +1251,14 @@
    interrupted, whose every earlier run is in them -- so a rollback
    cannot reuse it.  It carries the query interpreter's pair too: the
    requests it has answered stay answered when the shell rolls back.
-   So are the admission state and the in-process admission
-   interpreter's, as they stand after the serve that answered: a
-   question the raise settled is not asked or answered again."
+   The linker successor carries every cursor and settled question."
   [error vm state]
   (ex-info (or (ex-message error) "Link failed")
            (assoc (or (ex-data error) {})
                   ::link-counter (:id-counter vm)
                   ::link-origins (:origins vm)
                   ::query-pair (:query-pair state)
-                  ::link-pair (:link-pair state)
-                  ::admission (:admission state)
-                  ::admitter (:admitter state)
+                  ::linker (:linker state)
                   ::dht (:dht state)
                   ::indexer (:indexer state))))
 
@@ -1277,15 +1266,13 @@
 (defn- carry-served
   "`state` rolled back by a link raise, keeping what the interpreters
    already concluded: the query pair, the link pair past every request
-   answered, the admission state and its interpreter's past every
+   answered, the linker interpreter's past every
    question settled, the DHT node a load started or forgot on, and the
    indexer a `yin.link/publish` committed its name envelopes through."
   [state d]
   (cond-> state
     (::query-pair d) (assoc :query-pair (::query-pair d))
-    (::link-pair d) (assoc :link-pair (::link-pair d))
-    (::admission d) (assoc :admission (::admission d))
-    (::admitter d) (assoc :admitter (::admitter d))
+    (::linker d) (assoc :linker (::linker d))
     (contains? d ::dht) (assoc :dht (::dht d))
     (::indexer d) (assoc :indexer (::indexer d))))
 
@@ -1303,25 +1290,6 @@
    :round (:round state)})
 
 
-(defn- admission-context
-  "The context the session's admission interpreter answers under
-   (`yin.vm.linker.admission/context`): its own key's principal and the
-   shell token."
-  [state]
-  (admission/context {:key (:dht-key state) :session (:shell-token state)}))
-
-
-(defn- serve-admission
-  "One round of the session's in-process admission interpreter, or nil
-   when the session runs none."
-  [state]
-  (when-let [interp (:admitter state)]
-    (admission/serve {:interpreter interp
-                      :policy (get-in state [:link-source :admission])
-                      :context (admission-context state)}
-                     link/serve-budget)))
-
-
 (defn- drive-links
   "Serve the linker interpreter and run the parked VM alternately, at most
    `link-round-budget` rounds, while `vm` waits on a link.  A round that
@@ -1335,10 +1303,8 @@
    raises as the VM's own, carrying the interrupted VM's minted
    identity.
 
-   The admission interpreter serves right after the linker interpreter
-   (yin.vm.linker.dht.md 7.5): a question appended and a question
-   answered are each progress, so a require asked about and answered in
-   process completes within the drive, two rounds later.
+   `initial-progress` records progress from the caller's round.  When
+   true, the first iteration runs the VM once without a round of its own.
 
    A VM waiting on a `dao.space.query/q` call is driven the same way: the
    query interpreter (`yin.repl.query/serve`) answers from the session's
@@ -1348,13 +1314,14 @@
    calls instead: a VM still waiting on a call once the drive has
    answered that many raises `query-call-limit-text` as its own error,
    the unanswered request abandoned with it."
-  [state vm]
+  [state vm initial-progress]
   (loop [i 0
          calls 0
          vm vm
          state state
          pending []
-         progress? false]
+         progress? initial-progress
+         initial? initial-progress]
     (let [link? (link-waiting? vm)
           query? (query/waiting? vm)]
       (cond
@@ -1369,18 +1336,13 @@
                            (update state :query-pair query/abandon-requests)))
 
         :else
-        (let [served (when link?
-                       (link/serve {:pair (:link-pair state)
-                                    :source (:link-source state)
-                                    :dht (:dht state)
-                                    :admission (:admission state)}))
+        (let [served (when (and link? (not initial?))
+                       (link/round (assoc (:linker state)
+                                          :source (:link-source state))
+                                   (:dht state)))
               state (cond-> state
-                      served (assoc :link-pair (:pair served)
-                                    :dht (:dht served)
-                                    :admission (:admission served)))
-              admitted (when link? (serve-admission state))
-              state (cond-> state
-                      admitted (assoc :admitter (:interpreter admitted)))
+                      served (assoc :linker (:linker served)
+                                    :dht (:dht served)))
               answered (when query?
                          (query/serve {:pair (:query-pair state)
                                        :indexer (:indexer state)
@@ -1397,8 +1359,7 @@
                                       :dht (:dht answered)
                                       :indexer (:indexer answered)))
               pending (if (seq (:pending served)) (:pending served) pending)]
-          (if (or (:progress? served)
-                  (:progress? admitted)
+          (if (or initial? (:progress? served)
                   (:progress? answered))
             (let [vm' (try (vm/run vm)
                            (catch #?(:cljd Object :clj Exception :cljs js/Error)
@@ -1409,7 +1370,8 @@
                      vm'
                      state
                      pending
-                     true))
+                     true
+                     false))
             [state vm pending progress?]))))))
 
 
@@ -1463,7 +1425,7 @@
    it, and said so.  The linker side retires the run's requests
    (`yin.vm.linker.interpreter/retire`, yin.vm.linker.dht.md 7.5): each
    one still unread on the link pair is passed over with no response, and its
-   admission question and answer are dropped, so a later require on the
+   retained question and answer are dropped, so a later require on the
    same pair is served; a response already in flight is skipped as
    late.  The
    identity the parked evaluation minted -- link ids and child origins
@@ -1489,15 +1451,13 @@
                    nil
                    (catch #?(:cljd Object :clj Exception :cljs js/Error) e
                      e))
-           retired (link/retire {:pair (:link-pair state')
-                                 :admission (:admission state')}
+           retired (link/retire (:linker state')
                                 (link/run-descriptor (:base parked) vm))]
        [(assoc state'
                :vm (query/discard-answers
                      (carry-link-identity (:base parked) vm)
                      (:query-pair state'))
-               :link-pair (:pair retired)
-               :admission (:admission retired)
+               :linker (dissoc retired :retired)
                :pending-run nil)
         (str text
              ended-text
@@ -1617,7 +1577,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                        (engine/restore-initial-env (:env (:vm expanded)) vm))
 
         (or (link-waiting? vm) (query/waiting? vm))
-        (let [[state' vm' pending] (drive-links evaluated vm)]
+        (let [[state' vm' pending] (drive-links evaluated vm false)]
           (cond
             (vm/halted? vm')
             (finalize-eval state
@@ -1840,7 +1800,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                                (:extra-primitives state)
                                (:shell-token state)
                                (:index-store state)
-                               (get-in state [:link-source :admission]))
+                               (:link-source state))
            (store/durable? (:index-store state))
            (update :indexer index/carry-over (:indexer state)))
          {:vm-type vm-type
@@ -1850,6 +1810,34 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
           :last-value-3 nil
           :frontend-session nil
           :pending-run nil}))
+
+
+(defn- configure-admission
+  "Apply session configuration to the linker, retaining its live state."
+  [state admission]
+  (let [linker (link/reconfigure (:linker state) admission)]
+    (assoc state :admission admission :linker linker
+           :link-source (:source linker))))
+
+
+(defn- trust-command
+  [state command args]
+  (try
+    (let [p (first args)]
+      (when-not (and (= 1 (count args)) (string? p)
+                     (str/starts-with? p "ed25519:"))
+        (throw (ex-info "Expected one ed25519:<64 hex> principal id" {})))
+      (let [p (config/parse-trust p)
+            admission (if (= :external (:admission state))
+                        {} (:admission state))]
+        [(configure-admission
+           state (update admission :trusted
+                         (fn [trusted]
+                           ((if (= command 'trust) conj disj)
+                            (set trusted) p))))
+         (str (if (= command 'trust) "Trusted " "Untrusted ") p)]))
+    (catch #?(:cljd Object :clj Exception :cljs :default) e
+      [state (str "Error: " (ex-message e))])))
 
 
 (declare repl-state)
@@ -1880,7 +1868,14 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
       compile [state (render-compile-output
                        state
                        (compile-command-ast state (first args)))]
-      reset [(rebuild-session state (:vm-type state))
+      trust (trust-command state command args)
+      untrust (trust-command state command args)
+      trusted [state (str "Own: " (pr-str (first (:own (:link-source state))))
+                          "\nTrusted: "
+                          (pr-str (vec (sort (:trusted (:admission state))))))]
+      reset [(rebuild-session
+               (configure-admission state (:initial-admission state))
+               (:vm-type state))
              (str (get vm-labels (:vm-type state)) " reset")]
       abandon (abandon-pending state)
       help [state help-text]
@@ -1955,10 +1950,11 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    refusal, return the shell to the round's base with the error as text
    and evaluate `input` there.  `input` is nil for the host's
    `recheck-pending`, which evaluates no line of its own."
-  [state input]
+  [state input initial-progress]
   (let [parked (:pending-run state)]
     (try
-      (let [[state' vm' pending progress?] (drive-links state (:vm parked))]
+      (let [[state' vm' pending progress?] (drive-links state (:vm parked)
+                                                        initial-progress)]
         (if (vm/halted? vm')
           (let [vm'' (engine/restore-initial-env (:env (:base parked)) vm')
                 [st text] (finalize-eval state
@@ -2011,58 +2007,41 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    callback; the host decides when to call it."
   [state]
   (if (:pending-run state)
-    (recheck-pending* state nil)
+    (recheck-pending* state nil false)
     [state nil]))
 
 
-(defn recheck-on-load-events
-  "The host ticker's re-check of a pending run over a DHT link source
-   (yin.vm.linker.dht.md 8.2): `recheck-pending`, once, if and only if
-   `events` -- one tick's `dao.space.dht/step` events and head follower
-   events -- hold a `:loaded` or `:load-failed` event for a manifest a
-   pending link waits on, or an `:installed` head of a principal a
-   pending link awaits (yin.vm.linker.dht.head.md 5.6, first contact).
-   Any other event, and any event while nothing waits on it, answers
-   `[state nil]` with `state` itself: no re-check, no `:checks`."
+(defn recheck-on-tick
+  "Advance one linker round, carrying its successor before any VM run.
+   Progress resumes the pending driver before another round; otherwise
+   only a relevant load or installed head event rechecks the run."
   [state events]
-  (let [links (get-in state [:pending-run :links])
+  (let [served (link/round (assoc (:linker state)
+                                  :source (:link-source state))
+                           (:dht state))
+        successor (assoc state :linker (:linker served)
+                         :dht (:dht served))
+        state (if (and (= (:linker state) (:linker served))
+                       (= (:dht state) (:dht served)))
+                state
+                successor)
+        links (get-in state [:pending-run :links])
         waits (set (keep :manifest links))
         heads (set (mapcat :principals links))]
-    (if (some (fn [e]
-                (or (and (contains? #{:loaded :load-failed}
-                                    (:dao.space.dht/event e))
-                         (contains? waits (:manifest e)))
-                    (and (= :installed (:yin.head/event e))
-                         (contains? heads (:principal e)))))
-              events)
+    (cond
+      (and (:progress? served) (:pending-run state))
+      (recheck-pending* state nil true)
+
+      (some (fn [e]
+              (or (and (contains? #{:loaded :load-failed}
+                                  (:dao.space.dht/event e))
+                       (contains? waits (:manifest e)))
+                  (and (= :installed (:yin.head/event e))
+                       (contains? heads (:principal e)))))
+            events)
       (recheck-pending state)
-      [state nil])))
 
-
-(defn recheck-on-answers
-  "The host ticker's re-check of a pending run parked on an admission
-   question (yin.vm.linker.dht.md 7.5 and 8.2), beside
-   `recheck-on-load-events`: serve the in-process admission interpreter
-   when the session runs one, drain at most `serve-budget` answers off
-   the answer medium, and keep the successor state whatever matched --
-   irrelevant answers are consumed and gone.  `recheck-pending` runs
-   once if and only if a retained answer's admission id is the
-   `:admission` of a pending link; otherwise the answer is `[state'
-   nil]`, with no re-check and no `:checks`.  With nothing pending it
-   still drains.  No clock: the host decides when to call it."
-  [state]
-  (if-let [adm (:admission state)]
-    (let [admitted (serve-admission state)
-          state (cond-> state
-                  admitted (assoc :admitter (:interpreter admitted)))
-          adm (admission/drain adm link/serve-budget)
-          state (assoc state :admission adm)
-          waiting (set (keep :admission
-                             (get-in state [:pending-run :links])))]
-      (if (some #(contains? waiting %) (keys (:answers adm)))
-        (recheck-pending state)
-        [state nil]))
-    [state nil]))
+      :else [state nil])))
 
 
 (defn- resume-pending
@@ -2071,7 +2050,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    VM owns the store a new evaluation would fork -- and it evaluates,
    in typing order and exactly once, when the link completes."
   [state trimmed parsed]
-  (recheck-pending* state {:trimmed trimmed, :parsed parsed}))
+  (recheck-pending* state {:trimmed trimmed, :parsed parsed} false))
 
 
 (defn- command-line?
