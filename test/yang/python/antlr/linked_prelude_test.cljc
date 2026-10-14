@@ -181,7 +181,7 @@
              (disj (sexp-def-keys (get (into {} prelude/definitions)
                                        'py/init!))
                    'py.rt/state)))
-      (is (= 65 (count prelude/runtime-keys))))))
+      (is (= 66 (count prelude/runtime-keys))))))
 
 
 ;; =============================================================================
@@ -230,9 +230,10 @@
    py/run-session, the REPL `__main__` runner. It moved once more with
    the rebase onto master 4529b5bd: the profile digest in the manifest
    uses BLAKE3 since 492ff50b. Phase 8ab regenerates the H/R
-   checksums, derivation records and index keys."
+   checksums, derivation records and index keys. The rebase onto I4-a
+   regenerates this again for statement-time import delivery."
   (keyword (str "segment/blake3-"
-                "577aabfb863288b6f7aefbbb4c299befdf4825953aa7ccaa49a55428e26517ee")))
+                "2e5aebac74d6d39593fed020c333f1f5b42ae4128d4789a24f73dc88083cafc3")))
 
 
 (def ^:private vector-formats

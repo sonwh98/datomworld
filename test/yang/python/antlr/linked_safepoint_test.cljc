@@ -241,9 +241,10 @@
   "I1, I2 and I3 each moved this once: the pinned `py` requirement is
    py's own manifest address, which each slice's prelude change moved,
    and the BLAKE3 profile digest of 492ff50b moved again. Phase 8ab
-   regenerates H/R and the pinned py requirement."
+   regenerates H/R and the pinned py requirement. The I4-a rebase moves
+   the pinned py requirement again for statement-time import delivery."
   (keyword (str "segment/blake3-"
-                "6c39c4b94a086de50cff3bc780a9159870d5f1ef4aed47ad2f09846bc500bcf0")))
+                "a28d246c025785ad24467a95df3c1da821897a323c2d9838e7bcd29cf5d88580")))
 
 
 (defn- pysp-manifest-address
