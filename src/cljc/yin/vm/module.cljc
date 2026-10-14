@@ -110,6 +110,38 @@
     (vec (walk (:modules registry)))))
 
 
+(defn pin-conflict
+  "The deterministic refusal when receiving `entry` as `module-name`
+   would disagree with a linked manifest's dependency pin. Missing
+   dependencies are permitted; pins are derived from registry manifests."
+  [registry module-name entry]
+  (let [linked (filter (fn [[_ e]] (some? (:address e)))
+                       (module-entries registry))
+        existing (keep (fn [[owner e]]
+                         (let [requires (:yin.module/requires (:manifest e))]
+                           (when (and (contains? requires module-name)
+                                      (not= (get requires module-name)
+                                            (:address entry)))
+                             [module-name owner (get requires module-name)
+                              (:address entry)])))
+                       linked)
+        incoming (keep (fn [[name pinned]]
+                         (when-let [held (module-entry (:modules registry) name)]
+                           (when (not= pinned (:address held))
+                             [name module-name pinned (:address held)])))
+                       (:yin.module/requires (:manifest entry)))
+        conflict (first (sort-by (fn [[name owner pinned address]]
+                                   [(str name) (str owner) (str pinned) (str address)])
+                                 (concat existing incoming)))]
+    (when-let [[name _ pinned address] conflict]
+      {:status :refused,
+       :reason :dependency-pin-mismatch,
+       :module module-name,
+       :name name,
+       :pinned pinned,
+       :linked address})))
+
+
 (defn resolve-module
   "Get a value from a registry value by dotted symbol path.
    (resolve-module r 'io)                    → the 'io registry entry

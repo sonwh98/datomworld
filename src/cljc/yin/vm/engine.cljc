@@ -1097,8 +1097,11 @@
    under this task's secret (r10); and instantiate each store snapshot
    into `:module-stores` unless the task already holds that module's
    store -- first link wins, a live instance is never overwritten.
-   Nothing is written into the task's own `:store`."
+   Nothing is written into the task's own `:store`. A registry pin
+   conflict throws its refusal data before any attachment or lowering."
   [state module-name entry]
+  (when-let [refusal (module/pin-conflict (:modules state) module-name entry)]
+    (throw (ex-info "Module dependency pin mismatch" refusal)))
   (let [attached (reduce module/attach-module state
                          (map val (sort-by key (:images entry))))
         held (or (:module-stores attached) {})
@@ -1381,7 +1384,7 @@
                 (let [entry (module/module-entry (:modules (:modules vm))
                                                  name)
                       linked (:address entry)]
-                  (when (or (nil? entry) (not= pinned linked))
+                  (when (and (some? entry) (not= pinned linked))
                     {:status :refused,
                      :reason :dependency-pin-mismatch,
                      :module module-name,

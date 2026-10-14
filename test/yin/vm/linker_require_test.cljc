@@ -1146,7 +1146,7 @@
                             (and (symbol? n) (= "bar" (namespace n))))))
                     ((:obligations b) ((:image b) body))))
               (is (empty? (:installs task)))
-              (if (= :matching mode)
+              (if (contains? #{:matching :absent} mode)
                 (do (is (some? entry))
                     (is (= 7 (get-in entry [:slice 'n])))
                     (is (= 'foo (vm/value (vm/run task)))))
@@ -1177,10 +1177,12 @@
             ;; A second continuation has joined the same install slot.
             root (update root :wait-set conj
                          (assoc waiter :reason :install :name 'foo))
-            bad (module-response backend 'foo (def! 'n (lit 7)) ['n]
+            bad (module-response backend 'foo quoted-import-module ['n]
                                  {:yin.module/requires {'bar address}})
-            [task r] (drive-to-wakeup root (responder pair {'foo bad}))
-            refusal (pin-refusal address nil)
+            other (assoc-in dep [:manifest :yin.module/version] 2)
+            wrong (jing/segment-key (:manifest other))
+            [task r] (drive-to-wakeup root (responder pair {'foo bad, 'bar other}))
+            refusal (pin-refusal address wrong)
             good (module-response backend 'foo quoted-import-module ['n]
                                   {:yin.module/requires {'bar address}})
             ;; The same halted scheduler state accepts the next input.
@@ -1197,7 +1199,7 @@
         (is (empty? (:installs task)))
         (is (nil? (module/module-entry (:modules (:modules task)) 'foo)))
         (is (= 'foo (vm/value done)))
-        (is (= ['foo 'foo 'bar]
+        (is (= ['foo 'bar 'foo 'bar]
                (mapv :yin.link/name (:requests r))))
         (is (apply distinct? (map :yin.link/id (:requests r))))))))
 
@@ -1211,10 +1213,15 @@
           response (module-response
                      backend 'foo (def! 'n (lit 7)) ['n]
                      {:yin.module/requires (assoc {} 'z address 'bar address)})
-          root ((:vm b) (req 'foo) (composition pair))
+          registry (reduce (fn [r n]
+                             (module/assoc-module r n
+                                                  {:manifest {:yin.module/name n},
+                                                   :address :wrong}))
+                           (:modules (composition pair)) ['z 'bar])
+          root ((:vm b) (req 'foo) (assoc (composition pair) :modules registry))
           [task _] (drive-to-wakeup (vm/run root)
                                     (responder pair {'foo response}))]
-      (is (= (pin-refusal address nil)
+      (is (= (pin-refusal address :wrong)
              (:refusal (first (:ready-queue task))))))))
 
 
@@ -1355,10 +1362,11 @@
 (deftest a-pin-mismatch-refuses-before-lifting-test
   (let [dep (module-response :stack 'bar bar-module ['g])
         address (jing/segment-key (:manifest dep))
-        response (module-response :stack 'foo (returning 1) ['f]
+        other (assoc-in dep [:manifest :yin.module/version] 2)
+        response (module-response :stack 'foo (then (req 'bar) (returning 1)) ['f]
                                   {:yin.module/requires {'bar address}})
-        task (faulted-install {'foo response} {:stage :lift})]
-    (is (= (pin-refusal address nil)
+        task (faulted-install {'foo response, 'bar other} {:stage :lift})]
+    (is (= (pin-refusal address (jing/segment-key (:manifest other)))
            (:refusal (first (:ready-queue task)))))
     (is (empty? (:installs task)))
     (is (nil? (module/module-entry (:modules (:modules task)) 'foo)))))
@@ -1742,3 +1750,93 @@
     (is (= [1] (:yin.k/arities profile)))
     (is (= #{:module/try-require} (:yin.k/effects profile)))
     (is (= :none (:yin.k/host-state profile)))))
+
+
+(deftest deferred-pin-refuses-a-later-different-address-test
+  (doseq [[backend b] backends]
+    (testing (name backend)
+      (doseq [try? [true false]]
+        (let [pair (link-pair)
+              dep (module-response backend 'bar bar-module ['g])
+              pinned (jing/segment-key (:manifest dep))
+              other (assoc-in dep [:manifest :yin.module/version] 2)
+              linked (jing/segment-key (:manifest other))
+              response (module-response backend 'foo (def! 'n (lit 7)) ['n]
+                                        {:yin.module/requires {'bar pinned}})
+              [installed r] (drive ((:vm b) (req 'foo) (composition pair))
+                                   (responder pair {'foo response, 'bar other}))
+              prior (select-keys installed [:modules :module-stores :store])
+              root ((:continue b) installed ((if try? try-req req) 'bar))
+              [task _] (drive-to-wakeup (vm/run root) r)
+              refusal (assoc (pin-refusal pinned linked) :module 'bar :phase :linked)]
+          (is (= prior (select-keys task [:modules :module-stores :store])))
+          (is (nil? (module/module-entry (:modules (:modules task)) 'bar)))
+          (is (empty? (:installs task)))
+          (if try?
+            (is (= refusal (dissoc (vm/value (vm/run task)) :message)))
+            (is (= (assoc refusal :link-module 'bar)
+                   (dissoc (refusal-of #(vm/run task)) :message)))))))))
+
+
+(deftest concurrent-install-pin-conflict-refuses-at-parent-receive-test
+  (doseq [[backend b] backends]
+    (testing (name backend)
+      (doseq [pin-owner ['foo 'baz]]
+        (let [pair (link-pair)
+              dep (module-response backend 'bar bar-module ['g])
+              pinned (jing/segment-key (:manifest dep))
+              other (assoc-in dep [:manifest :yin.module/version] 2)
+              foo (module-response backend 'foo
+                                   (then (req 'baz) (def! 'n (lit 7))) ['n]
+                                   (when (= pin-owner 'foo)
+                                     {:yin.module/requires {'bar pinned}}))
+              baz (module-response backend 'baz (def! 'n (lit 0)) ['n]
+                                   (when (= pin-owner 'baz)
+                                     {:yin.module/requires {'bar pinned}}))
+              root (vm/run ((:vm b) (req 'foo) (composition pair)))
+              r (respond! (responder pair {'foo foo, 'bar other, 'baz baz}))
+              spawned (engine/check-wait-set root)
+              ;; Another install finishes after foo's child inherited its view.
+              other-pair (link-pair)
+              [held _] (drive ((:vm b) (req 'bar) (composition other-pair))
+                              (responder other-pair {'bar other}))
+              entry (module/module-entry (:modules (:modules held)) 'bar)
+              changed (engine/receive-module spawned 'bar (dissoc entry :bindings))
+              prior (select-keys changed [:modules :module-stores :store])
+              [task _] (drive-to-wakeup changed r)
+              refusal (assoc (pin-refusal pinned (:address entry)) :phase :linked)]
+          (is (contains? (:installs spawned) 'foo))
+          (is (nil? (module/module-entry
+                      (:modules (:modules (get-in spawned [:installs 'foo :vm]))) 'bar)))
+          (is (= refusal (dissoc (:refusal (first (:ready-queue task))) :message)))
+          (is (= prior (select-keys task [:modules :module-stores :store])))
+          (is (nil? (module/module-entry (:modules (:modules task)) 'foo)))
+          (is (nil? (module/module-entry (:modules (:modules task)) 'baz)))
+          (is (empty? (:installs task))))))))
+
+
+(deftest conflicting-inheritance-refuses-child-spawn-test
+  (doseq [[backend b] backends]
+    (testing (name backend)
+      (let [pair (link-pair)
+            ;; Deliberately inconsistent composition: inheritance must detect
+            ;; the conflict before any child can run or publish.
+            registry (-> (:modules (composition pair))
+                         (module/assoc-module
+                           'foo {:manifest {:yin.module/name 'foo,
+                                            :yin.module/requires {'bar :p}},
+                                 :address :foo})
+                         (module/assoc-module
+                           'bar {:manifest {:yin.module/name 'bar}, :address :q}))
+            root (vm/run ((:vm b) (req 'baz)
+                                  (assoc (composition pair) :modules registry)))
+            response (module-response backend 'baz (def! 'n (lit 0)) ['n])
+            [task _] (drive-to-wakeup root (responder pair {'baz response}))
+            refusal (:refusal (first (:ready-queue task)))]
+        (is (= {:status :refused, :reason :dependency-pin-mismatch,
+                :module 'baz, :name 'bar, :pinned :p, :linked :q,
+                :phase :loading}
+               (dissoc refusal :message)))
+        (is (= (select-keys root [:modules :module-stores :store])
+               (select-keys task [:modules :module-stores :store])))
+        (is (empty? (:installs task)))))))
