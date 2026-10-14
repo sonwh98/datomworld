@@ -1062,13 +1062,24 @@
                                         (ints/float-value "f:2^63")])
                          :strings ["plain" "😀"] :true true :none nil}
                         ints/int-names)
+        ;; Literal :data slots use plain-data?, which accepts float64 but
+        ;; not JS/Dart BigInt carriers. Keep the full JVM literal coverage;
+        ;; the other AST lanes use integers native on every host. The full
+        ;; machine payload still crosses the halted-result path on all hosts.
+        literal-payload #?(:clj payload
+                           :default (select-keys payload
+                                                 [:floats :strings :true :none
+                                                  "0" "1" "-1" "2^31-1" "2^31"
+                                                  "2^31+1" "2^32" "2^53-1" "-2^53+1"]))
         encoded #(fx/bytes->hex (cbor/encode %))]
-    (doseq [machine [(assoc (support/halted-machine) :value payload)
-                     (vm/run (support/load-ast (support/new-machine) (support/lit payload)))]]
+    (doseq [[expected machine]
+            [[payload (assoc (support/halted-machine) :value payload)]
+             [literal-payload (vm/run (support/load-ast (support/new-machine)
+                                                        (support/lit literal-payload)))]]]
       (let [pack (support/lift machine nil)
             restored (rows/lower-task (support/new-machine) pack (fn [_] nil))]
         (is (vm/halted? restored))
-        (is (= (encoded payload) (encoded (vm/value restored))))))
+        (is (= (encoded expected) (encoded (vm/value restored))))))
     (let [fixture (ints/read-file)]
       (doseq [n ints/int-names]
         (is (= (ints/column fixture n "cbor") (encoded (ints/value n))) n)))))
