@@ -2076,7 +2076,9 @@
                                    {:modules registry :origin origin
                                     :ancestry (conj (vec (:ancestry recv)) mn)
                                     :capability-secret (when (fn? source) (source origin))})]
-    [(cond-> child fenced? (assoc :make-stream (:make-stream recv)))
+    [(cond-> (dissoc child :yin.k/closes :yin.k/issued :yin.k/gate :yin.k/custody
+                     :yin.k/recovery-waits :yin.k/recovery-parked :yin.k/recovery-cell-ids)
+       fenced? (assoc :make-stream (:make-stream recv)))
      (assoc recv :origins (inc n))]))
 
 
@@ -2088,7 +2090,9 @@
   (let [[_ _ kind _ id-counter free-env store module-stores parked census _ code installs waits parked-id result]
         (:slots task)
         base (reduce (fn [r [_ v]] (module/attach-module r v))
-                     (assoc recv :code {} :code-aliases {} :program nil)
+                     (assoc (dissoc recv :yin.k/closes :yin.k/issued :yin.k/gate :yin.k/custody
+                                    :yin.k/recovery-waits :yin.k/recovery-parked :yin.k/recovery-cell-ids)
+                            :code {} :code-aliases {} :program nil)
                      (sort-by #(str (key %)) code))
         aliases (:code-aliases base)
         used (atom (into fixed-resource-keys (keys (:resources base))))
