@@ -14,6 +14,7 @@
             [yin.vm.linearize :as linearize]
             [yin.vm.linker :as linker]
             [yin.vm.linker.closure :as closure]
+            [yin.vm.linker.requirements :as requirements]
             [yin.vm.linker.sign :as sign]))
 
 
@@ -237,31 +238,12 @@
                               db))))))
 
 
-(defn- requirements
-  "The modules `ast` requires at module level: every `(require 'm)`
-   application -- operator the variable `require`, one literal symbol
-   operand -- outside any lambda body but that of an immediately applied
-   lambda, as `definitions` scans."
+(defn requirements
+  "The modules `ast` unconditionally requires at module level. Scan literal
+   `(require 'm)` applications outside lambda bodies, except immediately
+   applied lambdas. Conditional branches and try-require remain deferred."
   [ast]
-  (letfn [(scan
-            [node]
-            (when (map? node)
-              (case (:type node)
-                :lambda #{}
-                :application
-                (let [xs (:operands node)
-                      own (when (and (= 'require (get-in node [:operator :name]))
-                                     (= :variable (get-in node [:operator :type]))
-                                     (= 1 (count xs))
-                                     (= :literal (:type (first xs)))
-                                     (symbol? (:value (first xs))))
-                            #{(:value (first xs))})]
-                  (into (or own #{}) (mapcat scan)
-                        (concat (when (= :lambda (:type (:operator node)))
-                                  [(:body (:operator node))])
-                                xs)))
-                #{})))]
-    (scan ast)))
+  (requirements/eager ast))
 
 
 (defn- free-of
