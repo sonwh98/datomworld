@@ -907,9 +907,11 @@
            (when-not (= @seen (set (keys index))) (bad! :unreachable-row [:yin.k/rows]))))
        (doseq [[id & body] rs]
          ;; Carrier row identities are fixed by the profile, unlike store addresses.
+         ;; Numbering would also refuse a non-BLAKE3 row as noncanonical cursor
+         ;; cells; this check names the algorithm defect before hashing and numbering.
          (when-let [algorithm (:algorithm (jing/parse-segment-address id))]
            (when-not (= :blake3 algorithm)
-             (refuse! :yin.k/profile-mismatch :row-algorithm [id])))
+             (bad! :row-algorithm [id])))
          (when-not (jing/segment-matches? id (vec body))
            (refuse! :yin.k/hash-mismatch :row [id])))
        (doseq [[id kind & slots] rs :when (= :task kind)]

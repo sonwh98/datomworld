@@ -1731,6 +1731,8 @@ pending's engine fields, `lower-frame!`'s shapes, `handoff.cljc:3182-3246`,
 lane's `tail` needs 6c-pre). Restoration delivers nothing, runs nothing,
 mints nothing.
 
+**Amended after 7 (2026-10-14)** — In the hashes stage, before digest verification and numbering, a parsed non-BLAKE3 carrier row id is refused as `:yin.k/undecodable :row-algorithm`, then each remaining row id is verified under its named algorithm, with malformed ids and digest mismatches refused as `:yin.k/hash-mismatch :row`.
+
 **Amended after 6c (2026-10-13), the lower into a de Bruijn kernel as
 `layout/lower-task` runs it (engineer deviation 2, codex: acceptable;
 D4 by R6).** `layout/lower-task scratch k wire attach! opts`, in order:

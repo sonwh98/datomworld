@@ -323,9 +323,13 @@
       (is (pos? n))
       (is (vm/blocked? back))
       (is (= response (get-in back [:installs 'host.mod :response])))
-      (let [bad (s/lift (assoc-in m [:installs 'host.mod :response]
-                                  (assoc-in response [:derivation :yin.ledger/output]
-                                            (jing/segment-key [[:lit :wrong]] {:algorithm image-algorithm}))) nil)]
+      (let [wrong-record (assoc record :yin.ledger/output
+                                (jing/segment-key [[:lit :wrong]] {:algorithm image-algorithm}))
+            wrong-response (-> response
+                               (assoc :derivation wrong-record)
+                               (assoc-in [:manifest :yin.module/derivations :yin.semantic/code]
+                                         (jing/segment-key wrong-record {:algorithm record-algorithm})))
+            bad (s/lift (assoc-in m [:installs 'host.mod :response] wrong-response) nil)]
         (is (= :install-image (:yin.k/kind (refused bad {}))))))))
 
 

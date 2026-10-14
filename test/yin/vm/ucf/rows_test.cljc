@@ -121,7 +121,7 @@
         refusal (error #(rows/decode foreign))]
     (is (jing/segment-matches? sha body))
     (is (= :task (:kind (rows/decode wire))))
-    (is (= :yin.k/profile-mismatch (:yin.k/status refusal)))
+    (is (= :yin.k/undecodable (:yin.k/status refusal)))
     (is (= :row-algorithm (:yin.k/kind refusal)))))
 
 

@@ -124,11 +124,8 @@ exactly as it would for A. Version-3 verification and re-emission (§6,
 §8) always use BLAKE3, whatever the reader's default is at the time;
 this matters because root body bytes contain child-row addresses, so
 the numbering procedure's leaf keys depend on the digest and are
-canonical *within* a carrier version. Addresses are self-describing
-(`:segment/blake3-…`, `:segment/sha256-…`); a reader verifies each id
-under the algorithm its address names, as Jing always does, and refuses
-an id whose algorithm is not the one version 3 mints under
-(`:yin.k/undecodable`). Equal bodies are one row. The id is Merkle: it
+canonical *within* a carrier version. **Amended after 7 (2026-10-14)** — Addresses are self-describing (`:segment/blake3-…`, `:segment/sha256-…`); before digest verification and numbering, a reader refuses a parsed non-BLAKE3 row id as `:yin.k/undecodable :row-algorithm`, then verifies each remaining id under the algorithm its address names, refusing a malformed id or digest mismatch as `:yin.k/hash-mismatch :row`.
+Equal bodies are one row. The id is Merkle: it
 commits to every row id in the body.
 
 **Identity rows** are cursor cells (UCF §7.5.3, "Terminology: cursor,
@@ -753,9 +750,8 @@ one attachment. The order follows amendment §8 and is binding:
    `:install` pending has its entry and every entry's child is a
    `:child` task. After this step every traversal below is finite and
    safe.
-4. **Hashes.** Every content row's id equals `(jing/segment-key body)`
-   under the algorithm version 3 mints with, and its address names that
-   algorithm; every code payload hashes to its key `A` and is well formed
+4. **Hashes.** **Amended after 7 (2026-10-14)** — Before digest verification and numbering, a parsed non-BLAKE3 content row id is refused as `:yin.k/undecodable :row-algorithm`, then each remaining row id is verified under its named algorithm, with malformed ids and digest mismatches refused as `:yin.k/hash-mismatch :row`.
+   Every code payload hashes to its key `A` and is well formed
    under the stamp; the requested body address, if one was given, equals
    the root id. Mismatch is `:yin.k/hash-mismatch` naming the row or
    code key.
