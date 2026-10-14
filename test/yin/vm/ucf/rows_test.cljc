@@ -2,6 +2,10 @@
   (:require [clojure.test :refer [deftest is]]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
+            [dao.jing.cbor-fixtures :as fx]
+            [yang.python.antlr.int-contract-fixtures :as ints]
+            [yin.vm :as vm]
+            [yin.vm.ucf.rows-support :as support]
             [dao.test-slow :as slow]
             [yin.vm.semantic-register.frame-test :as ft]
             [yin.vm.values :as values]
@@ -1034,3 +1038,60 @@
         (let [{:keys [numbered refused failures]} (search-states label gen seeds)]
           (is (= [] failures) label)
           (is (= (count seeds) (+ numbered refused)) label))))))
+
+
+(deftest legacy-version-headers-refuse-before-attachment
+  (let [pack (rows/emit (task-node [] [:lit nil]))]
+    (doseq [version [0 1 2]]
+      (let [attached (atom 0)
+            refusal (error #(rows/lower-task
+                              (support/new-machine)
+                              (assoc pack :yin.k/version version)
+                              (fn [_] (swap! attached inc))))]
+        (is (= {:yin.k/status :yin.k/profile-mismatch
+                :yin.k/kind :version :yin.k/path [:yin.k/version]}
+               refusal))
+        (is (zero? @attached))))))
+
+
+(deftest numeric-scalars-round-trip-through-rows
+  (let [payload (reduce (fn [m n] (assoc m n (ints/value n)))
+                        {:floats (mapv cbor/float64
+                                       [0.0 -0.0 ##NaN ##Inf 5e-324
+                                        (ints/float-value "f:2^53")
+                                        (ints/float-value "f:2^63")])
+                         :strings ["plain" "😀"] :true true :none nil}
+                        ints/int-names)
+        encoded #(fx/bytes->hex (cbor/encode %))]
+    (doseq [machine [(assoc (support/halted-machine) :value payload)
+                     (vm/run (support/load-ast (support/new-machine) (support/lit payload)))]]
+      (let [pack (support/lift machine nil)
+            restored (rows/lower-task (support/new-machine) pack (fn [_] nil))]
+        (is (vm/halted? restored))
+        (is (= (encoded payload) (encoded (vm/value restored))))))
+    (let [fixture (ints/read-file)]
+      (doseq [n ints/int-names]
+        (is (= (ints/column fixture n "cbor") (encoded (ints/value n))) n)))))
+
+
+(deftest result-only-values-complete-the-census
+  (doseq [[f expected] [[(fn [a _b] [a a]) 1]
+                        [(fn [a b] [a b]) 2]]]
+    (let [pack (support/lift (support/halted-with-cursors f) nil)
+          {:keys [attach! count]} (support/attacher)
+          recv (rows/lower-task (support/new-machine) pack attach!)
+          [a b] (vm/value recv)]
+      (is (= expected @count))
+      (is (= expected (clojure.core/count (filter #(= :cursor-cell-body (second %)) (:yin.k/rows pack)))))
+      (is (= (= 1 expected) (= a b)))))
+  (doseq [m [(vm/run (support/load-ast (support/new-machine)
+                                       (support/lam [] (support/lit 1))))
+             (support/halted-result-closure)]]
+    (let [pack (support/lift m nil)
+          {:keys [attach! count]} (support/attacher)
+          recv (rows/lower-task (support/new-machine) pack attach!)]
+      (is (values/closure? (vm/value recv)))
+      (is (seq (:code recv)) "the result-only closure carries its code")
+      (when (seq (:module-stores m))
+        (is (= 2 @count))
+        (is (= #{'c 'd} (set (keys (get-in recv [:module-stores 'host.mod])))))))))

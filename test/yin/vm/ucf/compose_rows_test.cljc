@@ -56,8 +56,7 @@
             [yin.vm.ucf.rows :as rows]
             [yin.vm.ucf.holder.export :as export]
             [yin.vm.ucf.rows-checkpoint-fixtures :as f]
-            [yin.vm.ucf.rows.checkpoint :as checkpoint]
-            [yin.vm.ucf.v2-support :as s2]))
+            [yin.vm.ucf.rows.checkpoint :as checkpoint]))
 
 
 ;; =============================================================================
@@ -349,7 +348,7 @@
                                (get (file-journal/backend! dir)
                                     ::file-journal/backend)))
         source (or source
-                   (doto (s2/ring 8) (stream/append! "A")))
+                   (doto (s/ring 8) (stream/append! "A")))
         side (:dao.stream/handle
                (memory-log/create! {:dao.stream/type :dao.stream/memory-log}))
         w {:dir dir
@@ -1830,8 +1829,8 @@
                            :attach! (attach-over {})
                            :observe! (counting-observe (atom 0))
                            :serve! (same-id-server)
-                           :machine (reading-writer (s2/ring 8) (s2/ring 8)
-                                                    (s2/ring 8))})]
+                           :machine (reading-writer (s/ring 8) (s/ring 8)
+                                                    (s/ring 8))})]
     (is (= :yin.k/fork (:yin.k/policy c)) "the fork is labelled fork")
     (is (nil? (compose/arbitration c)) "and arbitrates nothing")))
 
@@ -2141,7 +2140,7 @@
   value through `rewrite` (an atom of a map): the live input changing
   under a recovery while its position stays put."
   [rewrite]
-  (let [ring (doto (s2/ring 8) (stream/append! "A"))]
+  (let [ring (doto (s/ring 8) (stream/append! "A"))]
     (reify
       stream/IDaoStreamDescriptor
       (descriptor [_] (stream/descriptor ring))

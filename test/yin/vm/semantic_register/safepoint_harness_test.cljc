@@ -41,9 +41,8 @@
             [yin.vm.semantic-register.frame-test :as ft]
             [yin.vm.semantic-register.layout :as layout]
             [yin.vm.semantic-register.linearize :as linearize]
-            [yin.vm.ucf.lift-support :as support]
             [yin.vm.ucf.rows :as rows]
-            [yin.vm.ucf.v2-support :as s]))
+            [yin.vm.ucf.rows-support :as s]))
 
 
 ;; =============================================================================
@@ -270,7 +269,7 @@
 (defn writer
   [wrap]
   (let [trace (atom [])
-        w (support/one-slot-stream "w")
+        w (s/one-slot-stream "w")
         _ (stream/append! w :warmed)
         m0 (load-program (machine) (with-cat (wrap {:type :stream/put :target (s/v 'w) :val (s/lit "v")})))
         [ref m1] (engine/attach-resource m0 w)
@@ -306,7 +305,7 @@
 
 (defn retained-ffi
   [wrap]
-  (let [trace (atom []) call-in (support/one-slot-stream "call-in") call-out (s/ring 8)
+  (let [trace (atom []) call-in (s/one-slot-stream "call-in") call-out (s/ring 8)
         _ (stream/append! call-in :warmed)
         m (caller wrap call-in call-out)
         id (ffi/request-call-id (first (:wait-set m)))]
@@ -359,7 +358,7 @@
    warmed request stream when retained?)."
   [wrap tail? retained?]
   (let [trace (atom [])
-        request (if retained? (support/one-slot-stream "link-request") (s/ring 64))
+        request (if retained? (s/one-slot-stream "link-request") (s/ring 64))
         response (s/ring 64)
         _ (when retained? (stream/append! request :warmed))
         m (vm/run (load-program (machine {:link-request request :link-response response})
@@ -542,7 +541,7 @@
   "The receiver's attach!, counting attaches and recording each
    reflection's source identity."
   [t]
-  (let [base (s/attacher t) origin (atom {}) n (atom 0)]
+  (let [base (s/remote-attacher t) origin (atom {}) n (atom 0)]
     {:attach! (fn [d]
                 (swap! n inc)
                 (let [r (base d)]
