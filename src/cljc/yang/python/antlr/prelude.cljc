@@ -185,7 +185,7 @@
 (def host-names
   "Module exports the prelude calls."
   '#{cell/new cell/get cell/set! data/count data/into data/subvec
-     data/number? data/dissoc data/str-concat data/str-length
+     data/number? data/contains? data/dissoc data/str-concat data/str-length
      data/str-index-of data/str->code-points data/code-points->str
      data/float64 data/float-value data/content=
      integer/add integer/sub integer/neg integer/mul integer/compare
@@ -3005,45 +3005,68 @@
     [py/no-module
      (fn [name]
        (py/raise-new
-         py.b/ImportError
+         py.b/ModuleNotFoundError
          (py/str (data/str-concat "No module named '"
                                   (data/str-concat (get name :py/str) "'")))))]
+    [py/import-refused
+     ;; Keep linker diagnostics intact on the exception. Only unresolved
+     ;; names are ModuleNotFoundError; content and admission misses are
+     ;; ImportError.
+     (fn [name r]
+       (let [absent (= :absent (get r :reason))
+             missing-name (if absent (data/contains? r :name) false)
+             msg (if missing-name
+                   (data/str-concat "No module named '" (get name :py/str) "'")
+                   (if (if absent (data/contains? r :address) false)
+                     (data/str-concat "Cannot load module '" (get name :py/str)
+                                      "' at address recorded in refusal")
+                     (data/str-concat "Cannot import module '" (get name :py/str)
+                                      "': linker refused delivery")))
+             e (py/make-exc (if missing-name
+                              py.b/ModuleNotFoundError
+                              py.b/ImportError)
+                            (py/str msg))]
+         (do (py/setattr e "refusal" r)
+             (py/raise e))))]
     [py/import
-     ;; the import statement's runtime (I1), the 8.5.6 resolution order:
-     ;; sys.modules first -- a hit is the module object, the body never
-     ;; re-executes; a miss instantiates from the linker-delivered spec
-     ;; and body, __package__ from the spec's package-ness: a package is
-     ;; its own, a top-level module's '' (I2, as CPython). spec and body
-     ;; None name a runtime-synthesized module (`sys`, `builtins`),
-     ;; pre-seeded by py/init!, so a miss is ImportError
-     (fn [name spec body]
+     ;; Cache first: a hit never invokes delivery. A miss calls the
+     ;; statement's thunk, which returns [spec body] or a refusal map.
+     (fn [name delivery]
        (let [hit (py/modules-ref name)]
          (if (not (= hit :py/missing))
            hit
-           (if (= body :py/None)
+           (if (= delivery :py/None)
              (py/no-module name)
-             (py/module-run name
-                            (if (get spec :package?) name (py/str ""))
-                            body)))))]
+             (let [r (delivery)]
+               (if (not (= :ok (get r :status :ok)))
+                 (py/import-refused name r)
+                 (if (= (get r 1) :py/None)
+                   (py/no-module name)
+                   (py/module-run name
+                                  (if (get (get r 0) :package?) name (py/str ""))
+                                  (get r 1)))))))))]
     [py/import-sub
-     ;; one later link of a dotted import's chain (I2): as py/import, a
-     ;; non-package submodule's __package__ its parent's name, and a fresh
-     ;; load sets the module as the attribute `attr` (a py str) of the
-     ;; module object `parent` once its body has run (ruling 13); a
-     ;; sys.modules hit sets nothing, as in CPython
-     (fn [name spec body parent attr]
+     ;; Later dotted links have their parent's package and set its
+     ;; attribute only after a fresh load succeeds. Cache hits set nothing.
+     (fn [name delivery parent attr]
        (let [hit (py/modules-ref name)]
          (if (not (= hit :py/missing))
            hit
-           (if (= body :py/None)
+           (if (= delivery :py/None)
              (py/no-module name)
-             (let [m (py/module-run name
-                                    (if (get spec :package?)
-                                      name
-                                      (py/str (get (cell/get parent) :name)))
-                                    body)]
-               (do (py/setattr parent (get attr :py/str) m)
-                   m))))))]
+             (let [r (delivery)]
+               (if (not (= :ok (get r :status :ok)))
+                 (py/import-refused name r)
+                 (if (= (get r 1) :py/None)
+                   (py/no-module name)
+                   (let [m (py/module-run
+                             name
+                             (if (get (get r 0) :package?)
+                               name
+                               (py/str (get (cell/get parent) :name)))
+                             (get r 1))]
+                     (do (py/setattr parent (get attr :py/str) m)
+                         m)))))))))]
     [py/dict-ref
      ;; d[k], or :py/missing
      (fn [d k]
@@ -3236,9 +3259,8 @@
    ["TypeError" 'py.b/TypeError 'py.b/Exception]
    ["ValueError" 'py.b/ValueError 'py.b/Exception]
    ["AttributeError" 'py.b/AttributeError 'py.b/Exception]
-   ;; what py/import raises when sys.modules holds no runtime-synthesized
-   ;; module either (C4 I1); catchable link refusals are I4's
    ["ImportError" 'py.b/ImportError 'py.b/Exception]
+   ["ModuleNotFoundError" 'py.b/ModuleNotFoundError 'py.b/ImportError]
    ["NameError" 'py.b/NameError 'py.b/Exception]
    ["UnboundLocalError" 'py.b/UnboundLocalError 'py.b/NameError]
    ["RuntimeError" 'py.b/RuntimeError 'py.b/Exception]
@@ -3425,20 +3447,27 @@
                  ;; CPython's default sys.getrecursionlimit()
                  (define 'py.rt/limit '(cell/new 1000))
                  (define 'py.rt/out '(cell/new []))]
-                (mapv (fn [[nm key base]]
-                        (define key
-                          (cond->> (list 'py/make-class nm (or base :py/None))
-                            (= "StopIteration" nm) (list 'py/stop-iteration-class))))
-                      builtin-classes)
-                (mapv (fn [[_ key form]] (define key form)) builtin-functions)
-                (mapv (fn [[key form]] (define key form)) method-implementations)
+                ;; Group initialization phases so adding a builtin does not
+                ;; deepen every earlier form's occurrence path.
+                [(cons 'do
+                       (mapv (fn [[nm key base]]
+                               (define key
+                                 (cond->> (list 'py/make-class nm (or base :py/None))
+                                   (= "StopIteration" nm) (list 'py/stop-iteration-class))))
+                             builtin-classes))]
+                [(cons 'do (mapv (fn [[_ key form]] (define key form))
+                                 builtin-functions))
+                 (cons 'do (mapv (fn [[key form]] (define key form))
+                                 method-implementations))]
                 [(define 'py.b/builtins '(py/dict-new))]
-                (mapv (fn [[nm key _]]
-                        (list 'py/dict-set 'py.b/builtins {:py/str nm} key))
-                      builtin-classes)
-                (mapv (fn [[nm key _]]
-                        (list 'py/dict-set 'py.b/builtins {:py/str nm} key))
-                      builtin-functions)
+                [(cons 'do
+                       (mapv (fn [[nm key _]]
+                               (list 'py/dict-set 'py.b/builtins {:py/str nm} key))
+                             builtin-classes))
+                 (cons 'do
+                       (mapv (fn [[nm key _]]
+                               (list 'py/dict-set 'py.b/builtins {:py/str nm} key))
+                             builtin-functions))]
                 ;; sys.modules and its two pre-seeded modules (C4 I1):
                 ;; `sys`, whose dict holds the dict itself under modules,
                 ;; and `builtins`, whose dict IS the builtins namespace
