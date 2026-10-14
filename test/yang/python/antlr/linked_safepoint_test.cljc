@@ -240,10 +240,11 @@
 (def ^:private pysp-manifest-golden
   "I1, I2 and I3 each moved this once: the pinned `py` requirement is
    py's own manifest address, which each slice's prelude change moved,
-   and the BLAKE3 profile digest of 492ff50b moved again."
+   and the BLAKE3 profile digest of 492ff50b moved again. I4-a moves
+   the py pin once with statement-time imports and ModuleNotFoundError."
   (keyword (str "segment/blake3-"
-                "0971cc1ef48a844872105a79de1ed04a"
-                "837063cc5e17d8055f66e19a95b7eb8c")))
+                "b2cfec75bcee891c554cd620c50158f"
+                "ac3191db0e22f3520f5be8fd42e11d630")))
 
 
 (defn- pysp-manifest-address

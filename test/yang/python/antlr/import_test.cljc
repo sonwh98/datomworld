@@ -1,9 +1,9 @@
 (ns yang.python.antlr.import-test
-  "C4 slices I1 and I2 (docs/design/yang.antlr.md 8.5.6): static absolute
-   imports of single modules (I1); packages, mangling, dotted, aliased,
-   from, relative and star imports (I2). The fast tests pin the lowering
-   -- the hoisted
-   requires, the statement-time py/import call, the refusals -- and the
+  "C4 slices I1, I2 and I4-a (docs/design/yang.antlr.md 8.5.6): static
+   absolute imports of single modules (I1); packages, mangling, dotted,
+   aliased, from, relative and star imports (I2); statement-time delivery
+   and catchable linker refusals (I4-a). The fast tests pin the lowering
+   -- eager py delivery, statement-time guest delivery, the refusals -- and the
    slow ones run the acceptance over `yang.python.antlr.linked-harness`:
    every guest module is published once per process beside `py`, and each
    run links over a source serving every name, so every test that
@@ -12,6 +12,7 @@
     [clojure.string :as str]
     [clojure.test :refer [deftest is testing]]
     [dao.test-slow :as slow]
+    [dao.stream :as stream]
     [yang.python.antlr.import-programs :as programs]
     [yang.python.antlr.linked-harness :as h]
     [yang.python.antlr.lower :as lower]
@@ -22,7 +23,8 @@
     [yang.python.antlr.uast :as u]
     [yin.vm :as vm]
     [yin.vm.data :as data]
-    [yin.vm.module :as module]))
+    [yin.vm.module :as module]
+    [yin.vm.linker.interpreter :as link]))
 
 
 ;; =============================================================================
@@ -100,18 +102,29 @@
   (set (requires-of ast)))
 
 
-(deftest import-lowers-at-the-statement-with-a-hoisted-require-test
+(deftest import-lowers-at-the-statement-with-a-delivery-thunk-test
   (let [program (lower/lower-packet programs/d-packet {:prelude :linked})
         body (get-in (first (call-sites program 'py/run-main))
                      [:operands 0 :body])]
-    (testing "the wrapper requires py, then pym.m, then initializes"
-      (is (= '#{py pym.m} (required-modules program))))
-    (testing "the statement is (py/import m pym.m/spec pym.m/body) and
+    (testing "the wrapper requires only py, then initializes"
+      (is (= '#{py} (required-modules program))))
+    (testing "the statement passes a delivery thunk to py/import and
               the binding of the module object to the global m"
       (let [vars (set (keep #(when (= :variable (:type %)) (:name %))
                             (nodes body)))]
         (is (contains? vars 'pym.m/spec))
         (is (contains? vars 'pym.m/body))
+        (let [delivery (get-in (first (call-sites body 'py/import)) [:operands 1])
+              branch (:body (:operator (:body delivery)))]
+          (is (= :lambda (:type delivery)))
+          (is (= ['pym.m]
+                 (mapv #(get-in % [:operands 0 :value])
+                       (call-sites delivery 'try-require))))
+          (is (= :if (:type branch)))
+          (is (= '#{pym.m/spec pym.m/body}
+                 (set (filter #(= "pym.m" (namespace %))
+                              (keep :name (nodes (:consequent branch)))))))
+          (is (= {:type :variable, :name 'r} (:alternate branch))))
         (is (some #(= {:type :literal, :value {:py/str "m"}}
                       (get-in % [:operands 0]))
                   (call-sites body 'py/import)))
@@ -123,12 +136,11 @@
   (let [program (lower/lower-packet programs/s-packet {:prelude :linked})
         body (get-in (first (call-sites program 'py/run-main))
                      [:operands 0 :body])]
-    (testing "sys is pre-seeded: no pym.sys require, spec and body are None"
-      (is (= '#{py pym.m} (required-modules program)))
+    (testing "sys is pre-seeded: delivery is None"
+      (is (= '#{py} (required-modules program)))
       (is (some #(and (= {:type :literal, :value {:py/str "sys"}}
                          (get-in % [:operands 0]))
-                      (= :py/None (get-in % [:operands 1 :value]))
-                      (= :py/None (get-in % [:operands 2 :value])))
+                      (= :py/None (get-in % [:operands 1 :value])))
                 (call-sites body 'py/import))))))
 
 
@@ -268,12 +280,12 @@
     (is (= ["pym" "a$b"] (str/split (str (lower/module-symbol "a.b")) #"\.")))))
 
 
-(deftest dotted-import-hoists-and-imports-the-chain-test
+(deftest dotted-import-delivers-and-imports-the-chain-test
   (let [program (lower/lower-packet programs/dotted-main-packet
                                     {:prelude :linked})
         calls (import-calls (main-body program))]
-    (testing "import a.b.c delivers a, a.b and a.b.c, hoisted in order"
-      (is (= ['py 'pym.a (pym "pym.a$b") (pym "pym.a$b$c")]
+    (testing "import a.b.c leaves only py eagerly required"
+      (is (= '[py]
              (requires-of program))))
     (testing "the statement imports the chain in order, the root with
               py/import and each submodule with py/import-sub"
@@ -299,8 +311,8 @@
       (is (= ["b" "w" "b" "b"]
              (mapv #(:py/str (get-in % [:operands 1 :value]))
                    (ordered-call-sites body 'py/import-from)))))
-    (testing "from a import b hoists a only: no submodule auto-import"
-      (is (= ['py 'pym.a (pym "pym.a$b") 'pym.g] (requires-of program))))
+    (testing "from a import b has no eager guest require or submodule auto-import"
+      (is (= '[py] (requires-of program))))
     (let [analysis (scope/analyze programs/forms-main-packet)
           module (get (:scopes analysis) (:module analysis))]
       (is (every? (set (:assigned module)) ["x" "ww" "b" "bb" "a" "g"])))))
@@ -336,7 +348,7 @@
   (testing "a.b.c's relative imports deliver a, a.b and a.b.d; the failed
             one (beyond the top level) delivers nothing and raises"
     (let [ast (lower/module-packet programs/i2-abc-packet {:name "a.b.c"})]
-      (is (= ['py 'pym.a (pym "pym.a$b") (pym "pym.a$b$d")]
+      (is (= '[py]
              (requires-of ast)))
       (is (= [{:py/str "attempted relative import beyond top-level package"}]
              (mapv #(get-in % [:operands 0 :value])
@@ -364,7 +376,7 @@
       (is (= '[py] (requires-of ast)))
       (is (= {:name "a", :package? true}
              (get-in (second (:operands ast)) [:operands 1 :value])))
-      (is (some #(= :py/None (get-in % [:operands 2 :value]))
+      (is (some #(= :py/None (get-in % [:operands 1 :value]))
                 (call-sites ast 'py/import))))))
 
 
@@ -386,8 +398,7 @@
     (let [analysis (scope/analyze programs/d-packet)
           module (get (:scopes analysis) (:module analysis))]
       (is (contains? (set (:assigned module)) "m"))))
-  (testing "an import in a function binds a local, and its require is
-            still hoisted for the unit"
+  (testing "an import in a function binds a local and delivers when executed"
     (let [pk (portable/packet
                [:file_input
                 [:stmt [:compound_stmt
@@ -405,7 +416,7 @@
       (is (some? f-scope) "m is a local of f")
       (is (= :cell (:kind (scope/resolve analysis (:id f-scope) "m")))
           "read inside f reaches the cell")
-      (is (= '#{py pym.m} (required-modules program))))))
+      (is (= '#{py} (required-modules program))))))
 
 
 (deftest del-lowers-to-delattr-and-a-strict-unbind-test
@@ -484,7 +495,7 @@
 
 (deftest module-packet-of-a-unit-with-imports-requires-them-test
   (let [ast (lower/module-packet programs/t-packet {:name "t"})]
-    (is (= '#{py pym.k} (required-modules ast)))
+    (is (= '#{py} (required-modules ast)))
     (is (contains? (set (keep #(when (= :variable (:type %)) (:name %))
                               (nodes ast)))
                    'pym.k/spec))
@@ -512,6 +523,8 @@
       (is (= 'pym.t (:name spec)))
       (is (= '{py :test/address, pym.k :test/k} (:requires spec)))
       (is (= '#{spec body} (:exports spec)))
+      (is (= (vm/profile-of vm/primitives 'try-require)
+             (get-in spec [:primitives 'try-require])))
       (is (= (lower/module-packet programs/t-packet {:name "t"})
              (:ast spec))))
     (testing "a py- or pym.k-qualified free name is never a primitive
@@ -935,3 +948,181 @@
 
 (deftest ^:slow star-import-all-range-test-test
   (slow/guard "star-import-all-range-test" star-import-all-range-test))
+
+
+;; =============================================================================
+;; I4-a: delivery refusals are catchable at the import statement
+;; =============================================================================
+
+(defn- retry-packet
+  "I1's two try/import statements, with the handler class replaced."
+  [exception]
+  (update programs/r-packet :yang.cst/nodes
+          (fn [ns]
+            (mapv (fn [n]
+                    (if (and (= :token (:kind n))
+                             (= "ValueError" (:text n)))
+                      (assoc n :text exception)
+                      n))
+                  ns))))
+
+
+(defn- run-refused
+  "Load py from its real publisher, then answer each guest link request
+   with refusal data. The responder counts retries without host redefs."
+  [backend ast refusal]
+  (let [pair (link/make-pair)
+        initial ((get h/backends backend)
+                 (u/sexp->uast '(require (quote py)))
+                 (h/composition (h/registry) pair))
+        [loaded pair] (h/drive initial pair (h/source))
+        task ((get h/continues backend) loaded ast)]
+    (loop [task (vm/run task)
+           cursor (:cursor pair)
+           requests []
+           rounds 0]
+      (if (and (vm/blocked? task) (< rounds 10))
+        (let [read (stream/next (:requests pair) cursor)]
+          (is (= :dao.stream/ok (:dao.stream/outcome read)))
+          (let [request (:dao.stream/value read)]
+            (stream/append! (:responses pair)
+                            (assoc refusal :yin.link/id (:yin.link/id request)))
+            (recur (vm/run task) (:dao.stream/cursor read)
+                   (conj requests request) (inc rounds))))
+        [task requests]))))
+
+
+(defn- catchable-delivery-refusals-test
+  []
+  (doseq [backend (keys h/backends)
+          [refusal exception]
+          [[{:status :refused, :reason :absent, :name 'pym.w}
+            "ModuleNotFoundError"]
+           [{:status :refused, :reason :absent, :name 'pym.w}
+            "ImportError"]
+           [{:status :refused, :reason :absent, :address :test/missing}
+            "ImportError"]
+           [{:status :refused, :reason :dependency-pin-mismatch,
+             :expected :test/pin, :actual :test/other}
+            "ImportError"]
+           [{:status :refused, :reason :untrusted-principal,
+             :principal "test-principal"}
+            "ImportError"]
+           [{:status :refused, :reason :ambiguous-name, :name 'pym.w}
+            "ImportError"]]]
+    (testing (str backend " " refusal " caught by " exception)
+      (let [[done requests]
+            (run-refused backend
+                         (lower/lower-packet (retry-packet exception)
+                                             {:prelude :linked})
+                         refusal)]
+        (is (= [true false {:py/out ["cleaned" "again"], :py/exception nil}]
+               (outcome done)))
+        (is (= ['pym.w 'pym.w] (mapv :yin.link/name requests))
+            "failed delivery leaves no cache entry; the next import retries")))))
+
+
+(deftest ^:slow catchable-delivery-refusals-test-test
+  (slow/guard "catchable-delivery-refusals-test"
+              catchable-delivery-refusals-test))
+
+
+(defn- refusal-details-test
+  []
+  (doseq [backend (keys h/backends)
+          refusal [{:status :refused, :reason :absent, :name 'pym.w}
+                   {:status :refused, :reason :absent, :address :test/missing}
+                   {:status :refused, :reason :untrusted-principal}
+                   {:status :refused, :reason :dependency-pin-mismatch}
+                   {:status :refused, :reason :ambiguous-name}
+                   {:status :refused, :reason :require-cycle}
+                   {:status :lost}]]
+    (let [program
+          (u/mark-tails
+            (u/sexp->uast
+              '(do (py/init!)
+                   (py/try
+                     (fn []
+                       (py/import {:py/str "w"}
+                                  (fn [] (try-require (quote pym.w)))))
+                     (fn [e]
+                       (conj [] (py/isinstance e (py/global-get (py/dict-new)
+                                                                {:py/str "ModuleNotFoundError"}))
+                             (py/isinstance e (py/global-get (py/dict-new)
+                                                             {:py/str "ImportError"}))
+                             (py/getattr e "refusal")
+                             (py/getattr e "args")
+                             (= :py/missing (py/modules-ref {:py/str "w"}))))
+                     (fn [] :py/None)))))
+          [done requests] (run-refused backend program refusal)
+          [missing? import? diagnostics args uncached?] (vm/value done)]
+      (is (vm/halted? done) (str backend))
+      (is (= (and (= :absent (:reason refusal)) (contains? refusal :name))
+             missing?))
+      (is (= true import?))
+      (is (= refusal (dissoc diagnostics :yin.link/id :module :link-id)))
+      (when (= :lost (:status refusal))
+        (is (contains? diagnostics :link-id)))
+      (when missing?
+        (is (= {:py/str "No module named 'w'"} (first (:items args)))))
+      (is (= true uncached?))
+      (is (= 1 (count requests))))))
+
+
+(deftest ^:slow refusal-details-test-test
+  (slow/guard "refusal-details-test" refusal-details-test))
+
+
+(defn- cached-import-skips-delivery-test
+  []
+  (let [program (u/mark-tails
+                  (u/sexp->uast
+                    '(do (require (quote py))
+                         (py/init!)
+                         (let [name {:py/str "cached"}
+                               parent (py/module-new {:py/str "parent"}
+                                                     {:py/str "parent"})
+                               m (py/module-new name {:py/str ""})
+                               delivery (fn []
+                                          (py/raise-new (py/global-get (py/dict-new)
+                                                                       {:py/str "ValueError"})
+                                                        {:py/str "called"}))]
+                           (do (py/modules-put! name m)
+                               (conj []
+                                     (= m (py/import name delivery))
+                                     (= m (py/import-sub name delivery parent
+                                                         {:py/str "child"}))
+                                     (= :py/missing
+                                        (py/dict-ref (py/module-dict parent)
+                                                     {:py/str "child"}))))))))]
+    (doseq [backend (keys h/backends)]
+      (is (= [true true true]
+             (vm/value (h/run-linked backend program)))
+          (str backend)))))
+
+
+(deftest ^:slow cached-import-skips-delivery-test-test
+  (slow/guard "cached-import-skips-delivery-test"
+              cached-import-skips-delivery-test))
+
+
+(defn- optional-dependency-does-not-abort-install-test
+  []
+  (let [py (:address @h/published)
+        spec (lower/module-spec (h/registry) (retry-packet "ModuleNotFoundError")
+                                {:name "optional", :py-address py,
+                                 :deps {"w" (:w @published-guests)}})
+        published (h/publish-guest-module! spec)
+        pk (portable/packet [:file_input
+                             (statement (import-simple-stmt "optional"))
+                             ["EOF" "<EOF>"]])
+        src (h/source {'py py, 'pym.optional (:address published)})]
+    (testing "a concretely pinned dependency absent from the reader does
+              not abort module installation; its body catches and retries"
+      (every= [true false {:py/out ["cleaned" "again"], :py/exception nil}]
+              (on-every-vm pk src)))))
+
+
+(deftest ^:slow optional-dependency-does-not-abort-install-test-test
+  (slow/guard "optional-dependency-does-not-abort-install-test"
+              optional-dependency-does-not-abort-install-test))
