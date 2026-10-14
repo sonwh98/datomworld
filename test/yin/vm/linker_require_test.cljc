@@ -1566,3 +1566,179 @@
                             (sm-responder pair))]
       (is (= 7 (:value done)))
       (is (= [:t0.0] @minted)))))
+
+
+;; L-d-1: the bare primitive resumes with linker outcomes as data.
+(defn- try-req
+  [spec]
+  (app (v 'try-require) (lit spec)))
+
+
+(deftest try-require-absent-continues-test
+  (doseq [[backend b] backends]
+    (testing (name backend)
+      (let [pair (link-pair)
+            program (app (lam '[result] (app (v 'conj) (lit []) (v 'result)
+                                             (lit :continued)))
+                         (try-req 'foo))
+            [done r] (drive ((:vm b) program (composition pair))
+                            (responder pair {}))
+            [result continued] (vm/value done)]
+        (is (= :continued continued))
+        (is (= {:status :refused, :reason :absent, :module 'foo,
+                :name 'foo, :yin.link/id (:yin.link/id (first (:requests r)))}
+               result))
+        (is (= 1 (count (:requests r))))
+        (is (empty? (:wait-set done)))))))
+
+
+(deftest try-require-success-and-registry-hit-test
+  (doseq [[backend b] backends]
+    (testing (name backend)
+      (let [pair (link-pair)
+            program (app (lam '[result]
+                              (app (v 'conj) (lit []) (v 'result)
+                                   (app (v 'foo/f))))
+                         (try-req '[foo :as foo]))
+            [done r] (drive ((:vm b) program (composition pair))
+                            (responder pair
+                                       {'foo (module-response backend 'foo
+                                                              answer-module
+                                                              ['f])}))
+            [hit r] (drive ((:continue b) done (try-req 'foo)) r)]
+        (is (= [{:status :ok, :module 'foo} 42] (vm/value done)))
+        (is (= {:status :ok, :module 'foo} (vm/value hit)))
+        (is (= 1 (count (:requests r))))
+        (is (empty? (:wait-set hit)))))))
+
+
+(deftest try-require-host-hit-test
+  (doseq [[backend b] backends]
+    (testing (name backend)
+      (let [pair (link-pair)
+            opts (update (composition pair) :modules
+                         module/register-host-module 'foo {'f inc}
+                         {'f (vm/primitive-profile 'f :pure [1] #{} :none)})
+            [done r] (drive ((:vm b) (try-req 'foo) opts)
+                            (responder pair {}))]
+        (is (= {:status :ok, :module 'foo} (vm/value done)))
+        (is (empty? (:requests r)))
+        (is (empty? (:wait-set done)))))))
+
+
+(deftest try-require-cycle-is-data-test
+  (doseq [[backend b] backends]
+    (testing (name backend)
+      (let [pair (link-pair)
+            root (assoc ((:vm b) (try-req 'foo) (composition pair))
+                        :ancestry '[foo bar])
+            [done r] (drive root (responder pair {}))]
+        (is (= {:status :refused, :reason :require-cycle, :module 'foo,
+                :chain '[foo bar foo]}
+               (vm/value done)))
+        (is (empty? (:requests r)))
+        (is (empty? (:wait-set done)))))))
+
+
+(deftest try-require-abandon-link-is-data-test
+  (doseq [[backend b] backends]
+    (testing (name backend)
+      (let [pair (link-pair)
+            root (vm/run ((:vm b) (try-req 'foo) (composition pair)))
+            id (:link-id (first (:wait-set root)))
+            abandoned (engine/abandon-link root id :cancelled)
+            done (vm/run abandoned)]
+        (is (= {:status :lost, :reason :cancelled, :link-id id}
+               (vm/value done)))
+        (is (= :abandoned (get (:link-retired done) id)))
+        (is (empty? (:wait-set done)))))))
+
+
+(deftest try-require-and-require-co-waiters-test
+  (doseq [[backend b] backends]
+    (testing (name backend)
+      (let [pair (link-pair)
+            opts (composition pair)
+            plain (vm/run ((:vm b) (req 'foo) opts))
+            attempt (vm/run ((:vm b) (try-req 'foo)
+                                     (assoc opts :origin :try-waiter)))
+            ;; Start the install, then let the real try handler join it.
+            response (module-response backend 'foo
+                                      (then (req 'bar) (lit 1))
+                                      ['absent])
+            r (respond! (responder pair
+                                   {'foo response,
+                                    'bar (module-response backend 'bar
+                                                          (lit 1) [])}))
+            installing (engine/check-wait-set plain)
+            joining (assoc attempt :wait-set []
+                           :installs (:installs installing))
+            joined (module/try-require-handler
+                     joining {:module 'foo}
+                     {:park-entry-fns
+                      {:module/require
+                       (fn [_state _effect _value]
+                         (dissoc (first (:wait-set attempt)) :try?))}})
+            root (update installing :wait-set into
+                         (:wait-set (:state joined)))
+            [task _] (drive-to-wakeup root r)
+            plain-entry (first (remove :try? (:ready-queue task)))
+            try-entry (first (filter :try? (:ready-queue task)))
+            done (vm/run (assoc attempt :wait-set [] :ready-queue [try-entry]))]
+        (is (:blocked? joined))
+        (is (:try? (first (:wait-set (:state joined)))))
+        (is (= 2 (count (:ready-queue task))))
+        (is (= :export-missing
+               (:reason (refusal-of
+                          #(vm/run (assoc task :ready-queue [plain-entry]))))))
+        (is (= :refused (:status (vm/value done))))
+        (is (= :export-missing (:reason (vm/value done))))
+        (is (= 'foo (:module (vm/value done))))
+        (is (= ['absent] (:names (vm/value done))))
+        (is (empty? (:installs task)))))))
+
+
+(deftest try-require-abandon-install-is-data-test
+  (doseq [[backend b] backends]
+    (testing (name backend)
+      (let [pair (link-pair)
+            root (vm/run ((:vm b) (try-req 'foo) (composition pair)))
+            id (:link-id (first (:wait-set root)))
+            _ (respond! (responder pair
+                                   {'foo (module-response backend 'foo
+                                                          (then (req 'bar)
+                                                                answer-module)
+                                                          ['f])}))
+            installing (engine/check-wait-set root)
+            done (vm/run (engine/abandon-installs installing :cancelled))]
+        (is (contains? (:installs installing) 'foo))
+        (is (= {:status :lost, :reason :cancelled, :link-id id}
+               (vm/value done)))
+        (is (empty? (:installs done)))
+        (is (empty? (:wait-set done)))))))
+
+
+(deftest try-require-linked-meanwhile-test
+  (doseq [[backend b] backends]
+    (testing (name backend)
+      (let [pair (link-pair)
+            root (vm/run ((:vm b) (try-req 'foo) (composition pair)))
+            linked (update root :modules module/register-host-module
+                           'foo {'f inc}
+                           {'f (vm/primitive-profile 'f :pure [1] #{} :none)})
+            [done r] (drive linked
+                            (responder pair
+                                       {'foo (module-response backend 'foo
+                                                              answer-module
+                                                              ['f])}))]
+        (is (= {:status :ok, :module 'foo} (vm/value done)))
+        (is (= 1 (count (:requests r))))
+        (is (empty? (:installs done)))))))
+
+
+(deftest try-require-profile-test
+  (let [profile (get vm/primitive-profiles 'try-require)]
+    (is (= :effectful (:yin.k/class profile)))
+    (is (= [1] (:yin.k/arities profile)))
+    (is (= #{:module/try-require} (:yin.k/effects profile)))
+    (is (= :none (:yin.k/host-state profile)))))

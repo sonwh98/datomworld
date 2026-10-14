@@ -663,7 +663,7 @@
    invocation-local `yin/gensym-sym`."
   [gensym]
   (merge
-    (dissoc vm/primitives 'require 'bytes->str)
+    (dissoc vm/primitives 'require 'try-require 'bytes->str)
     {'yin/tag (fn [tree] (row-tag (root-row (need-packet 'yin/tag tree)))),
      'yin/slot slot-of,
      'yin/literal literal-packet,

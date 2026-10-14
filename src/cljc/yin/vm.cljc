@@ -412,7 +412,14 @@
                        (fn [spec]
                          (let [ns-sym (if (vector? spec) (first spec) spec)]
                            (effect/make :module/require {:module ns-sym})))
-                       :effectful [1] #{:module/require})]])))
+                       :effectful [1] #{:module/require})]
+           ['try-require (primitive-entry
+                           'try-require
+                           (fn [spec]
+                             (let [ns-sym (if (vector? spec) (first spec) spec)]
+                               (effect/make :module/try-require
+                                            {:module ns-sym})))
+                           :effectful [1] #{:module/try-require})]])))
 
 
 (def ^:private primitive-profile-keys

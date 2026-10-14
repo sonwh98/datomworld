@@ -2035,9 +2035,10 @@ no `:admission` key.
 
 **Discharge and L-d.** Admission asks after resolve and before load;
 discharge is step 5b after delivery, untouched. An admission refusal is
-a section 9 link refusal, so `try-require` catches it as it catches
-`:absent`. An install child's transitive requirement is asked on its own
-request.
+a section 9 link refusal. The bare `try-require` primitive emits
+`:module/try-require` and receives that refusal as data, as with `:absent`,
+instead of raising an effect error. An install child's transitive requirement
+is asked on its own request.
 
 #### 7.5.4 Parking, with no deadline, and retirement
 
@@ -2704,6 +2705,8 @@ Each row is one exact response shape,
 `{:status :refused :reason <outcome> ...carried data}`, identical on the
 JVM, Node and Dart. A consumer matches `:reason` and, for
 `:descriptor-defect`, `:code`; it never matches `:text`.
+The `:module/try-require` effect resumes its continuation with refusal
+maps as data; plain `:module/require` raises them as effect errors.
 
 Publication refusals, returned by the plain functions and printed by the
 REPL: `:yin.link.publish/no-key`, `/undefined-export`, `/undeclared-free`,
