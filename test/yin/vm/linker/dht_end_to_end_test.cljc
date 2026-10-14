@@ -82,7 +82,7 @@
   "A shell over a dht store at `dir` on mesh `port` with contacts
    `peer-ports`: publishing when `key` is given (`--dht-publish
    --dht-key`), hydrating `manifest` first when given (`--dht-manifest`),
-   declaring `principals` (`--dht-principal`)."
+   declaring and trusting `principals` (`--dht-principal`, `--dht-trust`)."
   [net dir port peer-ports {:keys [key manifest principals]}]
   (repl.frontends/create-state
     {:index-store-spec {:type :dht
@@ -96,7 +96,8 @@
                         :max-inbound-bytes repl.dht/default-max-inbound-bytes
                         :manifest manifest}
      :dht-key key
-     :principals (vec principals)}))
+     :principals (vec principals)
+     :admission {:trusted (set (map sign/principal principals))}}))
 
 
 (defn- world
