@@ -181,7 +181,7 @@
              (disj (sexp-def-keys (get (into {} prelude/definitions)
                                        'py/init!))
                    'py.rt/state)))
-      (is (= 66 (count prelude/runtime-keys))))))
+      (is (= 65 (count prelude/runtime-keys))))))
 
 
 ;; =============================================================================
@@ -229,11 +229,10 @@
    py/star-item, `__all__` read by index (ranges included), and
    py/run-session, the REPL `__main__` runner. It moved once more with
    the rebase onto master 4529b5bd: the profile digest in the manifest
-   uses BLAKE3 since 492ff50b. I4-a moves it with statement-time
-   delivery, ModuleNotFoundError and grouped builtin initialization."
+   uses BLAKE3 since 492ff50b. Phase 8ab regenerates the H/R
+   checksums, derivation records and index keys."
   (keyword (str "segment/blake3-"
-                "6e003ac4ac8edae670ff7eb46816134"
-                "dec4982ffb42e74ceac3bbfd0eed53662")))
+                "577aabfb863288b6f7aefbbb4c299befdf4825953aa7ccaa49a55428e26517ee")))
 
 
 (def ^:private vector-formats

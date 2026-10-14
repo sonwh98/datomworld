@@ -21,6 +21,7 @@
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.code :as code]
             [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
             [yin.vm.debruijn-code :as dcode]
             [yin.vm.debruijn-linearize :as dl]
             [yin.vm.debruijn-register-code :as rcode]
@@ -253,12 +254,12 @@
 
 (defn stack-image
   [ast]
-  (:image (dl/adapt (ast-datoms ast))))
+  (:image (derive/stack-image (:vector (sr-linearize/project ast)))))
 
 
 (defn- register-image
   [ast]
-  (:image (rc/adapt (ast-datoms ast))))
+  (derive/register-image (:vector (sr-linearize/project ast))))
 
 
 (defn semantic-vector
@@ -521,11 +522,9 @@
 
 (deftest pinned-identities-are-host-independent
   (testing "the receiver computes the same H and R on every host"
-    (is (= (str "52791d4a2d0f4649b6d90e0c7e0a9067"
-                "c96008ed4ecdc6b77f08a15644893d0c")
+    (is (= "d07cb2e9a4172480d29e550cf94aa1771603d488ecca8e87f03576285c23872c"
            (dcode/image-hash (stack-image worked-example))))
-    (is (= (str "c0aefe2fa287cbc702e6680b4c783516"
-                "7cb6458b05680e9271b331dd8c42bb21")
+    (is (= "bc06914564a0c780833da62637ed3c3863108a1b007afef03695b7dd9e384030"
            (rcode/register-hash (register-image worked-example))))))
 
 
@@ -1927,10 +1926,11 @@
 
 (defn- mint-root
   "Publish both images of `ast` and return what a composition holds."
-  [store ast]
-  (let [h (publish store linker/stack-format (stack-image ast))
-        r (publish store linker/register-format (register-image ast))]
-    {:H (:identity h), :h-index (:index h), :R (:identity r)}))
+  ([store ast] (mint-root store ast register-image))
+  ([store ast register-producer]
+   (let [h (publish store linker/stack-format (stack-image ast))
+         r (publish store linker/register-format (register-producer ast))]
+     {:H (:identity h), :h-index (:index h), :R (:identity r)})))
 
 
 (defn- h-runtime
@@ -1960,9 +1960,11 @@
 
 
 (deftest verifying-fallback-re-lowers-the-named-root
-  (let [store (mem/create-content-mem)
-        {:keys [H R h-index]} (mint-root store worked-example)
-        other (mint-root store other-program)
+  ;; The production pairing verifier uses the old allocator until slice 8c.
+  (let [old-register-image (fn [ast] (:image (rc/adapt (ast-datoms ast))))
+        store (mem/create-content-mem)
+        {:keys [H R h-index]} (mint-root store worked-example old-register-image)
+        other (mint-root store other-program old-register-image)
         source (ast-datoms worked-example)]
     (testing "an authentic pairing is accepted"
       (is (= {:status :ok, :root 'root, :H H, :R R}

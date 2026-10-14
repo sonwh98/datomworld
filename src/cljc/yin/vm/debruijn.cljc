@@ -136,8 +136,8 @@
    [:yin.debruijn/dimension :dim/slots dimension-slots]
    [:yin.debruijn/dimension
     :dim/encoding
-    {:hash :sha256,
-     :node-hash "SHA-256(dimension-hash || encode(tag-specific-slots-in-descriptor-order))",
+    {:hash :blake3,
+     :node-hash "BLAKE3(dimension-hash || encode(tag-specific-slots-in-descriptor-order))",
      :slot-order :descriptor,
      :tag-specific-slots-only true,
      :hash-excluded-slots [:yin.debruijn/hash :yin.debruijn/root],
@@ -963,7 +963,7 @@
    digest's derivation moved to the canonical encoder, so the separator
    now separates this dimension from every other by the same bytes every
    node hash uses."
-  (jing/sha256 (encode-value descriptor)))
+  (jing/blake3 (encode-value descriptor)))
 
 
 (defn canonical-value
@@ -1018,14 +1018,14 @@
 
 
 (defn- node-hash
-  "§5: hash(node) = SHA-256(dimension-hash || encode(tag-specific-slots-
+  "§5: hash(node) = BLAKE3(dimension-hash || encode(tag-specific-slots-
    in-descriptor-order)). The preimage is the dimension hash's hex
    followed by the framed slots under the settled byte rules; the shape —
    descriptor order, tags, byte-count length delimiters, ordered child
    hashes — is what D2 fixed and D3 settled. Markers are never among the
    encodings: only present, non-marker slots reach here."
   [encodings]
-  (jing/sha256 (apply str dimension-hash encodings)))
+  (jing/blake3 (apply str dimension-hash encodings)))
 
 
 ;; =============================================================================

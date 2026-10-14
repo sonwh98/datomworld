@@ -2,7 +2,7 @@
   "B5 (docs/design/yin.vm.debruijn.stack.md, 'B5: differential
    integration'): the two executable pipelines compared end to end.
 
-     A: ast->datoms-with-root -> adapt (B2) -> yin.vm.debruijn.stack
+     A: sr-linearize/project -> derive/stack-image -> yin.vm.debruijn.stack
      B: ast->datoms-with-root -> linearize/lower -> yin.vm.semantic
 
    Execution fixtures are the actual corpora, reused rather than copied:
@@ -24,6 +24,8 @@
             [dao.stream :as stream]
             [yin.vm :as vm]
             [yin.vm.debruijn-code :as dc]
+            [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
             [yin.vm.debruijn-linearize :as dl]
             [yin.vm.debruijn-vm-contract-test :as b0]
             [yin.vm.debruijn.stack :as dvm]
@@ -91,7 +93,7 @@
 
 (defn- image-of
   [ast]
-  (:image (adapted ast)))
+  (:image (derive/stack-image (:vector (sr-linearize/project ast)))))
 
 
 (defn- h-of
@@ -137,7 +139,7 @@
 
 
 (defn- debruijn-outcome
-  "Pipeline A: B2's `adapt` onto a fresh de Bruijn stack VM."
+  "Pipeline A: `derive/stack-image` onto a fresh de Bruijn stack VM."
   [ast]
   (image-outcome (image-of ast)))
 
@@ -221,8 +223,7 @@
 (deftest binder-renames-share-image-and-h
   (doseq [[label programs] alpha-classes]
     (testing label
-      (let [adapts (map adapted programs)
-            images (map :image adapts)]
+      (let [images (map image-of programs)]
         (is (apply = images) "the canonical instruction vector is identical")
         (is (apply = (map dc/encode-image images)) "the hashed bytes too")
         (is (apply = (map dc/image-hash images)) "so H is identical")
@@ -318,7 +319,7 @@
     '[[:closure 1 2] [:halt] [:load-bound 0 0] [:return]]
     (str "0201000000000000000200000000000000080a00000000000000000000"
          "0000000000000f")
-    "1139b238ade426e60ef7827043f13abd9a456b19606382877bd8f6de899a0d22"],
+    "336e197fed38d9f05f6b27414ad9422ca943fef4e1495ee9b306a0d6e273356f"],
    :applied
    [(app (lam '[x] (tail (app (v '+) (v 'x) (lit 1)))) (lit 10))
     '[[:closure 1 6] [:push] [:const 10] [:push] [:call 1 false] [:halt]
@@ -328,7 +329,7 @@
          "000d010100000000000000010000000200080b09000000150000000000070000"
          "0001+0d0a000000000000000000000000000000000d03020000001001000000"
          "000000000d0102000000000000000100000002010f")
-    "52791d4a2d0f4649b6d90e0c7e0a9067c96008ed4ecdc6b77f08a15644893d0c"],
+    "d07cb2e9a4172480d29e550cf94aa1771603d488ecca8e87f03576285c23872c"],
    :two-deep
    [(lam '[a] (lam '[b] (app (v '-) (v 'a) (v 'b))))
     '[[:closure 1 2] [:halt] [:closure 1 4] [:return] [:load-free -]
@@ -338,19 +339,19 @@
          "000000000f0b090000001500000000000700000001-0d0a0100000000000000"
          "00000000000000000d0a000000000000000000000000000000000d01020000"
          "00000000000100000002000f")
-    "188d78a7a966fc7b2f3ef64327febad1658256f4469c0ce1f6c30e090b59af8d"],
+    "cc4b808680b0bf974b9a929c45cf17c6c1e5117a731f7594d9329769b0d2c3ff"],
    :duplicate
    [(lam '[x x] (v 'x))
     '[[:closure 2 2] [:halt] [:load-bound 0 1] [:return]]
     (str "0202000000000000000200000000000000080a00000000000000000100000000"
          "0000000f")
-    "64ebe1570b00b27fdb47208861002113a830a31bc5e54935a41cfbcd0f202fe5"]})
+    "8713665b8a0943e2aa4c018c368a19e3009436be7b079cf18b5e3dce69a7ed3e"]})
 
 
 (deftest golden-images-bytes-and-h
   (doseq [[label [ast image hex h]] golden]
     (testing label
-      (is (= image (image-of ast)) "adapt reproduces the committed image")
+      (is (= image (image-of ast)) "derive reproduces the committed image")
       (is (= hex (dc/encode-image image)) "the committed wire bytes")
       (is (= h (dc/image-hash image)) "the committed H"))))
 

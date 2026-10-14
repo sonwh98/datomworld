@@ -50,8 +50,9 @@
 ;; and sparse continuation formats.
 
 (def contract-version
-  "Bumped whenever this dimension's opcode table, allocation, scalar
-   framing, or control-flow rules change shape (design section 3).
+  "The descriptor records this dimension's opcode table, allocation, scalar
+   framing, and control-flow rules (design section 3). Phase 8 regenerates
+   descriptors and checksums without a version bump (owner ruling 2).
    3, as of design sections 4.4-4.6 and 5.2: the complete R2 register
    effects set, in-band live sets on all six boundary opcodes, and
    sparse continuation integration. 4 (the `\"r2\"` contract,
@@ -191,17 +192,16 @@
   "The `:yin.debruijn.register/*` dimension declared as data (design
    section 3): a contract version, arity, the opcode table, the encoding
    rule (which names B1's scalar domain by reference, not by copy: this
-   dimension has no scalar table of its own), and the lift target."
+   dimension has no scalar table of its own)."
   [[:yin.debruijn.register/dimension :dim/contract-version contract-version]
    [:yin.debruijn.register/dimension :dim/arity (count opcode-table)]
    [:yin.debruijn.register/dimension :dim/slots opcode-table]
    [:yin.debruijn.register/dimension
     :dim/encoding
-    {:hash :sha256,
+    {:hash :blake3,
      :scalar-encoder :yin.debruijn-code/encode-scalar,
      :register-banks [:locals :temporaries],
-     :map-set-order :canonical-encoded-bytes}]
-   [:yin.debruijn.register/dimension :dim/lift-to [:yin.code/*]]])
+     :map-set-order :canonical-encoded-bytes}]])
 
 
 ;; =============================================================================
@@ -255,18 +255,19 @@
 
 
 (def descriptor-hash
-  (jing/sha256 (debruijn-code/encode-scalar descriptor)))
+  (jing/blake3 (debruijn-code/encode-scalar descriptor)))
 
 
 (defn register-hash
-  "The ONE function that computes R (design section 3): `R = sha256
+  "The ONE function that computes R (design section 3): `R = blake3
    (register-descriptor-hash || canonical-register-vector)`. Received
    register bytes must be hashed before decoding, as B1's wire rule
    requires -- no receive path exists in this phase, but this function's
    own shape (bytes in, hash out, no host-value peeking) already supports
-   that later use."
+   that later use. R is a derived backend checksum; A is the sole code
+   identity."
   [register-image]
-  (jing/sha256 (str descriptor-hash (encode-register-image register-image))))
+  (jing/blake3 (str descriptor-hash (encode-register-image register-image))))
 
 
 ;; =============================================================================

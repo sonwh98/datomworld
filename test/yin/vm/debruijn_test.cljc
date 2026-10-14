@@ -123,17 +123,17 @@
                       (:dim/slots dimension))
                 1))
         "the ordered-vector slot type is declared")
-    (is (= :sha256 (get-in dimension [:dim/encoding :hash])))
+    (is (= :blake3 (get-in dimension [:dim/encoding :hash])))
     (is (= [:yin.debruijn/hash :yin.debruijn/root]
            (get-in dimension [:dim/encoding :hash-excluded-slots])))
     (is (= d/canonical-value-table (get-in dimension [:dim/encoding :values])))
     (is (= #{:d1 :d3} (set (map first (:dim/projection-to dimension)))))
     (is (= :d5 (ffirst (:dim/lift-from dimension))))
-    (is (= (jing/sha256 (d/encode-value d/descriptor)) d/dimension-hash)
+    (is (= (jing/blake3 (d/encode-value d/descriptor)) d/dimension-hash)
         "the domain separator is the descriptor encoded through the settled
          canonical encoder and hashed — D3's re-pin of datom.md's dimension
          identity, not an ad hoc string")
-    (is (= "1f4ec95cdfd666cf5da2be5f47fd3a7e3c942dfa2ea87e61e0062270f61a0803"
+    (is (= "4b69e00d1da9fb4b20dfdc0f3268b924c025142d85d8b73df5d75965542525e5"
            d/dimension-hash)
         "the settled digest, pinned: descriptor drift fails here as a
          descriptor failure, not as a definition restating itself")
@@ -930,7 +930,7 @@
 
 
 (deftest the-essays-fingerprint-is-stable
-  (is (= "aed64f20d7150b6a149939f5af307eca809fd9b23000ed44e526353f7f4bfbc0"
+  (is (= "25d418f9afbbbbe7138ab1a481b8d454b1106eded8dfe0de505f1819c783f0c1"
          (:fingerprint (project worked-example))
          (:fingerprint (d/project-datoms
                          (vec (reverse (datoms-of worked-example)))))
@@ -1297,13 +1297,13 @@
   ;; them as :unsupported-value, never diagnose :hash-mismatch
   (let [cases
         [[1.0
-          "3eff0da5d025906b7a668c5b52dbf29fb5df4c6b2ea0a8b1bb733c08e35241cc"]
+          "415186d353a26e23723402e5590de3149151d32140fd204250b3aa4f0c1177f5"]
          [[1.0]
-          "2f9d03004e233a3d9e78eae688350aaaffd1701977097153434e9b5d36b407a2"]
+          "4caa8d97945f3a66256be399c92f0c2c0b11806c82be93d8b33612fdac83949f"]
          [{:a 1.0}
-          "411b0a57a72c09a3314fec224a042159523ec7bf3864b6e7d19eb8e269cace58"]
+          "6cae23688206109359a7b15cc104b12fc4e9e8396f079e6020e75b8fcc4ed82a"]
          [#{1.0}
-          "b3ee9e8c72e84771fcd582ec779e46954e59a3351ea0d6eaf385d650716d8394"]]]
+          "e0e8fdfca9d920d3ced0d01f750cd09d01484107a67d2630f66313c74bf7951d"]]]
     (doseq [[v jvm-fingerprint] cases]
       #?(:cljs
          (let [wire (mapv (fn [x]

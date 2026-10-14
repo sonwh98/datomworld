@@ -442,19 +442,11 @@
 ;; 9. R agreement: repeated lowerings and a golden R for a fixed program
 ;; =============================================================================
 
-(def golden-descriptor-hash
-  "7eacba41f9f1548d18b724cbd2db87945f09ec7b4ab2f303399e9b6497007632")
-
-
-(deftest golden-descriptor-hash-test
-  (is (= golden-descriptor-hash rcode/descriptor-hash)))
-
-
 (deftest register-hash-is-stable-for-a-fixed-program
   (let [{:keys [image]} (adapted worked-example)]
     (is (= (rcode/register-hash image) (rcode/register-hash image)))
     (is (string? (rcode/register-hash image)))
-    (is (= 64 (count (rcode/register-hash image))) "sha256 hex digest length")))
+    (is (= 64 (count (rcode/register-hash image))) "BLAKE3 hex digest length")))
 
 
 (deftest golden-pure-r1-image-and-r-test
@@ -472,7 +464,7 @@
                         [:call 1 2 [3 4] true []]
                         [:return 1]]}
         expected-r
-        "c0aefe2fa287cbc702e6680b4c7835167cb6458b05680e9271b331dd8c42bb21"]
+        "70de2f461733e8b2409a115aeca3252e5f8a107f621bf6b1ce1b704799f8e583"]
     (is (= expected-image image))
     (is (= expected-r (rcode/register-hash image)))))
 
@@ -483,7 +475,7 @@
       (is (= {:bodies [{:locals 0, :registers 1, :start 0, :end 1}],
               :instructions [[:store-put 0 :k 42] [:halt 0]]}
              image))
-      (is (= "e780fb5067cedad63476224d01127ac0abcfaf60c0c210aa0b3a9eb34377c180"
+      (is (= "decbf54ad7537b3bd87d86108c5dc66ed5ca4a934812b8a4b697f13e1db5824c"
              (rcode/register-hash image)))))
 
   (testing "gensym"
@@ -491,7 +483,7 @@
       (is (= {:bodies [{:locals 0, :registers 1, :start 0, :end 1}],
               :instructions [[:gensym 0 "g"] [:halt 0]]}
              image))
-      (is (= "7a97c0d6bed15a1e5865780e16bceb4ff378c09963146ba8e9694bdc99800130"
+      (is (= "25b74c840986ebfb114c02fbbcb4144c18ad780a364e7d1452e3a25422acaf9d"
              (rcode/register-hash image)))))
 
   (testing "stream-make"
@@ -499,7 +491,7 @@
       (is (= {:bodies [{:locals 0, :registers 1, :start 0, :end 1}],
               :instructions [[:stream-make 0 64] [:halt 0]]}
              image))
-      (is (= "a9cfdb6d6cbc9d5f3eb54ecb3c3584e0199f0b6d1d9d8fc498f63e5d769f9f14"
+      (is (= "87fda1b80fa1e070e117e39b566326fd6e194367bd158a01d5e591a556b4a477"
              (rcode/register-hash image)))))
 
   (testing "stream-put"
@@ -512,7 +504,7 @@
                              [:stream-put 0 1 2 []]
                              [:halt 0]]}
              image))
-      (is (= "685a0c512ae6531d9814c03c536336f64e51e365050c130f33db938601396988"
+      (is (= "c75c61144769e9a7b754885543188d64c358e97633ba47e8702d4fcfd9536925"
              (rcode/register-hash image)))))
 
   (testing "stream-cursor"
@@ -522,7 +514,7 @@
                              [:stream-cursor 0 1]
                              [:halt 0]]}
              image))
-      (is (= "1c4a5286b6032c64b6356b5c261d3b842bfecd4d9f9c3f951f5050c8a2419cdb"
+      (is (= "0d632c1df836458a6965ae9971045f5a18897d054c4659d6acab3a3d8ed59ec4"
              (rcode/register-hash image)))))
 
   (testing "stream-next"
@@ -532,7 +524,7 @@
                              [:stream-next 0 1 []]
                              [:halt 0]]}
              image))
-      (is (= "74f3617eef6eabcad7b27a36dda3b75af18fb1b3e17cf18df88b8a8c2cfcbe33"
+      (is (= "6f1105cee27bfb067b8d301abb3ee06e1cd1825f275fe891bf0983ab4b6caeae"
              (rcode/register-hash image)))))
 
   (testing "stream-close"
@@ -542,7 +534,7 @@
                              [:stream-close 0 1]
                              [:halt 0]]}
              image))
-      (is (= "91eee5759eec08799e98b70f0eecc26255dec4f2def3c8be2dec4595312a625f"
+      (is (= "87bc0840c109857a27aab36d3e7c9dc33c2437e232471b14d9a206c0bd1361c7"
              (rcode/register-hash image))))))
 
 
@@ -562,7 +554,7 @@
                         [:call 0 1 [2 3] false []]
                         [:halt 0]]}
         expected-r
-        "fb7626101d5ef04222467e6eee820a73694e1045ecb07d1f4c568b3516758852"]
+        "236b6decefd5ded787904dccf0318878354aa656b6e3d93411323500f8acd163"]
     (is (= expected-image image))
     (is (= expected-r (rcode/register-hash image)))))
 
@@ -578,7 +570,7 @@
                              [:ffi-call 0 :math/add [1 2] []]
                              [:halt 0]]}
              image))
-      (is (= "f86f480ae243b7dbd2666431f8b946be63069e4c4bf6ccd2f6c756d55aba0bc5"
+      (is (= "3c0622436b68baba0e66beef1f402ee097818096ab3e69f01abfa5c516baa4f3"
              (rcode/register-hash image)))))
 
   (testing "resume"
@@ -590,7 +582,7 @@
                              [:resume :p1 1]
                              [:halt 0]]}
              image))
-      (is (= "8ea2568a409a1e551e7bdf63f811bc80cca0a50f8793bbe77385ac1524e11bcd"
+      (is (= "9762b17e54c33bc02225892bfb4d7ad8351bbcda0d70b086b4a143257c84e30e"
              (rcode/register-hash image))))))
 
 

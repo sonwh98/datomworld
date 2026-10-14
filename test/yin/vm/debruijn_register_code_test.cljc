@@ -4,5 +4,5 @@
 
 
 (deftest golden-descriptor-hash-test
-  (is (= "7eacba41f9f1548d18b724cbd2db87945f09ec7b4ab2f303399e9b6497007632"
+  (is (= "aa757659a28f9787e44cd04d02d9f4412eba1088d46a1b07adf9fa820d07e74c"
          rcode/descriptor-hash)))
