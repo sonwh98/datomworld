@@ -22,15 +22,16 @@
 
    One reader, handed `A`'s index manifest and declaring `A`, imports
    through the DHT link source on the semantic, stack and register VMs.
-   Then `A`'s republication of `k` is indexed, and the reader's import of
-   `t`, which pinned the old `k`, is refused as a dependency binding with
-   no install child and no output; then `B` vouches for a module, and the
-   reader, declaring `B` too, is refused it by the default admission
-   interpreter while it trusts only `A` (yin.vm.linker.dht.md 7.5),
-   again with no install child and no output, and allowed it once it
-   trusts `B`. Last, `B`'s head moves the name to another module between
-   the admission question and its answer: the allow binds the module the
-   question was asked about."
+   Then `B` vouches for a module, and the reader, declaring `B` too, is
+   refused it by the default admission interpreter while it trusts only `A`
+   (yin.vm.linker.dht.md 7.5), raising ImportError in Python with no install
+   child and no output, and allowed it once it trusts `B`. Next, `B`'s head
+   moves the name to another module between the admission question and its
+   answer: the allow binds the module the question was asked about. Last,
+   `A`'s republication of `k` is indexed, and the reader's import of `t`,
+   which pinned the old `k`, encounters a dependency pin mismatch at
+   statement-time receive when `k` is delivered, raising ImportError before `k`
+   is installed or runs."
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.datom :as datom]
@@ -258,12 +259,13 @@
 (defn- run-over-dht
   "The linked program of packet `pk` on `backend`, its link pair served
    by the DHT source `src` from the world's reader, the world stepped
-   between rounds: `[w outcome last-response observation]`, the outcome
-   `[halted? blocked? output]` or `[:thrown message]`. The observation
-   is `observed` of the task the program ended as -- for a thrown run,
-   of the task the throwing run resumed, which holds every step before
-   the raise: a refused link raises at its resume, before anything
-   else runs.
+   between rounds: `[w outcome response observation]`, the outcome
+   `[halted? blocked? output]` or `[:thrown message]`. `response` is the
+   first refused pair response when any exists, else the latest served
+   response. The observation is `observed` of the task the program ended
+   as -- for a thrown run, of the task the throwing run resumed, which
+   holds every step before the raise: a refused link raises at its resume,
+   before anything else runs.
 
    Both interpreters are driven and retained across rounds
    (yin.vm.linker.dht.md 7.5): the link server, over the admission state
@@ -291,8 +293,11 @@
             pair pair
             adm adm
             interp interp]
-       (let [response (dissoc (peek (mesh/values (:responses pair)))
-                              :yin.link/id :image)]
+       (let [response (or (some #(when (= :refused (:status %))
+                                   (dissoc % :yin.link/id :image))
+                                (mesh/values (:responses pair)))
+                          (dissoc (peek (mesh/values (:responses pair)))
+                                  :yin.link/id :image))]
          (cond
            (::thrown task)
            [w [:thrown (::thrown task)] response (observed (::resumed task))]
@@ -447,23 +452,24 @@
         k2 (get-in artifact [:republished "k"])
         [w _] (publish-index w (get-in artifact [:indexes :republish]))]
     (testing "a republished dependency: t pinned k's first address, k now
-              names another, so t is refused as a dependency binding with
-              no install child and no output -- nothing of t or k runs"
+              names another; the link server delivers k2, but the engine
+              refuses receive as a pin mismatch, raising ImportError in t"
       (is (not= k1 k2))
       (let [[w results] (on-every-vm w (get-in artifact [:importers :tt])
                                      src)]
         (doseq [[k [outcome response seen]] results]
-          (is (= :thrown (first outcome)) (str k " " (pr-str outcome)))
-          (is (= {:status :refused,
-                  :reason :yin.link.dht/dependency-binding,
-                  :name 'pym.k,
-                  :pinned k1,
-                  :binding :mismatch,
-                  :resolved k2}
-                 (select-keys response [:status :reason :name :pinned
-                                        :binding :resolved]))
+          (is (= [true false
+                  {:py/out [],
+                   :py/exception
+                   {:type "ImportError",
+                    :args ["Cannot import module 'k': linker refused delivery"]}}]
+                 outcome)
+              (str k " " (pr-str outcome)))
+          (is (= {:status :ok,
+                  :yin.admit/address k2}
+                 (select-keys response [:status :yin.admit/address]))
               (str k " " (pr-str response)))
-          (observes k nothing-ran seen))
+          (observes k {:output [], :guests #{"pym.t"}, :children 3} seen))
         w))))
 
 
@@ -482,11 +488,17 @@
         [w _] (publish-index w (get-in artifact [:indexes :foreign]))]
     (testing "a module only B vouches for, B declared and A alone trusted:
               the default interpreter refuses it as untrusted, naming B,
-              with no install child and no output"
+              raising ImportError in x before e installs"
       (let [[w results] (on-every-vm w (get-in artifact [:importers :x])
                                      (source [a b] [a]))]
         (doseq [[k [outcome response seen]] results]
-          (is (= :thrown (first outcome)) (str k " " (pr-str outcome)))
+          (is (= [true false
+                  {:py/out [],
+                   :py/exception
+                   {:type "ImportError",
+                    :args ["Cannot import module 'e': linker refused delivery"]}}]
+                 outcome)
+              (str k " " (pr-str outcome)))
           (is (= {:status :refused,
                   :reason :yin.admit/untrusted-principal,
                   :name 'pym.e,
@@ -654,11 +666,11 @@
         src (source [a] [a])
         w (publish-world artifact)
         w (imports-over-the-dht w artifact src)
-        w (republished-dependency-is-refused w artifact src)
         w (an-untrusted-principal-is-refused-on-every-vm w artifact)
         w (a-trusted-principal-is-allowed-on-every-vm w artifact)
         w (an-allow-binds-the-address-the-question-was-asked-about
-            w artifact)]
+            w artifact)
+        w (republished-dependency-is-refused w artifact src)]
     (dht/close! (:pub w))
     (dht/close! (:reader w))))
 
