@@ -20,7 +20,7 @@
             [yin.vm.engine :as engine]
             [yin.vm.ucf.authority :as authority]
             [yin.vm.ucf.compose :as compose]
-            [yin.vm.ucf.lift-support :as s]))
+            [yin.vm.ucf.rows-support :as s]))
 
 
 ;; =============================================================================
@@ -252,7 +252,8 @@
   No authority, no judge, no fronts: the composition's own decision.
   Public: the no-yin.repl subprocess drives it."
   []
-  (compose/open! {:mode :fork
+  (compose/open! {:source-index (fn [] @s/source-index)
+                  :mode :fork
                   :renewal-interval {:s 10}
                   :store (mem/create-content-mem)
                   :diagnostics (log-writer)
@@ -292,7 +293,8 @@
         clock (atom {:s 1})
         store (or store (mem/create-content-mem))
         prog (int-stream "prog-c")
-        opened (compose/open! {:mode :exclusive
+        opened (compose/open! {:source-index (fn [] @s/source-index)
+                               :mode :exclusive
                                :failure-model :process-crash
                                :backend backend
                                :duration {:s 30}
@@ -336,7 +338,8 @@
   (`close-reconstruction!`)."
   [{:keys [dir store clock journals source-config]}]
   (let [backend (get (file-journal/backend! dir) ::file-journal/backend)
-        opened (compose/open! {:mode :exclusive
+        opened (compose/open! {:source-index (fn [] @s/source-index)
+                               :mode :exclusive
                                :failure-model :process-crash
                                :backend backend
                                :duration {:s 30}
@@ -405,7 +408,8 @@
 
 
 (deftest exclusive-on-a-memory-authority-is-refused-not-forked-test
-  (let [opened (compose/open! {:mode :exclusive
+  (let [opened (compose/open! {:source-index (fn [] @s/source-index)
+                               :mode :exclusive
                                :failure-model :process-crash
                                :backend (journal/memory-backend (atom []) nil)
                                :duration {:s 30}
@@ -430,7 +434,8 @@
     (is (= :none (get-in opened [:dao.stream.journal/durability
                                  :dao.stream.journal/failure-model])))
     (testing "a stronger required model is refused the same way -- at the substrate no backend covers"
-      (let [power (compose/open! {:mode :exclusive
+      (let [power (compose/open! {:source-index (fn [] @s/source-index)
+                                  :mode :exclusive
                                   :failure-model :power-loss
                                   :backend (journal/memory-backend
                                              (atom []) nil)
@@ -611,7 +616,7 @@
                               :get-bytes-fn (fn [_ _bs] nil)}
                       :medium "smuggled-medium"
                       :units {}
-                      :export-version 99
+                      :source-index (fn [] {})
                       :journals (compose/memory-journals (atom {}))}]
         (doseq [[k v] smuggled]
           (is (thrown-with-msg?
@@ -674,9 +679,28 @@
         (cleanup-world! w)))))
 
 
+(deftest a-source-index-is-checked-at-open-test
+  (doseq [mode [:fork :exclusive]
+          index [nil {}]]
+    (let [cfg {:mode mode :source-index index
+               :renewal-interval {:s 10}
+               :store (mem/create-content-mem)
+               :diagnostics (log-writer)
+               :medium "compose-test"
+               :clock (fn [] {:s 1})
+               :failure-model :process-crash
+               :backend (journal/memory-backend (atom []) nil)
+               :duration {:s 30}}]
+      (is (thrown-with-msg?
+            #?(:cljd Object :clj Exception :cljs js/Error)
+            #"source index"
+            (compose/open! (if (nil? index) (dissoc cfg :source-index) cfg)))))))
+
+
 (deftest a-journal-substrate-is-checked-at-open-test
   (let [open! (fn [journals]
-                (compose/open! {:mode :fork
+                (compose/open! {:source-index (fn [] @s/source-index)
+                                :mode :fork
                                 :renewal-interval {:s 10}
                                 :store (mem/create-content-mem)
                                 :diagnostics (log-writer)
@@ -684,7 +708,8 @@
                                 :clock (fn [] {:s 1})
                                 :journals journals}))
         exclusive! (fn [journals]
-                     (compose/open! {:mode :exclusive
+                     (compose/open! {:source-index (fn [] @s/source-index)
+                                     :mode :exclusive
                                      :failure-model :process-crash
                                      :backend (journal/memory-backend
                                                 (atom []) nil)
@@ -736,7 +761,8 @@
 
 (deftest an-exclusive-composition-refuses-substrate-journals-that-cannot-cover-its-failure-model-test
   (let [open! (fn [failure-model journals]
-                (compose/open! {:mode :exclusive
+                (compose/open! {:source-index (fn [] @s/source-index)
+                                :mode :exclusive
                                 :failure-model failure-model
                                 :backend (journal/memory-backend (atom []) nil)
                                 :duration {:s 30}
@@ -783,7 +809,8 @@
         authority (get (file-journal/backend! authority-root)
                        ::file-journal/backend)
         open! (fn [journals]
-                (compose/open! {:mode :exclusive
+                (compose/open! {:source-index (fn [] @s/source-index)
+                                :mode :exclusive
                                 :failure-model :process-crash
                                 :backend authority
                                 :duration {:s 30}
@@ -943,7 +970,8 @@
         (close-reconstruction! rebuilt)
         (testing "a restart that mints a fresh reply journal is refused"
           (let [backend' (get (file-journal/backend! (:dir w)) ::file-journal/backend)
-                opened (compose/open! {:mode :exclusive
+                opened (compose/open! {:source-index (fn [] @s/source-index)
+                                       :mode :exclusive
                                        :failure-model :process-crash
                                        :backend backend'
                                        :duration {:s 30}
@@ -1092,3 +1120,20 @@
            (str "a fresh process loads and drives the composition with "
                 "no yin.repl namespace; its output was: "
                 (pr-str (vec output)))))))
+
+
+(deftest the-source-index-is-read-from-the-composition-test
+  (let [calls (atom 0)
+        c (assoc (get (fork-world) ::compose/composition)
+                 :source-index (fn [] (swap! calls inc) {}))
+        c (compose/source c "h1"
+                          (merge (holder-seams "prog-index" {})
+                                 {:machine (parked-reader-over (int-stream "prog-index"))}))
+        c (reduce (fn [c _] (compose/step c)) c (range 8))
+        st (get-in c [:holders "h1"])]
+    (is (pos? @calls) "the driver's source index comes from the composition")
+    (is (= :yin.k/unsatisfied (:status st)))
+    (is (= :export-refused (get-in st [:detail :yin.k/reason])))
+    (is (nil? (:machine st)))
+    (is (empty? (inbound-requests (get-in c [:inbounds "h1"]) :yin.k/offer)))
+    (compose/close! c)))

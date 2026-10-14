@@ -48,7 +48,7 @@
   (:require [dao.jing.cbor :as cbor]
             [dao.stream :as stream]
             [yin.vm.ucf.authority :as authority]
-            [yin.vm.ucf.checkpoint :as checkpoint]
+            [yin.vm.ucf.rows.checkpoint :as checkpoint]
             [yin.vm.ucf.custody :as custody]
             [yin.vm.ucf.ledger :as ledger]))
 
@@ -184,7 +184,7 @@
 
 (defn member?
   "True when op id `op` is carried in operation baseline `b`
-   (yin.vm.ucf.checkpoint): by the root or any install child.  Ids
+   (yin.vm.ucf.rows.checkpoint): by the root or any install child.  Ids
    compare by canonical content."
   [b op]
   (let [k (cbor/content-key op)]

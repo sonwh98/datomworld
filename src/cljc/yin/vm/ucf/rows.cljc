@@ -29,6 +29,7 @@
             [yin.vm.semantic-register.code :as code]
             [yin.vm.semantic-register.frame :as frame]
             [yin.vm.semantic-register.scan :as scan]
+            [yin.vm.ucf.custody :as custody]
             [yin.vm.ucf.remote :as remote]))
 
 
@@ -708,6 +709,16 @@
       (if-let [refused (:refused r)] (unresolved! refused path) (:numbering r)))))
 
 
+(defn- pack
+  "The carrier of root id over the row map rows, sorted by row id. Ids are
+   BLAKE3 segment keywords of one length, so their printed order is their
+   byte order: one root gives one pack, and one pack address, on every
+   host (phase-7 plan §3.3)."
+  [id rows]
+  {:yin.k/handoff true :yin.k/version 3 :yin.k/root id
+   :yin.k/rows (mapv val (sort-by #(str (key %)) rows))})
+
+
 (defn emit-numbered
   "Emit under a supplied numbering. Useful for canonicality probes;
    ordinary callers use emit, which computes the canonical numbering.
@@ -716,7 +727,7 @@
   ([task numbering] (emit-numbered task numbering (child-numberer default-budget)))
   ([task numbering number-child]
    (let [[id rows] (emit-node task numbering {} [] number-child)]
-     {:yin.k/handoff true :yin.k/version 3 :yin.k/root id :yin.k/rows (vec (vals rows))})))
+     (pack id rows))))
 
 
 (defn emit
@@ -726,7 +737,7 @@
   ([task budget]
    (let [budget (merge default-budget budget)
          [id rows] (emit-node task (canonical-numbering task budget) {} [] (child-numberer budget))]
-     {:yin.k/handoff true :yin.k/version 3 :yin.k/root id :yin.k/rows (vec (vals rows))})))
+     (pack id rows))))
 
 
 (defn- structural?
@@ -895,12 +906,17 @@
            (walk root #{} 0)
            (when-not (= @seen (set (keys index))) (bad! :unreachable-row [:yin.k/rows]))))
        (doseq [[id & body] rs]
-         (when-not (and (= :blake3 (:algorithm (jing/parse-segment-address id)))
-                        (= id (jing/segment-key (vec body))))
+         ;; Carrier row identities are fixed by the profile, unlike store addresses.
+         ;; Numbering would also refuse a non-BLAKE3 row as noncanonical cursor
+         ;; cells; this check names the algorithm defect before hashing and numbering.
+         (when-let [algorithm (:algorithm (jing/parse-segment-address id))]
+           (when-not (= :blake3 algorithm)
+             (bad! :row-algorithm [id])))
+         (when-not (jing/segment-matches? id (vec body))
            (refuse! :yin.k/hash-mismatch :row [id])))
        (doseq [[id kind & slots] rs :when (= :task kind)]
          (doseq [[address v] (nth slots 11)]
-           (when-not (= address (jing/segment-key v))
+           (when-not (jing/segment-matches? address v)
              (refuse! :yin.k/hash-mismatch :code [id 11 address]))
            (when (code/well-formed? v) (bad! :code [id 11 address]))))
        (doseq [[_ kind & slots] rs
@@ -1039,7 +1055,7 @@
                                                     (get pending-keys reason) (get pending-table reason))))])
                 state)
          [id rows] (emit-node root {} {})]
-     {:yin.k/handoff true :yin.k/version 3 :yin.k/root id :yin.k/rows (vec (vals rows))})))
+     (pack id rows))))
 
 
 (defn- decode-keyed
@@ -1127,6 +1143,178 @@
 
 
 ;; =============================================================================
+;; Custody (draft §5.5 as ruled, UCF 7.2.1, 7.4.3, 7.7.8; phase-7 plan §3.1, §3.3)
+;; =============================================================================
+;;
+;; The root's slot 16 is the custody arm as plain data, by kind: nil for a
+;; fork root of any kind (owner, 2026-10-13: the fork is never spelled);
+;; {:yin.k/policy :yin.k/exclusive :yin.k/occurrence :yin.k/arbitration
+;; :yin.k/next-op-seq} plus :yin.k/origin on a successor for a blocked or
+;; parked exclusive root; {:yin.k/origin} alone for a halted exclusive
+;; root; nil on every install child. No other key: lease, epoch and holder
+;; never enter a body. `custody-baseline` is the one grammar over a task's
+;; slot and its carried operation ids: the rows inspector
+;; (yin.vm.ucf.rows.checkpoint) answers it, lower-task's custody stage runs
+;; it before the grant checks, and lift-task runs it before emitting.
+;; Refusals are :yin.k/undecodable with a path relative to the root task:
+;; [:custody k] for the slot, [:frames i :op-id] for a wait's id, both
+;; prefixed by [:installs <name>] inside an install child.
+
+(def max-exact
+  "2^52-1, the largest sequence or counter (7.7.8)."
+  4503599627370495)
+
+
+(def ^:private custody-keys
+  #{:yin.k/policy :yin.k/occurrence :yin.k/arbitration :yin.k/next-op-seq :yin.k/origin})
+
+
+(def write-slots
+  "Retained write reason -> [target payload op-id], indices into its
+   :pending row's slots (the reason at 0)."
+  {:put [1 2 3] :ffi-request [3 2 6] :link-request [3 6 7]})
+
+
+(defn- custody-refuse!
+  [kind path]
+  (refuse! :yin.k/undecodable kind path))
+
+
+(defn- check-origin!
+  [c]
+  (let [origin (get c :yin.k/origin) p [:custody :yin.k/origin]]
+    (when-not (and (map? origin)
+                   (custody/occurrence? (get origin :yin.k/occurrence))
+                   (some? (get origin :dao.lease/lease))
+                   (some? (get origin :yin.k/emitter)))
+      (custody-refuse! :malformed-origin p))
+    (when (cbor/content= (get origin :yin.k/occurrence) (get c :yin.k/occurrence))
+      (custody-refuse! :origin-is-self (conj p :yin.k/occurrence)))))
+
+
+(defn- check-root-custody!
+  "A non-nil root slot by kind: the version-1 header rules
+   (checkpoint.cljc's check-root-header!) on the slot's map."
+  [c kind]
+  (when-not (map? c) (custody-refuse! :malformed-custody [:custody]))
+  (when-some [k (first (sort-by str (remove custody-keys (keys c))))]
+    (custody-refuse! :custody-key [:custody k]))
+  (if (= :halted kind)
+    (do (doseq [k [:yin.k/policy :yin.k/occurrence :yin.k/arbitration :yin.k/next-op-seq]
+                :when (contains? c k)]
+          (custody-refuse! :halted-header [:custody k]))
+        (when-not (contains? c :yin.k/origin) (custody-refuse! :missing-header [:custody :yin.k/origin]))
+        (check-origin! c))
+    (do (doseq [k [:yin.k/policy :yin.k/occurrence :yin.k/arbitration :yin.k/next-op-seq]
+                :when (not (contains? c k))]
+          (custody-refuse! :missing-header [:custody k]))
+        (when-not (= :yin.k/exclusive (get c :yin.k/policy))
+          (custody-refuse! :policy [:custody :yin.k/policy]))
+        (when (nil? (get c :yin.k/occurrence)) (custody-refuse! :nil-occurrence [:custody :yin.k/occurrence]))
+        (when-not (custody/occurrence? (get c :yin.k/occurrence))
+          (custody-refuse! :malformed-occurrence [:custody :yin.k/occurrence]))
+        (let [arb (get c :yin.k/arbitration)]
+          (when-not (and (map? arb) (some? (get arb :dao.stream/identity)) (map? (get arb :dao.stream/descriptor)))
+            (custody-refuse! :malformed-arbitration [:custody :yin.k/arbitration])))
+        (let [n (get c :yin.k/next-op-seq)]
+          (when-not (custody/exact? n) (custody-refuse! :inexact [:custody :yin.k/next-op-seq]))
+          (when (and (not (contains? c :yin.k/origin)) (not (cbor/num= 0 n)))
+            (custody-refuse! :first-export-counter [:custody :yin.k/next-op-seq])))
+        (when (contains? c :yin.k/origin) (check-origin! c)))))
+
+
+(defn- check-op-id!
+  "One carried id against the root context: its shape, an origin present,
+   never the root's own occurrence, below the root counter (checkpoint.cljc's
+   check-op-id!, verbatim)."
+  [ctx op-id p]
+  (when-not (and (map? op-id) (= 2 (count op-id))
+                 (custody/occurrence? (get op-id :yin.k/occurrence))
+                 (contains? op-id :yin.k/seq))
+    (custody-refuse! :malformed-op-id p))
+  (when-not (custody/exact? (get op-id :yin.k/seq)) (custody-refuse! :inexact (conj p :yin.k/seq)))
+  (when-not (contains? ctx :yin.k/origin) (custody-refuse! :op-id-without-origin p))
+  (when (cbor/content= (get op-id :yin.k/occurrence) (get ctx :yin.k/occurrence))
+    (custody-refuse! :op-id-own-occurrence p))
+  ;; a :halted root has no counter, so no id can be below it
+  (when-not (and (contains? ctx :yin.k/next-op-seq)
+                 (neg? (cbor/num-compare (get op-id :yin.k/seq) (get ctx :yin.k/next-op-seq))))
+    (custody-refuse! :op-seq-range (conj p :yin.k/seq))))
+
+
+(defn- wire-slot
+  "A V slot as the wire holds it: a [:row n] is [:row id]."
+  [x]
+  (if (and (vector? x) (= :row (first x))) [:row (first (emit-node (second x) {} {}))] x))
+
+
+(defn- task-ops
+  "[path op-id intent] of every id the waits of task carry, then of each
+   install child in carried (module-name) order, in the root's context.
+   Checks each task's kind and role, each :install pending's install row,
+   and that a child's custody slot is nil."
+  [ctx task role path]
+  (let [[_ _ kind role' _ _ _ _ _ _ _ _ installs waits] (:slots task)
+        names (into #{} (map #(first (:slots %))) installs)]
+    (when-not (contains? #{:blocked :parked :halted} kind) (custody-refuse! :kind (conj path :kind)))
+    (when-not (= role role') (custody-refuse! :role (conj path :role)))
+    (into (into []
+                (keep-indexed
+                  (fn [i w]
+                    (let [ss (:slots (second (:slots w)))
+                          reason (first ss)
+                          p (conj path :frames i)]
+                      (when (and (= :install reason) (not (contains? names (second ss))))
+                        (custody-refuse! :incomplete-install p))
+                      (when-let [[t payload o] (get write-slots reason)]
+                        (when-some [op-id (nth ss o)]
+                          (let [p (conj p :op-id)]
+                            (when (::fork ctx) (custody-refuse! :fork-op-id p))
+                            (check-op-id! ctx op-id p)
+                            [p op-id [:yin.k/append (first (:slots (nth ss t))) (wire-slot (nth ss payload))]]))))))
+                waits)
+          (mapcat (fn [inst]
+                    (let [[mn _ _ _ child] (:slots inst)
+                          p (conj path :installs mn)]
+                      (when (some? (nth (:slots child) 16)) (custody-refuse! :child-header (conj p :custody)))
+                      (task-ops ctx child :child p))))
+          installs)))
+
+
+(defn custody-baseline
+  "The operation baseline of root task (decoded, or abstract before emit),
+   or the first refusal thrown as ex-data {:yin.k/status :yin.k/undecodable
+   :yin.k/kind :yin.k/path}. Answers {:yin.k/kind k :yin.k/ops {op-id
+   digest}} plus the slot's :yin.k/occurrence, :yin.k/origin,
+   :yin.k/arbitration and :yin.k/next-op-seq, or :yin.k/fork true for a nil
+   slot, whose tree carries no id. digest is the BLAKE3 hex of the canonical
+   bytes of [:yin.k/append target-identity payload], the payload as the wire
+   slot holds it ([:lit x], [:row id], or a :link-request's plain envelope)."
+  [task]
+  (let [slots (:slots task) kind (nth slots 2) c (nth slots 16) fork? (nil? c)]
+    (when-not (contains? #{:blocked :parked :halted} kind) (custody-refuse! :kind [:kind]))
+    (when-not fork? (check-root-custody! c kind))
+    (let [ctx (cond-> (select-keys c [:yin.k/occurrence :yin.k/origin :yin.k/next-op-seq]) fork? (assoc ::fork true))
+          ops (reduce (fn [acc [p op-id in]]
+                        (let [k (cbor/content-key op-id)]
+                          (when (contains? (:seen acc) k) (custody-refuse! :duplicate-op-id p))
+                          (-> acc (update :seen conj k)
+                              (assoc-in [:ops op-id] (jing/digest-bytes :blake3 (cbor/encode in))))))
+                      {:seen #{} :ops {}}
+                      (task-ops ctx task :root []))]
+      (cond-> (merge (select-keys c [:yin.k/occurrence :yin.k/origin :yin.k/arbitration :yin.k/next-op-seq])
+                     {:yin.k/kind kind :yin.k/ops (:ops ops)})
+        fork? (assoc :yin.k/fork true)))))
+
+
+(defn pack-address
+  "The storage identity of a carrier: the BLAKE3 segment address of its
+   canonical bytes, distinct from the semantic root id it carries (§3.3)."
+  [wire]
+  (jing/segment-key wire))
+
+
+;; =============================================================================
 ;; Task transport (continuation design §7): lift-task and lower-task
 ;; =============================================================================
 ;;
@@ -1165,13 +1353,15 @@
 
 
 (defn- stream-row!
-  "The :stream row of resource sid, served once per resource."
+  "The :stream row of resource sid, served once per resource: through
+   :serve-keyed with [task-path sid] when the caller supplied it."
   [ctx sid]
   (or (get-in @(:acc ctx) [:streams sid])
-      (let [h (get (:resources (:m ctx)) sid)]
+      (let [h (get (:resources (:m ctx)) sid)
+            keyed (:serve-keyed ctx)]
         (when (nil? h)
           (outcome! :yin.k/non-portable :forged-resource-reference {:yin.k/hint sid}))
-        (let [marker (remote/lift-marker (:serve! ctx) h)]
+        (let [marker (remote/lift-marker (if keyed #(keyed [(:path ctx) sid] %) (:serve! ctx)) h)]
           (when (nil? marker) (outcome! :yin.k/unsatisfied nil {}))
           (let [n (node :stream [(:dao.stream/identity marker) (:dao.stream/descriptor marker)])]
             (swap! (:acc ctx) assoc-in [:streams sid] n)
@@ -1448,7 +1638,8 @@
                    (catch #?(:cljd Object :clj Throwable :cljs :default) _e false))
       (outcome! :yin.k/non-portable :install-response {:yin.k/name mn}))
     (node :install [mn phase parent response
-                    (lift-task* (:vm inst) (:serve! ctx) (dissoc opts :free-env) :child)])))
+                    (lift-task* (:vm inst) (:serve! ctx)
+                                (assoc (dissoc opts :free-env) :path (conj (:path ctx) mn)) :child)])))
 
 
 (defn- lift-task*
@@ -1469,7 +1660,8 @@
         free-env (cond (some? (:free-env opts)) (:free-env opts)
                        (some? (:free-env m)) (:free-env m)
                        :else (outcome! :yin.k/non-portable :missing-free-env {}))
-        ctx {:m m :serve! serve! :acc (atom {:streams {} :cells {} :stores #{} :segments #{} :contexts #{}})}
+        ctx {:m m :serve! serve! :serve-keyed (:serve-keyed opts) :path (or (:path opts) [])
+             :acc (atom {:streams {} :cells {} :stores #{} :segments #{} :contexts #{}})}
         free-node (bindings-node ctx free-env)
         waits (mapv (fn [e] (node :wait [(state-node ctx e) (pending-node ctx e)])) (:wait-set m))
         parked (node :parked-table (mapcat (fn [[p rec]] [p (state-node ctx rec)]) (:parked m)))
@@ -1501,6 +1693,45 @@
     task))
 
 
+(declare task-tree)
+
+
+(defn- header-custody
+  "The root's custody slot from the caller's header, by kind: blocked or
+   parked takes the occurrence, arbitration, counter and the exclusive
+   policy, and the origin when the header names one; halted the origin
+   alone (an empty map without one, which the grammar refuses). A nil
+   value is an absent key (handoff.cljc's header-of)."
+  [header kind]
+  (into {}
+        (filter (comp some? val))
+        (if (= :halted kind)
+          (select-keys header [:yin.k/origin])
+          (assoc (select-keys header [:yin.k/occurrence :yin.k/arbitration :yin.k/next-op-seq :yin.k/origin])
+                 :yin.k/policy :yin.k/exclusive))))
+
+
+(defn- protect!
+  "Every retained write of the tree under the header's enrolled set (UCF
+   7.4.3, 7.7.8; handoff.cljc's protected!): an enrolled target without an
+   operation id is :unprotected-pending, an id on an unenrolled target is
+   :yin.k/unsatisfied naming the stream."
+  [task enrolled]
+  (doseq [[t _] (task-tree task :root)
+          w (nth (:slots t) 13)]
+    (let [ss (:slots (second (:slots w)))]
+      (when-let [[ti _ oi] (get write-slots (first ss))]
+        (let [identity (first (:slots (nth ss ti)))
+              enrolled? (contains? enrolled identity)
+              carried? (some? (nth ss oi))]
+          (cond
+            (and enrolled? (not carried?))
+            (outcome! :yin.k/non-portable :unprotected-pending {:dao.stream/identity identity})
+            (and carried? (not enrolled?))
+            (outcome! :yin.k/unsatisfied nil {:dao.stream/identity identity})
+            :else nil))))))
+
+
 (defn lift-task
   "The lift of §7.1: quiescent semantic-register machine m as a version-3
    carrier, or a refusal thrown as ex-data {:yin.k/status :yin.k/kind}.
@@ -1508,11 +1739,34 @@
    opts: :free-env, the task's initial free environment (default: the
    kernel's retained :free-env field; the explicit value overrides it);
    :source-index, {A #{tree-address}} the composition knows (§6.1), which
-   must cover every carried segment; :budget, the numbering budget."
+   must cover every carried segment; :budget, the numbering budget;
+   :header, the exclusive custody header (occurrence, arbitration,
+   next-op-seq, origin when the task has a predecessor, and
+   :yin.k/enrolled, the enrolled stream identities, a lift input that
+   never travels); :serve-keyed, (f [task-path resource-id] handle), which
+   replaces serve! and is asked once per resource of each task, the task
+   path being the install names from the root ([] for the root itself),
+   so a caller can retain each answer under its key (holder.export's
+   record). No header is the fork: custody nil. A header writes the
+   root's slot by kind (header-custody), refuses :op-seq-exhausted at
+   2^52-1 on a blocked or parked root, and protects every retained write
+   of the tree (protect!). Before emitting, the lift runs custody-baseline
+   over the task, so it never emits a carrier the inspector refuses."
   ([m serve!] (lift-task m serve! {}))
   ([m serve! opts]
-   (let [opts (or opts {})]
-     (emit (lift-task* m serve! opts :root) (merge default-budget (:budget opts))))))
+   (let [opts (or opts {})
+         header (:header opts)
+         task (lift-task* m serve! opts :root)
+         kind (nth (:slots task) 2)
+         task (if (nil? header)
+                task
+                (let [n (:yin.k/next-op-seq header)]
+                  (when (and (not= :halted kind) (cbor/numeric? n) (cbor/num= n max-exact))
+                    (outcome! :yin.k/non-portable :op-seq-exhausted {:yin.k/next-op-seq n}))
+                  (protect! task (or (:yin.k/enrolled header) #{}))
+                  (assoc-in task [:slots 16] (header-custody header kind))))]
+     (custody-baseline task)
+     (emit task (merge default-budget (:budget opts))))))
 
 
 (def ^:private fixed-resource-keys
@@ -1573,10 +1827,15 @@
 (defn- check-install!
   "One install record: a phase the engine holds a carried child in, the
    retained response link-install reads (status, manifest naming this
-   module, exports) with the image spawn-child loads, and a child that
-   is blocked: the engine links a halted child in the sweep it halts in."
+   module, exports) with the image spawn-child loads, the response's link
+   id equal to the row's parent (the engine settles only the response of
+   its own link), the image the manifest names (continuation §11 Q3: the
+   manifest's :yin.semantic/code derivation record is the response's
+   :derivation, from the manifest's tree to the image's A), and a child
+   that is blocked: the engine links a halted child in the sweep it
+   halts in."
   [recv inst]
-  (let [[mn phase _ response child] (:slots inst)
+  (let [[mn phase parent response child] (:slots inst)
         manifest (when (map? response) (:manifest response))
         child-kind (nth (:slots child) 2)]
     (when-not (contains? #{:running :parked} phase)
@@ -1586,6 +1845,14 @@
                    (coll? (:yin.module/exports manifest)) (every? symbol? (:yin.module/exports manifest))
                    (map? (:image response)) (attaches? recv (:value (:image response)) nil))
       (outcome! :yin.k/undecodable :install-response {:yin.k/name mn}))
+    (when-not (and (some? parent) (= parent (:yin.link/id response)))
+      (outcome! :yin.k/undecodable :install-link-id {:yin.k/name mn}))
+    (let [record (:derivation response)]
+      (when-not (and (map? record)
+                     (jing/segment-matches? (get-in manifest [:yin.module/derivations :yin.semantic/code]) record)
+                     (= (:yin.ledger/input record) (:yin.module/tree manifest))
+                     (jing/segment-matches? (:yin.ledger/output record) (:value (:image response))))
+        (outcome! :yin.k/undecodable :install-image {:yin.k/name mn})))
     (when-not (= :blocked child-kind)
       (outcome! :yin.k/undecodable :install-child {:yin.k/name mn :yin.k/task-kind child-kind}))))
 
@@ -1655,11 +1922,128 @@
         (outcome! :yin.k/unsatisfied nil {:yin.k/name (first (:slots p))})))))
 
 
+(defn- accept-grant!
+  "The grant checks of a blocked or parked exclusive root (handoff.cljc's
+   accept-grant!, ported verbatim, keyed off the root's custody slot c and
+   the carrier's pack address): evidence, binding, lease, holder,
+   arbitration, epoch, tenure and the input prefix; then protection in both
+   directions over every stream row of the tree, and op-id presence equal
+   to enrollment on every retained write. Answers the custody state the
+   restored root holds, its counter the slot's exactly."
+  [task c address opts]
+  (let [grant (:grant opts)
+        evidence (:evidence grant)]
+    (when-not (and (or (nil? grant) (map? grant))
+                   (or (nil? evidence) (map? evidence)))
+      (throw (ex-info "Malformed lower grant or evidence" {})))
+    (when-not evidence
+      (outcome! :yin.k/awaiting-grant nil {}))
+    (when-not (= :yin.k/ready (:yin.k/status evidence))
+      (outcome! (if (= :yin.k/awaiting-grant (:yin.k/status evidence))
+                  :yin.k/awaiting-grant :yin.k/unsatisfied)
+                nil (dissoc evidence :yin.k/status)))
+    (let [binding (:yin.k/binding evidence)
+          prefix (:yin.k/prefix evidence)
+          tenure (:tenure grant)
+          occurrence (:yin.k/occurrence c)
+          lease (:dao.lease/lease grant)
+          holder (:dao.lease/holder grant)
+          frontier (:yin.k/frontier prefix)
+          records (:yin.k/inputs prefix)]
+      (when-not (and (map? binding) (map? tenure))
+        (throw (ex-info "Malformed lower binding or tenure" {})))
+      (when (or (nil? prefix) (:yin.k/status prefix))
+        (outcome! :yin.k/unsatisfied nil {:yin.k/reason (or (:yin.k/reason prefix) :unavailable)}))
+      (when-not (and (= (:checkpoint grant) address)
+                     (= occurrence (:yin.k/occurrence binding))
+                     (some? lease) (= lease (:dao.lease/lease binding))
+                     (some? holder) (= holder (:dao.lease/holder binding))
+                     (= (get-in c [:yin.k/arbitration :dao.stream/identity])
+                        (get-in binding [:yin.k/transaction :yin.k/arbitration]))
+                     (custody/exact? (:yin.k/epoch binding))
+                     (true? (:live tenure))
+                     (number? (:now tenure)) (number? (:bound tenure))
+                     (< (:now tenure) (:bound tenure))
+                     (= occurrence (:yin.k/occurrence prefix))
+                     (= lease (:dao.lease/lease prefix))
+                     (custody/exact? frontier) (vector? records)
+                     (= frontier (count records))
+                     (every? true? (map-indexed
+                                     (fn [index record]
+                                       (and (custody/exact? (:yin.k/input-seq record))
+                                            (= index (:yin.k/input-seq record))))
+                                     records)))
+        (outcome! :yin.k/not-holder nil {}))
+      (let [classes (:protection opts)
+            enrolled (:yin.k/enrolled evidence)]
+        (when-not (and (map? classes)
+                       (every? #{:enrolled :at-least-once :fail-stop} (vals classes))
+                       (set? enrolled))
+          (throw (ex-info "Malformed lower protection or enrollment" {})))
+        (doseq [s (rows-of task :stream false)]
+          (let [identity (first (:slots s))
+                class (get classes identity)]
+            (when-not (and class (= (= class :enrolled) (contains? enrolled identity)))
+              (outcome! :yin.k/unsatisfied nil {:dao.stream/identity identity}))))
+        (doseq [[t _] (task-tree task :root)
+                w (nth (:slots t) 13)
+                :let [ss (:slots (second (:slots w)))
+                      [ti _ oi] (get write-slots (first ss))]
+                :when ti]
+          (let [identity (first (:slots (nth ss ti)))]
+            (when-not (= (= :enrolled (get classes identity)) (some? (nth ss oi)))
+              (outcome! :yin.k/unsatisfied nil {:dao.stream/identity identity}))))
+        {:yin.k/occurrence occurrence
+         :dao.lease/lease lease :dao.lease/holder holder
+         :yin.k/epoch (:yin.k/epoch binding)
+         :yin.k/arbitration (:yin.k/arbitration c)
+         :yin.k/next-op-seq (:yin.k/next-op-seq c)
+         :protection classes :input {:next 0 :prefix prefix}
+         :tenure {:bound (:bound tenure)}}))))
+
+
 (defn- check-custody!
-  "Step 10: phase 6 carries fork custody only."
-  [_recv task _role]
-  (when (some? (nth (:slots task) 16))
-    (outcome! :yin.k/unsupported :custody {})))
+  "Step 10, once for the tree after the three staged checks: the custody
+   grammar (custody-baseline), then by the root's slot: a fork (nil) is
+   refused under :exclusive as :yin.k/profile-mismatch; an exclusive
+   blocked or parked root runs the grant checks unless :fenced (an
+   administrative rehydration: no grant, gate :exporting); a halted
+   exclusive root needs no grant and is gated :ended. Answers
+   {:exclusive? :fenced? :state}, which restore applies to every task."
+  [task wire opts]
+  (custody-baseline task)
+  (let [[_ _ kind] (:slots task) c (nth (:slots task) 16) fenced? (boolean (:fenced opts))]
+    (if (nil? c)
+      (do (when (:exclusive opts)
+            (outcome! :yin.k/profile-mismatch nil {:yin.k/policy :yin.k/exclusive}))
+          {:exclusive? false :fenced? fenced?})
+      {:exclusive? true :fenced? fenced?
+       :state (when-not (or fenced? (= :halted kind)) (accept-grant! task c (pack-address wire) opts))})))
+
+
+(defn- with-custody
+  "Restore's custody for one task of the tree: an exclusive tree numbers
+   its retained :put waits (:yin.k/issue, :yin.k/issued, in carried
+   order) and gates :running, a halted exclusive root :ended, the root
+   holding the grant's custody state; a fenced tree gates :exporting with
+   its waits and every parked record outside the scheduler
+   (:yin.k/recovery-waits, :yin.k/recovery-parked), the shape
+   holder.export's exporting machine has."
+  [m {:keys [exclusive? fenced? state]} kind root?]
+  (let [m (if exclusive?
+            (let [[entries issued] (reduce (fn [[acc i] e]
+                                             (if (= :put (:reason e))
+                                               [(conj acc (assoc e :yin.k/issue i)) (inc i)]
+                                               [(conj acc e) i]))
+                                           [[] 0] (:wait-set m))]
+              (cond-> (assoc m :wait-set entries :yin.k/issued issued
+                             :yin.k/gate (if (and root? (= :halted kind)) :ended :running))
+                (and root? (some? state)) (assoc :yin.k/custody state)))
+            m)]
+    (if fenced?
+      (assoc m :yin.k/gate :exporting :yin.k/recovery-waits (:wait-set m) :wait-set []
+             :yin.k/recovery-parked (:parked m) :parked {})
+      m)))
 
 
 (defn- attach-streams!
@@ -1677,24 +2061,30 @@
 
 (defn- spawn-child
   "A fresh install child of recv's composition (the engine's spawn
-   discipline): answers [child recv']."
-  [recv response mn]
+   discipline): answers [child recv']. A fenced rehydration spawns it
+   without the stream constructor, so the child's construction creates no
+   stream (its default call pair): rehydration initializes nothing. The
+   constructor is the child's again afterwards."
+  [recv response mn fenced?]
   (let [n (or (:origins recv) 0)
         origin (keyword (str (name (or (:origin recv) :t0)) "." n))
         registry (reduce (fn [r [m e]] (module/assoc-module r m (dissoc e :bindings)))
                          (:modules recv) (module/module-entries (:modules recv)))
-        source (:secret-source recv)]
-    [(module/spawn-module recv (:value (:image response))
-                          {:modules registry :origin origin
-                           :ancestry (conj (vec (:ancestry recv)) mn)
-                           :capability-secret (when (fn? source) (source origin))})
+        source (:secret-source recv)
+        child (module/spawn-module (cond-> recv fenced? (assoc :make-stream nil))
+                                   (:value (:image response))
+                                   {:modules registry :origin origin
+                                    :ancestry (conj (vec (:ancestry recv)) mn)
+                                    :capability-secret (when (fn? source) (source origin))})]
+    [(cond-> child fenced? (assoc :make-stream (:make-stream recv)))
      (assoc recv :origins (inc n))]))
 
 
 (defn- restore-task
   "Step 12 for one task: code by A, fresh resource keys, values re-sealed
-   under recv, waits as engine entries, parked records, installs."
-  [recv task handles]
+   under recv, waits as engine entries, parked records, installs, and the
+   custody check-custody! answered (with-custody)."
+  [recv task handles custody root?]
   (let [[_ _ kind _ id-counter free-env store module-stores parked census _ code installs waits parked-id result]
         (:slots task)
         base (reduce (fn [r [_ v]] (module/attach-module r v))
@@ -1812,9 +2202,9 @@
                        waits)
             [base installs'] (reduce (fn [[r acc] inst]
                                        (let [[mn phase parent response child] (:slots inst)
-                                             [spawned r'] (spawn-child r response mn)]
+                                             [spawned r'] (spawn-child r response mn (:fenced? custody))]
                                          [r' (assoc acc mn {:phase phase :parent parent :response response
-                                                            :vm (restore-task spawned child handles)})]))
+                                                            :vm (restore-task spawned child handles custody false)})]))
                                      [base {}] installs)
             fe (keyed free-env)
             resources (merge (:resources base)
@@ -1826,29 +2216,52 @@
                              (when-let [[req resp] link]
                                {module/link-request-resource (get handles (first (:slots req)))
                                 module/link-response-resource (get handles (first (:slots resp)))}))
-            machine (assoc base :store store' :module-stores stores :parked parked' :installs installs'
-                           :resources resources :env fe :free-env fe :window {} :k nil :control nil
-                           :ready-queue [] :id-counter (max (or (:id-counter base) 0) id-counter))]
-        (case kind
-          :halted (assoc machine :halted? true :blocked? false :value (value result) :wait-set [])
-          :parked (assoc machine :halted? true :blocked? false :value (get parked' parked-id) :wait-set entries)
-          (assoc machine :halted? false :blocked? true :value :yin/blocked :wait-set entries))))))
+            ;; a fenced rehydration carries the counter exactly, so the
+            ;; relift reproduces the published root; a resumption adopts
+            ;; max(local, carried)
+            machine (cond-> (assoc base :store store' :module-stores stores :parked parked' :installs installs'
+                                   :resources resources :env fe :free-env fe :window {} :k nil :control nil
+                                   :ready-queue []
+                                   :id-counter (if (:fenced? custody)
+                                                 id-counter
+                                                 (max (or (:id-counter base) 0) id-counter)))
+                      ;; resource key -> the carrier's cursor cell, so one
+                      ;; cell is one key and two cells two (UCF 7.7.4)
+                      (:fenced? custody)
+                      (assoc :yin.k/recovery-cell-ids (into {} (map (fn [[c k]] [k c])) cell-keys)))]
+        (with-custody
+          (case kind
+            :halted (assoc machine :halted? true :blocked? false :value (value result) :wait-set [])
+            :parked (assoc machine :halted? true :blocked? false :value (get parked' parked-id) :wait-set entries)
+            (assoc machine :halted? false :blocked? true :value :yin/blocked :wait-set entries))
+          custody kind root?)))))
 
 
 (defn lower-task
   "The lower of §7.2 into recv, a fresh semantic-register machine of the
    receiver's composition: gate to frames (decode) and the store keys,
    then pendings and install records, dependency closure (code, closures,
-   primitives) and custody, each step over the whole tree before the
-   next, all before the first attach! (step 11); then restore (step 12),
-   which therefore meets no carrier defect. Answers the restored machine,
-   or throws the first refusal as ex-data."
+   primitives), each step over the whole tree before the next, then
+   custody (check-custody!), all before the first attach! (step 11); then
+   restore (step 12), which therefore meets no carrier defect. Answers the
+   restored machine, or throws the first refusal as ex-data.
+   opts: :budget; :exclusive, refuse a fork root; :grant and :protection,
+   required by a blocked or parked exclusive root (handoff.cljc's reader
+   contract: the grant names :checkpoint, the pack address, its lease,
+   holder, tenure and evidence; :protection maps every stream identity of
+   the tree to its class); :fenced, an administrative rehydration that
+   skips the grant and restores every task of the tree gated :exporting,
+   its waits in :yin.k/recovery-waits and its parked records in
+   :yin.k/recovery-parked (none in the scheduler), its id counter the
+   carried one exactly and :yin.k/recovery-cell-ids mapping each cursor
+   cell's resource key to its carried cell id."
   ([recv wire attach!] (lower-task recv wire attach! {}))
   ([recv wire attach! opts]
    (let [task (decode wire (merge default-budget (:budget opts)))]
      (when-not (= :task (:kind task)) (outcome! :yin.k/undecodable :root {}))
      ;; each step over the whole tree before the next (§3.3)
-     (doseq [step [check-stores! check-pendings! check-dependencies! check-custody!]
+     (doseq [step [check-stores! check-pendings! check-dependencies!]
              [t role] (task-tree task :root)]
        (step recv t role))
-     (restore-task recv task (attach-streams! attach! task)))))
+     (let [custody (check-custody! task wire opts)]
+       (restore-task recv task (attach-streams! attach! task) custody true)))))

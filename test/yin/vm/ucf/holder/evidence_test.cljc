@@ -10,7 +10,7 @@
             [yin.vm.ucf.authority :as authority]
             [yin.vm.ucf.authority.grant :as grant]
             [yin.vm.ucf.authority.input :as input]
-            [yin.vm.ucf.checkpoint-fixtures :as fx]
+            [yin.vm.ucf.rows-checkpoint-fixtures :as fx]
             [yin.vm.ucf.custody :as custody]
             [yin.vm.ucf.holder.evidence :as evidence]))
 
@@ -32,10 +32,10 @@
 
 (defn- body
   []
-  (assoc (get fx/fixtures "first-park")
-         :yin.k/arbitration {:dao.stream/identity arb
-                             :dao.stream/descriptor
-                             {:dao.stream/type :dao.stream/journal}}))
+  (fx/edit-custody (fx/pack-of "first-park")
+                   #(assoc % :yin.k/arbitration {:dao.stream/identity arb
+                                                 :dao.stream/descriptor
+                                                 {:dao.stream/type :dao.stream/journal}})))
 
 
 (defn- records

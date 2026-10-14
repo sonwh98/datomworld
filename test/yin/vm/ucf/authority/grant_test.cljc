@@ -12,8 +12,8 @@
             [yin.vm.ucf.authority :as authority]
             [yin.vm.ucf.authority.completion :as completion]
             [yin.vm.ucf.authority.grant :as grant]
-            [yin.vm.ucf.checkpoint :as checkpoint]
-            [yin.vm.ucf.checkpoint-fixtures :as fx]
+            [yin.vm.ucf.rows-checkpoint-fixtures :as fx]
+            [yin.vm.ucf.rows.checkpoint :as checkpoint]
             [yin.vm.ucf.custody :as custody]))
 
 
@@ -40,13 +40,20 @@
 
 
 (defn- body
-  "Fixture `n` naming this test's authority."
+  "Fixture `n`'s pack naming this test's authority, its custody slot then
+   through `f`."
   ([n] (body n identity))
   ([n f]
-   (f (assoc (get fx/fixtures n)
-             :yin.k/arbitration {:dao.stream/identity arb
-                                 :dao.stream/descriptor
-                                 {:dao.stream/type :dao.stream/journal}}))))
+   (fx/edit-custody (fx/pack-of n)
+                    #(f (assoc % :yin.k/arbitration {:dao.stream/identity arb
+                                                     :dao.stream/descriptor
+                                                     {:dao.stream/type :dao.stream/journal}})))))
+
+
+(defn- variant-equal
+  "The successor's rows in another order: one root, another pack address."
+  []
+  (update (body "successor") :yin.k/rows (comp vec reverse)))
 
 
 (defn- bytes-of
@@ -180,8 +187,8 @@
 
 (deftest an-equal-baseline-variant-joins-its-occurrence
   (let [[frames a store] (succeeded)
-        {:keys [address]} (bytes-of (body "variant-equal"))]
-    (is (= :committed (status (offer! a store (body "variant-equal")))))
+        {:keys [address]} (bytes-of (variant-equal))]
+    (is (= :committed (status (offer! a store (variant-equal)))))
     (is (= 2 (count (filter #(= occ (:yin.k/occurrence %))
                             (facts frames :yin.k/offered)))))
     (is (contains? (get-in (authority/projection a)
@@ -192,7 +199,9 @@
 
 (deftest a-conflicting-variant-is-refused
   (doseq [[n reason] [["variant-different-intent" :variant-conflict]
-                      ["variant-counter" :variant-conflict]]]
+                      ["variant-counter" :variant-conflict]
+                      ;; the root id is in the baseline (phase 7a)
+                      ["variant-other-root" :variant-conflict]]]
     (testing n
       (let [[frames a store] (succeeded)
             before @frames
@@ -219,7 +228,7 @@
 (deftest an-uninspectable-body-commits-nothing-and-stores-nothing
   (doseq [[label address bs]
           (let [{:keys [address bytes]} (bytes-of (body "successor"))
-                v2 (bytes-of (body "version-2"))]
+                v2 (bytes-of (assoc (body "successor") :yin.k/version 2))]
             [["undecodable version" (:address v2) (:bytes v2)]
              ["hash mismatch" (fx/segment-address (cbor/encode :x)) bytes]
              ["not bytes" address :x]])]
@@ -239,8 +248,8 @@
 
 (deftest offers-the-authority-cannot-hold-are-refused
   (doseq [[label b reason]
-          [["a halted root" (get fx/fixtures "halted-root") :not-offerable]
-           ["another authority" (get fx/fixtures "successor")
+          [["a halted root" (fx/base "halted-root") :not-offerable]
+           ["another authority" (fx/base "successor")
             :foreign-arbitration]
            ["an occurrence outside the form: the inspector refuses it"
             (body "successor" #(assoc % :yin.k/occurrence "O"))

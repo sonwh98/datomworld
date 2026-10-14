@@ -110,6 +110,33 @@
       (is (= :blake3 (:algorithm (jing/parse-segment-address id)))))))
 
 
+(deftest carrier-row-algorithm-is-part-of-the-profile
+  (let [wire (rows/emit (task-node [] [:lit nil]))
+        root (:yin.k/root wire)
+        body (subvec (first (filter #(= root (first %)) (:yin.k/rows wire))) 1)
+        sha (jing/segment-key body {:algorithm :sha256})
+        foreign (-> wire
+                    (assoc :yin.k/root sha)
+                    (update :yin.k/rows #(mapv (fn [r] (if (= root (first r)) (assoc r 0 sha) r)) %)))
+        refusal (error #(rows/decode foreign))]
+    (is (jing/segment-matches? sha body))
+    (is (= :task (:kind (rows/decode wire))))
+    (is (= :yin.k/undecodable (:yin.k/status refusal)))
+    (is (= :row-algorithm (:yin.k/kind refusal)))))
+
+
+(deftest carried-code-verifies-the-address-algorithm
+  (let [image [[:const 0 1] [:halt 0]]
+        address (jing/segment-key image {:algorithm :sha256})
+        task (task-node [] [:lit nil])
+        wire (rows/emit (rows/node :task (assoc (:slots task) 11 {address image})))]
+    (is (= {address image} (nth (:slots (rows/decode wire)) 11)))
+    (is (= :yin.k/hash-mismatch
+           (:yin.k/status (error #(rows/decode
+                                    (rows/emit (rows/node :task
+                                                          (assoc (:slots task) 11 {address [[:const 0 2] [:halt 0]]}))))))))))
+
+
 (defn- replace-row
   "Rehash the edited row and all ancestors, without canonicalizing slots."
   [wire id body]

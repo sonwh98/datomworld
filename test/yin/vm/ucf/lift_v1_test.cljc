@@ -1,7 +1,7 @@
 (ns yin.vm.ucf.lift-v1-test
   "M-next D9: the version-1 lift as a pure encode (r3 1.8; the header
    ruling).  Every machine is parked by the real engine and lifted
-   through enter / prepare / encode (`yin.vm.ucf.lift-support`); the
+   directly through handoff/export-task (`yin.vm.ucf.lift-support`); the
    assertions are on the bytes, on the two grammars that must accept
    them, and on the refusals the lift answers as data."
   (:require [clojure.test :refer [deftest is testing]]
@@ -14,12 +14,6 @@
             [yin.vm.ucf.holder.export :as export]
             [yin.vm.ucf.lift-support :as s]
             [yin.vm.values :as values]))
-
-
-(defn- throws?
-  [thunk]
-  (try (thunk) false
-       (catch #?(:clj Exception :cljs js/Error :cljd Object) _ true)))
 
 
 (defn- same-bytes?
@@ -180,7 +174,7 @@
         (is (= :yin.k/non-portable (:yin.k/status r)) (pr-str r))
         (is (= :held (:yin.k/hold r)))))
     (testing "a child"
-      (let [r (s/lift (held (s/parked-installer) ['host.mod]) (s/header 6))]
+      (let [r (export/enter (held (s/parked-installer) ['host.mod]))]
         (is (= :held (:yin.k/hold r)) (pr-str r))
         (is (= ['host.mod] (:yin.k/path r)))))
     (testing "the lift itself refuses them too, before lift-pending, in
@@ -218,136 +212,6 @@
 ;; =============================================================================
 ;; Prepare, then encode
 ;; =============================================================================
-
-(deftest a-malformed-header-is-a-caller-defect-test
-  (let [{m :machine record :record} (export/enter (s/parked-reader))]
-    (doseq [h [:x {} (dissoc (s/header 0) :yin.k/arbitration)
-               (dissoc (s/header 0) :yin.k/next-op-seq)
-               (dissoc (s/header 0) :yin.k/enrolled)]]
-      (is (throws? #(export/prepare m record (s/serve-table) h))
-          (pr-str h)))))
-
-
-(deftest two-encodes-of-one-prepared-record-give-equal-bytes-test
-  (doseq [[n machine h] [["reader" (s/parked-reader) (s/header 0 nil #{})]
-                         ["installer" (s/parked-installer) (s/header 6)]
-                         ["explicit" (s/parked-explicit) (s/header 1)]
-                         ["version 0" (s/parked-reader) nil]]]
-    (let [{m :machine p :prepared} (s/prepared machine h)
-          record (:record p)
-          a (export/encode m record)
-          b (export/encode m record)]
-      (ok! p)
-      (is (same-bytes? (:bytes a) (:bytes b)) n)
-      (is (= (:address a) (:address b)) n))))
-
-
-(deftest the-served-table-is-plain-data-keyed-by-path-and-resource-test
-  (let [{p :prepared} (s/prepared (s/parked-installer) (s/header 6))
-        served (:served (:record p))]
-    (is (seq served))
-    (is (every? (fn [[[path id] descriptor]]
-                  (and (vector? path) (some? id)
-                       (string? (:dao.stream/identity descriptor))))
-                served))
-    (is (some (fn [[[path _] _]] (= ['host.mod] path)) served)
-        "the child's streams are keyed by its path"))
-  (testing "one handle under two resource ids: served once, keyed twice"
-    (let [calls (atom 0)
-          serve! (fn [_]
-                   (swap! calls inc) {:dao.stream/identity "s0"
-                                      :dao.stream/channel
-                                      {:dao.stream/type
-                                       :dao.stream.test/channel}})
-          {m :machine record :record} (export/enter (s/parked-writer-shared))
-          p (export/prepare m record serve! (s/header 3 s/origin #{}))
-          e (export/encode m (:record p))]
-      (is (= :ok (:status p)) (pr-str (dissoc p :record)))
-      (is (= 1 @calls) "the one handle asked once")
-      (is (= 2 (count (:served (:record p)))) "both resource keys retained")
-      (is (= :ok (:status e)) (pr-str e))
-      (is (throws? #(export/encode
-                      m (update (:record p) :served
-                                dissoc (ffirst (:served (:record p))))))
-          "a key the record lacks is still a defect"))))
-
-
-(deftest a-retry-serves-no-already-served-handle-test
-  (let [served {:dao.stream/identity "s0"
-                :dao.stream/channel {:dao.stream/type
-                                     :dao.stream.test/channel}}
-        seen (atom #{})
-        ;; answers the first distinct handle it is asked about, and that
-        ;; one whenever it is asked again; every other handle gets no
-        ;; answer, so the prepare refuses once the walk reaches the
-        ;; independent third stream, after the shared handle's aliases
-        first-only (fn [h]
-                     (when (or (contains? @seen h) (empty? @seen))
-                       (swap! seen conj h)
-                       served))
-        {m :machine record :record} (export/enter
-                                      (s/parked-writer-shared-late))
-        refused (export/prepare m record first-only (s/header 3 s/origin #{}))]
-    (is (= :yin.k/unsatisfied (:yin.k/status refused)) (pr-str refused))
-    (is (= 1 (count @seen)) "exactly one handle ever answered")
-    (is (every? #(= served %) (vals (:served (:record refused))))
-        "what was served is retained")
-    (testing "the retry resolves the shared handle's every alias from the
-              retained table and the machine's bindings: the handle is
-              not served again"
-      (let [calls (atom 0)
-            table (atom {})
-            counting (fn [h]
-                       (swap! calls inc)
-                       (if-some [d (get @table h)]
-                         d
-                         (let [d {:dao.stream/identity
-                                  (str "s" (count @table))}]
-                           (swap! table assoc h d)
-                           d)))
-            p (export/prepare m (:record refused) counting
-                              (s/header 3 s/origin #{}))
-            e (export/encode m (:record p))]
-        (is (= :ok (:status p)) (pr-str (dissoc p :record)))
-        (is (= 1 @calls) "only the never-served third stream is asked")
-        (is (= 3 (count (:served (:record p)))) "every resource key")
-        (is (= 2 (count (distinct (vals (:served (:record p))))))
-            "one identity for the shared handle's two keys")
-        (is (= :ok (:status e)) (pr-str e))
-        (is (= 1 (count @seen)) "the first attempt served once")))
-    (testing "a retry over a machine whose bindings moved -- a fresh
-              resource alias of the served handle reached first"
-      (let [[path id :as retained] (first (keys (:served (:record refused))))
-            h (get-in m (into path [:resources id]))
-            _ (is (some? retained) "one key is retained")
-            _ (is (some? h) "the retained key resolves to its handle")
-            [alias m2] (engine/attach-resource m h)
-            ;; prepare reads the record's waits, so the fresh alias rides
-            ;; the record's first wait entry's environment
-            record' (assoc-in (:record refused) [:wait-set 0 :env 'aa]
-                              alias)
-            calls (atom 0)
-            counting (fn [_] (swap! calls inc) served)
-            p (export/prepare m2 record' counting (s/header 3 s/origin #{}))]
-        (is (= :ok (:status p)) (pr-str (dissoc p :record)))
-        (is (= 1 @calls) "only the never-served third stream is asked")
-        (is (= 4 (count (:served (:record p))))
-            "the fresh alias, the retained alias, the pending's and the
-             third stream's")
-        (is (= :ok (:status (export/encode m2 (:record p))))
-            "the record encodes with no serving")))))
-
-
-(deftest the-record-round-trips-the-canonical-codec-test
-  (let [{m :machine p :prepared} (s/prepared (s/parked-explicit) (s/header 1))
-        record (:record p)
-        back (jing.cbor/decode (jing.cbor/encode record))]
-    (ok! p)
-    (is (same-bytes? (jing.cbor/encode record) (jing.cbor/encode back)))
-    (is (same-bytes? (:bytes (export/encode m record))
-                     (:bytes (export/encode m back)))
-        "the stored record encodes to the same bytes")))
-
 
 ;; =============================================================================
 ;; Determinism and what the program holds

@@ -68,6 +68,18 @@
                                                               (:events r)))
                                                       results)})]
         (testing (str (:id scenario) " " label)
+          (doseq [r results]
+            (when-some [cut (get-in r [:spec :cut])]
+              (is (:killed? r) "every requested crash cut kills its life")
+              (is (= [cut] (mapv :cut (filter #(= :cut (:event %)) (:events r))))
+                  "every requested cut fires exactly once")))
+          (doseq [r results
+                  snap (concat (vals (get-in r [:report :snapshots]))
+                               (when-some [f (get-in r [:report :final])] [f]))
+                  [address pack] (:packs snap)]
+            (is (true? (:sorted? pack)) "fenced packs have sorted rows")
+            (is (= (get-in snap [:fences address]) (:canonical-bytes pack))
+                "this host re-emits the stored pack's exact canonical bytes"))
           ((:check scenario) results inspection))
         results)
       (finally
@@ -691,7 +703,7 @@
            race (snapshot-of l2 :race)
            hs (:holders race)
            running (filterv #(= :running (:phase (val %))) hs)
-           o (:occurrence (val (first running)))
+           o (:occurrence (second (first running)))
            p (:projection race)]
        (is (:killed? l1) "the source was killed after its offer, before its own grant")
        (is (= 1 (count running)) (str "one admitted holder: " (pr-str hs)))
@@ -702,6 +714,13 @@
                                          (:status st)))))
                    hs)
            "every competitor awaits or is refused")
+       (let [variants (get-in p [:occurrences o :yin.k/variants])
+             variant (get-in l2 [:report :variant])
+             original (first (remove #{variant} variants))]
+         (is (not= original variant) "reversed rows have another pack address")
+         (is (= (get-in race [:packs original :baseline])
+                (get-in l2 [:report :variant-baseline]))
+             "both encodings have the same root and custody baseline"))
        (is (= 2 (count (get-in p [:occurrences o :yin.k/variants])))
            "both encodings are variants of the one occurrence")
        (is (= 1 (count (filter #(= o (:yin.k/occurrence %)) (live-leases p)))))

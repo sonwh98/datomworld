@@ -26,6 +26,7 @@
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
+            [yin.vm.ledger :as ledger]
             [yin.vm.module :as module]
             [yin.vm.values :as values]
             [yin.vm.test-utils :as tu]
@@ -318,9 +319,17 @@
 
 
 (defn module-response
+  "A link response as the linker answers one (yin.vm.linker/link-manifest):
+   the image, the manifest naming its tree and its :yin.semantic/code
+   derivation record, and that record, from the tree to the image's A."
   [body exports]
-  {:status :ok :image {:value (project body)}
-   :manifest {:yin.module/name 'host.mod :yin.module/exports exports} :obligations []})
+  (let [v (project body)
+        tree (jing/segment-key [:yin/tree body])
+        record (ledger/derive-record tree (jing/segment-key v))]
+    {:status :ok :image {:value v}
+     :manifest {:yin.module/name 'host.mod :yin.module/exports exports
+                :yin.module/tree tree :yin.module/derivations {:yin.semantic/code (jing/segment-key record)}}
+     :derivation record :obligations []}))
 
 
 (def plain-body (s/def! 'f (s/lam [] (s/lit 42))))
@@ -1210,8 +1219,8 @@
 
 
 (deftest carrier-steps-run-in-order-over-the-tree
-  (testing "custody (10) alone"
-    (is (= [:yin.k/unsupported :custody] (take 2 (refused-before-attach 1 exclusive)))))
+  (testing "custody (10) alone: a slot outside the custody grammar (phase 7a)"
+    (is (= [:yin.k/undecodable :custody-key] (take 2 (refused-before-attach 1 exclusive)))))
   (testing "the dependency closure (9) before custody (10)"
     (let [[status _ r] (refused-before-attach 1 (comp exclusive (without-trees [10])))]
       (is (= :yin.k/unsatisfied status) (pr-str r))

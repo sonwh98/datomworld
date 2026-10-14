@@ -14,7 +14,8 @@
             [yin.vm.ucf.authority.front :as front]
             [yin.vm.ucf.authority.grant :as grant]
             [yin.vm.ucf.authority.input :as input]
-            [yin.vm.ucf.checkpoint-fixtures :as fx]
+            [yin.vm.ucf.rows :as rows]
+            [yin.vm.ucf.rows-checkpoint-fixtures :as fx]
             [yin.vm.ucf.custody :as custody]))
 
 
@@ -53,13 +54,14 @@
   "A blocked root of occurrence `o` with counter `n` and origin `org`."
   ([o n] (park o n nil))
   ([o n org]
-   (cond-> (assoc (get fx/fixtures "first-park")
-                  :yin.k/occurrence o
-                  :yin.k/next-op-seq n
-                  :yin.k/arbitration {:dao.stream/identity arb
-                                      :dao.stream/descriptor
-                                      {:dao.stream/type :dao.stream/journal}})
-     (some? org) (assoc :yin.k/origin org))))
+   (fx/edit-custody (fx/base "first-park")
+                    #(cond-> (assoc %
+                                    :yin.k/occurrence o
+                                    :yin.k/next-op-seq n
+                                    :yin.k/arbitration {:dao.stream/identity arb
+                                                        :dao.stream/descriptor
+                                                        {:dao.stream/type :dao.stream/journal}})
+                       (some? org) (assoc :yin.k/origin org)))))
 
 
 (defn- enc
@@ -664,27 +666,24 @@
    per id, a clone under each."
   []
   (let [{:keys [a store] :as w} (granted)
-        base (assoc (get fx/fixtures "successor")
-                    :yin.k/occurrence succ-occ
-                    :yin.k/origin {:yin.k/occurrence occ
-                                   :dao.lease/lease "lease-1"
-                                   :yin.k/emitter "holder-a"}
-                    :yin.k/arbitration
-                    {:dao.stream/identity arb
-                     :dao.stream/descriptor
-                     {:dao.stream/type :dao.stream/journal}})
-        write (some (fn [f]
-                      (when (= :put (get-in f [:yin.k/pending :yin.k/reason]))
-                        f))
-                    (:yin.k/frames base))
+        base (rows/decode
+               (fx/edit-custody (fx/base "successor")
+                                #(assoc %
+                                        :yin.k/occurrence succ-occ
+                                        :yin.k/origin {:yin.k/occurrence occ
+                                                       :dao.lease/lease "lease-1"
+                                                       :yin.k/emitter "holder-a"}
+                                        :yin.k/arbitration
+                                        {:dao.stream/identity arb
+                                         :dao.stream/descriptor
+                                         {:dao.stream/type :dao.stream/journal}})))
+        write (nth (fx/waits base) (fx/wait-index base :put))
         {:keys [address bytes]}
-        (enc (assoc base :yin.k/frames
-                    (mapv (fn [k]
-                            (assoc-in write
-                                      [:yin.k/pending :yin.k/op-id]
-                                      {:yin.k/occurrence occ
-                                       :yin.k/seq k}))
-                          (range 3))))]
+        (enc (rows/emit
+               (fx/with-waits base
+                              (mapv (fn [k]
+                                      (fx/set-op-id write {:yin.k/occurrence occ :yin.k/seq k}))
+                                    (range 3)))))]
     (completion/report! a "holder-a" (completion/resumed occ "lease-1" address)
                         bytes)
     (stream/append! (grant/writer a) (lease/lapsed "lease-1" :release))
