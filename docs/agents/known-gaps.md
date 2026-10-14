@@ -14,7 +14,7 @@ Adopted by the owner 2026-10-14 (mob consolidation Q6).
 ## Ledger
 | gap | evidence | owner seat | closing slice | severity |
 |---|---|---|---|---|
-| a host entry under a pinned name refuses with `:linked nil`, same as absent | fable L-d review P3-2 | linker | open | P3 |
+| absent is permitted; a host entry under a pinned name refuses with `:linked nil` | fable L-d review P3-2 / L-d-2 | linker | open | P3 |
 | `semantic-register.scan-test` C4 golden mismatch (JVM, Node) | slow tier at 355bd84b | semantic-register-vm | golden regeneration | P2 |
 | JVM `hash-registry-contract-test` sweep flags `ucf/rows.cljc` `decode*` | quick tier | semantic-register-vm | open | P2 |
 | Node `store-test` two-worker-threads flaky | quick and slow tiers | store | open | P3 |
