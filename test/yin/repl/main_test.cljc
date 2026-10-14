@@ -420,7 +420,7 @@
         (is (str/includes? (str (:refusal (repl/startup
                                             ["--index-store" (str "dht:" dir)
                                              "--dht-trust" bad])))
-                           "--dht-trust")
+                           "invalid principal id")
             bad))
       (is (str/includes? (str (:refusal (repl/startup ["--dht-trust"
                                                        trusted])))

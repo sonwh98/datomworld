@@ -29,7 +29,7 @@
   (if-some [[_ hex] (and (string? text)
                          (re-matches #"^(?:ed25519:)?([0-9a-f]{64})$" text))]
     (sign/principal hex)
-    (throw (ex-info (str "--dht-trust takes ed25519:<64 lowercase "
+    (throw (ex-info (str "invalid principal id: expected ed25519:<64 lowercase "
                          "hexadecimal characters>, not " (pr-str text))
                     {:value text}))))
 

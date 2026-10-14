@@ -1830,12 +1830,18 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
       (let [p (config/parse-trust p)
             admission (if (= :external (:admission state))
                         {} (:admission state))]
-        [(configure-admission
-           state (update admission :trusted
-                         (fn [trusted]
-                           ((if (= command 'trust) conj disj)
-                            (set trusted) p))))
-         (str (if (= command 'trust) "Trusted " "Untrusted ") p)]))
+        (if (and (= command 'untrust)
+                 (contains? (:own (:link-source state)) p))
+          [state (str "Own principal " p " is always trusted")]
+          [(configure-admission
+             state (update admission :trusted
+                           (fn [trusted]
+                             ((if (= command 'trust) conj disj)
+                              (set trusted) p))))
+           (if (nil? (:admission (:link-source state)))
+             (str "Recorded " (if (= command 'trust) "trust" "untrust")
+                  " for " p "; unused while admission is external")
+             (str (if (= command 'trust) "Trusted " "Untrusted ") p))])))
     (catch #?(:cljd Object :clj Exception :cljs :default) e
       [state (str "Error: " (ex-message e))])))
 

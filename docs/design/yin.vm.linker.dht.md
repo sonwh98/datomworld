@@ -2213,13 +2213,10 @@ edits the linker:
 
 **The context is the holder.** "Who is asking" is a composition-owned
 holder context the interpreter receives as the `context` argument of
-`verify`; it never travels in a datum. Today `admission/context` builds
-it from the session: `{:yin.admit/subject "ed25519:<hex>" | nil,
-:yin.admit/session <token>}`, the subject being the own key's principal.
-`:yin.admit/session` stays through AL-1 and AL-2. AL-3 replaces it: the
-composition gains an optional `:holder` (a principal id, or a token the
-verify understands), `context` answers the subject from it, defaulting to
-the own key's principal, and `:yin.admit/session` is deleted.
+`verify`; it never travels in a datum. `admission/context` builds
+`{:yin.admit/subject s}` from the composition's optional `:holder`
+(a principal id, or a token the verify understands), defaulting to the
+own key's principal. There is no `:yin.admit/session` key.
 Authorization vocabulary stays in the context and the policy; the
 question and the linker carry none.
 
@@ -2247,7 +2244,7 @@ question and the linker carry none.
 - **At the REPL, configuration only.** `create-state` takes `:admission`
   beside `:link-policy`, defaulting to the own key from `:dht-key`;
   `--dht-trust` sets its `:trusted`; `:external` selects the external
-  attachment. AL-4 adds `(trust p)`, `(untrust p)` and `(trusted)`: they
+  attachment. `(trust p)`, `(untrust p)` and `(trusted)` are available: they
   edit the `:trusted` configuration and call `reconfigure`, and
   `(trusted)` prints the own principal and the trusted set. `(reset)`
   drops the trusted set unless it was given in `create-state`.
@@ -2443,10 +2440,10 @@ acceptance lines below, not from memory of the parked file.
     answer map holds nothing under the failed admission id, and the next
     round reports progress only for the new question.
   - Lexical: `repl.cljc` requires `yin.vm.linker.interpreter` and not
-    `yin.vm.linker.admission`; no session key `:admission` or
-    `:admitter`; no call to `drain`, `judge`, `ask`, `settle` or the
-    admission `serve`; exactly one tick hook. Configuration plumbing and
-    display text are allowed.
+    `yin.vm.linker.admission`; no protocol state under `:admission`
+    and no session key `:admitter`; no call to `drain`, `judge`, `ask`,
+    `settle` or the admission `serve`; exactly one tick hook. Configuration
+    plumbing and display text are allowed.
 - **AL-3, the holder context** (linker seat). `composition` gains the
   optional `:holder`; `context` answers the subject from it, defaulting
   to the own key's principal; `:yin.admit/session` is deleted;
