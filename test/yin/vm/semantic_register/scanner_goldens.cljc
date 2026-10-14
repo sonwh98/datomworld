@@ -1,5 +1,7 @@
 (ns yin.vm.semantic-register.scanner-goldens
-  "Historical v3 scanner answers generated on JVM from master 993d5411.")
+  "Historical v3 scanner answers generated on JVM from master 993d5411.
+   Only :c4/:py was regenerated after C4 I2/I3 on e6337294; reproduce with
+   collab/1792570000000-engineer-p7m-scan-golden.clj.")
 
 
 (def scanner-goldens
@@ -614,6 +616,7 @@
         py.rt/sys
         py.b/float
         py.b/dict-keys
+        star-copy-all
         py.b/print
         py.b/KeyboardInterrupt
         py.b/dict-items
@@ -680,6 +683,7 @@
         gen-fail
         integer/pow
         gen-exit
+        no-module
         seq-contains?
         py.b/isinstance
         mod-p
@@ -747,6 +751,7 @@
         strip-space
         not
         attr-error
+        dict-ref
         crossing-base
         any-of
         range-elem
@@ -762,6 +767,7 @@
         py.b/next
         make-instance
         print
+        getattr
         globals-fn
         data/str-length
         /
@@ -774,6 +780,7 @@
         float-parts
         py.b/UnboundLocalError
         data/str->code-points
+        lookup-attr
         py.b/tuple
         py.b/KeyError
         text-repeat
@@ -799,12 +806,14 @@
         round-conv
         str-conv
         eq-items
+        star-name
         str?
         mul
         py.b/Exception
         integer/bit-not
         py.b/gen-send
         snapshot
+        star-copy-public
         py.b/object
         float-parts-down
         py.b/MemoryError
@@ -833,6 +842,7 @@
         class-lookup
         py.b/hex
         fpow
+        star-item
         all-in?
         round-integer
         slice-of
@@ -1205,7 +1215,7 @@
        [str true]
        [cell? true]
        [cell/get true]
-       [attr-error true]
+       [lookup-attr true]
        [cell? true]
        [cell/get true]
        [attr-error true]
@@ -2006,7 +2016,30 @@
        [dict-del-quiet true]
        [py.rt/modules true]
        [module-new true]
+       [raise-new true]
+       [py.b/ImportError true]
+       [str true]
+       [data/str-concat true]
+       [data/str-concat true]
+       [get true]
        [modules-ref true]
+       [modules-ref true]
+       [cell/get true]
+       [lookup-attr true]
+       [get true]
+       [str? true]
+       [getattr true]
+       [str? true]
+       [data/str->code-points true]
+       [get true]
+       [kind true]
+       [star-item true]
+       [get true]
+       [module-dict true]
+       [raise-new true]
+       [py.b/ImportError true]
+       [cell/set! true]
+       [py.rt/out true]
        [cell/set! true]
        [py.rt/out true]
        [cell/set! true]
@@ -2189,6 +2222,8 @@
        [get true]
        [get true]
        [get true]
+       [= true]
+       [attr-error true]
        [get true]
        [as-float true]
        [num true]
@@ -2708,19 +2743,69 @@
        [not true]
        [= true]
        [= true]
-       [raise-new true]
-       [py.b/ImportError true]
-       [str true]
-       [data/str-concat true]
-       [data/str-concat true]
-       [get true]
+       [no-module true]
        [module-run true]
        [get true]
+       [str true]
+       [not true]
+       [= true]
+       [= true]
+       [no-module true]
+       [module-run true]
+       [get true]
+       [str true]
+       [get true]
+       [cell/get true]
+       [get true]
+       [get true]
+       [key true]
+       [not true]
+       [= true]
+       [lookup-attr true]
+       [type-error true]
+       [str? true]
+       [type-text true]
+       [data/str-concat true]
+       [= true]
+       [data/str-concat true]
+       [get true]
+       [data/str-concat true]
+       [type-text true]
+       [< true]
+       [data/count true]
+       [str true]
+       [data/code-points->str true]
+       [vconj true]
+       [get true]
+       [= true]
+       [get true]
+       [get true]
+       [cell/get true]
+       [= true]
+       [get true]
+       [get true]
+       [= true]
+       [range-at true]
+       [= true]
+       [type-error true]
+       [type-error true]
+       [type-text true]
+       [= true]
+       [star-name true]
+       [= true]
+       [star-name true]
+       [dict-ref true]
+       [str true]
        [dict-new true]
        [cell/set! true]
        [py.rt/ctx true]
        [ctx true]
        [try true]
+       [cell/set! true]
+       [py.rt/ctx true]
+       [ctx true]
+       [modules-ref true]
+       [str true]
        [cell/set! true]
        [py.rt/ctx true]
        [ctx true]
@@ -3156,17 +3241,14 @@
        [= true]
        [method true]
        [py.b/list-append true]
-       [attr-error true]
        [= true]
        [= true]
        [str true]
        [get true]
-       [attr-error true]
        [= true]
        [= true]
        [method true]
        [py.b/set-add true]
-       [attr-error true]
        [= true]
        [= true]
        [method true]
@@ -3180,7 +3262,6 @@
        [= true]
        [method true]
        [py.b/dict-get true]
-       [attr-error true]
        [= true]
        [gen-attr true]
        [= true]
@@ -3190,8 +3271,6 @@
        [= true]
        [method true]
        [py.b/gen-iter true]
-       [attr-error true]
-       [attr-error true]
        [= true]
        [= true]
        [cell/set! true]
@@ -3566,6 +3645,28 @@
        [get true]
        [get true]
        [modules-put! true]
+       [setattr true]
+       [get true]
+       [= true]
+       [get true]
+       [get true]
+       [= true]
+       [str? true]
+       [star-copy-all true]
+       [+ true]
+       [dict-set true]
+       [getattr true]
+       [get true]
+       [star-copy-public true]
+       [+ true]
+       [= true]
+       [data/str-index-of true]
+       [get true]
+       [dict-set true]
+       [get true]
+       [= true]
+       [cell/get true]
+       [star-copy-all true]
        [globals-fn true]
        [assoc true]
        [assoc true]
@@ -3574,6 +3675,9 @@
        [= true]
        [snapshot-exc true]
        [module-run true]
+       [str true]
+       [= true]
+       [module-new true]
        [str true]
        [arg true]
        [next true]
@@ -3736,7 +3840,6 @@
        [= true]
        [str true]
        [get true]
-       [attr-error true]
        [str? true]
        [data/str-length true]
        [data/count true]
@@ -3864,7 +3967,19 @@
        [integer/bit-and true]
        [data/float-value true]
        [try true]
+       [modules-ref true]
+       [str true]
+       [data/str-concat true]
+       [get true]
+       [data/str-concat true]
+       [get true]
+       [star-copy-public true]
+       [get true]
+       [get true]
        [try true]
+       [module-dict true]
+       [modules-put! true]
+       [str true]
        [restore! true]
        [set-handlers! true]
        [frame true]
@@ -3942,10 +4057,8 @@
        [get true]
        [dict-new true]
        [= true]
-       [attr-error true]
        [bind true]
        [= true]
-       [attr-error true]
        [get true]
        [get true]
        [= true]
@@ -4023,12 +4136,24 @@
        [< true]
        [globals-fn true]
        [modules-del! true]
+       [not true]
+       [= true]
+       [raise-new true]
+       [py.b/ImportError true]
+       [str true]
+       [data/str-concat true]
+       [data/str-concat true]
+       [get true]
+       [data/str-concat true]
+       [data/str-concat true]
+       [get true]
        [assoc true]
        [assoc true]
        [cell/get true]
        [py.rt/out true]
        [= true]
        [snapshot-exc true]
+       [try true]
        [unwind-to true]
        [frame-depth true]
        [get true]
@@ -4102,6 +4227,13 @@
        [float-decimal true]
        [= true]
        [raise true]
+       [assoc true]
+       [assoc true]
+       [cell/get true]
+       [py.rt/out true]
+       [= true]
+       [snapshot-exc true]
+       [globals-fn true]
        [restore! true]
        [fill-kwdefaults true]
        [get true]
@@ -4391,6 +4523,7 @@
        [method false]
        [bind false]
        [attr-error false]
+       [lookup-attr false]
        [getattr false]
        [setattr false]
        [as-float false]
@@ -4586,9 +4719,20 @@
        [modules-put! false]
        [modules-del! false]
        [module-run false]
+       [no-module false]
        [import false]
+       [import-sub false]
+       [dict-ref false]
+       [import-from false]
+       [star-name false]
+       [star-item false]
+       [star-copy-all false]
+       [star-copy-public false]
+       [import-star false]
+       [import-fail false]
        [run-module false]
        [run-main false]
+       [run-session false]
        [py.rt/state false]
        [init! false]
        [py.rt/ctx true]
@@ -4657,7 +4801,7 @@
        [py.b/object true]
        [py.rt/out true]
        [py.rt/limit true]],
-      :application-count 3682,
+      :application-count 3831,
       :requirements
       {:store-keys
        #{rt-limit
@@ -4717,6 +4861,7 @@
          iadd
          decimal-exponent
          int-lit
+         import-star
          dict-items
          numeric?
          range-len
@@ -4761,6 +4906,7 @@
          py.rt/sys
          py.b/float
          py.b/dict-keys
+         star-copy-all
          yield
          py.b/print
          py.b/KeyboardInterrupt
@@ -4823,8 +4969,10 @@
          extend
          sub
          gen-exit
+         no-module
          seq-contains?
          py.b/isinstance
+         import-fail
          mod-p
          float-text-error
          make-function
@@ -4844,6 +4992,7 @@
          run-module
          local-get
          pick
+         run-session
          sequence?
          frame-depth
          call-ec
@@ -4895,6 +5044,7 @@
          slice-positions
          strip-space
          attr-error
+         dict-ref
          crossing-base
          any-of
          lshift
@@ -4922,6 +5072,7 @@
          float-parts
          py.b/UnboundLocalError
          global-or
+         lookup-attr
          py.b/tuple
          imul
          py.b/KeyError
@@ -4948,11 +5099,13 @@
          str-conv
          set-from
          eq-items
+         star-name
          str?
          mul
          py.b/Exception
          py.b/gen-send
          snapshot
+         star-copy-public
          py.b/object
          float-parts-down
          py.b/MemoryError
@@ -4970,6 +5123,7 @@
          collect
          run-main
          pad
+         import-sub
          py.b/dict-get
          py.b/NotImplementedError
          global-set
@@ -4984,6 +5138,7 @@
          class-lookup
          py.b/hex
          fpow
+         star-item
          all-in?
          round-integer
          slice-of
@@ -5010,6 +5165,7 @@
          set-fill-at
          hash-float
          snapshot-all
+         import-from
          global-get
          float-divmod
          lookup-pair
@@ -5591,6 +5747,15 @@
         [get true]
         [cell/get true]
         [cell/get true]
+        [data/str-concat true]
+        [data/str-concat true]
+        [get true]
+        [cell/get true]
+        [get true]
+        [data/str->code-points true]
+        [get true]
+        [get true]
+        [cell/set! true]
         [cell/set! true]
         [cell/set! true]
         [= true]
@@ -5699,6 +5864,7 @@
         [get true]
         [get true]
         [get true]
+        [= true]
         [get true]
         [= true]
         [cell/set! true]
@@ -6058,10 +6224,38 @@
         [not true]
         [= true]
         [= true]
-        [data/str-concat true]
-        [data/str-concat true]
+        [get true]
+        [not true]
+        [= true]
+        [= true]
         [get true]
         [get true]
+        [cell/get true]
+        [get true]
+        [get true]
+        [not true]
+        [= true]
+        [data/str-concat true]
+        [= true]
+        [data/str-concat true]
+        [get true]
+        [data/str-concat true]
+        [< true]
+        [data/count true]
+        [data/code-points->str true]
+        [get true]
+        [= true]
+        [get true]
+        [get true]
+        [cell/get true]
+        [= true]
+        [get true]
+        [get true]
+        [= true]
+        [= true]
+        [= true]
+        [= true]
+        [cell/set! true]
         [cell/set! true]
         [cell/set! true]
         [data/float-value true]
@@ -6435,9 +6629,24 @@
         [= true]
         [get true]
         [get true]
+        [get true]
+        [= true]
+        [get true]
+        [get true]
+        [= true]
+        [+ true]
+        [get true]
+        [+ true]
+        [= true]
+        [data/str-index-of true]
+        [get true]
+        [get true]
+        [= true]
+        [cell/get true]
         [assoc true]
         [assoc true]
         [cell/get true]
+        [= true]
         [= true]
         [get true]
         [cell/get true]
@@ -6567,6 +6776,12 @@
         [= true]
         [integer/bit-and true]
         [data/float-value true]
+        [data/str-concat true]
+        [get true]
+        [data/str-concat true]
+        [get true]
+        [get true]
+        [get true]
         [get true]
         [cell/set! true]
         [get true]
@@ -6673,6 +6888,14 @@
         [integer/bit-and true]
         [integer/add true]
         [< true]
+        [not true]
+        [= true]
+        [data/str-concat true]
+        [data/str-concat true]
+        [get true]
+        [data/str-concat true]
+        [data/str-concat true]
+        [get true]
         [assoc true]
         [assoc true]
         [cell/get true]
@@ -6716,6 +6939,10 @@
         [- true]
         [data/float-value true]
         [data/float-value true]
+        [= true]
+        [assoc true]
+        [assoc true]
+        [cell/get true]
         [= true]
         [get true]
         [get true]

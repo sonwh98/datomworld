@@ -906,12 +906,15 @@
            (walk root #{} 0)
            (when-not (= @seen (set (keys index))) (bad! :unreachable-row [:yin.k/rows]))))
        (doseq [[id & body] rs]
-         (when-not (and (= :blake3 (:algorithm (jing/parse-segment-address id)))
-                        (= id (jing/segment-key (vec body))))
+         ;; Carrier row identities are fixed by the profile, unlike store addresses.
+         (when-let [algorithm (:algorithm (jing/parse-segment-address id))]
+           (when-not (= :blake3 algorithm)
+             (refuse! :yin.k/profile-mismatch :row-algorithm [id])))
+         (when-not (jing/segment-matches? id (vec body))
            (refuse! :yin.k/hash-mismatch :row [id])))
        (doseq [[id kind & slots] rs :when (= :task kind)]
          (doseq [[address v] (nth slots 11)]
-           (when-not (= address (jing/segment-key v))
+           (when-not (jing/segment-matches? address v)
              (refuse! :yin.k/hash-mismatch :code [id 11 address]))
            (when (code/well-formed? v) (bad! :code [id 11 address]))))
        (doseq [[_ kind & slots] rs
@@ -1844,9 +1847,9 @@
       (outcome! :yin.k/undecodable :install-link-id {:yin.k/name mn}))
     (let [record (:derivation response)]
       (when-not (and (map? record)
-                     (= (jing/segment-key record) (get-in manifest [:yin.module/derivations :yin.semantic/code]))
+                     (jing/segment-matches? (get-in manifest [:yin.module/derivations :yin.semantic/code]) record)
                      (= (:yin.ledger/input record) (:yin.module/tree manifest))
-                     (= (:yin.ledger/output record) (jing/segment-key (:value (:image response)))))
+                     (jing/segment-matches? (:yin.ledger/output record) (:value (:image response))))
         (outcome! :yin.k/undecodable :install-image {:yin.k/name mn})))
     (when-not (= :blocked child-kind)
       (outcome! :yin.k/undecodable :install-child {:yin.k/name mn :yin.k/task-kind child-kind}))))

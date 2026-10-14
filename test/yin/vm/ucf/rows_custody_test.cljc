@@ -10,6 +10,7 @@
    first attach (zero attachments). The version-1 rules these re-pin are
    lift_v1_test's and handoff_v2_custody_test's, kept until phase 8."
   (:require [clojure.test :refer [deftest is testing]]
+            [dao.jing :as jing]
             [yin.vm :as vm]
             [yin.vm.ucf.rows :as rows]
             [yin.vm.ucf.rows-checkpoint-fixtures :as f]
@@ -305,6 +306,27 @@
       (is (= [:yin.k/undecodable :install-image 'host.mod]
              (kind #(assoc-in % [:response :image] (:image other))))))
     (is (= response (get-in m [:installs 'host.mod :response])))))
+
+
+(deftest install-store-addresses-verify-under-their-own-algorithms
+  (doseq [[image-algorithm record-algorithm] [[:sha256 :blake3] [:blake3 :sha256] [:sha256 :sha256]]]
+    (let [m (s/parked-installer)
+          response (get-in m [:installs 'host.mod :response])
+          image-address (jing/segment-key (get-in response [:image :value]) {:algorithm image-algorithm})
+          record (assoc (:derivation response) :yin.ledger/output image-address)
+          record-address (jing/segment-key record {:algorithm record-algorithm})
+          response (-> response
+                       (assoc :derivation record)
+                       (assoc-in [:manifest :yin.module/derivations :yin.semantic/code] record-address))
+          wire (s/lift (assoc-in m [:installs 'host.mod :response] response) nil)
+          [back n] (lowered wire {})]
+      (is (pos? n))
+      (is (vm/blocked? back))
+      (is (= response (get-in back [:installs 'host.mod :response])))
+      (let [bad (s/lift (assoc-in m [:installs 'host.mod :response]
+                                  (assoc-in response [:derivation :yin.ledger/output]
+                                            (jing/segment-key [[:lit :wrong]] {:algorithm image-algorithm}))) nil)]
+        (is (= :install-image (:yin.k/kind (refused bad {}))))))))
 
 
 (deftest install-children-lower-under-their-roots-custody
