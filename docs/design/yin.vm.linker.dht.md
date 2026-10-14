@@ -1864,11 +1864,23 @@ answers one entry per requirement, in walk order:
 - The engine checks independently of admission and the link source: in
   the `link-install` `linked` transition, before the installed slice is
   lifted or published, every pinned require of the manifest is checked
-  against the halted child's linked entry for that name. An absent or
-  unequal entry refuses `:dependency-pin-mismatch`, carrying `:module`,
-  `:name`, `:pinned`, and `:linked` (nil when absent). The first mismatch
+  against the halted child's linked entry for that name. A present-and-unequal
+  entry refuses `:dependency-pin-mismatch`, carrying `:module`, `:name`,
+  `:pinned`, and `:linked`. Absence is permitted at install: a deferred or
+  optional dependency need not have been required yet. The first mismatch
   in dependency-name string order wins. Its acceptance bypasses the DHT
   binding check and covers inherited and freshly installed mismatches.
+- The registry pin invariant guarantees safety at receive: no linked module
+  may have an address different from any linked manifest's pin for its name.
+  `module/pin-conflict` derives this from registry manifests and the incoming
+  entry, without persisted pin state. `receive-module` refuses before attaching
+  or lowering if an existing manifest pins the incoming name at another
+  address, or the incoming manifest pins a held name at another address.
+  This covers child inheritance at spawn and parent receives of the installed
+  entry and the child's linked entries (acts 3 and 4), including a parent
+  registry changed while the child installed. A later deferred require at
+  another address refuses as data under `try-require`, or raises under
+  `require`; the receiving registry and stores remain unchanged.
 
 ### 7.5 Admission: the linker's trust question
 

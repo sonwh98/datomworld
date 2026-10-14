@@ -189,3 +189,37 @@
     (let [r (module/default-registry)]
       (is (fn? (module/get-effect-handler r :module/require)))
       (is (empty? (module/list-modules r))))))
+
+
+(deftest registry-pin-conflict-test
+  (let [entry (fn [name address requires]
+                {:manifest {:yin.module/name name,
+                            :yin.module/requires requires},
+                 :address address})
+        foo (entry 'foo :foo (assoc {} 'z :p 'bar :p))
+        bar (entry 'bar :q {})
+        pinned (module/assoc-module (module/empty-registry) 'foo foo)
+        held (-> (module/empty-registry)
+                 (module/assoc-module 'z (entry 'z :q {}))
+                 (module/assoc-module 'bar bar))
+        refusal {:status :refused, :reason :dependency-pin-mismatch,
+                 :module 'foo, :name 'bar, :pinned :p, :linked :q}]
+    (testing "absent pins and matching addresses are permitted"
+      (is (nil? (module/pin-conflict (module/empty-registry) 'foo foo)))
+      (is (nil? (module/pin-conflict pinned 'bar (entry 'bar :p {})))))
+    (testing "existing manifests constrain incoming entries"
+      (is (= (assoc refusal :module 'bar)
+             (module/pin-conflict pinned 'bar bar))))
+    (testing "incoming manifests constrain held entries in name order"
+      (is (= refusal (module/pin-conflict held 'foo foo))))
+    (testing "multiple existing pinners choose a stable address by owner name"
+      (let [r (-> pinned
+                  (module/assoc-module 'aaa (entry 'aaa :aaa {'bar :a}))
+                  (module/assoc-module 'zzz (entry 'zzz :zzz {'bar :z})))]
+        (is (= (assoc refusal :module 'bar :pinned :a)
+               (module/pin-conflict r 'bar bar)))))
+    (testing "a held host entry also disagrees with a content-addressed pin"
+      (let [r (module/assoc-module (module/empty-registry)
+                                   'bar (entry 'bar nil {}))]
+        (is (= (assoc refusal :linked nil)
+               (module/pin-conflict r 'foo foo)))))))
