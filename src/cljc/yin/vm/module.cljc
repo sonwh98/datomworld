@@ -520,8 +520,9 @@
                          {:outcome o, :link-id (:link-id entry)})))))))
 
 
-(defn require-handler
-  "Resolve `:module/require` (yin.vm.linker.md sections 7.2 and 8.3).
+(defn- handle-require
+  "Resolve a require effect (yin.vm.linker.md sections 7.2 and 8.3).
+   `try?` selects data delivery for each outcome instead of effect errors.
 
    A module already in the registry value -- a host module, or one linked
    earlier and lowered into this task -- answers now. A module installing
@@ -543,24 +544,34 @@
    naming the chain (section 7.4): the child that asked is refused. A VM
    composed without a link pair cannot link, so its miss fails as v1's
    did, naming the modules it has."
-  [state effect {:keys [park-entry-fns]}]
+  [state effect {:keys [park-entry-fns]} try?]
   (let [module-name (:module effect)
-        build (get park-entry-fns :module/require)
-        registers #(if build (build state effect nil) {})
+        build (or (when try? (get park-entry-fns :module/try-require))
+                  (get park-entry-fns :module/require))
+        registers #(cond-> (if build (build state effect nil) {})
+                     try? (assoc :try? true))
         resources (:resources state)
         response (get resources link-response-resource)]
     (cond
       (some? (resolve-module (:modules state) module-name))
-      {:value module-name, :state state, :blocked? false}
+      {:value (if try? {:status :ok, :module module-name} module-name),
+       :state state, :blocked? false}
 
       (some #{module-name} (:ancestry state))
-      (throw (ex-info "Require cycle"
-                      {:reason :require-cycle,
-                       :module module-name,
-                       :chain (conj (vec (:ancestry state)) module-name)}))
+      (let [refusal {:reason :require-cycle,
+                     :module module-name,
+                     :chain (conj (vec (:ancestry state)) module-name)}]
+        (if try?
+          {:value (assoc refusal :status :refused),
+           :state state, :blocked? false}
+          (throw (ex-info "Require cycle" refusal))))
 
       (installing? state module-name)
-      (block-on state (assoc (registers) :reason :install :name module-name))
+      (block-on state (cond-> (assoc (registers)
+                                     :reason :install :name module-name)
+                        try? (assoc :link-id (get-in state
+                                                     [:installs module-name
+                                                      :parent]))))
 
       (not (and response (get resources link-request-resource)))
       (throw (ex-info "Module is not in this VM's registry"
@@ -593,8 +604,21 @@
         (block-on state (append-link-request resources entry gate))))))
 
 
+(defn require-handler
+  "Resolve `:module/require`, raising a refusal at resume."
+  [state effect opts]
+  (handle-require state effect opts false))
+
+
+(defn try-require-handler
+  "Resolve `:module/try-require`, returning linker outcomes as data."
+  [state effect opts]
+  (handle-require state effect opts true))
+
+
 (defn default-registry
   "A registry with the built-in effect handlers and no modules."
   []
   (-> (empty-registry)
-      (register-effect-handler :module/require require-handler)))
+      (register-effect-handler :module/require require-handler)
+      (register-effect-handler :module/try-require try-require-handler)))

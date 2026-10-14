@@ -1253,7 +1253,11 @@ The steps, as rules:
    against its live state and, if discharged, starts the install child
    (section 7.3). On a matching refusal, or a failed discharge, the
    program resumes with the refusal raised as the effect's error, the
-   same way an `:ffi` `error` raises. On `gap` the honest outcome is a
+   same way an `:ffi` `error` raises. The bare `try-require` primitive
+   emits `:module/try-require` through the same linker seat. Its waiter
+   resumes with refusal or loss data instead of raising, and success
+   returns `{:status :ok :module name}`. Each waiter keeps its own return
+   contract, including co-waiters on one install. On `gap` the outcome is a
    `gap`, and the composition's policy decides.
 
 Revision r1 claimed steps 3 to 7 needed no new engine machinery. That
