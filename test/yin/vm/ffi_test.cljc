@@ -1,12 +1,13 @@
 (ns yin.vm.ffi-test
-  (:require [clojure.edn :as edn]
+  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
+            [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-compile :as rc]
+
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.ffi :as ffi]
@@ -388,15 +389,13 @@
                                       (vm/ast->datoms ast)))),
    :debruijn-stack
    (fn [opts ast]
-     (vm/run (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
+     (vm/run (dvm/create-vm (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                             (assoc opts
                                    :contract vm/stack-contract
                                    :primitives vm/primitives)))),
    :debruijn-register
    (fn [opts ast]
-     (vm/run (rvm/create-vm (:image (rc/adapt (second
-                                                (vm/ast->datoms-with-root
-                                                  ast))))
+     (vm/run (rvm/create-vm (derive/register-image (:vector (sr-linearize/project ast)))
                             (assoc opts :contract vm/register-contract))))})
 
 

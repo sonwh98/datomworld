@@ -11,7 +11,6 @@
             [yang.python.antlr.uast :as u]
             [yin.vm.linker.interpreter :as link]
             [yin.vm.debruijn-register-code :as rcode]
-            [yin.vm.debruijn-register-compile :as rc]
             [yin.vm.debruijn.register :as rvm]
             [yin.vm :as vm]
             [yin.vm.values :as values]
@@ -20,9 +19,8 @@
             [yin.vm.debruijn :as db]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.debruijn-code :as dc]
-            [yin.vm.debruijn-resolve :as dr]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-contract-test :as contract]
+
+            [yin.vm.debruijn-register-code-test :as contract]
             [yin.vm.semantic-register.code :as code]
             [yin.vm.semantic-register.analysis :as analysis]
             [yin.vm.semantic-register.corpus :as corpus :refer [lit v lam app tail if-node def! resume]]
@@ -150,11 +148,9 @@
 
 
 (defn stack-run
-  [pipeline ast opts]
+  [ast opts]
   (try
-    (let [image (:image (if (= pipeline :old)
-                          (dl/adapt (vm/ast->datoms ast))
-                          (derive/stack-image (projected ast))))
+    (let [image (:image (derive/stack-image (projected ast)))
           task (vm/run (dvm/create-vm image
                                       (merge {:primitives (assoc vm/primitives 'list (fn [& xs] (apply list xs))
                                                                  'vector (fn [& xs] (vec xs)) 'inc inc)
@@ -206,7 +202,7 @@
     (let [r (derive/resolve (projected ast))]
       (is (= r (edn/read-string (pr-str r))))
       (is (vector? (derive/addresses (:vector r))))
-      (is (vector? (derive/resolved-addresses (dr/resolve (vm/ast->datoms ast))))))))
+      (is (vector? (derive/addresses (:vector (derive/resolve (projected ast)))))))))
 
 
 (def golden-asts
@@ -331,15 +327,12 @@
   (is (= 60 (+ (count b0/corpus) (count corpus/programs) (count runtime-extra-rows))))
   (doseq [[label ast opts expected] runtime-extra-rows]
     (testing (str label)
-      (let [old (stack-run :old ast opts) new (stack-run :new ast opts)]
-        (is (= old new))
-        (is (= [true false (native-normalize expected)] (:observable old)))
+      (let [new (stack-run ast opts)]
         (is (= [true false (native-normalize expected)] (:observable new))))))
   (is (= 26 (count b0/corpus)))
   (doseq [[label ast expected] b0/corpus]
     (testing label
-      (let [old (stack-run :old ast {}) new (stack-run :new ast {})]
-        (is (= old new))
+      (let [new (stack-run ast {})]
         (is (= [true false (native-normalize expected)] (:observable new))))))
   (is (= 12 (count (filter #(contains? value-rows (first %)) corpus/programs))))
   (is (= 19 (count (remove #(or (contains? value-rows (first %)) (= :ffi-call-no-args (first %))) corpus/programs))))
@@ -347,8 +340,7 @@
   (doseq [[label ast] corpus/programs]
     (testing (str label)
       (let [opts (if (= label :ffi-call-no-args) {:bridge {:op/ping (fn [] :pong)}} {})
-            old (stack-run :old ast opts) new (stack-run :new ast opts)]
-        (is (= old new))
+            new (stack-run ast opts)]
         (cond (= label :ffi-call-no-args) (is (= [true false :pong] (:observable new)))
               (contains? value-rows label) (is (= [true false] (subvec (:observable new) 0 2)))
               :else (is (= :thrown (first (:observable new)))))))))
@@ -359,15 +351,14 @@
     (testing (str label)
       (let [a (projected ast)]
         (is (= (derive/addresses a) (derive/addresses (:vector (derive/resolve a)))
-               (derive/addresses (:image (derive/stack-image a)))
-               (derive/resolved-addresses (dr/resolve (vm/ast->datoms ast))))))))
+               (derive/addresses (:image (derive/stack-image a))))))))
   (is (some #(and (= :bound (first %)) (= 1 (second %)))
             (derive/addresses (projected (get (into {} corpus/programs) :nested-lambdas)))))
   (is (some #{[:bound 0 1]} (derive/addresses (projected duplicate-param))))
-  ;; Guard the old resolver reader's exclusion of the definition operator.
+  ;; Definition syntax never becomes a free variable load.
   (let [ast (get (into {} corpus/programs) :define-then-call)]
     (is (not-any? #{[:free 'yin/def]}
-                  (derive/resolved-addresses (dr/resolve (vm/ast->datoms ast)))))))
+                  (derive/addresses (:vector (derive/resolve (projected ast))))))))
 
 
 ;; First numeric verification includes every stated L(p), not only H labels.
@@ -438,10 +429,9 @@
 
 
 (defn register-run
-  [pipeline ast opts]
+  [ast opts]
   (try
-    (let [image (if (= pipeline :old) (:image (rc/adapt (vm/ast->datoms ast)))
-                    (derive/register-image (projected ast)))
+    (let [image (derive/register-image (projected ast))
           task (vm/run (rvm/create-vm image
                                       (merge {:primitives (assoc vm/primitives 'list (fn [& xs] (apply list xs))
                                                                  'vector (fn [& xs] (vec xs)) 'inc inc)
@@ -558,19 +548,16 @@
   (is (= 1 (count (filter #(= :ffi-call-no-args (first %)) corpus/programs))))
   (doseq [[label ast opts expected] runtime-extra-rows]
     (testing (str label)
-      (let [old (register-run :old ast opts) new (register-run :new ast opts)]
-        (is (= old new))
-        (is (= [true false (native-normalize expected)] (:observable old) (:observable new))))))
+      (let [new (register-run ast opts)]
+        (is (= [true false (native-normalize expected)] (:observable new))))))
   (doseq [[label ast expected] b0/corpus]
     (testing label
-      (let [old (register-run :old ast {}) new (register-run :new ast {})]
-        (is (= old new))
-        (is (= [true false (native-normalize expected)] (:observable old) (:observable new))))))
+      (let [new (register-run ast {})]
+        (is (= [true false (native-normalize expected)] (:observable new))))))
   (doseq [[label ast] corpus/programs]
     (testing (str label)
       (let [opts (if (= label :ffi-call-no-args) {:bridge {:op/ping (fn [] :pong)}} {})
-            old (register-run :old ast opts) new (register-run :new ast opts)]
-        (is (= old new))
+            new (register-run ast opts)]
         (cond (= label :ffi-call-no-args) (is (= [true false :pong] (:observable new)))
               (contains? value-rows label) (is (= [true false] (subvec (:observable new) 0 2)))
               :else (is (= :thrown (first (:observable new)))))))))
@@ -582,8 +569,7 @@
       (let [a (projected ast)]
         (is (= (derive/addresses a) (derive/addresses (:vector (derive/resolve a)))
                (derive/addresses (:instructions (derive/register-image a)))
-               (derive/addresses (:image (derive/stack-image a)))
-               (derive/resolved-addresses (dr/resolve (vm/ast->datoms ast)))))))))
+               (derive/addresses (:image (derive/stack-image a)))))))))
 
 
 (deftest register-determinism
@@ -616,25 +602,18 @@
 
 
 (def c4-backends
-  {:stack-old (fn [ast opts]
-                (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
-                               (assoc opts :contract vm/stack-contract)))
-   :stack-new (fn [ast opts]
-                (dvm/create-vm (:image (derive/stack-image (projected ast)))
-                               (assoc opts :contract vm/stack-contract)))
-   :register-old (fn [ast opts]
-                   (rvm/create-vm (:image (rc/adapt (vm/ast->datoms ast)))
-                                  (assoc opts :contract vm/register-contract)))
-   :register-new (fn [ast opts]
-                   (rvm/create-vm (derive/register-image (projected ast))
-                                  (assoc opts :contract vm/register-contract)))})
+  {:stack (fn [ast opts]
+            (dvm/create-vm (:image (derive/stack-image (projected ast)))
+                           (assoc opts :contract vm/stack-contract)))
+   :register (fn [ast opts]
+               (rvm/create-vm (derive/register-image (projected ast))
+                              (assoc opts :contract vm/register-contract)))})
 
 
 (defn c4-task
-  [family pipeline ast source]
+  [family ast source]
   (let [pair (link/make-pair)
-        backend (keyword (str (name family) "-" (name pipeline)))
-        task ((get c4-backends backend) ast (h/composition (h/registry) pair))]
+        task ((get c4-backends family) ast (h/composition (h/registry) pair))]
     (first (h/drive task pair source))))
 
 
@@ -670,20 +649,17 @@
             (doseq [family [:stack :register]]
               (println "C4 root" label family)
               (testing (str "root " label " " family)
-                (let [observe (fn [pipeline]
-                                (let [task (c4-task family pipeline ast source)]
+                (let [observe (fn []
+                                (let [task (c4-task family ast source)]
                                   [(vm/halted? task) (vm/blocked? task) (render/output (vm/value task))]))
-                      old (observe :old) new (observe :new)]
-                  (is (= old new))
-                  (is (= [true false {:py/out output :py/exception nil}] old new)))))))
+                      new (observe)]
+                  (is (= [true false {:py/out output :py/exception nil}] new)))))))
         (doseq [[label ast] modules family [:stack :register]]
           (println "C4 module" label family)
           (testing (str "module " label " " family)
-            (let [old (c4-task family :old ast source) new (c4-task family :new ast source)
-                  observe (fn [task] [(vm/halted? task) (vm/blocked? task) (native-normalize (vm/store task))])]
-              (is (= (observe old) (observe new)))
+            (let [new (c4-task family ast source)]
               (is (= [true false] [(vm/halted? new) (vm/blocked? new)]))
-              (is (= (prelude/defined-keys ast) (set (keys (vm/store old))) (set (keys (vm/store new))))))))
+              (is (= (prelude/defined-keys ast) (set (keys (vm/store new))))))))
         (println "C4 completed: 10 root programs; 8 module bodies; both kernel families")
         ;; Install-child execution over newly published images is phase 8.
         ))))
@@ -735,3 +711,120 @@
         (is (= expected (interval 0 end)) (str "§6.3 image " (inc i)))
         (when (= i 5)
           (is (= {0 [7 8] 1 [4 7] 2 [5 7] 3 [6 7]} (interval 4 9))))))))
+
+
+(deftest resolution-preserves-scalars-and-contexts
+  (let [a (projected (lit 42))]
+    (is (= [:const 0 42] (first (:vector (derive/resolve a))))))
+  (is (= '#{[:free +] [:free y]}
+         (into #{} (filter #(= :free (first %)))
+               (derive/addresses (projected free-variable)))))
+  (doseq [[label expected]
+          [[:shared-variable-under-two-contexts '[[:free list] [:bound 0 0] [:free x]]]
+           [:shared-lambda-under-two-contexts '[[:free list] [:free +] [:bound 0 0] [:bound 1 1]
+                                                [:free +] [:bound 0 0] [:free q]]]]]
+    (is (= expected (derive/addresses (projected (get contract/address-law-extra-fixtures label)))))))
+
+
+(defn tail-countdown-ast
+  "Self-passing tail-recursive countdown from `n` to 0: loop throughput,
+   tail-call dispatch, and frame reuse."
+  [n]
+  (let [self-fn (lam '[self n]
+                     (tail (if-node (app (v '<) (v 'n) (lit 1))
+                                    (lit 0)
+                                    (tail (app (v 'self)
+                                               (v 'self)
+                                               (app (v '-) (v 'n) (lit 1)))))))]
+    (tail (app self-fn self-fn (lit n)))))
+
+
+(defn fibonacci-ast
+  "Self-passing doubly recursive fib: call/return overhead, frame
+   allocation, and binary arithmetic."
+  [n]
+  (let [rec (fn [k]
+              (app (v 'self) (v 'self) (app (v '-) (v 'n) (lit k))))
+        self-fn (lam '[self n]
+                     (tail (if-node (app (v '<) (v 'n) (lit 2))
+                                    (v 'n)
+                                    (tail (app (v '+) (rec 1) (rec 2))))))]
+    (tail (app self-fn self-fn (lit n)))))
+
+
+(defn lexical-binding-ast
+  "`depth` nested let-shaped lambda applications binding x0..x(depth-1),
+   whose innermost body sums every binding: bound-variable access at
+   every lexical depth."
+  [depth]
+  (let [names (mapv #(symbol (str "x" %)) (range depth))
+        sum (reduce (fn [acc sym] (app (v '+) acc (v sym)))
+                    (v (first names))
+                    (rest names))]
+    (reduce (fn [body i]
+              (tail (app (lam [(nth names i)] body) (lit (inc i)))))
+            (tail sum)
+            (range (dec depth) -1 -1))))
+
+
+(deftest native-workload-values-and-step-parity
+  (doseq [[label ast expected] [[:tail-countdown (tail-countdown-ast 500) 0]
+                                [:fibonacci (fibonacci-ast 12) 144]
+                                [:lexical-binding (lexical-binding-ast 8) 36]]
+          family [:stack :register]]
+    (testing (str label " " family)
+      (let [a (projected ast)
+            opts {:primitives vm/primitives :make-stream tu/make-stream :capability-secret tu/secret}
+            task (case family
+                   :stack (dvm/create-vm (:image (derive/stack-image a)) (assoc opts :contract vm/stack-contract))
+                   :register (rvm/create-vm (derive/register-image a) (assoc opts :contract vm/register-contract)))
+            stepped (loop [t task steps 0]
+                      (cond
+                        (or (vm/halted? t) (vm/blocked? t)) [t steps]
+                        (>= steps 1000000) (throw (ex-info "Workload exceeded step cap" {:label label :family family}))
+                        :else (recur (vm/step t) (inc steps))))]
+        (is (pos? (second stepped)))
+        (is (= expected (vm/value (vm/run task)) (vm/value (first stepped))))))))
+
+
+(deftest native-corpus-covers-opcodes
+  (is (= dc/mnemonics
+         (into #{} (mapcat (fn [[_ ast]]
+                             (map first (:image (derive/stack-image (projected ast)))))) C)))
+  (is (= (disj (set (keys rcode/opcode-table)) :move)
+         (into #{} (mapcat (fn [[_ ast]]
+                             (map first (:instructions (derive/register-image (projected ast)))))) C))))
+
+
+(deftest native-effect-operands-are-preserved
+  ;; Ignore physical registers here: the format and liveness tests pin those.
+  ;; These are the data operands the retired R2 exact-image tests protected.
+  (doseq [[label ast] r2-lift-programs
+          :let [a (projected ast)
+                stack (:image (derive/stack-image a))
+                register (:instructions (derive/register-image a))
+                op (case label
+                     :ffi :ffi-call
+                     :store-get :store-get :store-put :store-put
+                     :gensym :gensym :stream-make :stream-make
+                     :stream-put :stream-put :stream-cursor :stream-cursor
+                     :stream-next :stream-next :stream-close :stream-close
+                     :park :park :current-continuation :current-continuation
+                     :resume :resume)
+                st (first (filter #(= op (first %)) stack))
+                rt (first (filter #(= op (first %)) register))]]
+    (testing (name label)
+      (is (some? st))
+      (is (some? rt))
+      (case label
+        (:store-get :store-put :gensym :stream-make)
+        (do (is (= (subvec st 1) (subvec rt 2)))
+            (is (= (case label :store-get [:k] :store-put [:k 42]
+                         :gensym ["g"] :stream-make [8])
+                   (subvec st 1))))
+        :ffi (do (is (= :math/add (nth st 1) (nth rt 2)))
+                 (is (= 2 (nth st 2) (count (nth rt 3)))))
+        :resume (is (= :p1 (nth st 1) (nth rt 1)))
+        nil)
+      (is (= (into [] (keep #(when (= :const (first %)) (peek %))) stack)
+             (into [] (keep #(when (= :const (first %)) (peek %))) register))))))

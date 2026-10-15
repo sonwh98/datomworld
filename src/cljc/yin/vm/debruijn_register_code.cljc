@@ -11,7 +11,7 @@
    positional instructions'): it is `{:bodies [...], :instructions [...]}`.
    `:instructions` is the pc-indexed positional tuple vector, main body
    first then out-of-line lambda bodies in discovery order, exactly the
-   layout `yin.vm.debruijn-linearize/lower-stack` already uses for the
+   layout `yin.vm.semantic-register.derive/stack-image` uses for the
    stack image. `:bodies` names each contiguous pc range's declared
    register file: body 0 is the main program (zero locals); every other
    body is a lambda's, `:locals` its declared arity (registers `0` ..
@@ -291,15 +291,9 @@
 ;; call's empty successor set already makes its live-out, and so its
 ;; live set, the empty set.
 ;;
-;; Used by both `yin.vm.debruijn-register-compile/lower-register`, to
-;; fill the `:call` `live` operand after a body's instructions are
-;; emitted, and by this namespace's own `live-exact-rule`, to recompute
-;; and check it on every receiving host -- exactly one definition of
-;; liveness in the format. The allocator's own free-list
-;; (`yin.vm.debruijn-register-compile/allocate-temp!`/`free-temp!`) is a
-;; FORWARD approximation made during allocation and is never consulted
-;; here: `live` is this separate BACKWARD pass over the already-emitted
-;; body.
+;; Used by the native register derivation and by this namespace's
+;; `live-exact-rule` to check boundary operands on every receiving host.
+;; This backward pass is independent of register allocation.
 
 (defn- successors-of
   [instructions pc]

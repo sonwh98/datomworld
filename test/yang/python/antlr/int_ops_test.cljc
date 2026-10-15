@@ -1,25 +1,25 @@
 (ns yang.python.antlr.int-ops-test
   "C3 S3-A/B/C exact operators and range/index audit on all four VMs."
-  (:require
-    [clojure.test :refer [deftest is]]
-    [clojure.walk :as walk]
-    [dao.test-slow :as slow]
-    [yang.python.antlr.int-ops-fixtures :as fixtures]
-    [yang.python.antlr.prelude :as prelude]
-    [yang.python.antlr.uast :as u]
-    [yin.vm :as vm]
-    [yin.vm.data :as data]
-    [yin.vm.debruijn-linearize :as dl]
-    [yin.vm.debruijn-register-compile :as rc]
-    [yin.vm.debruijn.register :as rvm]
-    [yin.vm.debruijn.stack :as dvm]
-    [yin.vm.integer :as integer]
-    [yin.vm.integer-v3-fixtures :as fx]
-    [yin.vm.integer.host :as integer-host]
-    [yin.vm.linearize :as linearize]
-    [yin.vm.module :as module]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.test-utils :as tu]))
+  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
+            [clojure.test :refer [deftest is]]
+            [clojure.walk :as walk]
+            [dao.test-slow :as slow]
+            [yang.python.antlr.int-ops-fixtures :as fixtures]
+            [yang.python.antlr.prelude :as prelude]
+            [yang.python.antlr.uast :as u]
+            [yin.vm :as vm]
+            [yin.vm.data :as data]
+
+            [yin.vm.debruijn.register :as rvm]
+            [yin.vm.debruijn.stack :as dvm]
+            [yin.vm.integer :as integer]
+            [yin.vm.integer-v3-fixtures :as fx]
+            [yin.vm.integer.host :as integer-host]
+            [yin.vm.linearize :as linearize]
+            [yin.vm.module :as module]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.test-utils :as tu]))
 
 
 (defn- opts-under
@@ -49,14 +49,14 @@
                                                     (vm/ast->datoms ast))))),
    :stack (fn [ast]
             (vm/value
-              (vm/run (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
+              (vm/run (dvm/create-vm (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                                      (assoc opts
                                             :contract vm/stack-contract))))),
    :register (fn [ast]
                (vm/value
                  (vm/run
                    (rvm/create-vm
-                     (:image (rc/adapt (vm/ast->datoms ast)))
+                     (derive/register-image (:vector (sr-linearize/project ast)))
                      (assoc opts :contract vm/register-contract)))))})
 
 

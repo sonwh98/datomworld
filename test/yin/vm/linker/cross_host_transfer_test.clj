@@ -3,7 +3,9 @@
    The receiver starts with identity and index, never an image. Remote
    stream envelopes cross Transit pipes between two ring compositions.
    Build the test-only peer on every run so this gate cannot skip."
-  (:require [clojure.java.io :as io]
+  (:require [yin.vm.semantic-register.derive :as derive]
+            [yin.vm.semantic-register.linearize :as sr-linearize]
+            [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
@@ -14,9 +16,8 @@
             [dao.stream.ringbuffer :as ring]
             [dao.stream.transit :as transit]
             [yin.vm :as vm]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-compile :as rc]
-            [yin.vm.debruijn-vm-contract-test :as b0]
+
+            [yin.vm.debruijn-code-test :as b0]
             [yin.vm.linker :as linker]
             [yin.vm.linker.publish :as publish]
             [yin.vm.linker.remote-transfer-test :as fixtures]
@@ -115,14 +116,14 @@
 
 (defn- image
   [lower ast]
-  (:image (lower (second (vm/ast->datoms-with-root ast)))))
+  (lower (:vector (sr-linearize/project ast))))
 
 
 (deftest ^:slow jvm-images-transfer-to-an-identity-only-dart-receiver
   (build-peer!)
   (doseq [[kind format lower]
-          [[:H linker/stack-format dl/adapt]
-           [:R linker/register-format rc/adapt]]]
+          [[:H linker/stack-format #(:image (derive/stack-image %))]
+           [:R linker/register-format derive/register-image]]]
     (testing (name kind)
       (let [store (mem/create-content-mem)]
         (try

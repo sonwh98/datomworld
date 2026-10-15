@@ -6,7 +6,9 @@
    parser is JVM-only); their node ids are the parser's, so this is the
    real lowering's output. Topology: lowering envelope -> encoder projection
    -> safepoint stage -> the VM runs the hook prelude, then `A'`."
-  (:require [dao.test-slow :as slow]
+  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
+            [dao.test-slow :as slow]
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [yang.python.antlr.lower :as lower]
@@ -19,8 +21,7 @@
             [yang.tails :as tails]
             [yin.vm :as vm]
             [yin.vm.data :as data]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-compile :as rc]
+
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.integer :as integer]
@@ -78,11 +79,11 @@
                                           (vm/ast->datoms ast)))),
    :stack (fn [ast prep]
             (vm/run (prep (dvm/create-vm
-                            (:image (dl/lower-stack (tu/resolved-of ast)))
+                            (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                             (assoc opts :contract vm/stack-contract))))),
    :register (fn [ast prep]
                (vm/run (prep (rvm/create-vm
-                               (:image (rc/lower-register (tu/resolved-of ast)))
+                               (derive/register-image (:vector (sr-linearize/project ast)))
                                (assoc opts :contract vm/register-contract)))))})
 
 

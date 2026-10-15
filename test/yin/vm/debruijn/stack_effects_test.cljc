@@ -11,16 +11,17 @@
    Parity fixtures take one named AST through both lowerers -- `adapt`
    onto this VM, `yin.vm.linearize` onto the semantic VM, B4's parity
    oracle -- on fresh instances every time (D4), and compare under B0's
-   normalizer (`yin.vm.debruijn-vm-contract-test/normalize`), reused rather
+   normalizer (`yin.vm.debruijn-code-test/normalize`), reused rather
    than reimplemented."
-  (:require [clojure.edn :as edn]
+  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
+            [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
             [yin.vm :as vm]
             [yin.vm.debruijn-code :as dc]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-vm-contract-test :as b0]
+            [yin.vm.debruijn-code-test :as b0]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
@@ -97,7 +98,7 @@
 
 (defn- debruijn-image
   [ast]
-  (:image (dl/adapt (vm/ast->datoms ast))))
+  (:image (derive/stack-image (:vector (sr-linearize/project ast)))))
 
 
 (defn- debruijn-run

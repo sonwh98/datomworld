@@ -10,12 +10,12 @@
    hand-lowered instruction vector with the equivalent named AST, run each
    through its own VM (a fresh instance every time -- D4, the named VM's
    environment leak, is sidestepped by construction, never reused), and
-   compare under B0's normalizer (`yin.vm.debruijn-vm-contract-test/normalize`),
+   compare under B0's normalizer (`yin.vm.debruijn-code-test/normalize`),
    reused rather than reimplemented."
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
             [yin.vm.debruijn.stack :as dvm]
-            [yin.vm.debruijn-vm-contract-test :as b0]
+            [yin.vm.debruijn-code-test :as b0]
             [yin.vm.test-utils :as tu]))
 
 

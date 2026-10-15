@@ -1139,11 +1139,16 @@
       x')))
 
 
-(defn- same-meta?
-  "True when the `=` values `a` and `b` also carry `=` metadata at every
-   depth, including inside metadata itself (a metadata value, or a metadata
-   map's own metadata, compares through `same-meta?` too). `=` alone ignores
+(defn- same-content?
+  "True when `a` and `b` have equal content, comparing leaves by
+   `dao.jing.cbor/content=`, the encoder's own kind-strict equality, so canonical
+   NaNs are equal and `0.0`/`-0.0` are not,
+   and carry `=` metadata at every depth, including inside metadata itself (a metadata value, or a metadata
+   map's own metadata, compares through `same-content?` too). `=` alone ignores
    metadata.
+
+   NaN map keys and set elements inside data payloads are out of scope
+   and fail closed when lookup misses.
 
    Scope boundary: the set branch assumes ordinary set semantics, at most one
    element per `=`-equivalence class; a set built with a comparator that
@@ -1155,16 +1160,24 @@
    mismatch may throw or may be silently accepted."
   [a b]
   (and (= (meta a) (meta b))
-       (or (nil? (meta a)) (same-meta? (meta a) (meta b)))
-       (cond (map? a) (every? (fn [[k v]]
-                                (let [[k' v'] (find b k)]
-                                  (and (same-meta? k k') (same-meta? v v'))))
-                              a)
-             (set? a) (every? (fn [e]
-                                (same-meta? e (some #(when (= e %) %) b)))
-                              a)
-             (sequential? a) (every? true? (map same-meta? a b))
-             :else true)))
+       (or (nil? (meta a)) (same-content? (meta a) (meta b)))
+       (cond (map? a) (and (map? b)
+                           (= (count a) (count b))
+                           (every? (fn [[k v]]
+                                     (and (contains? b k)
+                                          (let [[k' v'] (find b k)]
+                                            (and (same-content? k k')
+                                                 (same-content? v v')))))
+                                   a))
+             (set? a) (and (set? b)
+                           (= (count a) (count b))
+                           (every? (fn [e]
+                                     (same-content? e (some #(when (= e %) %) b)))
+                                   a))
+             (sequential? a) (and (sequential? b)
+                                  (= (count a) (count b))
+                                  (every? true? (map same-content? a b)))
+             :else (cbor/content= a b))))
 
 
 (defn ast->semantic-bytecode
@@ -1179,13 +1192,14 @@
    commits to its children's ids; structurally identical subtrees mint one
    id and are stored as one row (§4.4).
 
-   Known limitation, inherited from `dao.jing` and not fixed here: the
-   transitional encoder does not hash metadata on scalars, so two payloads
-   differing only in retained symbol metadata (e.g. `^{:meaning 1} x` and
-   `^{:meaning 2} x` as literal values) mint one address. Such a collision
-   throws `\"Semantic bytecode address collision\"` rather than letting one
-   row's metadata silently replace the other's. It disappears when
-   `dao.jing`'s encoding covers scalar metadata."
+   Two nodes that mint one id must have one content: the row is checked
+   against the stored row with `same-content?` (metadata at every depth,
+   leaves by `dao.jing.cbor/content=`), and a mismatch throws
+   \"Semantic bytecode address collision\" rather than letting one row silently
+   replace the other. No known input reaches that throw: the encoder hashes
+   symbol and collection metadata, and makes every NaN one quiet NaN, so two
+   NaN scalars are one row value. The guard is a defence against the encoder
+   and this check disagreeing."
   [ast]
   (let [rows (atom {})]
     (letfn
@@ -1212,7 +1226,7 @@
                row (into [id] body)
                prior (get @rows id)]
            (when (and prior
-                      (not (and (= prior row) (same-meta? prior row))))
+                      (not (same-content? prior row)))
              (throw (ex-info "Semantic bytecode address collision"
                              {:id id, :row row, :prior prior})))
            (swap! rows assoc id row)

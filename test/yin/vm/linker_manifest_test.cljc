@@ -12,7 +12,7 @@
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.semantic-register.derive :as derive]
             [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.debruijn-vm-contract-test :as b0]
+            [yin.vm.debruijn-code-test :as b0]
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.ledger :as ledger]

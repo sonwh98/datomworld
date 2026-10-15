@@ -2,14 +2,15 @@
   "R2 (docs/design/yin.vm.debruijn.register.md S5.2): test suite for
    pure effect descriptors, sparse continuation snapshots, wait-entry
    validators, and engine seam equivalence for the de Bruijn register VM."
-  (:require #?(:clj [clojure.edn :as edn]
+  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
+            #?(:clj [clojure.edn :as edn]
                :cljs [cljs.reader :as edn]
                :cljd [clojure.edn :as edn])
             [clojure.test :refer [deftest is testing]]
             [dao.stream.apply :as apply2]
             [yin.vm :as vm]
             [yin.vm.debruijn-register-code :as rcode]
-            [yin.vm.debruijn-register-compile :as rc]
             [yin.vm.debruijn-register-effects :as effects]
             [yin.vm.effect :as effect]
             [yin.vm.engine :as engine]
@@ -20,14 +21,10 @@
 ;; Helpers & Fixtures
 ;; =============================================================================
 
-(defn- ast-datoms
-  [ast]
-  (second (vm/ast->datoms-with-root ast)))
-
 
 (defn- adapted
   [ast]
-  (rc/adapt (ast-datoms ast)))
+  {:image (derive/register-image (:vector (sr-linearize/project ast)))})
 
 
 (defn- lit
@@ -126,7 +123,7 @@
         insts (:instructions image)
         call-pc (first (keep-indexed
                          (fn [pc t]
-                           (when (and (= :call (first t)) (= 3 (nth t 1)))
+                           (when (and (= :call (first t)) (seq (nth t 5)))
                              pc))
                          insts))
         call-inst (nth insts call-pc)
@@ -145,9 +142,9 @@
       (is (= call-pc (:site-pc payload)))
       (is (= (inc call-pc) (:pc payload)))
       (is (= :write-result (:resume-mode payload)))
-      (is (= 3 (:dest payload)))
-      (is (= [1 2] (:live payload)))
-      (is (= [[1 "val-1"] [2 "val-2"]] (:regs payload)))
+      (is (= (nth call-inst 1) (:dest payload)))
+      (is (= (nth call-inst 5) (:live payload)))
+      (is (= (mapv (fn [r] [r (nth test-regs r)]) (nth call-inst 5)) (:regs payload)))
       (is (= [] (:frames payload)))
       (is (= [] (:continuation payload)))
       (is (nil? (effects/continuation-defect payload))))))
@@ -233,7 +230,7 @@
         insts (:instructions image)
         call-pc (first (keep-indexed
                          (fn [pc t]
-                           (when (and (= :call (first t)) (= 3 (nth t 1)))
+                           (when (and (= :call (first t)) (seq (nth t 5)))
                              pc))
                          insts))
         call-inst (nth insts call-pc)
@@ -316,7 +313,7 @@
     (testing "regs contain non-plain-data"
       (is (= :continuation-registers
              (:rule (effects/continuation-defect
-                      (assoc base :regs [[1 "val-1"] [2 (atom 42)]]))))))
+                      (assoc base :regs (assoc-in (:regs base) [1 1] (atom 42))))))))
 
     (testing "regs with invalid shape (not pairs or not numbers)"
       (is (= :continuation-registers
@@ -345,7 +342,7 @@
                        :frames [],
                        :regs (:regs base),
                        :live (:live base),
-                       :dest 0} ; dest mismatch (should be 3)
+                       :dest (first (:live base))} ; a live source is not the destination
             with-bad-frame (assoc base :continuation [bad-frame])]
         (is (= :continuation-destination
                (:rule (effects/continuation-defect with-bad-frame))))))

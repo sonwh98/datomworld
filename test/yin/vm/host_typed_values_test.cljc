@@ -7,15 +7,16 @@
    never reads guest data as a kernel shape. Every program runs on all
    four VMs -- the AST walker, the semantic VM, and the de Bruijn stack
    and register VMs."
-  (:require [clojure.string :as str]
+  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
             [yin.repl :as repl]
             [yin.repl.frontends :as repl.frontends]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-compile :as rc]
+
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
@@ -51,12 +52,11 @@
                       (semantic/load-vector (semantic/create-vm o)
                                             image
                                             vm/semantic-contract))},
-   :stack {:image (fn [ast] (:image (dl/adapt (vm/ast->datoms ast)))),
+   :stack {:image (fn [ast] (:image (derive/stack-image (:vector (sr-linearize/project ast))))),
            :load (fn [image o]
                    (dvm/create-vm image (assoc o :contract vm/stack-contract)))},
    :register {:image (fn [ast]
-                       (:image (rc/adapt (second (vm/ast->datoms-with-root
-                                                   ast))))),
+                       (derive/register-image (:vector (sr-linearize/project ast)))),
               :load (fn [image o]
                       (rvm/create-vm image
                                      (assoc o
@@ -230,7 +230,7 @@
   "Each VM fed a binder by the path that reaches its own refusal: the
    walker its map AST (the row validator would refuse first), the semantic
    VM its AST through the lowering, and the positional kernels the AST
-   their resolver compiles. The semantic code loader also refuses a
+   their semantic projection admits. The semantic code loader also refuses a
    non-symbol binder by operand kind, so its transition check is defence
    in depth that no loader reaches. Each takes the program to run."
   {:ast-walker (fn [ast]
@@ -247,13 +247,15 @@
 (deftest a-non-symbol-binder-is-refused-test
   (doseq [[k run] raw-runners
           [binder kind] bad-binders]
-    (is (= {:reason :non-symbol-parameter, :kind kind}
-           (select-keys (refusal-of
-                          #(vm/value (run (walk/postwalk-replace
-                                            {'p binder}
-                                            store-of-program))))
-                        [:reason :kind]))
-        (str k " " (pr-str binder))))
+    (let [refusal (refusal-of #(vm/value (run (walk/postwalk-replace
+                                                {'p binder}
+                                                store-of-program))))]
+      (if (contains? #{:stack :register} k)
+        ;; The projected row entry refuses malformed binders before derivation.
+        (is (= {:rule :slot-kind, :path [1 1]} refusal) (str k " " (pr-str binder)))
+        (is (= {:reason :non-symbol-parameter, :kind kind}
+               (select-keys refusal [:reason :kind]))
+            (str k " " (pr-str binder))))))
   (testing "a symbol binder runs"
     (doseq [k (keys kernels)]
       (is (= 1 (vm/value (run-on k store-of-program))) (str k)))))

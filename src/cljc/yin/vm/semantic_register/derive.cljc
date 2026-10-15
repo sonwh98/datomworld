@@ -57,44 +57,6 @@
           v)))
 
 
-(defn resolved-addresses
-  "Read lexical references from the old resolver's occurrence tuples.
-   Walk main then queued lambda bodies; definitions visit only their value.
-   This diagnostic reader never lowers or assigns an identity."
-  [{:keys [tuples]}]
-  (let [attrs (reduce (fn [m [e a v]] (assoc-in m [e a] v)) {} tuples)
-        root (first (keep (fn [[e m]] (when (:yin/root m) e)) attrs))
-        queue (volatile! [])
-        out (volatile! [])]
-    (letfn [(walk
-              [e]
-              (let [m (get attrs e)
-                    child (fn [k] (walk (get m k)))]
-                (case (:yin/type m)
-                  :variable (vswap! out conj
-                                    (if (contains? m :yin.resolved/free)
-                                      [:free (:yin.resolved/free m)]
-                                      [:bound (:yin.resolved/depth m)
-                                       (:yin.resolved/position m)]))
-                  :lambda (vswap! queue conj (:yin/body m))
-                  :application
-                  (let [op (get attrs (:yin/operator m))
-                        args (:yin/operands m)]
-                    (if (= 'yin/def (:yin.resolved/free op))
-                      (walk (nth args 1))
-                      (do (child :yin/operator) (doseq [a args] (walk a)))))
-                  :if (doseq [k [:yin/test :yin/consequent :yin/alternate]] (child k))
-                  :stream/put (do (child :yin/target) (child :yin/val-node))
-                  (:stream/cursor :stream/next :stream/close) (child :yin/source)
-                  :dao.stream.apply/call (doseq [a (:yin/operands m)] (walk a))
-                  :vm/resume (child :yin/val-node)
-                  nil)))]
-      (walk root)
-      (loop [i 0]
-        (when-let [e (get @queue i)] (walk e) (recur (inc i))))
-      @out)))
-
-
 (defn stack-image
   "Stackify A's parsed expressions, placing closure bodies in FIFO order.
    Labels and diagnostics are derived solely from A."

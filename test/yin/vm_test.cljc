@@ -4,6 +4,7 @@
    division primitive."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [yang.clojure :as yang]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
@@ -479,6 +480,38 @@
     (is (= 1 (count (filter #(= :literal (second %)) (vals rows)))))
     (is (= 4 (count rows)) ":if, :application, :variable, one :literal")
     (is (= ast (vm/semantic-bytecode->ast bc)))))
+
+
+(deftest semantic-bytecode-nan-structural-sharing
+  (let [a (* 1.0 ##NaN)
+        b (* -1.0 ##NaN)
+        bc (vm/ast->semantic-bytecode
+             (app (local 'vector) [(lit a) (lit b)] false))
+        literals (filter #(= :literal (second %)) (vals (:rows bc)))
+        [id _ value] (first literals)]
+    (is (= 1 (count literals)))
+    (is (= :segment/blake3-88491ea0d131d67ecf50c6a1714868257c996f9518a139262e049ebd428e55b7
+           id))
+    (is (cbor/content= ##NaN value))))
+
+
+(deftest semantic-bytecode-nested-nan-structural-sharing
+  (let [a (* 1.0 ##NaN)
+        b (* -1.0 ##NaN)
+        bc (vm/ast->semantic-bytecode
+             (app (local 'vector) [(lit [a 1]) (lit [b 1])] false))]
+    (is (= 1 (count (filter #(= :literal (second %)) (vals (:rows bc))))))))
+
+
+(deftest semantic-bytecode-symbol-metadata-is-address-significant
+  (let [bc (vm/ast->semantic-bytecode
+             (app (local 'vector)
+                  [(lit (with-meta 'x {:meaning 1}))
+                   (lit (with-meta 'x {:meaning 2}))]
+                  false))
+        literals (filter #(= :literal (second %)) (vals (:rows bc)))]
+    (is (= 2 (count literals)))
+    (is (= #{{:meaning 1} {:meaning 2}} (set (map #(meta (nth % 2)) literals))))))
 
 
 (deftest semantic-bytecode-strips-and-saturates

@@ -3,10 +3,11 @@
    call/cc): abortive, multi-shot, store not rolled back, one argument. Each
    program runs on all four VMs -- the AST walker, the semantic VM, and the
    de Bruijn stack and register VMs -- with the same expectation."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-compile :as rc]
+
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.linearize :as linearize]
@@ -45,15 +46,14 @@
                                                     (vm/ast->datoms ast)))))
    :stack (fn [ast]
             (vm/value
-              (vm/run (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
+              (vm/run (dvm/create-vm (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                                      (assoc opts
                                             :contract vm/stack-contract)))))
    :register (fn [ast]
                (vm/value
                  (vm/run
                    (rvm/create-vm
-                     (:image (rc/adapt
-                               (second (vm/ast->datoms-with-root ast))))
+                     (derive/register-image (:vector (sr-linearize/project ast)))
                      (assoc opts :contract vm/register-contract)))))})
 
 
