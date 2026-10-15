@@ -94,9 +94,12 @@
    `handle` over the host registry `registry`, `py` pinned at
    `py-address` and each import outside the set at its address in
    `published` ({python-name address}), in `publication-order`. Answers
-   `{:status :ok :addresses {python-name address}}` for the units of the
-   set, or the first refusal -- `publication-order`'s before anything is
-   written, else `publish-module!`'s with the unit's `:unit` name."
+   `{:status :ok :addresses {python-name address}
+     :bundles {bundle-symbol address}}` for the units of the set, or the
+   first refusal: `publication-order`'s before anything is written, else
+   `publish-module!`'s with a string `:unit`: the Python name for a member,
+   or the bundle module name for an SCC bundle. Every bundle name must be
+   asserted/bound alongside the member names for aliases to deliver."
   ([handle registry py-address units]
    (publish-units! handle registry py-address units {}))
   ([handle registry py-address units published]
@@ -120,7 +123,7 @@
                  bundle (first specs)
                  result (publish/publish-module! handle bundle)]
              (if (= :refused (:status result))
-               (reduced (assoc result :unit step))
+               (reduced (assoc result :unit (if (vector? step) (str (:name bundle)) step)))
                (if (vector? step)
                  (let [aliases (reduce (fn [a [n spec]]
                                          (let [r (publish/publish-module!
