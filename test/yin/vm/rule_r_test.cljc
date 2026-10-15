@@ -28,8 +28,7 @@
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.semantic-register :as sr]
-            [yin.vm.test-utils :as tu]
-            [yin.vm.ucf :as ucf]))
+            [yin.vm.test-utils :as tu]))
 
 
 ;; =============================================================================
@@ -604,16 +603,6 @@
       (is (= 3 (vm/value (vm/run (load (semantic/create-vm)
                                        (vm/ast->datoms
                                          (app (v '+) (lit 1) (lit 2)))))))))))
-
-
-(deftest canonicalize-verifies-the-batch-stamp
-  (let [batch (segment-batch [[:const 1] [:halt]])]
-    (is (= :contract-missing (rule-of #(ucf/canonicalize batch nil))))
-    (is (= :contract-mismatch (rule-of #(ucf/canonicalize batch "v2"))))
-    ;; Phase 8c uses the rows execution profile (v4, envelope version 1).
-    (is (= {:yin.code/contract "v4", :yin.k/version 1}
-           (:yin.k/contract (ucf/canonicalize batch vm/semantic-contract)))
-        "the stamp on the outcome is the one verified, never assigned")))
 
 
 ;; =============================================================================

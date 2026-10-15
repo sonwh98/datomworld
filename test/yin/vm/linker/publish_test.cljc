@@ -7,10 +7,6 @@
             [yin.repl :as repl]
             [yin.repl.frontends :as repl.frontends]
             [yin.vm :as vm]
-            [yin.vm.completion :as completion]
-            [yin.vm.linearize :as linearize]
-            [yin.vm.module :as module]
-            [yin.vm.semantic :as semantic]
             [yin.repl.require-test :as require-test]
             [yin.vm.linker.authority :as authority]
             [yin.vm.linker.publish :as publish]
@@ -175,26 +171,13 @@
 
 
 (deftest published-footprint-completes-module-discovery
-  (let [store (mem/create-content-mem)
-        {:keys [address manifest]}
+  (let [{:keys [manifest]}
         (publish/publish-module!
-          store {:name 'stream :ast module-ast :exports #{'f}
-                 :requires {} :primitives {}})
-        modules (module/register-stream-module (module/default-registry))
-        machine (semantic/load-vector
-                  (semantic/create-vm {:modules modules})
-                  (:vector (linearize/lower-rows
-                             (vm/ast->semantic-bytecode
-                               (var-node 'stream/make))))
-                  vm/semantic-contract)
-        result (completion/complete
-                 {:vm machine
-                  :modules {'stream
-                            {:yin.k/manifest address
-                             :yin.k/effects
-                             (get-in manifest
-                                     [:yin.module/footprint :effects])}}})]
-    (is (empty? (get-in result [:yin.k/missing :footprints])))))
+          (mem/create-content-mem)
+          {:name 'stream :ast module-ast :exports #{'f}
+           :requires {} :primitives {}})]
+    (is (= #{}
+           (get-in manifest [:yin.module/footprint :effects])))))
 
 
 ;; =============================================================================

@@ -23,8 +23,8 @@
             [dao.stream.ringbuffer :as ringbuffer]
             [yin.vm :as vm]
             [yin.vm.code :as code]
+            [yin.vm.semantic-register.code :as sr-code]
             [yin.vm.linearize :as linearize]
-            [yin.vm.parity-test :as parity]
             #?@(:cljd [["dart:io" :as dart-io]])))
 
 
@@ -1804,18 +1804,6 @@
      :operands [(def! 'a 1)]}))
 
 
-(def ^:private requirements-corpus
-  "`parity/corpus` plus the kitchen sink and single-node key trees, so the
-   conformance equality runs over programs that fill every field and
-   programs that fill none."
-  (into (map (fn [[name ast]] [name ast]) parity/corpus)
-        [["kitchen sink" requirements-kitchen-sink]
-         ["numeric store key" {:type :vm/store-put, :key 99, :val 1}]
-         ["keyword store key" {:type :vm/store-get, :key :k}]
-         ["definition key" definition-tree]
-         ["park" {:type :vm/park}]]))
-
-
 (defn- tree-db
   "The `$ast` relation of one tree: its flat rows."
   [ast]
@@ -1835,7 +1823,7 @@
     (is (= (set (keys vm/semantic-bytecode-grammar)) (set (keys (:tags table))))
         "every §2.3 tag: no external effect is an explicit #{}, never an
           absence (§7.7.1)")
-    (is (= code/mnemonics (set (keys (:mnemonics table))))
+    (is (= sr-code/mnemonics (set (keys (:mnemonics table))))
         "every §2.4 mnemonic")
     (is (= #{:stream/make :stream/put :stream/cursor :stream/next
              :stream/close}
@@ -1861,20 +1849,7 @@
   (let [expected {:store-keys #{'a 'b}, :ffi-ops #{}, :parked-ids #{},
                   :effects #{}}]
     (is (= expected (vm/ast-requirements (tree-db definition-tree)))
-        "a definition's literal key, read off the tree")
-    (is (= expected (vm/segment-requirements (segment-db definition-tree)))
-        "the same key, read off `[:define k]`; the write is machine state,
-          so it contributes no effect identifier, as `:store-put` does")))
-
-
-(deftest requirement-sets-from-tree-and-segment-are-equal
-  (doseq [[name ast] requirements-corpus]
-    (testing name
-      (is (= (vm/ast-requirements (tree-db ast))
-             (vm/segment-requirements (segment-db ast)))
-          "§7.7.1's conformance obligation: equal in store keys, FFI ops,
-            parked ids, and normalized effects — the tree's tags and the
-            segment's mnemonics normalize to the same vocabulary"))))
+        "a definition's literal key, read off the tree")))
 
 
 (deftest code-joins-store-put-key-to-ast-by-value

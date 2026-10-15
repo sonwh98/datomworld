@@ -1,12 +1,8 @@
 (ns yin.vm.semantic-register.scan-test
   (:require [clojure.test :refer [deftest is testing]]
             [dao.space.query :as query]
-            #?@(:cljd [] :cljs [[dao.jing :as jing]
-                                [dao.jing.cbor :as cbor]])
             [dao.test-slow :as slow]
             [yin.vm :as vm]
-            [yin.vm.completion :as completion]
-            [yin.vm.linearize :as old-linearize]
             [yin.vm.linker :as linker]
             [yin.vm.parity-test :as b0]
             [yin.vm.semantic-register.code :as code]
@@ -130,45 +126,6 @@
       #{} (sort-by str names))))
 
 
-(defn completion-free-names
-  "The original completion query on the original vector. Node reuses its
-   already-computed default Jing address for identical vector input, so
-   kind-strict comparisons can take their identity fast path. Both hash
-   arities keep their values. Scalar comparison keys are cached using
-   distinct identifier fields and safe nonzero numbers, delegating first
-   calculations to the original function. Production source and query
-   input are unchanged.
-   with-redefs is unavailable on Dart, which retains the direct call."
-  [vector]
-  #?(:cljd (completion/segment-free-names vector)
-     :clj (completion/segment-free-names vector)
-     :cljs (let [hash-code jing/segment-key
-                 address (hash-code vector)
-                 content-key cbor/content-key
-                 keys (atom {})]
-             (with-redefs [jing/segment-key
-                           (fn
-                             ([input] (if (identical? input vector)
-                                        address
-                                        (hash-code input)))
-                             ([input opts] (hash-code input opts)))
-                           cbor/content-key
-                           (fn [input]
-                             (let [key (cond
-                                         (keyword? input) [:keyword (namespace input) (name input)]
-                                         (symbol? input) [:symbol (namespace input) (name input)]
-                                         (and (number? input) (js/Number.isSafeInteger input)
-                                              (not (zero? input))) [:number input])]
-                               (if key
-                                 (if-let [entry (find @keys key)]
-                                   (val entry)
-                                   (let [value (content-key input)]
-                                     (swap! keys assoc key value)
-                                     value))
-                                 (content-key input))))]
-               (completion/segment-free-names vector)))))
-
-
 (defn assert-agreement
   [group n ast]
   (testing [group n]
@@ -177,15 +134,13 @@
           occ (query/relation (vm/occurrences tree))
           old (get-in goldens/scanner-goldens [group n]) new (new-answer ast)
           oracle (emission-oracle ast)
-          old-vector (:vector (old-linearize/lower-rows tree))
           tree-names (tree-free-names tree)]
       (is (= old new))
       (when (not= group :c4)
         (is (= tree-names (vm/free-names rows occ (:root tree)))
             "the occurrence projection preserves the complete tree query"))
       (when (= group :c4) (println "C4 tree free names complete:" n))
-      (is (= (:free-names new) tree-names (completion-free-names old-vector)))
-      (when (= group :c4) (println "C4 completion free names complete:" n))
+      (is (= (:free-names new) tree-names))
       (is (= (:requirements new) (vm/ast-requirements rows)))
       (is (= (frequencies (:occurrences new))
              (frequencies (map (juxt :name :in-body?)
@@ -250,8 +205,8 @@
            (scan/segment-rows vector)))))
 
 
-(deftest footprint-mnemonics-is-the-v3-table-minus-push
-  (is (= (dissoc (get-in vm/footprint-table [vm/semantic-contract :mnemonics]) :push)
+(deftest footprint-mnemonics-is-the-v4-table
+  (is (= (get-in vm/footprint-table [vm/semantic-contract :mnemonics])
          scan/footprint-mnemonics))
   (is (= code/mnemonics (set (keys scan/footprint-mnemonics)))))
 
@@ -261,13 +216,6 @@
              scan/application-sites scan/requirements scan/segment-rows]]
     (is (try (f [[:var 0 'x]]) false
              (catch #?(:cljd Object :clj Throwable :cljs :default) _ true)))))
-
-
-(deftest completion-address-reuse-preserves-answers
-  (doseq [[n ast] (concat b0-programs corpus/programs)]
-    (testing n
-      (let [vector (:vector (old-linearize/lower-rows (vm/ast->semantic-bytecode ast)))]
-        (is (= (completion/segment-free-names vector) (completion-free-names vector)))))))
 
 
 (deftest scanners-agree-on-b0

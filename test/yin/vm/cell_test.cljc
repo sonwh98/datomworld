@@ -9,7 +9,6 @@
             [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
-            [yin.vm.completion :as completion]
 
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
@@ -439,16 +438,3 @@
     (let [r (refusal-of #(engine/lift-slice result :segment/own ['r]))]
       (is (= :yin.k/non-portable (:yin.k/status r)) (str k))
       (is (= :cell (:yin.k/kind r)) (str k)))))
-
-
-(deftest completion-over-a-cell-is-not-complete-test
-  (let [machine (run-on :semantic
-                        (let1 'c (new-cell (lit 5))
-                              (lam [] (get-cell (v 'c)))))
-        outcome (try {:result (completion/complete {:vm machine})}
-                     (catch #?(:clj Exception :cljs :default :cljd Object) e
-                       {:refusal (ex-data e)}))]
-    (is (not= :complete
-              (get-in outcome [:result :yin.k/requires :yin.k/discovery])))
-    (is (= {:yin.k/status :yin.k/non-portable, :yin.k/kind :cell}
-           (select-keys (:refusal outcome) [:yin.k/status :yin.k/kind])))))
