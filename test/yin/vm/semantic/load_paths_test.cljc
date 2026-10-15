@@ -27,10 +27,13 @@
              (:address rows)))))
   #?(:cljs
      (testing "a bare integral JavaScript Number past 2^53 is not content:
-               projection accepts it as plain data, the load refuses it"
-       (let [v (:vector (linearize/project (corpus/tail (corpus/lit 1e20))))]
+               neither lane mints an address for it"
+       (let [ast (corpus/tail (corpus/lit 1e20))]
          (is (thrown-with-msg? js/Error #"unsafe integral JavaScript number"
-               (load-image v)))))
+               (load-image (:vector (linearize/project ast)))))
+         (is (thrown-with-msg? js/Error #"unsafe integral JavaScript number"
+               (load-image (:vector (linearize/project-datoms
+                                      (vm/ast->datoms ast))))))))
      :default nil))
 
 
