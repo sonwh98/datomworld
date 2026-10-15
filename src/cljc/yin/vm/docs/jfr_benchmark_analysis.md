@@ -2,7 +2,7 @@
 
 Role: VM Architect · Model: glm-5.3 · 2026-09-14
 Inputs: `profiles/v1.jfr`, `profiles/v2.jfr` (JDK 21.0.2, `settings=profile`,
-dump-on-exit), `docs/design/yin.vm.semantic.md`, `src/cljc/yin/vm/semantic.cljc`,
+dump-on-exit), `docs/design/yin.vm.semantic.md#history` (retired v3 kernel), `src/cljc/yin/vm/semantic.cljc`,
 v1 sources read from `master` (`git show master:src/cljc/yin/vm/semantic.cljc` etc.).
 
 Headline under analysis: v1 semantic 15.158 ms/run vs v2 semantic 2.108 ms/run
@@ -265,7 +265,7 @@ Putting the CPU shares on the 15.158 ms mean:
 Ratios: loading ≈ 2.2×, interpreter ≈ 3.2×, and 2.2 × 3.2 ≈ 7.2 ≈ the observed
 7.19×. The interpreter-only 3.2× is the like-for-like architectural number;
 it is also consistent with the walker-relative measurements in
-`docs/design/yin.vm.semantic.md` §8 (semantic 0.115× of walker on the JVM,
+`docs/design/yin.vm.semantic.md#history` (retired v3 benchmark) (semantic 0.115× of walker on the JVM,
 where the walker itself is the surviving record-per-step machine).
 
 ## 7. Why each architectural difference is worth what it is (code → JFR)

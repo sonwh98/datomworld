@@ -1,5 +1,9 @@
 (ns yin.vm.semantic.scan
-  "Dependency facts derived from admitted semantic register vectors."
+  "Dependency facts derived from admitted semantic register vectors.
+   Linker-side admission uses Datalog over the vector relation in hand,
+   never a published index consulted by evaluation. The evaluator and
+   dao.space remain independent peer observers of their shared stream
+   (datom.world.md, Streams)."
   (:require [dao.space.query :as query]
             [yin.vm :as vm]
             [yin.vm.debruijn :as debruijn]

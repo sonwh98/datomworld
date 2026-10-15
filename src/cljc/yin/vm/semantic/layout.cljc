@@ -10,7 +10,7 @@
    correspondence (`h->a`, `a->h`, every `:push` removed) and the operand
    layout `stack-layout` (the values pushed and not yet consumed while
    control is inside a pc's expression). A `space` indexes segments by
-   the kernels' image identities, R and H, which are checksums: A is the
+   the kernels' image checksums, R and H: A is the
    only code identity.
 
    Dynamic half: `lift-state` reads a kernel's wait entry, parked record

@@ -654,7 +654,7 @@
 ;; =============================================================================
 
 (def stack-format
-  "The `:yin.debruijn.code` format record: stack images identified by H
+  "The `:yin.debruijn.code` format record: stack images verified by checksum H (A is the code identity)
    under the \"b2\" contract (`vm/stack-contract`), one canonical vector
    per image. Free names are `:load-free` operands, definitions
    `:store-put` and `:define` operands, application sites the call
@@ -672,8 +672,8 @@
 
 
 (def register-format
-  "The `:yin.debruijn.register` format record: register images identified
-   by R under the \"r2\" contract (`vm/register-contract`), one image
+  "The `:yin.debruijn.register` format record: register images verified
+   by checksum R (A is the code identity) under the \"r2\" contract (`vm/register-contract`), one image
    map per image. Free names are `[:load-free rd name]` operands across
    all bodies, definitions the `:store-put` and `:define` keys,
    application sites the call opcodes (section 5.4)."

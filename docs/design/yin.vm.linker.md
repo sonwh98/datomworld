@@ -28,7 +28,8 @@ Amended 2026-10-11 under the unitarity invariant of `datom.world.md`
 codex-reviewed amendment texts of
 `yin.vm.semantic.derivations.md` §9.2: the §3 amendment
 gains the composition `source-index` (A to the set of tree addresses),
-`:yin.link/trees` on by-identity outcomes and `:tree-unavailable`;
+`:yin.link/trees` on by-identity outcomes and the lift refusal
+`:yin.k/unsatisfied` with missing `:yin.k/trees`;
 §8.1 `:trusted` skips re-lowering, never retrievability; §8.3's host
 module is the guest-code carve-out (`:manifest-shape` keeps a tree-less
 manifest from naming an image).
@@ -239,7 +240,9 @@ a choice.
 >   (the AST is retrievable wherever code is lowered) is satisfied when
 >   at least one member is known. A native image for which the serving
 >   composition knows no tree is a composition defect
->   (`:tree-unavailable` at step 2), distinct from a known tree whose
+>   (the carrier refuses `:yin.k/unsatisfied` with
+>   `:yin.k/missing {:yin.k/trees ...}`: lift against the source index,
+>   lower at the dependency check), distinct from a known tree whose
 >   read fails, which is the medium's ordinary `:absent`
 >   (`yin.vm.semantic.derivations.md` §9.2, 2026-10-11). The
 >   derivation record of

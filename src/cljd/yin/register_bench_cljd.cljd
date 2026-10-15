@@ -3,7 +3,7 @@
 
    `yin.register-bench-cljd` drove the v1 register VM. This benchmark drives
    `yin.vm.ast-walker` and the linear `yin.vm.semantic` VM
-   (`docs/design/yin.vm.semantic.md` §8) on one workload, and its numbers
+   (`docs/design/yin.vm.semantic.md#history`, retired v3 benchmark) on one workload, and its numbers
    are not comparable with the v1 register numbers. The workload and the
    sampling discipline are carried over unchanged so the runs answer the
    same question about their own engine.

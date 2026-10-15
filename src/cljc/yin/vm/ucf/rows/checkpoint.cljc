@@ -1,10 +1,10 @@
 (ns yin.vm.ucf.rows.checkpoint
   "The rows inspector of phase 7a (phase-7 plan §3.3): the custody grammar
    of a version-3 row pack, checked on its canonical bytes, and the
-   operation baseline it carries. It replaces yin.vm.ucf.checkpoint at the
+   operation baseline it carries. It replaced yin.vm.ucf.checkpoint at the
    authority's three call sites (grant/offer!, completion/report!,
-   admission's accepted-baseline); the version-1/2 inspector stays for the
-   old codec's tests until phase 8.
+   admission's accepted-baseline). The version-1/2 inspector and the old
+   codec were deleted at phase 8f-1.
 
    A pack has two identities. The **pack address** is the BLAKE3 segment
    address of the pack's canonical bytes: the storage key, the one a

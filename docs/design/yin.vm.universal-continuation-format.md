@@ -3367,8 +3367,12 @@ Clauses, with the stage that owes the evidence
     an id-counter variant changes root and is `:variant-conflict`.
     Canonical emit sorts rows, while decode admits unsorted alternatives.
     The 7d report records local JVM acceptance and a clean JVM/JVM
-    process gate; it does not close Node/Dart or killed four-pair JVM/Node
-    acceptance. Stage: E (7d), pending the orchestrator's host matrix.
+    process gate. The orchestrator subsequently ran the Stage E host
+    matrix: four JVM/Node host pairs on jupiter, 196 SIGKILLed lives,
+    with Node and Dart lane evidence recorded in
+    [`docs/orchestrator-log.md`](../orchestrator-log.md)
+    (2026-10-14 14:30 +07 handoff and 2026-10-16 19:30 +07 landing).
+    Stage: E (7d), host matrix run.
     The REPL custody gap is accepted until phase 8; backend fragment
     checks (continuation §4.6) remain separate from Stage E.
 
