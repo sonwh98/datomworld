@@ -20,8 +20,7 @@
   (:require #?@(:cljd [] :clj [[criterium.core :as criterium]])
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.linearize :as linearize]
-            [yin.vm.semantic :as semantic])
+            [yin.vm.semantic-register :as semantic])
   #?(:cljd (:import ["dart:core" DateTime])))
 
 
@@ -59,8 +58,8 @@
 
 (defn load-semantic
   [ast]
-  (semantic/vm-load-program (semantic/create-vm) (linearize/lower-ast ast)
-                            vm/semantic-contract))
+  (semantic/load-ast (semantic/create-vm) (vm/ast->datoms ast)
+                     vm/ast-contract))
 
 
 (def evaluators

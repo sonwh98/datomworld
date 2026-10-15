@@ -35,9 +35,8 @@
             [dao.stream.ringbuffer :as ringbuffer]
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
-            [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
-            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic-register :as semantic]
             [yin.vm.ucf.remote :as ucf.remote]))
 
 
@@ -133,7 +132,7 @@
 
 (def ^:private load-ast
   "The trusted fresh path: the AST linearizer behind the code loader."
-  (vm/fresh-code-loader (linearize/ast-loader semantic/vm-load-program)
+  (vm/fresh-code-loader semantic/load-ast
                         vm/ast-contract))
 
 
@@ -326,7 +325,7 @@
 (defn- registers-of
   "The register payload a parked entry carries."
   [entry]
-  (select-keys entry [:segment :pc :env :stack :k]))
+  (select-keys entry [:segment :pc :env :window :k :deliver]))
 
 
 (defn- quiesced-receiver
@@ -809,8 +808,8 @@
         (is (= 1 (count (cursor-entries rs))))
         (is (= kept (:cursor (get rs shared)))
             "the one entry sits at the kept position")
-        (is (= ctxs [(select-keys e1 [:segment :pc :env :stack :k])
-                     (select-keys e2 [:segment :pc :env :stack :k])])
+        (is (= ctxs [(select-keys e1 [:segment :pc :env :window :k :deliver])
+                     (select-keys e2 [:segment :pc :env :window :k :deliver])])
             "each entry keeps its own register context")))
     (testing "co-waiters advance in order on the one shared cell"
       (stream/append! src "hello")

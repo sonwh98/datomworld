@@ -173,3 +173,23 @@
               (:bodies (code/load-vector
                          (:vector (get corpus/goldens :closure-in-arm-in-body))
                          code/contract))))))
+
+
+(deftest item-13-compares-literal-operands-by-content
+  (testing "NaN literals survive register and layout re-projection"
+    (doseq [v '[[[:const 0 ##NaN] [:halt 0]]
+                [[:closure 1 [x] 4] [:const 2 ##NaN] [:call 0 1 [2] false] [:halt 0]
+                 [:const 0 ##NaN] [:return 0]]
+                [[:const 0 [##Inf ##-Inf -0.0 0.0 ##NaN {:k ##NaN}]] [:halt 0]]
+                [[:store-put 0 {:k ##NaN} [##NaN]] [:halt 0]]]]
+      (is (nil? (code/well-formed? v)) (pr-str v))))
+  (testing "NaN literals do not hide register or layout defects"
+    (doseq [[expected v]
+            '[[{:rule :register-ids :pc 0}
+               [[:const 1 ##NaN] [:halt 1]]]
+              [{:rule :noncanonical-registers :pc 0}
+               [[:const 0 ##NaN] [:var 1 f] [:call 2 1 [0] false] [:halt 2]]]
+              [{:rule :noncanonical-layout :pc 1}
+               [[:var 1 f] [:closure 2 [x] 7] [:closure 3 [y] 5] [:call 0 1 [2 3] false]
+                [:halt 0] [:const 0 ##Inf] [:return 0] [:const 0 ##NaN] [:return 0]]]]]
+      (is (= expected (code/well-formed? v)) (pr-str v)))))

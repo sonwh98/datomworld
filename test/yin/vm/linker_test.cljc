@@ -260,7 +260,7 @@
 (def formats
   "Each format record beside the lowering that mints its images. For the
    two storage-derived formats the mint side is
-   `yin.vm/materialize-tree!` / `yin.vm.code/materialize-vector!`
+   `yin.vm/materialize-tree!` / `yin.vm.semantic-register.code/materialize-vector!`
    (section 9) and the identity is its own address, so the index maps
    identity to itself (section 4.2, step 1)."
   [[:H linker/stack-format stack-image]
@@ -312,7 +312,7 @@
   "Store `image` for `format`; return `{:identity id :address a :index
    idx}`. The de Bruijn formats publish through `linker/publish!` and
    read the index back from the datom; the storage-derived formats mint
-   through `yin.vm`/`yin.vm.code` (section 9) and index identity to
+   through `yin.vm`/`yin.vm.semantic-register.code` (section 9) and index identity to
    itself."
   [handle format image]
   (if (storage-derived? format)

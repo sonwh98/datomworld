@@ -5,7 +5,7 @@
    The row medium carries each program as the canonical row set of one tree
    — `queue-rows!`'s shape — and the evaluator observer hands
    `dao.stream.observer/run-on-stream` the row-fed loader
-   `(linearize/rows-loader semantic/load-vector)` beside
+   the stamped register projection loader beside
    `engine/ready-for-ingress?` and `vm/run`. The encoder stage that
    forwards to that medium is exercised end to end beside it
    (`tu/make-encoder-session`, the two-stage topology the REPL runs):
@@ -19,9 +19,9 @@
             [yin.vm :as vm]
             [yin.vm.encoder :as encoder]
             [yin.vm.engine :as engine]
-            [yin.vm.linearize :as linearize]
+            [yin.vm.semantic-register.linearize :as linearize]
             [yin.vm.malformed-rows :as malformed]
-            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic-register :as semantic]
             [yin.vm.test-utils :as tu]))
 
 
@@ -91,13 +91,16 @@
 
 ;; the suite's media carry only code it produced: the trusted fresh path
 (def ^:private load-rows
-  (vm/fresh-code-loader (linearize/rows-loader semantic/load-vector)
+  (vm/fresh-code-loader (fn [machine rows stamp]
+                          (vm/check-contract! vm/ast-contract stamp)
+                          (semantic/load-vector machine (:vector (linearize/project-rows rows))
+                                                vm/semantic-contract))
                         vm/ast-contract))
 
 
 (def ^:private load-ast
   (vm/fresh-code-loader
-    (linearize/ast-loader semantic/vm-load-program)
+    semantic/load-ast
     vm/ast-contract))
 
 
@@ -278,6 +281,13 @@
         (let [run (tu/run-encoder-session session)
               vm (:consumer (:evaluator run))]
           (is (= 5 (vm/value vm))))))
+    (testing "The consumer refuses a row envelope whose root is out of range"
+      (let [session (tu/make-encoder-session (new-vm))]
+        (stream/append! (:rows session)
+                        {:yin/batch [(vm/ast->semantic-bytecode (lit 1))]
+                         :yin/root 2})
+        (is (= :batch-envelope
+               (:rule (throws-ex-data #(tu/run-encoder-session session)))))))
     (testing "A blocked program holds the next batch behind the row medium"
       (let [session (tu/make-encoder-session (new-vm))]
         (stream/append! (:program session) (read-first 4))
@@ -324,10 +334,10 @@
   (testing "Which form travels is the composition's choice, not the VM's"
     (let [session (make-session)]
       (stream/append! (:stream (:observer session))
-                      (linearize/lower-ast (binop '* (lit 6) (lit 7))))
+                      (:vector (linearize/project (binop '* (lit 6) (lit 7)))))
       ;; the medium's one producer is the linearizer above, fresh code, so
       ;; the composition supplies the current stamp
       (is (= 42 (vm/value (:consumer
                             (run-session session
-                                         #(semantic/vm-load-program
+                                         #(semantic/load-vector
                                             %1 %2 vm/semantic-contract)))))))))

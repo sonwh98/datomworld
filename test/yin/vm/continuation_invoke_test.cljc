@@ -10,9 +10,7 @@
 
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
-            [yin.vm.linearize :as linearize]
-            [yin.vm.semantic :as semantic]
-            [yin.vm.semantic-register :as sr]
+            [yin.vm.semantic-register :as semantic]
             [yin.vm.test-utils :as tu]))
 
 
@@ -27,13 +25,13 @@
 
 
 (def ^:private load-semantic-ast
-  (vm/fresh-code-loader (linearize/ast-loader semantic/vm-load-program)
+  (vm/fresh-code-loader semantic/load-ast
                         vm/ast-contract))
 
 
 (def ^:private runners
   {:semantic-register (fn [ast]
-                        (loop [machine (sr/load-ast (sr/create-vm opts) (vm/ast->datoms ast) vm/ast-contract)
+                        (loop [machine (semantic/load-ast (semantic/create-vm opts) (vm/ast->datoms ast) vm/ast-contract)
                                steps 0]
                           (cond
                             (vm/halted? machine) (vm/value machine)

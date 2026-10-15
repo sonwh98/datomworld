@@ -179,7 +179,7 @@
 
 (def terminators
   "Instructions after which control never reaches pc + 1 within a body,
-   mirroring `yin.vm.code/terminators` over this dimension's own mnemonics.
+   over this dimension's own mnemonics.
    `:jump`, `:branch-false`, and `:resume` never end a body; named here
    anyway so body-internal reachability checks have the full vocabulary."
   #{:jump :return :halt :resume})

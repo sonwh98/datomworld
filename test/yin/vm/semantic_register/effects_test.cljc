@@ -155,8 +155,11 @@
         entry (first (:wait-set blocked))]
     (is (vm/blocked? blocked)) (is (= :put (:reason entry)))
     (is (= :second (:datom entry))) (is (= {} (:window entry)))
+    (is (= entry (edn/read-string (pr-str entry))))
     (stream/next handle 0)
-    (let [restored (engine/resume-from-run-queue (engine/check-wait-set blocked) sr/register-restore)]
+    (let [restored (engine/resume-from-run-queue
+                     (engine/check-wait-set (assoc blocked :wait-set [(edn/read-string (pr-str entry))]))
+                     sr/register-restore)]
       (is (= {(get-in entry [:deliver :rd]) :second} (:window restored)))
       (is (= :second (vm/value (vm/run restored)))))))
 

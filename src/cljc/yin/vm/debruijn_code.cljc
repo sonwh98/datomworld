@@ -591,7 +591,7 @@
 ;; The validator (S2 item 7, S3)
 ;; =============================================================================
 ;; Two passes: generic structural well-formedness over this dimension's
-;; own opcode table (mirroring `yin.vm.code/well-formed-vector?`'s rules,
+;; own opcode table (the native stack vector rules,
 ;; not its code -- that private rule vector operates over the named
 ;; table and is not reused), then the scope rule S3 adds: a :load-bound
 ;; operand must address a real enclosing frame and a real parameter

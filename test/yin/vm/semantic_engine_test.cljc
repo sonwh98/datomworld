@@ -4,10 +4,11 @@
    and a read that cannot proceed parks into a pure-data wait set."
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing]]
+            [dao.jing.cbor :as cbor]
             [dao.stream :as stream]
             [yin.vm :as vm]
-            [yin.vm.linearize :as linearize]
-            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic-register.code :as code]
             [yin.vm.test-utils :as tu]))
 
 
@@ -20,7 +21,7 @@
 ;; this suite is the AST's only producer: the trusted fresh path
 (def ^:private load-ast
   (vm/fresh-code-loader
-    (linearize/ast-loader semantic/vm-load-program)
+    semantic/load-ast
     vm/ast-contract))
 
 
@@ -178,3 +179,18 @@
                  (run-ast {:type :stream/put,
                            :target (lit {:type :stream-ref, :id :nope}),
                            :val (lit 1)})))))
+
+
+(deftest a-nan-literal-loads-runs-and-reloads
+  (let [nan (* 1.0 ##NaN)
+        v1 [[:const 0 ##NaN] [:halt 0]]
+        v2 [[:const 0 nan] [:halt 0]]
+        m (semantic/load-vector (semantic/create-vm {}) v1 code/contract)
+        value (vm/value (vm/run m))]
+    (is #?(:clj (Double/isNaN value)
+           :cljs (js/isNaN value)
+           :cljd (.-isNaN ^double value)) "the kernel yields NaN")
+    (is (cbor/content= ##NaN value))
+    (let [m2 (semantic/load-vector m v1 code/contract)
+          m3 (semantic/load-vector m v2 code/contract)]
+      (is (= (:program m) (:program m2) (:program m3)) "one address, one segment id"))))

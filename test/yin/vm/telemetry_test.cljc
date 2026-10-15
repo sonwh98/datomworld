@@ -1,7 +1,7 @@
 (ns yin.vm.telemetry-test
   "The v2 telemetry suite `vm-telemetry-design.md` prescribes, reduced to the
    two live VMs: the four core tests are parameterized over `:ast-walker` and
-   `:semantic`; the smoke tests are one deftest per model driven through the
+   `:semantic-register`; the smoke tests are one deftest per model driven through the
    protocol's own `step` (the `:step` boundary lives there, not in `run`);
    serialization and bridge tests exercise the shared emit path through the
    walker, whose store carries the richest values (an FFI pair, a made
@@ -14,8 +14,7 @@
             [dao.stream :as stream]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.linearize :as linearize]
-            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic-register :as semantic]
             [yin.vm.telemetry :as telemetry]
             [yin.vm.test-utils :as tu]))
 
@@ -130,17 +129,17 @@
                                         vm/ast-contract))
     :run (fn [vm ast] (vm/eval vm ast))}
 
-   :semantic
+   :semantic-register
    {:create (fn [opts]
               (semantic/create-vm (merge {:make-stream tu/make-stream,
                                           :capability-secret tu/secret}
                                          opts)))
     :load (fn [vm ast]
-            ((linearize/ast-loader semantic/vm-load-program)
-             vm (vm/ast->datoms ast) vm/ast-contract))
+            (semantic/load-ast
+              vm (vm/ast->datoms ast) vm/ast-contract))
     :run (fn [vm ast]
-           (vm/run ((linearize/ast-loader semantic/vm-load-program)
-                    vm (vm/ast->datoms ast) vm/ast-contract)))}})
+           (vm/run (semantic/load-ast
+                     vm (vm/ast->datoms ast) vm/ast-contract)))}})
 
 
 (def ^:private tiny-ast {:type :literal, :value 42})
@@ -316,9 +315,9 @@
         done (-> (semantic/create-vm {:make-stream tu/make-stream,
                                       :capability-secret tu/secret
                                       :telemetry {:stream sink}})
-                 ((linearize/ast-loader semantic/vm-load-program)
-                  (vm/ast->datoms tiny-ast)
-                  vm/ast-contract)
+                 (semantic/load-ast
+                   (vm/ast->datoms tiny-ast)
+                   vm/ast-contract)
                  step-to-halt
                  vm/run)
         phases (phase-seq (tu/drain sink))]

@@ -8,9 +8,9 @@
    Two kinds of program run here. Hand-built instruction vectors, as the
    B3 test builds them, pin instruction-level behaviour: the stack layout
    each effect opcode reads, the shape of a parked entry, the refusals.
-   Parity fixtures take one named AST through both lowerers -- `adapt`
-   onto this VM, `yin.vm.linearize` onto the semantic VM, B4's parity
-   oracle -- on fresh instances every time (D4), and compare under B0's
+   Parity fixtures project one named AST and derive this VM's stack image;
+   the register semantic VM loads the AST as the parity oracle. Both use
+   fresh instances every time (D4), and compare under B0's
    normalizer (`yin.vm.debruijn-code-test/normalize`), reused rather
    than reimplemented."
   (:require [yin.vm.semantic-register.linearize :as sr-linearize]
@@ -25,9 +25,8 @@
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
-            [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
-            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic-register :as semantic]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values]))
 
@@ -84,7 +83,7 @@
 ;; this suite is the AST's only producer: the trusted fresh path
 (def ^:private load-ast
   (vm/fresh-code-loader
-    (linearize/ast-loader semantic/vm-load-program)
+    semantic/load-ast
     vm/ast-contract))
 
 

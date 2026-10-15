@@ -1,6 +1,7 @@
 (ns yin.vm.semantic-register.vm-test
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
+            [yin.vm.test-utils :as tu]
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
             [yin.vm.values :as values]
@@ -74,7 +75,7 @@
   (let [a (step-n (load-golden :literal {}) 1)
         b (sr/attach-image a (golden :variable) code/contract)
         fields [:control :program :env :window :k :value :halted? :blocked? :parked :wait-set :ready-queue]
-        reset (vm/reset b)
+        reset (vm/reset (vm/run b))
         ast-loaded (sr/load-ast (sr/create-vm) (vm/ast->datoms (corpus/lit 42)) vm/ast-contract)]
     (is (= (select-keys a fields) (select-keys b fields)))
     (is (= 2 (count (:code b))))
@@ -82,6 +83,8 @@
     (is (= {} (:window reset)))
     (is (nil? (:value reset)))
     (is (= (:code b) (:code reset)))
+    (is (= {:segment (:program b) :pc 0} (vm/control reset)))
+    (is (= 42 (vm/value (vm/run reset))))
     (is (= 42 (vm/value (vm/run ast-loaded))))
     (is (= :contract-mismatch (:rule (error-data #(sr/load-ast (sr/create-vm) [] "bad")))))
     (is (some? (error-data #(vm/eval a (corpus/lit 1)))))
@@ -284,3 +287,104 @@
                                         9)]
       (is (= {'x 3} (:env restored)))
       (is (= initial (:free-env restored))))))
+
+
+(deftest create-vm-test
+  (let [machine (sr/create-vm {:make-stream tu/make-stream
+                               :capability-secret tu/secret})]
+    (is (contains? (:resources machine) vm/call-in-stream-key))
+    (is (contains? (:resources machine) vm/call-out-stream-key))
+    (is (contains? (:resources machine) vm/call-out-cursor-key))
+    (is (= {} (:code machine)))
+    (is (nil? (vm/control machine)))
+    (is (nil? (vm/continuation machine)))
+    (is (vm/halted? machine))
+    (is (= {} (vm/environment machine))))
+  (is (some? (error-data #(sr/create-vm {:in-stream :anything})))))
+
+
+(deftest arithmetic-test
+  (is (= 3 (vm/value (vm/run (parity/register-machine
+                               (corpus/app (corpus/v '+) (corpus/lit 1) (corpus/lit 2)))))))
+  (is (= 12 (vm/value (vm/run (parity/register-machine
+                                (corpus/app (corpus/v '*)
+                                            (corpus/app (corpus/v '+) (corpus/lit 1) (corpus/lit 2))
+                                            (corpus/lit 4))))))))
+
+
+(deftest closure-call-test
+  (let [result (vm/run (parity/register-machine
+                         (corpus/app (corpus/lam '[x] (corpus/tail (corpus/app (corpus/v '+) (corpus/v 'x) (corpus/lit 1))))
+                                     (corpus/lit 10))))]
+    (is (= 11 (vm/value result)))
+    (is (vm/halted? result))
+    (is (nil? (vm/continuation result))))
+  (is (= 15 (vm/value (vm/run (parity/register-machine
+                                (corpus/app
+                                  (corpus/lam '[y]
+                                              (corpus/tail
+                                                (corpus/app (corpus/lam '[x] (corpus/app (corpus/v '+) (corpus/v 'x) (corpus/v 'y)))
+                                                            (corpus/lit 5))))
+                                  (corpus/lit 10))))))))
+
+
+(deftest under-arity-call-binds-missing-param-to-nil-test
+  (is (nil? (vm/value (vm/run (parity/register-machine
+                                (corpus/app (corpus/lam '[y]
+                                                        (corpus/tail
+                                                          (corpus/app (corpus/lam '[x y] (corpus/v 'y))
+                                                                      (corpus/lit 5))))
+                                            (corpus/lit 10))))))))
+
+
+(deftest over-arity-call-drops-extra-args-test
+  (is (= 5 (vm/value (vm/run (parity/register-machine
+                               (corpus/app (corpus/lam '[x] (corpus/v 'x))
+                                           (corpus/lit 5) (corpus/lit 99))))))))
+
+
+(deftest branch-false-test
+  (is (= 1 (vm/value (vm/run (parity/register-machine
+                               (corpus/if-node (corpus/lit true) (corpus/lit 1) (corpus/lit 2)))))))
+  (doseq [test [false nil]]
+    (is (= 2 (vm/value (vm/run (parity/register-machine
+                                 (corpus/if-node (corpus/lit test) (corpus/lit 1) (corpus/lit 2)))))))))
+
+
+(deftest store-and-gensym-test
+  (let [result (vm/run (parity/register-machine
+                         (corpus/app (corpus/lam '[ignored] {:type :vm/store-get :key 'a})
+                                     {:type :vm/store-put :key 'a :val 5})))]
+    (is (= 5 (vm/value result)))
+    (is (= 5 (get (vm/store result) 'a))))
+  (is (= :id-0 (vm/value (vm/run (parity/register-machine {:type :vm/gensym :prefix "id"})))))
+  (is (= :g-2 (vm/value (vm/run (parity/register-machine
+                                  (corpus/app (corpus/lam '[a b c] (corpus/v 'c))
+                                              {:type :vm/gensym :prefix "g"}
+                                              {:type :vm/gensym :prefix "g"}
+                                              {:type :vm/gensym :prefix "g"})))))))
+
+
+(deftest tail-countdown-test
+  (doseq [[depth tail? frames expected] [[100000 true 1 :resumed]
+                                         [1000 false 1001 :unwound]]]
+    (let [call (corpus/app (corpus/v 'f)
+                           (corpus/app (corpus/v '-) (corpus/v 'n) (corpus/lit 1))
+                           (corpus/v 'f))
+          f (corpus/lam '[n f]
+                        (corpus/if-node (corpus/app (corpus/v '=) (corpus/v 'n) (corpus/lit 0))
+                                        {:type :vm/park}
+                                        (cond-> call tail? corpus/tail)))
+          parked (vm/run (parity/register-machine (corpus/app f (corpus/lit depth) f)))
+          record (vm/value parked)]
+      (is (= :parked-continuation (:type record)))
+      (is (= frames (count (:k record))))
+      (is (= 0 (get (:env record) 'n)))
+      (is (vm/halted? parked))
+      (let [done (vm/run (sr/load-ast parked
+                                      (vm/ast->datoms {:type :vm/resume :parked-id (:id record)
+                                                       :val (corpus/lit expected)})
+                                      vm/ast-contract))]
+        (is (= expected (vm/value done)))
+        (is (vm/halted? done))
+        (is (empty? (:parked done)))))))
