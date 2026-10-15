@@ -568,9 +568,10 @@
           (is (= :contract-mismatch (:rule d))
               "an old-stamped image with no definition fails by stamp")
           (is (= old (:actual d))))))
+    ;; Phase 8c makes the semantic register vector v4 the execution identity A.
     (is (= [vm/ast-contract vm/semantic-contract vm/stack-contract
             vm/register-contract]
-           ["v3" "v3" "b2" "r2"]))
+           ["v3" "v4" "b2" "r2"]))
     (testing "vm/eval supplies the current stamp itself"
       (is (= 3 (vm/value (vm/eval (tu/create-vm) ast)))))))
 
@@ -608,7 +609,8 @@
   (let [batch (segment-batch [[:const 1] [:halt]])]
     (is (= :contract-missing (rule-of #(ucf/canonicalize batch nil))))
     (is (= :contract-mismatch (rule-of #(ucf/canonicalize batch "v2"))))
-    (is (= {:yin.code/contract "v3", :yin.k/version 0}
+    ;; Phase 8c uses the rows execution profile (v4, envelope version 1).
+    (is (= {:yin.code/contract "v4", :yin.k/version 1}
            (:yin.k/contract (ucf/canonicalize batch vm/semantic-contract)))
         "the stamp on the outcome is the one verified, never assigned")))
 
