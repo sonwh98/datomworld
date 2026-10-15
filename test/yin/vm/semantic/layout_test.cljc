@@ -22,7 +22,51 @@
             [yin.vm.semantic.layout :as layout]
             [yin.vm.semantic.linearize :as linearize]
             [yin.vm.semantic.safepoint-harness-test :as h]
+            [yin.vm.ucf.rows :as rows]
             [yin.vm.ucf.rows-support :as s]))
+
+
+(defn retained-ffi-refusal
+  [lane]
+  (doseq [source h/lanes]
+    (testing (str (name source) " -> " (name lane))
+      (h/scoped
+        (fn []
+          (let [world (h/on-lane source #(h/retained-ffi identity))
+                entry (first (:wait-set (:machine world)))
+                {:keys [toy serve!]} (h/served (:surfaces world))
+                wire (h/lane-lift (:machine world) serve!)
+                task (rows/decode wire rows/default-budget)
+                pending (second (:slots (first (nth (:slots task) 13))))
+                expected {:yin.k/status :yin.k/unsupported :yin.k/kind :retained-ffi}
+                {:keys [attach!] n :count} (h/recording-attacher toy)
+                receiver ((:receiver world))]
+            (is (= :put (:reason entry)))
+            (is (true? (:request-sent entry)))
+            (is (= :ffi-request (first (:slots pending))))
+            (is (= expected (layout/lower-defect task lane)))
+            (is (= expected (h/error #(h/lane-lower lane (merge {:attach-stream attach!} (:opts receiver)) wire attach!))))
+            (is (zero? @n) "refused before any attachment"))))))
+  (testing "an FFI response wait without a retained request still lowers and continues"
+    (h/scoped
+      (fn []
+        (let [world (h/on-lane :semantic #(h/sent-ffi identity))
+              {:keys [serve!]} (h/served #{:reader})
+              wire (h/lane-lift (:machine world) serve!)]
+          (is (nil? (:request-sent (first (:wait-set (:machine world))))))
+          (is (nil? (layout/lower-defect (rows/decode wire rows/default-budget) lane))))))
+    (let [got (h/crossed :semantic lane #(h/sent-ffi identity))]
+      (is (pos? (:attaches got)))
+      (is (:halted got))
+      (is (= "echo!" (:value got))))))
+
+
+(deftest stack-refuses-retained-ffi-before-attach
+  (retained-ffi-refusal :stack))
+
+
+(deftest register-refuses-retained-ffi-before-attach
+  (retained-ffi-refusal :register))
 
 
 (def C

@@ -917,7 +917,8 @@
   "What a kernel of `kind` cannot hold, judged on decoded task `task`
    before anything is attached: two carried A of one image (§4.1), install
    children (not carried by this phase's layouts), a closure or
-   continuation in the free environment (§6.3), and for the register
+   continuation in the free environment (§6.3), a retained FFI request
+   whose response pair the backend's re-park cannot preserve, and for the register
    kernel a primitive function in the payload data of a wait or parked
    state (a window, a lexical binding, or reached through them), which
    its restore refuses as `:continuation-registers` (`vm/machine-data?`).
@@ -937,6 +938,10 @@
 
       free
       (assoc {} :yin.k/status :yin.k/unsupported :yin.k/kind :free-env-value :yin.k/path free)
+
+      (some (fn [w] (= :ffi-request (first (:slots (second (:slots w))))))
+            (nth slots 13))
+      (assoc {} :yin.k/status :yin.k/unsupported :yin.k/kind :retained-ffi)
 
       (= :register kind)
       (when-let [path (or (some (fn [[i w]] (state-prim code (first (:slots w)) [:frames i]))
