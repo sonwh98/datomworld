@@ -1,6 +1,6 @@
 (ns yin.vm.semantic.analysis
   "Static facts per pc derived from A
-   (`docs/design/yin.vm.semantic-register-vm.md` §8.1): per body, the
+   (`docs/design/yin.vm.semantic.md` §8.1): per body, the
    explicit control-flow graph, `def`, `use`, the live-in set `L` by
    backward liveness to a fixed point, and the saved-window rule
    `saved(p, rd) = L(p) − {rd}`.

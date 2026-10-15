@@ -1,836 +1,1230 @@
-# yin.vm.semantic on dao.stream — linear executable datoms
+# yin.vm.semantic: the canonical projection rebuilt register-shaped
 
-Revision: 2 (2026-09-25), Rule R: the execution contract this document
-names is `"v3"`, published in full by the S2.4 contract note and its
-revision history, per the UCF design's S7.11 contract-revision-publication
-blocker (`yin.vm.universal-continuation-format.md`). Revision 1
-(2026-09-18; status corrected 2026-09-25) published `"v2"`; `"v3"` adds
-`:define` and the reserved name `yin/def`. The revision history of the
-`"v2"` contract is in `yin.vm.ucf-revisions.md` (2026-09-25).
+Status: **Frozen and implemented.** Written 2026-10-10 from three owner
+rulings of that date and the codex Architect review
+`collab/1791510000000-architect-semantic-register-vm.gpt-6.1-sol.findings.md`
+(PROCEED_WITH_CHANGES; its six required changes are the spine of §§3-8).
+Subordinate to [`datom.world.md`](./datom.world.md). Implemented as
+`yin.vm.semantic` (phases 3-7, 2026-10-10 to 2026-10-14; §10 records the
+gates). Written and frozen under the working name
+`semantic-register-vm` (this file was
+`yin.vm.semantic-register-vm.md`); the phase-8 cutover (2026-10-15)
+deleted the old stack-shaped evaluator and this design and its
+namespace took the name `yin.vm.semantic`, as §1 ruling 3 and §10
+phase 8 said they would. Its companion designs were renamed with it:
+`yin.vm.semantic.evaluator.md`, `yin.vm.semantic.derivations.md`,
+`yin.vm.semantic.continuation.md` and
+`yin.vm.semantic.cursor-cell-numbering.md`.
 
-Status: Phase 0 contract. Sections §1–§6 are promoted verbatim from
-`collab/1789221648668-architect-semantic-vm-v2-design.claude-fable-5-1.findings.md`.
-The opcode table (§2.4) and the attribute tables (§2.2, §2.3) are the
-contract that `yin.vm/code-schema`, `yin.vm/opcode-table`, and
-`yin.vm.code/well-formed?` implement. The integration and roadmap
-sections remain in the findings note; §8 records the Phase 4 measurements.
+<a id="history"></a>
 
----
+**History.** This file's name belonged, until the 2026-10-15 cutover, to the stack-shaped semantic VM ("`yin.vm.semantic`
+on dao.stream — linear executable datoms", revisions 1-2, execution
+contracts `"v2"` then `"v3"`; revision 1, 2026-09-18, published
+`"v2"`, and revision 2, 2026-09-25, published `"v3"` with `:define`
+and the reserved name `yin/def`), which this design replaced and phase 8
+deleted together with its kernel, loaders, lowerers and canonicalizer.
+That document's §1 stated the same stance —
+everything is a stream (instruction fetch inside a loaded segment
+deliberately excepted), interpretation creates semantics, code and
+state are datoms, everything is a continuation — and its table of the
+six invariants (no hidden global state, no implicit control flow, no
+callbacks, no shared mutable state, no layer collapsing, no assumed
+graphs) is honored by this machine unchanged (§12). The `"v2"`/`"v3"`
+revision history of that execution contract is published in
+`yin.vm.ucf-revisions.md` (entry I-6, 2026-10-15), which also records
+that the old transport sources (`ucf/handoff.cljc`, versions 0-2)
+died in 8f-1 rather than 8d; a `"v3"` vector is refused by stamp under
+`"v4"` with no migration path (§6). Citations elsewhere of that
+document's §2-§5 (the segment datoms, the `"v3"` opcode table, the
+stack-machine CESK transitions, the flattening) are historical and
+resolve to this paragraph or to the UCF §7.3.2 precedence note.
 
-## §1. Foundational axioms and invariant compliance
+Amended 2026-10-10 after the phase-4 design review (codex rulings F1-F7,
+text in `yin.vm.semantic.evaluator.md` §6): §2.1 (K has one
+frame kind), §2.4 (restore seam, deferred versus immediate tail halt
+environment, `define` through `put-active`), §2.5 (events: production
+versus relocation), §4.1 (in-VM reason names), §10 phase 4 (interim link
+format), §11 item 4. No transition and no shape changed.
 
-### 1.1 The four axioms
+Amended 2026-10-11 after the phase-5 and phase-6 design reviews (codex
+rulings, text in `yin.vm.semantic.derivations.md` §9.1
+F8-F14 and `yin.vm.semantic.continuation.md` §10.1 F1-F4):
+§4.2 (row names `:act`/`:tail`, root `free-env`, the pure frame
+validator), §4.3 (the two kernels' layouts and the tail-completion
+seam), §6 (de Bruijn contracts keep names and versions; lowerers change
+in place; `:dim/lift-to` goes at cutover), §8.2 (interval bounds,
+`live` as `body-liveness`, R1 lowerer deleted), §8.3 (one walk, no
+adapter), §8.4 (execution oracle replaces the byte-identity question),
+§9 corpora (R/H goldens are the new lowerers' own), §10 phases 5, 6
+and 8 (oracle gate, three scanner obligations, body version 3 with one
+profile, cutover steps), §12; on review (codex, 2026-10-11) §7 drops
+the "two load paths" and vector-to-datoms claims in favour of §3.4 and
+names §§2.3/3.3/3.4 as the `"v4"` canonical vector and validator that
+take precedence over UCF §7.3.2. No transition and no shape changed.
 
-**Everything is a Stream.** Code arrives on a program stream as a segment
-value; execution is consumption of that stream by an observer, and then
-consumption of the segment by the machine. Effects the program performs
-(`:stream-put`, `:stream-next`, FFI) are emissions on streams the composition
-supplied, exactly as for the walker. Optional execution traces are emissions
-too (§3.6). What is *not* a stream is the instruction fetch inside a loaded
-segment, and this is deliberate: a boundary belongs "wherever you need
-decoupling — and nowhere else" (`streams-all-the-way-down.md` §1). Fetch has
-one consumer, one order, no replay need, and no host boundary; putting a
-stream there is the per-value tax §4 of that note names as hopeless.
+## 1. Stance, in the owner's words
 
-**Interpretation Creates Semantics.** `[e :yin.code/op :call]` means nothing
-until `yin.vm.semantic` reads it. The same datoms can be read by a query
-("all call sites of this closure"), a renderer (back to source through
-`:yin.code/source`), a verifier (every block ends in a terminator), or a
-different VM. The mapping from the keyword mnemonic in the datom to the
-integer opcode in the image is the loader's interpretation, not a fact in
-the datom. `:yin.code/tail?` is a property of a call in the datoms; only the
-image decides it is a distinct `tailcall` dispatch.
+> "The AST is the source of truth but the semantic vm is the canonical
+> projection of it. the ast-walker and the semantic-vm are isopmorphic.
+> we just need to rebuild the smantic-vm as register-shaped vm instead
+> of a stack-shaped vm"
 
-**Code and State are Datoms.** Instructions are entities with attributes.
-Execution state is plain data: the control is `{:segment id :pc n}`, the
-environment a map, the operand stack a vector, the continuation a vector of
-frames each `{:pc :env :stack-base :segment}`. The optional trace vocabulary
-(§3.6) deposits exactly these as `[e a v t m]` with `t` the step counter,
-the "endgame" of `cesk-space-optimization.md` §6: execute fast, emit the
-machine image as datoms rather than interpret from them.
+> "yes, A is the only code identity"
 
-**Everything is a Continuation.** Park writes `{segment pc env stack k}` into
-`:parked`; resume reads it back. Nothing in that map is a host object except
-values the program itself put in `env` or on the stack (host functions
-resolved from primitives, stream handles from the store), which is the same
-serialization limit the walker has today. A continuation shipped through a
-stream names its segment by id; the receiving host resolves the id against
-segment datoms it holds or was sent alongside.
+> "rebuilding the semantic-vm as as register shaped instead of
+> stack-shaped is the right way to go, delaying this will only add tech
+> debt in the future" (with virtual registers: "yes, dispatch the brief
+> with virtual registers. once we build semantic-register-vm we can
+> delete semantic-vm and rename semantic-register-vm to sematic-vm")
 
-### 1.2 The six invariants
+Consequences this document takes as fixed:
 
-+--------------------------+----------------------------------------------------------------------------------+
-| Invariant                | How the design honors it                                                         |
-+--------------------------+----------------------------------------------------------------------------------+
-| No hidden global state   | Opcode table is a value in `yin.vm`. Segments live in the VM record under     |
-|                          | `:code`. Primitives, modules, `:make-stream`, bridge handlers are all supplied   |
-|                          | at construction, as for the walker. No `defonce`, no registry.                   |
-+--------------------------+----------------------------------------------------------------------------------+
-| No implicit control flow | Every transfer of control is an instruction datom: `:jump`, `:branch-false`,     |
-|                          | `:call`, `:return`, `:halt`. Sequencing is the explicit `:yin.code/pc` order. No |
-|                          | fallthrough that is not a `pc + 1` visible in the datoms.                        |
-+--------------------------+----------------------------------------------------------------------------------+
-| No callbacks             | Host effects go through `engine/handle-effect` and the FFI request/response      |
-|                          | pair; a blocked read parks in the polling wait set. The VM invokes nothing and   |
-|                          | is invoked by nothing.                                                           |
-+--------------------------+----------------------------------------------------------------------------------+
-| No shared mutable state  | The image array is built once per segment and never written after load. The hot  |
-|                          | loop keeps registers in `loop` locals; the persistent VM record is the only      |
-|                          | state that escapes a step. No mutable deftype fields (a cljd trap on record).    |
-+--------------------------+----------------------------------------------------------------------------------+
-| No layer collapsing      | Lowering (AST datoms → code datoms), loading (code datoms → image), and          |
-|                          | execution (image → transitions) are three functions in two namespaces with data  |
-|                          | between each. The walker keeps interpreting the AST; nothing in the walker       |
-|                          | changes.                                                                         |
-+--------------------------+----------------------------------------------------------------------------------+
-| No assumed graphs        | Branch targets and closure bodies are refs; the loader constructs the pc index   |
-|                          | from tuples in an explicit pass and resolves refs against it. A dangling ref is  |
-|                          | a load error naming the entity, never a runtime lookup.                          |
-+--------------------------+----------------------------------------------------------------------------------+
+1. The Universal AST is the one truth. The semantic VM is its
+   **canonical projection**: the one executable form, whose segment
+   address A (`ucf/code-address`, UCF §7.3.2) is the only code identity.
+   The de Bruijn stack and register images are lowerings of A
+   (amendments of 2026-10-10 in `yin.vm.debruijn.stack.md`,
+   `yin.vm.debruijn.register.md`, `yin.vm.debruijn.targets.md`,
+   `yin.vm.linker.md` §3, UCF v2 amendment §4).
+2. The AST walker and the semantic VM are **isomorphic**: equal
+   observable behaviour on every program over the shared supported AST
+   vocabulary (the deleted v3 design's §2.4 core-primitive table; see
+   the History above; the walker's `:vm/store-update`
+   arm is outside it and lowering rejects it). The walker is the oracle
+   this rebuild must match, and the register vector is the *image of the
+   walker's expression evaluation*: one register per value the walker
+   holds in flight (`:value`, the `:evaluated` vectors of its frames).
+   That is what makes the grammar of §3 expression-structured rather
+   than an arbitrary three-address program. "Isomorphic" is a
+   correspondence of observable behaviour and of evaluation structure
+   (§2.5), not a literal step-for-step state bijection: administrative
+   steps on either side (the walker's frame pushes, the register
+   machine's jumps) have no single-step counterpart.
+3. This is one rebuild of the canonical projection: not a new VM
+   family, not a fifth UCF profile. "One truth, many interpretations"
+   (axiom 2) is not violated; the walker, this VM, and the de Bruijn
+   kernels remain interpretations of the one AST.
+4. **Virtual registers.** The canonical vector names an unbounded,
+   never-reused register file. No allocation, no temp bank, no spill, no
+   live sets in A. Everything an allocator or a kernel needs beyond that
+   is derived from A (§8) and never persisted in it ("derive, don't
+   persist").
 
----
+## 2. The machine
 
-## §2. The linear executable datom specification
+### 2.1 Configuration
 
-### 2.1 Tuple format
+$$\langle C, E, S, K\rangle,\qquad C = \langle seg,\ pc,\ W\rangle$$
 
-Executable datoms are canonical 5-tuples `[e a v t m]`, produced the same
-way `yin.vm/ast->datoms` produces AST datoms: negative tempids for `e`,
-`t` = 0 unless the linearizer is given one, `m` = `dao.datom/default-op`.
-Attributes live under the `:yin.code/*` namespace so that
-`engine/executable-program-datom?` (which selects `:yin/*`) does not confuse
-a code segment with an AST program, and a query can select either view.
+- **C**: the segment, the program counter, and the **window** `W`, a
+  sparse map from virtual register ids to values for the current
+  activation. `W` is control, not store: it is what the activation is
+  in the middle of computing. `val` and `St` of the stack machine do not
+  exist; their contents are registers in `W`.
+- **E**: unchanged. A persistent map `sym → value`, extended on closure
+  entry with `merge closure-env (bind-params params args)`, nil-filling
+  as today; carries `engine/store-of-key` for module context exactly as
+  today. **Parameters live in E, not in registers**: `:var rd name`
+  reads E through `ρ` (`engine/resolve-var`: env → store → primitives →
+  modules) and writes `rd`. Registers hold only expression
+  intermediates. This keeps the walker isomorphism visible (the walker
+  has no registers; it has `:value` and `:evaluated`) and leaves the de
+  Bruijn register image free to map parameters to its own `L` bank.
+- **S**: unchanged.
+- **K**: a vector of frames, innermost last, of one kind,
+  `{:type :return :segment :pc :env :window :rd}` (§2.4). The FFI
+  phases (sent, retained) are markers on the wait entry (`:call-id`,
+  `:request-sent`), as in the stack machine today, never frames of
+  `K`; the walker's `:dao.stream.apply/eval-call` and `:request-sent`
+  continuation types correspond to those markers (§2.5).
 
-### 2.2 The segment
+### 2.2 Registers
 
-A segment is one entity plus its instructions. It is the unit a program
-stream carries (one batch value), the unit the loader accepts, and the unit
-a closure or continuation names.
+A register id is a non-negative integer, **body-local**: the main
+sequence and each out-of-line lambda body number their registers from
+0 independently (§3.3). A register is written by exactly one instruction
+in program order except that the two arms of a conditional write the
+same register (exclusive arm definitions, §3.2). A register is never
+written twice on one path and is never read before it is written on any
+path (definite assignment, §3.4). The register file is unbounded; the
+validator records each body's register count as a derived fact (§8).
 
-+--------------------------+--------------------+----------------------------------------------------------------------------------+
-| Attribute                | Value              | Meaning                                                                          |
-+--------------------------+--------------------+----------------------------------------------------------------------------------+
-| `:yin.code/type`         | `:segment`         | Marks the segment entity.                                                        |
-+--------------------------+--------------------+----------------------------------------------------------------------------------+
-| `:yin.code/length`       | int                | Number of instructions; pcs are `0 .. length-1`, dense.                          |
-+--------------------------+--------------------+----------------------------------------------------------------------------------+
-| `:yin.code/derived-from` | ref (AST root eid) | Provenance; optional when hand-assembled.                                        |
-+--------------------------+--------------------+----------------------------------------------------------------------------------+
-| `:yin.code/hash`         | segment address    | Reserved: content address of the segment's canonical instruction vector          |
-|                          |                    | (`dao.jing/segment-key`; UCF draft §7.3), for dedup and verification             |
-|                          |                    | (`streams-all-the-way-down.md` §6.3). Not required in Phase 1.                   |
-+--------------------------+--------------------+----------------------------------------------------------------------------------+
+### 2.3 Instruction table
 
-Entry is pc 0 by rule. Making entry a fact would let a segment disagree with
-itself; a rule cannot.
-
-### 2.3 The instruction
-
-Every instruction entity carries three structural facts and one or more
-operand facts.
-
-+---------------------+--------------------------+-------------------------------------------------------+
-| Attribute           | Value                    | Required on                                           |
-+---------------------+--------------------------+-------------------------------------------------------+
-| `:yin.code/segment` | ref (segment eid)        | every instruction                                     |
-+---------------------+--------------------------+-------------------------------------------------------+
-| `:yin.code/pc`      | int                      | every instruction                                     |
-+---------------------+--------------------------+-------------------------------------------------------+
-| `:yin.code/op`      | keyword mnemonic (below) | every instruction                                     |
-+---------------------+--------------------------+-------------------------------------------------------+
-| `:yin.code/source`  | ref (AST node eid)       | every lowered instruction; absent when hand-assembled |
-+---------------------+--------------------------+-------------------------------------------------------+
-
-Linearity is therefore an **explicit fact**, `:yin.code/pc`, not the vector
-order of the batch and not entity-id arithmetic. Entity ids are tempids that
-a transactor may remap; vector order is a transport accident. The
-well-formedness rule (§2.6) requires the batch to be *sorted* by pc so a
-loader can stream it, but the pc fact is the truth.
-
-Branch and closure targets are **refs to instruction entities**
-(`:yin.code/target`, `:yin.code/body`), not pc integers. The loader resolves
-each ref to a pc through the index it builds. This keeps the datom semantic
-("this branch goes to that instruction"), survives id remapping when both
-ends are remapped together, and is checkable.
-
-### 2.4 The core semantic primitives
-
-Machine model: an **accumulator machine with an operand stack** (§4). `val`
-is the accumulator; `St` the operand stack; `K` the continuation of return
-frames. This is the stack-class formulation `streams-all-the-way-down.md` §3
-says survives the log-structured reading; a register model would not.
-
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:yin.code/op`          | Operand attributes                            | Effect on the machine                                                            |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:const`                | `:yin.code/value v`                           | `val ← v`                                                                        |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:var`                  | `:yin.code/name sym`                          | `val ← resolve(E, S, prims, modules, sym)`                                       |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:closure`              | `:yin.code/params [..]`, `:yin.code/body ref` | `val ← {:type :closure :params .. :entry pc(body) :segment seg :env E}`          |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:push`                 | —                                             | `St ← St ⧺ [val]`                                                                |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:call`                 | `:yin.code/argc n`, `:yin.code/tail? bool`    | pop `n` args and the operator below them; apply (§4.2)                           |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:return`               | —                                             | pop frame from `K`; restore `pc`, `E`, stack base; `val` unchanged; empty `K`    |
-|                         |                                               | halts                                                                            |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:jump`                 | `:yin.code/target ref`                        | `pc ← target`                                                                    |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:branch-false`         | `:yin.code/target ref`                        | `pc ← val ? pc+1 : target`                                                       |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:halt`                 | —                                             | halt with `val` as the result                                                    |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:gensym`               | `:yin.code/prefix`                            | `val ← fresh id`; id counter advances                                            |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:store-get`            | `:yin.code/key`                               | `val ← S[key]`                                                                   |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:store-put`            | `:yin.code/key`, `:yin.code/value`            | `S[key] ← v; val ← v`                                                            |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:define`               | `:yin.code/name sym`                          | `S[name] <- val`; `val` unchanged; the operator is never resolved (Rule R)       |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:stream-make`          | `:yin.code/buffer`                            | effect `:stream/make` via engine                                                 |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:stream-put`           | —                                             | target ref popped from `St`, value in `val`; effect `:stream/put`                |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:stream-cursor`        | —                                             | source ref in `val`; effect `:stream/cursor`                                     |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:stream-next`          | —                                             | cursor ref in `val`; effect `:stream/next`                                       |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:stream-close`         | —                                             | source ref in `val`; effect `:stream/close`                                      |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:park`                 | —                                             | `engine/park-continuation` with the current frame                                |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:resume`               | `:yin.code/parked-id`                         | resume value in `val`; `engine/resume-continuation`                              |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:current-continuation` | —                                             | `val ← {:type :reified-continuation :segment :pc :env :stack :k}`                |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-| `:ffi-call`             | `:yin.code/ffi-op kw`, `:yin.code/argc n`     | pop `n` args; park-and-call over the FFI pair                                    |
-+-------------------------+-----------------------------------------------+----------------------------------------------------------------------------------+
-
-This is the AST vocabulary of `yin.vm/ast->datoms` made linear, one for
-one, plus the three sequencing primitives (`:push`, `:jump`, `:branch-false`)
-and `:halt`. `:yin/macro-expand` and `:vm/store-update` are outside both
-evaluators' supported corpus and are rejected at lowering with an error
-naming the node.
-
-**Opcode integers.** `yin.vm/opcode-table` already assigns integers to
-`:literal :load-var :lambda :call :return :branch :jump :gensym :store-get
-:store-put :stream-make :stream-put :stream-cursor :stream-next :stream-close
-:park :resume :current-cont :tailcall :dao.stream.apply/call`. The loader
-maps mnemonics onto that table (`:const`→`:literal`, `:var`→`:load-var`,
-`:closure`→`:lambda`, `:branch-false`→`:branch`, `:current-continuation`→
-`:current-cont`, `:ffi-call`→`:dao.stream.apply/call`, `:call`+`:tail? true`→
-`:tailcall`) and the table gains `:push 22` and `:halt 23`, and under
-Rule R `:define 24` (the mnemonic maps to itself). `:move` stays
-unused. Keeping the datom mnemonics semantic and the image integers
-mechanical is the point: a query asks for `:call`, the dispatch switches on
-`5` or `20`.
-
-**Saturation and defaults.** Two operand attributes fall back to a default
-when absent rather than failing to decode: `:gensym`'s `:yin.code/prefix`
-defaults to `"id"`; `:stream-make`'s `:yin.code/buffer` defaults to
-`yin.vm/default-stream-capacity`. Every other operand attribute in the
-§2.4 table is required by its op — the decoder does not guess at it.
-
-**The `"v3"` execution contract, published.** The UCF design
-(`yin.vm.universal-continuation-format.md`) S7.11 names a
-contract-revision-publication blocker for `:yin.code/contract
-"v3"`: a revision history naming the mnemonic set, per-mnemonic arity and
-operand kinds, the saturation/defaults table, the opcode table and
-transitions, resolution and last-value-wins rules, the effect outcome map,
-and scheduler semantics, all in this section. All seven are already written,
-here or by direct citation:
-
-- **Mnemonic set**: the `:yin.code/op` column of S2.4's table, 22 values,
-  matching `yin.vm.code/mnemonics`.
-- **Per-mnemonic arity and operand kinds**: §2.4's "Operand attributes"
-  column; enforced by §2.6 rule 2 (`:instruction-shape`) and rule 5
-  (`:dangling-target`, for the three ref-bearing ops).
-- **Saturation/defaults**: the paragraph directly above.
-- **Opcode table and transitions**: the "Opcode integers" paragraph above
-  for the mnemonic→integer mapping; §4.2 for the transition equations.
-- **Resolution rule**: S4.2's $\rho$ = `engine/resolve-var`, env, then
-  store, then primitives, then module registry (`ast.md` Part 2 gives
-  the same order for the walker: one resolution rule, two evaluators),
-  preceded by Rule R: a reserved name (`yin/def`) is refused before env
-  or store is consulted.
-- **Last-value-wins rule**: a repeated single-valued instruction attribute
-  keeps its last value in datom order, exactly as `code.cljc`'s
-  `index-batch` and `yin.vm/index-datoms` both implement it.
-- **Effect outcome map**: §3.3's table.
-- **Scheduler semantics**: §3.5.
-
-This is the whole `"v3"` contract by reference, not a duplicate of it:
-each piece has exactly one home, and this note is that home's index.
-
-Revision history: "v2" was the contract above without `:define` and
-without the reserved-name refusal. "v3" (2026-09-25, Rule R: `yin/def`
-is syntax, never a name) adds the `:define` mnemonic and transition,
-opcode 24, well-formedness rule 8 `:reserved-name`, and the refusal of
-the reserved name before env in `resolve-var`; `yin/def` is no longer a
-primitive. The two are not compatible, and a "v2" segment is refused by
-stamp (`:contract-mismatch`) with no migration.
-
-### 2.5 Constants and literals
-
-A literal lives inline in the `v` slot of `:yin.code/value`, polymorphic
-exactly as `:yin/value` is today (numbers, strings, keywords, vectors, maps,
-sets, nil). Host functions never appear in code datoms; a primitive is named
-by symbol in `:var` and resolved at run time through the supplied
-`:primitives`, which is how the walker already avoids putting host objects in
-the program. A shared or large constant pool (`:yin.code/const-ref` to a
-constant entity) is reserved and not needed for the current corpus.
-
-### 2.6 Well-formedness (checked by the loader, tested in Phase 0)
-
-1. Exactly one entity with `:yin.code/type :segment` per batch.
-2. Every instruction entity names this segment (`:yin.code/segment`) and
-   carries a §2.4 mnemonic (`:yin.code/op`); the later rules read both, so a
-   batch that lacks them cannot be judged by them (`:instruction-shape`).
-3. Instruction pcs are exactly `0 .. length-1`, each once.
-4. The batch is sorted by pc (so a loader can fill the array in one pass).
-5. Every `:yin.code/target` and `:yin.code/body` resolves to an instruction
-   of the same segment, and a `:jump`, `:branch-false`, or `:closure`
-   without its required ref resolves nowhere and fails the same rule.
-6. Every basic block ends in a terminator (`:jump`, `:return`, `:halt`) or
-   falls into a labelled successor; pc `length-1` is a terminator.
-7. Every `:call`/`:ffi-call` has a non-negative `:yin.code/argc`.
-8. Rule R (`:reserved-name`): no `:var` names `yin/def`, no `:closure`
-   binds it, no `:store-get`/`:store-put` key names it, and every
-   `:define` names a symbol other than `yin/def`. A lowered image with
-   the old call shape `[:var yin/def] ... [:call 2 false]` never loads.
-
-Violation is a load error naming the entity and rule. The loader is total
-over the outcomes of its inputs; it does not guess. `yin.vm.code/rules`
-runs these eight, in this order, each assuming the earlier ones held; the
-first defect wins. Every persistent-code loader (`vm-load-program`,
-`load-vector`) takes a required contract and refuses `:contract-missing`
-or `:contract-mismatch` before these rules run.
-
-### 2.7 A worked segment
-
-`((fn [x] (+ x 1)) 10)` lowers to (pcs shown, refs written as `→pc`):
+Positional tuples, one per instruction, pc as index, in the form UCF
+§7.3.2 fixes. The table is the de Bruijn register design's §4.4 with
+named lexical addressing and **no `live` operands**: `live` is derived
+(§8.1), as a foreign engine's layout is, and does not enter A.
 
 ```
-seg   :yin.code/type :segment   :yin.code/length 14
-0  :closure   params [x]  body →6
-1  :push
-2  :const     10
-3  :push
-4  :call      argc 1  tail? false
-5  :halt
-6  :var       +               ; body of the lambda, out of line
-7  :push
-8  :var       x
-9  :push
-10 :const     1
-11 :push
-12 :call      argc 2  tail? true
-13 :return
+:const                [op rd value]
+:var                  [op rd name]
+:closure              [op rd params body-pc]
+:call                 [op rd fn-reg arg-regs tail?]
+:branch-false         [op cond-reg target]
+:jump                 [op target]
+:return               [op value-reg]
+:halt                 [op value-reg]
+:gensym               [op rd prefix]
+:store-get            [op rd key]
+:store-put            [op rd key value]
+:stream-make          [op rd buffer]
+:stream-put           [op rd stream-reg value-reg]
+:stream-cursor        [op rd stream-reg]
+:stream-next          [op rd cursor-reg]
+:stream-close         [op rd stream-reg]
+:ffi-call             [op rd ffi-op arg-regs]
+:current-continuation [op rd]
+:park                 [op rd]
+:resume               [op parked-id value-reg]
+:define               [op rd name rs]
 ```
 
-The main sequence (pcs 0–5) ends in `halt`; the body (pcs 6–13) ends in
-`return`. In datoms, pc 4 is:
+Operand kinds are those of `code/vector-operand-table` plus `:reg` and
+`:regs` (non-negative integers, vectors of them), as the register
+design's R2 descriptor already names them. *(Amended 2026-10-15: the
+named table was `yin.vm.code`'s, deleted at the cutover; the operand
+kinds are spelled by this table and by the de Bruijn descriptors' own
+data — since 8f-1 the native stack grammar is `yin.vm.debruijn-code`'s
+own literal table, no longer derived from `yin.vm.code`.)* There is
+no `:push` and no
+`:move`: a conditional's arms target the conditional's own `rd`
+directly, so no value is ever relocated. `:resume` has no destination:
+it transfers control to a parked activation and never reaches its own
+successor. Every other value-producing instruction names `rd`.
 
-```
-[-20 :yin.code/segment -1  0 :db/add]
-[-20 :yin.code/pc       4  0 :db/add]
-[-20 :yin.code/op   :call  0 :db/add]
-[-20 :yin.code/argc     1  0 :db/add]
-[-20 :yin.code/tail? false 0 :db/add]
-[-20 :yin.code/source  -16 0 :db/add]   ; the :application AST node
-```
+### 2.4 Transitions
 
-Six datoms for a call site; five for most instructions. Load cost is linear
-in datoms once per segment. Execution cost is per instruction, never per
-datom.
-
----
-
-## §3. The semantic VM as a DaoStream v2 interpreter
-
-### 3.1 Consumption: observer, loader, image
-
-The VM implements `IVM`; program ingress is exactly the walker's shape:
-
-- The host composes a program medium, attaches `yin.vm.stream-observer`
-  to it, and drives `observer/run-on-stream` with `engine/ready-for-ingress?`,
-  a loader, and `vm/run`. The observer owns the handle, the cursor, and gap
-  accounting. The VM holds no program stream.
-- The loader for this evaluator is `semantic/vm-load-program`: it accepts a
-  batch of `:yin.code/*` datoms, validates §2.6, builds the image, stores
-  it under `:code {segment-id image}`, and sets control to
-  `{:segment id :pc 0}`. Segment identity is stable: an id already holding
-  a different image is a load error, and an identical reload is accepted —
-  continuations name segments by id, so an id must never come to mean
-  different code. A composition that carries `:yin/*` AST datoms on
-  its program stream hands the observer `(comp semantic/vm-load-program
-  linearize/lower)` instead; the loader is composition-supplied, so no
-  evaluator learns which form travels. `yin.repl.core/make-session` is
-  where that choice is made.
-
-The step loop is then: `(aget code pc)` → integer `case` → transition. No
-handle, no cursor, no `next` inside a segment.
-
-### 3.2 Why a branch is not a cursor move
-
-The contract's cursor is "a position, not a claim" and comes only from the
-stream: minted at `:oldest`/`:newest`, returned as a successor, or recovered
-from a `gap`. There is no `seek`, and reaching for a transport-owned position
-anchor is forbidden for contract-generic code. Three designs were weighed:
-
-+--------------------------------------------------------------------------------+-----------------------------------------------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------------------+
-| Design                                                                         | Contract status                                                             | Cost                                                                             | Verdict                                                                          |
-+--------------------------------------------------------------------------------+-----------------------------------------------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------------------+
-| Instruction stream, `next` per fetch, branch by re-minting a block's `:oldest` | legal only if every basic block is its own stream, delivered as descriptors | one stream operation per branch, one attach per closure body, per-value boundary | rejected: it is the per-scalar boundary §4 of the streams note names as          |
-|                                                                                |                                                                             | tax on every instruction                                                         | hopeless, and a loop body would re-mint on every iteration                       |
-+--------------------------------------------------------------------------------+-----------------------------------------------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------------------+
-| Transport-owned position anchors as jump targets                               | illegal for contract-generic code (Surfaces)                                | —                                                                                | rejected                                                                         |
-+--------------------------------------------------------------------------------+-----------------------------------------------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------------------+
-| Segment as batch value; pc indexes the loaded image                            | legal; the observer already delivers batches                                | one `next` per segment                                                           | **adopted**                                                                      |
-+--------------------------------------------------------------------------------+-----------------------------------------------------------------------------+----------------------------------------------------------------------------------+----------------------------------------------------------------------------------+
-
-The cursor-as-program-counter thesis of the streams note remains true where
-it applies: an execution *trace* emitted to a stream is a straight line, and
-a debugger's cursor over it is a pc in time (§3.6).
-
-### 3.3 Read outcomes at the two boundaries
-
-*Program boundary* (observer, generic): `ok` loads and runs; `blocked` ends
-the round with the cursor retained; `end` ends the session; `gap` commits
-the recovery cursor and counts the loss (an evicted segment is a program
-that never ran; the REPL latch stays host policy); `cursor-mismatch`,
-`invalid-cursor`, `transport-error` throw naming the outcome. Unchanged from
-the divergence register.
-
-*Data boundary* (instructions, via `engine/handle-effect`): identical to the
-walker because the handlers are shared.
-
-+------------------+--------------------------------------+-------------------------------+-------------+------------------------------------------------------+-----------------------------------------------------------+
-| Instruction      | `ok`                                 | `blocked`/`full`              | `end`       | `gap`                                                | terminal                                                  |
-+------------------+--------------------------------------+-------------------------------+-------------+------------------------------------------------------+-----------------------------------------------------------+
-| `:stream-next`   | `val ← value`, store cursor advanced | park with a wait entry (§3.5) | `val ← nil` | `val ← :dao.stream/gap`, cursor advanced to recovery | error naming outcome                                      |
-+------------------+--------------------------------------+-------------------------------+-------------+------------------------------------------------------+-----------------------------------------------------------+
-| `:stream-put`    | `val ← value`                        | park (`full`)                 | —           | —                                                    | `closed`, `invalid-value`, `transport-error` are errors   |
-+------------------+--------------------------------------+-------------------------------+-------------+------------------------------------------------------+-----------------------------------------------------------+
-| `:stream-cursor` | `val ← cursor-ref`                   | —                             | —           | —                                                    | `invalid-anchor`, `closed`, `transport-error` are errors  |
-+------------------+--------------------------------------+-------------------------------+-------------+------------------------------------------------------+-----------------------------------------------------------+
-| `:stream-make`   | `val ← stream-ref`                   | —                             | —           | —                                                    | `invalid-spec`, `not-found`, `transport-error` are errors |
-+------------------+--------------------------------------+-------------------------------+-------------+------------------------------------------------------+-----------------------------------------------------------+
-| `:stream-close`  | `val ← nil`                          | —                             | —           | —                                                    | `{ok}` only                                               |
-+------------------+--------------------------------------+-------------------------------+-------------+------------------------------------------------------+-----------------------------------------------------------+
-
-Under a ring-buffer composition `full` never occurs and loss surfaces as a
-reader `gap`; the retention divergence stands as written.
-
-### 3.4 FFI through `dao.stream.apply`
-
-`:ffi-call` pops `argc` arguments and runs the semantic `park-and-call`:
-check the pair (`ffi/require-call-pair!`) **before** parking; park the frame
-`{:type :dao.stream.apply/eval-call :segment :pc (pc+1) :env :stack :next
-k}`; `apply2/put-request!` on call-in; on `ok` add the call-out wait entry
-correlated by the parked id; on `full` retain the request in a
-`:request-sent` wait entry, as the walker does; the other outcomes fail the
-call naming the outcome. The host side (`ffi/bridge-step`, `ffi/maybe-run`)
-is used unchanged. `call-result` and `call-response-wait-entry` are private
-in `ast_walker.cljc` today; Phase 0 lifts both into `yin.vm.ffi` so that
-correlation checking is written once (this is the one edit to an existing
-file the roadmap requires).
-
-### 3.5 Scheduler, park, resume
-
-The VM record carries the engine's scheduler fields (`:ready-queue`,
-`:wait-set`, `:parked`, `:id-counter`, `:store`, `:blocked?`, `:halted?`)
-with the same meanings. Wait entries built by the semantic `park-entry-fns`
-are `{:segment :pc :env :stack :k :reason :cursor-ref/:stream-id}` — pure
-data: no resolved stream handle and no resume closure is ever attached to a
-wait or ready entry, so the wait set of a blocked machine survives an EDN
-round-trip (§1.1's serialization limit; the program's own `env`/stack values
-aside). `engine/check-wait-set` resolves handles from the store on every
-poll, and restoration is dispatched explicitly. The restore function is
-
-```
-semantic-restore : base entry val → base with control {:segment :pc},
-                                       env, stack, k, val from entry
-```
-
-and is handed to `engine/resume-from-run-queue` and
-`engine/resume-continuation`, exactly as `ast-walker-restore` is;
-`engine/resume-from-run-queue` runs the terminal-outcome check (a woken
-retry that ended `closed`/`cursor-mismatch`/… fails as the immediate
-operation would) before restoring. No `:restore-fn` is passed into
-`engine/handle-effect` or `engine/check-wait-set` from this evaluator, so
-nothing live rides on an entry. `engine/run-loop` drives `run`.
-
-### 3.6 Observation and traces
-
-Program observation is `stream-observer`, above the VM. For *execution*
-observation the design reserves a trace vocabulary emitted at park points
-and, when enabled, per instruction:
-
-```
-[cfg :yin.trace/segment seg t] [cfg :yin.trace/pc pc t] [cfg :yin.trace/val v t]
-[cfg :yin.trace/env-ref e t]   [cfg :yin.trace/k-depth d t]
-```
-
-with `t` the step counter. This is the §6 endgame of the cesk-space plan:
-the machine executes from the image and *emits* its configuration, so
-`as-of` and causal debugging are queries over a stream, not interpretation
-from one. `yin.vm.telemetry` is a stub that rejects a non-nil option; the
-trace lands there when telemetry is designed, and nothing in Phase 1–3
-depends on it. It is listed so the hot loop is written with the emission
-seam in one place (the `cesk-return` equivalent) rather than retrofitted.
-
----
-
-## §4. CESK semantics on linear datoms
-
-### 4.1 Configuration
-
-$$\langle C, E, S, K \rangle \quad\text{where}\quad
-C = \langle seg, pc, val, St \rangle$$
-
-- **C (control)**: the segment id, the program counter, the accumulator
-  `val`, and the operand stack `St` (a vector; `St` is control, not store,
-  because it is part of what the machine is *doing*, and it is saved in
-  frames).
-- **E (environment)**: a persistent map `sym → value`, extended on closure
-  entry with `merge closure-env (engine/bind-params params args)`, as the
-  walker does. `bind-params` binds each param to its positional argument and
-  **nil-fills** any parameter left over on an under-arity call — it is not
-  `zipmap`, which would silently omit the unbound parameter names from the
-  extended environment entirely (`yin.vm.code-as-tuples.md` §7.7.2's
-  argument-to-named-parameter binding rule: arguments match `params` by
-  position, each bound to its name; under-arity → missing names bound to
-  `nil`; extra arguments beyond `params`' length are dropped). Lexical
-  addressing is reserved (§6.4).
-- **S (store)**: the map `key → value` holding `yin/def` results, stream
-  handles, cursor entries, and the FFI pair — unchanged from `engine`.
-- **K (continuation)**: a vector of frames, innermost last. Frame kinds:
-  `{:type :return :segment :pc :env :stack-base}` for calls, and the
-  effect-continuation frames the engine already defines
-  (`:dao.stream.apply/eval-call`, `:request-sent`), extended with
-  `:segment :pc :stack`.
-
-Let `I = code[seg][pc]` be the decoded instruction and `I.x` its operands.
-
-### 4.2 Transitions for the core instructions
+Let `I = code[seg][pc]`, `W[r]` the value of register `r`,
+`W[r ← v]` the window with `r` written. $\rho$ is `engine/resolve-var`.
 
 $$\begin{aligned}
-&\text{const}:&& \langle seg,pc,val,St,E,S,K\rangle \to \langle seg,pc{+}1,\,I.v,\,St,E,S,K\rangle\\
-&\text{var}:&& \to \langle seg,pc{+}1,\,\rho(E,S,I.name),\,St,E,S,K\rangle\\
-&\text{closure}:&& \to \langle seg,pc{+}1,\,\mathrm{clo}(I.params,I.entry,seg,E),\,St,E,S,K\rangle\\
-&\text{push}:&& \to \langle seg,pc{+}1,\,val,\,St \Vert [val],E,S,K\rangle\\
-&\text{jump}:&& \to \langle seg,\,I.target,\,val,St,E,S,K\rangle\\
-&\text{branch-false}:&& \to \langle seg,\,(val\ ?\ pc{+}1 : I.target),\,val,St,E,S,K\rangle\\
-&\text{halt}:&& \to \text{halted},\ \text{result} = val
+&\text{const}:&& \langle seg,pc,W,E,S,K\rangle \to \langle seg,pc{+}1,\,W[rd \leftarrow I.v],E,S,K\rangle\\
+&\text{var}:&& \to \langle seg,pc{+}1,\,W[rd \leftarrow \rho(E,S,I.name)],E,S,K\rangle\\
+&\text{closure}:&& \to \langle seg,pc{+}1,\,W[rd \leftarrow \mathrm{clo}(I.params,I.body,seg,E)],E,S,K\rangle\\
+&\text{jump}:&& \to \langle seg,\,I.target,\,W,E,S,K\rangle\\
+&\text{branch-false}:&& \to \langle seg,\,(W[cond]\ ?\ pc{+}1 : I.target),\,W,E,S,K\rangle\\
+&\text{define}:&& \to \langle seg,pc{+}1,\,W[rd \leftarrow W[rs]],E,\,S[I.name \mapsto W[rs]],K\rangle\\
+&\text{halt}:&& \to \text{halted},\ \text{result} = W[I.value\text{-}reg]
 \end{aligned}$$
 
-where $\rho$ is `engine/resolve-var` (env → store → primitives → modules).
+`define` writes through `engine/put-active`, which routes the write
+to the active module store or the task's store and calls
+`engine/store-put`, which refuses the reserved key (Rule R unchanged);
+the definition operator is never resolved.
 
-**define** (Rule R: `yin/def` is syntax, never a name):
+**The saved window.** Wherever a transition saves the current
+activation for later delivery of a value into `rd`, the window it saves
+is
 
-$$\to \langle seg,pc{+}1,\,val,\,St,E,\,S[I.name \mapsto val],\,K\rangle$$
+$$\mathrm{saved}(p, rd) = W\!\restriction\!(L(p) \setminus \{rd\})$$
 
-The value operand has already been evaluated into $val$; the write goes
-through `engine/store-put`, the one program store write, which refuses
-the reserved key. The definition operator is never resolved: a
-definition lowers to its value's instructions followed by
-`[:define name]`, never to a call. $\rho$ refuses `yin/def` before it
-consults $E$ or $S$ (`:reserved-name`), and a well-formed segment has no
-`:var` naming it (S2.6 rule 8).
+where `L(p)` is the standard live-in set at the resume pc `p` (§8.1),
+which may well contain `rd` (later instructions read the delivered
+value), so the subtraction is explicit and is the rule everywhere:
+call frames, parks, captures, waits, foreign-engine reconstruction and
+the `live` operands of §8.2. Nothing else is ever saved from `W`.
 
-**call** with $n = I.argc$, $St = St' \Vert [f, a_1..a_n]$:
+**call** with `f = W[fn-reg]`, `a = [W[r] for r in arg-regs]`:
 
 $$\begin{aligned}
-&f = \mathrm{clo}(ps, e, seg', E_c),\ \neg tail:&&
-\to \langle seg',\,e,\,val,\,St',\,E_c[ps \mapsto a],\,S,\,K \Vert [\mathrm{ret}(seg,pc{+}1,E,|St'|)]\rangle\\
-&f = \mathrm{clo}(ps, e, seg', E_c),\ tail:&&
-\to \langle seg',\,e,\,val,\,St',\,E_c[ps \mapsto a],\,S,\,K\rangle\\
-&f\ \text{primitive},\ f(a)\ \text{a value } v:&&
-\to \langle seg,pc{+}1,\,v,\,St',E,S,K\rangle\\
-&f\ \text{primitive},\ f(a)\ \text{an effect } \epsilon:&&
-\to \mathrm{effect}(\epsilon, \langle seg,pc{+}1,St',E,S,K\rangle)
+&f = \mathrm{clo}(ps,b,seg',E_c),\ \neg tail:&&
+\to \langle seg',\,b,\,\{\},\,E_c[ps \mapsto a],\,S,\,K \Vert [\mathrm{ret}(seg,pc{+}1,E,\,\mathrm{saved}(pc{+}1,rd),\,rd)]\rangle\\
+&f = \mathrm{clo}(ps,b,seg',E_c),\ tail:&&
+\to \langle seg',\,b,\,\{\},\,E_c[ps \mapsto a],\,S,\,K\rangle\\
+&f\ \text{primitive},\ f(a) = v,\ \neg tail:&&
+\to \langle seg,pc{+}1,\,W[rd \leftarrow v],E,S,K\rangle\\
+&f\ \text{primitive},\ f(a) = v,\ tail:&&
+\to \mathrm{return}(v)\ \text{(below: the value goes to }K\text{'s top frame, never to }rd)\\
+&f\ \text{primitive},\ f(a) = \epsilon,\ \neg tail:&&
+\to \mathrm{effect}(\epsilon,\ \mathrm{act}(seg,pc{+}1,E,\mathrm{saved}(pc{+}1,rd),K),\ \mathrm{deliver}(\mathrm{rd}, rd))\\
+&f\ \text{primitive},\ f(a) = \epsilon,\ tail:&&
+\to \mathrm{effect}(\epsilon,\ \mathrm{tail}(seg,pc,K),\ \mathrm{deliver}(\mathrm{return}))\\
+&f = \kappa\ \text{(a reified continuation)}:&&
+\to \text{restore }\kappa\text{ and deliver }a_1\text{ per }\kappa\text{'s own deliver; the caller's activation and }K\text{ are discarded}\\
+&f\ \text{not callable}:&& \to \text{error, as today}
 \end{aligned}$$
 
-A tail call grows neither $K$ nor $St$: the walker gets this for free
-because a closure body runs against the caller's $k$; the linear machine
-must state it, and does. Effect handling `effect(ε, cfg)` is
-`engine/handle-effect`; its result is either a value (continue at `pc+1`)
-or a park (the configuration becomes a wait entry, control goes idle).
+A callee activation starts with an **empty window**; its parameters are
+in `E` (duplicate-parameter resolution, nil-fill and extra-argument
+dropping are `bind-params`' and are unchanged). A non-tail call saves
+the caller's window restricted by the saved-window rule, with the
+delivery destination `rd`. **A tail call never writes `rd` and never
+resumes its own activation**: whatever the callee produces, a closure's
+eventual `:return`, a pure primitive's immediate value, or an effect's
+completion, is delivered through `K`. This makes tail completion
+uniform and makes the instructions textually after a tail call layout
+syntax (§3.3 item 4). Invoking a reified continuation is abortive, as
+`semantic/apply-call`'s `:continuation` arm is today: the argument is
+validated (exactly one), ownership of `κ` is checked under the UCF
+rules for source-owned continuation values, the current activation and
+`K` are discarded, `κ`'s captured state is restored, and the argument is
+delivered exactly once per `κ`'s recorded `deliver`.
 
-**return** with $K = K' \Vert [\mathrm{ret}(seg',pc',E',b)]$:
+**return** with `K = K' ∥ [ret(seg', pc', E', W', rd')]`:
 
-$$\to \langle seg',\,pc',\,val,\,St[0..b),\,E',\,S,\,K'\rangle$$
+$$\to \langle seg',\,pc',\,W'[rd' \leftarrow v],\,E',\,S,\,K'\rangle,\qquad v = W[I.value\text{-}reg]$$
 
-and with $K = []$: halted with result $val$.
+and with `K = []`: halted with result `v`. The result is written
+**exactly once**, into the popped frame's destination. `return(v)` as
+used above is this transition applied to a value that did not come from
+the current window.
 
-**stream-next** (cursor ref $c = val$), by outcome of `next` on the handle
-behind $c$:
+**Delivery.** Every suspended or deferred computation records where its
+result goes, as a closed typed record:
+
+```clojure
+{:deliver :rd     :rd r}        ; write-result: v → W[r], continue at the recorded pc
+{:deliver :return}              ; through-return: return(v) against K
+```
+
+and the suspended state it belongs to is one of two closed shapes:
+
+```clojure
+act  = {seg pc E window K}      ; a resumable activation; window = saved(pc, rd)
+tail = {seg site K}             ; no activation: the tail site (for diagnostics
+                                ;   and provenance), K, and nothing to resume into
+```
+
+A `tail` state carries no window and no `E` of its own; the store
+context any later code needs is in the frames of `K`. Delivery of `v`
+to an `act` with `{:deliver :rd r}` restores it, writes `W[r ← v]`, and
+continues at `pc`; delivery to a `tail` with `{:deliver :return}` runs
+`return(v)` against `K`, which pops a frame or halts. When a deferred
+tail completion halts, the machine's `:env` is the scheduler's current
+`:env` at the restore (`base`), cleared of the module-store key; when an
+immediate tail completion halts (a pure primitive or a non-parking
+effect in a tail call), it is the current `E` so cleared, as `:halt`
+leaves it. The two are not equated: no `E` of the tail site travels in
+the `tail` state. The engine seam already supports this: a VM's restore
+function `restore-fn(base, entry, value)` is called from exactly two
+places, `engine/resume-from-run-queue` (a woken wait entry, after the
+entry has left the ready queue and after the terminal-outcome check,
+with `base` the blocked machine) and `engine/resume-continuation` (an
+explicit `:resume`, with no terminal check and with `base` the
+resuming machine, which may be active). Neither path requires a
+current activation: the helper reads only the entry, the value and the
+machine's tables, treats the VM payload as data, and either resumes an
+`act` or runs `return(v)`, which may halt; the `:resume` transition
+accepts a halted result. No trampoline activation is synthesized. The
+two shapes cover primitive effects, `:park`,
+`:current-continuation`, stream and FFI waits (including the
+`request-sent` phase, which advances the FFI protocol without
+delivering anything to guest code), link waits (whose three phases
+preserve the delivery record until install completes), and halting. An
+effectful tail call therefore completes by return, never by writing a
+register of a body that no longer runs.
+
+**stream-next** (cursor ref `c = W[cursor-reg]`), by outcome:
 
 $$\begin{aligned}
-&ok\ v,\ c':&& \to \langle seg,pc{+}1,\,v,\,St,E,\,S[c \mapsto c'],\,K\rangle\\
-&blocked:&& \to \text{parked}\ \{seg,pc{+}1,E,St,K,\ \text{cursor-ref}\ c\}\ \in\ \text{wait-set}\\
-&end:&& \to \langle seg,pc{+}1,\,\mathrm{nil},\,St,E,S,K\rangle\\
-&gap\ c':&& \to \langle seg,pc{+}1,\,\text{:dao.stream/gap},\,St,E,\,S[c \mapsto c'],\,K\rangle
+&ok\ v,\ c':&& \to \langle seg,pc{+}1,\,W[rd \leftarrow v],E,\,S[c \mapsto c'],K\rangle\\
+&blocked:&& \to \text{wait}\ \{\mathrm{act}(seg,pc{+}1,E,\mathrm{saved}(pc{+}1,rd),K),\ \{\text{:deliver :rd :rd } rd\},\ \text{pending: cursor cell } c\}\\
+&end:&& \to \langle seg,pc{+}1,\,W[rd \leftarrow \mathrm{nil}],E,S,K\rangle\\
+&gap\ c':&& \to \langle seg,pc{+}1,\,W[rd \leftarrow \text{:dao.stream/gap}],E,\,S[c \mapsto c'],K\rangle
 \end{aligned}$$
 
-**ffi-call** ($St = St' \Vert [a_1..a_n]$): park frame
-$\{\text{eval-call}, seg, pc{+}1, E, St', K\}$ under a fresh id $p$; append
-$\mathrm{request}(p, I.op, a)$ to call-in; on `ok` the wait set gains a
-reader entry on the call-out cursor correlated by $p$; when the correlated
-response arrives, $val \leftarrow$ its `ok` value (or its `error` raises)
-and control resumes at $pc{+}1$.
+`stream-put`, `stream-make`, `stream-cursor`, `stream-close`, `gensym`,
+`store-get`, `store-put`: as today, reading their register operands
+from `W` and their literal operands from the instruction, and writing
+`rd`. A blocking `stream-put` waits as `act(seg, pc+1, E,
+saved(pc+1, rd), K)` with `{:deliver :rd}` and the **retained value
+`W[value-reg]` in the pending record**, where it belongs even though
+`value-reg` may be absent from the saved window.
 
-**park**: $K$, $E$, $St$, $seg$, $pc{+}1$ are written to `:parked` under a
-fresh id; the VM halts with that record as its value.
-**resume** ($val$ = resume value, $I.id$ the parked id): the parked
-configuration is restored with $val$ as its accumulator.
-**current-continuation**: $val \leftarrow \{seg, pc{+}1, E, St, K\}$
-reified as data.
+**ffi-call** (`a = [W[r] for r in arg-regs]`): the wait
+`act(seg, pc+1, E, saved(pc+1, rd), K)` with `{:deliver :rd}` is
+recorded under a fresh call id `p` (`eval-call`); `request(p, I.op, a)`
+is appended; a `full` append keeps the request retained
+(`request-sent` phase, which when it later appends advances to the
+response wait and delivers nothing to guest code); on the correlated
+response its `ok` value is delivered to `rd` at `pc+1`, its `error`
+raises, and the parked bookkeeping for `p` is removed.
 
-### 4.3 What the equations make visible
+**park**: the record `act(seg, pc+1, E, saved(pc+1, rd), K)` with
+`{:deliver :rd}` is written to `:parked` under a fresh id; the task
+halts with that record as its value. The not-yet-produced value of
+`rd` is excluded from the saved window by the saved-window rule.
+Explicit park raises **no wait entry** (UCF §7.4.3 r5: the parked
+record is the no-wait shape).
+**resume** (`v = W[value-reg]`, `I.id` the parked id): the parked
+`act` is restored and `v` is delivered per its `deliver`. `:resume`
+ends its own path.
+**current-continuation**: `W[rd ← κ]` where
+`κ = act(seg, pc+1, E, saved(pc+1, rd), K)` with `{:deliver :rd}`,
+reified as data. `κ` is a captured value, never a safepoint. Invoking
+it (`:call` arm above) delivers the argument to `rd` in the captured
+window and continues at `pc+1`; `κ` is never captured inside its own
+destination because the saved-window rule excludes `rd`.
 
-Compare the walker's evaluation of one operand: it allocates a frame map,
-`assoc`s the frame into $k$, `conj`s onto `:evaluated`, and dispatches on a
-keyword `:type` twice (node, then continuation). The linear machine does
-`push` (one vector `conj`) and increments `pc`. The "continuation" of an
-operand sequence is the *next pc*, a fact the lowering already computed.
-This is the entire performance argument, stated as semantics rather than as
-engineering (§6).
+### 2.5 Correspondence with the walker
 
----
+The correspondence is per supported walker frame and effect phase, and
+it allows administrative steps on both sides:
 
-## §5. Lowering: Universal AST → linear datoms
+| walker state | register machine |
+|---|---|
+| `:value` after evaluating a node | the node's `rd`, written |
+| `eval-operator`, `eval-operand` frames with their `:evaluated` prefix | the pc inside the call's operand sequence, plus the operator and argument registers already written in `W` |
+| `eval-test` | the test's `rd` written, then `:branch-false` |
+| `eval-stream-put-target` / `eval-stream-put-val` | the pc before the value expression, with the target register written; then the value register, then `:stream-put` |
+| stream source and cursor frames | the pc before the corresponding stream instruction |
+| `eval-define`, `eval-resume-val` | the child's `rd` written, then `:define` / `:resume` |
+| a non-tail call's continuation frame (saved env, `:evaluated` prefix) | a `ret` frame: saved `E`, `saved(pc+1, rd)` as the window, `rd` |
+| `request-sent` | the retained-request phase: the FFI protocol advances, nothing is delivered to guest code |
+| `eval-call` completion | correlated response decoding, parked bookkeeping removal, delivery to `rd` |
+| walker frame pushes/pops; register `:jump` / `:branch-false` / `:return r` / `:halt r` | no single-step counterpart; the correspondence holds at the next event. An **event** is a transition that produces an expression's result or delivers a value to a suspended destination (a popped frame, a captured destination, the halt); a transition that relocates a result already produced (`:return r`, `:halt r`, a walker frame pop) is administrative. `return(v)` of a tail primitive's or tail effect's value is a delivery event. Events are classified by role, never by whether the value already occurs elsewhere |
 
-### 5.1 Placement and contract
+Expression frames correspond to **pc and `W`**, not to `ret` frames; a
+`ret` frame corresponds only to a suspended caller activation. The
+parity lane (§10, phase 4) runs every corpus program on both machines
+and compares values, store, effect traces and halting; a trace test
+aligns the two machines' events (production and delivery, as the last
+row defines them) under the table above, administrative steps skipped;
+the companion design's §4 fixes the procedure.
 
-`yin.vm.linearize` (not `yang.linearize`): yang owns syntax → AST and must
-stay ignorant of any evaluator; lowering AST → executable code is VM lineage
-and must stay ignorant of any surface syntax. Clojure, Python and PHP front
-ends all reach the linearizer through the one canonical form. The
-recommendation departs from the target-file example in the task brief for
-this reason.
+## 3. The canonical grammar
+
+### 3.1 Expression-structured by construction
+
+A body is the image of one expression tree under the lowering walk of
+§3.3. The validator does not accept arbitrary programs over the
+instruction table: it **parses** each body under the recoverable
+grammar below, and a body that does not parse is refused
+(`:not-expression-structured`). This is the restriction the Architect
+required so that the stack lowering (§8.3) is well defined, and it is
+exactly the grammar the de Bruijn register `lift` already recovers
+(`debruijn_register_compile.cljc`, "the register image, viewed per body,
+is a flat instruction sequence with a recoverable grammar").
+
+The grammar is exhaustive over §2.3: every opcode appears in exactly
+one production. `expr(rd)` denotes an expression whose **outcome** is
+either a *result* delivered into `rd` or *terminal* (control leaves the
+path and `rd` is never written). The outcome relation is defined
+recursively, not by "the last instruction writes `rd`", so that a
+conditional (which ends in a `:jump` or a label) and a nested
+conditional both have a result destination, and so that a `resume`
+anywhere in an expression makes the enclosing path terminal from that
+point. Three notions are kept distinct throughout: a register id is
+**minted** by exactly one expression (§3.3; every expression mints,
+`resume` included); an id has zero or more **syntactic definitions**,
+the instructions whose `rd` slot names it (a tail `:call` names its
+`rd` syntactically though it never writes it at runtime; a `:resume`
+has no `rd` slot and so gives its minted id no syntactic definition);
+and an id has zero or more **runtime writes**, the reachable
+instructions that actually write it (a reachable tail `:call` names
+its `rd` and never writes it, so it is a syntactic definition and not a
+runtime write; every other reachable syntactic definition is a runtime
+write). "Terminal" is about runtime writes, never about syntax.
 
 ```
-lower : [:yin/* datoms] → [:yin.code/* datoms]         ; pure, total over supported node types
-lower-ast : ast-map → [:yin.code/* datoms]             ; convenience = lower ∘ ast->datoms
+body         ::= expr(r) [:return r]                ; non-main bodies
+               | expr(r) [:halt r]                  ; the main sequence
+expr(rd)     ::= atom(rd) | call(rd) | if(rd) | define(rd)
+               | effect(rd) | resume(rd)            ; resume: terminal outcome (below)
+
+atom(rd)     ::= [:const rd v]
+               | [:var rd name]
+               | [:closure rd params body-pc]
+               | [:gensym rd prefix]                 ; zero children, literal operand
+               | [:store-get rd key]                 ; zero children, literal operand
+               | [:store-put rd key value]           ; zero children, two literal operands
+               | [:stream-make rd buffer]            ; zero children, literal operand
+               | [:current-continuation rd]
+               | [:park rd]
+
+call(rd)     ::= expr(f) expr(a₁) … expr(aₙ) [:call rd f [a₁ … aₙ] tail?]      ; n ≥ 0
+if(rd)       ::= expr(c) [:branch-false c Lalt]
+                 expr(rd) [:jump Lend]
+                 Lalt: expr(rd)
+                 Lend:                                ; result destination: rd, by this rule
+define(rd)   ::= expr(rs) [:define rd name rs]
+effect(rd)   ::= expr(s) [:stream-cursor rd s]
+               | expr(s) [:stream-close rd s]
+               | expr(c) [:stream-next rd c]
+               | expr(s) expr(v) [:stream-put rd s v]
+               | expr(a₁) … expr(aₙ) [:ffi-call rd op [a₁ … aₙ]]              ; n ≥ 0
+resume(rd)   ::= expr(v) [:resume parked-id v]        ; terminal: rd is minted, never written
 ```
 
-Input is canonical AST datoms because that is what travels and what the
-walker consumes; the implementation may reconstruct maps with
-`vm/datoms->ast` internally in Phase 2 and lower from the datom index
-directly later. Output is one segment per program root.
+Children appear in the order written, which is the evaluation order
+(§3.3). A literal operand (`v`, `name`, `params`, `body-pc`, `prefix`,
+`key`, `value`, `buffer`, `op`, `parked-id`, `tail?`) is carried in the
+instruction and is never a child expression. `if(rd)` has result
+destination `rd` by definition, and both arms are `expr(rd)`, so a
+nested conditional in an arm is itself an `if(rd)` into the same
+register.
 
-### 5.2 When: ahead-of-time at the load boundary
+**Outcomes.** An expression's outcome on a path is *result* if
+evaluation of that path ends with a runtime write of its `rd` and
+continues to the successor, and *terminal* if control leaves the path
+before that (no normal result on that path). Composition is conditional
+on children continuing:
 
-Compilation is AOT per segment, once, where the program crosses into the
-VM: `eval` lowers its AST; a composition whose program stream carries AST
-datoms composes `lower` into the loader it hands the observer; a composition
-whose stream carries code datoms hands the loader alone. There is no
-tiering, no recompile-at-boundary, no dirty flag: the engine's versioned
-compile cache exists for programs that grow by append, and a segment is
-immutable once emitted. Streaming delivery of a growing segment (a pc past
-the loaded length parks on code rather than erroring) is reserved for a
-later phase; it is additive because a pc beyond `length` is already a
-defined load-time condition.
+- `atom(rd)`: result.
+- `define(rd)`, `effect(rd)`: terminal if a child is terminal, else
+  result.
+- `call(rd)`: children are evaluated in order; if any child is
+  terminal the call is terminal from that child onward; otherwise
+  result when `tail?` is false and terminal when `tail?` is true (§2.4:
+  a tail call completes through `K`, so its syntactic `rd` is never a
+  runtime write).
+- `if(rd)`: terminal if the test is terminal; otherwise result if at
+  least one arm has a result outcome, terminal if both arms are
+  terminal. Mixed arms are a result outcome on the continuing arm and
+  terminal on the other, which is exactly what definite assignment
+  (§3.4 item 8) handles by excluding terminal arms from the join.
+- `resume(rd)`: terminal.
 
-### 5.3 The flattening
+An expression containing a terminal child is terminal **from that
+child onward**: the remaining children and the expression's own
+instruction are layout syntax on that path (§3.4 item 10), and any
+syntactic definitions among them are not runtime writes on that path.
+A **wholly terminal body** (`body ::= expr(r) [:return r]` with
+`expr(r)` terminal on every path) still carries its structural
+`[:return r]` as layout syntax; `r` is minted, may have syntactic
+definitions (a tail call's `rd`) or none (a `resume`'s), and has no
+runtime write. Every supported AST program is accepted; terminal
+outcomes narrow nothing, they only mark what runtime cannot reach.
 
-Recursive descent over the AST in evaluation order, emitting instructions
-into a growing vector and lambda bodies out of line:
+### 3.2 Exclusive definitions by structured paths
 
-+---------------------------------------------------------+--------------------------------------------------------------------+
-| AST node                                                | Emitted sequence                                                   |
-+---------------------------------------------------------+--------------------------------------------------------------------+
-| `:literal v`                                            | `const v`                                                          |
-+---------------------------------------------------------+--------------------------------------------------------------------+
-| `:variable s`                                           | `var s`                                                            |
-+---------------------------------------------------------+--------------------------------------------------------------------+
-| `:lambda ps body`                                       | `closure ps →L` ; body emitted later at label L ending in `return` |
-+---------------------------------------------------------+--------------------------------------------------------------------+
-| `:application op args` (tail? τ)                        | `⟦op⟧ push ⟦a₁⟧ push … ⟦aₙ⟧ push call n τ`                         |
-+---------------------------------------------------------+--------------------------------------------------------------------+
-| `:if t c a`                                             | `⟦t⟧ branch-false →A ⟦c⟧ jump →E A: ⟦a⟧ E:`                        |
-+---------------------------------------------------------+--------------------------------------------------------------------+
-| `:dao.stream.apply/call op args`                        | `⟦a₁⟧ push … ⟦aₙ⟧ push ffi-call op n`                              |
-+---------------------------------------------------------+--------------------------------------------------------------------+
-| `:stream/put target val`                                | `⟦target⟧ push ⟦val⟧ stream-put`                                   |
-+---------------------------------------------------------+--------------------------------------------------------------------+
-| `:stream/cursor s`, `:stream/next s`, `:stream/close s` | `⟦s⟧ stream-cursor` etc.                                           |
-+---------------------------------------------------------+--------------------------------------------------------------------+
-| `:stream/make b`                                        | `stream-make b`                                                    |
-+---------------------------------------------------------+--------------------------------------------------------------------+
-| `:vm/store-get k`, `:vm/store-put k v`, `:vm/gensym p`  | one instruction each                                               |
-+---------------------------------------------------------+--------------------------------------------------------------------+
-| `:vm/park`, `:vm/current-continuation`                  | one instruction each                                               |
-+---------------------------------------------------------+--------------------------------------------------------------------+
-| `:vm/resume id v`                                       | `⟦v⟧ resume id`                                                    |
-+---------------------------------------------------------+--------------------------------------------------------------------+
-| root                                                    | main sequence ends in `halt`; bodies follow                        |
-+---------------------------------------------------------+--------------------------------------------------------------------+
+A register has at most one definition on any path. Static definitions
+of one register may be several, one per *leaf arm* of a (possibly
+nested) conditional whose result destination is that register, and
+these are on pairwise exclusive paths by the structure of §3.1. The
+validator does not check pairs; it walks the structure: for each
+register, the set of its syntactic definitions must be exactly the set
+of leaf results of one `expr(rd)` subtree (a single instruction, or the
+leaf arms of nested `if(rd)`s), and no instruction outside that subtree
+defines it. That set may be **empty**: a subtree every leaf of which is
+a `resume` (a bare `resume(rd)`, or an `if(rd)` whose arms are both
+such subtrees) supplies no syntactic definition of `rd` at all, and the
+rule is satisfied with the empty set.
 
-Evaluation order is the walker's (operator, then operands left to right),
-so effect order is identical, which the parity suite checks. Tail position
-is read from `:yin/tail?` as yang already marks it; `:if` branches inherit
-it; nothing new is inferred. Labels are resolved to instruction refs in a
-second pass; the linearizer emits refs, never pc integers.
+### 3.3 The lowering walk and the minting order
 
-Every instruction gets `:yin.code/source` = the AST node eid it came from,
-and the segment gets `:yin.code/derived-from` = the root eid. The reverse
-direction (render an instruction range back to source) is a query, not a
-function in this namespace.
+The lowering `project : AST → vector` is the walker's evaluation order,
+pinned here so that A is a function of the AST and this walk alone:
 
----
+1. **Order**: operator, then operands left to right; a conditional's
+   test, then its consequent, then its alternate (both emitted; one
+   runs); `define`'s value operand; a stream instruction's operands in
+   the order §3.1 writes them. **Occurrences expand positionally**: an
+   AST node referenced from two sites is lowered twice, at two places,
+   as today's linearizer and both de Bruijn lowerers do; nothing is
+   deduplicated. **Saturation**: omitted operands take the loader's
+   defaults before lowering (`gensym`'s `"id"` prefix, `call`'s
+   `tail? false`, `ffi-call`'s argc), so the vector is saturated as
+   UCF §7.3.2 requires. Lambda bodies are **out of line, after the
+   sequence that references them, in queue order**: a `:closure`
+   emitted anywhere (in the main sequence or inside a body being
+   emitted) appends its body to one FIFO queue; the main sequence is
+   emitted first, then bodies are dequeued and emitted one at a time,
+   each a contiguous range ending in `:return`; bodies discovered while
+   emitting a queued body go to the back of the same queue. The main
+   sequence ends in `:halt`.
+2. **Minting**: registers are **body-local**, numbered from 0 in the
+   order destinations are minted. A destination is minted **when its
+   expression is entered, before any of its children** (pre-order),
+   with one refinement: an arm of a conditional is lowered *into* the
+   conditional's existing `rd` and mints no destination of its own
+   (its children still mint theirs). `resume` mints its destination
+   like every other expression, although no instruction will ever name
+   it syntactically (§3.1); this keeps minting uniform and canonical
+   numbering a function of the tree alone. So for
+   `(f (g x) y)`: `rd(f-call)=0`, then `rd(f)=1`, then `rd(g-call)=2`,
+   `rd(g)=3`, `rd(x)=4`, then `rd(y)=5`; the emitted order is
+   `[:var 1 f] [:var 3 g] [:var 4 x] [:call 2 3 [4] false] [:var 5 y]
+   [:call 0 1 [2 5] tail?]`. Note that pre-order ids are therefore
+   **not** in definition (pc) order; §8.2's allocator orders by pc, not
+   by id. A zero-child atom mints its `rd` on entry like any other
+   expression. Pre-order is chosen over post-order for one reason: it
+   is uniform across every node type, including the conditional, which
+   must have its destination before either arm is lowered.
+3. **Every expression receives a destination**, used or not, written
+   or not. There are no discarded expressions in the current AST (no
+   sequencing form); if one is added, its non-final forms still mint and
+   write registers, and the saved-window rule keeps them out of frames.
+4. **Tail flag**: copied from `:yin/tail?` as the front end marks it.
+   A tail `:call` completes through `K` (§2.4) and so is a **runtime
+   terminator** of its path. Instructions that textually follow it on
+   that path (an arm's `:jump Lend`, the body's `:return r`) are
+   **layout syntax**: the grammar requires them so that every body
+   parses uniformly and arms delimit uniformly, the validator treats
+   them as structurally present and runtime-unreachable, and the
+   liveness of §8.1 is computed over the real successor relation, in
+   which a tail `:call` has no successor. The alternative, dropping the
+   structural `:return`, was rejected (§11.1).
+5. **No moves, folds, or rewrites** are permitted in lowering. The
+   projection emits exactly what the walk visits.
 
-## §6. Performance architecture
+A is `(jing/segment-key vector)` over the saturated positional vector
+exactly as UCF §7.3.2 states, with provenance in a side table outside
+the hash, as today. Because every input to the walk is fixed above
+(order, occurrence expansion, saturation, queue order, minting
+including the arm and `resume` refinements) and nothing depends on
+allocation, scheduling, host iteration order, or names of anything but
+what the AST already names, **A is a deterministic function of the AST
+and this walk**. "Canonical vector" means **the unique projection**,
+not any expression-structured vector with contiguous ids: the validator
+enforces this by the round-trip rule of §3.4 item 13 (re-number the
+parsed tree under §3.3 and compare). A remains an exact
+identity, not an alpha-equivalence: binder names are in the vector
+(`:var name`, `:closure params`), so renaming a binder changes A while
+the derived H and R, which resolve names away, may stay equal. That
+asymmetry is the existing one and is preserved.
 
-### 6.1 Traversal mechanics
+### 3.4 Well-formedness
 
-Walker, per AST node: read `:type` (keyword map lookup), destructure the
-node (2–3 lookups), allocate a continuation frame, and later read the frame
-back (`:frame`, `:operands`, `:evaluated`, `:env`, `:next`: 5 lookups) and
-dispatch on `:type` of the frame. Nodes are heap-scattered persistent maps
-reached by pointer from their parent.
+The loader's rules, replacing the deleted v3 design's §2.6 items 6-8 and
+adding register rules; items 1-5 (one segment, instruction shape, pcs
+`0..n-1`, sorted, refs resolve) stand:
 
-Linear machine, per instruction: `aget` on one array, one integer `case`,
-one operation on locals. Operands are fields of the decoded instruction
-(array slots or record fields), read once. The next instruction is the next
-array slot.
+6. **Body partition and ownership.** The pcs `0..n-1` are partitioned
+   into contiguous bodies: the main sequence at 0 and one body per
+   `:closure` instruction, beginning at that instruction's `body-pc`.
+   Every pc belongs to exactly one body; every non-main body is the
+   `body-pc` of **exactly one** `:closure` (its owner); the owner
+   relation is a tree rooted at the main sequence (acyclic: a body's
+   owner is in a different body, and following owners reaches main);
+   no `:jump`/`:branch-false` target and no `body-pc` crosses a body
+   boundary except the `:closure`'s own `body-pc`. Each body ends in
+   `:return` (`:halt` for main) and parses under §3.1.
+7. Register ids in a body are exactly `0..k-1` for some `k`, each
+   minted by exactly one expression of the body's tree (§3.3). Each id
+   has at least one syntactic definition unless its entire result
+   subtree supplies none (§3.2: every leaf of the subtree is a
+   `resume`), in which case it is **definition-less**. A runtime read of an id
+   requires a runtime write before it on every path (item 8); an id
+   with syntactic definitions but no runtime write (a tail call's `rd`,
+   a destination inside layout syntax) is legal and is never read at
+   runtime. A body never names another body's register.
+8. **Definite assignment**: on every runtime path from the body's start
+   to an instruction, every register it reads has been written. Checked
+   by a forward walk over the structured control flow of §3.1: the
+   assigned set after a conditional is the intersection of the assigned
+   sets of its continuing arms, an arm that ends in a runtime terminator
+   (tail `:call`, `:resume`) being excluded from the intersection; the
+   walk follows the real successor relation, so layout-syntax
+   instructions after a runtime terminator are not on any path and are
+   validated structurally (item 10) rather than for assignment.
+9. **Exclusive definitions by structured paths** (§3.2).
+10. `:call` and `:ffi-call` argument vectors contain registers only;
+    `tail?` is a boolean. **Layout syntax**: the instructions textually
+    following a runtime terminator (a tail `:call`, a `:resume`) on its
+    path, up to the end of the enclosing structures, are exactly what
+    §3.1's enclosing productions require (the rest of an enclosing
+    call's operands and its `:call`, an arm's `:jump`, a body's
+    `:return`) and nothing else; they are validated for shape and
+    kinds here and are unreachable **from that terminal path** (they
+    may still be reachable from a continuing arm through a shared
+    join, which is why liveness is computed over the stated CFG edges
+    rather than by "no predecessors").
+11. Rule R (`:reserved-name`): no `:var` names `yin/def`, no `:closure`
+    binds it, no `:store-get`/`:store-put` key names it, every `:define`
+    names a symbol other than `yin/def`. Unchanged.
+12. `:resume`'s `parked-id` and `value-reg` are well kinded; `:resume`
+    is a runtime terminator, and the layout syntax after it is as in
+    item 10, wherever it occurs (as a body's whole expression, an arm,
+    or an operand).
+13. **Canonical projection**: re-projecting the parsed trees of the
+    whole segment under §3.3 (minting, FIFO body queue order, label
+    placement, saturation) reproduces **the entire vector** exactly,
+    register ids and layout alike, with tuple equality by content (kind-strict,
+    canonical NaN equal, signed zero distinct) (`:noncanonical-registers` when ids
+    differ, `:noncanonical-layout` when bodies or labels are placed
+    differently). This is what makes A the unique projection rather
+    than one of several equivalent spellings: an id-only comparison
+    would accept a vector with two bodies swapped, which is not the
+    projection. (Phase-3 implementation report, 2026-10-10, unresolved
+    concern; ruled here.)
 
-### 6.2 Memory and allocation
+Violation is a load error naming the pc and rule, first defect wins,
+as today. **One vector validator.** The owner's ruling of 2026-09-18
+retired the vector→datoms projection (`code/vector->datoms`), so the
+"two load paths" of UCF §7.3.4 and code-as-tuples §7.2 take their
+direct-vector form here: the direct vector load and the two AST
+projection lanes (datom lane, row lane) all feed this one validator,
+the lanes agree with each other and with the golden vector and address
+for every corpus program, and malformed input is refused by the
+validator on the direct vector (one refusal row per rule). Equivalence
+of a vector→datoms projection is retired, not deferred.
 
-+--------------------------+--------------------------------------------+--------------------------------------------------------+
-| Event                    | Walker allocations                         | Linear allocations                                     |
-+--------------------------+--------------------------------------------+--------------------------------------------------------+
-| evaluate an operand      | frame map, `assoc k`, `conj evaluated` (3) | `conj` onto `St` (1)                                   |
-+--------------------------+--------------------------------------------+--------------------------------------------------------+
-| begin an application     | frame map (1)                              | 0                                                      |
-+--------------------------+--------------------------------------------+--------------------------------------------------------+
-| test an `if`             | frame map (1)                              | 0                                                      |
-+--------------------------+--------------------------------------------+--------------------------------------------------------+
-| call a closure           | `bind-params`, `merge` (2)                 | `bind-params`, `merge`, return frame (3), 2 if tail    |
-+--------------------------+--------------------------------------------+--------------------------------------------------------+
-| every non-hot transition | one `ASTWalkerVM` record                   | 0 (registers stay in `loop` locals until a park point) |
-+--------------------------+--------------------------------------------+--------------------------------------------------------+
+## 4. Safepoints and the continuation format
 
-For `(+ x 1)` the walker performs roughly nine allocations and a dozen map
-lookups across six transitions; the linear machine performs three vector
-`conj`s and one argument vector across seven instructions. Call-heavy code
-(the countdown benchmark is nothing but calls and an `if`) is where the
-difference lands. The remaining allocations are the persistent `St` and the
-env `merge`; both have reserved optimizations (§6.4) that require no datom
-change.
+### 4.1 The safepoint table (UCF §7.4.1, rewritten)
 
-### 6.3 Cache locality
+A safepoint is a transition at which the machine parks. The semantic
+kinds are unchanged; the state columns are new.
 
-The image is one contiguous array of small decoded records built in pc
-order, so sequential execution walks memory sequentially; a loop body is a
-few cache lines revisited. Walker nodes are wherever the reader or
-`datoms->ast` allocated them, and each continuation frame is a fresh
-allocation on the nursery. On V8 and Dart, where keyword `case` compiles to
-hash-and-compare chains and small maps are dictionary-mode objects, the
-integer switch and array indexing matter more than on HotSpot; the historic
-benchmarks put semantic bytecode at 2–7x slower on those hosts precisely
-because it did graph traversal and map lookups per step, both of which this
-design removes.
+Every wait is one of the two closed states of §2.4 (`act` with
+`{:deliver :rd}` or `tail` with `{:deliver :return}`); an effectful
+tail call raises the `tail` form of whichever row its effect falls in.
+`saved` is `saved(pc+1, rd)` of §2.4.
 
-### 6.4 Relation to bytecode, and what is reserved
-
-The loaded image *is* bytecode. The difference from a traditional bytecode
-VM is only the stored form (five datoms per instruction rather than a few
-bytes) and the load step that decodes it. Execution cost is therefore
-bytecode-class by construction, and queryability is not paid for on the hot
-path at all — it is paid once at load. The historic 1.0–1.1x register/stack
-line in `cesk-space-optimization.md` is the target; the walker sits at
-1.32x on that workload, the old graph-walking semantic VM at 1.69x.
-
-Reserved, additive, none required for Phase 1–3:
-
-- **Lexical addressing**: `:var` gains `:yin.code/depth`/`:yin.code/index`
-  when the linearizer proves the name lexically bound; frames become vectors;
-  only unbound names walk store → primitives → modules.
-- **Superinstructions**: `:push-const`, `:push-var` fused by the loader (not
-  the linearizer, so datoms stay minimal).
-- **Host-array operand stack** inside the hot loop, materialized to a vector
-  only at park points ("immutability observable only at park points",
-  streams note §3).
-- **Content-addressed segments** (`:yin.code/hash`) for dedup across VMs and
-  for verifying a shipped continuation against its code.
-
-Phase 4 measured it: see §8.
-
-## §7. The Universal Continuation Format (Proposed)
-
-> [!NOTE]  
-> The Universal Continuation Format has been extracted to its own dedicated design document as a distributed systems protocol specification. 
-> See [`docs/design/yin.vm.universal-continuation-format.md`](./yin.vm.universal-continuation-format.md) for the full protocol design, content-addressing mechanisms, and heterogeneous network migration invariants.
-
-
-## §8. Phase 4 Benchmarks
-
-Measured 2026-09-14 on the development machine (macOS, OpenJDK 21.0.2).
-
-**Workload.** The historic tail-recursive countdown from the deleted
-`yin.vm.bytecode-bench`, unchanged, so the numbers read against the table in
-`docs/cesk-space-optimization.md`. **Timed region.** `vm/run` alone: VM
-construction, AST → datoms, lowering, and the program load are outside it,
-and every timed call runs the same loaded VM value. **Harness.**
-`test/bench/yin_vm_bench.cljc` (Criterium `quick-bench`; it checks the
-result is 0 before timing).
-
-### 8.1 JVM
-
-| Mean time per run | n=500 | n=5000 | Ratio to walker (n=5000) |
+| Safepoint kind | Raised by | State | Delivery |
 |---|---|---|---|
-| AST Walker (v2) | 8.64 ms | 86.96 ms | 1x |
-| **Semantic (v2)** | **1.04 ms** | **10.02 ms** | **0.115x** |
+| blocked read | `:stream-next rd c` → `blocked` | `act`, pending cursor cell `c` | `rd` ← read value; nil on `end`; `:dao.stream/gap` on gap |
+| blocked write | `:stream-put rd s v` → `full` | `act`, pending retains `W[v]` and the stream | `rd` ← written value on retry `ok` |
+| FFI call, sent | `:ffi-call rd op args` → `ok` | `act`, pending `:ffi` (call id, response cursor cell); in-VM `:reason :next` with `:call-id` | `rd` ← correlated `ok` value; `error` raises; bookkeeping removed |
+| FFI call, retained | `:ffi-call` → `full` | `act`, pending `:ffi-request` (envelope verbatim); in-VM `:reason :put` with `:request-sent` | none at this phase; on append `ok` the entry becomes the sent phase |
+| effectful call, non-tail | `:call rd f args false` whose operator yields a blocking effect | `act`, pending per the effect kind | per the kind's row |
+| effectful call, tail | `:call rd f args true` likewise | `tail`, pending per the effect kind | **through return** against `K` |
+| link request | `:module/require` miss, request in hand | `act` or `tail`, pending `:link-request` | none at this phase; on append `ok` the entry becomes link response |
+| link response | request appended; polling for the correlated response | same state, pending `:link-response` | none at this phase; a matching `ok` makes it install; refusal raises |
+| install | the child runs | same state, pending `:install` + the body's install entry | on `linked`: the module symbol to `rd` or through return; on `refused`: raises |
+| halt | `:halt r`, or `:return r` with empty `K` | — | not resumable; a `:yin.k/result` travels |
 
-Criterium's standard deviation was under 3% of the mean in every cell. Both
-evaluators scale linearly over the 10x (walker 10.1x, semantic 9.7x).
+Two cases sit outside the table: an **explicit park** (`:park rd`) is a
+**no-wait safepoint**: it is a migration safepoint like every row
+above, but it raises no wait entry; its `act` record is the body's
+parked record and a body of kind `:parked` names it by id (UCF §7.4.3
+r5, "explicit park is the no-wait shape"). A **reified continuation**
+(`:current-continuation`) is the one thing here that is *not* a
+safepoint: it is a captured value, never a task state.
+Whole-task quiescence (empty ready queue, UCF §7.4.1) and the existing
+refusal conditions (unsupported observation states, pending close) are
+unchanged.
 
-**Against the target line.** The historic register and stack VMs are deleted,
-so the like-for-like reading is the ratio to the walker measured in the same
-run. The historic register VM ran at 1/1.32 = 0.76x the walker and stack at
-0.80x; the semantic VM runs at 0.115x, about 6.6x under that line rather than
-at it. Absolute times are not comparable across the two tables: this v2
-walker measures 86.96 ms against the historic v1 walker's 29.33 ms on a
-different run, and the gap reflects the machine and v2's walker itself, not
-the semantic VM. The target is met with margin.
+The "effectful call, tail" row is the one place the rewrite is more
+than notation: in the stack machine a tail effect's resume value landed
+in `val` and the body's `:return` then delivered it; here the body has
+no activation to resume into, so §2.4's `tail` state routes delivery
+through `K`. Write-result and through-return delivery are distinguished
+by the closed `deliver` record.
 
-### 8.2 Node.js and Dart
+### 4.2 The UCF frame
 
-Measured on the host machine on 2026-09-14 with:
+`:yin.k/frame` (UCF §7.4.1) becomes, for the semantic profile:
 
-```sh
-clj -M:cljs -m shadow.cljs.devtools.cli compile vm-bench
-node target/vm-bench.js 500 5000
+```clojure
+;; an act state (write-result delivery)
+{:yin.k/state    :act
+ :yin.k/segment  A
+ :yin.k/pc       n                       ; the resume pc, already pc+1
+ :yin.k/reason   …                       ; unchanged
+ :yin.k/window   {r (encoded) …}         ; saved(pc, rd), sorted by r
+ :yin.k/deliver  {:yin.k/deliver :rd :yin.k/rd r}
+ :yin.k/env      {sym encoded …}         ; E, unchanged
+ :yin.k/k        [ {:yin.k/frame-type :return
+                    :yin.k/segment A :yin.k/pc n
+                    :yin.k/env {…} :yin.k/window {…} :yin.k/rd r} … ]
+ :yin.k/pending  {…}}                    ; unchanged, §7.4.3
 
-clj -M:clojuredart:cljd compile yin.register-bench-cljd
-dart run bin/register_bench_cljd.dart                   # both evaluators, n=50000
+;; a tail state (through-return delivery)
+{:yin.k/state    :tail
+ :yin.k/segment  A :yin.k/site n         ; the tail call site, for provenance only
+ :yin.k/reason   …
+ :yin.k/deliver  {:yin.k/deliver :return}
+ :yin.k/k        [ … ]                   ; the frames delivery will pop
+ :yin.k/pending  {…}}
 ```
 
-| Mean time per run | Node.js (n=5000) | Dart (n=50000) | Ratio to walker |
-|---|---|---|---|
-| AST Walker (v2) | 71.30 ms | 673 ms | 1x |
-| **Semantic (v2)** | **19.82 ms** | **139.7 ms** | **0.278x (Node), 0.207x (Dart)** |
+`:yin.k/val`, `:yin.k/stack` and `:stack-base` are gone. The window's
+**membership is validated**, not trusted: the receiver recomputes
+`saved(pc, rd)` from A (§8.1) and refuses a window with a register
+outside it (`:window-extra`), missing from it (`:window-missing`), or
+containing the delivery destination (`:window-self`). Those three are
+the membership diagnostics; the full frame validator also checks
+representation (integer ids, sorted unique keys), body scope (every
+register of the window belongs to the body `pc` is in), site/pc pairing
+(`pc` is a safepoint successor of the right kind for `reason`;
+`site` is a tail call), destination equality (`rd` is the `rd` of the
+instruction at `pc−1`), delivery mode (`:act` carries `:rd`, `:tail`
+carries `:return` and no window or env), return-frame sites (each
+`:return` frame's `pc` follows a non-tail call whose `rd` it names, and
+its window is `saved(pc, rd)` of that body), `K` structure (frames
+innermost last, each well-formed), and pending compatibility with
+`reason`. Two captures of equal state therefore encode identically, and
+dead values never travel.
 
-§6.3 predicted the gap would widen on these hosts, since keyword `case` and
-map lookups cost more there and the linear machine removes both from the hot
-path. Only part of that holds. On Dart the semantic VM runs at 0.207x the
-walker, which is a slightly narrower gap than the JVM.s 0.115x. On Node the gap
-is narrower: 0.278x, about 3.6x faster than the walker against 8.7x on the
-JVM. Both hosts still clear the historic 0.76x register-VM line.
+The validator is the pure function `(defect frame code context task)`
+of `yin.vm.semantic.continuation.md` §3: `task` is decoded
+task context (the parked key, the live FFI call ids, the free
+environment), never an engine; its rules are ordered, structural checks
+first, current-window rules on `act` only, return windows separately,
+and every `E` is checked to agree with the task's free environment off
+the lexical names; it runs after canonical numbering, as the carrier
+orders it.
 
-### 8.3 Default decision
+The row carrier (`yin.vm.ucf-transport-tuples.md` §5.2) changes
+accordingly: the frame rows are `:act [segment-A pc env-cref window-cref
+k-cref rd]` and `:tail [segment-A site k-cref]`, the kind being the
+delivery discriminant, so `deliver` is not a slot; `:window` is a keyed
+row `[r₁ V₁ r₂ V₂ …]` sorted by `r` in which a nil-valued register is a
+present `[:lit nil]`; `:kframe` is `[segment-A pc env-cref window-cref
+rd]`; `:stack` and `stack-base` are removed; the root gains `free-env`,
+the task's initial free environment (continuation design §2, §6.3).
+That amendment is applied to the carrier draft with this design's
+phase 6 (§10; `yin.vm.semantic.continuation.md` §10.3).
 
-The semantic VM meets the performance line on the JVM, so `yin.repl.core`
-now defaults to `:semantic`; `(vm :ast-walker)` still selects the walker.
-Behavioural parity for the switch rests on the Phase 1–3 suites and on a
-REPL corpus that produced identical output under both evaluators. The corpus
-covered arithmetic, `def`/`defn`, `*1` history, 10⁵ tail calls, 2·10⁴-deep
-non-tail recursion, streams, Python and PHP input, datom literals, and error
-text. Where the two still differ is recorded in
-[`yin.vm.divergence-register.md`](./yin.vm.divergence-register.md#the-semantic-vm-against-the-ast-walker).
+### 4.3 Foreign engines (UCF §7.4.2)
+
+A foreign engine's static safepoint map keeps `:yin.safepoint/segment`,
+`:yin.safepoint/pc` and `:yin.safepoint/engine`, replaces
+`:stack-effect` with the per-pc **def and use sets** and `L(pc)` derived
+from A (§8.1), and keeps `:yin.safepoint/layout` as a map from physical
+location to virtual register. The reconstruction obligation is: for an
+`act` state, produce the segment `A` and resume `pc`, every register in
+`saved(pc, rd) = L(pc) − {rd}` (never the not-yet-produced
+destination), `E`, `K` with each frame's validated window and `rd`, the
+delivery record, the pending state, and the captured store context; for
+a `tail` state, produce the segment and the tail `site`, `K` with its
+validated frames, the delivery record and the pending state, and **no**
+current window or `E`. A physical-slot map alone does not discharge it
+when values are spilled, rematerialized, or shared between locations;
+the engine owes the values, however it kept them. `lift(lower(frame)) =
+frame` holds for admitted canonical frames, as today. The register
+kernel pairs physical and virtual registers pc by pc from `v` and
+`R(v)`, recovers every destination from A's call (its `dest` is
+physical), and resolves each return frame's image and relative pc
+independently; the stack kernel corresponds the non-push instructions of
+`H(v)` with `v`, slices its operand stack `[previous-base, base_i)` per
+return frame and `[last-base, count)` for the current activation, and
+needs a tail-completion seam to deliver a tail state through `K`
+(continuation design §4.3, slice 6c-pre); both kernels' positional
+frames become `E` through the owner chain and `bind-params`, with the
+task's free environment carried explicitly. The AST walker is not a
+frame reconstructor.
+
+## 5. Scheduler, park, resume, FFI, modules
+
+Unchanged in meaning (the deleted v3 design's §3.4, §3.5; UCF §7.6.3):
+the wait set, `:parked`, the fresh-name counter, the FFI pair, the
+module registry and `store-of` context all keep their semantics. What
+changes is only what a parked record and a wait entry hold: a window and
+a delivery record in place of an accumulator, a stack and a stack base.
+Gensym is unaffected: register minting is compile-time numbering,
+runtime `gensym` still advances the task's counter. FFI requests and
+responses remain pending data, not register-map substitutes. The
+module-store context travels in `E` across calls, returns, captures and
+migration exactly as today; nothing in `C`'s change touches it.
+
+## 6. Contract stamp and versions
+
+The semantic execution contract changes: grammar, transitions,
+restoration and wait shapes all differ. The stamp moves from `"v3"` to
+**`"v4"`** (`vm/semantic-contract`); a `"v3"` vector is refused by
+stamp (`:contract-mismatch`), with no migration path, per the owner's
+clean-break rule. UCF's `:yin.code/contract` inside `:yin.k/contract`
+follows. The UCF handoff body gains the frame shape of §4.2 under a new
+body version (the row carrier's version 3 is revised in place before it
+is implemented, since nothing of version 3 has landed; versions 0-2 keep
+their bytes as historical contracts and describe the old machine).
+
+The de Bruijn contracts keep their names `"b2"` and `"r2"` and their
+version numbers; their lowerers change in place (owner, 2026-10-11: no
+legacy, no version). At cutover their descriptors lose the lift
+declaration `:dim/lift-to`, since the lift and its target are deleted
+with the named linearizer; the descriptor hashes and every H and R
+checksum are regenerated then, mechanically (derivations design §8.1-8.2).
+
+## 7. What A is, restated
+
+A = `(jing/segment-key saturated-vector)`, Jing's default digest, over
+the §2.3 positional tuples of one segment, body-local register ids
+included, `live` sets and provenance excluded. Of what UCF §7.3 says
+about A, this stands with the new table substituted: A is the content
+address of one resolved instruction stream, computed over the vector
+alone, under Jing's default digest, keyed per contract stamp. What does
+not stand: there are no "two load paths" and no projection of the
+vector to datoms (eid `(inc pc)`); the vector has one load path, the
+direct one, and the two AST projection lanes produce the vector (§3.4
+"One vector validator"; UCF §7.3.4 as amended). For `"v4"` the
+canonical vector is §2.3's table minted by §3.3's walk and validated by
+§3.4; UCF §7.3.2's stack-shaped vector describes the `"v3"` machine and
+is historical (UCF §7.3.2's precedence note). A is the only code
+identity; H and R are checksums of §8's lowerings.
+
+## 8. Derivations from A
+
+Everything in this section is **derived, never persisted in A**, and
+every derivation is a deterministic function of A under a pinned
+algorithm, so that a receiver can recompute and verify it.
+
+### 8.1 Static facts per pc: def, use, live
+
+For each body, from the vector alone:
+
+- `def(pc)` = `{rd}` for a value-producing instruction, `{}` otherwise;
+  `use(pc)` = its register operands.
+- `L(pc)`, the **live-in set** at `pc`: standard backward liveness over
+  the body's explicit control-flow graph, in which the successors of
+  `pc` are: `pc+1` for a non-terminator; the two targets of
+  `:branch-false`; the target of `:jump`; **none** for `:return`,
+  `:halt`, `:resume`, and a `:call` with `tail? true` (a runtime
+  terminator). Layout-syntax instructions after a runtime terminator
+  are nodes of the graph unreachable **from that terminal path**; they
+  may have predecessors through a continuing arm's join or through
+  other unreachable nodes, and their `L` is computed over the stated
+  edges like any other node's and is never consulted on the terminal
+  path. The fixed
+  point is reached in one pass per nesting level because the graph is
+  structured. At a `:return r`/`:halt r`, `L = {r}`.
+- The **saved-window rule** (§2.4): a frame, wait, parked record or
+  capture whose delivery is `{:deliver :rd r}` at resume pc `p` carries
+  exactly `W↾(L(p) − {r})`. `L(p)` normally *does* contain `r` (later
+  instructions read the delivered value); the subtraction is explicit,
+  never assumed. A `tail` state carries no window.
+
+These replace UCF §7.4.2's `stack-effect` static fact with `def`, `use`
+and `L`; `lexically-required` (names a pc can read from `E`) is
+unchanged.
+
+### 8.2 A → R: the de Bruijn register image
+
+1. **Resolve on the vector.** Build the closure-owner tree: each
+   `:closure rd params body-pc` is the unique site owning body `body-pc`
+   (§3.4 rule 6), so every body has one enclosing chain of parameter
+   vectors. Rewrite `[:var rd name]` to `[:load-bound rd depth position]`
+   when `name` is bound in the chain (innermost first), else
+   `[:load-free rd name]`; rewrite `[:closure rd params body-pc]` to
+   `[:closure rd arity body-pc]`; names go to the diagnostic side table.
+   This is `yin.vm.debruijn/resolve-name` applied per `:var`, and the
+   output is a stage value with no identity.
+2. **Allocate per body**, by a pinned interval algorithm over **pc
+   order** (pre-order ids are not pc-ordered, §3.3):
+   - *Intervals.* Each virtual register `v` with at least one syntactic
+     definition has one interval `[start(v), end(v)]` in pcs: `start(v)`
+     is the least pc at which `v` is syntactically defined or
+     `v ∈ L(pc)`, and `end(v)` the greatest such pc; on reachable code
+     `start(v)` is the first syntactic definition, and the widening
+     covers only layout-syntax live points (derivations design §2.2);
+     so an interval covers every definition
+     (layout-syntax ones included, since they are emitted and must be
+     in bounds) and every live point. A register with several leaf
+     definitions (a conditional's `rd`, §3.2) therefore has **one
+     interval spanning the whole `if(rd)` subtree** from its first arm
+     definition to its last use: one physical slot is reserved across
+     the entire structured extent, so an alternate arm's own values can
+     never collide with the shared destination.
+   - *Definition-less ids.* A minted id with no syntactic definition
+     (§3.4 item 7) has no interval and no slot of its own. Where layout
+     syntax must still name it (a wholly terminal body's structural
+     `[:return r]`; an enclosing instruction in layout syntax after a
+     terminal operand), the operand lowers to the **structural slot**
+     `Tₖ`, where `k` is the scan's **peak** count of simultaneously
+     assigned temporaries; the body's temporary count is then `k+1` so
+     the operand is in bounds. The structural slot is never written,
+     never read at runtime, and never a saved runtime value: saved
+     windows are `saved(p, rd)` at *reachable* safepoints (§8.1), and
+     no reachable instruction names a definition-less id. It **may**
+     appear in a static `live` operand of an instruction in an
+     unreachable CFG component (step 3), because those operands are
+     computed over the whole graph; that membership is a static fact
+     with no runtime capture. Deterministic by construction.
+   - *Scan.* Walk pcs in increasing order. At pc `p`: first expire every
+     interval with `end < p` (freeing its slot; among several, in
+     increasing `end`, then increasing virtual id); then for each
+     interval starting at `p` (in increasing virtual id), assign the
+     lowest-numbered free temporary `Tᵢ`. **No same-instruction
+     source/destination reuse**: a source whose interval ends at `p`
+     is still assigned when `p`'s destination is allocated (expiry is
+     `end < p`), so the destination never takes a source's slot. This
+     is the conservative rule, chosen because it is fully specified
+     here and affects emitted bytes; the kernel's read-before-write
+     order is not relied upon.
+   - *Reservation vs liveness.* An interval reserves a slot across its
+     whole extent, which can exceed runtime liveness (a shared
+     destination's slot is held through both arms). Reservation
+     decides allocation; it never decides what is live. The `live`
+     operands (step 3) and every saved window come from §8.1's
+     liveness, and the physical-image `body-liveness` check stays an
+     acceptance gate so that the two are never confused.
+   - *Parameters.* `L0..Lₙ₋₁` are reserved and never coalesced with
+     temporaries (register design §4.2); canonical parameters stay in
+     `E` and are read through `:load-bound`.
+   - *Count.* Physical temporaries = the maximum number of
+     simultaneously assigned slots, plus one when the body has a
+     structural slot; recorded in the body descriptor.
+   No host map iteration order enters the result; every tie is broken
+   by pc, then virtual id.
+3. **Fill `live`.** Exactly the r2 boundary opcodes carry a `live`
+   operand (register design §4.4: `:call`, `:stream-put`, `:stream-next`,
+   `:ffi-call`, `:current-continuation`, `:park`). For each, `live` is
+   `body-liveness` of the emitted physical body, the format's one
+   liveness function; its equality with the physical image of the
+   virtual live-out over the instruction's **actual successors** (§8.1)
+   minus `rd`, which is `L(pc+1) − {rd}` for a non-tail boundary and the
+   empty set for a tail `:call`, is a checked property of the gate
+   (derivations design §2.5), not a second definition.
+   This is exactly what the register design's `body-liveness` computes
+   over the physical image (it excludes the destination and treats
+   tail calls as successor-less), and that function is the acceptance
+   gate for the operands. A `live` operand on an instruction that is
+   unreachable from every path is a static fact of the native format
+   and never a runtime saved window; the two notions are kept apart as
+   the reservation-vs-liveness note above keeps reservation apart from
+   both.
+4. **Layout.** Bodies and pcs keep A's layout; the register image's
+   `{:bodies … :instructions …}` shape is filled from the body ranges.
+   R = `register-hash` of the result, as a checksum.
+
+This replaces R1's lowerer whole: `lower-register` and its tree walk are
+deleted at cutover (§10 phase 8); `body-liveness`, the validator and
+the kernel are reused unchanged; the R2 descriptor loses its lift
+declaration at cutover (derivations design §8.2). The lifts are deleted
+with the named linearizer.
+
+### 8.3 A → H: the de Bruijn stack image
+
+1. Resolve as in §8.2 step 1 (the resolved vector carries the parse).
+2. **Emit** by one walk over each body's recovered tree: operator,
+   `:push`, operands with `:push` each, `:call argc tail?`, labels for
+   conditionals, `:define name` after its value, bodies out of line in
+   FIFO discovery order, each ending in `:return`, main in `:halt`;
+   labels resolved to pcs in a second pass. Body discovery order
+   agrees with A's and R's, and the stack image's pcs are its own; H
+   is the stack kernel's bytecode and need equal neither R nor any
+   earlier image. H = `image-hash` of the result, as a checksum.
+
+This is a whole-body lowering by the recovered grammar, not an
+instruction-by-instruction expansion; the Architect's finding that
+`(f (g x) y)` needs `f` kept while `(g x)` runs is met because the
+parse hands the emitter the tree and the emitter's own walk places the
+pushes.
+
+### 8.4 Verification
+
+R and H are functions of A alone and are two kernels' bytecode: they
+need not equal each other or any earlier image, and no gate compares
+them with one. The old lowerers are an **execution** oracle: every
+program of the corpus the derivations design §6.1.1 names runs through
+the old and the new pipeline on the same kernels under the same
+composition and must give identical observable results under one
+normalization (derivations design §6.1.2), with the executable rows
+stated precisely (derivations design §6.1.3: the 26 B0 rows and twelve
+register-corpus rows to a value, nineteen rows to an equal throw, one FFI
+row under an explicit zero-argument bridge; derivations design §6.1.4:
+ten C4 root import programs to
+their pinned outcomes and the eight module bodies run as root programs,
+the install-child path over new module images being phase 8's). Every
+emitted image passes the format's validator, including `live-exact`;
+the tricky cases are pinned as hand-derived goldens (derivations design
+§6.3); and determinism is checked (same A, same bytes; ASTs differing
+only in facts A omits, same A). Pinned checksums are regenerated, once
+at the slice and once at cutover (derivations design §8.1); nothing is
+versioned.
+
+## 9. Blast radius
+
+Per the Architect's enumeration, with this design's confirmation:
+
+**Rewrite.** The deleted v3 design's §2, §4, §5 (this document replaces
+them); `yin.vm` (contract and schema declarations, `semantic-contract`,
+`semantic-bytecode-grammar`); `yin.vm.linearize` (both lanes); the
+semantic kernel (`yin.vm.semantic`); `yin.vm.code` (operand table,
+rules); UCF §7.3.2 (table), §7.4.1-7.4.2 (as §4 here), the value
+grammar's frame and closure-marker arms and reified-continuation
+encoding, the dependency census over frames; the v2 amendment's
+semantic registers and frames (§5.1) and identity sections; the row
+carrier §5.2 and its validation; the de Bruijn resolver/lowerer
+adapters (§8.2 step 1, §8.3 step 3), the register design §2 and §4
+(input, allocation, validation, per §8.2) and the register `lift`'s
+output contract; the targets design's §3.7 reasons; the pipeline
+composition that wires lowerings; the linker's derivation verification
+(`yin.vm.linker.md` §3 amendment, §5.5) for the new lowerings; `ucf`,
+`ucf.handoff`, `completion`; the semantic, code, linearizer,
+continuation-invoke, safepoint, lift, handoff and cross-engine tests.
+
+**Notational or focused.** code-as-tuples §5 (instruction contract) and
+§7.2 (validator interface); UCF revision history and implementation
+plan; the stack and register native VM documentation and restore
+adapters (their contracts keep their names and versions and their
+lowerers change in place, §6 and §8.4); blog Part Three's `St` paragraph;
+REPL/session composition, encoder loaders, telemetry and benchmark
+fixtures that name the old shape.
+
+**Corpora.** Source programs, expected results, errors and effect
+traces are preserved. Every semantic vector, A, pc, saved frame and
+transported body is regenerated. Stage D/E scenarios and handoff/
+checkpoint fixtures are re-encoded. R and H goldens are the new
+lowerers' own, pinned at the slices and re-pinned at cutover when the
+descriptors lose their lift declaration (derivations design §8.1-8.2);
+neither is compared with an earlier image.
+
+**Untouched in substance.** The Universal AST and front ends; Rule R;
+the stream protocol; FFI correlation; lease, custody, fencing,
+custody/resource admission policy, durable dedup (executable admission,
+by contrast, changed under phase 1 and is not untouched); integer and
+scalar encoding; Stage E's holder/authority logic (its integration
+evidence is invalid until rerun over the new transport, especially
+crash cuts and successor publication).
+
+## 10. Migration
+
+Eight phases, each gated. The dated migration record below retains the
+coexistence names: the old evaluator survived as an oracle until phase 8
+(2026-10-15).
+
+1. **Identity.** Amend the A-only identity contracts. **Complete**
+   (merged to master 2026-10-10, `2daa17fb`). Independent of this VM.
+2. **Freeze.** This document's §3 (grammar, minting), §4 (windows,
+   delivery, safepoint table), §6 (stamps), §3.4 (rejection rules) are
+   reviewed and frozen. Gate: Architect sign-off on the frozen text.
+3. **Linearizer, validator, static analysis.** `project` per §3.3, the
+   loader rules of §3.4 (both load paths), **and the §8.1 analysis
+   (def, use, `L`, `saved`)**, which the phase-4 evaluator needs for
+   every call save and capture and so cannot wait for phase 5. Gate:
+   deterministic vectors across JVM/Node/Dart on the corpus (the same
+   inline goldens and pinned addresses on all three); malformed-input
+   refusal rows for every rule including item 13, on the direct vector;
+   both AST projection lanes and the direct vector load through the one
+   validator to equal images (§3.4, direct-vector form; the
+   vector→datoms equivalence is retired); `L` agrees with an
+   independent reference implementation on the corpus. The image
+   `load-vector` returns is `{:vector :address :bodies [{:start :end
+   :owner :registers}]}` with `:end` **exclusive**; phase 4 computes
+   `analysis` once per admitted image as engine-local derived data, and
+   neither parsed trees nor saved sets enter canonical content.
+   *(Met 2026-10-10, commit 7a010962 on `srvm-phase3`; Architect
+   review `collab/1791530000000-architect-srvm-phase3-review.*`.)*
+4. **Evaluator.** `yin.vm.semantic-register` beside `yin.vm.semantic`.
+   During coexistence the evaluator links under the interim format
+   `:yin.semantic-register/code`, contract `"v4"`; phase 5 supplies its
+   production linker format record (the dependency-closure scanners over
+   the new table), and phase 8 retires it in favour of
+   `:yin.semantic/code` `"v4"`.
+   Gate: walker parity on the full B0 corpus (values, store, effects,
+   halting) under the §2.5 correspondence; Rule R rows; effects,
+   non-tail and tail recursion, pure and effectful tail completion,
+   continuation invocation (including abortive invoke and ownership
+   refusal), park/resume, gensym, module `store-of`, FFI
+   retained-request and response phases.
+   *(Met 2026-10-10/11, slices 4a `44fbafb4` and 4b `993d5411` on
+   master; Fable adversarial review per slice, three-host lanes green.
+   The evaluator's name and interim format keyword were retired at
+   phase 8 as this item said.)*
+5. **Derivations.** §8.2-8.3 implemented; the lexical-address law
+   (`addresses(H) = addresses(R) = addresses(resolve(A))`) and
+   behavioural parity of all three kernels on the corpus; the
+   execution oracle, validators, goldens and determinism checks of §8.4
+   green on three hosts, the slow C4 rows actually run; **the
+   dependency-closure scanners (UCF §7.6.1) reimplemented over the
+   new table agree with the old ones and with the tree-side oracles on
+   the B0 corpus, the register corpus and the C4 linked-prelude modules
+   by name**, under three obligations (derivations design §7.3): (i)
+   unordered agreement, old = new = the tree scanners and queries, on
+   free-name sets, the multiset of free-name occurrences as
+   `[name in-body?]`, the multiset of definitions as `[name conditional?]`,
+   and the store-key, FFI-op, parked-id and effect-kind sets (positions
+   excluded since the layouts differ; the tree scanners order by
+   structural path and are compared unordered); (ii) ordered agreement,
+   old = new = an independent emission-order tree oracle (main sequence
+   then bodies FIFO; a definition visits only its value operand), on the
+   occurrence and definition sequences and on the application-site count
+   (definition applications excluded, FFI sites included); (iii) join
+   agreement through `linker/verify`, old = new on the **complete
+   normalised outcome**: a success with its retained obligations as
+   `[name in-body?]` in order, or a refusal with its reason and name
+   (`:use-before-definition` included, exercised by a row that must
+   refuse on both sides). The old scanners' answers, normalised joins
+   included, are pinned as goldens before cutover deletes them, since the
+   C4 track's module declarations are built against those answers; the
+   C4 gate is read-only and compares declarations against the discharged
+   external-name set (module-defined keys and `yin/def` removed,
+   requirement-covered names removed), not raw free names.
+   *(Met 2026-10-11/12, slices 5a `71b4f4d7`, 5b `5e6c6f79`, 5c
+   `290c4476`; the scanner goldens are pinned in
+   `test/yin/vm/semantic/scanner_goldens.cljc` (derivations design
+   §7.4), and after the cutover they are historical evidence with the
+   tree oracles as the independent check.)*
+6. **Continuation format.** §4.2 frames and both state shapes, the
+   full frame validator, the safepoint harness of §4.1 (bidirectional
+   lift/lower rows for every kind and both delivery modes, pending
+   waits, nested and reified captures, module contexts, refusals); the
+   row carrier amended to body version 3 with one profile,
+   `{:yin.code/contract "v4" :yin.k/version 1}`, carrying canonical
+   vectors by A, `:yin.k/trees` and the task's free environment, never
+   a native image (continuation design §2, §6). Gate: UCF §7.11's
+   harness green **for every engine intended to reconstruct canonical
+   frames** (the semantic kernel, the stack and register kernels through
+   their layouts, the stack kernel with its tail-completion seam; the
+   walker is excluded), not the semantic profile alone.
+   *(Met 2026-10-12/13, slices 6a (row codec, frame validator,
+   discovery-order cursor-cell numbering), 6b (`lift-task`/`lower-task`),
+   6c (layouts, the stack tail-completion seam, the cross-engine laws)
+   and `6c-pre` `296f75fd`. The owner accepted the native lane matrix
+   at its measured extent — 61 law-4 cases and 350 law-5 transfers on
+   the native lanes against the reference lane's full 89 and 534 —
+   justified by the documented backend fragment (continuation design
+   §4.6), not by any deletion; see the lane runs recorded with slice
+   6c (89/534 cases green on the reference lane).)*
+7. **Stage D/E rerun.** Handoff, fencing, custody, durability,
+   crash-cut and cross-process acceptance over the new transport, three
+   hosts.
+   *(Met 2026-10-14, phase 7: custody on rows, the rows checkpoint
+   inspector, holder export with recovery format 2, the driver lower,
+   install checks, compose/fencing and Stage E over row packs; the
+   Stage E process matrix ran on jupiter over four host pairs with 196
+   SIGKILLed lives, and the slow tier was green on the landed head.
+   The `dht-end-to-end` failure Dart showed on master during these
+   lanes is the other seat's (the linker/admission track) and
+   pre-existing, not a phase-7 regression.)*
+8. **Cutover.** Delete `yin.vm.semantic` (old), rename
+   `yin.vm.semantic-register` to `yin.vm.semantic`, remove the old H/R
+   request paths and the `raise` dependency, remove the `:dim/lift-to`
+   row from both de Bruijn descriptors without a version bump and
+   regenerate the descriptor hashes and every pinned H and R
+   (derivations design §8.1-8.2); delete `yin.vm.debruijn-resolve`,
+   `yin.vm.debruijn-linearize`, `yin.vm.debruijn-register-compile` and
+   their tests only after the replacement coverage of §8.4 is green and
+   the descriptor-hash golden has moved to a surviving namespace; switch
+   `linker/relowered`, `publish-closure!` and the REPL to the A-derived
+   lowerings (derivations design §8.3); regenerate the manifests'
+   derivation records as `A → H`, `A → R` and the format index in its
+   final shape `{format storage-address}` (derivations design §7.6,
+   §8.1); run the C4 suite over the newly published images as the
+   install-child gate (derivations design §6.1.4 (c)); finalize
+   documentation. No compatibility shim.
+   *(Met 2026-10-15, phase 8 (slices 8ab, 8c, 8d, 8e, 8f-1, 8f-2,
+   8f-3, 8g) per the phase-8 plan, `collab/1792560000000-*`: the
+   descriptors also flipped their `:hash` row to `:blake3` (pinned
+   constants regenerated once, 8ab); the model keyword, lane label and
+   record are `:semantic`/`SemanticVM` (8f-2b); the old transport
+   sources and `yin.vm.completion` died in 8f-1 rather than 8d; the
+   v3 halves of `yin.vm.ucf` died with the old kernel in 8f-3; item 13's tuple equality is
+   the encoder's content equality so NaN literals load on JS and Dart
+   (8f-3d); the two native kernels remain as backends over the
+   documented fragment (continuation design §4.6). BLAKE3 is the
+   digest throughout `yin.vm`; `dao.jing` still permits explicit SHA-256
+   minting.)*
+
+## 11. Questions resolved by the freeze review
+
+All four were answered by the Architect (phase-2 review, item 10) and
+the answers are adopted above:
+
+1. **The structural `:return` after a tail call**: kept, defined as
+   layout syntax rather than "invariably unreachable" (§3.3 item 4);
+   structural branch delimiters after terminal arms are likewise
+   permitted and validated structurally (§3.4 items 8, 10).
+2. **Body-local register ids**: kept, with validated body ownership and
+   scope (§3.4 item 6).
+3. **A carried live claim**: not carried; the window's keys are the
+   membership claim and are validated by recomputation (§4.2).
+4. **Tail effects**: routed directly through `K`; the engine's
+   two restore paths (`engine/resume-from-run-queue`,
+   `engine/resume-continuation`) call `restore-fn(base, entry, value)`
+   and neither requires a current activation, so no trampoline; the closed `tail` state and the semantic restore helper
+   are specified in §2.4.
+
+Nothing remains open in this document before freeze. The one item
+that belongs to the phase-3 implementation brief rather than to the
+design is the choice of the independent reference implementation that
+§8.1's `L` is checked against.
+
+## 12. What this does not change
+
+The Universal AST; code identity (A, as ruled); the walker; the stream
+protocol and every outcome vocabulary; custody and admission; the de
+Bruijn contracts' names and versions (their descriptors lose only the
+`:dim/lift-to` row at cutover, §6); the six invariants' satisfaction, in
+the Architect's reading: no hidden global state (register counters are
+lowering data; windows, destinations and saved state are explicit), no
+implicit control flow, no callbacks, no shared mutable state (windows
+are immutable values), interpretation separate from execution, and no
+assumed graphs (the def/use graph is constructed from validated tuples,
+never from provenance or an unavailable AST).

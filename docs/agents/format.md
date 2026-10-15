@@ -51,7 +51,10 @@ never markdown pipe tables:
 +-------------------+---------------------------------------------------------------------------+
 
 The example table above is itself in the format: `docs/agents/team.md` and
-`docs/design/yin.vm.semantic.md` are the reference instances.
+`docs/design/yin.vm.universal-continuation-format.md` are the reference
+instances (the previous second instance, the v3 `yin.vm.semantic.md`, was
+deleted at the 2026-10-15 cutover and its replacement carries no border
+tables).
 
 ## Git commit messages
 

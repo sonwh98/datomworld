@@ -1,10 +1,10 @@
-# yin.vm.semantic-register-vm.derivations: phase 5, the de Bruijn images and the scanners lowered from A
+# yin.vm.semantic.derivations: phase 5, the de Bruijn images and the scanners lowered from A
 
-Status: **Companion design, phase 5 of `yin.vm.semantic-register-vm.md`
+Status: **Companion design, phase 5 of `yin.vm.semantic.md`
 §10.** Rewritten 2026-10-11 (Architect: claude-fable-5-1) under the
 owner's rulings of that date (§0.1), from the frozen design as amended
 (`ab952ace`), the landed phase-3 code
-(`src/cljc/yin/vm/semantic_register/`), the de Bruijn image formats,
+(`src/cljc/yin/vm/semantic/`), the de Bruijn image formats,
 validators and kernels as they stand, the linker and dependency-closure
 code, and the corpora the gates run on. Earlier revisions of this
 document (route (b), the adapter over the old lowerers, codex rounds
@@ -13,14 +13,20 @@ public access and portability is carried over unchanged. The frozen
 document is not changed by this one: §9 records findings with exact
 amendment text. Subordinate to [`datom.world.md`](./datom.world.md),
 including its unitarity invariant (§0.1 item 4), and to
-[`yin.vm.semantic-register-vm.md`](./yin.vm.semantic-register-vm.md)
+[`yin.vm.semantic.md`](./yin.vm.semantic.md)
 ("the frozen design"); the format and rigor model is
-[`yin.vm.semantic-register-vm.evaluator.md`](./yin.vm.semantic-register-vm.evaluator.md).
+[`yin.vm.semantic.evaluator.md`](./yin.vm.semantic.evaluator.md).
 
 Every section marks its content **DECIDED** (follows from an owner
 ruling, frozen text, or code that exists) or **PROPOSED** (a design
 choice of this document, open to the reviewer). File references are to
 the worktree at `ab952ace`; line numbers are those of that commit.
+
+**Cutover note (2026-10-15).** Full source/test paths and live namespace
+citations use the 8f-2 names. Commit-qualified references and the
+coexistence-era comparisons below retain their historical meaning; the old
+stack-shaped evaluator and its APIs were deleted. See the frozen design
+§10 for the completed gates.
 
 Contents: §0 rulings and the one-paragraph answer · §1 the resolved
 vector · §2 A → R, linear-scan allocation over A's liveness · §3 A → H,
@@ -106,15 +112,16 @@ from the reviewed design.
 
 ### 1.1 Where it lives, what it takes, what it returns
 
-**PROPOSED.** Namespace `yin.vm.semantic-register.derive`, file
-`src/cljc/yin/vm/semantic_register/derive.cljc`, beside the landed
-phase-3 namespaces. It requires `yin.vm.semantic-register.code`
+**PROPOSED.** Namespace `yin.vm.semantic.derive`, file
+`src/cljc/yin/vm/semantic/derive.cljc`, beside the landed
+phase-3 namespaces. It requires `yin.vm.semantic.code`
 (`parse`, `body-ranges`, `body-index`, `rd`, `uses`, `tail-call?`),
-`yin.vm.semantic-register.analysis` (`analyze`, `live`),
+`yin.vm.semantic.analysis` (`analyze`, `live`),
 `yin.vm.debruijn` (`resolve-name` only), `yin.vm.debruijn-register-code`
 (`body-liveness`, `live-slot-index`, `boundary-opcodes`, the image
-shape it validates) and `yin.vm.debruijn-code` (nothing but the opcode
-table it emits into; no function). It does **not** require
+shape it validates) and `yin.vm.debruijn-code` (the native stack
+opcode table is this dimension's own data since 8f-1; no dependency
+on the deleted `yin.vm.code`). It does **not** require
 `yin.vm.debruijn-resolve`, `yin.vm.debruijn-linearize`,
 `yin.vm.debruijn-register-compile`, `yin.vm.linearize`, `yin.vm.code`,
 or either kernel.
@@ -445,8 +452,8 @@ dropped:
 
 | Fact | Dropped by | Evidence |
 |---|---|---|
-| `:macro?` on a lambda | the row grammar has only `:params` and `:body` for `:lambda` (`vm.cljc:1067`); the datom lane's `flatten-tree` `:lambda` arm reads `:params` and `:body` only (`src/cljc/yin/vm/semantic_register/linearize.cljc:103-105`) | `an-explicit-macro-false-projects-like-an-absent-one` is the dormant projection's test (`debruijn_test.cljc:452`); for A, the `:vector` and `:address` of `(project (assoc lam :macro? true))` and `(project lam)` are asserted equal in §6.2 item 6 |
-| shared `:eid`s (one node referenced from two sites) | occurrence expansion (frozen §3.3 item 1): `flatten-tree` lowers each reference where it is reached; `ast->semantic-bytecode` keeps one row for the shared node and `project-rows` expands it (`shared-occurrences-expand-positionally`, `test/yin/vm/semantic_register/linearize_test.cljc:107-119`) | `:shared-occurrence` with and without `:eid` on the shared call gives the same `:vector` and `:address` (§6.2 item 6) |
+| `:macro?` on a lambda | the row grammar has only `:params` and `:body` for `:lambda` (`vm.cljc:1067`); the datom lane's `flatten-tree` `:lambda` arm reads `:params` and `:body` only (`src/cljc/yin/vm/semantic/linearize.cljc:103-105`) | `an-explicit-macro-false-projects-like-an-absent-one` is the dormant projection's test (`debruijn_test.cljc:452`); for A, the `:vector` and `:address` of `(project (assoc lam :macro? true))` and `(project lam)` are asserted equal in §6.2 item 6 |
+| shared `:eid`s (one node referenced from two sites) | occurrence expansion (frozen §3.3 item 1): `flatten-tree` lowers each reference where it is reached; `ast->semantic-bytecode` keeps one row for the shared node and `project-rows` expands it (`shared-occurrences-expand-positionally`, `test/yin/vm/semantic/linearize_test.cljc:107-119`) | `:shared-occurrence` with and without `:eid` on the shared call gives the same `:vector` and `:address` (§6.2 item 6) |
 | `:tail?` on a non-application node | `flatten-tree` reads `:tail?` only in the `:application` arm, `(boolean (slot id :tail?))` (`semantic_register/linearize.cljc:116`; the definition arm at `:107-112` reads no tail flag) | asserted in §6.2 item 6 |
 | entity ids, datom order, `t`/`m`, provenance paths | pc is the index; provenance is a side table outside the vector (`semantic_register/linearize.cljc:20-22`, UCF §7.3.2 `:393-397`) | `projection-is-deterministic` (`semantic_register/linearize_test.cljc:83`) already shuffles the datom lane |
 
@@ -501,7 +508,7 @@ neither assigns an identity (§10, 5a item 4).
 ### 5.2 Corpus and test shape
 
 **PROPOSED.** The corpus `C` of §6.1.1. Test
-`yin.vm.semantic-register.derive-test/lexical-address-law`: four-way
+`yin.vm.semantic.derive-test/lexical-address-law`: four-way
 equality per program, the old-resolver leg while it exists; non-vacuity
 assertions that some program yields `[:bound 1 _]` (`:nested-lambdas`),
 some `[:bound 0 1]` (`:duplicate-param`), and that a definition program
@@ -526,7 +533,7 @@ the observable results must be equal.
 | Source | Rows | Role |
 |---|---|---|
 | `yin.vm.parity-test/corpus` (`parity_test.cljc:39-115`) | 26 | the B0 corpus; runtime and bytes |
-| `yin.vm.semantic-register.corpus/programs` (`corpus.cljc:54-118`) | 32 | every §3.1 production; bytes for all, runtime for the twelve selected rows (§6.1.3) |
+| `yin.vm.semantic.corpus/programs` (`corpus.cljc:54-118`) | 32 | every §3.1 production; bytes for all, runtime for the twelve selected rows (§6.1.3) |
 | `yin.vm.debruijn-linearize-test`'s `corpus` (`debruijn_linearize_test.cljc:83-124`), respelled | 15 | every named mnemonic, `:definition`, `:default-gensym`, `:default-buffer`, `:duplicate-param`, `:nested-closure`; bytes |
 | `address-law-extra-fixtures` (`debruijn_register_contract_test.cljc:311-320`) | 4 | shared-occurrence and duplicate-binder fixtures; bytes and §5 |
 | the live fixtures A-E and `r2-lift-programs` of `debruijn_register_compile_test.cljc:608-766, 998-1011`, respelled | 5 + 12 | boundary `live` cases and the R2 nodes; bytes and validators |
@@ -886,8 +893,8 @@ by one on a `"v4"` vector and `:push` does not exist.
 
 ### 7.2 What the register-table version computes
 
-**PROPOSED** namespace `yin.vm.semantic-register.scan`, file
-`src/cljc/yin/vm/semantic_register/scan.cljc`. Pure functions of a
+**PROPOSED** namespace `yin.vm.semantic.scan`, file
+`src/cljc/yin/vm/semantic/scan.cljc`. Pure functions of a
 well-formed `"v4"` vector:
 
 | Function | Returns | Positions (`code/operand-table`, `code.cljc:34-59`) |
@@ -901,7 +908,7 @@ well-formed `"v4"` vector:
 | `segment-rows v` | `[[A pc mnemonic & operands] …]` | `(mapv (fn [pc t] (into [A pc] t)) (range) v)`, `A = (ucf/code-address v)`, defined in `scan`: the shape `yin.vm.code/project-segment-qualified` gives a `"v3"` vector (`code.cljc:446-467`) without requiring `yin.vm.code` |
 
 **Imports and access, pinned.** `scan` requires exactly
-`yin.vm.semantic-register.code`, `yin.vm.debruijn` (`resolve-name`),
+`yin.vm.semantic.code`, `yin.vm.debruijn` (`resolve-name`),
 `yin.vm` (`reserved-name?`, `footprint-table`, `semantic-contract`),
 `yin.vm.ucf` (`code-address`) and `dao.space.query`. Every function in
 the table is public. The scanner tests reach the `"v3"` side only through
@@ -960,7 +967,7 @@ all three sides).
 
 **(iii) Join agreement**, old = new, through `linker/verify`:
 `(linker/verify fmt A A {A v})`, `fmt` = `linker/semantic-format` for `v3`
-and `semantic-register-format` (§7.5) for `v4`, `A` the vector's segment
+and the then `semantic-register-format` (§7.5) for `v4`, `A` the vector's segment
 key. The outcome normalised to `{:status :ok :obligations [[name in-body?] …]}`
 or `{:status :refused :reason r :name n}` (`:at`, `:identity`, `:address`,
 `:value`, `:format` dropped) must be equal; refusals are compared, not
@@ -969,7 +976,7 @@ discarded. One row must refuse on both sides: `:use-before-definition` =
 branch, `linker.cljc:1118-1135`), expected
 `{:status :refused :reason :use-before-definition :name n}`.
 
-Three corpora, each through (i)-(iii), in `yin.vm.semantic-register.scan-test`:
+Three corpora, each through (i)-(iii), in `yin.vm.semantic.scan-test`:
 
 1. `scanners-agree-on-b0`: the 26 B0 rows plus the `:use-before-definition` row.
 2. `scanners-agree-on-the-register-corpus`: the 32 rows (count asserted).
@@ -1007,9 +1014,9 @@ the unitarity invariant the tree is always there to run them.
 
 ### 7.4 "Old scanner" after cutover: pinning goldens
 
-**PROPOSED.** Phase 8 deletes the `"v3"` scanners with `yin.vm.linearize`
+**Original proposal (2026-10-11).** Phase 8 deletes the `"v3"` scanners with `yin.vm.linearize`
 and `yin.vm.code`'s stack table. Slice 5c writes one golden fixture
-`test/yin/vm/semantic_register/scanner_goldens.cljc`: for every program
+`test/yin/vm/semantic/scanner_goldens.cljc`: for every program
 of corpora 1-2 and every C4 module of corpus 3, by name,
 `{:free-names #{…} :occurrences [[name in-body?] …] :definitions [[name conditional?] …]
 :application-count n :requirements {…} :join {:status …}}` as the `"v3"`
@@ -1020,14 +1027,22 @@ those exist; at phase 8 the live comparison is deleted and the fixture
 stays as historical evidence; the tree oracles remain the independent
 check.
 
+**Met as written.** The fixture landed with 5c and lives at
+`test/yin/vm/semantic/scanner_goldens.cljc` after the 8f-2 rename; the
+live `"v3"` comparisons were removed at 8f-1; the old scanners
+went with the stack table at 8f-3, and the goldens
+(with the one `[:c4 :py]` golden regenerated mechanically on 2026-10-14)
+are now historical evidence, the tree oracles the independent check.
+
 ### 7.5 The production linker format record
 
 **DECIDED** shape (frozen §10 phase 4 as amended by F6; `linker.cljc:655-731`;
-evaluator design §3.3), **PROPOSED** scanner bindings:
+evaluator design §3.3); implemented scanner bindings, with names
+updated at the 2026-10-15 cutover:
 
 ```clojure
-(def semantic-register-format
-  {:format              :yin.semantic-register/code   ; renamed :yin.semantic/code "v4" at phase 8
+(def semantic-format
+  {:format              :yin.semantic/code            ; :yin.semantic-register/code until the cutover
    :contract            sr-code/contract              ; "v4"
    :identity-fn         jing/segment-key              ; = ucf/code-address
    :identity-matches-fn jing/segment-matches?
@@ -1039,15 +1054,22 @@ evaluator design §3.3), **PROPOSED** scanner bindings:
    :parts-fn            (constantly nil)})
 ```
 
-Added to `linker.cljc` beside `semantic-format` and to
+Originally added as `semantic-register-format` to `linker.cljc` beside
+the old `semantic-format` and to
 `yin.repl.link/formats` (`src/cljc/yin/repl/link.cljc:81-89`), both
 additively; `verify` runs steps 3-5a over it unchanged. The 4b stub
 responder's `:obligations (constantly [])` fixture (evaluator design
 §5.2) is replaced by this record's scanner once 5c lands (§10.4).
 
+**Met, then merged.** Landed at 5c as a second record named
+`semantic-register-format` beside the old `semantic-format`; at 8c the
+old record went with the v3 vector and this one became the one
+`semantic-format` (`linker.cljc:693`), the format keyword moving to
+`:yin.semantic/code` there, once.
+
 ### 7.6 Derivation records at cutover
 
-**DECIDED** today: `publish-closure!` mints `(ledger/derive-record
+**Coexistence record (2026-10-11).** `publish-closure!` mints `(ledger/derive-record
 tree-address output)` for `output ∈ {A_v3, H, R}` (`publish.cljc:159-176,
 183-188`); `checked-derivation` requires the record's input to be the
 tree (`linker.cljc:2258-2262`); `relowered` recomputes by `adapt` from
@@ -1066,9 +1088,21 @@ output; `relowered` recomputes from `(:vector (sr-linearize/project-rows tree))`
 through `derive`; `publish-closure!` lowers H and R from A. Every manifest
 address moves then, once, with the C4 `manifest-golden` (§8.1).
 
+**Met at 8c.** The records are `tree → A` and `A → H`, `A → R` with
+`:yin.ledger/input` A; the index is keyed by format
+(`publish.cljc:184`); `relowered` and `publish-closure!` compute through
+`derive`. The BLAKE3 descriptor regeneration was 8ab; the C4 manifest
+goldens were refreshed at 8f over the newly published images.
+
 ---
 
 ## 8. Regeneration, and what keeps the old lowerers alive
+
+*(Status 2026-10-15: this section's phase-8 moments are done — 8ab
+regenerated the descriptors and every H/R checksum once, 8c switched the
+production pipeline — and §8.3's premise is historical: the old lowerers
+were deleted at 8e. The table below is the record of what was
+regenerated.)*
 
 ### 8.1 What is regenerated, once, and how a reviewer verifies it
 
@@ -1097,7 +1131,13 @@ pipeline switches). Both are listed.
 
 ### 8.2 Descriptors and lifts
 
-**DECIDED** by ruling 2 and the reviewer's finding. Both descriptors
+**Met at 8ab (2026-10-15).** Both descriptors lost `:dim/lift-to` and
+declared `:hash :blake3`; the printed descriptor differs by exactly
+those two rows, the pinned hashes regenerated once (`2b9f2b47`),
+and no A address moved.
+
+**Historical rationale (2026-10-11),** ruling 2 and the reviewer's
+finding. Both descriptors
 declare a lift morphism, `[:yin.debruijn.code/dimension :dim/lift-to [:yin.code/*]]`
 (`debruijn_code.cljc:145`) and `[:yin.debruijn.register/dimension :dim/lift-to [:yin.code/*]]`
 (`debruijn_register_code.cljc:204`), and both rows are hashed into
@@ -1116,6 +1156,11 @@ record the owner's no-version rule.
 
 ### 8.3 What keeps the old lowerers alive until phase 8
 
+**Historical since 8e (2026-10-15).** The three namespaces and their
+tests are deleted; every production caller runs through `derive`, and
+`yin.vm.debruijn/resolve-name` stayed, as this section said it would.
+The record below is the coexistence-era rationale.
+
 **DECIDED.** `yin.vm.debruijn-resolve`, `yin.vm.debruijn-linearize` and
 `yin.vm.debruijn-register-compile` stay because the **production**
 pipeline uses them until cutover: `linker/relowered` and
@@ -1133,7 +1178,7 @@ one helper both phases share, `debruijn.cljc:617-637`).
 
 ## 9. Findings and proposed amendments
 
-### 9.1 To the frozen design (`yin.vm.semantic-register-vm.md`)
+### 9.1 To the frozen design (`yin.vm.semantic.md`)
 
 Reviewer rulings (codex gpt-6.1-sol, route-(a) review, 2026-10-10): F9
 **ACCEPT**; F8, F10, F11, F12, F13, F14 **ACCEPT WITH CHANGES**, the
@@ -1355,16 +1400,16 @@ Three slices. Verification follows `docs/agents/build-n-test.md`: G0
 `clojure -M:test -n <ns>` per iteration (JVM), G1 `bb test:sub yin.vm`
 at the checkpoint on three hosts, G2 `bb test:changed` before landing,
 G3 `bb test` on master. New namespaces under
-`src/cljc/yin/vm/semantic_register/` and `test/yin/vm/semantic_register/`
+`src/cljc/yin/vm/semantic/` and `test/yin/vm/semantic/`
 are inside the `yin.vm` subsystem by prefix; the Node log must show
-`Testing yin.vm.semantic-register.<ns>` for each new test namespace.
+`Testing yin.vm.semantic.<ns>` for each new test namespace.
 
 ### 10.1 Slice 5a: the resolved vector, `addresses`, A → H
 
-**Files to create.** `src/cljc/yin/vm/semantic_register/derive.cljc`
+**Files to create.** `src/cljc/yin/vm/semantic/derive.cljc`
 (`resolve`, `addresses`, `resolved-addresses`, `stack-image`;
 `register-image` declared and throwing `{:reason :not-in-slice-5a}`
-until 5b) and `test/yin/vm/semantic_register/derive_test.cljc` (corpus
+until 5b) and `test/yin/vm/semantic/derive_test.cljc` (corpus
 `C` respelled, `native-normalize`, the oracle runners). **Untouched:**
 every existing source file and test.
 
@@ -1405,7 +1450,7 @@ every existing source file and test.
    non-vacuity assertions.
 9. `derive-test/register-image-is-not-in-5a`.
 10. kondo clean; `bb test:sub yin.vm` green on JVM, Node, Dart; the Node
-    log shows `Testing yin.vm.semantic-register.derive-test`.
+    log shows `Testing yin.vm.semantic.derive-test`.
 
 ### 10.2 Slice 5b: A → R
 
@@ -1446,7 +1491,7 @@ every existing source file and test.
    observables and the defined-key set equal to `prelude/defined-keys`
    (count 8 asserted); (c) is stated as not covered until phase 8.
    **Must actually run for sign-off** (`bb test:sub yin.vm --slow` or
-   `clojure -M:test -i :slow -n yin.vm.semantic-register.derive-test` on
+   `clojure -M:test -i :slow -n yin.vm.semantic.derive-test` on
    three hosts; the report quotes the two counts it saw).
 10. `debruijn-register-code-test/golden-descriptor-hash-test`: the
     descriptor-hash golden moved out of `debruijn_register_compile_test.cljc:445-450`
@@ -1458,9 +1503,9 @@ every existing source file and test.
 
 **Files to create.** `scan.cljc`, `scan_test.cljc`, `scanner_goldens.cljc`
 (§7.2-7.4). **Files to change, additively.** `linker.cljc`
-(`semantic-register-format`, §7.5), `yin/repl/link.cljc:81-89`
+(`semantic-format`, §7.5), `yin/repl/link.cljc:81-89`
 (`formats`), `linker_test.cljc` (one deftest per existing pattern,
-`semantic-register-scanners-yield-position-bearing-records`, template
+`semantic-scanners-yield-position-bearing-records`, template
 `:812`; the `"v4"` row in `format-records-name-their-contract`, `:562`).
 **Untouched:** `vm.cljc`, `completion.cljc`, `handoff.cljc`, `publish.cljc`,
 `relowered`, the C4 track, every kernel and lowerer. **No production
@@ -1494,13 +1539,13 @@ pipeline switches in 5c**: that is phase 8 (§7.6, §8.3).
 8. `scan-test/goldens-match`: every map of `scanner_goldens.cljc`,
    normalised join included, equals the live `"v3"` answer and the new
    answer.
-9. `linker-test/semantic-register-scanners-yield-position-bearing-records`;
+9. `linker-test/semantic-scanners-yield-position-bearing-records`;
    `format-records-name-their-contract` with the `"v4"` row.
 10. `scan-test/verify-outcomes-agree`: for every program of the three
     corpora, equal normalised `linker/verify` outcomes on the two format
     records; `:use-before-definition` refuses on both.
 11. kondo clean; `bb test:sub yin.vm` and `bb test:changed` green on
-    three hosts; the Node log shows `Testing yin.vm.semantic-register.scan-test`.
+    three hosts; the Node log shows `Testing yin.vm.semantic.scan-test`.
 
 ### 10.4 Ordering and concurrency
 
@@ -1516,7 +1561,7 @@ and 4b touches none of phase 5's files, so all three slices run
 concurrently with 4b in separate worktrees. After both 4b and 5c land,
 the `linker_require_test.cljc` fixture comment "empty obligations until
 phase 5 supplies the register-vector scanners" is retired by pointing
-the backend's `:obligations` at `semantic-register-format`'s scanner, a
+the backend's `:obligations` at `semantic-format`'s scanner, a
 two-line follow-up belonging to whichever lands second. Phase 6 is the
 first consumer of `scan` outside the linker (the UCF census over
 register frames); `handoff.cljc`'s `free-names-v2`/`validate-closures-v2`

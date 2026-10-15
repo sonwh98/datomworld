@@ -1,12 +1,12 @@
-# yin.vm.semantic-register-vm.evaluator: the phase-4 evaluator, grounded in the engine
+# yin.vm.semantic.evaluator: the phase-4 evaluator, grounded in the engine
 
-Status: **Companion design, phase 4 of `yin.vm.semantic-register-vm.md`
+Status: **Companion design, phase 4 of `yin.vm.semantic.md`
 §10.** Written 2026-10-10 (Architect: claude-fable-5-1) from the frozen
 design, the engine as it stands at `d21ee43f`, and the landed phase-3
 code (`f46935ad`). The frozen document is not changed by this one: where
 the engine's reality differs from its text, §6 records a finding with a
 proposed amendment. Subordinate to [`datom.world.md`](./datom.world.md)
-and to [`yin.vm.semantic-register-vm.md`](./yin.vm.semantic-register-vm.md)
+and to [`yin.vm.semantic.md`](./yin.vm.semantic.md)
 ("the frozen design" below). Revision 2 (2026-10-10) applies the
 independent review `collab/1791540000000-architect-srvm-phase4-design-review.gpt-6.1-sol.findings.md`
 (CHANGES_REQUESTED): the trace oracle is defined by production versus
@@ -20,6 +20,12 @@ from code that exists) or **PROPOSED** (a design choice of this
 document, open to the reviewer). File references are to the worktree at
 `d21ee43f`; line numbers are those of that commit.
 
+**Cutover note (2026-10-15).** Full source/test paths and live namespace
+citations use the 8f-2 names. Commit-qualified references and the
+coexistence-era comparisons below retain their historical meaning; the old
+stack-shaped evaluator and its APIs were deleted. See the frozen design
+§10 for the completed gates.
+
 Contents: §1 state shapes · §2 the restore helper · §3 link and install
 · §4 the walker trace test · §5 slices 4a/4b and gates · §6 findings and
 proposed amendments · §7 questions for the owner · §8 portability notes.
@@ -30,12 +36,13 @@ proposed amendments · §7 questions for the owner · §8 portability notes.
 
 ### 1.1 Where the evaluator lives
 
-**DECIDED.** Namespace `yin.vm.semantic-register`, file
-`src/cljc/yin/vm/semantic_register.cljc`, beside `yin.vm.semantic`
-(frozen §10 phase 4 names it so; §10 phase 8 renames it). It requires
+**DECIDED.** Namespace `yin.vm.semantic`, file
+`src/cljc/yin/vm/semantic.cljc` since 8f-2. During phase 4
+(2026-10-10) it was `yin.vm.semantic-register`, beside the old
+stack-shaped `yin.vm.semantic` (deleted at phase 8). It requires
 the three landed phase-3 namespaces under
-`src/cljc/yin/vm/semantic_register/` (`code`, `linearize`, `analysis`)
-and the same engine seams `yin.vm.semantic` requires
+`src/cljc/yin/vm/semantic/` (`code`, `linearize`, `analysis`)
+and the same engine seams the old stack-shaped evaluator required
 (`src/cljc/yin/vm/semantic.cljc:35-44`): `yin.vm`, `yin.vm.engine`,
 `yin.vm.ffi`, `yin.vm.module`, `yin.vm.telemetry`, `yin.vm.ucf` (slice 4a
 does not need it: the image address comes from `code/load-vector`),
@@ -65,7 +72,7 @@ each.
 | `:parked` `:wait-set` `:ready-queue` `:id-counter` | scheduler tables | same tables; entry shapes of §1.4-1.6 | reused, entry payloads changed |
 | `:store` `:module-stores` `:resources` `:heap` `:gc` | engine-owned | same, untouched by the evaluator except through `engine/put-active`, `engine/handle-effect` | reused unchanged |
 | `:primitives` `:primitive-profiles` `:primitive-canonical-names` `:modules` `:make-stream` `:call-capacity` `:bridge` `:owner` `:capability-secret` `:secret-source` `:attach-stream` `:origin` `:origins` `:ancestry` `:installs` `:link-retired` `:link-diagnostics` `:ffi-caller-id` `:ffi-diagnostics` `:callable-effects` | composition and engine fields | same | reused unchanged |
-| `:telemetry` `:telemetry-step` `:telemetry-t` `:telemetry-eid` `:vm-model` `:vm-id` | telemetry | same; `:vm-model :semantic-register` until cutover | reused |
+| `:telemetry` `:telemetry-step` `:telemetry-t` `:telemetry-eid` `:vm-model` `:vm-id` | telemetry | same; `:vm-model :semantic` (`:semantic-register` until the 2026-10-15 cutover) | reused |
 
 **DECIDED** (frozen §2.1): the configuration `⟨seg pc W E S K⟩` sits in
 the record as `:control` (seg, pc), `:window` (W), `:env` (E), the
@@ -216,7 +223,7 @@ and so that phase 6 lifts it without a special case.
 | `:vector` `:address` `:bodies` | — | exactly what `code/load-vector` returns (`code.cljc:864-879`), `:end` exclusive |
 | `:analysis` | — | `(analysis/analyze v)` (`analysis.cljc:70-83`), computed **once per admitted image**, engine-local derived data (frozen §10 phase 3). Never enters A |
 
-**DECIDED**: the loader is `yin.vm.semantic-register/load-vector [vm v
+**DECIDED**: the loader is `yin.vm.semantic/load-vector [vm v
 stamp opts]` = `code/load-vector` (stamp `"v4"`, rules 1-13) → wrap as
 above → `store-image`/`store-alias` logic copied from
 `semantic.cljc:692-724` (identical-reload acceptance, live-id conflict,
@@ -225,7 +232,7 @@ one address one id) → `:control {:segment seg :pc 0}`, `:window {}`,
 `attach-image` is the same without the control reset
 (`semantic.cljc:821-846` is the template). An AST reaches the evaluator
 only through the phase-3 projection: **PROPOSED** helper
-`yin.vm.semantic-register/load-ast` mirroring what
+`yin.vm.semantic/load-ast` mirroring what
 `yin.vm.linearize/ast-loader` builds (`src/cljc/yin/vm/linearize.cljc:446-471`):
 check `vm/ast-contract`, `(:vector (linearize/project-datoms datoms))`,
 then `load-vector` under `code/contract`.
@@ -234,7 +241,7 @@ then `load-vector` under `code/contract`.
 
 | Function | Arities | Behaviour |
 |---|---|---|
-| `create-vm` | `[]`, `[opts]` | the option keys of `semantic.cljc:898-951`; `:vm-model :semantic-register`; `:window {}`, `:k nil`, `:control nil`, `:halted? true` |
+| `create-vm` | `[]`, `[opts]` | the option keys of `semantic.cljc:898-951`; `:vm-model :semantic`; `:window {}`, `:k nil`, `:control nil`, `:halted? true` |
 | `load-vector` | `[vm v stamp]`, `[vm v stamp opts]` | `stamp` compared with `code/contract` ("v4") first; `opts` is `{}` by default and admits `:id` (claim this local segment id; ignored when the address is already aliased), as `semantic/load-vector` (`:793-818`). Sets `:control {:segment seg :pc 0}`, `:window {}`, `:k nil`, `:halted? false`, `:blocked? false`, `:value nil` |
 | `attach-image` | `[vm v stamp]` | validates and attaches under a fresh id; touches no execution field |
 | `load-ast` | `[vm datoms stamp]` | `stamp` compared with `vm/ast-contract`; projects and loads under `code/contract` |
@@ -854,7 +861,7 @@ files at `d21ee43f`.
 1. `yin.vm.parity-test/corpus` (`test/yin/vm/parity_test.cljc:39-115`):
    **26 rows** — **the B0 parity corpus**; its pinned `expected` column
    also feeds the value lane (§5.1), through `trace-normalize`.
-2. `yin.vm.semantic-register.corpus/programs` (`test/yin/vm/semantic_register/corpus.cljc:54-118`):
+2. `yin.vm.semantic.corpus/programs` (`test/yin/vm/semantic/corpus.cljc:54-118`):
    **32 rows**. Most reference unbound names and end in
    `[:error "Unable to resolve symbol: …"]` on both sides, which is
    exactly the error-parity check; the rows that run to a value
@@ -908,9 +915,10 @@ change is needed.
 
 **Files to create.**
 
-- `src/cljc/yin/vm/semantic_register.cljc` (ns `yin.vm.semantic-register`):
+- `src/cljc/yin/vm/semantic.cljc` (ns `yin.vm.semantic`,
+  after the 8f-2 rename):
   the record (§1.2), `create-vm` (template `semantic.cljc:898-951`,
-  `:vm-model :semantic-register`), `load-vector`, `attach-image`,
+  `:vm-model :semantic`), `load-vector`, `attach-image`,
   `load-ast` (§1.7), `put-registers`, `vm-hot` with the arms
   `:const :var :closure :jump :branch-false :define :gensym :store-get
   :store-put :halt :return :call` (closure and host-fn **value**
@@ -922,15 +930,15 @@ change is needed.
   with it from the start), the `vm/IVM` and `vm/IVMState` extensions
   (`step` = `vm-hot` with fuel 1; `run` = `ffi/maybe-run` over the
   scheduler as `semantic.cljc:885`; `eval` refuses an AST as `:865-876`).
-- `test/yin/vm/semantic_register/vm_test.cljc` (ns `yin.vm.semantic-register.vm-test`).
-- `test/yin/vm/semantic_register/walker_trace_test.cljc` (ns `yin.vm.semantic-register.walker-trace-test`).
-- `test/yin/vm/semantic_register/parity_test.cljc` (ns `yin.vm.semantic-register.parity-test`).
+- `test/yin/vm/semantic/vm_test.cljc` (ns `yin.vm.semantic.vm-test`).
+- `test/yin/vm/semantic/walker_trace_test.cljc` (ns `yin.vm.semantic.walker-trace-test`).
+- `test/yin/vm/semantic/parity_test.cljc` (ns `yin.vm.semantic.parity-test`).
 
 No existing source or test file changes in 4a.
 
 **The 4a eligibility predicate** — **DECIDED**, one predicate shared by
 the value gate, the outcome gate and the trace gate, defined once in
-`yin.vm.semantic-register.parity-test` and required by the trace test:
+`yin.vm.semantic.parity-test` and required by the trace test:
 
 ```clojure
 (def slice-4a-mnemonics
@@ -960,7 +968,7 @@ Applied to the corpora of §4.5 at `d21ee43f`:
 | Corpus | Rows | Eligible in 4a | Excluded (deferred to 4b) |
 |---|---|---|---|
 | `parity-test/corpus` | 26 | **25** | `"stream make"` (`:stream-make`) |
-| `semantic-register.corpus/programs` | 32 | **21** | `:streams :stream-make-default :ffi-call :ffi-call-no-args :current-continuation :park :resume-body :resume-arm :resume-operand :resume-lambda-body :all-terminal-arms` (11) |
+| `semantic.corpus/programs` | 32 | **21** | `:streams :stream-make-default :ffi-call :ffi-call-no-args :current-continuation :park :resume-body :resume-arm :resume-operand :resume-lambda-body :all-terminal-arms` (11) |
 | `rule-r-test/definition-programs` | 5 | **5** | — |
 | `continuation-invoke-test` programs | 5 | **0** | all (`:current-continuation`) |
 
@@ -972,15 +980,15 @@ Applied to the corpora of §4.5 at `d21ee43f`:
   normalisation (its `"closure value"` row carries `:body`,
   `parity_test.cljc:76-78`, which the register closure cannot reproduce).
 - Outcome parity: each of the 21 eligible
-  `yin.vm.semantic-register.corpus/programs` rows has the same outcome on
+  `yin.vm.semantic.corpus/programs` rows has the same outcome on
   the walker and the register VM: an equal normalized value when both
   halt, an equal `ex-message` when both throw; one side throwing is a
   failure.
 - Rule R: the 5 `definition-programs` (value and store slice), plus the
   `reserved-operands-are-refused-by-the-semantic-loaders` pattern
-  (`rule_r_test.cljc:283`) against `semantic-register/load-vector`: the
+  (`rule_r_test.cljc:283`) against `semantic/load-vector`: the
   `[11 {:rule :reserved-name …}]` rows of
-  `yin.vm.semantic-register.code-test/refusals` (`code_test.cljc:66-70`)
+  `yin.vm.semantic.code-test/refusals` (`code_test.cljc:66-70`)
   are refused by the loader with that rule.
 - Trace: §4 over the eligible rows of corpora 1, 2 and 4 (25 + 21 + 5)
   plus the three 4a trace-only rows of §4.5 item 5 (`:literal-none`,
@@ -1056,7 +1064,7 @@ command.
     throws `:not-applicable`; a closure owned by another task throws
     `:foreign-value` (`vm-test/application-refusals`; mint the foreign
     closure with `values/closure :other-owner …` in `:env`).
-14. `yin.vm.semantic-register.parity-test/b0-values`: the 25
+14. `yin.vm.semantic.parity-test/b0-values`: the 25
     `slice-4a-eligible?` rows of `parity-test/corpus` match their pinned
     `expected` under `trace-normalize` on both sides; the test also
     asserts the eligible count is 25, so a corpus change is noticed.
@@ -1076,9 +1084,9 @@ command.
     closure and `:return` added none.
 19. `engine/ready-for-ingress?` is true on a fresh `create-vm` and on a
     halted machine (`vm-test/ready-for-ingress`; relies on `:k nil`).
-20. `clojure -M:kondo --lint src/cljc/yin/vm/semantic_register.cljc test/yin/vm/semantic_register` reports no errors.
+20. `clojure -M:kondo --lint src/cljc/yin/vm/semantic.cljc test/yin/vm/semantic` reports no errors.
 21. `bb test:sub yin.vm` green on JVM, Node and Dart; the Node log shows
-    `Testing yin.vm.semantic-register.vm-test`,
+    `Testing yin.vm.semantic.vm-test`,
     `… .walker-trace-test`, `… .parity-test` (shadow auto-discovers
     `*-test` namespaces; confirm the lines appear).
 
@@ -1086,14 +1094,14 @@ command.
 
 **Files to change / create.**
 
-- `src/cljc/yin/vm/semantic_register.cljc`: the remaining arms
+- `src/cljc/yin/vm/semantic.cljc`: the remaining arms
   (`:stream-make :stream-cursor :stream-close :stream-put :stream-next
   :ffi-call :current-continuation :park :resume`), the `:host-fn` effect
   arms and the `:continuation` arm of `apply-call` (§1.9), `act-builders`
   / `tail-builders`, `register-restore` step 1 and the `:call-id`
   handling (§2.2), the `module/IModuleKernel` extension (§3.3).
-- `test/yin/vm/semantic_register/effects_test.cljc` (ns `yin.vm.semantic-register.effects-test`).
-- `test/yin/vm/semantic_register/link_test.cljc` (ns `yin.vm.semantic-register.link-test`).
+- `test/yin/vm/semantic/effects_test.cljc` (ns `yin.vm.semantic.effects-test`).
+- `test/yin/vm/semantic/link_test.cljc` (ns `yin.vm.semantic.link-test`).
 - **Approved exception** (§7): additive registration of the fifth
   kernel in four existing backend maps, existing entries and assertions
   untouched: `yin.vm.continuation-invoke-test/runners`
@@ -1110,7 +1118,7 @@ command.
   "install-mechanics fixture: empty obligations until phase 5 supplies
   the register-vector scanners; proves install, not dependency
   completeness").
-- `test/yin/vm/semantic_register/walker_trace_test.cljc` and
+- `test/yin/vm/semantic/walker_trace_test.cljc` and
   `parity_test.cljc`: replace `slice-4a-eligible?` by `(constantly
   true)` for the lanes (or a `slice-4b-eligible?` that admits every §2.3
   mnemonic), lifting the 4a deferrals: corpus 3, the 11 excluded
@@ -1265,7 +1273,7 @@ command.
     `walker-trace-test/traces-align` and `parity-test/*` green.
 26. `clojure -M:kondo` clean on the changed files; `bb test:sub yin.vm`
     green on three hosts, then `bb test:changed` (G2) green on three
-    hosts. The Node log shows `Testing yin.vm.semantic-register.effects-test`
+    hosts. The Node log shows `Testing yin.vm.semantic.effects-test`
     and `… .link-test`.
 
 ---
@@ -1344,7 +1352,7 @@ All seven findings were ruled on by the independent review (codex
 gpt-6.1-sol, 2026-10-10; F1, F2, F5 accepted with changes, the rest
 accepted). Each entry below gives the evidence, the frozen section, the
 **exact text to replace** and the **exact replacement**, ready to apply
-verbatim to `yin.vm.semantic-register-vm.md`. None changes a transition
+verbatim to `yin.vm.semantic.md`. None changes a transition
 or a shape.
 
 ### F1 — the restore seam (ACCEPT WITH CHANGES; frozen §2.4 and §11 item 4)

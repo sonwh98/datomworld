@@ -1,6 +1,6 @@
 (ns yin.vm.semantic.safepoint-harness-test
   "Phase 6b: the safepoint harness on the :semantic lane
-   (docs/design/yin.vm.semantic-register-vm.continuation.md §5, §8.2).
+   (docs/design/yin.vm.semantic.continuation.md §5, §8.2).
 
    Each row of the §5.2 matrix is built twice under each of the four
    segment wrappers: the reference build is satisfied and run on its own

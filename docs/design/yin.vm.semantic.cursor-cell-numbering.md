@@ -14,7 +14,7 @@ termination measure, the incomplete-key example and the refusal figures
 corrected). Subordinate to
 [`yin.vm.ucf-transport-tuples.md`](./yin.vm.ucf-transport-tuples.md) (the
 carrier, body version 3) and
-[`yin.vm.semantic-register-vm.continuation.md`](./yin.vm.semantic-register-vm.continuation.md);
+[`yin.vm.semantic.continuation.md`](./yin.vm.semantic.continuation.md);
 vocabulary is UCF §7.5.3 ("Terminology: cursor, cursor cell, cursor-ref,
 cell") exactly. Evidence is slice 6a's `src/cljc/yin/vm/ucf/rows.cljc`
 and `test/yin/vm/ucf/rows_test.cljc` (branch `srvm-phase6a` at
@@ -573,7 +573,7 @@ and amend "What is defined, and what is not claimed" to: "The canonical
 numbering is defined as the output of the discovery-order procedure
 below, a function of the state up to renaming of cursor cells and host
 enumeration of guest sets, maps and the census (proof in
-`yin.vm.semantic-register-vm.cursor-cell-numbering.md` §2). It is not the
+`yin.vm.semantic.cursor-cell-numbering.md` §2). It is not the
 minimum of the root bytes over all bijections. The one choice the walk
 cannot make by itself, between tied members of one guest set or map that
 the tie test cannot prove interchangeable, is refused
@@ -633,7 +633,7 @@ walk)".
 
 **A7 — continuation §2.2.** "numbered by the draft's §6 procedure" →
 "numbered by discovery order (draft §6 as amended by
-`yin.vm.semantic-register-vm.cursor-cell-numbering.md`)".
+`yin.vm.semantic.cursor-cell-numbering.md`)".
 
 **A8 — continuation §5.5.** (i) "… and the only other identity it
 consumes is the stream marker in each cursor cell's initial label

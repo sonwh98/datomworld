@@ -1,9 +1,9 @@
-# yin.vm.semantic-register-vm.continuation: phase 6, the continuation format and the row carrier
+# yin.vm.semantic.continuation: phase 6, the continuation format and the row carrier
 
-Status: **Companion design, phase 6 of `yin.vm.semantic-register-vm.md`
+Status: **Companion design, phase 6 of `yin.vm.semantic.md`
 §10.** Written 2026-10-11 (Architect: claude-fable-5-1) from the frozen
 design as amended (`8f0b9e38`), the landed 4a evaluator
-(`src/cljc/yin/vm/semantic_register.cljc`) and the 4b stage-1 evaluator
+(`src/cljc/yin/vm/semantic.cljc`) and the 4b stage-1 evaluator
 on branch `srvm-phase4b` (read only), the merged phase-5 derivations
 design, the UCF document and its version-2 amendment, the row-carrier
 draft (`yin.vm.ucf-transport-tuples.md`, body version 3, never landed),
@@ -47,7 +47,7 @@ frozen document is not changed by this one. **Revision 5 (2026-10-13,
 Architect: claude-fable-5-1)** amends the text after slice 6c merged
 (`781a9ba8`: `47ddb1d9` plus the fix round `dc545aaa`, `30730c51`), so
 that §§4.1-4.3, 5.2, 5.3, 5.5, 5.6, 6.3, 7, 8.3, 8.5, 9 state what
-`src/cljc/yin/vm/semantic_register/layout.cljc` (`segment`, `space`,
+`src/cljc/yin/vm/semantic/layout.cljc` (`segment`, `space`,
 `phys`, `virt`, `lift-state`, `lower-state`, `canonical-task`,
 `kernel-task`, `lower-defect`, `lift-task`, `lower-task`) and the 6c
 tests (`layout_test.cljc`, the harness's cross-engine lanes,
@@ -64,17 +64,17 @@ wording is applied verbatim where it says so. **Revision 6 (2026-10-13,
 Architect: claude-fable-5-1)** corrects every clause that called the de
 Bruijn kernels, the native lanes or their refusals short-lived: by the
 owner's ruling of 2026-10-13 the two de Bruijn kernels are **backends**
-(lowerings of the semantic-register bytecode, A to H and A to R), are
+(lowerings of the semantic bytecode, A to H and A to R), are
 not deleted at phase 8, support a documented fragment that is not
 widened, and refuse before any attach what they cannot represent (§4.6);
 each corrected clause is marked "**Amended 2026-10-13 (backends)**", 6c
 Q1's rationale is restated and 6c Q2 is closed as rejected (§11).
 Subordinate to [`datom.world.md`](./datom.world.md), including its
 unitarity invariant, and to
-[`yin.vm.semantic-register-vm.md`](./yin.vm.semantic-register-vm.md)
+[`yin.vm.semantic.md`](./yin.vm.semantic.md)
 ("the frozen design"); format and rigor model:
-[`yin.vm.semantic-register-vm.evaluator.md`](./yin.vm.semantic-register-vm.evaluator.md)
-and [`yin.vm.semantic-register-vm.derivations.md`](./yin.vm.semantic-register-vm.derivations.md).
+[`yin.vm.semantic.evaluator.md`](./yin.vm.semantic.evaluator.md)
+and [`yin.vm.semantic.derivations.md`](./yin.vm.semantic.derivations.md).
 
 Every section marks its content **DECIDED** (an owner ruling, frozen
 text, or code that exists) or **PROPOSED** (a design choice of this
@@ -85,6 +85,12 @@ its stage-1 commit (`0f4522b9`) unless a citation says stage 2
 (`bdf48cf4`, committed after revision 2; stage 2 moved the reified
 payload to `:256`, `create-vm` to `:349-375` and `gc-roots`/`gc-children`
 to `:485-488`, and changed none of the shapes this document reads).
+
+**Cutover note (2026-10-15).** Full source/test paths and live namespace
+citations use the 8f-2 names. Commit-qualified references and the
+coexistence-era comparisons below retain their historical meaning; the old
+stack-shaped evaluator and its APIs were deleted. See the frozen design
+§10 for the completed gates.
 
 Contents: §0 rulings and the one-paragraph answer · §1 the canonical
 frame · §2 the row carrier · §3 the frame validator · §4 layouts · §5
@@ -121,9 +127,11 @@ questions · §12 portability.
    the one old-kernel file 6c must change).
 8. **The de Bruijn kernels are backends** (owner, 2026-10-13; **Amended
    2026-10-13 (backends)**: ruling added). `debruijn/stack.cljc` and
-   `debruijn/register.cljc` execute lowerings of the semantic-register
+   `debruijn/register.cljc` execute lowerings of the semantic
    bytecode (A to H, A to R; derivations design §8.3); they are not
-   peers of `yin.vm.semantic-register` and are **not deleted at phase
+   peers of the canonical kernel (written 2026-10-13 as
+   `yin.vm.semantic-register`, its name until the phase-8 cutover) and
+   are **not deleted at phase
    8** (frozen §10 phase 8 deletes only the old evaluator and the old
    lowerers). Each supports a documented fragment (§4.6), behaves
    identically to the reference on what it accepts, refuses before any
@@ -269,7 +277,7 @@ receiving composition's choice. The version-2 registry
 content rows have `id = (jing/segment-key body)` under Jing's default
 digest, BLAKE3 for version 3 permanently; identity rows are cursor cells
 `:yin.k/cc-<n>` numbered by discovery order (draft §6 as amended by
-`yin.vm.semantic-register-vm.cursor-cell-numbering.md`); the root carries
+`yin.vm.semantic.cursor-cell-numbering.md`); the root carries
 the cursor-cell census. (The words cursor, cursor cell, cursor-ref and cell
 are used exactly as defined in UCF §7.5.3, "Terminology: cursor, cursor
 cell, cursor-ref, cell". Before 2026-10-12 the cursor cells were called
@@ -437,9 +445,9 @@ return-frame sites, `K` structure, pending compatibility). **PROPOSED**
 ;; run before any frame of the body; => nil or {:yin.k/kind k :yin.k/path p …}
 ```
 
-Namespace `yin.vm.semantic-register.frame`, file
-`src/cljc/yin/vm/semantic_register/frame.cljc`, requiring only
-`yin.vm.semantic-register.code`, `.analysis`, `yin.vm.debruijn`
+Namespace `yin.vm.semantic.frame`, file
+`src/cljc/yin/vm/semantic/frame.cljc`, requiring only
+`yin.vm.semantic.code`, `.analysis`, `yin.vm.debruijn`
 (`resolve-name`, for the chain of rule E2) and `yin.vm`
 (`reserved-name?`). It knows no kernel and reads no engine: `task` is
 decoded from the rows (the parked table's key, the pendings' call ids,
@@ -574,7 +582,7 @@ A de Bruijn receiver refuses a carried task whose code holds two A of one
 image before any stream is attached (`:yin.k/unsupported :ambiguous-image`), and a de Bruijn source
 whose space resolves one image to several A refuses the lift
 (`:yin.k/non-portable :ambiguous-image`); no enumeration order selects
-an A. The semantic-register kernel keys code by A and holds
+an A. The semantic kernel keys code by A and holds
 alpha-equivalent segments side by side; this limit is the native
 kernels', not the carrier's. (**Amended 2026-10-13 (backends)**: was
 "until phase 8 removes those kernels"; the kernels are backends kept
@@ -598,9 +606,9 @@ fragment (§4.6). Tested by
 `layout-test/alpha-equivalent-segments`, including the reference-lane
 survivor round trip (laws 1 and 2 over both closures).
 
-**PROPOSED** namespace `yin.vm.semantic-register.layout`, file
-`src/cljc/yin/vm/semantic_register/layout.cljc`, requiring
-`yin.vm.semantic-register.code`, `.analysis`, `.derive` (phase 5),
+**PROPOSED** namespace `yin.vm.semantic.layout`, file
+`src/cljc/yin/vm/semantic/layout.cljc`, requiring
+`yin.vm.semantic.code`, `.analysis`, `.derive` (phase 5),
 `yin.vm.debruijn` (`resolve-name`), `yin.vm.engine` (`bind-params`), and
 the two kernels' public state. Public: `register-layout`,
 `stack-layout` (static, per segment), `lift-act`, `lift-tail`,
@@ -931,7 +939,7 @@ over the composition's own call pair (`register.cljc:508-514`,
 `stack.cljc:564-570`), so a carried row 4 never wakes on a de Bruijn
 receiver (codex probe 3 reproduced it on all four such pairs); the
 harness's `unlowerable` set `#{[4 :stack] [4 :register]}` keeps those
-transfers out of law 5 (§5.3). The semantic-register kernel's
+transfers out of law 5 (§5.3). The semantic kernel's
 `register-restore` already honours the carried pair
 (`semantic_register.cljc:105-111`). *Why:* phase 6 edits no kernel but
 6c-pre's one seam (§8.5).
@@ -1022,7 +1030,7 @@ instruction is `:yin.k/not-at-safepoint` (UCF §7.4.2).
 (backends)**: section added because earlier revisions called these
 kernels, their lanes and their refusals short-lived).
 
-**The model.** `yin.vm.semantic-register` is the canonical semantic VM;
+**The model.** `yin.vm.semantic` is the canonical semantic VM;
 it is register-shaped because a register-shaped canonical machine is
 easier to lower than the old stack-shaped one. `debruijn/stack.cljc`
 and `debruijn/register.cljc` are **backends** of it: they execute the
@@ -1080,8 +1088,8 @@ three repository lanes); §0.1 ruling 8, §5.3, §8.5, §9 and §11 here.
 
 ### 4.6 The retained backend fragment
 
-**Amended after 7 (2026-10-14)** — Reason: the owner retains both de Bruijn kernels as semantic-register VM backends.
-The stack and register kernels are backends of the semantic-register VM,
+**Amended after 7 (2026-10-14; names updated at the 2026-10-15 cutover)** — Reason: the owner retains both de Bruijn kernels as backends of the canonical semantic VM.
+The stack and register kernels are the canonical kernel's two backends,
 checked through the layouts on the shared fragment in §5.3. They remain
 through and after phase 8; the fragment is not widened. It excludes link
 and install rows 7-12 and 17, and row 4 is not lowered into either
@@ -1099,7 +1107,7 @@ pre-attach fragment gate (§11 6c Q2). The harness's `link-rows` excludes
 rows 7-12 and 17 from backend lanes; `unlowerable` excludes row 4 when
 the receiver is a stack or register backend. The owner's
 refuse-the-remainder requirement is not evidence of a general gate.
-Stage E uses the canonical semantic-register kernel only. A is the only code identity;
+Stage E uses the canonical semantic kernel only. A is the only code identity;
 native images are derived forms, and the source AST remains retrievable
 through the linker's source-index, fetch and admission path (§6.1).
 
@@ -1112,7 +1120,7 @@ expanded matrix, both delivery modes, nested and reified captures,
 module contexts and every refusal: lift at the safepoint, lower into a
 fresh machine, continue, and result and effect trace equal the
 uninterrupted reference run; `lift(lower(frame)) = frame`; the frame's
-reason is the observed wait's; on the three lanes: `:semantic-register`,
+reason is the observed wait's; on the three lanes: `:semantic`,
 `:stack-through-layout`, `:register-through-layout`.
 
 ### 5.2 The matrix
@@ -1268,7 +1276,7 @@ lowered run's result differs from the reference), as the review ruled.
 
 ### 5.3 Lanes
 
-The `:semantic-register` lane's wait entries are canonical frames plus
+The `:semantic` lane's wait entries are canonical frames plus
 engine fields. The de Bruijn lanes load `(:image (derive/stack-image v))`
 and `(:image (derive/register-image v))` of `v = (:vector (project P))`
 through `dvm/create-vm`/`rvm/create-vm`, run to the safepoint and lift
@@ -1287,7 +1295,7 @@ kernel's re-park names its own call pair. **Amended after 7 (2026-10-14)** — R
 These lanes check the canonical frame on the documented backend fragment
 (§4.6); they remain after phase 8 and are not widened. The canonical
 lane runs the whole matrix. *What the code does:* the
-harness's `*lane*` (`:semantic-register`, `:stack`, `:register`) selects
+harness's `*lane*` (`:semantic`, `:stack`, `:register`) selects
 the kernel `machine` builds; `load-program` on a de Bruijn lane attaches
 `v`'s derived image beside what the kernel holds and starts it at the
 image's offset (`kernel-load`), so parked records keep naming their
@@ -1396,7 +1404,7 @@ throws `{:law-4 :injective}` when two identities share a name;
 `stream/descriptor` under the same correspondence and
 `canonical-equality` throws `{:law-4 :descriptors}` unless the three
 lanes' maps are equal; `canonical-equality` asserts `(= 3 (count
-roots))` and `(= [:semantic-register :stack :register] (mapv :lane
+roots))` and `(= [:semantic :stack :register] (mapv :lane
 roots))` for every case. `harness/law-4-controls` (quick tier, row 1
 bare) pins: a cursor position's offset incremented on one lane changes
 the root; a stream only the register lane holds fails with
@@ -1483,7 +1491,7 @@ load path is the only path (§10.4).
 environment travels **once, explicitly**, as the root's `free-env`
 slot, a `:bindings` row (`[S V …]` sorted). Every `E` in the task is a
 complete map and is checked by rules X1 and E2. On lower, the
-semantic-register kernel receives it as the machine's base `:env`
+semantic kernel receives it as the machine's base `:env`
 (`create-vm`'s `:env` option, `semantic_register.cljc:261`); a de Bruijn
 kernel receives it as its `:free-env` (`stack.cljc:418`) and
 reconstructs positional frames from each `E` by the chain (§4.4).
@@ -1494,7 +1502,7 @@ kernel:
 
 - **de Bruijn kernels**: the kernel's own `:free-env` field, "fixed for
   this instance" (`stack.cljc:82`; `register.cljc:50`), read directly.
-- **the semantic-register kernel**: the evaluator keeps only the
+- **the semantic kernel**: the evaluator keeps only the
   mutable-current `:env` (`RegisterVM` field `env`, "persistent lexical
   scope map", `srvm-phase4b:semantic_register.cljc:23`; the old semantic
   VM likewise captures the initial env only transiently in `eval`,
@@ -1540,7 +1548,7 @@ therefore has no finite canonical form on a de Bruijn kernel.
 A de Bruijn receiver (retained after phase 8, §4.6) refuses such a value
 in the carried `free-env` before attach (`:yin.k/unsupported :free-env-value`, with the
 path), and a de Bruijn source refuses it at lift before serving. The
-carrier and the semantic-register kernel admit it. (**Amended
+carrier and the semantic kernel admit it. (**Amended
 2026-10-13 (backends)**: was "until phase 8"; this is a documented
 limit of the backends' fragment, kept and not widened, §4.6.) *What the
 code does:*
@@ -1597,7 +1605,7 @@ frame; emit rows and the census. A de Bruijn source walks the frames
 A de Bruijn source is not walked by a second lift: `layout/lift-task k
 space template serve! opts` is `(rows/lift-task (canonical-task k space
 template) serve! opts)`, where `canonical-task` presents the quiescent
-kernel as a semantic-register machine built on `template` (a fresh
+kernel as a semantic machine built on `template` (a fresh
 machine of the kernel's composition), so the ten steps below run
 unchanged over it. `canonical-task`, in order: refuses
 `:yin.k/not-at-safepoint` when the kernel has an active continuation;
@@ -1740,7 +1748,7 @@ D4 by R6).** `layout/lower-task scratch k wire attach! opts`, in order:
 carrier); (ii) `lower-defect` on the decoded task, judged by the
 receiver's `kernel-kind`, **before any attach**, thrown as the carrier's
 refusals are; (iii) `rows/lower-task` of the same wire into `scratch`, a
-fresh semantic-register machine of the same composition (the carrier's
+fresh semantic machine of the same composition (the carrier's
 stages, attachment and restore, §7.2 above, unchanged); (iv)
 `kernel-task` of the restored machine into `k`. `lower-defect`'s clauses
 run in this order and the first that holds is the refusal: two carried A
@@ -1847,13 +1855,13 @@ G3 on master.
 ### 8.1 Slice 6a: the frame validator and the row codec (independent)
 
 **Files to create.**
-- `src/cljc/yin/vm/semantic_register/frame.cljc` (§3): `defect`, public.
+- `src/cljc/yin/vm/semantic/frame.cljc` (§3): `defect`, public.
 - `src/cljc/yin/vm/ucf/rows.cljc` (§2): the row table as data,
   `frame->rows`, `rows->frame`, row ids (Jing default), the census and
   numbering per the draft §6, `canonical-under` (§5.5, test-only but
   placed here so three test namespaces share it). **Not** `lift-task`/
   `lower-task`: full task transport is 6b.
-- `test/yin/vm/semantic_register/frame_test.cljc`,
+- `test/yin/vm/semantic/frame_test.cljc`,
   `test/yin/vm/ucf/rows_test.cljc`.
 
 **Depends on:** phase 3, 4a (landed), 4b stage 1 (branch) for live
@@ -1913,7 +1921,7 @@ frames to validate. Touches nothing of 4b or 5; needs no scanner.
     accordingly), gives equal root ids; a marker absent from the map is
     a test failure.
 11. kondo clean; `bb test:sub yin.vm` green on three hosts; Node log
-    shows `Testing yin.vm.semantic-register.frame-test` and
+    shows `Testing yin.vm.semantic.frame-test` and
     `Testing yin.vm.ucf.rows-test`.
 12. `rows-test/discovery-order-numbering`: `canonical-numbering` returns
     the maps of the numbering note's appendix A for `fixture :s1 :s2 :x
@@ -1986,8 +1994,8 @@ frames to validate. Touches nothing of 4b or 5; needs no scanner.
 
 **Files to change.** `rows.cljc`: `lift-task`, `lower-task` (§7), the
 pending rows' lift and lower, install children. **Files to create.**
-`test/yin/vm/semantic_register/safepoint_harness_test.cljc` (§5, the
-`:semantic-register` lane). The old harness file is not edited.
+`test/yin/vm/semantic/safepoint_harness_test.cljc` (§5, the
+`:semantic` lane). The old harness file is not edited.
 
 **Depends on:** the explicit `:free-env` lift argument supplied by the
 harness (§6.3; the 4b retention seam is a named follow-up for the 4b
@@ -2047,8 +2055,8 @@ truncates to its base, pushes the value) and halts with the value when
 syntax after it; non-tail parks are unchanged (the old stack tests stay
 green). **Depends on** nothing of 4b or 5.
 
-**6c proper.** Files to create: `src/cljc/yin/vm/semantic_register/layout.cljc`
-(§4); `test/yin/vm/semantic_register/layout_test.cljc`; the two extra
+**6c proper.** Files to create: `src/cljc/yin/vm/semantic/layout.cljc`
+(§4); `test/yin/vm/semantic/layout_test.cljc`; the two extra
 lanes added to the 6b harness file. **Depends on:** 5a, 5b (`derive`),
 6b, 6c-pre.
 
@@ -2167,12 +2175,25 @@ boundaries.
 
 ### 8.4 Phase 7's entry conditions
 
+**Met (2026-10-15, after the phase-8 cutover).** Phase 7 landed in full
+(7a-7e, through `master@67b98907`, 2026-10-14): Stage E over row packs,
+holder export with recovery format 2, the driver lower and the install
+checks, compose and fencing on row packs, and the killed four-pair
+process matrix run on jupiter (196 SIGKILLed lives); the slow tier was
+green on the landed head. The REPL custody gap this section's earlier
+note carried closed at 8c, when the REPL's kernel table moved to the
+new kernel (renamed at 8f-2); the old codec tests and fixtures died
+in 8d, and their transport sources in 8f-1 (not 8d; recorded in `yin.vm.ucf-revisions.md` I-6).
+The Dart-on-master `dht-end-to-end` failure of that window was the
+other seat's, pre-existing. The entry-conditions text below is the
+record as it stood at 7d.
+
 **Amended after 7 (2026-10-14)** — Reason: phases 6 and 7a-7c now provide the entry seams; 7d reports the Stage E port.
 Phase 7's entry conditions are met: the phase-6 row carrier and frame/layout
 harness are available; the holder, rows checkpoint inspector, ledger and
 authority use packs; free-environment retention is threaded through the
 lift; recovery format 2 is based on rows. The Stage D composition uses
-semantic-register machines and the composition's function `:source-index`
+semantic machines and the composition's function `:source-index`
 seam. The 7d report records the corresponding Stage E world/scenario port
 and local JVM results; 7d is still in review. Entry readiness is not
 tri-host phase acceptance: Node/Dart Stage E and the killed four-pair
@@ -2270,7 +2291,7 @@ design names no kernel edit beyond 6c-pre (**Amended 2026-10-13
   primitives in the register kernel's payload (§4.2), the unique
   dead-preimage fallback of `virt` (§4.2) and the shared fragment (§5.3)
   remain limits of the retained de Bruijn backends after phase 8; none
-  is a limit of the carrier or of the canonical semantic-register kernel,
+  is a limit of the carrier or of the canonical semantic kernel,
   and each is pinned by a refusal test rather than left as an
   unobserved gap.
 
@@ -2284,7 +2305,7 @@ R1, R2, R7, C1 **ACCEPT**; F2, F3, U1, U3, U6, R3, R4, R5, R6, R8, R9
 **ACCEPTED**; the merged-`E` free environment **REJECTED**, replaced by
 §4.4/§6.3.
 
-### 10.1 To the frozen design (`yin.vm.semantic-register-vm.md`)
+### 10.1 To the frozen design (`yin.vm.semantic.md`)
 
 **F1 — §4.2 row names (ACCEPT).** Replace "`:regs` becomes `[segment-A
 pc env-cref window-cref k-cref deliver-D]` for an `act` and a sibling
@@ -2299,7 +2320,7 @@ the task's initial free environment (continuation design §2, §6.3)."
 
 **F2 — §4.2 the validator (ACCEPT WITH CHANGES).** After "and pending
 compatibility with `reason`" insert: "The validator is the pure function
-`(defect frame code context task)` of `yin.vm.semantic-register-vm.continuation.md`
+`(defect frame code context task)` of `yin.vm.semantic.continuation.md`
 §3: `task` is decoded task context (the parked key, the live FFI call
 ids, the free environment), never an engine; its rules are ordered,
 structural checks first, current-window rules on `act` only, return
@@ -2343,14 +2364,14 @@ set of tree addresses the emitter's `source-index` held for it
 vector has two paths … nothing may depend on which path a conforming
 engine takes.") with: "Loading a fetched vector has **one path**: the
 direct decode of the canonical vector into an image through the one
-validator (`yin.vm.semantic-register.code/well-formed?`). The projection
+validator (`yin.vm.semantic.code/well-formed?`). The projection
 path (vector → datoms → loader) is retired (owner ruling 2026-09-18;
-`yin.vm.semantic-register-vm.md` §3.4). The conformance obligation is
+`yin.vm.semantic.md` §3.4). The conformance obligation is
 that the two AST projection lanes and the direct vector load yield one
 image and address (`load_paths_test.cljc`)."
 
 **U2 — §7.4.1 (ACCEPT).** At its head: "Superseded for the
-register-shaped machine by `yin.vm.semantic-register-vm.md` §4.1 (two
+register-shaped machine by `yin.vm.semantic.md` §4.1 (two
 state columns, `act` and `tail`, and the `deliver` record); the table
 below describes the stack-shaped machine, which leaves at that design's
 phase 8." Replace the `:yin.k/frame` example with §1.2's keyed form.
@@ -2377,7 +2398,7 @@ segment to each safepoint and compares the observed deltas and E-reads.
 Absolute depth, activation bases, captured environments, and physical
 layouts are not claimed" with "`def`, `use`, `live` and
 `lexically-required` are derived from the canonical vector alone
-(`yin.vm.semantic-register.analysis`). They are identical for every
+(`yin.vm.semantic.analysis`). They are identical for every
 engine and checkable against the reference machine by a conformance test
 that runs the segment to each safepoint and compares the saved window's
 key set with `live − {rd}` and the E-reads. Window values, environments,
@@ -2403,12 +2424,12 @@ lower = id` on canonical frames, the static `def`/`use`/`live` and
 `lexically-required` checks, the frame validator on every frame, and
 **cross-engine canonical equality**: one program at one safepoint lifts
 to row sets with equal root ids after the harness's specified
-re-emission (continuation design §5.5) from the semantic-register kernel
+re-emission (continuation design §5.5) from the semantic kernel
 and from the stack and register kernels through their layouts, the stack
 kernel with its tail-completion seam". In §7.11.1 "Safepoint
 reconstruction", replace "Separately prepare two independently
 implemented UCF engines" with "Separately prepare the three engines
-intended to reconstruct canonical frames (the semantic-register kernel;
+intended to reconstruct canonical frames (the semantic kernel;
 the register kernel; the stack kernel after its tail-completion seam)"
 and "the frame, pending wait, next result, and effect trace must agree
 in both directions" with "the canonical row set after re-emission, the
@@ -2430,7 +2451,7 @@ upgraded. The profile map is `{:yin.code/contract "v4" :yin.k/version 1}`;
 there is no engine key, because the frame is the canonical
 register-shaped machine's and the executing kernel is the receiving
 composition's choice: the stack and register kernels lower the same rows
-through their layouts (`yin.vm.semantic-register-vm.continuation.md`
+through their layouts (`yin.vm.semantic.continuation.md`
 §2.1, §4). Any other profile map is `:yin.k/profile-mismatch`."
 
 **R1a — status paragraph `:18-20`.** Replace "Body versions 0, 1 and 2
@@ -2473,7 +2494,7 @@ map; `code` is `{A "v4"-vector}`; `requires` gains `:yin.k/trees`); in
 **R6 — §8 step 7 `:661-667` (ACCEPT WITH CHANGES).** Replace with:
 "**Frames.** Every `:act`, `:tail`, `:kframe`, `:reified` and
 parked-table state is decoded to its keyed frame and judged by
-`yin.vm.semantic-register.frame/defect` with its context (`:wait`,
+`yin.vm.semantic.frame/defect` with its context (`:wait`,
 `:captured`, `:parked`) and the decoded task context (parked key, live
 FFI call ids, the root's free environment); a defect is
 `:yin.k/undecodable` with the rule's kind and the row path (continuation
@@ -2510,9 +2531,9 @@ proposals list `:821-834`, "Still open" `:836-837`, §11 `:839-852`
 brief claims heterogeneous execution conformance, and not drafted here"
 with "**Foreign-engine value profiles.** Required before an
 implementation brief claims execution conformance for an engine
-**outside the three repository lanes** (the semantic-register kernel and
+**outside the three repository lanes** (the semantic kernel and
 the stack and register kernels, whose reconstruction is the layouts of
-`yin.vm.semantic-register-vm.continuation.md` §4 and needs no value
+`yin.vm.semantic.continuation.md` §4 and needs no value
 profile), and not drafted here"; keep its list of what such a profile
 must cover; and replace "version 3, like version 2, does
 not translate between kernels" with "version 3 carries the canonical
@@ -2549,9 +2570,9 @@ Insert at the head of §7.2.1: "**Scope (2026-10-11).** Body versions 0,
 1 and 2 and every clause of this document that admits, reads, recovers
 or interoperates with them are **historical**: they describe the
 stack-shaped machine's handoff, which leaves at
-`yin.vm.semantic-register-vm.md` §10 phase 8. The row carrier of body
+`yin.vm.semantic.md` §10 phase 8. The row carrier of body
 version 3 (`yin.vm.ucf-transport-tuples.md` as amended by
-`yin.vm.semantic-register-vm.continuation.md`) reads no other version and
+`yin.vm.semantic.continuation.md`) reads no other version and
 takes **precedence** over any sentence below that implies otherwise; a
 conflict is resolved in its favour without further amendment. **Not
 historical**: the custody, fencing and operation-id semantics (§7.7.8,
@@ -2564,7 +2585,7 @@ say 'a version-0 body' or 'fork', 'a root whose policy is `:yin.k/fork`'
 0}` wherever this document shows it (§7.2's example `:121`, §7.2.1
 `:183`, §7.3.3 `:232-236`) is the stack-shaped machine's; the
 register-shaped machine's contract is `"v4"`
-(`yin.vm.semantic-register-vm.md` §6), the one the version-3 profile map
+(`yin.vm.semantic.md` §6), the one the version-3 profile map
 names, and §7.2's envelope example is superseded for version 3 by the
 row carrier's wire unit (`yin.vm.ucf-transport-tuples.md` §3, ids under
 Jing's default digest)." The same grep (`legacy`, `version-0`,
@@ -2585,7 +2606,7 @@ projection path is **retired** (owner ruling 2026-09-18; frozen §3.4
 'One vector validator'). There is one load path for a vector, the direct
 one, and two AST projection lanes (datom lane, row lane) that produce
 the vector; all three feed one validator
-(`yin.vm.semantic-register.code/well-formed?`). UCF §7.3.4's projection
+(`yin.vm.semantic.code/well-formed?`). UCF §7.3.4's projection
 path is superseded accordingly." Replace obligation 2's second sentence
 with "loading the vector produced by either AST lane and the vector
 loaded directly yield the same image and address (`load_paths_test.cljc`)",

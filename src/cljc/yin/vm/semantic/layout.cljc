@@ -1,5 +1,5 @@
 (ns yin.vm.semantic.layout
-  "Phase 6c (docs/design/yin.vm.semantic-register-vm.continuation.md §4):
+  "Phase 6c (docs/design/yin.vm.semantic.continuation.md §4):
    the de Bruijn register and stack kernels reconstruct the canonical
    frame of the semantic kernel through their layouts, and lower it
    back.

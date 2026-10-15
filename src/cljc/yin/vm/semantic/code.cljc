@@ -1,6 +1,6 @@
 (ns yin.vm.semantic.code
   "Well-formedness of the register-shaped canonical vector
-   (`docs/design/yin.vm.semantic-register-vm.md` §2.2-2.3, §3).
+   (`docs/design/yin.vm.semantic.md` §2.2-2.3, §3).
 
    The vector is UCF §7.3.2's positional form over the §2.3 table: one
    `[op rd …]` tuple per instruction, pc as index, body-local virtual

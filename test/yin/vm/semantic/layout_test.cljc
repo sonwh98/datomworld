@@ -1,5 +1,5 @@
 (ns yin.vm.semantic.layout-test
-  "Phase 6c acceptance 1-9 (docs/design/yin.vm.semantic-register-vm.continuation.md
+  "Phase 6c acceptance 1-9 (docs/design/yin.vm.semantic.continuation.md
    §8.3): the register pairing and live sets, the register destination from
    A, the stack correspondence, operand layout and K slices, E
    reconstruction, closures both ways, and the unobservable fill of a
