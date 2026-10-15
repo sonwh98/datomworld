@@ -1,8 +1,9 @@
 (ns yang.python.antlr.import-test
-  "C4 slices I1, I2 and I4-a (docs/design/yang.antlr.md 8.5.6): static
+  "C4 slices I1, I2, I4-a and I6 (docs/design/yang.antlr.md 8.5.6): static
    absolute imports of single modules (I1); packages, mangling, dotted,
    aliased, from, relative and star imports (I2); statement-time delivery
-   and catchable linker refusals (I4-a). The fast tests pin the lowering
+   and catchable linker refusals (I4-a); literal import_module, retained
+   image reload and import-hook refusals (I6). The fast tests pin the lowering
    -- eager py delivery, statement-time guest delivery, the refusals -- and the
    slow ones run the acceptance over `yang.python.antlr.linked-harness`:
    every guest module is published once per process beside `py`, and each
@@ -1293,3 +1294,192 @@
                            {:py/out ["cannot import name 'missing' from 'b' (unknown location)"],
                             :py/exception nil}]
                           (on-every-vm (i5-packet [(statement (import-simple-stmt "a"))]) source))))))
+
+
+;; I6 packets stay portable: no parser is needed on Node or Dart.
+(defn- import-module-packet
+  ([argument]
+   (import-module-packet argument (import-simple-stmt "importlib")
+                         [:atom_expr [:atom [:name ["NAME" "importlib"]]]
+                          [:trailer ["DOT" "."] [:name ["NAME" "import_module"]]]]))
+  ([argument import-stmt callee]
+   (portable/packet
+     [:file_input
+      (statement import-stmt)
+      (statement
+        [:expr_stmt
+         (chain (butlast expr-chain)
+                (conj callee
+                      [:trailer ["OPEN_PAREN" "("]
+                       [:arglist [:argument (chain (rest (butlast expr-chain))
+                                                   [:atom_expr [:atom argument]])]]
+                       ["CLOSE_PAREN" ")"]]))])
+      ["EOF" "<EOF>"]])))
+
+
+(deftest literal-import-module-delivery-test
+  (let [pk (import-module-packet ["STRING" "\"a.b\""])
+        ast (lower/lower-packet pk {:prelude :linked})]
+    (is (= ["a" "a.b"] (lower/imported-module-names pk)))
+    (is (= [['py/import "importlib"] ['py/import "a"]
+            ['py/import-sub "a.b"]]
+           (vec (import-calls (main-body ast)))))
+    (is (= 1 (count (call-sites ast 'py/import-module?))))
+    (is (= '[py] (requires-of ast)))
+    (is (nil? (vm/ast-reserved-defect ast)))))
+
+
+(deftest dynamic-import-module-has-no-delivery-test
+  (let [pk (import-module-packet [:name ["NAME" "dynamic"]])
+        ast (lower/lower-packet pk {:prelude :linked})]
+    (is (empty? (lower/imported-module-names pk)))
+    (is (empty? (call-sites ast 'try-require)))
+    (is (seq (call-sites ast 'py/call)))))
+
+
+(deftest imported-import-module-aliases-test
+  (doseq [[import-stmt callee]
+          [[[:import_stmt
+             [:import_name ["IMPORT" "import"]
+              [:dotted_as_names
+               [:dotted_as_name [:dotted_name [:name ["NAME" "importlib"]]]
+                ["AS" "as"] [:name ["NAME" "il"]]]]]]
+            [:atom_expr [:atom [:name ["NAME" "il"]]]
+             [:trailer ["DOT" "."] [:name ["NAME" "import_module"]]]]]
+           [[:import_stmt
+             [:import_from ["FROM" "from"]
+              [:dotted_name [:name ["NAME" "importlib"]]] ["IMPORT" "import"]
+              [:import_as_names [:import_as_name [:name ["NAME" "import_module"]]
+                                 ["AS" "as"] [:name ["NAME" "im"]]]]]]
+            [:atom_expr [:atom [:name ["NAME" "im"]]]]]]]
+    (let [pk (import-module-packet ["STRING" "\"m\""] import-stmt callee)
+          ast (lower/lower-packet pk {:prelude :linked})]
+      (is (= ["m"] (lower/imported-module-names pk)))
+      (is (= 1 (count (call-sites ast 'py/import-module?)))))))
+
+
+(deftest import-module-recognition-boundaries-test
+  (let [pk (import-module-packet ["STRING" "\"m\""])
+        unrelated (update pk :yang.cst/nodes
+                          (fn [ns]
+                            (mapv #(if (and (= :token (:kind %))
+                                            (= "importlib" (:text %)))
+                                     (assoc % :text "unrelated") %) ns)))]
+    (is (= "import under the bundled prelude"
+           (:construct (refusal-of #(lower/lower-packet pk {})))))
+    (is (= ["unrelated"] (lower/imported-module-names unrelated)))
+    (is (empty? (call-sites (lower/lower-packet unrelated {:prelude :linked})
+                            'py/import-module?)))))
+
+
+(defn- i6-runtime-test
+  []
+  (let [ast (u/mark-tails
+              (u/sexp->uast
+                '(do (require (quote py))
+                     (py/init!)
+                     (let [body (fn [d gf]
+                                  (do (py/dict-set d {:py/str "x"}
+                                                   (+ (if (= (py/dict-ref d {:py/str "x"}) :py/missing)
+                                                        0 (py/dict-ref d {:py/str "x"})) 1))
+                                      (if (= (py/dict-ref d {:py/str "fail"}) true)
+                                        (py/raise-new (py/global-get d {:py/str "ValueError"})
+                                                      {:py/str "reload failed"})
+                                        :py/None)))
+                           delivery (fn [] (conj [] {:package? false} body))
+                           m (py/import {:py/str "foo"} delivery)
+                           d (py/module-dict m)
+                           errors (cell/new [])
+                           catch-error (fn [thunk]
+                                         (py/try thunk
+                                                 (fn [e]
+                                                   (do (cell/set! errors (conj (cell/get errors)
+                                                                               (if (py/isinstance e (py/global-get d {:py/str "NotImplementedError"}))
+                                                                                 (let [msg (get (get (py/getattr e "args") :items) 0)]
+                                                                                   (if (= msg {:py/str "finders/loaders/sys.path not supported in datom.world content-addressed modules; __import__ override is not supported"})
+                                                                                     true
+                                                                                     (= msg {:py/str "importlib.import_module requires a statically recognized literal absolute module name; dynamic or aliased calls are not supported"})))
+                                                                                 false)))
+                                                       :py/None))
+                                                 (fn [] :py/None)))]
+                       (do
+                         (py/dict-set d {:py/str "extra"} 99)
+                         (let [lib (py/import {:py/str "importlib"} :py/None)
+                               reload (py/getattr lib "reload")
+                               before (get m :id)
+                               external (py/getattr m "x")
+                               result (py/call reload (conj [] m))]
+                           (do
+                             (py/dict-set d {:py/str "fail"} true)
+                             (py/try (fn [] (py/call reload (conj [] m)))
+                                     (fn [e]
+                                       (py/dict-set d {:py/str "caught"}
+                                                    (py/isinstance e (py/global-get d {:py/str "ValueError"}))))
+                                     (fn [] :py/None))
+                             (catch-error (fn []
+                                            (py/call (py/getattr lib "import_module")
+                                                     (conj [] {:py/str "foo"}))))
+                             (let [sys (py/import {:py/str "sys"} :py/None)
+                                   sd (py/module-dict sys)
+                                   builtins (py/import {:py/str "builtins"} :py/None)]
+                               (do
+                                 (catch-error (fn [] (py/getattr sys "meta_path")))
+                                 (catch-error (fn [] (py/setattr sys "path_hooks" :py/None)))
+                                 (catch-error (fn [] (py/getitem sd {:py/str "path"})))
+                                 (catch-error (fn [] (py/setitem sd {:py/str "meta_path"} :py/None)))
+                                 (catch-error (fn [] (py/delattr sys "path")))
+                                 (catch-error (fn [] (py/setattr builtins "__import__" :py/None)))
+                                 (catch-error (fn [] (py/global-set d {:py/str "__import__"} :py/None)))))
+                             (conj [] (= m result) (= before (get m :id))
+                                   (= d (py/module-dict m))
+                                   (py/getattr m "x") (py/getattr m "extra") external
+                                   (py/getattr m "caught")
+                                   (= m (py/modules-ref {:py/str "foo"}))
+                                   (cell/get errors)))))))))]
+    (doseq [backend (keys h/backends)]
+      (is (= [true true true 3 99 1 true true
+              [true true true true true true true true]]
+             (vm/value (h/run-linked backend ast)))
+          (str backend)))))
+
+
+(deftest ^:slow i6-runtime-test-test
+  (slow/guard "i6-runtime-test" i6-runtime-test))
+
+
+(defn- literal-import-module-callable-test
+  []
+  (let [ast (lower/lower-packet (import-module-packet ["STRING" "\"m\""])
+                                {:prelude :linked})
+        guarded (first (filter #(and (= :application (:type %))
+                                     (= 'py/import-module?
+                                        (get-in % [:operator :body :test :operator :name])))
+                               (nodes ast)))
+        ;; Execute the actual lowered expression, under its module globals.
+        expr (u/lam [lower/globals-sym lower/globals-fn-sym] guarded)
+        program (u/mark-tails
+                  (u/then
+                    (u/sexp->uast '(do (require (quote py)) (py/init!)))
+                    (u/let1 'invoke expr
+                            (u/sexp->uast
+                              '(let [g (py/dict-new)
+                                     gf (py/globals-fn g)
+                                     lib (py/import {:py/str "importlib"} :py/None)]
+                                 (do (py/global-set g {:py/str "importlib"} lib)
+                                     (let [m (invoke g gf)
+                                           static (py/import {:py/str "m"} :py/None)
+                                           replacement (py/make-function "replacement"
+                                                                         {:params ["name"]} [] []
+                                                                         (fn [args] (do args 73)))]
+                                       (do (py/setattr lib "import_module" replacement)
+                                           (conj [] (= m static) (invoke g gf))))))))))]
+    (is (some? guarded))
+    (doseq [backend (keys h/backends)]
+      (is (= [true 73]
+             (vm/value (h/run-linked backend program {:link-source (guest-source)})))
+          (str backend)))))
+
+
+(deftest ^:slow literal-import-module-callable-test-test
+  (slow/guard "literal-import-module-callable-test"
+              literal-import-module-callable-test))
