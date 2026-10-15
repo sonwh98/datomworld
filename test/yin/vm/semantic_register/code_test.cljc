@@ -150,8 +150,8 @@
 (deftest load-vector-checks-the-stamp-then-the-rules
   (let [v (:vector (get corpus/goldens :worked-example))]
     (is (= "v4" code/contract))
-    (is (not= vm/semantic-contract code/contract)
-        "the running stack-shaped machine keeps its own stamp until cutover")
+    (is (= vm/semantic-contract code/contract)
+        "the production semantic machine uses the v4 contract")
     (is (= :contract-missing (:rule (throws-ex-data #(code/load-vector v nil)))))
     (is (= :contract-mismatch (:rule (throws-ex-data #(code/load-vector v "v3")))))
     (is (= {:rule :register-ids, :pc 0}

@@ -11,14 +11,13 @@
    does for the stack-shaped vector. Decoding into an executable image
    belongs to the evaluator (phase 4); the static facts of §8.1 are
    `yin.vm.semantic-register.analysis`'s."
-  (:require [yin.vm :as vm]
-            [yin.vm.ucf :as ucf]))
+  (:require [dao.jing :as jing]
+            [yin.vm :as vm]))
 
 
 (def contract
   "The semantic execution contract of the register-shaped vector (§6).
-   This namespace's own stamp; `yin.vm/semantic-contract` names the
-   running stack-shaped machine until cutover."
+   The production stamp, also named by `yin.vm/semantic-contract`."
   "v4")
 
 
@@ -875,5 +874,14 @@
                          " (pc " (:pc defect) ")")
                     {:defect defect})))
   {:vector v,
-   :address (ucf/code-address v),
+   :address (jing/segment-key v),
    :bodies (mapv #(dissoc % :expr) (parse v))})
+
+
+(defn materialize-vector!
+  "Validate and materialize the canonical v4 vector at its content address."
+  [handle v]
+  (when-let [defect (well-formed? v)]
+    (throw (ex-info "Cannot materialize a vector that fails validation"
+                    {:defect defect})))
+  (jing/materialize! handle v))

@@ -42,10 +42,10 @@
    S2.6 rules, last-value-wins resolution, opcode table, transitions,
    resolution precedence, effect outcomes and scheduler
    (`yin.vm.semantic.md` S2.4); `:yin.k/version` is this envelope's own
-   version. A resumer on another revision answers `:yin.k/profile-mismatch`
+   version (the rows execution profile is version 1). A resumer on another revision answers `:yin.k/profile-mismatch`
    before lowering; a code index is keyed per stamp."
   {:yin.code/contract vm/semantic-contract,
-   :yin.k/version 0})
+   :yin.k/version 1})
 
 
 (def profiles

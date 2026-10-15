@@ -10,8 +10,8 @@
             [dao.jing.mem :as mem]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            #?@(:cljd [] :clj [[yin.vm.debruijn-linearize :as linearize]])
-            [yin.vm.debruijn-register-compile :as rc]
+            [yin.vm.semantic-register.derive :as derive]
+            [yin.vm.semantic-register.linearize :as sr-linearize]
             [yin.vm.debruijn-vm-contract-test :as b0]
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
@@ -20,7 +20,7 @@
             [yin.vm.linker.publish :as publish]
             [yin.vm.linker-test :as lt]
             [yin.vm.module :as module]
-            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic-register :as semantic]
             [yin.vm.test-utils :as tu]))
 
 
@@ -43,7 +43,7 @@
   "The register image `ast` lowers to, over the public datom lane (the
    linker-test helper is private)."
   [ast]
-  (:image (rc/adapt (vm/ast->datoms ast))))
+  (derive/register-image (:vector (sr-linearize/project ast))))
 
 
 (defn- derive-records
@@ -54,13 +54,13 @@
   (let [s (lt/publish store linker/semantic-format (lt/semantic-vector ast))
         h (lt/publish store linker/stack-format (lt/stack-image ast))
         r (lt/publish store linker/register-format (register-image ast))
-        mint (fn [out profile]
+        mint (fn [input out profile]
                (jing/materialize!
-                 store (assoc (ledger/derive-record tree-addr out)
+                 store (assoc (ledger/derive-record input out)
                               :yin.ledger/profile profile)))]
-    {:yin.semantic/code (mint (:identity s) ledger/lowering-profile)
-     :yin.debruijn.code (mint (:identity h) linker/stack-lowering-profile)
-     :yin.debruijn.register (mint (:identity r)
+    {:yin.semantic/code (mint tree-addr (:identity s) ledger/lowering-profile)
+     :yin.debruijn.code (mint (:identity s) (:identity h) linker/stack-lowering-profile)
+     :yin.debruijn.register (mint (:identity s) (:identity r)
                                   linker/register-lowering-profile)
      :identities {:sem (:identity s), :h (:identity h), :r (:identity r)}
      :addresses {:h (:address h), :r (:address r)}}))
@@ -73,18 +73,18 @@
    `:address`, and the minted records' own data under `:records`."
   ([store ast] (module-manifest store ast 'my.lib))
   ([store ast name]
-   (let [{:keys [manifest address identities]}
+   (let [{:keys [manifest address identities checksums]}
          (publish/publish-module!
            store {:name name :ast ast :exports #{}
                   :requires {} :primitives {'+ (get vm/primitives '+)}})
-         h (:yin.debruijn.code identities)
-         r (:yin.debruijn.register identities)]
+         h (:yin.debruijn.code checksums)
+         r (:yin.debruijn.register checksums)]
      {:manifest manifest :address address
       :records (assoc (:yin.module/derivations manifest)
                       :identities {:sem (:yin.semantic/code identities)
                                    :h h :r r}
-                      :addresses {:h (get-in manifest [:yin.module/index h])
-                                  :r (get-in manifest [:yin.module/index r])})
+                      :addresses {:h (get-in manifest [:yin.module/index :yin.debruijn.code])
+                                  :r (get-in manifest [:yin.module/index :yin.debruijn.register])})
       :tree (:yin.module/tree manifest)})))
 
 
@@ -242,32 +242,15 @@
 #?(:cljd nil
    :clj
    (deftest a-tree-the-lowering-cannot-run-is-unverified-derivation
-     (doseq [[format lower] [[linker/stack-format #'linearize/adapt]
-                             [linker/register-format #'rc/adapt]]]
+     (doseq [[format lower] [[linker/stack-format #'derive/stack-image]
+                             [linker/register-format #'derive/register-image]]]
        (let [store (mem/create-content-mem)
-             tree (vm/materialize-tree!
-                    store (vm/ast->semantic-bytecode lt/worked-example))
+             {:keys [address]} (module-manifest store lt/worked-example)
              profile (if (= linker/stack-format format)
                        linker/stack-lowering-profile
                        linker/register-lowering-profile)
-             rec (jing/materialize!
-                   store (assoc (ledger/derive-record tree "out")
-                                :yin.ledger/profile profile))
-             addr (jing/materialize!
-                    store
-                    {:yin.module/name 'my.lib
-                     :yin.module/schema linker/manifest-schema
-                     :yin.module/contracts {(:format format)
-                                            (:contract format)}
-                     :yin.module/tree tree
-                     :yin.module/derivations {(:format format) rec}
-                     :yin.module/index {}
-                     :yin.module/exports #{}
-                     :yin.module/requires {}
-                     :yin.module/primitives {}
-                     :yin.module/footprint {:store-keys #{}, :effects #{}}})
              res (with-redefs-fn {lower (fn [_] (throw (ex-info "no" {})))}
-                   (fn [] (link-local store addr format)))]
+                   (fn [] (link-local store address format)))]
          (is (= {:status :refused, :reason :unverified-derivation,
                  :format (:format format), :profile profile,
                  :missing :relowering}
@@ -350,10 +333,8 @@
                   {:yin.semantic/code (get recs :yin.semantic/code)
                    :yin.debruijn.code (get recs :yin.debruijn.code)
                    :yin.debruijn.register (get recs :yin.debruijn.register)}
-                  :yin.module/index {(get-in recs [:identities :h])
-                                     (get-in recs [:addresses :h])
-                                     (get-in recs [:identities :r])
-                                     (get-in recs [:addresses :r])}
+                  :yin.module/index {:yin.debruijn.code (get-in recs [:addresses :h])
+                                     :yin.debruijn.register (get-in recs [:addresses :r])}
                   :yin.module/exports #{}
                   :yin.module/requires {}
                   :yin.module/primitives {'+ plus-profile, '* plus-profile}
@@ -491,6 +472,24 @@
               (linking linker/stack-format :verifying))]
     (is (linker/ok? res))
     (is (= (lt/stack-image lt/worked-example) (:value res)))
+    (jing/close! store)))
+
+
+(deftest a-swapped-native-index-is-hash-mismatch-under-both-policies
+  (let [store (mem/create-content-mem)
+        first-module (module-manifest store {:type :literal, :value 1} 'first.module)
+        second-module (module-manifest store {:type :literal, :value 2} 'second.module)]
+    (doseq [format [linker/stack-format linker/register-format]]
+      (let [format-kw (:format format)
+            swapped (assoc-in (:manifest first-module)
+                              [:yin.module/index format-kw]
+                              (get-in second-module [:manifest :yin.module/index format-kw]))
+            address (jing/materialize! store swapped)]
+        (doseq [policy [:verifying :trusted]]
+          (testing (str (name format-kw) " " (name policy))
+            (is (= {:status :refused, :reason :hash-mismatch}
+                   (select-keys (link-local store address format (linking format policy))
+                                [:status :reason])))))))
     (jing/close! store)))
 
 
@@ -716,13 +715,13 @@
   (let [store (mem/create-content-mem)
         {:keys [address] :as minted} (module-manifest store
                                                       lt/worked-example)
-        h (get-in minted [:records :identities :h])]
+        a (get-in minted [:records :identities :sem])]
     (testing "trusted-fallback names composition trust"
       (let [res (linker/trusted-fallback (manifest-runtime store) address
                                          lt/receiver)]
         (is (linker/ok? res))
         (is (= :composition (:trust res)))
-        (is (= h (:identity res)))
+        (is (= a (:identity res)))
         (is (= :yin.debruijn.code (:format res)))
         (is (= {:root (:tree minted), :manifest address,
                 :from :yin.debruijn.register}
@@ -743,4 +742,27 @@
         (is (= :pairing-mismatch
                (:reason (linker/verifying-fallback (manifest-runtime store)
                                                    address lt/receiver))))))
+    (jing/close! store)))
+
+
+(deftest native-verification-checks-the-semantic-derivation-too
+  (let [store (mem/create-content-mem)
+        {:keys [manifest tree]} (module-manifest store lt/worked-example)
+        other (lt/publish store linker/semantic-format
+                          (lt/semantic-vector lt/other-program))
+        a (:identity other)
+        forged (into {}
+                     (map (fn [[f address]]
+                            (let [record (jing/get store address nil)
+                                  record (if (= :yin.semantic/code f)
+                                           (assoc record :yin.ledger/output a)
+                                           (assoc record :yin.ledger/input a))]
+                              [f (jing/materialize! store record)])))
+                     (:yin.module/derivations manifest))
+        address (jing/materialize! store (assoc manifest :yin.module/derivations forged))]
+    (is (= tree (:yin.module/tree manifest)))
+    (doseq [format [linker/stack-format linker/register-format]]
+      (is (= :derivation-mismatch
+             (:reason (link-local store address format
+                                  (linking format :verifying))))))
     (jing/close! store)))

@@ -82,12 +82,12 @@
 
 
 (def formats
-  "The seven format records a serving composition holds (sections 5 and
-   8.1): the five execution formats a requesting kernel names, and the
+  "The six format records a serving composition holds (sections 5 and
+   8.1): the four execution formats a requesting kernel names, and the
    two the manifest flow fetches internally."
   (into {}
         (map (fn [r] [(:format r) r]))
-        [linker/ast-format linker/semantic-format linker/semantic-register-format
+        [linker/ast-format linker/semantic-format
          linker/stack-format
          linker/register-format linker/manifest-format
          linker/record-format]))

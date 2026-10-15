@@ -444,8 +444,8 @@
 
 
 (deftest the-composition-registers-the-v4-format-record
-  (is (= 7 (count link/formats)))
-  (is (some #{linker/semantic-register-format} (vals link/formats)))
-  (is (= linker/semantic-register-format
-         (get link/formats :yin.semantic-register/code))
+  (is (= 6 (count link/formats)))
+  (is (some #{linker/semantic-format} (vals link/formats)))
+  (is (= linker/semantic-format
+         (get link/formats :yin.semantic/code))
       "a link request naming the v4 format resolves to its record"))

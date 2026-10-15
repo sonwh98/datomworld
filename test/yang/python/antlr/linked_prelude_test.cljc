@@ -233,7 +233,7 @@
    checksums, derivation records and index keys. The rebase onto I4-a
    regenerates this again for statement-time import delivery."
   (keyword (str "segment/blake3-"
-                "2e5aebac74d6d39593fed020c333f1f5b42ae4128d4789a24f73dc88083cafc3")))
+                "4aaaa09b192c5fed22786810b43880260aa2293ea0f0bb9c7c7978f14182048a")))
 
 
 (def ^:private vector-formats

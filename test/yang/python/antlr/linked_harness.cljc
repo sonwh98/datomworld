@@ -26,11 +26,10 @@
     [yin.vm.debruijn.register :as rvm]
     [yin.vm.debruijn.stack :as dvm]
     [yin.vm.integer :as integer]
-    [yin.vm.linearize :as linearize]
     [yin.vm.linker.interpreter :as link]
     [yin.vm.linker.publish :as publish]
     [yin.vm.module :as module]
-    [yin.vm.semantic :as semantic]
+    [yin.vm.semantic-register :as semantic]
     [yin.vm.test-utils :as tu]))
 
 
@@ -102,16 +101,12 @@
   (publish/publish-module! (:store @published) spec))
 
 
-(def ^:private semantic-loader
-  (linearize/ast-loader semantic/vm-load-program))
-
-
 (def backends
   "Each vector backend's root task over a program AST and composition."
   {:semantic (fn [ast opts]
-               (semantic-loader (semantic/create-vm opts)
-                                (vm/ast->datoms ast)
-                                vm/ast-contract)),
+               (semantic/load-ast (semantic/create-vm opts)
+                                  (vm/ast->datoms ast)
+                                  vm/ast-contract)),
    :stack (fn [ast opts]
             (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
                            (assoc opts :contract vm/stack-contract))),
@@ -125,7 +120,7 @@
    task, as `yin.repl` admits an input line: the task keeps its store,
    heap, module registry and module stores."
   {:semantic (fn [task ast]
-               (semantic-loader task (vm/ast->datoms ast) vm/ast-contract)),
+               (semantic/load-ast task (vm/ast->datoms ast) vm/ast-contract)),
    :stack (fn [task ast]
             (let [img (:image (dl/adapt (vm/ast->datoms ast)))
                   attached (dvm/attach-image task img vm/stack-contract)]

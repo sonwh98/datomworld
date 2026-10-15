@@ -77,7 +77,7 @@
     (is (= :install (:reason install-entry)))
     (is (= payload (select-keys install-entry (keys payload))))
     (is (= 'foo (:yin.link/name request)))
-    (is (= :yin.semantic-register/code (:yin.link/format request)))
+    (is (= :yin.semantic/code (:yin.link/format request)))
     (is (= [nil 42 2] (vm/value done)))
     (is (vm/halted? done))
     (is (empty? (:wait-set done)))
@@ -124,12 +124,12 @@
         closure (values/payload (vm/value machine))
         marker (module/lift-closure machine closure identity)
         lower #(module/lower-closure machine % identity)]
-    (is (= {:format :yin.semantic-register/code :contract code/contract} (module/link-format machine)))
-    (is (= :yin.semantic-register/code (:yin.k/format marker)))
+    (is (= {:format :yin.semantic/code :contract code/contract} (module/link-format machine)))
+    (is (= :yin.semantic/code (:yin.k/format marker)))
     (is (= closure (values/payload (lower marker))))
     (is (= :marker-mismatch (:reason (refusal #(lower (assoc marker :yin.k/params '[y]))))))
     (is (= :marker-mismatch (:reason (refusal #(lower (assoc marker :yin.k/entry 0))))))
-    (is (= :binding-mismatch (:reason (refusal #(lower (assoc marker :yin.k/format :yin.semantic/code))))))
+    (is (= :binding-mismatch (:reason (refusal #(lower (assoc marker :yin.k/format :yin.debruijn.code))))))
     (is (= :origin-not-attached (:reason (refusal #(module/lower-closure (sr/create-vm) marker identity)))))
     (is (= :unrooted-body (:yin.k/kind (refusal #(module/lift-closure (sr/create-vm) closure identity)))))))
 
@@ -154,7 +154,7 @@
     (is (= :child (:origin child)))
     (is (= ['foo] (:ancestry child)))
     (is (= tu/secret (:capability-secret child)))
-    (is (= :yin.semantic-register/code (:format (module/link-format child))))))
+    (is (= :yin.semantic/code (:format (module/link-format child))))))
 
 
 (deftest walker-link-parity

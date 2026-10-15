@@ -176,8 +176,8 @@
       (is (= (jing/segment-key worked-vector) (:yin.code/hash outcome)))
       (is (= (ucf/code-address worked-vector) (:yin.code/hash outcome)))
       (is (jing/segment-address? (:yin.code/hash outcome))))
-    (testing "The stamp names the v3 contract and the envelope version"
-      (is (= {:yin.code/contract "v3", :yin.k/version 0}
+    (testing "The stamp names the v4 contract and the envelope version"
+      (is (= {:yin.code/contract "v4", :yin.k/version 1}
              (:yin.k/contract outcome)))
       (is (= ucf/contract-stamp (:yin.k/contract outcome))))))
 

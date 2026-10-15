@@ -16,7 +16,7 @@
             [dao.stream.ringbuffer :as ringbuffer]
             [yin.vm :as vm]
             [yin.vm.ledger :as ledger]
-            [yin.vm.linearize :as linearize]))
+            [yin.vm.semantic-register.linearize :as linearize]))
 
 
 ;; ---------------------------------------------------------------------------
@@ -70,7 +70,7 @@
    answers the derive material and the receipt."
   [log ast sym name-ent]
   (let [bc (vm/ast->semantic-bytecode ast)
-        material (ledger/derive-lowering bc (linearize/lower-rows bc) "tid_ev")
+        material (ledger/derive-lowering bc (linearize/project-rows bc) "tid_ev")
         receipt (ledger/transact!
                   log
                   (into (:event material)
@@ -89,7 +89,7 @@
 (deftest derive-record-is-content-addressed
   (let [bc (vm/ast->semantic-bytecode worked-example)
         {:keys [record record-address segment-address tree-address]}
-        (ledger/derive-lowering bc (linearize/lower-rows bc) "tid_ev")]
+        (ledger/derive-lowering bc (linearize/project-rows bc) "tid_ev")]
     (is (= {:yin.ledger/op :derive
             :yin.ledger/input tree-address
             :yin.ledger/output segment-address
@@ -103,12 +103,12 @@
       (let [bc' (vm/ast->semantic-bytecode worked-example)]
         (is (= record-address
                (:record-address (ledger/derive-lowering
-                                  bc' (linearize/lower-rows bc') "tid_ev"))))))
+                                  bc' (linearize/project-rows bc') "tid_ev"))))))
     (testing "a different tree lowers to a different record"
       (let [other (vm/ast->semantic-bytecode other-example)]
         (is (not= record-address
                   (:record-address (ledger/derive-lowering
-                                     other (linearize/lower-rows other)
+                                     other (linearize/project-rows other)
                                      "tid_ev"))))))))
 
 
@@ -118,20 +118,20 @@
 
 (deftest verification-passes-a-real-lowering
   (let [bc (vm/ast->semantic-bytecode worked-example)
-        lowered (linearize/lower-rows bc)
+        lowered (linearize/project-rows bc)
         {:keys [record]} (ledger/derive-lowering bc lowered "tid_ev")]
     (is (nil? (ledger/verify-derivation bc (:vector lowered) record)))))
 
 
 (deftest tampered-vector-reports-derivation-mismatch
   (let [bc (vm/ast->semantic-bytecode worked-example)
-        lowered (linearize/lower-rows bc)
+        lowered (linearize/project-rows bc)
         honest (ledger/derive-lowering bc lowered "tid_ev")
         ;; A dishonest lowering: the same tree, a vector the profile does
         ;; not lower it to, and a record claiming that vector's address as
         ;; its output. The record is self-consistent — only re-deriving
         ;; exposes it.
-        tampered (assoc-in (:vector lowered) [0 1] '[q])
+        tampered (assoc-in (:vector lowered) [0 2] '[q])
         forged (ledger/derive-record (:tree-address honest)
                                      (jing/segment-key tampered))]
     (is (= {:kind :yin.k/derivation-mismatch
@@ -143,10 +143,10 @@
 
 (deftest tampered-content-reports-hash-mismatch
   (let [bc (vm/ast->semantic-bytecode worked-example)
-        lowered (linearize/lower-rows bc)
+        lowered (linearize/project-rows bc)
         {:keys [record]} (ledger/derive-lowering bc lowered "tid_ev")]
     (testing "a vector that does not hash to the record's output"
-      (let [tampered (assoc-in (:vector lowered) [0 1] '[q])]
+      (let [tampered (assoc-in (:vector lowered) [0 2] '[q])]
         (is (= {:kind :yin.k/hash-mismatch
                 :value (:yin.ledger/output record)}
                (ledger/verify-derivation bc tampered record)))))
@@ -161,7 +161,7 @@
 
 (deftest foreign-profile-reports-profile-mismatch
   (let [bc (vm/ast->semantic-bytecode worked-example)
-        lowered (linearize/lower-rows bc)
+        lowered (linearize/project-rows bc)
         {:keys [record]} (ledger/derive-lowering bc lowered "tid_ev")
         v2 {:yin.lower/profile "ast-to-bytecode-v2"
             :yin.code/contract "v2"

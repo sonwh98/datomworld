@@ -29,7 +29,7 @@
             [yin.vm.linker.publish :as publish]
             [yin.vm.linker.publish-test :as publish-test]
             [yin.vm.linker.sign :as sign]
-            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic-register :as semantic]
             [yin.vm.test-utils :as tu]))
 
 
@@ -210,8 +210,7 @@
     (let [source (mem/create-content-mem)
           res (ct/publish-base! source)
           m (:address res)
-          h (get-in res [:identities :yin.debruijn.code])
-          h-address (get-in res [:manifest :yin.module/index h])
+          h-address (get-in res [:manifest :yin.module/index :yin.debruijn.code])
           w (world {} {:local (ct/without source h-address)})
           w (update w :b ld/load-module m)
           seen (atom #{})
