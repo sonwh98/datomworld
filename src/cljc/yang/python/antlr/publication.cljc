@@ -99,10 +99,14 @@
    first refusal: `publication-order`'s before anything is written, else
    `publish-module!`'s with a string `:unit`: the Python name for a member,
    or the bundle module name for an SCC bundle. Every bundle name must be
-   asserted/bound alongside the member names for aliases to deliver."
+   asserted/bound alongside the member names for aliases to deliver.
+   Optional `publish-fn` takes `[handle spec]`, defaulting to
+   `publish/publish-module!`, for both bundles and members."
   ([handle registry py-address units]
    (publish-units! handle registry py-address units {}))
   ([handle registry py-address units published]
+   (publish-units! handle registry py-address units published publish/publish-module!))
+  ([handle registry py-address units published publish-fn]
    (let [plan (publication-order units published)
          by-name (into {} (map (juxt :name identity)) units)]
      (if (= :refused (:status plan))
@@ -121,12 +125,12 @@
                                               :package? (:package? (get by-name step)),
                                               :py-address py-address, :deps deps})])
                  bundle (first specs)
-                 result (publish/publish-module! handle bundle)]
+                 result (publish-fn handle bundle)]
              (if (= :refused (:status result))
                (reduced (assoc result :unit (if (vector? step) (str (:name bundle)) step)))
                (if (vector? step)
                  (let [aliases (reduce (fn [a [n spec]]
-                                         (let [r (publish/publish-module!
+                                         (let [r (publish-fn
                                                    handle (assoc spec :requires
                                                                  {(:name bundle) (:address result)}))]
                                            (if (= :refused (:status r))
