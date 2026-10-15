@@ -644,6 +644,14 @@ unreadable in-tree by design; the row carrier of body version 3
 document's version-0/1/2 entries are the published description of those
 historical contracts.
 
+Also recorded here, so the fixture history is not silent: 8c regenerated
+`test/resources/yin/vm/ucf/rows-checkpoint-v3.txt` (a phase 7a/7b fixture) although
+the plan expected it to stay. The only content difference is its `installs` base
+pack: the install child carried a `{:yin.code/contract "v3"}` stamp and now carries
+`"v4"`, so three child segment addresses moved; no format keyword, lowering
+profile, H, R or descriptor is in any pack. A moved for exactly the one fixture
+whose child was still a v3 image (Architect final review of `srvm-phase8`).
+
 Second, the `"v3"` canonicalizer and the stack-shaped safepoint halves
 of `yin.vm.ucf` died in 8f-3, un-ported (8f-1 ruling R2, deferred
 step 4b; commit `7b8d2a93`): no producer
