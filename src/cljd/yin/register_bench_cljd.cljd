@@ -19,7 +19,7 @@
   (:require [dao.stream.ringbuffer :as ringbuffer]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.semantic-register :as semantic])
+            [yin.vm.semantic :as semantic])
   (:import ["dart:core" DateTime]))
 
 

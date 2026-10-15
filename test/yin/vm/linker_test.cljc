@@ -19,9 +19,9 @@
             [dao.test-slow :as slow]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [yin.vm.debruijn-code :as dcode]
             [yin.vm.debruijn-register-code :as rcode]
             [yin.vm.debruijn-code-test :as b0]
@@ -29,7 +29,7 @@
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.linker :as linker]
             [yin.vm.linker.publish :as publish]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
 
@@ -260,7 +260,7 @@
 (def formats
   "Each format record beside the lowering that mints its images. For the
    two storage-derived formats the mint side is
-   `yin.vm/materialize-tree!` / `yin.vm.semantic-register.code/materialize-vector!`
+   `yin.vm/materialize-tree!` / `yin.vm.semantic.code/materialize-vector!`
    (section 9) and the identity is its own address, so the index maps
    identity to itself (section 4.2, step 1)."
   [[:H linker/stack-format stack-image]
@@ -312,7 +312,7 @@
   "Store `image` for `format`; return `{:identity id :address a :index
    idx}`. The de Bruijn formats publish through `linker/publish!` and
    read the index back from the datom; the storage-derived formats mint
-   through `yin.vm`/`yin.vm.semantic-register.code` (section 9) and index identity to
+   through `yin.vm`/`yin.vm.semantic.code` (section 9) and index identity to
    itself."
   [handle format image]
   (if (storage-derived? format)
@@ -2040,7 +2040,7 @@
         (jing/close! publisher)))))
 
 
-(deftest semantic-register-scanners-yield-position-bearing-records
+(deftest semantic-scanners-yield-position-bearing-records
   (let [vector (:vector (sr-linearize/project def-then-use))
         {:keys [obligations-fn definitions-fn applications-fn]} linker/semantic-format
         defs (definitions-fn vector)
@@ -2053,7 +2053,7 @@
     (is (seq (applications-fn vector)))))
 
 
-(deftest semantic-register-format-refuses-a-malformed-vector
+(deftest semantic-format-refuses-a-malformed-vector
   (doseq [[label format] [[:v3 linker/semantic-format]
                           [:v4 linker/semantic-format]]]
     (testing label

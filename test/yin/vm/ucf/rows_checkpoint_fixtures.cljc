@@ -4,7 +4,7 @@
    and Dart.
 
    The five accepted bases are packs rows/lift-task itself emitted under
-   a custody header from real semantic-register machines
+   a custody header from real semantic machines
    (yin.vm.ucf.rows-support), the old checkpoint fixtures' five bases
    re-lifted. Nothing about a base is hand-built but its operation ids
    (`rows-support/with-op-id`). Every other fixture is a mutation of a

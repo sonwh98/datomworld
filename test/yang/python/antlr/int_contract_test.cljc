@@ -9,8 +9,8 @@
    the integer-valued floats, and the guest exception each limit reason
    becomes. The CPython columns are data; on the JVM python3 recomputes
    them when it is exactly 3.9.6, and the test says loudly when it skips."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             #?@(:cljd [] :clj [[clojure.java.shell :as shell]])
@@ -25,7 +25,7 @@
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.integer :as integer]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]
             [yin.vm.ucf.rows :as rows]
             [yin.vm.ucf.rows-support :as s]))

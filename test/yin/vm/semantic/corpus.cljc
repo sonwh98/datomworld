@@ -1,4 +1,4 @@
-(ns yin.vm.semantic-register.corpus
+(ns yin.vm.semantic.corpus
   "The phase-3 corpus of `yin.vm.semantic-register-vm.md` §10: map ASTs
    covering every §3.1 production, each with its golden register-shaped
    vector and code address. The same literal goldens are compiled on

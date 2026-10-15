@@ -2,7 +2,7 @@
   "D8 over the row carrier (UCF 7.7.4; r3 1.8 and 1.9; phase 7b): the
    exporting state, the prepare/encode split over rows/lift-task, the
    export-recovery object version 2, its fenced rehydration and the abort
-   rule. Every machine is a semantic-register machine the real engine
+   rule. Every machine is a semantic machine the real engine
    parked (yin.vm.ucf.rows-support); counting handles show what the gate,
    the encode and the rehydration touch."
   (:require [clojure.test :refer [deftest is testing]]

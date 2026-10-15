@@ -33,8 +33,8 @@
             [dao.space.transact :as transact]
             [dao.space.transactor :as transactor]
             [yin.vm :as vm]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.linearize :as linearize]))
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.linearize :as linearize]))
 
 
 (def lowering-profile

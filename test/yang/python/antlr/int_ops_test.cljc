@@ -1,7 +1,7 @@
 (ns yang.python.antlr.int-ops-test
   "C3 S3-A/B/C exact operators and range/index audit on all four VMs."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [clojure.test :refer [deftest is]]
             [clojure.walk :as walk]
             [dao.test-slow :as slow]
@@ -17,7 +17,7 @@
             [yin.vm.integer-v3-fixtures :as fx]
             [yin.vm.integer.host :as integer-host]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
 

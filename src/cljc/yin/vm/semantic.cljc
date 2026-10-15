@@ -1,4 +1,4 @@
-(ns yin.vm.semantic-register
+(ns yin.vm.semantic
   "The register-shaped canonical evaluator, phase 4b (effects, continuations, FFI and module installation)."
   (:require [dao.jing :as jing]
             [dao.stream.apply :as apply2]
@@ -8,12 +8,12 @@
             [yin.vm.module :as module]
             [yin.vm.telemetry :as telemetry]
             [yin.vm.values :as values]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.linearize :as linearize]
-            [yin.vm.semantic-register.analysis :as analysis]))
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.linearize :as linearize]
+            [yin.vm.semantic.analysis :as analysis]))
 
 
-(defrecord RegisterVM
+(defrecord SemanticVM
   [blocked?       ; boolean, true if blocked
    bridge         ; explicit host-side FFI bridge state
    halted?        ; boolean, true when active continuation has completed
@@ -326,13 +326,13 @@
   (load-vector machine (:vector (linearize/project-datoms datoms)) code/contract))
 
 
-(extend-type RegisterVM
+(extend-type SemanticVM
   vm/IVM
   (step [machine] (telemetry/emit-snapshot
                     (if (engine/ready-for-ingress? machine) machine (vm-hot machine 1)) :step))
   (run [machine] (ffi/maybe-run machine register-run-scheduler))
   (eval [machine ast]
-    (when ast (throw (ex-info "The register VM executes loaded vectors; use load-ast" {:ast ast})))
+    (when ast (throw (ex-info "The semantic VM executes loaded vectors; use load-ast" {:ast ast})))
     (engine/restore-initial-env (:env machine) (vm/run machine)))
   (reset [machine]
     (assoc machine :control (when-let [seg (:program machine)] {:segment seg :pc 0})
@@ -348,7 +348,7 @@
 
 
 (defn create-vm
-  "Create a new RegisterVM.
+  "Create a new SemanticVM.
 
    Options:
      :env           initial lexical environment
@@ -385,8 +385,8 @@
                                      :capability-secret :secret-source
                                      :attach-stream :gc-threshold])
                        :telemetry (:telemetry opts)
-                       :vm-model :semantic-register))]
-     (-> (map->RegisterVM (merge base
+                       :vm-model :semantic))]
+     (-> (map->SemanticVM (merge base
                                  {:bridge nil,
                                   :program nil,
                                   :control nil,
@@ -399,12 +399,12 @@
                                   :code-aliases {},
                                   :halted? true,
                                   :blocked? false}))
-         (telemetry/install :semantic-register)
+         (telemetry/install :semantic)
          (ffi/attach (:bridge opts))
          (telemetry/emit-snapshot :init)))))
 
 
-(extend-type RegisterVM
+(extend-type SemanticVM
   module/IModuleKernel
   (link-format [_]
     {:format :yin.semantic/code, :contract code/contract})

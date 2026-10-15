@@ -1,4 +1,4 @@
-(ns yin.vm.semantic-register.layout-test
+(ns yin.vm.semantic.layout-test
   "Phase 6c acceptance 1-9 (docs/design/yin.vm.semantic-register-vm.continuation.md
    §8.3): the register pairing and live sets, the register destination from
    A, the stack correspondence, operand layout and K slices, E
@@ -15,13 +15,13 @@
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
             [yin.vm.values :as values]
-            [yin.vm.semantic-register.analysis :as analysis]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.corpus :as corpus]
-            [yin.vm.semantic-register.derive :as derive]
-            [yin.vm.semantic-register.layout :as layout]
-            [yin.vm.semantic-register.linearize :as linearize]
-            [yin.vm.semantic-register.safepoint-harness-test :as h]
+            [yin.vm.semantic.analysis :as analysis]
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.corpus :as corpus]
+            [yin.vm.semantic.derive :as derive]
+            [yin.vm.semantic.layout :as layout]
+            [yin.vm.semantic.linearize :as linearize]
+            [yin.vm.semantic.safepoint-harness-test :as h]
             [yin.vm.ucf.rows-support :as s]))
 
 
@@ -120,9 +120,9 @@
   "The canonical wait entries of world machine m: the evaluator's own, or a
    de Bruijn kernel's through the layout. m's kernel-space is its scope's."
   [m]
-  (if (= :semantic-register (h/lane-of m))
+  (if (= :semantic (h/lane-of m))
     (:wait-set m)
-    (:wait-set (layout/canonical-task m (h/kernel-space m) (h/on-lane :semantic-register h/machine)))))
+    (:wait-set (layout/canonical-task m (h/kernel-space m) (h/on-lane :semantic h/machine)))))
 
 
 (deftest register-rd-from-a
@@ -147,7 +147,7 @@
   (testing "the K frames of :depth-3 take rd from A"
     (let [[_ wrap] (nth h/segments 2)
           build #(h/reader wrap h/read-op)
-          reference (first (:wait-set (:machine (h/on-lane :semantic-register build))))
+          reference (first (:wait-set (:machine (h/on-lane :semantic build))))
           [m [p]] (in-world :register build (juxt identity lifted-waits))
           entry (first (:wait-set m))]
       (is (= :depth-3 (first (nth h/segments 2))))
@@ -297,9 +297,9 @@
    K frame first, values normalised."
   [m]
   (let [waits (lifted-waits m)
-        parked (if (= :semantic-register (h/lane-of m))
+        parked (if (= :semantic (h/lane-of m))
                  (vals (:parked m))
-                 (vals (:parked (layout/canonical-task m (h/kernel-space m) (h/on-lane :semantic-register h/machine)))))]
+                 (vals (:parked (layout/canonical-task m (h/kernel-space m) (h/on-lane :semantic h/machine)))))]
     (h/normalize (mapv (fn [p] (conj (mapv :env (:k p)) (:env p))) (concat waits (sort-by :id parked))))))
 
 
@@ -310,7 +310,7 @@
                     env-programs)]
     (doseq [[label build] cases]
       (testing label
-        (let [expected (envs (:machine (h/on-lane :semantic-register build)))]
+        (let [expected (envs (:machine (h/on-lane :semantic build)))]
           (doseq [lane [:stack :register]]
             (is (= expected (in-world lane build envs)) (str (name lane) "'s E is the evaluator's"))
             (swap! checked inc)))))
@@ -378,7 +378,7 @@
       (testing (str (name label) " " (name lane))
         (h/scoped
           (fn []
-            (let [sr (:machine (h/on-lane :semantic-register #(h/reader identity ast)))
+            (let [sr (:machine (h/on-lane :semantic #(h/reader identity ast)))
                   k (:machine (h/on-lane lane #(h/reader identity ast)))
                   sp (h/kernel-space k)
                   cx (layout/lift-context k sp (:owner k))
@@ -416,7 +416,7 @@
    entries' :frames and :store-of replaced by fill when given: the run's
    observables and the entries as lowered."
   [build lane fill]
-  (let [world (h/on-lane :semantic-register build)
+  (let [world (h/on-lane :semantic build)
         {:keys [toy peer serve!]} (h/served #{:reader})
         wire (h/lane-lift (:machine world) serve!)
         {:keys [attach!]} (h/recording-attacher toy)
@@ -509,7 +509,7 @@
                 n (atom 0)
                 {:keys [serve!]} (h/served #{:reader})
                 counting #(do (swap! n inc) (serve! %))
-                template (h/on-lane :semantic-register h/machine)
+                template (h/on-lane :semantic h/machine)
                 d (h/error #(layout/lift-task m (layout/space [ax ay]) template counting (h/lift-opts)))]
             (is (vm/blocked? m))
             (is (contains? (set (map first (:images m))) (if (= :stack lane) (:stack-id ax) (:register-id ax)))
@@ -543,7 +543,7 @@
     (doseq [lane [:stack :register]]
       (testing (name lane)
         (let [ref (h/reference (alpha-world :one))
-              got (h/crossed :semantic-register lane #(alpha-world :one))]
+              got (h/crossed :semantic lane #(alpha-world :one))]
           (is (= "B" (:value ref)))
           (is (= 1 (count (h/stream-identities (:wire got)))))
           (is (= 1 (:attaches got)) "lowered, one attach")
@@ -565,7 +565,7 @@
   (let [m0 (vm/run (h/load-program (h/machine) (s/lam ['arg] (s/v 'arg))))
         f (vm/value m0)
         m1 (cond-> (update m0 :free-env assoc 'f f)
-             (= :semantic-register (h/lane-of m0)) (update :env assoc 'f f))
+             (= :semantic (h/lane-of m0)) (update :env assoc 'f f))
         m (vm/run (h/load-program m1 (h/with-stream (s/then h/read-op (s/app (s/v 'f) (s/lit "B"))))))
         src (s/stream-of m)]
     {:machine m :kind :blocked :reason :next :steps [#(stream/append! src "B")] :trace (atom [])}))
@@ -573,14 +573,14 @@
 
 (deftest free-env-values
   (testing "the reference lane and the carrier admit it"
-    (let [world (h/on-lane :semantic-register free-closure-world)]
+    (let [world (h/on-lane :semantic free-closure-world)]
       (is (values/closure? (get-in world [:machine :free-env 'f])))
-      (is (= "B" (:value (h/reference (h/on-lane :semantic-register free-closure-world)))))
+      (is (= "B" (:value (h/reference (h/on-lane :semantic free-closure-world)))))
       (is (= "B" (:value (h/handed-off world))))))
   (testing "a de Bruijn receiver refuses it before any attach"
     (doseq [lane [:stack :register]]
       (testing (name lane)
-        (let [world (h/on-lane :semantic-register free-closure-world)
+        (let [world (h/on-lane :semantic free-closure-world)
               {:keys [serve! toy]} (h/served #{:reader})
               wire (h/lane-lift (:machine world) serve!)
               {:keys [attach!] n :count} (h/recording-attacher toy)
@@ -643,7 +643,7 @@
   (let [[x m0 feed] (made (h/machine))
         box (wrap x)
         m1 (cond-> (update m0 :free-env assoc 'box box)
-             (= :semantic-register (h/lane-of m0)) (update :env assoc 'box box))
+             (= :semantic (h/lane-of m0)) (update :env assoc 'box box))
         m (vm/run (h/load-program m1 (program extract)))
         src (or feed (s/stream-of m))]
     {:machine m :kind :blocked :reason :next :steps [#(stream/append! src "B")] :trace (atom [])}))
@@ -657,11 +657,11 @@
     (testing (str (name label) " in a " (name nest))
       (let [build #(boxed-world made wrap program extract)
             procedure? (contains? #{:closure :continuation} label)]
-        (is (= (h/normalize expected) (:value (h/reference (h/on-lane :semantic-register build)))) "the reference lane")
+        (is (= (h/normalize expected) (:value (h/reference (h/on-lane :semantic build)))) "the reference lane")
         (doseq [lane [:stack :register]]
           (testing (str ", lowered into " (name lane))
             (if procedure?
-              (let [world (h/on-lane :semantic-register build)
+              (let [world (h/on-lane :semantic build)
                     {:keys [serve! toy]} (h/served #{:reader})
                     wire (h/lane-lift (:machine world) serve!)
                     {:keys [attach!] n :count} (h/recording-attacher toy)
@@ -669,7 +669,7 @@
                 (is (= [:yin.k/unsupported :free-env-value] [(:yin.k/status d) (:yin.k/kind d)]) (pr-str d))
                 (is (= path (:yin.k/path d)))
                 (is (zero? @n) "refused before any attachment"))
-              (let [got (h/crossed :semantic-register lane build)]
+              (let [got (h/crossed :semantic lane build)]
                 (is (pos? (:attaches got)))
                 (is (= (count (h/stream-identities (:wire got))) (:attaches got)))
                 (is (= (h/normalize expected) (:value got)) "admitted, and used through the collection"))))
@@ -686,5 +686,5 @@
                     (is (= [:yin.k/non-portable :free-env-value] [(:yin.k/status d) (:yin.k/kind d)]) (pr-str d))
                     (is (= 'box (:yin.k/key d)))
                     (is (zero? @n) "no stream was served"))))
-              (is (= (h/normalize expected) (:value (h/crossed lane :semantic-register build)))
+              (is (= (h/normalize expected) (:value (h/crossed lane :semantic build)))
                   "admitted, and used through the collection"))))))))

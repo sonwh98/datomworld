@@ -10,7 +10,7 @@
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.malformed-rows :as malformed]
             [yin.vm.parity-test :as parity]
-            [yin.vm.semantic-register :as semantic]))
+            [yin.vm.semantic :as semantic]))
 
 
 (defn- error-message

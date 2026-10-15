@@ -1,8 +1,8 @@
-(ns yin.vm.semantic-register.code-test
+(ns yin.vm.semantic.code-test
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.corpus :as corpus]
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.corpus :as corpus]
             [yin.vm.ucf :as ucf]))
 
 

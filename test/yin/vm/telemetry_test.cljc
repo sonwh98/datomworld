@@ -1,7 +1,7 @@
 (ns yin.vm.telemetry-test
   "The v2 telemetry suite `vm-telemetry-design.md` prescribes, reduced to the
    two live VMs: the four core tests are parameterized over `:ast-walker` and
-   `:semantic-register`; the smoke tests are one deftest per model driven through the
+   `:semantic`; the smoke tests are one deftest per model driven through the
    protocol's own `step` (the `:step` boundary lives there, not in `run`);
    serialization and bridge tests exercise the shared emit path through the
    walker, whose store carries the richest values (an FFI pair, a made
@@ -14,7 +14,7 @@
             [dao.stream :as stream]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.telemetry :as telemetry]
             [yin.vm.test-utils :as tu]))
 
@@ -129,7 +129,7 @@
                                         vm/ast-contract))
     :run (fn [vm ast] (vm/eval vm ast))}
 
-   :semantic-register
+   :semantic
    {:create (fn [opts]
               (semantic/create-vm (merge {:make-stream tu/make-stream,
                                           :capability-secret tu/secret}

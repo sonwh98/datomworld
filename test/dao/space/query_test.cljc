@@ -22,9 +22,9 @@
             [dao.stream.memory-log :as memory-log]
             [dao.stream.ringbuffer :as ringbuffer]
             [yin.vm :as vm]
-            [yin.vm.semantic-register.code :as sr-code]
-            [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.scan :as scan]
+            [yin.vm.semantic.code :as sr-code]
+            [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.scan :as scan]
             #?@(:cljd [["dart:io" :as dart-io]])))
 
 
@@ -1828,7 +1828,7 @@
              :stream/close}
            (into #{} (mapcat val) (:tags table)))
         "the identifiers contributed are exactly the effects the machine
-          raises (`{:effect …}` in semantic_register.cljc's hot loop); FFI, park,
+          raises (`{:effect …}` in semantic.cljc's hot loop); FFI, park,
           resume, gensym, store, and current-continuation contribute none")))
 
 

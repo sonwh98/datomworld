@@ -1,18 +1,18 @@
-(ns yin.vm.semantic-register.link-test
+(ns yin.vm.semantic.link-test
   (:require [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
-            [yin.vm.semantic-register.walker-trace-test :as trace]
+            [yin.vm.semantic.walker-trace-test :as trace]
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
             [yin.vm.values :as values]
             [yin.vm.test-utils :as tu]
-            [yin.vm.semantic-register :as sr]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.linearize :as linearize]
-            [yin.vm.semantic-register.corpus :refer [lit v lam app tail def!]]
-            [yin.vm.semantic-register.parity-test :as parity]))
+            [yin.vm.semantic :as sr]
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.linearize :as linearize]
+            [yin.vm.semantic.corpus :refer [lit v lam app tail def!]]
+            [yin.vm.semantic.parity-test :as parity]))
 
 
 (defn refusal

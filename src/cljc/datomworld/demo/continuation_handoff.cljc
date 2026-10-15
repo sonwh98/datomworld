@@ -21,7 +21,7 @@
   (:require [clojure.edn :as edn]
             [clojure.walk :as walk]
             [yin.vm :as vm]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.values :as values]))
 
 

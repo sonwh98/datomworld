@@ -1,4 +1,4 @@
-(ns yin.vm.semantic-register.linearize
+(ns yin.vm.semantic.linearize
   "`project`: the Universal AST → the register-shaped canonical vector
    (`docs/design/yin.vm.semantic-register-vm.md` §3.3).
 

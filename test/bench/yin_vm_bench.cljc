@@ -20,7 +20,7 @@
   (:require #?@(:cljd [] :clj [[criterium.core :as criterium]])
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.semantic-register :as semantic])
+            [yin.vm.semantic :as semantic])
   #?(:cljd (:import ["dart:core" DateTime])))
 
 

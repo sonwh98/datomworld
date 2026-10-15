@@ -1,4 +1,4 @@
-(ns yin.vm.semantic-register.code
+(ns yin.vm.semantic.code
   "Well-formedness of the register-shaped canonical vector
    (`docs/design/yin.vm.semantic-register-vm.md` §2.2-2.3, §3).
 
@@ -9,7 +9,7 @@
    and the §3.4 rules 1-13, which run in order, first defect wins, each
    defect naming its rule and pc. Decoding into an executable image
    belongs to the evaluator (phase 4); the static facts of §8.1 are
-   `yin.vm.semantic-register.analysis`'s."
+   `yin.vm.semantic.analysis`'s."
   (:require [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
             [yin.vm :as vm]))

@@ -5,7 +5,7 @@
    the deleted dao.jing.remote blocking constructor; its consumers are
    the coordinate opener (dao.jing.coordinate/open!) and, through it,
    dao.space and yin.vm.linker.interpreter on the JVM. yin.vm's
-   materialize-tree! and yin.vm.semantic-register.code/materialize-vector! have no
+   materialize-tree! and yin.vm.semantic.code/materialize-vector! have no
    remote path of their own: they gain one only by being handed a
    coordinate-built handle.
 

@@ -3,7 +3,7 @@
    integration'): the two executable pipelines compared end to end.
 
      A: sr-linearize/project -> derive/stack-image -> yin.vm.debruijn.stack
-     B: ast->datoms -> semantic-register/load-ast
+     B: ast->datoms -> semantic/load-ast
 
    Execution fixtures are the actual corpora, reused rather than copied:
    `yin.vm.parity-test/corpus` and `yin.vm-test/semantic-bytecode-corpus`
@@ -24,12 +24,12 @@
             [dao.stream :as stream]
             [yin.vm :as vm]
             [yin.vm.debruijn-code :as dc]
-            [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+            [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [yin.vm.debruijn-code-test :as b0]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.parity-test :as parity]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]
             [yin.vm-test :as vm-test]))
 
@@ -117,7 +117,7 @@
 
 
 (defn- named-outcome
-  "Pipeline B: AST datoms onto a fresh semantic-register VM."
+  "Pipeline B: AST datoms onto a fresh semantic VM."
   [ast]
   (outcome #(vm/run (load-ast (semantic/create-vm
                                 {:make-stream tu/make-stream,

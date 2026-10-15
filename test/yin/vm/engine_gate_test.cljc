@@ -2,8 +2,8 @@
   "D4: the gate on the engine's immediate stream effects (put, next, poll)
    and the observe/apply split. Counting handles show that a gated machine
    makes zero stream calls."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
@@ -15,7 +15,7 @@
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
 

@@ -7,7 +7,7 @@
             [datomworld.demo.continuation-transport :as transport]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.semantic-register :as semantic]))
+            [yin.vm.semantic :as semantic]))
 
 
 (defn- make-stream

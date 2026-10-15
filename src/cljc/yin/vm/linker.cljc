@@ -42,12 +42,12 @@
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
             [yin.vm :as vm]
-            [yin.vm.semantic-register.code :as sr-code]
-            [yin.vm.semantic-register.scan :as scan]
+            [yin.vm.semantic.code :as sr-code]
+            [yin.vm.semantic.scan :as scan]
             [yin.vm.debruijn-code :as debruijn-code]
-            [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic.linearize :as sr-linearize]
             [yin.vm.debruijn-register-code :as debruijn-register-code]
-            [yin.vm.semantic-register.derive :as derive]
+            [yin.vm.semantic.derive :as derive]
             [yin.vm.ledger :as ledger]
             [yin.vm.module :as module]))
 
@@ -2054,7 +2054,7 @@
    `segment-key`; the identity is the format's own mint. The caller owns
    the index: nothing is recorded here. The two storage-derived formats
    mint through `yin.vm/materialize-tree!` and
-   `yin.vm.semantic-register.code/materialize-vector!` instead (section 9)."
+   `yin.vm.semantic.code/materialize-vector!` instead (section 9)."
   [handle format image]
   (let [address (jing/materialize! handle image)]
     [((:identity-fn format) image) (address-attribute format) address]))

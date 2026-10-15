@@ -22,7 +22,7 @@
             [yin.vm.ast-walker :as walker]
             [yin.vm.debruijn-code :as dcode]
             [yin.vm.debruijn-register-code :as rcode]
-            [yin.vm.semantic-register.derive :as derive]
+            [yin.vm.semantic.derive :as derive]
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
@@ -31,8 +31,8 @@
             [yin.vm.linker.publish :as publish]
             [yin.repl :as repl]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as sr]
-            [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic :as sr]
+            [yin.vm.semantic.linearize :as sr-linearize]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values]))
 
@@ -117,14 +117,7 @@
    `:continue` admits the next top-level input to a halted task, as
    `yin.repl` does; `:obligations` runs the real linker's steps 3 to 5a
    over an image."
-  {:semantic-register
-   {:image (fn [ast] (:vector (sr-linearize/project ast))),
-    :vm (fn [ast opts] (sr/load-ast (sr/create-vm opts) (vm/ast->datoms ast) vm/ast-contract)),
-    :continue (fn [task ast] (sr/load-ast task (vm/ast->datoms ast) vm/ast-contract)),
-    ;; install-mechanics fixture: empty obligations until phase 5 supplies
-    ;; the register-vector scanners; proves install, not dependency completeness
-    :obligations (constantly [])},
-   :stack
+  {:stack
    {:image stack-image,
     :vm (fn [ast opts]
           (dvm/create-vm (stack-image ast)
@@ -607,8 +600,7 @@
 
 
 (deftest a-body-read-applied-before-its-definition-keeps-its-obligation-test
-  ;; excluded until phase 5c supplies the register-vector scanners; install mechanics are covered by link-test
-  (doseq [backend (remove #{:semantic-register} (keys backends))]
+  (doseq [backend (keys backends)]
     (testing (name backend)
       (let [{:keys [image obligations]} (get backends backend)
             module (progn (def! 'f (lam [] (v 'y)))

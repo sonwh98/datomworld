@@ -29,7 +29,7 @@
             [yin.vm.linker.publish :as publish]
             [yin.vm.linker.publish-test :as publish-test]
             [yin.vm.linker.sign :as sign]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
 

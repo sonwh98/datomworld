@@ -3,8 +3,8 @@
    The receiver starts with identity and index, never an image. Remote
    stream envelopes cross Transit pipes between two ring compositions.
    Build the test-only peer on every run so this gate cannot skip."
-  (:require [yin.vm.semantic-register.derive :as derive]
-            [yin.vm.semantic-register.linearize :as sr-linearize]
+  (:require [yin.vm.semantic.derive :as derive]
+            [yin.vm.semantic.linearize :as sr-linearize]
             [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.test :refer [deftest is testing]]

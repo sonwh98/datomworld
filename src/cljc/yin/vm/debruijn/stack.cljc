@@ -42,7 +42,7 @@
 
    Every program used in this namespace's own tests is a hand-built
    instruction vector, the same technique B1's standalone validator tests
-   use; `yin.vm.semantic-register.derive/stack-image` produces images against this
+   use; `yin.vm.semantic.derive/stack-image` produces images against this
    kernel from its own test namespace. This namespace requires
    `yin.vm.debruijn-code` for one thing only: computing H at load time.
 
@@ -141,7 +141,7 @@
    stack, and continuation, and the machine is running unless the segment
    is empty. The store, the parked map, the wait set, the ready queue,
    the id counter, and the composition values survive, exactly as they
-   survive a `yin.vm.semantic-register/load-vector`. The offset table restarts at
+   survive a `yin.vm.semantic/load-vector`. The offset table restarts at
    `[H 0 n]`, so a continuation parked under an earlier image names no row
    of it and `stack-restore` refuses it.
 
@@ -911,7 +911,7 @@
   (run [this] (ffi/maybe-run this run-scheduler))
   (eval [_ ast]
     (throw (ex-info
-             "The de Bruijn kernel executes raw instruction vectors, not AST: lower and adapt it first (yin.vm.semantic-register.derive/stack-image over the projected semantic vector), then load and run the resulting image"
+             "The de Bruijn kernel executes raw instruction vectors, not AST: lower and adapt it first (yin.vm.semantic.derive/stack-image over the projected semantic vector), then load and run the resulting image"
              {:ast ast})))
   (reset [this]
     (assoc this

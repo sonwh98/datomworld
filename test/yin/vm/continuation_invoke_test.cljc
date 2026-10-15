@@ -3,14 +3,14 @@
    call/cc): abortive, multi-shot, store not rolled back, one argument. Each
    program runs on all four VMs -- the AST walker, the semantic VM, and the
    de Bruijn stack and register VMs -- with the same expectation."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
 
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
 
@@ -30,15 +30,7 @@
 
 
 (def ^:private runners
-  {:semantic-register (fn [ast]
-                        (loop [machine (semantic/load-ast (semantic/create-vm opts) (vm/ast->datoms ast) vm/ast-contract)
-                               steps 0]
-                          (cond
-                            (vm/halted? machine) (vm/value machine)
-                            (vm/blocked? machine) (throw (ex-info "Register continuation test blocked" {}))
-                            (= steps 10000) (throw (ex-info "Register continuation step bound exhausted" {}))
-                            :else (recur (vm/step machine) (inc steps))))),
-   :ast-walker tu/compile-and-run,
+  {:ast-walker tu/compile-and-run,
    :semantic (fn [ast]
                (vm/value (vm/run (load-semantic-ast (semantic/create-vm opts)
                                                     (vm/ast->datoms ast)))))

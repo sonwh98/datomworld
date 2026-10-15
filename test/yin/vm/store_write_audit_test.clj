@@ -379,7 +379,7 @@
    ;; converts values only and never introduces a key, so a second key
    ;; check would prove nothing -- the precedent of restore-task and
    ;; isolated-receiver above
-   "src/cljc/yin/vm/semantic_register/layout.cljc"
+   "src/cljc/yin/vm/semantic/layout.cljc"
    {["canonical-task" "assoc"] 1
     ["kernel-task" "assoc"] 1}})
 

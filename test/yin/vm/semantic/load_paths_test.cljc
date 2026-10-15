@@ -1,12 +1,12 @@
-(ns yin.vm.semantic-register.load-paths-test
+(ns yin.vm.semantic.load-paths-test
   "code-as-tuples §7.2 for the register-shaped vector: the direct vector
    load and the projection loads (datom lane, row lane) run one validator
    and yield one image."
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.corpus :as corpus]
-            [yin.vm.semantic-register.linearize :as linearize]))
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.corpus :as corpus]
+            [yin.vm.semantic.linearize :as linearize]))
 
 
 (defn- load-image

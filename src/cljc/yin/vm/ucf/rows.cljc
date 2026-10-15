@@ -1,7 +1,7 @@
 (ns yin.vm.ucf.rows
   "Version-3 row codec. Pure row construction, graph decoding and
    discovery-order cursor-cell numbering (design note §1), then full task
-   transport for the semantic-register kernel (continuation design §7):
+   transport for the semantic kernel (continuation design §7):
    lift-task walks a quiescent machine into an abstract task and emits it;
    lower-task decodes, checks and restores one into a fresh receiver.
    An abstract row is {:kind keyword :slots vector}. Structural references
@@ -25,10 +25,10 @@
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
             [yin.vm.values :as values]
-            [yin.vm.semantic-register.analysis :as analysis]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.frame :as frame]
-            [yin.vm.semantic-register.scan :as scan]
+            [yin.vm.semantic.analysis :as analysis]
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.frame :as frame]
+            [yin.vm.semantic.scan :as scan]
             [yin.vm.ucf.custody :as custody]
             [yin.vm.ucf.remote :as remote]))
 
@@ -1318,7 +1318,7 @@
 ;; Task transport (continuation design §7): lift-task and lower-task
 ;; =============================================================================
 ;;
-;; The lift walks a quiescent semantic-register machine into the abstract
+;; The lift walks a quiescent semantic machine into the abstract
 ;; task the codec above emits: waits, parked records, the store, module
 ;; stores, the free environment, the result and install children, every
 ;; value classified as [:lit x], [:row n] or [:cursor-cell source]. A
@@ -1733,7 +1733,7 @@
 
 
 (defn lift-task
-  "The lift of §7.1: quiescent semantic-register machine m as a version-3
+  "The lift of §7.1: quiescent semantic machine m as a version-3
    carrier, or a refusal thrown as ex-data {:yin.k/status :yin.k/kind}.
    serve! is the exporter's remote-table entry (yin.vm.ucf.remote).
    opts: :free-env, the task's initial free environment (default: the
@@ -2242,7 +2242,7 @@
 
 
 (defn lower-task
-  "The lower of §7.2 into recv, a fresh semantic-register machine of the
+  "The lower of §7.2 into recv, a fresh semantic machine of the
    receiver's composition: gate to frames (decode) and the store keys,
    then pendings and install records, dependency closure (code, closures,
    primitives), each step over the whole tree before the next, then

@@ -1,16 +1,16 @@
-(ns yin.vm.semantic-register.vm-test
+(ns yin.vm.semantic.vm-test
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
             [yin.vm.test-utils :as tu]
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
             [yin.vm.values :as values]
-            [yin.vm.semantic-register :as sr]
-            [yin.vm.semantic-register.analysis :as analysis]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.code-test :as code-test]
-            [yin.vm.semantic-register.corpus :as corpus]
-            [yin.vm.semantic-register.parity-test :as parity]))
+            [yin.vm.semantic :as sr]
+            [yin.vm.semantic.analysis :as analysis]
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.code-test :as code-test]
+            [yin.vm.semantic.corpus :as corpus]
+            [yin.vm.semantic.parity-test :as parity]))
 
 
 (defn error-data

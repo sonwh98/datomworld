@@ -1,6 +1,6 @@
 (ns yin.vm.ffi-test
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
@@ -11,7 +11,7 @@
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.ffi :as ffi]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
 
@@ -379,9 +379,7 @@
 
 (def ^:private vm-kinds
   "Each VM kind's run of `ast` on a fresh VM built from `opts`."
-  {:semantic-register (fn [opts ast]
-                        (vm/run (semantic/load-ast (semantic/create-vm opts) (vm/ast->datoms ast) vm/ast-contract))),
-   :ast-walker (fn [opts ast] (vm/eval (ast-walker/create-vm opts) ast)),
+  {:ast-walker (fn [opts ast] (vm/eval (ast-walker/create-vm opts) ast)),
    :semantic (fn [opts ast]
                (vm/run (load-semantic (semantic/create-vm opts)
                                       (vm/ast->datoms ast)))),

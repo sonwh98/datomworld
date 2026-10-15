@@ -1,4 +1,4 @@
-(ns yin.vm.semantic-register.effects-test
+(ns yin.vm.semantic.effects-test
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
@@ -7,14 +7,14 @@
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
             [yin.vm.test-utils :as tu]
-            [yin.vm.semantic-register.walker-trace-test :as trace]
+            [yin.vm.semantic.walker-trace-test :as trace]
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
             [yin.vm.values :as values]
-            [yin.vm.semantic-register :as sr]
-            [yin.vm.semantic-register.analysis :as analysis]
-            [yin.vm.semantic-register.corpus :refer [lit v lam app tail if-node def!]]
-            [yin.vm.semantic-register.parity-test :as parity]))
+            [yin.vm.semantic :as sr]
+            [yin.vm.semantic.analysis :as analysis]
+            [yin.vm.semantic.corpus :refer [lit v lam app tail if-node def!]]
+            [yin.vm.semantic.parity-test :as parity]))
 
 
 (defn run-ast

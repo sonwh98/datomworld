@@ -975,7 +975,7 @@
   "The lowest entity id claimed by the segments in a `{segment-id image}`
    code map — each segment id minus its length — or 0 when none is loaded.
    A loader minting a fresh local segment id allocates below this floor
-   (`semantic-register/load-ast` for projected AST batches, `semantic-register/load-vector`
+   (`semantic/load-ast` for projected AST batches, `semantic/load-vector`
    for canonical instruction vectors), so successive loads never collide
    with a live id."
   [code]
@@ -1670,7 +1670,7 @@
   "§7.7.1's effect normalization as a data value, keyed by the execution
    contract stamp (UCF §7.3.3) — the effect a syntax tag or mnemonic raises
    is part of that contract, lifted out of the reference machine's hot loop
-   (`semantic_register.cljc`). Two directions: `:tags` over every §2.3 syntax tag
+   (`semantic.cljc`). Two directions: `:tags` over every §2.3 syntax tag
    and `:mnemonics` over every §2.4 mnemonic, each to the set of effect
    identifiers it contributes. Every tag and every mnemonic has a row, so
    \"no external effect\" is an explicit `#{}`, never an absence; a tag or
@@ -1679,7 +1679,7 @@
    table subsets, so over validated rows the lookup is total. The design
    table's tag↔mnemonic correspondence is 1:1 for the effect rows and
    deliberately lumped for the structural rows (see
-   `yin.vm.semantic-register.linearize`), so it is not re-stated as a map here. Its \"other
+   `yin.vm.semantic.linearize`), so it is not re-stated as a map here. Its \"other
    requirement\" column is realized by the extraction queries themselves:
    an FFI op goes to the receiver-capability requirement
    (`:yin.k/ffi-ops` — the pair's own store keys are never a store-slice

@@ -1,6 +1,6 @@
 (ns yin.vm.ucf.rows-support
   "Test support for the row carrier under custody (phase 7a): real
-   semantic-register machines the engine parks, the composition's source
+   semantic machines the engine parks, the composition's source
    index, a deterministic exporter, the custody header parts and `lift`,
    rows/lift-task over one machine. It owns the shared AST helpers,
    one-slot streams, exporter, header parts and remote stream test seams.
@@ -19,9 +19,9 @@
             [yin.vm.engine :as engine]
             [yin.vm.ledger :as ledger]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as sr]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.linearize :as linearize]
+            [yin.vm.semantic :as sr]
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.linearize :as linearize]
             [yin.vm.test-utils :as tu]
             [yin.vm.ucf.rows :as rows]
             [yin.vm.values :as values]))

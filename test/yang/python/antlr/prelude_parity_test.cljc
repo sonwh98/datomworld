@@ -11,8 +11,8 @@
    never changes an interpreter-generated exception's class. Cross-module
    exception identity is not tested here: it needs two units sharing one
    task's prelude, which arrives with P2."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
             [dao.jing :as jing]
@@ -29,7 +29,7 @@
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.integer :as integer]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
 

@@ -1,9 +1,9 @@
-(ns yin.vm.semantic-register.derive
+(ns yin.vm.semantic.derive
   "Pure native derivations from the admitted semantic register vector A."
   (:refer-clojure :exclude [resolve])
-  (:require [yin.vm.semantic-register.code :as code]
+  (:require [yin.vm.semantic.code :as code]
             [yin.vm.debruijn :as db]
-            [yin.vm.semantic-register.analysis :as analysis]
+            [yin.vm.semantic.analysis :as analysis]
             [yin.vm.debruijn-register-code :as rcode]))
 
 

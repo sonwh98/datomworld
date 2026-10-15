@@ -23,8 +23,8 @@
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.encoder :as encoder]
             [yin.vm.engine :as engine]
-            [yin.vm.semantic-register.linearize :as linearize]
-            [yin.vm.semantic-register :as semantic]))
+            [yin.vm.semantic.linearize :as linearize]
+            [yin.vm.semantic :as semantic]))
 
 
 (def default-capacity 64)

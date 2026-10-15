@@ -9,8 +9,8 @@
    for. Also: kind survives projection and decoding, 1 and 1.0 stay
    distinct, a zero keeps its sign, and the program runs on all four VMs,
    decoded or not."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
@@ -32,7 +32,7 @@
             [yin.vm.engine :as engine]
             [yin.vm.integer :as integer]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values]))
 

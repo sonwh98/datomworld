@@ -1,9 +1,9 @@
-(ns yin.vm.semantic-register.scan
+(ns yin.vm.semantic.scan
   "Dependency facts derived from admitted semantic register vectors."
   (:require [dao.space.query :as query]
             [yin.vm :as vm]
             [yin.vm.debruijn :as debruijn]
-            [yin.vm.semantic-register.code :as code]
+            [yin.vm.semantic.code :as code]
             [yin.vm.ucf :as ucf]))
 
 

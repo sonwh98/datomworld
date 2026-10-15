@@ -1,8 +1,8 @@
-(ns yin.vm.semantic-register.frame
+(ns yin.vm.semantic.frame
   "Pure, ordered validation of decoded canonical continuation frames (§3)."
   (:require [yin.vm :as vm]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.analysis :as analysis]))
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.analysis :as analysis]))
 
 
 (defn- problem

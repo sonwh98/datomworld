@@ -1,7 +1,7 @@
-(ns yin.vm.semantic-register.layout
+(ns yin.vm.semantic.layout
   "Phase 6c (docs/design/yin.vm.semantic-register-vm.continuation.md §4):
    the de Bruijn register and stack kernels reconstruct the canonical
-   frame of the register machine through their layouts, and lower it
+   frame of the semantic kernel through their layouts, and lower it
    back.
 
    Static half, per segment A: `segment` derives R(A) and H(A) and reads
@@ -15,9 +15,9 @@
 
    Dynamic half: `lift-state` reads a kernel's wait entry, parked record
    or reified payload as the canonical `act` or `tail` payload the
-   semantic-register evaluator mints (`{:segment A :pc :env :window :k
+   semantic evaluator mints (`{:segment A :pc :env :window :k
    :deliver}`, `{:segment A :site :k :deliver}`, engine fields carried);
-   `lower-state` is its inverse. The register kernel's return
+   `lower-state` is its inverse. The semantic kernel's return
    destinations are recovered from A, never from the physical `:dest`;
    the stack kernel's operand stack is sliced `[previous-base, base)` per
    frame and lowered with cumulative bases. `E` is the free environment
@@ -25,7 +25,7 @@
    each frame back from `E` by the chain, never the free environment.
 
    Task level: `canonical-task` presents a quiescent kernel as a
-   semantic-register machine for `yin.vm.ucf.rows/lift-task`;
+   semantic machine for `yin.vm.ucf.rows/lift-task`;
    `kernel-task` restores a machine `rows/lower-task` produced into a
    fresh kernel; `lift-task` and `lower-task` compose them with the row
    carrier, the lower refusing what a kernel cannot hold before any
@@ -39,9 +39,9 @@
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register.analysis :as analysis]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.derive :as derive]
+            [yin.vm.semantic.analysis :as analysis]
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.derive :as derive]
             [yin.vm.ucf.rows :as rows]
             [yin.vm.values :as values]))
 
@@ -713,7 +713,7 @@
 
 
 (defn canonical-task
-  "Quiescent kernel `k` presented as semantic-register machine `template`
+  "Quiescent kernel `k` presented as semantic machine `template`
    (a fresh machine of the same composition) for `rows/lift-task`: code
    by A from `space`, every wait, parked record and value reconstructed
    through the layout; resources, stores and counters carried. A running
@@ -757,7 +757,7 @@
 
 (defn lift-task
   "§7.1 for a de Bruijn kernel: `rows/lift-task` over its canonical
-   presentation. `template` is a fresh semantic-register machine of the
+   presentation. `template` is a fresh semantic machine of the
    kernel's composition; opts as rows/lift-task's."
   [k space template serve! opts]
   (rows/lift-task (canonical-task k space template) serve! opts))
@@ -778,7 +778,7 @@
 
 
 (defn machine-space
-  "The space of the A vectors semantic-register machine `m` holds, and
+  "The space of the A vectors semantic machine `m` holds, and
    the map from its segment ids to A."
   [m]
   [(space (map :vector (vals (:code m))))
@@ -786,7 +786,7 @@
 
 
 (defn kernel-task
-  "Step 12 for a de Bruijn receiver: semantic-register machine `m` (what
+  "Step 12 for a de Bruijn receiver: semantic machine `m` (what
    `rows/lower-task` restored) as fresh kernel `k` of the same
    composition: every image derived and attached, the free environment
    set, every wait, parked record and value lowered through the layout.
@@ -951,7 +951,7 @@
 (defn lower-task
   "§7.2 into a de Bruijn kernel: decode `wire`, refuse what kernel `k`
    cannot hold (`lower-defect`) before any attach, then `rows/lower-task`
-   into `scratch` (a fresh semantic-register machine of the same
+   into `scratch` (a fresh semantic machine of the same
    composition: the carrier's steps 1-11 and restore) and `kernel-task`
    into `k`. Throws the first refusal as ex-data."
   ([scratch k wire attach!] (lower-task scratch k wire attach! {}))
