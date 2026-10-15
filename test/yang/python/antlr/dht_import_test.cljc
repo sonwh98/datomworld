@@ -87,25 +87,11 @@
                                           {"k" :test/k})))))
 
 
-(deftest a-cyclic-pair-is-refused-at-publication-by-name-test
-  (let [store (mem/create-content-mem)
-        refusal {:status :refused,
-                 :reason :yang.python.antlr/import-cycle,
-                 :cycle ["ca" "cb"]}]
-    (testing "ca imports cb imports ca: refused naming both, least first,
-              whichever unit the set lists first"
-      (is (= refusal
-             (publication/publish-units!
-               store (h/registry) stand-in-address
-               [(unit "ca" programs/ca-packet)
-                (unit "cb" programs/cb-packet)])))
-      (is (= refusal
-             (publication/publish-units!
-               store (h/registry) stand-in-address
-               [(unit "cb" programs/cb-packet)
-                (unit "ca" programs/ca-packet)]))))
-    (testing "nothing was written"
-      (is (empty? ((:entries-fn store)))))))
+(deftest cyclic-components-are-ordered-as-one-publication-step-test
+  (doseq [units [[(unit "ca" programs/ca-packet) (unit "cb" programs/cb-packet)]
+                 [(unit "cb" programs/cb-packet) (unit "ca" programs/ca-packet)]]]
+    (is (= {:status :ok, :order [["ca" "cb"]]}
+           (publication/publication-order units {})))))
 
 
 (deftest an-unsupplied-import-is-refused-at-publication-test

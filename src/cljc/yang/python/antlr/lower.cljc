@@ -61,6 +61,7 @@
    `(py/object-class)`."
   (:require
     [clojure.string :as str]
+    [clojure.walk :as walk]
     [dao.jing.cbor :as cbor]
     [yang.antlr.packet :as p]
     [yang.python.antlr.prelude :as prelude]
@@ -2054,6 +2055,150 @@
      :primitives
      (into {} (keep (partial declare-free-name registry covered)
                     free-names))}))
+
+
+(defn- module-tree
+  "A wide application: all definitions remain at module level."
+  [operands]
+  (u/mark-tails
+    (apply u/app (u/lam (mapv #(symbol (str "%d" %)) (range (count operands)))
+                        (u/lit nil)) operands)))
+
+
+(def ^:private initializing-key :yang.python.antlr/initializing)
+
+
+(defn- cyclic-import-from
+  "Preserve IMPORT_FROM's attribute/submodule fallback, specializing its
+   failure only while the target's task-local module object is initializing."
+  [m n]
+  (u/let1 '%from-module m
+          (u/let1 '%from-name n
+                  (u/let1 '%from-result (app* 'cell/new none)
+                          (app* 'py/try
+                                (u/lam [] (app* 'cell/set! (u/v '%from-result)
+                                                (app* 'py/import-from (u/v '%from-module) (u/v '%from-name))))
+                                (u/lam ['%from-error]
+                                       (u/if-node
+                                         (app* 'get (app* 'cell/get (u/v '%from-module))
+                                               (u/lit initializing-key) (u/lit false))
+                                         (app* 'py/import-fail
+                                               (app* 'py/str
+                                                     (app* 'data/str-concat
+                                                           (u/lit "cannot import name '")
+                                                           (app* 'get (u/v '%from-name) (u/lit :py/str))
+                                                           (u/lit "' from partially initialized module '")
+                                                           (app* 'get (app* 'py/lookup-attr (u/v '%from-module)
+                                                                            (u/lit "__name__")) (u/lit :py/str))
+                                                           (u/lit "'"))))
+                                         (app* 'py/raise (u/v '%from-error))))
+                                (u/lam [] (app* 'cell/get (u/v '%from-result))))))))
+
+
+(defn scc-module-specs
+  "Canonical I5 construction: sorted members, indexed bare exports
+   m0-spec/m0-body, etc.; one pyscc.<mangled-members> bundle followed by
+   aliases in member order. Internal deliveries read those exports without
+   requiring aliases. Only py and outgoing imports are pinned by the bundle.
+   Alias :requires is filled with the bundle address after publication."
+  [registry units py-address deps]
+  (let [units (vec (sort-by :name units))
+        deps (apply dissoc deps (map :name units))
+        bundle-name (symbol (str "pyscc." (str/join "$$" (map #(str/replace (:name %) "." "$") units))))
+        keys-for (into {} (map-indexed
+                            (fn [i unit]
+                              [(:name unit) [(symbol (str "m" i "-spec"))
+                                             (symbol (str "m" i "-body"))]]) units))
+        cell-syms (into {} (map-indexed
+                             (fn [i unit]
+                               [(:name unit) (symbol (str "%cell-m" i))]) units))
+        units-by-name (into {} (map (fn [u] [(:name u) u]) units))
+        internal (set (map module-symbol (keys keys-for)))
+        rewrite (fn [node]
+                  (cond
+                    (and (= :variable (:type node))
+                         (symbol? (:name node))
+                         (some? (namespace (:name node)))
+                         (contains? internal (symbol (namespace (:name node))))
+                         (= "spec" (name (:name node))))
+                    (let [nm (subs (namespace (:name node)) 4)
+                          u (get units-by-name nm)]
+                      (u/lit {:name nm, :package? (boolean (:package? u))}))
+                    (and (= :variable (:type node))
+                         (symbol? (:name node))
+                         (some? (namespace (:name node)))
+                         (contains? internal (symbol (namespace (:name node))))
+                         (= "body" (name (:name node))))
+                    (let [nm (subs (namespace (:name node)) 4)
+                          cs (get cell-syms nm)]
+                      (app* 'cell/get (u/v cs)))
+                    (and (= :application (:type node))
+                         (= 'try-require (get-in node [:operator :name]))
+                         (contains? internal (get-in node [:operands 0 :value])))
+                    (u/lit {:status :ok})
+                    (and (= :application (:type node))
+                         (= 'py/import-from (get-in node [:operator :name])))
+                    (apply cyclic-import-from (:operands node))
+                    :else node))
+        wrapped-bodies
+        (mapv (fn [{:keys [name packet package?]}]
+                (let [unit {:name name, :package? (boolean package?)}
+                      body (walk/postwalk rewrite (lower-module-body packet unit))
+                      flag (fn [v]
+                             (app* 'cell/set! (u/v '%module)
+                                   (app* 'assoc (app* 'cell/get (u/v '%module))
+                                         (u/lit initializing-key) (u/lit v))))]
+                  (u/lam [globals-sym globals-fn-sym]
+                         (u/let1 '%module (app* 'py/modules-ref (u/lit {:py/str name}))
+                                 (u/then (flag true)
+                                         (app* 'py/try-finally (u/lam [] body)
+                                               (u/lam [u/discard] (flag false))))))))
+              units)
+        spec-defs
+        (mapcat (fn [{:keys [name package?]}]
+                  (let [[spec-key _] (get keys-for name)
+                        unit {:name name, :package? (boolean package?)}]
+                    [(u/def! spec-key (u/lit unit))]))
+                units)
+        cell-inits
+        (map (fn [_] (app* 'cell/new none)) units)
+        cell-sets
+        (mapv (fn [{:keys [name]} body]
+                (let [cs (get cell-syms name)]
+                  (app* 'cell/set! (u/v cs) body)))
+              units wrapped-bodies)
+        body-defs
+        (mapcat (fn [{:keys [name]}]
+                  (let [[_ body-key] (get keys-for name)
+                        cs (get cell-syms name)]
+                    [(u/def! body-key (app* 'cell/get (u/v cs)))]))
+                units)
+        defs-expr
+        (apply u/app
+               (u/lam (mapv #(get cell-syms (:name %)) units)
+                      (u/seq-nodes
+                        (concat cell-sets
+                                spec-defs
+                                body-defs)))
+               cell-inits)
+        ast (module-tree [(require-node prelude/module-name) defs-expr])
+        exports (set (mapcat val keys-for))
+        requires (into {prelude/module-name py-address}
+                       (map (fn [[n a]] [(module-symbol n) a])) deps)
+        free (remove (conj (prelude/defined-keys ast) 'yin/def) (prelude/free-names ast))
+        bundle {:name bundle-name, :ast ast, :exports exports, :requires requires,
+                :primitives (into {} (keep (partial declare-free-name registry (set (keys requires))))
+                                  (sort-by str free))}]
+    (into [bundle]
+          (map (fn [{:keys [name]}]
+                 (let [[sk bk] (get keys-for name)]
+                   {:name (module-symbol name), :exports module-exports,
+                    :primitives {'require (vm/profile-of vm/primitives 'require)},
+                    :ast (module-tree
+                           [(require-node bundle-name)
+                            (u/def! 'spec (u/v (symbol (str bundle-name) (str sk))))
+                            (u/def! 'body (u/v (symbol (str bundle-name) (str bk))))])})))
+          units)))
 
 
 ;; =============================================================================
