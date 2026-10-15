@@ -1,6 +1,6 @@
 (ns yin.vm.linker.transfer-peer
   "Dart receiver for the JVM transfer test. Bootstrap contains only
-   format, identity, and index. Transit lines carry remote protocol
+   format, A, and manifest address. Transit lines carry remote protocol
    envelopes; each side interprets them through dao.stream.remote over
    rings. Verified H and R images execute in their native VMs."
   (:require ["dart:io" :as io]
@@ -43,7 +43,7 @@
 
 (defn ^{:dart/name main} main
   [_args]
-  (let [{:keys [kind identity index]} (read!)
+  (let [{:keys [kind identity manifest]} (read!)
         format (case kind :H linker/stack-format :R linker/register-format)
         load-image (case kind :H dvm/create-vm :R rvm/create-vm)
         incoming (medium)
@@ -61,8 +61,10 @@
                              :dao.stream/identity name
                              :dao.stream/channel channel})))
         runtime {:state (linker/link-state
-                          {:formats {(:format format) format}
-                           :indexes {(:format format) index}
+                          {:formats (into {} (map (fn [f] [(:format f) f]))
+                                          [linker/ast-format linker/semantic-format
+                                           linker/stack-format linker/register-format
+                                           linker/manifest-format linker/record-format])
                            :content {:requests (attach "requests")
                                      :answers (attach "answers")
                                      :cursor :dao.stream/newest}})
@@ -71,14 +73,16 @@
                           (doseq [value (:wire (read!))]
                             (stream/append! incoming value))
                           state)}
-        result (linker/fetch runtime (:format format) identity
-                             {:primitives vm/primitives}
-                             {:contract (:contract format)})]
+        result (linker/link-manifest runtime manifest (:format format)
+                                     {:primitives vm/primitives}
+                                     {:contract (:contract format)})]
     (emit!
       (if (linker/ok? result)
         {:result (dissoc result :value)
          :identity-matches
-         ((:identity-matches-fn format) identity (:value result))
+         (and (= identity (:identity result))
+              (= (get-in result [:derivation :yin.ledger/output])
+                 ((:identity-fn format) (:value result))))
          :value (vm/value
                   (vm/run
                     (load-image (:value result)

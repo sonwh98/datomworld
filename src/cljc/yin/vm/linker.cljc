@@ -19,8 +19,8 @@
    identity mint and match, the row-local validator, the whole-value
    validator, the three position-bearing scanners of section 4.1
    (`:obligations-fn`, `:definitions-fn`, `:applications-fn`), and the
-   parts worklist; the five records are `ast-format`, `semantic-format`,
-   `semantic-register-format`, `stack-format`, and `register-format`
+   parts worklist; the four records are `ast-format`, `semantic-format`,
+   `stack-format`, and `register-format`
    (section 5). The manifest and
    derivation record formats of section 8.1 are `manifest-format` and
    `record-format`, and `link-manifest` is the manifest-delivered image
@@ -42,14 +42,12 @@
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
             [yin.vm :as vm]
-            [yin.vm.code :as code]
             [yin.vm.semantic-register.code :as sr-code]
             [yin.vm.semantic-register.scan :as scan]
             [yin.vm.debruijn-code :as debruijn-code]
-            [yin.vm.debruijn-linearize :as linearize]
+            [yin.vm.semantic-register.linearize :as sr-linearize]
             [yin.vm.debruijn-register-code :as debruijn-register-code]
-            [yin.vm.debruijn-register-compile :as register-compile]
-            [yin.vm.debruijn-resolve :as resolve]
+            [yin.vm.semantic-register.derive :as derive]
             [yin.vm.ledger :as ledger]
             [yin.vm.module :as module]))
 
@@ -693,30 +691,8 @@
 
 
 (def semantic-format
-  "The `:yin.semantic/code` format record: the canonical positional
-   instruction vector stored as the exact payload at its own
-   `segment-key` (UCF section 7.3.4), under the \"v3\" contract
-   (`vm/semantic-contract`). Identity and address are one preimage; step
-   3 still runs, because it is the only check that the index did not
-   point the identity at a different, correctly stored payload (section
-   4.2). Free names are `:var`
-   operands, definitions `:store-put` and `:define` operands,
-   application sites the call opcodes (section 5.2)."
-  {:format              :yin.semantic/code,
-   :contract            vm/semantic-contract,
-   :identity-fn         jing/segment-key,
-   :identity-matches-fn jing/segment-matches?,
-   :row-defect-fn       code/well-formed-vector?,
-   :validate-fn         code/well-formed-vector?,
-   :obligations-fn      semantic-free-occurrences,
-   :definitions-fn      vector-definition-occurrences,
-   :applications-fn     vector-application-sites,
-   :parts-fn            (constantly nil)})
-
-
-(def semantic-register-format
   "The production v4 semantic register vector format record."
-  {:format :yin.semantic-register/code
+  {:format :yin.semantic/code
    :contract sr-code/contract
    :identity-fn jing/segment-key
    :identity-matches-fn jing/segment-matches?
@@ -836,6 +812,9 @@
           ;; optional, but when present a map: vals of anything else throws
           (let [index (:yin.module/index manifest)]
             (when (or (and (some? index) (not (map? index)))
+                      (some (fn [f]
+                              (not (contains? #{:yin.debruijn.code :yin.debruijn.register} f)))
+                            (keys index))
                       (some (fn [v] (not (address? v))) (vals index)))
               (shape :yin.module/index)))
           (when-not (and (set? (:yin.module/exports manifest))
@@ -2141,39 +2120,18 @@
            (:format ast-format) (:format semantic-format)]))
 
 
-(defn- with-manifest-index
-  "Merge a verified manifest's `:yin.module/index` into the linker-local
-   index of `format` (section 8.1) for the rest of this link: the
-   manifest is verified content, so its entries are composition data
-   for this link's fetches, never read from the wire again. The merge
-   is link-local -- the caller's state is not updated. A function index
-   is composition policy and is left alone."
-  [state format-kw manifest]
-  (let [entries (:yin.module/index manifest)]
-    (if (or (empty? entries)
-            (fn? (get-in state [:indexes format-kw])))
-      state
-      (update-in state [:indexes format-kw] (fnil into {}) entries))))
-
-
 (defn- relowered
-  "The identity the verified row-lane tree mints under one of the two de
-   Bruijn lowerings (section 8.1): the tree is reconstructed to the
-   datom lane -- `semantic-bytecode->ast`, then `ast->datoms`, lossless
-   for everything the lowerings read -- resolved, and lowered. Nil when
-   the tree cannot be re-lowered at all: a lowering the linker cannot
-   run verifies nothing."
+  "The checksum of the native image derived from the verified tree's
+   canonical v4 vector. Nil when projection or derivation fails."
   [format-kw tree]
   (try
     (case format-kw
       :yin.debruijn.code
       (debruijn-code/image-hash
-        (:image (linearize/adapt
-                  (vm/ast->datoms (vm/semantic-bytecode->ast tree)))))
+        (:image (derive/stack-image (:vector (sr-linearize/project-rows tree)))))
       :yin.debruijn.register
       (debruijn-register-code/register-hash
-        (:image (register-compile/adapt
-                  (vm/ast->datoms (vm/semantic-bytecode->ast tree))))))
+        (derive/register-image (:vector (sr-linearize/project-rows tree)))))
     (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))
 
 
@@ -2211,8 +2169,8 @@
    obligations are the walker's, scanned only when the tree is the
    requested image; and the two de Bruijn formats'
    recomputed identity must equal the record's output. The semantic
-   format's recomputation runs in `linked-image`, against the fetched
-   image, through `yin.vm.ledger`'s own check. Returns `[state
+   leg fetches A through the same pipeline and checks tree -> A before
+   a native derivation may name it as input. Returns `[state
    outcome]`, the outcome `{:derivation r :output o :tree t :trust
    :verified}` or a refusal."
   [state drive format-kw derivation tree-addr]
@@ -2231,8 +2189,17 @@
           (let [tree (get-in tc [:image :value])
                 output (:yin.ledger/output derivation)]
             (if (= :yin.semantic/code format-kw)
-              [state {:derivation derivation, :output output,
-                      :tree tree, :trust :verified}]
+              (let [[state sc] (drive-link state drive :yin.semantic/code output
+                                           vm/semantic-contract false)]
+                (if (refused? sc)
+                  [state (dissoc sc :yin.link/id)]
+                  (if-let [verdict (ledger/verify-derivation
+                                     tree (get-in sc [:image :value]) derivation
+                                     implemented)]
+                    [state (refused :derivation-mismatch
+                                    (assoc verdict :format format-kw))]
+                    [state {:derivation derivation, :output output,
+                            :tree tree, :trust :verified}])))
               (let [actual (relowered format-kw tree)]
                 (cond
                   (nil? actual)
@@ -2252,8 +2219,8 @@
 (defn- checked-derivation
   "The derivation half of a manifest link (section 8.1): fetch the
    format's record through `record-format`, check its two addresses --
-   the record's input is the manifest's tree, its output is the identity
-   the image is then fetched at -- and apply the policy, `:trusted`
+   the semantic input is the manifest's tree; a native input is A from
+   that semantic record, and its output is the native checksum -- and apply the policy, `:trusted`
    stopping at the addresses, `:verifying` recomputing. Returns `[state
    outcome]`, the outcome of `verified-policy-outcome`'s shape with
    `:trust :composition` under `:trusted`, or a refusal. A manifest
@@ -2268,17 +2235,25 @@
                                   (:contract record-format))]
         (if (refused? c)
           [state (dissoc c :yin.link/id)]
-          (let [derivation (get-in c [:image :value])]
-            (if (not= tree-addr (:yin.ledger/input derivation))
+          (let [derivation (get-in c [:image :value])
+                [state semantic] (if (= :yin.semantic/code format-kw)
+                                   [state nil]
+                                   (checked-derivation state drive :yin.semantic/code
+                                                       manifest policy))
+                expected (if (= :yin.semantic/code format-kw)
+                           tree-addr (:output semantic))]
+            (cond
+              (refused? semantic) [state (assoc semantic :format format-kw)]
+              (not= expected (:yin.ledger/input derivation))
               [state (refused :derivation-mismatch
-                              {:format format-kw, :expected tree-addr,
+                              {:format format-kw, :expected expected,
                                :actual (:yin.ledger/input derivation)})]
-              (if (= :trusted policy)
-                [state {:derivation derivation,
-                        :output (:yin.ledger/output derivation),
-                        :trust :composition}]
-                (verified-policy-outcome state drive format-kw derivation
-                                         tree-addr)))))))))
+              :else (if (= :trusted policy)
+                      [state {:derivation derivation,
+                              :output (:yin.ledger/output derivation),
+                              :trust :composition}]
+                      (verified-policy-outcome state drive format-kw derivation
+                                               tree-addr)))))))))
 
 
 (defn- linked-image
@@ -2296,7 +2271,25 @@
    `[state outcome]`, `fetch`'s outcome shape plus `:manifest` and, for a
    lowered format, `:derivation` and `:trust`."
   [state drive record identity manifest derivation receiver defer?]
-  (let [[state c] (drive-link state drive (:format record) identity
+  (let [native? (contains? #{:yin.debruijn.code :yin.debruijn.register}
+                           (:format record))
+        checksum identity
+        identity (if native?
+                   (get-in derivation [:derivation :yin.ledger/input]) identity)
+        ;; A names the request. The record's output is only a checksum of
+        ;; the selected native bytes, checked by the same fetch pipeline.
+        state (if native?
+                (-> state
+                    (assoc-in [:indexes (:format record)]
+                              (assoc {} identity
+                                     (get-in manifest [:yin.module/index
+                                                       (:format record)])))
+                    (assoc-in [:formats (:format record) :identity-matches-fn]
+                              (fn [a image]
+                                (and (= identity a)
+                                     (= checksum ((:identity-fn record) image))))))
+                state)
+        [state c] (drive-link state drive (:format record) identity
                               (:contract record))]
     (if (refused? c)
       [state (dissoc c :yin.link/id)]
@@ -2364,8 +2357,8 @@
      8. discharge (5b) against `receiver`, unless       :unresolved-free,
         `:defer-discharge`                              :shadowed-free
 
-   The manifest's `:yin.module/index` is merged into the linker-local
-   index of the requested format the moment the manifest is verified.
+   The manifest's format-keyed index supplies [A format]'s native
+   storage address after its derivation chain has been checked.
    The outcome is `fetch`'s plus `:manifest`, and for a lowered format
    `:derivation` and `:trust` (`:verified` or `:composition`: a trusted
    link never reports a verification it did not perform). The tree
@@ -2409,26 +2402,24 @@
                    (refused :module-name-mismatch
                             {:name resolved,
                              :declared (:yin.module/name manifest)})
-                   (let [state (with-manifest-index state format-kw
-                                 manifest)]
-                     (if (= :yin.ast/code format-kw)
-                       (let [[_ outcome]
-                             (linked-image
-                               state drive record
-                               (:yin.module/tree manifest)
-                               manifest nil receiver defer?)]
-                         outcome)
-                       (let [[_ derivation]
-                             (checked-derivation state drive format-kw
-                                                 manifest policy)]
-                         (if (refused? derivation)
-                           derivation
-                           (let [[_ outcome]
-                                 (linked-image
-                                   state drive record
-                                   (:output derivation)
-                                   manifest derivation receiver defer?)]
-                             outcome)))))))))))))))
+                   (if (= :yin.ast/code format-kw)
+                     (let [[_ outcome]
+                           (linked-image
+                             state drive record
+                             (:yin.module/tree manifest)
+                             manifest nil receiver defer?)]
+                       outcome)
+                     (let [[_ derivation]
+                           (checked-derivation state drive format-kw
+                                               manifest policy)]
+                       (if (refused? derivation)
+                         derivation
+                         (let [[_ outcome]
+                               (linked-image
+                                 state drive record
+                                 (:output derivation)
+                                 manifest derivation receiver defer?)]
+                           outcome))))))))))))))
 
 
 ;; =============================================================================
@@ -2454,26 +2445,25 @@
     (when (and H R) {:root root, :H H, :R R})))
 
 
-(defn- relowered-hashes
+(defn- derived-checksums
   [source-datoms]
   (try
-    (let [resolved (resolve/resolve source-datoms)]
+    (let [v (:vector (sr-linearize/project-datoms source-datoms))]
       {:H (debruijn-code/image-hash
-            (:image (linearize/lower-stack resolved))),
+            (:image (derive/stack-image v))),
        :R (debruijn-register-code/register-hash
-            (:image (register-compile/lower-register resolved)))})
+            (derive/register-image v))})
     (catch #?(:cljd Object :clj Throwable :cljs :default) _
       {:H nil, :R nil})))
 
 
 (defn verify-same-root-pairing
-  "Re-lowers the named `source-datoms` locally (`resolve`, then
-   `lower-stack` for H and `lower-register` for R) and confirms both
+  "Projects `source-datoms` to A and derives H and R locally and confirms both
    recomputed identities equal the claimed pair. Returns `{:status :ok
    :root root :H H :R R}` or a `:pairing-mismatch` refusal carrying the
    expected and actual pairs."
   [root H R source-datoms]
-  (let [actual (relowered-hashes source-datoms)]
+  (let [actual (derived-checksums source-datoms)]
     (if (and (= H (:H actual)) (= R (:R actual)))
       {:status :ok, :root root, :H H, :R R}
       (refused :pairing-mismatch

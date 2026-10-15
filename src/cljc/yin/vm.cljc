@@ -266,7 +266,7 @@
 (def semantic-contract
   "The contract of the linear `:yin.code/*` segment and its canonical
    instruction vector."
-  "v3")
+  "v4")
 
 
 (def stack-contract
@@ -1336,21 +1336,6 @@
     (nth row 1)))
 
 
-(defn- semantic-bytecode-child-refs
-  "`[[path-suffix child-id] ..]` for every `node`/`nodes` slot of a row
-   whose `tag` and `body` already passed `:arity`, in slot order; a `node`
-   slot's suffix is its slot index, a `nodes` slot's suffix is `[slot-index
-   item-index]` (§2.5)."
-  [tag body]
-  (let [slots (get semantic-bytecode-grammar tag)]
-    (mapcat (fn [i [_ kind] v]
-              (case kind
-                :node [[[i] v]]
-                :nodes (map-indexed (fn [j cid] [[[i j] cid]]) v)
-                nil))
-            (range 1 (inc (count slots))) slots (rest body))))
-
-
 (defn- rows-reserved-defect
   "Rule R over a row set that already passed every structural rule,
    occurrence-aware: a row is shared by content address, so a
@@ -1492,7 +1477,7 @@
                                         slots (safe-slots tag)
                                         body (subvec row 1)]
                                     (some identity
-                                          (map (fn [i [field kind] v]
+                                          (map (fn [i [field _kind] v]
                                                  (when (and (nil? v)
                                                             (contains? semantic-bytecode-defaults [tag field]))
                                                    (defect-res :saturation id [i])))
@@ -1500,7 +1485,7 @@
                                 rows)
         id-resolves-defect (or (when-not (contains? rows root)
                                  {:rule :id-resolves :path []})
-                               (some (fn [[id row]]
+                               (some (fn [[id _row]]
                                        (some (fn [[suffix cid]]
                                                (when-not (contains? rows cid)
                                                  (defect-res :id-resolves id suffix)))
@@ -1514,7 +1499,7 @@
                                    (let [row (get rows id)]
                                      (when row
                                        (let [on-path' (conj on-path id)]
-                                         (some (fn [[suffix cid]]
+                                         (some (fn [[_suffix cid]]
                                                  (check-cycle cid on-path'))
                                                (safe-children id)))))))]
                          (check-cycle root #{}))

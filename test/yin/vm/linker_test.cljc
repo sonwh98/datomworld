@@ -19,7 +19,8 @@
             [dao.test-slow :as slow]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.code :as code]
+            [yin.vm.semantic-register.code :as code]
+            [yin.vm.semantic :as old-semantic]
             [yin.vm.semantic-register.linearize :as sr-linearize]
             [yin.vm.semantic-register.derive :as derive]
             [yin.vm.debruijn-code :as dcode]
@@ -29,10 +30,9 @@
             [yin.vm.debruijn-vm-contract-test :as b0]
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
-            [yin.vm.linearize :as lin]
             [yin.vm.linker :as linker]
             [yin.vm.linker.publish :as publish]
-            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic-register :as semantic]
             [yin.vm.test-utils :as tu]))
 
 
@@ -204,19 +204,6 @@
        (v 'x)))
 
 
-(def ^:private scan-vector
-  "A hand-built canonical vector: an unconditional binding, one inside a
-   jump's target range, a call site, and a closure body reading `w`."
-  [[:store-put 'y 1]     ; 0 unconditional
-   [:jump 4]             ; 1 skips 2 and 3
-   [:store-put 'z 1]     ; 2 inside the jump's target range
-   [:call 0 false]       ; 3 also inside it
-   [:halt]               ; 4
-   [:closure [] 6]       ; 5
-   [:var 'w]             ; 6 free, inside the closure body
-   [:return]])           ; 7
-
-
 (def ^:private scan-stack-vector
   "`scan-vector` in the stack dimension's own mnemonics."
   [[:store-put 'y 1]
@@ -240,11 +227,8 @@
 (def ^:private no-site-vector
   "`(vm/store-put v 1)`, then a closure reading `v`, then halt: nothing
    applies the closure before halt."
-  [[:store-put 'v 1]
-   [:closure [] 3]
-   [:halt]
-   [:var 'v]
-   [:return]])
+  (:vector (sr-linearize/project
+             (app (v 'yin/def) (lit 'v) (lam [] (v 'v))))))
 
 
 (defn- ast-datoms
@@ -266,7 +250,7 @@
   "The canonical instruction vector `ast` lowers to: the payload of the
    `:yin.semantic/code` format (section 5.2)."
   [ast]
-  (:vector (lin/lower-rows (vm/ast->semantic-bytecode ast))))
+  (:vector (sr-linearize/project ast)))
 
 
 (def ^:private vector-formats
@@ -532,19 +516,24 @@
 ;; Free-name scanners and format records
 ;; =============================================================================
 
+(defn- semantic-free-names
+  [v]
+  (into #{} (map :name) ((:obligations-fn linker/semantic-format) v)))
+
+
 (deftest free-name-scanners-read-every-load-free
   (is (= '[+] (linker/stack-free-names (stack-image worked-example))))
   (is (= '[+] (linker/register-free-names (register-image worked-example))))
   (is (= [] (linker/stack-free-names (stack-image closed-program))))
   (is (= [] (linker/register-free-names (register-image closed-program))))
   (is (= '[nope] (linker/stack-free-names (stack-image unknown-free))))
-  (is (= '#{+} (linker/semantic-free-names
+  (is (= '#{+} (semantic-free-names
                  (semantic-vector worked-example))))
-  (is (= '#{nope} (linker/semantic-free-names
+  (is (= '#{nope} (semantic-free-names
                     (semantic-vector unknown-free))))
-  (is (= '#{} (linker/semantic-free-names
+  (is (= '#{} (semantic-free-names
                 (semantic-vector closed-program))))
-  (is (= '#{} (linker/semantic-free-names
+  (is (= '#{} (semantic-free-names
                 (semantic-vector nested-capture)))
       "a read in the inner body binds through the outer closure")
   (is (= '[+]
@@ -560,15 +549,15 @@
 
 
 (deftest format-records-name-their-contract
-  (is (= :yin.semantic-register/code (:format linker/semantic-register-format)))
-  (is (= "v4" (:contract linker/semantic-register-format)))
+  (is (= :yin.semantic/code (:format linker/semantic-format)))
+  (is (= "v4" (:contract linker/semantic-format)))
   (is (= :yin.debruijn.code (:format linker/stack-format)))
   (is (= :yin.debruijn.register (:format linker/register-format)))
   (is (= :yin.semantic/code (:format linker/semantic-format)))
   (is (= :yin.ast/code (:format linker/ast-format)))
   (is (= "b2" (:contract linker/stack-format)))
   (is (= "r2" (:contract linker/register-format)))
-  (is (= "v3" (:contract linker/semantic-format)))
+  (is (= "v4" (:contract linker/semantic-format)))
   (is (= "v3" (:contract linker/ast-format)))
   (is (= [vm/stack-contract vm/register-contract vm/semantic-contract
           vm/ast-contract]
@@ -812,8 +801,7 @@
 
 
 (deftest vector-scanners-yield-position-bearing-records
-  (doseq [[label format v] [[:SEM linker/semantic-format scan-vector]
-                            [:H linker/stack-format scan-stack-vector]]]
+  (doseq [[label format v] [[:H linker/stack-format scan-stack-vector]]]
     (testing label
       (is (= [{:name 'w, :at 6, :in-body? true}]
              ((:obligations-fn format) v))
@@ -1668,7 +1656,7 @@
    to `k`: a register instruction carries its key after the destination
    register."
   [format image k]
-  (let [slot (if (= :yin.debruijn.register (:format format)) 2 1)
+  (let [slot (if (contains? #{:yin.debruijn.register :yin.semantic/code} (:format format)) 2 1)
         rekey-t (fn [t]
                   (if (contains? #{:store-put :define} (nth t 0))
                     (assoc t slot k)
@@ -1807,22 +1795,13 @@
     (jing/close! store)))
 
 
-(deftest an-unreadable-vector-layout-degrades-conservatively
+(deftest an-unreadable-vector-layout-is-refused
   (let [store (mem/create-content-mem)
-        address (code/materialize-vector! store unreadable-vector)
-        format linker/semantic-format]
-    (is (= [{:name 'q, :at nil, :in-body? true}]
-           ((:obligations-fn format) unreadable-vector))
-        "every occurrence is retained, at no position")
-    (is (= [{:name 'x, :at nil, :conditional? true}]
-           ((:definitions-fn format) unreadable-vector))
-        "no definition discharges anything")
-    (is (= [{:at nil}] ((:applications-fn format) unreadable-vector))
-        "no application position is usable")
-    (is (= {:status :refused, :reason :unresolved-free, :name 'q}
-           (select-keys (fetch-local store {address address} format
-                                     address {} (requested format))
-                        [:status :reason :name])))
+        address (jing/materialize! store unreadable-vector)
+        format linker/semantic-format
+        result (fetch-local store {address address} format address {}
+                            (requested format))]
+    (is (= :descriptor-defect (:reason result)))
     (jing/close! store)))
 
 
@@ -1961,7 +1940,7 @@
 
 (deftest verifying-fallback-re-lowers-the-named-root
   ;; The production pairing verifier uses the old allocator until slice 8c.
-  (let [old-register-image (fn [ast] (:image (rc/adapt (ast-datoms ast))))
+  (let [old-register-image register-image
         store (mem/create-content-mem)
         {:keys [H R h-index]} (mint-root store worked-example old-register-image)
         other (mint-root store other-program old-register-image)
@@ -1999,9 +1978,9 @@
 (defn- lifted-value
   [named-vector]
   (b0/normalize
-    (vm/value (vm/run (semantic/load-vector (semantic/create-vm)
-                                            named-vector
-                                            vm/semantic-contract)))))
+    (vm/value (vm/run (old-semantic/load-vector (old-semantic/create-vm)
+                                                named-vector
+                                                vm/semantic-contract)))))
 
 
 (deftest fetched-images-execute-like-local-code
@@ -2086,7 +2065,7 @@
 
 (deftest semantic-register-scanners-yield-position-bearing-records
   (let [vector (:vector (sr-linearize/project def-then-use))
-        {:keys [obligations-fn definitions-fn applications-fn]} linker/semantic-register-format
+        {:keys [obligations-fn definitions-fn applications-fn]} linker/semantic-format
         defs (definitions-fn vector)
         occs (obligations-fn vector)]
     (is (= [{:name 'x :conditional? false}]
@@ -2099,7 +2078,7 @@
 
 (deftest semantic-register-format-refuses-a-malformed-vector
   (doseq [[label format] [[:v3 linker/semantic-format]
-                          [:v4 linker/semantic-register-format]]]
+                          [:v4 linker/semantic-format]]]
     (testing label
       (let [bad '[[:jump 9]]
             a (jing/segment-key bad)]

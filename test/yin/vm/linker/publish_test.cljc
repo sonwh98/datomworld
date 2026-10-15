@@ -76,7 +76,7 @@
 
 
 (deftest a-required-manifest-with-a-malformed-index-refuses-as-data
-  (doseq [bad [42 [1] "bad"]]
+  (doseq [bad [42 [1] "bad" {"H" (jing/segment-key [:native])}]]
     (testing (pr-str bad)
       (let [store (mem/create-content-mem)
             dep (:manifest (publish/publish-module!
@@ -420,3 +420,31 @@
       (is (= [[7 :yin.module/envelope (:envelope (first first-time))]
               [7 :yin.module/proof (:proof (first first-time))]]
              (:datoms (publish/assertion k1 {:name 'lib :manifest a :seq 1 :e 7})))))))
+
+
+(deftest publication-keeps-the-tree-and-derives-native-images-from-a
+  (let [store (mem/create-content-mem)
+        spec {:name 'example :ast module-ast :exports #{'f}
+              :requires {} :primitives {}}
+        {:keys [manifest identities links] :as result}
+        (publish/publish-module! store spec)
+        records (into {} (map (fn [[f a]] [f (jing/get store a nil)]))
+                      (:yin.module/derivations manifest))
+        a (get-in records [:yin.semantic/code :yin.ledger/output])
+        tree (:yin.module/tree manifest)]
+    (is (= "v4" (get-in manifest [:yin.module/contracts :yin.semantic/code])))
+    (is (= #{:yin.semantic/code :yin.debruijn.code :yin.debruijn.register}
+           (set (keys records))))
+    (is (= #{:yin.debruijn.code :yin.debruijn.register}
+           (set (keys (:yin.module/index manifest)))))
+    (is (= tree (get-in records [:yin.semantic/code :yin.ledger/input])))
+    (is (some? (jing/get store tree nil)) "the AST remains retrievable")
+    (is (vector? (jing/get store a nil)) "A's exact vector is materialized")
+    (doseq [f [:yin.debruijn.code :yin.debruijn.register]]
+      (is (= a (get-in records [f :yin.ledger/input])))
+      (is (= a (get identities f) (get-in links [f :identity])))
+      (is (= (get-in manifest [:yin.module/index f])
+             (get-in links [f :address])))
+      (is (= :ok (get-in links [f :status]))))
+    (is (= manifest (:manifest (publish/publish-module! store spec))))
+    (is (= (:address result) (jing/segment-key manifest)))))

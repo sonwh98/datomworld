@@ -2124,7 +2124,7 @@
                   :closure (let [[a entry params bindings store-of] ss]
                              (module/lower-closure base
                                                    (cond-> {:yin.k/binding :named
-                                                            :yin.k/format :yin.semantic-register/code
+                                                            :yin.k/format :yin.semantic/code
                                                             :yin.k/segment a :yin.k/entry entry :yin.k/params params
                                                             :yin.k/env (keyed bindings)}
                                                      (some? store-of) (assoc :yin.k/store-of store-of))

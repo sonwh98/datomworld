@@ -5,7 +5,6 @@
                                 [dao.jing.cbor :as cbor]])
             [dao.test-slow :as slow]
             [yin.vm :as vm]
-            [yin.vm.code :as old-code]
             [yin.vm.completion :as completion]
             [yin.vm.linearize :as old-linearize]
             [yin.vm.linker :as linker]
@@ -60,17 +59,10 @@
    :join (normalized-join fmt vector)})
 
 
-(defn old-answer
-  [ast]
-  (let [vector (:vector (old-linearize/lower-rows (vm/ast->semantic-bytecode ast)))]
-    (answer linker/semantic-format vector
-            (vm/segment-requirements (query/relation (old-code/project-segment-qualified vector))))))
-
-
 (defn new-answer
   [ast]
   (let [vector (:vector (linearize/project ast))]
-    (answer linker/semantic-register-format vector (scan/requirements vector))))
+    (answer linker/semantic-format vector (scan/requirements vector))))
 
 
 (defn emission-oracle
@@ -183,7 +175,7 @@
     (let [tree (vm/ast->semantic-bytecode ast)
           rows (query/relation (vals (:rows tree)))
           occ (query/relation (vm/occurrences tree))
-          old (old-answer ast) new (new-answer ast)
+          old (get-in goldens/scanner-goldens [group n]) new (new-answer ast)
           oracle (emission-oracle ast)
           old-vector (:vector (old-linearize/lower-rows tree))
           tree-names (tree-free-names tree)]
@@ -318,7 +310,7 @@
                 (doseq [[group programs] (all-programs)
                         [n ast] programs]
                   (testing [group n]
-                    (is (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))))))))
+                    (is (= (get-in goldens/scanner-goldens [group n]) (new-answer ast))))))))
 
 
 (deftest ^:slow verify-outcomes-agree
@@ -327,16 +319,6 @@
                 (doseq [[group programs] (all-programs)
                         [n ast] programs]
                   (testing [group n]
-                    (is (= (:join (old-answer ast)) (:join (new-answer ast))))))
+                    (is (= (:join (get-in goldens/scanner-goldens [group n])) (:join (new-answer ast))))))
                 (is (= {:status :refused :reason :use-before-definition :name 'n}
                        (:join (new-answer (second (last b0-programs)))))))))
-
-
-#?(:cljd nil
-   :clj (defn print-goldens
-          "Generate the historical scanner fixture, without publishing modules."
-          []
-          (prn (into {} (map (fn [[group programs]]
-                               [group (into {} (map (fn [[n ast]] [n (old-answer ast)])) programs)]))
-                     [[:b0 b0-programs] [:register corpus/programs]
-                      [:c4 (mapv (fn [[n spec]] [n (:ast spec)]) (c4-specs))]]))))

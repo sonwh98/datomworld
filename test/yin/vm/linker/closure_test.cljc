@@ -175,17 +175,14 @@
                                        [:yin.module/derivations :yin.debruijn.code]
                                        (get-in other [:manifest :yin.module/derivations
                                                       :yin.debruijn.code])))])
-     (let [[store res] (fresh)
-           h (get-in res [:identities :yin.debruijn.code])]
+     (let [[store res] (fresh)]
        [:index-entry-missing store
-        (with-manifest store (update (:manifest res) :yin.module/index dissoc h))])
+        (with-manifest store (update (:manifest res) :yin.module/index dissoc :yin.debruijn.code))])
      (let [[store res] (fresh)
-           {:keys [manifest identities]} res
-           h (:yin.debruijn.code identities)
-           r (:yin.debruijn.register identities)]
+           {:keys [manifest]} res]
        [:identity-mismatch store
-        (with-manifest store (assoc-in manifest [:yin.module/index h]
-                                       (get-in manifest [:yin.module/index r])))])
+        (with-manifest store (assoc-in manifest [:yin.module/index :yin.debruijn.code]
+                                       (get-in manifest [:yin.module/index :yin.debruijn.register])))])
      (let [[store res] (fresh)]
        [:parts-limit store (:address res) {:bounds {:max-parts 3}}])]))
 
@@ -257,8 +254,6 @@
         {:keys [leaf interior]} (leaf-and-interior store tree)
         records (:yin.module/derivations manifest)
         {:keys [identities]} app
-        h (:yin.debruijn.code identities)
-        r (:yin.debruijn.register identities)
         base-m (:address base)
         base-tree (get-in base [:manifest :yin.module/tree])
         cases [[m :manifest [m]]
@@ -269,8 +264,8 @@
                [(:yin.debruijn.code records) :record [m]]
                [(:yin.debruijn.register records) :record [m]]
                [(:yin.semantic/code identities) :image [m]]
-               [(get-in manifest [:yin.module/index h]) :image [m]]
-               [(get-in manifest [:yin.module/index r]) :image [m]]
+               [(get-in manifest [:yin.module/index :yin.debruijn.code]) :image [m]]
+               [(get-in manifest [:yin.module/index :yin.debruijn.register]) :image [m]]
                [base-m :require [m base-m]]
                [base-tree :row [m base-m]]]]
     (is (some? leaf))

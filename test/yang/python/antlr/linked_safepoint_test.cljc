@@ -244,7 +244,7 @@
    regenerates H/R and the pinned py requirement. The I4-a rebase moves
    the pinned py requirement again for statement-time import delivery."
   (keyword (str "segment/blake3-"
-                "a28d246c025785ad24467a95df3c1da821897a323c2d9838e7bcd29cf5d88580")))
+                "76892b7085ecd325c28eaa9e07706b768998f739be06aa96cb4901002a9ca6a0")))
 
 
 (defn- pysp-manifest-address

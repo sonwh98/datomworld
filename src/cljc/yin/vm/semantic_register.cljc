@@ -407,7 +407,7 @@
 (extend-type RegisterVM
   module/IModuleKernel
   (link-format [_]
-    {:format :yin.semantic-register/code, :contract code/contract})
+    {:format :yin.semantic/code, :contract code/contract})
   (spawn-module
     [vm image {:keys [modules origin ancestry capability-secret]}]
     (load-vector (create-vm
@@ -443,7 +443,7 @@
                          :segment local})))
       (cond-> {:yin.k/tag :yin.k/closure,
                :yin.k/binding :named,
-               :yin.k/format :yin.semantic-register/code,
+               :yin.k/format :yin.semantic/code,
                :yin.k/segment address,
                :yin.k/entry (:entry closure),
                :yin.k/params (:params closure),
@@ -453,7 +453,7 @@
         store-of (assoc :yin.k/store-of store-of))))
   (lower-closure [vm marker decode]
     (when-not (and (= :named (:yin.k/binding marker))
-                   (= :yin.semantic-register/code (:yin.k/format marker)))
+                   (= :yin.semantic/code (:yin.k/format marker)))
       (throw (ex-info "Closure binding or format does not match this kernel" {:reason :binding-mismatch :marker marker})))
     (let [local (get (:code-aliases vm) (:yin.k/segment marker))
           entry (:yin.k/entry marker)

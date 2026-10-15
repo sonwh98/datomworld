@@ -143,7 +143,10 @@
                   (reduced (stop st (invalid address :record path :record-defect
                                              (linker/record-defect record))))
 
-                  (not= (:yin.module/tree manifest) (:yin.ledger/input record))
+                  (not= (if (= :yin.semantic/code format-kw)
+                          (:yin.module/tree manifest)
+                          (get-in st [:records :yin.semantic/code :yin.ledger/output]))
+                        (:yin.ledger/input record))
                   (reduced (stop st (invalid address :record path
                                              :derivation-mismatch
                                              {:expected (:yin.module/tree manifest)
@@ -165,7 +168,7 @@
               (let [identity (:yin.ledger/output record)
                     address (if (= :yin.semantic/code format-kw)
                               identity
-                              (get (:yin.module/index manifest) identity))]
+                              (get (:yin.module/index manifest) format-kw))]
                 (if (nil? address)
                   (reduced (stop st (invalid nil :image path :index-entry-missing
                                              {:format format-kw

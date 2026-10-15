@@ -21,19 +21,16 @@
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
             [yin.vm.debruijn-code :as dcode]
-            [yin.vm.debruijn-linearize :as dl]
             [yin.vm.debruijn-register-code :as rcode]
-            [yin.vm.debruijn-register-compile :as rc]
+            [yin.vm.semantic-register.derive :as derive]
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
-            [yin.vm.linearize :as linearize]
             [yin.vm.linker :as linker]
             [yin.vm.linker.interpreter :as link]
             [yin.vm.linker.publish :as publish]
             [yin.repl :as repl]
             [yin.vm.module :as module]
-            [yin.vm.semantic :as semantic]
             [yin.vm.semantic-register :as sr]
             [yin.vm.semantic-register.linearize :as sr-linearize]
             [yin.vm.test-utils :as tu]
@@ -90,22 +87,22 @@
 ;; =============================================================================
 
 (def ^:private semantic-loader
-  (linearize/ast-loader semantic/vm-load-program))
+  sr/load-ast)
 
 
 (defn- stack-image
   [ast]
-  (:image (dl/adapt (vm/ast->datoms ast))))
+  (:image (derive/stack-image (:vector (sr-linearize/project ast)))))
 
 
 (defn- register-image
   [ast]
-  (:image (rc/adapt (second (vm/ast->datoms-with-root ast)))))
+  (derive/register-image (:vector (sr-linearize/project ast))))
 
 
 (defn- semantic-vector
   [ast]
-  (:vector (linearize/lower-rows (vm/ast->semantic-bytecode ast))))
+  (:vector (sr-linearize/project ast)))
 
 
 (defn- single-part-obligations
@@ -168,7 +165,7 @@
    :semantic
    {:image semantic-vector,
     :vm (fn [ast opts]
-          (semantic-loader (semantic/create-vm opts)
+          (semantic-loader (sr/create-vm opts)
                            (vm/ast->datoms ast)
                            vm/ast-contract)),
     :continue (fn [task ast]
@@ -1259,7 +1256,7 @@
                                            :contract vm/stack-contract}))
         closure (values/payload (get (vm/store stack-task) 'f))
         marker (module/lift-closure stack-task closure identity)
-        semantic-task (semantic/create-vm {})
+        semantic-task (sr/create-vm {})
         register-task (rvm/create-vm nil {})]
     (is (= :positional (:yin.k/binding marker)))
     (is (= :binding-mismatch
