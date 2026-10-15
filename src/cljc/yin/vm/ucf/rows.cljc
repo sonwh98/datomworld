@@ -808,7 +808,7 @@
               (when (contains? #{:map :set} kind)
                 (let [vs (if (= :set kind) slots (map first (partition 2 slots)))
                       decoded (map value vs)]
-                  (when-not (= (count decoded) (count (distinct decoded))) (bad! :duplicate-key path))))
+                  (when (cbor/collapse? decoded) (bad! :equality-collapse path))))
               (when (and (contains? #{:vec :list :set :map} kind)
                          (not (some reference? slots))) (bad! :reference-free-row path))
               (doseq [[i d x] (map vector (range) ds slots)]
@@ -930,9 +930,9 @@
            (bad! :row-order [id]))
          (when (contains? #{:map :bindings :store :parked-table :window :cursor-cells :set} kind)
            (let [keys (if (= kind :set) slots (map first (partition 2 slots)))]
-             (when-not (and (= (count keys) (count (distinct keys)))
-                            (= (count keys) (count (distinct (map #(bytes-key (cbor/encode %)) keys)))))
-               (bad! :duplicate-key [id])))))
+             (when-not (= (count keys) (count (distinct (map #(bytes-key (cbor/encode %)) keys))))
+               (bad! :duplicate-key [id]))
+             (when (cbor/collapse? keys) (bad! :equality-collapse [id])))))
        (letfn [(expand-slot
                  [d x]
                  (cond (ref? d) (expand x) (refs? d) (mapv expand x)
@@ -2114,14 +2114,22 @@
                 :lit (second v)
                 :cursor-cell (engine/issue-ref base :cursor-ref (get cell-keys (second v)))
                 :row (row (second v))))
+            (built
+              [n coll expected]
+              (when (< (count coll) expected)
+                ;; Re-emit only on refusal to recover the decoded row's address.
+                (outcome! :yin.k/undecodable :host-collapse
+                          {:yin.k/path [(first (emit-node n {} {}))]}))
+              coll)
             (row
               [n]
               (let [ss (:slots n)]
                 (case (:kind n)
                   :vec (mapv value ss)
                   :list (apply list (map value ss))
-                  :set (into #{} (map value) ss)
-                  :map (into {} (map (fn [[k x]] [(value k) (value x)])) (partition 2 ss))
+                  :set (built n (into #{} (map value) ss) (count ss))
+                  :map (built n (into {} (map (fn [[k x]] [(value k) (value x)])) (partition 2 ss))
+                              (quot (count ss) 2))
                   :prim (vm/primitive-function (get (:primitives base) (first ss)))
                   :stream (engine/issue-ref base :stream-ref (stream-key n))
                   :closure (let [[a entry params bindings store-of] ss]

@@ -823,7 +823,7 @@
     :else (= a b)))
 
 
-(defn- collapse?
+(defn collapse?
   "True when two of xs are equiv."
   [xs]
   (boolean
