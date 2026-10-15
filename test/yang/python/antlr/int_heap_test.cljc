@@ -22,7 +22,6 @@
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]
-            [yin.vm.ucf.handoff :as handoff]
             [yin.vm.values :as values]))
 
 
@@ -234,12 +233,6 @@
 
 (defn- cell-refusal
   []
-  (run-all
-    (guest '(py/list (py/vconj [] (py/int-lit "10000000000000000"))))
-    (fn [final]
-      (let [r (handoff/export-task final (fn [_h] nil))]
-        (is (= :yin.k/non-portable (:yin.k/status r)))
-        (is (= :cell (:yin.k/kind r))))))
   (run-all
     (guest '(yin/def (quote held) (py/dict-new)))
     (fn [final]

@@ -13,9 +13,7 @@
   (:require [clojure.set :as set]
             [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
-            [yin.vm.code :as code]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.completion :as completion]
             [yin.vm.parity-test :as parity]
             [yin.vm.values :as values]
             [yin.vm.test-utils :as tu]
@@ -333,20 +331,16 @@
 
 
 ;; =============================================================================
-;; Derivation from yin.vm.code/vector-operand-table
+;; This dimension's own opcode table
 ;; =============================================================================
 
-(deftest opcode-table-derives-from-the-named-table
-  (testing "every carried mnemonic's slot count matches the named table's own"
-    (doseq [m (disj code/mnemonics :var :closure)]
-      (is (= (count (get code/vector-operand-table m)) (count (get dc/opcode-table m)))
-          (str m " keeps its operand count"))
-      (is (= (map second (get code/vector-operand-table m))
-             (map second (get dc/opcode-table m)))
-          (str m " keeps its operand kinds, in order"))
-      (is (every? #(= "yin.debruijn.code" (namespace %))
-                  (map first (get dc/opcode-table m)))
-          (str m "'s attributes are renamespaced"))))
+(deftest opcode-table-is-this-dimensions-own-data
+  (is (= 23 (count dc/opcode-table)))
+  (is (not (contains? dc/opcode-table :var)))
+  (doseq [slots (vals dc/opcode-table)
+          [attr kind] slots]
+    (is (= "yin.debruijn.code" (namespace attr)))
+    (is (contains? #{:data :sym :kw :str :bool :buffer :pc :uint} kind)))
   (testing ":var splits into :load-bound and :load-free; :closure changes shape"
     (is (not (contains? dc/opcode-table :var)))
     (is (= [[:yin.debruijn.code/depth :uint] [:yin.debruijn.code/position :uint]]
@@ -580,8 +574,7 @@
           run2 (normalize (vm/value (vm/eval (tu/create-vm) ast)))]
       (is (= {:type :reified-continuation} run1) "type only, no k or env")
       (is (= run1 run2) "self-parity")))
-  (testing "a parked continuation (:vm/park), UCF-shaped per
-            yin.vm.completion"
+  (testing "a parked continuation (:vm/park), UCF-shaped"
     (let [ast {:type :vm/park}
           run1 (normalize (vm/value (vm/eval (tu/create-vm) ast)))
           run2 (normalize (vm/value (vm/eval (tu/create-vm) ast)))]
@@ -631,11 +624,10 @@
         make-store (fn []
                      (let [vm (vm/eval (tu/create-vm) ast)]
                        ;; host handles and telemetry are excluded (S1):
-                       ;; `completion/ffi-pair-keys` already names the
-                       ;; default VM's own call-in/call-out/cursor keys,
-                       ;; the same set `completion-test` excludes from a
-                       ;; store slice.
-                       (normalize (apply dissoc (vm/store vm) completion/ffi-pair-keys))))
+                       ;; exclude the default VM's call-in/call-out/cursor keys.
+                       (normalize (apply dissoc (vm/store vm)
+                                         #{vm/call-in-stream-key vm/call-out-stream-key
+                                           vm/call-out-cursor-key}))))
         run1 (make-store)
         run2 (make-store)]
     (is (= {:type :literal, :ignored true} (:b0/k run1))

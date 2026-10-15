@@ -2,19 +2,14 @@
   "B1 (docs/design/yin.vm.debruijn.stack.md S2): the executable de Bruijn
    image dimension (`:yin.debruijn.code/*`) and its validator. Standalone:
    no lowerer (B2), no VM (B3), no linker (B6) -- only the dimension's
-   descriptor, its derived opcode table, its own exact scalar encoder, the
+   descriptor, its own opcode table, its own exact scalar encoder, the
    one function that computes H (`image-hash`), and the validator that is
    the sole admitter of an executable image on this path (S3).
 
-   The opcode table is derived AS DATA from `yin.vm.code/vector-operand-
-   table` (S2): every mnemonic's operand shape is read straight off that
-   table and renamespaced into `:yin.debruijn.code/*`, except `:var`,
-   which splits into `:load-bound` (depth + position) and `:load-free`
-   (name), and `:closure`, which trades its parameter-symbol vector for an
-   arity and a body pc. `yin.vm.code`, `:yin.code/*`, and the merged
-   dormant projection namespace (`yin.vm.debruijn`, `yin.vm.pipeline`) are
-   never edited and never reached through a private var; the small
-   framing and length-prefix helpers below (`to-hex`, `framed`,
+   The opcode table is this dimension's own literal data, frozen under
+   `lowering-contract-version` 2. Its 23 mnemonics include `:load-bound`
+   (depth + position), `:load-free` (name), and `:closure` (arity + body
+   pc). The small framing and length-prefix helpers below (`to-hex`, `framed`,
    `int64-le-hex`, `double-le-hex`, `utf8-byte-length`, `code-unit-at`)
    are copied from `yin.vm.debruijn`, which documents them as meant to be
    copied, not imported. The UTF-16 surrogate-pairing guard is
@@ -43,48 +38,45 @@
             ;; used by the CLJS branch of host-double? only
             #_{:clj-kondo/ignore [:unused-namespace]}
             [dao.jing.cbor :as cbor]
-            [yin.vm :as vm]
-            [yin.vm.code :as code])
+            [yin.vm :as vm])
   #?(:cljd (:import ["dart:typed_data" ByteData])))
 
 
 ;; =============================================================================
-;; The opcode table, derived as data from yin.vm.code/vector-operand-table
+;; The opcode table: this dimension's own data, frozen under lowering-contract-version 2
 ;; =============================================================================
 
-(defn- renamespace-slots
-  "One mnemonic's operand slots, carried over unchanged in shape: only the
-   attribute is moved from `:yin.code/*` into this dimension's own
-   `:yin.debruijn.code/*` namespace; the kind and order are read straight
-   off `code/vector-operand-table`, never hand-copied."
-  [slots]
-  (mapv (fn [[attr kind]] [(keyword "yin.debruijn.code" (name attr)) kind]) slots))
-
-
-(def ^:private carried-mnemonics
-  "Every mnemonic whose operand shape is unchanged from the named table
-   (S2): all of them except `:var` and `:closure`, the two lexical-
-   addressing mnemonics this dimension redefines below."
-  (disj code/mnemonics :var :closure))
-
-
 (def opcode-table
-  "S2's operand table for `:yin.debruijn.code/*`, in `yin.vm.code/vector-
-   operand-table`'s own positional form: mnemonic -> ordered `[attribute
-   kind]` operands. `:var` becomes `:load-bound` (a depth and a position,
-   both `:uint`) or `:load-free` (a name, `:sym`); `:closure` carries an
-   arity (`:uint`) and a body reference (`:pc`) instead of a parameter
-   vector. Every other mnemonic is `renamespace-slots` applied to
-   `code/vector-operand-table`'s own entry, so a change to that table's
-   shape for a carried mnemonic is inherited here automatically rather
-   than silently drifting out of sync."
-  (into (into {}
-              (map (fn [mnemonic]
-                     [mnemonic (renamespace-slots (get code/vector-operand-table mnemonic))]))
-              carried-mnemonics)
-        {:load-bound [[:yin.debruijn.code/depth :uint] [:yin.debruijn.code/position :uint]],
-         :load-free [[:yin.debruijn.code/name :sym]],
-         :closure [[:yin.debruijn.code/arity :uint] [:yin.debruijn.code/body :pc]]}))
+  "This dimension's literal operand table, frozen under
+   `lowering-contract-version` 2: mnemonic -> ordered `[attribute kind]`
+   operands. Lexical references carry depth and position or a free name;
+   closures carry an arity and body pc."
+  {:const [[:yin.debruijn.code/value :data]],
+   :closure [[:yin.debruijn.code/arity :uint] [:yin.debruijn.code/body :pc]],
+   :load-bound [[:yin.debruijn.code/depth :uint] [:yin.debruijn.code/position :uint]],
+   :load-free [[:yin.debruijn.code/name :sym]],
+   :push [],
+   :call [[:yin.debruijn.code/argc :uint] [:yin.debruijn.code/tail? :bool]],
+   :return [],
+   :jump [[:yin.debruijn.code/target :pc]],
+   :branch-false [[:yin.debruijn.code/target :pc]],
+   :halt [],
+   :gensym [[:yin.debruijn.code/prefix :str]],
+   :store-get [[:yin.debruijn.code/key :data]],
+   :store-put [[:yin.debruijn.code/key :data] [:yin.debruijn.code/value :data]],
+   :stream-make [[:yin.debruijn.code/buffer :buffer]],
+   :stream-put [],
+   :stream-cursor [],
+   :stream-next [],
+   :stream-close [],
+   :park [],
+   :resume [[:yin.debruijn.code/parked-id :kw]],
+   :current-continuation [],
+   :ffi-call [[:yin.debruijn.code/ffi-op :kw] [:yin.debruijn.code/argc :uint]],
+   :define [[:yin.debruijn.code/name :sym]]})
+
+
+(def ^:private terminators #{:jump :return :halt})
 
 
 (def mnemonics
@@ -678,16 +670,10 @@
 
 
 (def ^:private saturated-operands
-  "The `[mnemonic index]` operands a canonical tuple must materialize
-   even though their :operand-kind check alone would tolerate nil -- the
-   same set `yin.vm.code`'s own :saturation rule judges
-   (`code/vector-operand-table`'s saturated pairs), over this
-   dimension's carried :gensym, :stream-make, :call, and :ffi-call.
-   :ffi-call's argc (index 2) is also already rejected as nil by the
-   stricter `:uint nonneg-int?` kind check above, so this entry is
-   redundant today; it is kept anyway so this set matches the source
-   table's own saturated pairs exactly, rather than silently drifting if
-   the :uint kind check is ever relaxed."
+  "This dimension's saturated operands, frozen under
+   `lowering-contract-version` 2. Each `[mnemonic index]` must be
+   materialized even when its operand-kind check tolerates nil.
+   :ffi-call's argc is also rejected as nil by its :uint kind check."
   #{[:gensym 1] [:stream-make 1] [:call 2] [:ffi-call 2]})
 
 
@@ -719,7 +705,7 @@
 (defn- terminator-rule
   [v]
   (let [pc (dec (count v))]
-    (when-not (contains? code/terminators (mnemonic-of (nth v pc)))
+    (when-not (contains? terminators (mnemonic-of (nth v pc)))
       (tuple-defect :terminator pc))))
 
 
@@ -746,7 +732,7 @@
     (cond
       (= :jump op) [(nth t 1)]
       (= :branch-false op) [(nth t 1) (inc pc)]
-      (contains? code/terminators op) []
+      (contains? terminators op) []
       :else [(inc pc)])))
 
 

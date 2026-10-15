@@ -1789,7 +1789,7 @@
                 ;; a definition writes the store, machine state, like
                 ;; :store-put; its AST side is an :application
                 :define #{},
-                :const #{}, :var #{}, :closure #{}, :push #{}, :call #{},
+                :const #{}, :var #{}, :closure #{}, :call #{},
                 :return #{}, :jump #{}, :branch-false #{}, :halt #{}}}})
 
 
@@ -1836,28 +1836,6 @@
                                  ?tag)]]})
 
 
-(def ^:private segment-extraction-queries
-  "§7.7 over `$code`, the union of the segment-qualified rows
-   (`yin.vm.code/project-segment-qualified`) of the reachable segments,
-   verbatim from the design. The segment-side free-name query (derive free
-   names from the vector's own scoping) is §7.7's to name but stays
-   unverified there; `free-names` over `$ast`/`$occ` is the shipped
-   extraction."
-  {:store-keys '[:find ?key :in $code
-                 :where (or [$code _ _ :store-get ?key]
-                            [$code _ _ :store-put ?key _]
-                            [$code _ _ :define ?key])],
-   :ffi-ops '[:find ?op :in $code
-              :where [$code _ _ :ffi-call ?op _]],
-   :parked-ids '[:find ?pid :in $code
-                 :where [$code _ _ :resume ?pid]],
-   :effect-raisers '[:find ?mn :in $code
-                     :where [$code _ _ ?mn & _]
-                     [(contains? #{:stream-make :stream-put :stream-cursor
-                                   :stream-next :stream-close :ffi-call}
-                                 ?mn)]]})
-
-
 (defn- requirements
   "The S7.7 syntactic requirement set of one relation under the
    current semantic contract: the three value queries as extracted,
@@ -1883,15 +1861,6 @@
    point remain the walk that consumes this."
   [db]
   (requirements db ast-extraction-queries :tags))
-
-
-(defn segment-requirements
-  "The same over a `$code` relation of segment-qualified rows
-   (`yin.vm.code/project-segment-qualified`). For every tree,
-   `(ast-requirements tree-relation)` and this over its lowered segment's
-   rows are equal in every field — the §7.7.1 conformance obligation."
-  [db]
-  (requirements db segment-extraction-queries :mnemonics))
 
 
 (def ^:private many-attrs #{:yin/operands :yin/args :yin/params})

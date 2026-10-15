@@ -73,7 +73,7 @@
 
 (def footprint-mnemonics
   "Effect normalization under the current register vector table."
-  (dissoc (get-in vm/footprint-table [vm/semantic-contract :mnemonics]) :push))
+  (get-in vm/footprint-table [vm/semantic-contract :mnemonics]))
 
 
 (defn segment-rows
