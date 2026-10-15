@@ -521,7 +521,7 @@
    (docs/design/yang.antlr.md 8.5.6, resolution step 2): their import
    carries no spec or body and hoists no require -- resolution never
    reaches the linker."
-  #{"sys" "builtins"})
+  #{"sys" "builtins" "importlib"})
 
 
 (def module-prefix
@@ -603,6 +603,75 @@
     (if (zero? level) tail (resolve-relative unit level tail))))
 
 
+(defn- importlib-bindings
+  "Names introduced by imports of the runtime importlib module or its
+   import_module function. Runtime identity still decides after rebinding."
+  [pk]
+  (let [out (volatile! {:modules #{}, :functions #{}})]
+    (letfn [(walk
+              [n]
+              (when (p/rule? n)
+                (case (:rule n)
+                  "import_name"
+                  (doseq [t (p/child-rules pk (first (p/child-rules pk n "dotted_as_names"))
+                                           "dotted_as_name")]
+                    (when (= "importlib" (dotted-text pk (first (p/child-rules pk t "dotted_name"))))
+                      (vswap! out update :modules conj
+                              (if-let [alias (first (p/child-rules pk t "name"))]
+                                (scope/simple-name pk alias) "importlib"))))
+                  "import_from"
+                  (when (= "importlib" (from-module pk nil n))
+                    (doseq [t (p/child-rules pk (first (p/child-rules pk n "import_as_names"))
+                                             "import_as_name")]
+                      (let [names (p/child-rules pk t "name")]
+                        (when (= "import_module" (scope/simple-name pk (first names)))
+                          (vswap! out update :functions conj
+                                  (scope/simple-name pk (last names)))))))
+                  (run! walk (p/children pk n)))))]
+      (walk (p/root pk))
+      @out)))
+
+
+(defn- import-module-call
+  "A syntactic import_module call's trailer index and absolute literal
+   name. Recognition is guarded by the actual callable at execution;
+   unrecognized aliases and dynamic arguments use the runtime refusal."
+  [pk bindings n]
+  (when (p/rule? n "atom_expr")
+    (let [ks (p/children pk n)
+          trailers (vec (rest ks))
+          root-name (scope/simple-name pk (first ks))
+          named? (contains? (:functions bindings) root-name)]
+      (some (fn [i]
+              (let [t (nth trailers i)
+                    prev (when (pos? i) (nth trailers (dec i)))
+                    attr (when prev (p/children pk prev))
+                    callee? (or (and (zero? i) named?)
+                                (and (= i 1)
+                                     (contains? (:modules bindings) root-name)
+                                     (p/token? (first attr) ".")
+                                     (= "import_module"
+                                        (scope/simple-name pk (second attr)))))
+                    al (first (p/child-rules pk t "arglist"))
+                    args (when al (p/child-rules pk al "argument"))]
+                (when (and callee? (p/has-token? pk t "(") (= 1 (count args)))
+                  (loop [v (first args)]
+                    (let [children (p/children pk v)]
+                      (cond
+                        (and (p/rule? v "atom")
+                             (every? #(= "STRING" (:type %)) children))
+                        (let [nm (apply str (map #(parse-string v (:text %)) children))]
+                          (when (and (seq nm)
+                                     (not (str/starts-with? nm "."))
+                                     (not (str/ends-with? nm "."))
+                                     (not (str/includes? nm "..")))
+                            {:index i, :name nm}))
+                        (and (p/rule? v) (= 1 (count children)))
+                        (recur (first children))
+                        :else nil))))))
+            (range (count trailers))))))
+
+
 (defn- packet-imports
   "The modules each import statement of the packet loads, every dotted
    name as its whole chain, root first, in source order, at any depth (a
@@ -610,7 +679,8 @@
    wherever the statement runs. A relative import that cannot resolve
    loads nothing."
   [pk unit]
-  (let [out (volatile! [])]
+  (let [out (volatile! [])
+        bindings (importlib-bindings pk)]
     (letfn [(walk
               [n]
               (when (p/rule? n)
@@ -624,6 +694,10 @@
                                         pk
                                         (first (p/child-rules pk t "dotted_name"))))))
                           (p/child-rules pk das "dotted_as_name")))
+                  "atom_expr"
+                  (do (when-let [call (import-module-call pk bindings n)]
+                        (vswap! out into (name-chain (:name call))))
+                      (run! walk (p/children pk n)))
                   "import_from"
                   (let [m (from-module pk unit n)]
                     (when (string? m) (vswap! out into (name-chain m))))
@@ -648,29 +722,33 @@
 
 (defn- preseeded-imports-only?
   "Whether every import statement of the packet, at any depth, is I1's
-   `import sys` or `import builtins` (undotted, unaliased, pre-seeded):
+   `import sys`, `import builtins` or `import importlib`
+   (undotted, unaliased, pre-seeded):
    the only imports the bundled profile lowers. Checked on the
    statements, not on the delivery they need: a packageless relative
    import needs none and is still an I2 form."
   [pk]
-  (letfn [(plain-preseeded?
-            [t]
-            (and (empty? (p/child-rules pk t "name"))
-                 (contains? preseeded-modules
-                            (dotted-text
-                              pk (first (p/child-rules pk t "dotted_name"))))))
-          (ok?
-            [n]
-            (or (not (p/rule? n))
-                (case (:rule n)
-                  "import_from" false
-                  "import_name"
-                  (every? plain-preseeded?
-                          (p/child-rules
-                            pk (first (p/child-rules pk n "dotted_as_names"))
-                            "dotted_as_name"))
-                  (every? ok? (p/children pk n)))))]
-    (ok? (p/root pk))))
+  (let [bindings (importlib-bindings pk)]
+    (letfn [(plain-preseeded?
+              [t]
+              (and (empty? (p/child-rules pk t "name"))
+                   (contains? preseeded-modules
+                              (dotted-text
+                                pk (first (p/child-rules pk t "dotted_name"))))))
+            (ok?
+              [n]
+              (or (not (p/rule? n))
+                  (case (:rule n)
+                    "atom_expr" (and (not (import-module-call pk bindings n))
+                                     (every? ok? (p/children pk n)))
+                    "import_from" false
+                    "import_name"
+                    (every? plain-preseeded?
+                            (p/child-rules
+                              pk (first (p/child-rules pk n "dotted_as_names"))
+                              "dotted_as_name"))
+                    (every? ok? (p/children pk n)))))]
+      (ok? (p/root pk)))))
 
 
 (defn- delivered
@@ -1045,9 +1123,19 @@
   [ctx n]
   (let [ks (kids ctx n)]
     (when (p/token? (first ks) "await") (unsupported! n "await"))
-    (reduce (fn [acc t] (apply-trailer ctx acc t))
-            ((:lower ctx) ctx (first ks))
-            (rest ks))))
+    (let [recognized (import-module-call (:pk ctx) (:importlib-bindings ctx) n)]
+      (reduce (fn [acc [i t]]
+                (if (= i (:index recognized))
+                  (let [f (gen "import_callable" t)
+                        ordinary (apply-trailer ctx (u/v f) t)]
+                    (u/let1 f acc
+                            (u/if-node (app* 'py/import-module? (u/v f))
+                                       (import-chain ctx t (:name recognized)
+                                                     #(u/v (peek %)))
+                                       ordinary)))
+                  (apply-trailer ctx acc t)))
+              ((:lower ctx) ctx (first ks))
+              (map-indexed vector (rest ks))))))
 
 
 (defn- power-operands
@@ -1895,6 +1983,7 @@
         analysis (scope/analyze pk)]
     {:pk pk,
      :unit unit,
+     :importlib-bindings (importlib-bindings pk),
      :max-digits (digit-budget packet),
      :analysis analysis,
      :scope (:module analysis),
@@ -1937,7 +2026,8 @@
    prelude -- a module closure's free reads never see the ambient store,
    so a bundled importer's `py/*` definitions are invisible to an
    imported body -- and a bundled unit holding any import statement but
-   `import sys` or `import builtins` is refused."
+   a plain import of sys, builtins or importlib is refused. Literal
+   import_module calls that deliver guest modules need the linked profile."
   ([packet] (lower-packet packet {}))
   ([packet {:keys [prelude], :or {prelude :bundled}}]
    (let [pk (p/validate! packet)

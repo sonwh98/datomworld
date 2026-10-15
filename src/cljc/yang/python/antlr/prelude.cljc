@@ -50,13 +50,14 @@
                      as `%globals` and every function closes over it, which
                      is Python's own `__globals__`; a miss falls back to the
                      builtins dict, and a miss there is NameError
-     module          a cell {:py/type :module :name s :dict d} (C4 I1): the
+     module          a cell {:py/type :module :name s :dict d :body f}: the
                      object `py/import` binds, its dict the module's own
                      namespace, so attribute reads, writes and deletes are
                      dict operations every function of the module sees, and
                      `__dict__` reads the cell's dict; sys.modules itself is
-                     the dict `py.rt/modules`, `sys` and `builtins` the two
-                     module objects `py/init!` pre-seeds into it
+                     the dict `py.rt/modules`, `sys`, `builtins` and `importlib` the
+                     module objects `py/init!` pre-seeds into it; :body
+                     retains an imported module's image for reload
 
    Calling convention: a function's `:code` takes one vector of arguments
    laid out as the parameters are written. `py/call-kw` (and `py/call`,
@@ -819,7 +820,29 @@
                                                       "' is not defined")))
                (get (get b :vals) bslot)))
            (get (get c :vals) slot))))]
-    [py/global-set (fn [g n x] (do (py/dict-set g n x) :py/None))]
+    [py/import-hooks-fail
+     (fn []
+       (py/raise-new py.b/NotImplementedError
+                     {:py/str "finders/loaders/sys.path not supported in datom.world content-addressed modules; __import__ override is not supported"}))]
+    [py/import-namespace-check
+     ;; Namespace policies live on the dict, so __dict__ and aliases
+     ;; cannot bypass the same refusal made by attribute access.
+     (fn [d k write?]
+       (let [policy (get (cell/get d) :import-policy)
+             name (get k :py/str)]
+         (if (if (= policy :sys)
+               (if (= name "meta_path") true
+                   (if (= name "path_hooks") true (= name "path")))
+               false)
+           (py/import-hooks-fail)
+           (if (if write? (if policy (= name "__import__") false) false)
+             (py/import-hooks-fail)
+             :py/None))))]
+    [py/global-set
+     (fn [g n x]
+       (if (= (get n :py/str) "__import__")
+         (py/import-hooks-fail)
+         (do (py/dict-set g n x) :py/None)))]
     [py/global-or
      ;; the module's binding when present, else `builtin`: used for
      ;; `globals`, whose value is per module and so not in the builtins dict
@@ -1034,7 +1057,8 @@
                ;; key is a call: a map literal here would embed the symbol
                (if (= name "__dict__")
                  (get c :dict)
-                 (let [dc (cell/get (get c :dict))
+                 (let [dc (do (py/import-namespace-check (get c :dict) (py/str name) false)
+                              (cell/get (get c :dict)))
                        slot (get (get dc :index)
                                  (assoc {} :py/str name)
                                  :py/missing)]
@@ -1864,7 +1888,9 @@
            (py/raise-new py.b/NotImplementedError
                          {:py/str "hash() of this type is not supported"}))))]
     [py/dict-has?
-     (fn [d k] (not (= (get (get (cell/get d) :index) (py/key k) :py/missing) :py/missing)))]
+     (fn [d k]
+       (do (py/import-namespace-check d k false)
+           (not (= (get (get (cell/get d) :index) (py/key k) :py/missing) :py/missing))))]
     [py/dict-new (fn [] (cell/new {:py/type :dict, :index {}, :keys [], :vals []}))]
     [py/set-new (fn [] (cell/new {:py/type :set, :index {}, :keys []}))]
     [py/set-add
@@ -1887,7 +1913,7 @@
     [py/set-from (fn [xs] (py/set-fill (py/set-new) xs 0))]
     [py/dict-set
      (fn [d k x]
-       (let [c (cell/get d)
+       (let [c (do (py/import-namespace-check d k true) (cell/get d))
              nk (py/key k)
              slot (get (get c :index) nk :py/missing)]
          (if (= slot :py/missing)
@@ -1909,7 +1935,7 @@
     [py/dict-del-quiet
      ;; remove key k if present, keeping insertion order
      (fn [d k]
-       (let [c (cell/get d)
+       (let [c (do (py/import-namespace-check d k true) (cell/get d))
              slot (get (get c :index) (py/key k) :py/missing)]
          (if (= slot :py/missing)
            :py/None
@@ -2060,7 +2086,7 @@
                  (py/tuple (py/slice-of (get o :items) k))
                  (get (get o :items) (py/index k (data/count (get o :items)))))
                (if (= t :dict)
-                 (let [c (cell/get o)
+                 (let [c (do (py/import-namespace-check o k false) (cell/get o))
                        slot (get (get c :index) (py/key k) :py/missing)]
                    (if (= slot :py/missing)
                      (py/raise-new py.b/KeyError k)
@@ -2963,7 +2989,9 @@
      ;; a module object: a heap cell {:py/type :module :name s :dict d},
      ;; `name` plain text, `d` the namespace dict the body receives
      (fn [name d]
-       (cell/new (assoc (assoc (assoc {} :py/type :module) :name name) :dict d)))]
+       (do (cell/set! d (assoc (cell/get d) :import-policy
+                               (if (= name "sys") :sys :module)))
+           (cell/new (assoc (assoc (assoc {} :py/type :module) :name name) :dict d))))]
     [py/module-dict (fn [m] (get (cell/get m) :dict))]
     [py/module-new
      ;; a fresh module object carrying the standard dunders (8.5.6):
@@ -2997,11 +3025,29 @@
      (fn [name package body]
        (let [m (py/module-new name package)
              d (py/module-dict m)]
-         (do (py/modules-put! name m)
+         (do (cell/set! m (assoc (cell/get m) :body body))
+             (py/modules-put! name m)
              (py/try (fn [] (do (body d (py/globals-fn d)) :py/None))
                      (fn [e] (do (py/modules-del! name) (py/raise e)))
                      (fn [] :py/None))
              m)))]
+    [py/import-module?
+     (fn [f] (= f py.b/import-module))]
+    [py/reload
+     ;; Execute the retained image with the original namespace. In
+     ;; particular, do not use module-run's failed-first-import cleanup.
+     (fn [m]
+       (if (= (py/content-type m) :module)
+         (let [c (cell/get m)
+               name (py/str (get c :name))
+               body (get c :body :py/None)
+               d (get c :dict)]
+           (if (= m (py/modules-ref name))
+             (if (= body :py/None)
+               (py/raise-new py.b/ImportError {:py/str "reload has no compiled module body"})
+               (do (body d (py/globals-fn d)) m))
+             (py/raise-new py.b/ImportError {:py/str "reload module is not in sys.modules"})))
+         (py/type-error {:py/str "reload() argument must be a module"})))]
     [py/no-module
      (fn [name]
        (py/raise-new
@@ -3070,7 +3116,7 @@
     [py/dict-ref
      ;; d[k], or :py/missing
      (fn [d k]
-       (let [c (cell/get d)
+       (let [c (do (py/import-namespace-check d k false) (cell/get d))
              slot (get (get c :index) (py/key k) :py/missing)]
          (if (= slot :py/missing) :py/missing (get (get c :vals) slot))))]
     [py/import-from
@@ -3384,7 +3430,16 @@
   "The function objects `py/getattr` and `py/gen-attr` hand out for a
    method, `[store-key form]`: not Python names, so never seeded into the
    builtins dict."
-  '[[py.b/list-append
+  '[[py.b/import-module
+     (py/make-function "import_module" {:params ["name" "package"]} [:py/None] []
+                       (fn [args]
+                         (do args
+                             (py/raise-new py.b/NotImplementedError
+                                           {:py/str "importlib.import_module requires a statically recognized literal absolute module name; dynamic or aliased calls are not supported"}))))]
+    [py.b/reload
+     (py/make-function "reload" {:params ["module"]} [] []
+                       (fn [args] (py/reload (py/arg args 0))))]
+    [py.b/list-append
      (py/make-function "append" {:params ["self" "x"], :no-kw true} [] []
                        (fn [args] (py/list-append (py/arg args 0) (py/arg args 1))))]
     [py.b/set-add
@@ -3435,7 +3490,7 @@
 (defn- init-form
   "`py/init!`'s body: the three runtime cells, every builtin class,
    function and method implementation, then the builtins dict seeded from
-   the tables, then sys.modules with the two runtime-synthesized modules
+   the tables, then sys.modules with the runtime-synthesized modules
    `py/init!` pre-seeds (8.5.6 resolution step 2), then the ready flag,
    under the uninit guard."
   []
@@ -3489,6 +3544,13 @@
                  (list 'py/modules-put! (list 'py/str "sys") 'py.rt/sys)
                  (list 'py/modules-put! (list 'py/str "builtins")
                        'py.rt/builtins-mod)]
+                [(define 'py.rt/importlib '(py/module-new (py/str "importlib")
+                                                          (py/str "")))
+                 (list 'py/dict-set '(py/module-dict py.rt/importlib)
+                       {:py/str "import_module"} 'py.b/import-module)
+                 (list 'py/dict-set '(py/module-dict py.rt/importlib)
+                       {:py/str "reload"} 'py.b/reload)
+                 (list 'py/modules-put! (list 'py/str "importlib") 'py.rt/importlib)]
                 ;; last, so a failed init never reports ready
                 [(define 'py.rt/state :py/ready)
                  :py/None])
@@ -3533,11 +3595,11 @@
 (def runtime-keys
   "Every key `py/init!` allocates, the ready flag aside, sorted: the three
    runtime cells, the builtin classes, functions and method
-   implementations, the builtins dict, and sys.modules with its two
+   implementations, the builtins dict, and sys.modules with its three
    pre-seeded module objects. Read from the same tables `init-form` reads."
   (vec (sort-by str
                 (concat '[py.rt/ctx py.rt/limit py.rt/out py.b/builtins
-                          py.rt/modules py.rt/sys py.rt/builtins-mod]
+                          py.rt/modules py.rt/sys py.rt/builtins-mod py.rt/importlib]
                         (mapv second builtin-classes)
                         (mapv second builtin-functions)
                         (mapv first method-implementations)))))
