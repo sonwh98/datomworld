@@ -12,7 +12,8 @@
             [yin.vm.semantic.frame-test :as ft]
             [yin.vm.values :as values]
             [yin.vm.engine :as engine]
-            [yin.vm.ucf.rows :as rows]))
+            [yin.vm.ucf.rows :as rows]
+            [yin.vm.malformed-rows :as malformed]))
 
 
 (defn error
@@ -274,7 +275,7 @@
       (is (= :yin.k/unsupported (:yin.k/status (error #(rows/decode wire {:rows 1}))))))
     (is (= :literal (:yin.k/kind (error #(rows/decode (rows/emit (task-node [] [:lit (cbor/encode 1)])))))))
     ;; Distinct rows whose decoded elements are equal ([x [1]] = [x (1)]).
-    (is (= :duplicate-key
+    (is (= :equality-collapse
            (:yin.k/kind (error #(rows/decode (rows/emit-numbered
                                                (task-node [[:x body]]
                                                           [:row (rows/node :set [[:row (rows/node :vec [[:cursor-cell :x] [:lit [1]]])]
@@ -1312,3 +1313,55 @@
     (let [f (assoc ft/worked-frame :yin.k/pending (assoc pending :yin.k/try? try?))
           wire (rows/frame->rows f encoded)]
       (is (= f (rows/rows->frame wire))))))
+
+
+(deftest collection-row-keys-refuse-equality-collapse
+  ;; CLJS Numbers erase integral float kind and zero sign; explicit float64
+  ;; values keep both distinctions present on every host.
+  (doseq [keys [[(cbor/float64-from-bits "0000000000000000")
+                 (cbor/float64-from-bits "8000000000000000")]
+                [1 (cbor/float64 1.0)]]
+          kind [:map :set]]
+    (let [body (cursor-cell-body :s 0)
+          slots (if (= kind :set)
+                  (conj (mapv #(vector :lit %) keys) [:cursor-cell :x])
+                  (vec (mapcat #(vector [:lit %] [:cursor-cell :x]) keys)))
+          task (assoc-in (task-node [[:x body]] [:row (rows/node kind slots)])
+                         [:slots 5] (rows/node :bindings ['anchor [:cursor-cell :x]]))
+          wire (rows/emit task)
+          refusal (error #(rows/decode wire))]
+      (is (not (apply cbor/content= keys)))
+      (is (= :equality-collapse (:yin.k/kind refusal)))
+      (is (= [(first (first (filter #(= kind (second %)) (:yin.k/rows wire))))]
+             (:yin.k/path refusal)))))
+  #?(:clj
+     (is (= :equality-collapse
+            (::cbor/refusal (error #(rows/emit (task-node [] [:lit {1 :a (cbor/float64 1.0) :b}]))))))
+     :cljs (println "SKIP literal equality-collapse twin: JS cannot construct the two-key host map")
+     :cljd (println "SKIP literal equality-collapse twin: Dart cannot construct the two-key host map")))
+
+
+(deftest malformed-ucf-rows-refuse-the-published-rule
+  (doseq [[label [expected wire]] malformed/malformed-ucf-row-sets]
+    (testing label
+      (is (= expected (verdict (error #(rows/decode wire))))))))
+
+
+(deftest collection-row-lower-refuses-host-collapse
+  #?(:cljs
+     (doseq [kind [:map :set]]
+       (let [keys [(keyword "a/b" "c") (keyword "a" "b/c")]
+             body (cursor-cell-body :s 0)
+             slots (if (= :set kind)
+                     (conj (mapv #(vector :lit %) keys) [:cursor-cell :x])
+                     (vec (mapcat #(vector [:lit %] [:cursor-cell :x]) keys)))
+             task (assoc-in (task-node [[:x body]] [:row (rows/node kind slots)])
+                            [:slots 5] (rows/node :bindings ['anchor [:cursor-cell :x]]))
+             wire (rows/emit task)
+             {:keys [attach!]} (support/attacher)]
+         (is (nil? (error #(rows/decode wire))))
+         (is (= {:yin.k/status :yin.k/undecodable :yin.k/kind :host-collapse
+                 :yin.k/path [(first (first (filter #(= kind (second %)) (:yin.k/rows wire))))]}
+                (verdict (error #(rows/lower-task (support/new-machine) wire attach!)))))))
+     :clj (println "SKIP host-collapse: slash-crossed identifiers remain distinct on JVM")
+     :cljd (println "SKIP host-collapse: slash-crossed identifiers remain distinct on Dart")))

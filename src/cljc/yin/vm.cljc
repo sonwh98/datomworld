@@ -652,7 +652,7 @@
 (def code-schema
   "DaoDB schema for :yin.code/ linear executable datoms.
    A segment entity plus instruction entities ordered by an explicit
-   :yin.code/pc fact; see docs/design/yin.vm.semantic.md §2."
+   :yin.code/pc fact; see docs/design/yin.vm.semantic.md#history (the retired v3 segment)."
   {;; Ref attributes (entity references, tempid resolution)
    :yin.code/segment {:db/valueType :db.type/ref},      ; instruction → segment
    :yin.code/target {:db/valueType :db.type/ref},       ; branch → instruction
@@ -996,7 +996,8 @@
 ;; distinct node; `id` is `(jing/segment-key [tag & slots])`.
 
 (def semantic-bytecode-grammar
-  "The §2.3 tag table: tag -> ordered `[field kind]` slots. Position `i` of a
+  "The Universal AST row-slot table (yin.vm.code-as-tuples.md §2.3):
+   tag -> ordered `[field kind]` slots, rather than executable bytecode. Position `i` of a
    row body (after the tag) holds the map field named at `i`, so this one
    table drives both projection and reconstruction."
   {:literal [[:value :data]],

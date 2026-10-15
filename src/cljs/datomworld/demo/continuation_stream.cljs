@@ -7,7 +7,7 @@
    and steps; every handoff interval the owner's registers — segment, pc,
    value, register window, environment, continuation frames — are
    appended to the medium as one batch together with the AST's datoms
-   (`datomworld.demo.continuation-handoff`, §7 of yin.vm.semantic.md).
+   (`datomworld.demo.continuation-handoff`, yin.vm.semantic.md#history, retired v3 continuation demo).
 
    Nothing is handed over off-stream. The registers travel as EDN text, and
    the receiver is a fresh VM that loads the shipped segment through the

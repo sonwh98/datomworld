@@ -34,7 +34,7 @@
 (deftest fresh-state-is-a-semantic-shell-with-an-untried-ledger
   (let [state (repl.frontends/create-state)]
     (is (= :semantic (:vm-type state))
-        "the semantic VM is the default after Phase 4 (yin.vm.semantic.md §8)")
+        "the semantic VM is the default after Phase 4 (yin.vm.semantic.md §10 phase 8)")
     (is (= :clojure (:lang state)))
     (is (true? (:running? state)))
     (is (= :untried (get-in state [:ledger :output]))
@@ -715,7 +715,7 @@
 
 (deftest a-clojure-macro-expands-calls-from-other-languages
   (let [[state _] (evaluate (repl.frontends/create-state) [unless-source twice-source
-                                                 "(defn inc2 [x] (+ x 2))"])]
+                                                           "(defn inc2 [x] (+ x 2))"])]
     (testing "Python"
       (let [[state' texts] (results state ["(lang :python)"
                                            "unless(False, 1, 2)"

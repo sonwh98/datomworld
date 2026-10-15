@@ -3396,8 +3396,9 @@ Ed25519 package and its resolution),
   their effects; a required manifest adds its footprint's effects and none
   of its store keys; a missing required manifest, an unprofiled primitive,
   an FFI call and a parked id each refuse with their reason and write
-  nothing. The manifest it produces makes
-  `yin.vm.completion` report no `:missing :footprints` for the module.
+  nothing. The manifest it produces satisfies the footprint agreement
+  assertions now retained in `yin.vm.semantic.scan-test`;
+  `yin.vm.completion` was deleted in phase 8f-1.
 - `yin.vm.linker/local-runtime` exists and the linker tests' runtime delegates
   to it; no behaviour changes. `yin.repl.link` adopts it in L3.
 

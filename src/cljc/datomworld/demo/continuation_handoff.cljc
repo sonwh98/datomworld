@@ -64,8 +64,8 @@
 ;; =============================================================================
 ;;
 ;; A semantic VM between instructions is a code segment plus register window —
-;; {:segment :pc :value :window :env :k} — all plain data (yin.vm.semantic.md
-;; §7). Nothing travels off-stream: the handoff batch is the AST's
+;; {:segment :pc :value :window :env :k} — all plain data (yin.vm.semantic.md#history,
+;; the retired v3 continuation demo). Nothing travels off-stream: the handoff batch is the AST's
 ;; `:yin/*` datoms followed by one registers datom whose value is EDN
 ;; text, so the receiver rebuilds the machine from bytes it read, not from a
 ;; host object it shares with the sender. Definitions the program made

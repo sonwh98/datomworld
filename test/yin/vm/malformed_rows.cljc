@@ -1,8 +1,9 @@
 (ns yin.vm.malformed-rows
-  "The §7.4/§7.5 published sets: malformed row sets and malformed canonical
-   instruction vectors, one per rule, for §7.2 part 3's same-refusal
-   conformance."
-  (:require [dao.jing :as jing]))
+  "The §7.4 published malformed row sets, one per rule, for
+   §7.2 part 3's same-refusal conformance."
+  (:require [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
+            [yin.vm.ucf.rows :as rows]))
 
 
 (defn- valid-row
@@ -51,23 +52,16 @@
                       {:root lit1-id, :rows {lit1-id lit1-row, lit2-id lit2-row}}]}))
 
 
-(def malformed-vectors
-  "`{name [expected-defect vector]}`, one canonical instruction vector per
-   §7.5 rule (a rule with several judged kinds or encodings has several
-   entries). The `[[:jump 9]]` entry is correctly hashed — its address is
-   `(jing/segment-key [[:jump 9]])`, exactly the content hash of what it
-   is — and refused anyway: a correct hash is never structural
-   validation. The list-encoding entries pin the canonical positional
-   form (UCF §7.3.2): the outer sequence and every tuple are vectors."
-  {:nonempty [{:rule :nonempty, :pc 0} []]
-   :nonempty-outer-list [{:rule :nonempty, :pc 0} '([:halt])]
-   :mnemonic [{:rule :mnemonic, :pc 0} [[:frobnicate]]]
-   :mnemonic-inner-list [{:rule :mnemonic, :pc 0} '[(:halt)]]
-   :arity [{:rule :arity, :pc 0} [[:const 1 2] [:halt]]]
-   :operand-kind [{:rule :operand-kind, :pc 0} [[:var "not-a-sym"] [:halt]]]
-   :operand-kind-bool [{:rule :operand-kind, :pc 0} [[:call 0 :truthy] [:halt]]]
-   :operand-kind-buffer [{:rule :operand-kind, :pc 0} [[:stream-make :bad] [:halt]]]
-   :saturation [{:rule :saturation, :pc 0} [[:gensym nil] [:halt]]]
-   :target-bounds [{:rule :target-bounds, :pc 0} [[:jump 9]]]
-   :terminator [{:rule :terminator, :pc 0} [[:const 1]]]
-   :argc [{:rule :argc, :pc 0} [[:call -1 false] [:halt]]]})
+(def malformed-ucf-row-sets
+  "`{name [expected-refusal carrier]}` for the UCF row codec, separate
+   from the Universal AST row grammar in malformed-row-sets."
+  (let [task (rows/node :task
+                        [3 rows/profile :halted :root 0 (rows/node :bindings [])
+                         (rows/node :store []) [] (rows/node :parked-table [])
+                         (rows/node :cursor-cells []) {} {} [] [] nil
+                         [:row (rows/node :map [[:lit 1] [:lit :a]
+                                                [:lit (cbor/float64 1.0)] [:lit :b]])] nil])
+        wire (rows/emit-numbered task {})
+        id (first (first (filter #(= :map (second %)) (:yin.k/rows wire))))]
+    {:equality-collapse [{:yin.k/status :yin.k/undecodable
+                          :yin.k/kind :equality-collapse :yin.k/path [id]} wire]}))

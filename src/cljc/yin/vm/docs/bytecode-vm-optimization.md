@@ -333,7 +333,8 @@ Branches:
 Notes for reproducibility:
 
 - In the temporary `master` worktree, a compile-only compatibility patch was
-  applied to `vm/opcase` macro expansion so CLJD could compile. Runtime
+  applied to the then-existing `vm/opcase` macro expansion so CLJD could
+  compile (`vm/opcase` was deleted at phase 8f-3). Runtime
   workload and benchmark parameters were kept identical.
 
 Run results (`mean_total_ms`):

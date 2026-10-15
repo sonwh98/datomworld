@@ -283,7 +283,7 @@
 
 
 (def ^:private projection-worked-example
-  "`((fn [x] (+ x 1)) 10)`, yin.vm.semantic.md §2.7."
+  "`((fn [x] (+ x 1)) 10)`, yin.vm.semantic.derivations.md §6.3 (hand-derived goldens, row 6)."
   (app (lam '[x] (tail (app (v '+) (v 'x) (lit 1)))) (lit 10)))
 
 

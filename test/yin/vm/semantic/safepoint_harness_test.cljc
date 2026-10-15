@@ -2010,3 +2010,49 @@
       (is (= :yin.k/undecodable (:yin.k/status result)))
       (is (= :pending-try (:yin.k/kind result)))
       (is (zero? @attached) "malformed flags are refused before resource attachment"))))
+
+
+(deftest park-beside-a-live-reader-wait
+  (let [[reader src] (parked-reader)
+        parked (run-beside (assoc reader :env (:free-env reader)) {:type :vm/park})
+        pid (:id (vm/value parked))
+        {:keys [toy peer serve!]} (served #{:reader})
+        wire (rows/lift-task parked serve! (lift-opts))
+        {:keys [attach!]} (recording-attacher toy)
+        recv (rows/lower-task (machine {:attach-stream attach!}) wire attach!)
+        resumed (run-beside recv {:type :vm/resume :parked-id pid :val (s/lit "unparked")})]
+    (is (= 1 (count (:wait-set recv))) "the reader survives beside the park")
+    (is (contains? (:parked recv) pid) "the explicit park survives independently")
+    (is (= "unparked" (vm/value resumed)))
+    (is (not (contains? (:parked resumed) pid)))
+    (is (= 1 (count (:wait-set resumed))) "resuming the park does not consume the reader")
+    (stream/append! src "B")
+    (let [woken (sweep resumed [peer])
+          done (vm/run woken)]
+      (is (empty? (:wait-set done)))
+      (is (vm/halted? done))
+      (is (= "B" (vm/value done))))))
+
+
+(deftest noise-before-the-correlated-ffi-response
+  (let [call-in (s/ring 8) call-out (s/ring 8)
+        m (caller identity call-in call-out)
+        id (ffi/response-call-id (first (:wait-set m)))
+        {:keys [toy peer serve!]} (served #{:reader})
+        wire (rows/lift-task m serve! (lift-opts))
+        {:keys [attach!]} (recording-attacher toy)
+        own-in (s/ring 8) own-out (s/ring 8)
+        recv (rows/lower-task (machine {:attach-stream attach! :call-in own-in
+                                        :call-out own-out :call-out-cursor (vm/mint-oldest own-out :test)})
+                              wire attach!)]
+    (stream/append! call-out (apply2/success-response :unrelated "noise"))
+    (let [waiting (drive-peers recv [peer])]
+      (is (vm/blocked? waiting) "an unrelated response cannot wake this call")
+      (is (= 1 (count (:wait-set waiting))))
+      (is (= id (ffi/response-call-id (first (:wait-set waiting)))))
+      (stream/append! call-out (apply2/success-response id "echo!"))
+      (let [done (drive-peers waiting [peer])]
+        (is (empty? (:wait-set done)))
+        (is (vm/halted? done))
+        (is (= "echo!" (vm/value done)))
+        (is (empty? (tu/drain own-in)) "the carried request is not sent again")))))

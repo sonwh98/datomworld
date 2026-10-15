@@ -1,6 +1,6 @@
 (ns bench.yin-vm-bench
   "Semantic VM Phase 4: the ast-walker against the linear semantic VM on
-   `yin.vm` (`docs/design/yin.vm.semantic.md` §8).
+   `yin.vm` (`docs/design/yin.vm.semantic.md#history`, retired v3 benchmark).
 
    The workload is the historic tail-recursive countdown from the deleted
    `yin.vm.bytecode-bench`, so the ratios read against the 1.32x walker and
