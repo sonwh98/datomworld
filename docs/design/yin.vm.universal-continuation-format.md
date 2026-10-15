@@ -929,7 +929,10 @@ implemented in M4. The require flow adds three pending variants, one per
 safepoint of the same name (`yin.vm.linker.md` 7.2, 7.3). A wait entry's
 `:cursor` (the kept cursor) is UCF's `:yin.k/cell`: the cursor-cell id stands for
 the cursor and its kept position rides in the cursor-cell table of section
-7.5.3:
+7.5.3. Each of these three link pendings carries required boolean
+`:yin.k/try?` (the final pending-row slot in version 3): true preserves
+`try-require`'s outcome-data return contract, false preserves `require`'s
+raising contract, including co-waiters on one install.
 
 ```clojure
 ;; module link, request in hand (:module/require miss)
@@ -940,6 +943,7 @@ the cursor and its kept position rides in the cursor-cell table of section
                    :yin.link/contract "b2"}   ; rebuilt verbatim
  :yin.k/request   {:dao.stream/identity ... :dao.stream/descriptor ...}
  :yin.k/response  {:dao.stream/identity ... :dao.stream/descriptor ...}
+ :yin.k/try?      false
  :yin.k/cell      :yin.k/c-31}            ; response cursor cell, minted newest
                                           ; before the request is appended
 
@@ -947,12 +951,14 @@ the cursor and its kept position rides in the cursor-cell table of section
 {:yin.k/reason    :link-response
  :yin.k/link-id   [:t0 7]
  :yin.k/response  {:dao.stream/identity ... :dao.stream/descriptor ...}
+ :yin.k/try?      false
  :yin.k/cell      :yin.k/c-31}            ; the kept cursor cell, at its kept
                                           ; position
 
 ;; module install (a matching ok discharged; the child runs)
 {:yin.k/reason    :install
- :yin.k/name      'foo}
+ :yin.k/name      'foo
+ :yin.k/try?      false}
 ```
 
 Four rules fix the exchange. The link id is the pair `[origin

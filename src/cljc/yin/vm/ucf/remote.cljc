@@ -386,6 +386,7 @@
         (if (and resp req)
           {:pending (cond-> {:yin.k/reason reason,
                              :yin.k/link-id (:link-id entry),
+                             :yin.k/try? (boolean (:try? entry)),
                              :yin.k/name (:name entry),
                              :yin.k/request req,
                              :yin.k/response resp,
@@ -423,7 +424,8 @@
     :link-response (lift-link serve! resources mint codec entry)
 
     :install
-    {:pending {:yin.k/reason :install, :yin.k/name (:name entry)}}
+    {:pending {:yin.k/reason :install, :yin.k/name (:name entry),
+               :yin.k/try? (boolean (:try? entry))}}
 
     {:yin.k/status :yin.k/undecodable, :yin.k/reason (:reason entry)}))
 
@@ -665,6 +667,7 @@
         {:entry (merge ctx
                        (cond-> {:reason reason,
                                 :link-id (:yin.k/link-id pending),
+                                :try? (:yin.k/try? pending),
                                 :name (:yin.k/name pending),
                                 :request module/link-request-resource,
                                 :response module/link-response-resource,
@@ -675,7 +678,8 @@
 
     :install
     {:entry (merge ctx
-                   {:reason :install, :name (:yin.k/name pending)})}
+                   {:reason :install, :name (:yin.k/name pending),
+                    :try? (:yin.k/try? pending)})}
 
     {:yin.k/status :yin.k/undecodable,
      :yin.k/reason (:yin.k/reason pending)}))

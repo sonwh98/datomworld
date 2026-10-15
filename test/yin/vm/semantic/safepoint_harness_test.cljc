@@ -742,7 +742,7 @@
         (is (= phase carried-phase) "the child's phase as the source held it")
         (is (= :blocked (slot child 2)) "the child's kind")
         (is (= :child (slot child 3)))
-        (is (= [:install 'host.mod] (:slots (first-pending (root-task wire)))))
+        (is (= [:install 'host.mod false] (:slots (first-pending (root-task wire)))))
         (is (= phase (:phase inst)))
         (is (nil? (:control lowered)) "no initialization on lower: nothing runs")
         (is (= [:next] (mapv :reason (:wait-set lowered))) "the child waits where it was lifted")
@@ -912,7 +912,7 @@
      ["rd replaced by another register" 1 :destination
       (fn [task] (update-at task (conj wait-act 5) inc))]
      ["a reason the site does not admit" 1 :reason-mismatch
-      (fn [task] (update-at task [13 0 1] (constantly (rows/node :pending [:install 'bogus]))))]
+      (fn [task] (update-at task [13 0 1] (constantly (rows/node :pending [:install 'bogus false]))))]
      ["the [:lit nil] of row 22 dropped" 22 :window-missing
       (fn [task] (update-at task (conj wait-act 3) #(rebuild % (fn [ps] (vec (remove (fn [[_ v]] (= [:lit nil] v)) ps))))))]
      ["a :reified act whose pc-1 is not a capture" 14 :captured-site
@@ -1952,3 +1952,61 @@
                   got (crossed :semantic :stack #(build identity))]
               (is (= expected (:value ref)))
               (is (= (:value ref) (:value got))))))))))
+
+
+(defn try-wrapper
+  [try?]
+  (if try? #(s/let1 'require (s/v 'try-require) %) identity))
+
+
+(deftest link-refusal-keeps-each-return-contract-after-handoff
+  (doseq [try? [true false] tail? [false true] retained? [false true]]
+    (testing (pr-str {:try? try? :tail? tail? :retained? retained?})
+      (let [world (linking (try-wrapper try?) tail? retained?)
+            m (:machine world)
+            entry (first (:wait-set m))
+            response (get (:resources m) module/link-response-resource)
+            refusal {:yin.link/id (:link-id entry) :status :refused :reason :absent}
+            answer! #(stream/append! response refusal)
+            world (assoc world :steps (if retained? [(first (:steps world)) answer!] [answer!]))]
+        (is (= try? (boolean (:try? entry))) "the source waiter has the requested contract")
+        (if try?
+          (let [{:keys [halted value recv wire]} (handed-off world)]
+            (is halted)
+            (is (= (assoc refusal :module 'host.mod) value))
+            (is (true? (:try? (first (:wait-set recv)))))
+            (is (= wire (rows/emit (rows/decode wire))) "pack round trip includes the flag"))
+          (let [failure (error #(handed-off world))]
+            (is (= :absent (:reason failure)))
+            (is (= 'host.mod (:link-module failure)))))))))
+
+
+(deftest install-return-contract-and-link-flag-validation
+  (doseq [try? [true false]]
+    (let [world (installing (try-wrapper try?) false nil)
+          {:keys [toy serve!]} (served #{:reader :writer})
+          wire (rows/lift-task (:machine world) serve! (lift-opts))
+          pending (first-pending (root-task wire))
+          attach! (s/remote-attacher toy)
+          recv (rows/lower-task (machine) wire attach!)
+          abandoned (engine/abandon-installs recv :test-abandoned)]
+      (is (= [:install 'host.mod try?] (:slots pending)))
+      (is (= try? (:try? (first (:wait-set recv)))))
+      (is (= wire (rows/emit (rows/decode wire))))
+      (if try?
+        (is (= {:status :lost :reason :test-abandoned}
+               (select-keys (vm/value (vm/run abandoned)) [:status :reason])))
+        (is (= :test-abandoned (:reason (error #(vm/run abandoned))))))))
+  (doseq [build [#(linking identity false true)
+                 #(linking identity false false)
+                 #(installing identity false nil)]
+          malformed [nil :true 1 "true"]]
+    (let [{:keys [serve!]} (served #{:reader :writer})
+          wire (rows/lift-task (:machine (build)) serve! (lift-opts))
+          bad (rows/emit (update-at (root-task wire) [13 0 1]
+                                    #(update % :slots (fn [xs] (assoc xs (dec (count xs)) malformed)))))
+          attached (atom 0)
+          result (error #(rows/lower-task (machine) bad (fn [_] (swap! attached inc))))]
+      (is (= :yin.k/undecodable (:yin.k/status result)))
+      (is (= :pending-try (:yin.k/kind result)))
+      (is (zero? @attached) "malformed flags are refused before resource attachment"))))

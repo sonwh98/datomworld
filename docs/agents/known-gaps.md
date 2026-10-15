@@ -33,7 +33,7 @@ Adopted by the owner 2026-10-14 (mob consolidation Q6).
 | DHT 64 KiB blob cap: `py` cannot travel over DHT | docs 7.5 | DHT seat | chunked transport | P2 |
 | CLI refusal for a bad `--dht-trust` value no longer names the flag (`main/parse-trust` could prefix it); shared parser docstring still says "A `--dht-trust` value" | fable AL-4-nits review P3-1 | yin.repl | next yin.repl slice | P3 |
 | `(untrust <own>)` says "always trusted" on an `:external` session, where the external admitter decides | fable AL-4-nits review P3-2 | yin.repl | next yin.repl slice | P3 |
-| `:try?` not carried by UCF pending entries; a lifted try waiter resumes under the `require` contract | fable L-d-1 architect review; `ucf/rows.cljc:1014`, `ucf/handoff.cljc:2036`, `ucf/remote.cljc:368` | UCF | L-d-1b, before I4-a | P1 |
+| Closed 2026-10-16: `:try?` carried by all three UCF link pending variants; lifted try waiters retain their return contract | G1 / L-d-1b slice: row/frame and remote lift/lower; portable refusal, install and malformed-boolean tests in `semantic/safepoint_harness_test.cljc`, frame bijection in `ucf/rows_test.cljc` | UCF | L-d-1b closed | P1 |
 | try joiner's `:link-id` is the install's parent id; drop `:link-id` from install waiters, loss datum carries `:module` | fable L-d-1 review P3-1 | linker | L-d-1b | P3 |
 | `publish/requirements` pins only operator `require`; module-level `try-require` yields no pin | fable L-d-1 review P3-3 | linker | closed in L-d-3 | P3 |
 | publication-time-unavailable optional imports cannot be represented without concrete segment pins | mob consensus I4 Q1 | yang.python / linker | open | P3 |
