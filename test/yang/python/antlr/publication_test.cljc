@@ -146,14 +146,13 @@
 
 (deftest publication-bundles-before-aliases-test
   (let [seen (atom [])
-        units [(unit "a" ["b" "out"]) (unit "b" ["a"]) (unit "out" [])]]
-    (with-redefs [publish/publish-module!
-                  (fn [_ spec]
-                    (swap! seen conj (select-keys spec [:name :requires]))
-                    {:status :ok, :address (keyword "test" (str (:name spec)))})]
-      (is (= {:status :ok, :addresses {"out" :test/pym.out, "a" :test/pym.a, "b" :test/pym.b},
-              :bundles {'pyscc.a$$b :test/pyscc.a$$b}}
-             (publication/publish-units! nil (h/registry) :test/py units))))
+        units [(unit "a" ["b" "out"]) (unit "b" ["a"]) (unit "out" [])]
+        publish-fn (fn [_ spec]
+                     (swap! seen conj (select-keys spec [:name :requires]))
+                     {:status :ok, :address (keyword "test" (str (:name spec)))})]
+    (is (= {:status :ok, :addresses {"out" :test/pym.out, "a" :test/pym.a, "b" :test/pym.b},
+            :bundles {'pyscc.a$$b :test/pyscc.a$$b}}
+           (publication/publish-units! nil (h/registry) :test/py units {} publish-fn)))
     (is (= [{:name 'pym.out, :requires {'py :test/py}}
             {:name 'pyscc.a$$b, :requires {'py :test/py, 'pym.out :test/pym.out}}
             {:name 'pym.a, :requires {'pyscc.a$$b :test/pyscc.a$$b}}
@@ -162,17 +161,16 @@
 
 
 (deftest alias-refusal-stops-publication-test
-  (let [seen (atom [])]
-    (with-redefs [publish/publish-module!
-                  (fn [_ spec]
-                    (swap! seen conj (:name spec))
-                    (if (= 'pym.a (:name spec))
-                      {:status :refused, :reason :test/refused}
-                      {:status :ok, :address :test/address}))]
-      (is (= {:status :refused, :reason :test/refused, :unit "a"}
-             (publication/publish-units! nil (h/registry) :test/py
-                                         [(unit "a" ["b"]) (unit "b" ["a"])
-                                          (unit "later" [])]))))
+  (let [seen (atom [])
+        publish-fn (fn [_ spec]
+                     (swap! seen conj (:name spec))
+                     (if (= 'pym.a (:name spec))
+                       {:status :refused, :reason :test/refused}
+                       {:status :ok, :address :test/address}))]
+    (is (= {:status :refused, :reason :test/refused, :unit "a"}
+           (publication/publish-units! nil (h/registry) :test/py
+                                       [(unit "a" ["b"]) (unit "b" ["a"])
+                                        (unit "later" [])] {} publish-fn)))
     (is (= '[pyscc.a$$b pym.a] @seen))))
 
 
@@ -194,15 +192,14 @@
 
 
 (deftest bundle-refusal-stops-publication-test
-  (let [seen (atom [])]
-    (with-redefs [publish/publish-module!
-                  (fn [_ spec]
-                    (swap! seen conj (:name spec))
-                    {:status :refused, :reason :test/refused})]
-      (is (= {:status :refused, :reason :test/refused, :unit "pyscc.a$$b"}
-             (publication/publish-units! nil (h/registry) :test/py
-                                         [(unit "a" ["b"]) (unit "b" ["a"])
-                                          (unit "later" [])]))))
+  (let [seen (atom [])
+        publish-fn (fn [_ spec]
+                     (swap! seen conj (:name spec))
+                     {:status :refused, :reason :test/refused})]
+    (is (= {:status :refused, :reason :test/refused, :unit "pyscc.a$$b"}
+           (publication/publish-units! nil (h/registry) :test/py
+                                       [(unit "a" ["b"]) (unit "b" ["a"])
+                                        (unit "later" [])] {} publish-fn)))
     (is (= '[pyscc.a$$b] @seen))))
 
 
