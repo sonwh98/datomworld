@@ -11219,6 +11219,234 @@ Decisions waiting on the owner: adopt the mob's proposed standing review rule (s
 Lessons: (a) before `git worktree remove` copy the worktree's untracked collab/ files to main (I lost the I3 engineer reports and the parked linked-REPL tests); (b) `cmd -p` runs: use a non-plan mode, explicit non-interactive instructions, `--output-format json` and check stopReason; permission_denied means a shell call was refused; use --yolo only inside a throwaway worktree copy; (c) the documented `clojure -A:test -M file` runs the whole suite: use `clojure -Sdeps '{:aliases {:t {:extra-paths ["test"]}}}' -M:t file`; (d) Claude opus runs die at the session limit: briefs must tell the engineer to write the report early; the continuation pattern (untrusted tree, read the predecessor's report) worked each time; (e) estimate review rounds from measured file times (design round 15-25 min, codex review 2-10 min), not guesses; (f) my timing for lane runs: a full yang.python Node+Dart slow sequence is hours on this laptop.
 Delegates this session: fable-5.1 (admission design rounds 1-3, S4/S6-S7 earlier, the linker redesign), codex gpt-6.1-sol (reviews), opus-5-5 (engineers), glm-5.3 and deepseek-v4-pro and qwen3.8-max (mob only).
 
+## 2026-10-12 19:51:00 +07 — Admission redesign review complete; owner gate pending
+Completed-GMT: 2026-10-12 12:51:00 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@4bbe2479, uncommitted changes: `docs/orchestrator-log.md` and new `collab/1792263000000-reviewer-admission-in-linker-r2.gpt-6.1-sol.findings.md`; other untracked collaboration artifacts and unrelated docs remain untouched
+Done: Re-derived current tree and read the 19:50 handoff. The fable round-2 linker admission design is complete in `collab/1792262000000-architect-admission-in-linker-r2.claude-fable-5-1.findings.md`. Codex's complete review was in its stdout capture but no findings file existed; promoted the captured review to `collab/1792263000000-reviewer-admission-in-linker-r2.gpt-6.1-sol.findings.md` without changing its body. Review verdict: REJECT for four P1s remain fixed from round 1; one P2 is non-blocking. The review says the revised exposure, tick handoff, relocation, Q4 explanation, AD-2 compatibility and invariants are sound; no open in-scope P0/P1 is reported in the revised design. AD-2 remains uncommitted and its engineer report says the Node slow lane is still running; no process list was available (`ps` denied, `pgrep` reported sysmon unavailable), so no process was stopped or tree changed.
+Decisions: Followed the handoff gate: do not dispatch an engineer for the linker redesign until the owner sees the revised design and codex review. Did not touch AD-2, whose required Node/Dart, checkpoint and landing evidence is incomplete. No tests run, no files staged or committed.
+Verification: `git log -5 --oneline --decorate`, `git status --short`, `git worktree list --porcelain`; source/artifact inspection. `ps -axo ...` denied by host policy; `pgrep -alf 'claude|codex'` could not access process listing because sysmon is unavailable. No test suites run.
+Delegates: Prior-seat fable-5-1 design and codex gpt-6.1-sol review, artifacts `collab/1792262000000-architect-admission-in-linker-r2.claude-fable-5-1.findings.md` and `collab/1792263000000-reviewer-admission-in-linker-r2.gpt-6.1-sol.findings.md`; codex Session-ID not captured in stdout. AD-2 opus-5-5 is still in flight per its report, `collab/1792250000000-engineer-ad2.findings.md`; session ID not recorded there.
+Next: Owner to review the complete linker design and codex review, especially the AL-3 registry exposure and language-blindness decision. After owner ruling, resume AD-2 status/review/landing workflow. Then proceed with AL-0/AL-1 only if design approved. Hold AD-3/AL-4 and further engineering until trust configuration ownership is settled.
+
+## 2026-10-12 19:55:00 +07 — Correction: round-2 linker review provenance and verdict
+Completed-GMT: 2026-10-12 12:55:00 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@4bbe2479, uncommitted changes: `docs/orchestrator-log.md` and new review/provenance files under `collab/`; unrelated worktree and untracked files untouched
+Done: Corrects the immediately preceding 19:51 entry. The 19:51 promotion mistakenly extracted the round-1 REJECT text embedded in the incomplete round-2 stdout inspection transcript. That artifact is explicitly marked superseded as evidence in its append-only correction. Re-ran the read-only review under Codex thread `01a1302b-da7c-77e1-9319-eaaa651e0473`; complete result is `collab/1791809519945-reviewer-admission-in-linker-r2-confirm.gpt-6.1-sol.findings.md`, stdout `collab/1791809519945-reviewer-admission-in-linker-r2-confirm.gpt-6.1-sol.stdout.log`.
+Decisions: Codex verdict APPROVE-WITH-NITS; no open in-scope P0/P1 and no blocking new-behavior P2. One non-blocking P3 asks the design to align `reconfigure` timing (AL-3) and enumerate `main.cljc` plus direct test hook callers for AL-2 adaptation. The owner review gate is now met. No engineer dispatched pending owner decision. AD-2 remains in progress/unverified from the last available engineer report; no process was killed.
+Verification: Fresh reviewer independently inspected the design and cited source. Review explicitly ran no suites and edited no files. No tests run by this seat. Codex's normal sandbox attempt failed to initialize its app-server (`Operation not permitted`); the same read-only command completed through the auto-reviewed escalation path. No files staged or committed.
+Delegates: Codex gpt-6.1-sol, thread `01a1302b-da7c-77e1-9319-eaaa651e0473`, prompt `collab/1791809519945-reviewer-admission-in-linker-r2-confirm.prompt.md`, findings and stdout as above. Earlier Fable design artifact `collab/1792262000000-architect-admission-in-linker-r2.claude-fable-5-1.findings.md`. AD-2 opus-5-5 remains outstanding in `datomworld-ad2`; report `collab/1792250000000-engineer-ad2.findings.md` last said Node slow lane running, and completion still needs verification/review.
+Next: Owner to decide whether to accept the P3 as a required design clarification and approve the linker-layering plan. Then complete AD-2's lane/review/landing gate and proceed only under the ordered handoff plan. Keep AD-3/AL-4 held until trust configuration ownership is settled.
+
+## 2026-10-12 23:09:44 +07 — AD-2 independent review complete
+Completed-GMT: 2026-10-12 16:09:44 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: main `master@4bbe2479`; AD-2 worktree `admission-ad2@0e549b72`, uncommitted six-file diff
+Done: Completed independent security/correctness review of AD-2. Claude Fable 5.1 report at `collab/1791821297243-reviewer-ad2-r2.claude-fable-5-1.findings.md` finds no actionable issues and says ready to commit. It records two non-blocking P3 observations: the policy-surface assertion is nearly tautological, and design/test fixture module names differ (`pym.m`/`pym.e`) while semantics match. No source files changed during review. Updated `docs/agents/routing-status.md` with the owner's latest Claude credit timing.
+Decisions: Do not commit; no commit authorization was given. Qwen 3.8 Max review attempt was superseded after its shell access was blocked and it attempted an out-of-scope nested agent. Its prompt/stdout are preserved; the artifact filename suffix `.gpt-6.1-sol` is incorrect (the recorded model was Qwen), a filename provenance mistake. Claude Fable's first turn started an out-of-scope slow JVM DHT-import test; stopped the JVM and waiter before a result, so that run is not counted. Resumed the same Claude session with a static-only brief. No other process remains active.
+Verification: `git diff --check` clean. GLM findings report `collab/1792250000000-engineer-ad2.findings.md` records Node slow lane 253 tests/41615 assertions/0 failures, Dart slow lane 207 tests/0 failures, `bb test:changed` green on all three lanes, kondo 0 errors/0 warnings, cljstyle clean, and the DHT artifact byte-identical. Combined checkpoint had one Node `yin.repl/store` contention failure; isolated Node `yin.repl` rerun passed 529 tests/39968 assertions. These are delegate-run results, not rerun by this seat. Claude independently reviewed the saved 655-line patch and reports its blob hashes match the worktree diff; no actionable findings. Its quick JVM `yin.repl.admission-test` result (25 tests/255 assertions) and kondo check are also delegate-run evidence. The interrupted slow JVM attempt has no result. Reviewer report timestamp was ahead of this seat's clock; work-log time above uses the seat's actual clock.
+Delegates: GLM-5.3 engineer, session `24e251f3-90f5-46cc-8b67-46de88710a7d`, prompt `collab/1791809959135-engineer-ad2-glm-r1.prompt.md`, findings `collab/1792250000000-engineer-ad2.findings.md`; Claude Fable 5.1 reviewer, session `34ba54ab-435f-4f28-bcae-51df45c2e76f`, prompts `collab/1791820972101-reviewer-ad2.claude-fable-5-1.prompt.md` and `collab/1791821297243-reviewer-ad2-r2.claude-fable-5-1.prompt.md`, findings `collab/1791821297243-reviewer-ad2-r2.claude-fable-5-1.findings.md`; superseded Qwen 3.8 Max attempt, session `f5c732db-c745-4220-bc47-133a7f24a096`, prompt/stdout `collab/1791820886238-reviewer-ad2.gpt-6.1-sol.*` (suffix error noted above).
+Next: AD-2 is reviewed and ready to commit, pending explicit user authorization. Preserve the combined-checkpoint contention flake in any handoff. Then continue the ordered `yang.python` agenda.
+
+## 2026-10-12 23:13:18 +07 — AD-2 commit and merge complete
+Completed-GMT: 2026-10-12 16:13:18 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: `master@e0c1b658`, merge commit; feature commit `d2763755`; both are local and unpushed
+Done: Corrects the preceding AD-2 review entry's `Next` field. Per the owner's explicit instruction to commit and merge AD-2, committed the six reviewed files as `d2763755 feat(yang.python): integrate DHT imports with admission`, then merged `admission-ad2` into `master` as `e0c1b658`.
+Decisions: Staged only the six reviewed AD-2 files; collab artifacts were not staged. Used a merge commit because `master` had advanced 17 commits beyond the AD-2 base. The six files had no intervening master commits, and the merge completed cleanly. Did not push; the instruction named the local `master` branch only.
+Verification: Staged `git diff --cached --check` clean before commit; formatter hook completed; post-merge `git diff --check HEAD^1 HEAD` clean. Confirmed each of the six file blobs at master equals the reviewed `d2763755` commit. No tests rerun after merge; prior GLM slow-lane, changed-only, lint, and review evidence remains as recorded above. Master is now two commits ahead of `origin/master`. The pre-existing main-tree changes to `docs/agents/build-n-test.md`, `docs/orchestrator-log.md`, and untracked artifacts remain untouched by the AD-2 commit.
+Delegates: Review and implementation artifacts/session IDs as listed in the preceding entry.
+Next: AD-2 is merged locally to master. Push only if the owner asks; retain the known combined-checkpoint Node contention flake in future handoffs.
+
+## 2026-10-12 23:14:21 +07 — final orchestrator seat handoff
+Created-GMT: 2026-10-12 16:14:21 GMT
+Created-Local: 2026-10-12 23:14:21 +07
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Task: Hand off orchestration of the yang.python / admission track
+Role: Lead Engineering Orchestrator
+Tree: main checkout `master@e0c1b658` (two commits ahead of `origin/master`, unpushed); AD-2 worktree `/Users/sto/workspace/datomworld-ad2`, branch `admission-ad2@d2763755`
+
+Completed: AD-2 implementation is committed as `d2763755 feat(yang.python): integrate DHT imports with admission` and merged into local master by merge commit `e0c1b658`. Independent Claude Fable 5.1 review found no actionable issues and marked it ready to commit before the owner's commit instruction. The six AD-2 file blobs at master match the reviewed feature commit. The feature worktree is clean for tracked files; its `collab/` contains untracked prompts/reports that must be preserved if that worktree is ever removed. No delegate process remains active.
+
+Owner routing: At 23:02 +07 the owner asked to prefer Claude because credits reset at 04:00. This supersedes the earlier Claude-out relay for new work before that reset. See `docs/agents/routing-status.md`. Use a Claude model suitable to the next role; preserve reviewer family independence. Codex remains reserved for Architectural Review by `docs/agents/team.md`.
+
+Verification: Pre-commit staged diff check clean; formatter hook completed. Post-merge `git diff --check HEAD^1 HEAD` clean, and the merged six-file blob hashes match `d2763755`. GLM report records Node slow lane 253 tests/41615 assertions/0 failures, Dart slow lane 207 tests/0 failures, `bb test:changed` green on all three lanes, kondo 0 errors/0 warnings, cljstyle clean, and unchanged DHT import artifact. The combined `bb test:sub yin.repl yang.python` checkpoint had one Node `yin.repl/store` contention failure; isolated Node `yin.repl` rerun passed 529 tests/39968 assertions. These test/lint results are delegate evidence; this seat did not rerun them. A Claude reviewer started a slow JVM test outside its brief; the process was stopped before a result and is not a pass. No tests were run after merge. Consult `docs/agents/build-n-test.md` for the master G3 gate before treating the release/landing sequence as fully verified.
+
+Open authorization/state: No push authorization was given. Keep `master` local and unpushed. The main checkout still has the pre-existing tracked edits to `docs/agents/build-n-test.md` and `docs/orchestrator-log.md`, plus many unrelated untracked collab/design artifacts; do not stage or discard them. `docs/agents/routing-status.md` records owner-relayed availability and is present in the workspace.
+
+Delegates: GLM-5.3 engineer session `24e251f3-90f5-46cc-8b67-46de88710a7d`, prompt `collab/1791809959135-engineer-ad2-glm-r1.prompt.md`, report `collab/1792250000000-engineer-ad2.findings.md`; Claude Fable 5.1 reviewer session `34ba54ab-435f-4f28-bcae-51df45c2e76f`, prompts `collab/1791820972101-reviewer-ad2.claude-fable-5-1.prompt.md` and `collab/1791821297243-reviewer-ad2-r2.claude-fable-5-1.prompt.md`, report `collab/1791821297243-reviewer-ad2-r2.claude-fable-5-1.findings.md`; superseded Qwen review attempt session `f5c732db-c745-4220-bc47-133a7f24a096` could not inspect via shell and was stopped. Its prompt/stdout are preserved under the incorrectly labeled `.gpt-6.1-sol` suffix; treat them as a failed attempt, not a review.
+
+Next agenda: The linker-over-DHT redesign review is APPROVE-WITH-NITS; its remaining P3 asks to list `main.cljc` and direct test-hook callers for AL-2, and align `reconfigure` timing with AL-3. The owner had not yet ruled on that design gate at the last check. Hold AL-0/AL-1 engineering pending the owner's ruling. Keep AD-3/AL-4 held until trust-configuration ownership is settled. Then continue the ordered C4 / yang.python agenda from the earlier handoff entry, re-deriving current design and tree state first.
+
+## 2026-10-14 16:13:00 +07 — semantic-register-vm: 8ab/8d Fable reviews in, 8d merged to srvm-phase8, dht artifact regen handed to yang.python
+Completed-GMT: 2026-10-14 09:13:00 GMT
+Coding-Agent: muse
+Session-ID: not-applicable (interactive seat)
+Tree: `srvm-phase8@4b5752a3` (pushed to origin); main checkout `master@d09a557c` (agy seat landed I4-a/L-d-3 since takeover); slice branches `srvm-phase8ab@b794e2f5`, `srvm-phase8d@249f8799`
+Done: (1) Took the orchestrator seat for yin.vm.semantic-register-vm from the phase-8 handoff (`collab/1792610000000-orchestrator-handoff-phase8.md`). Re-derived state: phases 1-7 landed (`67b98907`), L-d-1/L-d-2/ledger-17 on master, 8ab+8d slice commits already on their branches. Jupiter post-merge JVM quick tier on `67b98907` green (13/13 shards rc=0, 276/276 namespaces; Node/Dart post-merge lanes unchecked). (2) Dispatched both Fable reviews (codex authored, Claude reviews; owner relay: fable for review only): 8ab session `71ff60b2-6c20-4e6c-9a77-6cfced87ce56`, 8d session `43fb870b-1216-4a82-a6e4-e7e4ab97f1f2`; prompts `collab/1792630000000-reviewer-8ab-descriptors.prompt.md` and `collab/1792630000000-reviewer-8d-transport-removal.prompt.md`. (3) 8ab verdict: hash move correct on all 8 check items, but blocking P1 — `test/resources/yang/python/dht-import-v1.edn` still pins the old py manifest (`b9dbaeff…`, moved to `577aabfb…`); sole leftover of an old-prefix grep; fix is the generator's own prescribed rerun + `dht_import_test` incl. slow mesh leg. Also P2 (no Node/Dart lanes; cross-host pins unproven) and 2 P3 nits. Owner ruled: the yang.python (agy) seat regenerates; note at `collab/1792631000000-orchestrator-note-dht-import-regen.md` (land on master, that file only, report the commit; we rebase 8ab onto it). (4) 8d verdict: READY TO MERGE, all 7 check items confirmed (zero `src/` diff, fixtures byte-identical, 6 audit mappings spot-checked, C4 retention forced and minimal); one non-blocking P3 (`store_write_audit_test.clj:346` textual pin, 8f cleanup). Merged `srvm-phase8d` into `srvm-phase8` as `4b5752a3` (`--no-ff`, `diff --check` clean, pushed); main checkout returned to `master`.
+Decisions: 8d merges independently of 8ab (disjoint file sets); 8ab merge held on the agy regen commit; 8c brief waits for 8ab+8d in `srvm-phase8` per plan order. Did not touch `test/yang/`, the other seat's uncommitted doc edits, or the uncommitted edn modification in the main checkout (treated as agy in-progress work).
+Verification: review findings are Fable static evidence (no test execution by reviewers); slice JVM evidence is codex-reported (8ab: 250 quick/8483 + 17 slow/200 focused, 1149 broad, kondo clean, 4/4 mutants; 8d: 754-test sweep + 31 slow + Stage E 204 scenarios/196 kills, kondo clean, 3/3 mutants) — not rerun by this seat. Merge verified only by `diff --check` + stat-vs-report match. Node/Dart lanes per slice still pending (shiva).
+Delegates: codex gpt-6.1-sol (8ab/8d authors, prior seat); claude-fable-5-1 reviewers as above, reports in `collab/1792630000000-reviewer-{8ab-descriptors,8d-transport-removal}.claude-fable-5-1.stdout.log`.
+Next: (1) watch for the agy regen commit on master; (2) rebase `srvm-phase8ab` onto it, re-verify, merge 8ab into `srvm-phase8`; (3) Node/Dart lanes for 8ab (nine namespaces) on shiva; (4) brief 8c to codex.
+
+## 2026-10-15 01:05:00 +07 — semantic-register-vm: 8ab fix round 2 green on the true base; confirm review blocked by Claude 404s; 8c + freeze drafts ready; seat handoff
+Completed-GMT: 2026-10-14 18:05:00 GMT
+Coding-Agent: muse
+Session-ID: not-applicable (interactive seat)
+Tree: slice `srvm-phase8ab@2b9f2b47` (+ uncommitted 2-file fix) on `origin/master@72592bd9`; integration `srvm-phase8@4b5752a3` (8d in, 8ab pending); main checkout on branch `dht-import-regen-test` with the other seat's uncommitted `docs/` edits — untouched
+Done: (1) Agy seat landed the regen on master as `72592bd9` (edn + `dht_import_test.cljc` ONLY, over I4-a `d27adce4`; master py = `:segment/blake3-6e003ac4…`; tri-host green; reply in `collab/1792631000000-orchestrator-note-dht-import-regen.md` §Response). (2) First rebase of `srvm-phase8ab` targeted a STALE `origin/master` (`2c70bec1`, predates I4-a + regen) — codex fix round 1 (session `01a13b4b-763f-7c10-8ef4-9b01b60d6976`) correctly blocked with zero edits; its report is preserved at main-tree `collab/1792632000000-engineer-8ab-fix1.report.md`. (3) Rebases swept untracked worktree `collab/` files INTO the slice commit twice; stripped via `git rm --cached` + amend (verified against `b794e2f5`, which ships zero collab files). True rebase onto `72592bd9` finished as `2b9f2b47` (16 files, zero collab): exactly one expected conflict in the two prelude golden files, resolved with 8ab's side as codex's recompute base. (4) Codex fix round 2 (session `01a13b5c-d88c-7a01-a2f8-f409ef355091`, report main-tree `collab/1792633000000-engineer-8ab-fix2.report.md`): ONLY `linked_prelude_test.cljc` (4+/3-) + `linked_safepoint_test.cljc` (3+/2-) changed; py manifest `577aabfb…`→`2e5aebac…`, pysp `6c39c4b9…`→`a28d246c…`, runtime-key count 65→66 (I4-a's `ModuleNotFoundError`, adjacent exact-keys assertion holds); H/R STOP condition honored (backend/descriptor/corpus-32/rows-20/linker/parity pins byte-identical); focused quick 250 tests/8,483 assertions green; kondo 0/0; 4/4 prior mutants still caught; slow leg expected-red vs committed edn (66 failures, all in `dht-import-test`, per-line deltas in report) and green vs locally regenerated edn (92 assertions), edn reverted (`git status` for it empty). No commit. (5) Orchestrator-verified: status shows only the 2 M files, `diff --check` clean, edn + `dht_import_test.cljc` unmodified. (6) Drafted (not dispatched): 8c engineer brief `collab/1792634000000-engineer-8c.prompt.DRAFT.md` (dispatch only after 8ab merges; fill BASE, create `srvm-phase8c` worktree) and C4 freeze-window + Q1/Q6 owner note `collab/1792634000000-orchestrator-note-c4-freeze.DRAFT.md` (freeze needed before 8e; needs owner send/relay). (7) Log reconciliation: my 16:13 entry is the tail; master's `2c70bec1` covers phase-7 landing + slices-in-flight (different scope) — no duplication, no correction needed.
+Decisions: slow-leg expected-red posture adopted (committed edn is yang.python-owned/correct-for-master; 8ab mismatch inherent until integration; local-regen-green proves coherence); 8c dispatch gated on 8ab merge; owner authorized Opus 5.5 as one-round Fable substitute (see below). CLI lesson (delegate-invocation-reference confirmed): never combine `--session-id` with `--resume`; resume = `--resume <uuid>` alone, new = `--session-id <uuid> --name <task>`; always `-p "Read <prompt> and complete it now." < /dev/null`.
+Verification: fix-round numbers are codex-reported + orchestrator's status/diff-check/EDN-untouched checks above (not full test reruns). Confirm review UNRUN: `claude-fable-5-1` 404s ("may not exist or you may not have access") on the resume ×2 (~00:45 +07, incl. a session that ran fine hours earlier), `claude-opus-5-5` 404s ×1 on a fresh session — provider-side outage/lapsed entitlement, not flags. Briefs ready: `collab/1792635000000-reviewer-8ab-confirm.prompt.md` (fable resume) and `-r2.prompt.md` (fresh opus session, UUID filled). Outage NOT recorded in `docs/agents/routing-status.md` (owner rejected that edit; next seat: re-ask or record).
+Delegates: codex gpt-6.1-sol fix rounds as above; no reviewer ran.
+Next for the successor: (1) get a reviewer — owner was weighing Muse-wrapper fallback vs waiting for Claude; (2) on READY TO MERGE: commit the 2 files on `srvm-phase8ab`, merge `--no-ff` into `srvm-phase8`, push; (3) Node/Dart lanes for ONLY the two changed C4 namespaces on shiva; (4) rename the 8c DRAFT brief and dispatch; (5) before ever removing `/Users/sto/workspace/datomworld-srvm-p8ab`, `cp -n` any unique worktree-local `collab/` (fix2 report already copied; `target/` logs are droppable evidence). Standing orders unchanged: implementation to codex, Fable(-or-authorized-substitute) reviews; never touch `test/yang/`, C4/ad2/ld1 checkouts, or the other seat's uncommitted docs.
+## 2026-10-16 02:15:00 +07 — yang.python (C4 Slice I5): rounds 3 & 4 complete, all review items reconciled, test suite green; seat handoff
+Completed-GMT: 2026-10-15 19:15:00 GMT
+Coding-Agent: interactive (claude-sonnet-5-5 / gemini-3.8-flash)
+Session-ID: not-applicable (interactive seat)
+Task: Complete C4 Slice I5 (SCC bundling & cyclic imports) review reconciliation, verify on Shiva, and hand off seat
+Role: Lead Engineering Orchestrator (yang.python track)
+Tree: main checkout `master@72592bd9`; I5 worktree `/Users/sto/workspace/datomworld-c4-i5` (branch `c4-i5`, uncommitted edits in 5 files over `ab5ec4d5`); I6 worktree `/Users/sto/workspace/datomworld-c4-i6` (branch `c4-i6@929a456c`, committed, clean); remote runner `shiva.stigmergy.systems:/home/sto/workspace/datomworld-runner/`
+
+Completed:
+1. Re-diagnosed the persistent linker refusal (`ImportError: Cannot import module 'a': linker refused delivery`) in I5 Round 2. Codex Round 3 discovered that while bundle-time cells were eliminated, sibling closure references were still treated as free variables, resulting in `:undeclared-free m1-body` refusal upon admission. The fix in `lower.cljc` placed require calls after definition emissions, producing pure lifted closures with empty lexical environments across all three backends (:semantic, :stack, :register).
+2. Independent read-only adversarial review conducted by Claude Fable 5.1 (session `1aabda5b-541d-4dae-9e3b-7c3301896efd`, report `collab/1792710000000-reviewer-c4-i5-r3.claude-fable-5-1.stdout.log`). Fable cleared all P0/P1 invariants and marked the change ready to commit on correctness, raising 1 P2 (partially initialized message string difference from CPython) and 4 P3s.
+3. Owner explicitly authorized option (a) for P2: appending ` (most likely due to a circular import)` to match CPython's second branch while omitting filesystem path.
+4. Codex Round 4 dispatched and completed (session `01a14042-429f-7d21-a532-8cbd2bb7c468`, report `collab/1792720000000-engineer-c4-i5-r4.findings.md`). Reconciled all 5 review items:
+   - P2 error text updated in `lower.cljc`, `import_test.cljc`, and `docs/design/yang.antlr.md`.
+   - P3: documented `:bundles` key and assert-names requirements in `publication.cljc`.
+   - P3: updated I3 acceptance bullet in `docs/design/yang.antlr.md` noting `:yang.python.antlr/import-cycle` was superseded by I5 SCC bundling.
+   - P3: added two-disjoint-cycles test `[["a" "b"] ["c" "d"]]` to `publication_test.cljc`.
+   - P3: added `cyclic-from-import-after-initialization-test` in `import_test.cljc`. Verified mutant on Shiva (dropping `finally` flag reset fails on all 3 VMs).
+
+Verification:
+- Worktree SHA-256 hashes match runner copies on `shiva` byte-for-byte across all 5 files.
+- Laptop quick tier: 27 tests, 182 assertions, 0 failures, 0 errors.
+- Scoped `kondo` clean (0 errors, 0 warnings), scoped `cljstyle check` clean, `git diff --check` clean.
+- Remote Shiva full slow test suite verified: 8 tests, 59 assertions, 0 failures, 0 errors across `:semantic`, `:stack`, and `:register` VMs.
+- Mutant test verified on Shiva: dropped reset sites fail 3 assertions on 3 VMs with expected circular import diagnostic.
+
+Decisions:
+- Zero laptop compute invariant maintained; all linked runs and mutants executed strictly on `shiva`.
+- No unprompted commits: changes remain uncommitted in `datomworld-c4-i5` working tree per user constraints.
+- Updated `~/.local/bin/muse` wrapper per user request with `meta/muse-wonder` aliases and custom picker configuration.
+
+Delegates:
+- Implementation: Codex (`gpt-6.1-sol`), session `01a14042-429f-7d21-a532-8cbd2bb7c468`, prompts `collab/1792700000000-engineer-c4-i5-r3.prompt.md` and `collab/1792720000000-engineer-c4-i5-r4.prompt.md`, reports `collab/1792700000000-engineer-c4-i5-r3.findings.md` and `collab/1792720000000-engineer-c4-i5-r4.findings.md`.
+- Review: Claude Fable 5.1 (`claude-fable-5-1`), session `1aabda5b-541d-4dae-9e3b-7c3301896efd`, prompt `collab/1792710000000-reviewer-c4-i5-r3.prompt.md`, stdout log `collab/1792710000000-reviewer-c4-i5-r3.claude-fable-5-1.stdout.log`.
+
+Next for the successor:
+1. Rebase `c4-i5` onto `origin/srvm-phase8` (`47249651`). Verify if `test/resources/yang/python/dht-import-v1.edn` needs local regeneration as noted by Claude (or if already matched by `master@72592bd9`).
+2. Verify Slice I6 on Shiva (`c4-i6@929a456c`), rebase onto `srvm-phase8`.
+3. Run Node and Dart host lanes for `publication-test` on Shiva before landing.
+4. Seek explicit user authorization before staging and committing I5 / I6 to git.
+
+## 2026-10-16 02:11:20 +07 — orchestrator seat takeover (C4 I5/I6 handoff)
+Completed-GMT: 2026-10-15 19:11:20 GMT
+Coding-Agent: claude
+Session-ID: not-applicable (interactive seat)
+Tree: main checkout `master@72592bd9` (behind `origin/master@b19dd97a` by 1 docs-only commit) with pre-existing uncommitted `docs/orchestrator-log.md` (unstaged) and `docs/agents/build-n-test.md` (staged) edits from prior seats — untouched; `c4-i5@ab5ec4d5` (+5 uncommitted files), `c4-i6@929a456c` (clean except untracked `collab/`)
+Done: Took over the Lead Engineering Orchestrator seat from the agy seat (owner relay: agy ran out of credits) per `collab/1792730000000-orchestrator-handoff-c4-i5-i6.md`. Re-derived state from `git log`/`git status`/worktrees rather than trusting the handoff. Recorded the agy outage in `docs/agents/routing-status.md` (2026-10-16 02:11 +07 entry).
+Decisions: None taken on the C4 work itself yet. Two handoff claims found stale and flagged to the owner: (1) the rebase base `47249651` is no longer the tip — `origin/srvm-phase8` has advanced 3 commits to `c11f9299` (srvm-node-slow-c4-floats merge + 2 test commits, touching `test/yang/python/antlr/prelude_parity_test.cljc` among yang files); (2) I5's round-3/4 reconciliation is uncommitted (5 files over the committed slice `ab5ec4d5`), so a rebase cannot run without first stashing or committing it — the handoff's step order does not say which. Also verified: I5 and I6 are siblings (each 1 commit over common base `9fab76c6`, overlapping in `lower.cljc` and `import_test.cljc`), not a stack, so whichever lands second will need reconciliation against the first. Escalated rebase-target and uncommitted-fix handling to the owner as authorization calls.
+Verification: `git worktree list`, `git branch -vv`, merge-base/ahead-behind counts (`c4-i5` and `c4-i6` each 1 ahead / 10 behind `origin/srvm-phase8` at `47249651`-era counting; 3 further srvm commits since), file-overlap computation across I5/I6/srvm diffs. No tests run in this unit.
+Delegates: none
+Next: Owner decides (a) rebase target — frozen `47249651` vs current `origin/srvm-phase8@c11f9299`; (b) how I5's uncommitted round-3/4 fixes ride the rebase — stash/pop vs a commit on `c4-i5`. Then: rebase I5, verify/regenerate `dht-import-v1.edn` if pins moved, run I6 on shiva, Node/Dart lanes on shiva, and seek staging/commit authorization. Standing constraint unchanged: no staging, committing, or pushing without explicit owner instruction.
+
+## 2026-10-16 02:54:25 +07 — I5 confirm review rerouted to glm-5.3 (claude channel down from this seat)
+Completed-GMT: 2026-10-15 19:54:25 GMT
+Coding-Agent: muse
+Session-ID: not-applicable (interactive seat)
+Tree: main checkout on `master`; `c4-i5@b4f4ab9a` (1 commit over `origin/master@9631e6e7`) with 6 uncommitted files (round-4 reconciliation in 5 files + regenerated `dht-import-v1.edn`); `c4-i6@cdc27aee` (rebased, clean) — re-derived from `git worktree list`/`git status` this unit, unchanged since the prior seat's rebase
+Done: (1) Diagnosed the `claude` delegate 404s as seat-environment, not provider outage: this seat inherits the muse wrapper's provider routing (`ANTHROPIC_BASE_URL=https://api.meta.ai`, `CLAUDE_CONFIG_DIR=~/.claude-muse`), so explicit `--model claude-*` lookups query the wrong endpoint; with muse vars scrubbed the CLI reaches Anthropic but fails `OAuth session expired and could not be refreshed` (sandboxed and unsandboxed), while the identical command succeeds in the owner's terminal and via owner-run `!`. Fable, opus, and sonnet all unreachable from my `Bash`. Recorded as a seat-constraint entry in `docs/agents/routing-status.md` (2026-10-16 02:54 +07). (2) Corrected one own error: the routing-status append initially replaced the 02:11 entry; restored it immediately, append-only preserved. (3) Updated `collab/1792093000000-reviewer-c4-i5-r5.prompt.md` (header + response template to `Coding-Agent: glm`, `Session-ID: 6076c0ab-8e67-436c-87c5-68dc73cb7a65`; Implementers history appended: opus failed/undispatchable, glm-5.3 active) and dispatched the unchanged I5 confirm brief to glm-5.3 in background.
+Decisions: Reroute to glm-5.3 is orchestrator-owned routing (team.md role selection): GLM family is independent of the codex (GPT) author, the 2026-10-15 owner relay authorizes glm for reviews, and the team guide rates glm-5.3 for VM/compiler review. Scope and brief unchanged; opus remains the owner-authorized substitute if the claude channel recovers.
+Verification: Tree state re-derived this unit (worktree SHAs, c4-i5 6-file uncommitted list). Delegate auth failures reproduced deterministically from my shell (fable/opus/sonnet probes + scrubbed-env OAuth failure); owner-terminal success is owner-reported. Review outcome pending background dispatch.
+Delegates: glm-5.3 review, session `6076c0ab-8e67-436c-87c5-68dc73cb7a65`, prompt `collab/1792093000000-reviewer-c4-i5-r5.prompt.md`, stdout log `collab/1792093000000-reviewer-c4-i5-r5.glm-5-3.stdout.log` (in flight)
+Next: On review completion — reconcile findings against the rebased diff, fix accepted defects via codex (implementation route), resume reviewer to confirm, then run the I5 slow legs on shiva (incl. DHT mesh test vs regenerated fixture) and Node/Dart lanes before seeking staging/commit authorization. I6 verification follows I5 landing order (siblings overlapping in `lower.cljc` + `import_test.cljc`).
+
+## 2026-10-16 03:06:26 +07 — I5 review passed (GLM), P4 fixed, c4-i5 pushed, slow lanes launched
+Completed-GMT: 2026-10-15 20:06:26 GMT
+Coding-Agent: muse
+Session-ID: not-applicable (interactive seat)
+Tree: `c4-i5@f11c7056` (2 commits over `origin/master@9631e6e7`), pushed as new `origin/c4-i5`; worktree clean except untracked `collab/`; main checkout untouched except this log + routing-status
+Done: (1) GLM-5.3 confirm review landed (`collab/1792093000000-reviewer-c4-i5-r5.glm-5-3.stdout.log`, session `6076c0ab-8e67-436c-87c5-68dc73cb7a65`): all three checks confirmed — round-4 fixes complete on rebased code, regenerated fixture internally consistent and anchored to master's prelude golden, phase-8 cutover breaks nothing. Verdict: ready to commit, one P4 (stale `dht_import_test.cljc` docstring). (2) Reconciled: applied the P4 one-line docstring fix directly in the worktree (Workflow step 4 simple change; now reads I3/I5 with SCC-bundle behavior); `git diff --check` clean in c4-i5. (3) Committed the 7 files on `c4-i5` as `f11c7056` (`feat(yang.python.antlr): reconcile I5 review, regenerate dht-import fixture on master`; hook formatters made no extra changes, verified via show/status) and pushed to new `origin/c4-i5` per owner authorization ("push c4-i5 and run shiva slow legs"). (4) Launched lanes: shiva JVM `bb test:sub:clj yang.python --slow` in tmux `c4-i5-slow` (scratch `~/ci/datomworld-c4-i5`, script `~/ci/i5-jvm-slow.sh`); jupiter Node `bb test:sub:cljs yang.python --slow` in tmux `c4-i5-node` (scratch `~/ci/datomworld-c4-i5`, script `~/ci/i5-node-slow.sh`, explicit tool paths per the mise-snap workaround, ~110 min expected). Prepared shiva Dart scratch `~/ci/datomworld-c4-i5-dart` at `f11c7056`; Dart lane starts after the JVM lane frees the host's Dart slot (separate clone, per the no-share rule).
+Decisions: P4 fixed directly rather than delegated (one-line docstring, no behavior); no reviewer resume needed (reviewer pre-authorized either fix-or-ledger). Full-subsystem slow lanes rather than focused namespaces (mandated gates: JVM + Node `yang.python --slow`, Dart to follow).
+Verification: Review claims corroborated where checkable without rerun (deftest names, Kosaraju expectation, fixture shape per report); local fast suite was 30/188 green pre-commit. Lane outcomes pending.
+Delegates: glm-5.3 review as above (complete); no implementation delegates this unit
+Next: Collect JVM/Node slow results; run shiva Dart lane; reconcile any reds (expected-red only for pre-existing Linux Dart/Node pins, not I5 files); then seek staging/commit-to-master authorization for landing. Standing: no master commit without explicit owner instruction + green lanes.
+
+## 2026-10-16 03:20:00 +07 — ADR 0004 drafted (interpreted stream deposits, no ambient FFI)
+Completed-GMT: 2026-10-15 20:20:00 GMT
+Coding-Agent: muse
+Session-ID: not-applicable (interactive seat)
+Tree: main checkout; new untracked `docs/design/adr/0004-external-effects-are-interpreted-stream-deposits.md` (uncommitted, unpushed)
+Done: Owner asserted the track doctrine across three relays: (1) external deps ride an IO monad = `dao.stream` + interpreters, (2) C FFI rides the same model, (3) "draft it". Verified the documentation gap first: the monad boundary is recorded (`yin.vm.streams-all-the-way-down.md` §6.4) and the interpreter pattern exists by example (`agent.tzu.dao.stream.md`), but the applied doctrine (Python stdlib I/O + C FFI as bound interpreted surfaces; post-C4 roadmap as binding backlog; pip mechanism permanently refused) is stated nowhere. Drafted ADR 0004 in the house format (Status: Proposed; Context/Decision/Consequences/Open Questions/References), grounding every claim in an existing doc. No commit, no dispatch.
+Decisions: Status Proposed, not Accepted — acceptance needs Architect sign-off per seat policy; filed as 0004 following the existing sequence.
+Verification: Unverified prose (no tests to run); cites checked against the named sections. Needs an Architect review round before acceptance.
+Delegates: none
+Next: Owner decides whether to send ADR 0004 for Architect review (codex/astra fits the reservation, or fable when the claude channel recovers) and whether it should also become a blog. Standing: no staging/committing without explicit instruction.
+
+## 2026-10-16 03:35:00 +07 — blog drafted (Python without foreign functions)
+Completed-GMT: 2026-10-15 20:35:00 GMT
+Coding-Agent: muse
+Session-ID: not-applicable (interactive seat)
+Tree: main checkout; new untracked `public/chp/blog/python-without-foreign-functions.blog` (uncommitted, unpushed)
+Done: Owner relay "write a blog about this" (the ADR 0004 doctrine), "follow format.md", addressing stdlib implementation + C FFI. Corrected one own prior claim first: the doctrine IS partially blogged (`io-monad-dao-stream.blog` for the transparent-IO-monad mechanism, `beyond-ffi-yin-vm-datom-streaming.blog` for the VM boundary, `libc-as-streams.blog` for LibC-as-schema) — the new post's contribution is the applied program (C4 status, `open()` walkthrough, three stdlib classes, C-as-bound-surface, pip mechanism-vs-payload). Wrote the `.blog` EDN/Hiccup per format.md (no markdown, no em dashes, `:$blog-title`/`:$blog-date`, Related Articles to the three priors); validated it parses (`bb` + `clojure.edn`, all four keys present). No site-index change: `datomworld.chp` links only a curated subset, wiring left to the owner. No commit.
+Decisions: New file, not a dupe — scoped to the applied roadmap the existing posts do not cover. Related-articles links only to landed posts, never to uncommitted ADR 0004.
+Verification: EDN parse green; prose unverified (needs a review pass like any doc).
+Delegates: none
+Next: Owner decides review/landing for ADR 0004 + this blog (possibly one Architect round covering both). Standing: no staging/committing without explicit instruction.
+
+## 2026-10-16 06:10:00 +07 — I5 seam fix verified, committed, pushed; collab/ archived
+Completed-GMT: 2026-10-15 23:10:00 GMT
+Coding-Agent: muse
+Session-ID: not-applicable (interactive seat)
+Tree: c4-i5 worktree + main checkout (log only)
+Done: (1) Verified the codex round-6 seam fix myself on the JVM in the c4-i5 worktree: publication-test 10/85 green, dht-import+import callers 20/103 green, `git diff --check` clean — corroborates the round's claims. (2) Committed as `594a6dce` ("injectable publish seam, drop with-redefs") and pushed `origin/c4-i5` (`f11c7056..594a6dce`); worktree clean. No Co-Authored-By per standing track rule (overrides default attribution). (3) Root-caused the shiva Dart slow rc=1: cljd rejects `with-redefs` outright (`Unknown symbol`, compile error in publication_test), so the same fix un-breaks Dart by construction; Dart reruns post-rebase. (4) Archived 57 superseded files from `collab/` to `collab/archive/` (landed slices i1-i3/f2-f3/p3 rounds, superseded I4 handoff + test-tiers round + r2, freeze DRAFT, old gate scratch); kept the whole I5-finalization era (handoff 179341, r5, r6, srvm reply, freeze final, i5-i6 handoff, node-slow rounds). Moves only, still uncommitted per collab rule. (5) Remotes reachable only by FQDN from this seat (shiva/jupiter short names do not resolve; `.stigmergy.systems` suffix works).
+Verification: commit hash + push range confirmed from tool output; Dart error quoted from `~/ci/datomworld-c4-i5-dart/target-ci/i5-dart-slow.log:342-344`.
+Delegates: none (codex round-6 report taken as claim, re-verified, not trusted).
+Next: Rebase c4-i5 (+ clean c4-i6) onto origin/master@9ab9e792 once the shiva JVM slow lane (@f11c7056, still running) posts — rebasing mid-flight would invalidate it. Then re-verify pins/fixture, rerun yang.python --slow (JVM+Node+Dart).
+
+## 2026-10-16 06:22:03 +07 — reply to srvm track "waiting on muse"relay
+Completed-GMT: 2026-10-15 23:22:03 GMT
+Coding-Agent: muse
+Session-ID: not-applicable (interactive seat)
+Tree: main checkout (collab note + this log only)
+Done: Filed `collab/1792106523000-orchestrator-note-srvm-track-reply2.md` correcting the relay on both points: (1) c4-i5 IS pushed (@594a6dce) but deliberately not yet rebased — JVM slow still running, rebase fires when it posts; c4-i6 local per agreement. (2) dht-import-v1.edn is regenerated on c4-i5 already; what remains is post-rebase re-verification (pins may move under :yin.k/try?), not a from-scratch regen; scanner goldens still owed once with Fable pin review. Verified branch tips (594a6dce / cdc27aee) from tool output before writing.
+Delegates: none
+Next: same as previous entry.
+
+## 2026-10-16 06:30:00 +07 — Addendum 3 read, rebase target now 50c53b0d
+Completed-GMT: 2026-10-15 23:30:00 GMT
+Coding-Agent: muse
+Session-ID: not-applicable (interactive seat)
+Tree: main checkout (collab note + this log only)
+Done: Read the handoff file's new Addendum 3 by path as instructed (items 14-15): correction confirmed (origin/c4-i5@594a6dce visible, sequence accepted) and rebase target moved 9ab9e792 -> origin/master@50c53b0d (UCF codec key-check slice; no test/yang, no goldens in the delta). Filed ack `collab/1792107000000-orchestrator-note-srvm-track-ack3.md`. Trigger unchanged: rebase fires when the shiva JVM slow lane posts.
+Delegates: none
+Next: rebase onto 50c53b0d when JVM slow posts; re-verify pins/fixture; full slow lanes.
+
+## 2026-10-16 06:34:47 +07 — OUT OF CREDITS, seat handed off
+Completed-GMT: 2026-10-15 23:34:47 GMT
+Coding-Agent: muse
+Session-ID: not-applicable (interactive seat)
+Tree: main checkout (handoff + this log only)
+Done: Wrote full handoff `collab/1792107287000-orchestrator-handoff-yang-python-seat-muse.md` for the successor: branch tips (c4-i5@594a6dce pushed, c4-i6@cdc27aee local), the single pending trigger (shiva JVM slow @f11c7056, mid-tier and healthy at handoff — CPython batch 16 done, in linked-safepoint-test, no reds), the ordered post-lane chain (rebase onto 50c53b0d → pins → full gates → Fable pin review → land I5 → I6), known lane results, docs state, and the prohibitions. Successor re-derives from git before trusting any of it.
+Delegates: none
+Next: successor polls the JVM slow summary, then executes handoff section 3.
+
+
+## RESTORED 2026-10-16 09:5x +07 (zcode seat) — two entries found missing from the working file, restored verbatim
+
+At seat takeover the working file was missing the two committed entries below (they are in git history at
+365684fb / 47d6bcaa and in HEAD); provenance of the working-tree deletion is unknown (predates this seat; the
+file's last writer was the muse seat at its 06:34 handoff). Restored verbatim by appending, per the log's
+append-only rule; the deletion itself must not be committed. Original position: after the 2026-10-14 14:30
+semantic-register-vm entry, before the 2026-10-14 23:30 handoff entry.
+
 ## 2026-10-14 20:45 +07 — orchestrator log: admission track AD-0 through AL-4 and L-d landed
 Created-GMT: 2026-10-14 13:45:00 GMT
 Coding-Agent: claude (sonnet-5-5) orchestrator seat
@@ -11227,7 +11455,6 @@ Done: Landed admission AD-0..AD-2 and AL-0..AL-4 (admission is the linker's: `yi
 Owner directions applied: foreign-principal trust is a configurable ShiBi-style policy; importing over a network is the linker's job, no REPL machinery; the linker is language-blind; implementation to codex (gpt-6.1-sol), fable reviews only; no cmd, glm, kimi-k3; use shiva for lanes.
 Lessons: AL-2 tests used `with-redefs` (shiva found Dart compile and 4 Node errors) so spies are JVM-only with `:cljd` first; JVM and Node bb lanes collide in one clone (`build:yin-repl-peer`), use separate clones; slow-tagged tests are invisible to the quick tier, so run the slow tier at phase boundaries; copy worktree `collab/` to main before removing a worktree; the 90-minute review estimate was wrong (measured 2-25 min).
 Open: `semantic-register.scan-test/scanners-agree-on-the-c4-modules` golden mismatch (JVM, Node; not ours, register-VM seat); known non-ours reds: JVM `rows.cljc` sweep, Dart datagram refusals, Node store-test two-worker (flaky); Dart slow tier has 4 unattributed failures; fable's five AL-4 P3 nits (collab/1792330000000-al4-nits-followup.md); owner decisions pending (Q6 review rule, shiva scratch clones); relocation note collab/1792286000000-orchestrator-note-linker-relocation.md to relay; next slices I4, F2, then I5-I7, C2 S5; DHT large-blob transport (DHT seat); L-e (linker seat).
-
 ## 2026-10-14 23:30 +07 — orchestrator seat handoff (I4 next)
 Created-GMT: 2026-10-14 16:30:00 GMT
 Coding-Agent: claude (sonnet-5-5) orchestrator seat
@@ -11235,16 +11462,13 @@ Tree: `master@28ce8249`, pushed; no tasks running; shiva idle
 Done: Landed L-d (`d0920f2b`), the dht-end-to-end trust fix (`08a3a722`), the AL-4 nits (`28ce8249`, fable APPROVE-WITH-NITS, quick tier only known failures), adopted the Q6 review rule and started `docs/agents/known-gaps.md` (owner 2026-10-14), relayed the linker-relocation note and the scan-test golden mismatch to `yin.vm.semantic-register`. Fable's I4 scoping design is in `collab/1792341000000-architect-i4-scoping.claude-fable-5-1.stdout.log` (try-require as data, registry pin invariant, derived eagerness, five slices L-d-1..L-d-3, I4-a, I4-b).
 Decisions: Owner handed orchestration to another coding agent. Three I4 owner questions are pending (unpinned optional imports; bare primitive vs host module; ModuleNotFoundError scope).
 Next: the successor reads `collab/1792350000000-orchestrator-handoff-i4.prompt.md`, asks the owner the three questions, then dispatches L-d-1 to codex with fable review.
-
 ## 2026-10-14 14:30:00 +07 — semantic-register-vm seat handoff: phase 7 landed, phase 8 in flight
 Created-GMT: 2026-10-14 07:30:00 GMT
 Created-Local: 2026-10-14 14:30:00 +07
 Coding-Agent: Claude Sonnet 5.5 (interactive orchestrator seat for the UCF / `yin.vm.semantic-register-vm` track; the other seat is yang.python/C4 admission)
 Session-ID: not-applicable (interactive seat)
 Task: Hand off orchestration of the semantic-register-vm rebuild (phase 8, the cutover) to another LLM agent
-Role: Lead Engineering Orchestrator
 Tree: `master@67b98907` (phases 1-7 landed, pushed; later commits by the other seat may sit on top). Phase 8 integration branch `srvm-phase8` (= master 67b98907, pushed); slice branches `srvm-phase8ab@b794e2f5` (worktree `/Users/sto/workspace/datomworld-srvm-p8ab`) and `srvm-phase8d@249f8799` (worktree `/Users/sto/workspace/datomworld-srvm-p8d`), both committed and pushed, NOT yet reviewed, NOT yet run on Node/Dart/quick tier. Plan worktree `/Users/sto/workspace/datomworld-srvm-p8plan` (branch `srvm-phase8-plan`, not merged; its report is copied to `collab/1792560000000-architect-phase8-plan.report.md`).
-
 Done: The register-shaped canonical semantic VM `yin.vm.semantic-register` (A the only code identity; R and H are checksums derived from A; the AST is never lost) is built and landed through phase 7: 4a/4b kernel, 5a-5c lowerers and scanners, 6a row codec + frame validator + discovery-order cursor cell numbering, 6b `lift-task`/`lower-task`, 6c layouts + cross-engine laws (61 law-4 cases, 350 law-5 transfers on the native lanes; the reference lane runs the full 89), the retention seam (`free-env` field), BLAKE3 for seals/owner tag/profile digest/DHT cookie/CBOR fixtures/ANTLR manifest, phase 7 (custody on rows, rows inspector, holder export + recovery format 2, driver lower, install checks, compose/fencing/Stage E over row packs; the Stage E process matrix ran on jupiter over four host pairs with 196 SIGKILLed lives), the phase 7 docs, and repairs of two reds in our seat after the other seat's linker relocation (the address-validation lint in `rows.cljc`; the `[:c4 :py]` scanner golden regenerated mechanically). Gates on the landed head: jupiter quick tier 13/13, Node 153 tests, Dart +126, slow tier green, post-merge quick tier green.
 Phase 8 (Fable's plan: `collab/1792560000000-architect-phase8-plan.report.md`; slices 8ab, 8c, 8d, 8e, 8f, 8g): 8ab and 8d are implemented by codex and pushed. 8ab: both descriptors lose `:dim/lift-to` and declare `:hash :blake3`; the six surviving hash sites (`debruijn_code`, `debruijn_register_code`, `debruijn`) use `jing/blake3`; 49 distinct constants regenerated and reproducible (`collab/1792620000000-8ab-regen.clj`, byte-identical twice); descriptor diff vs HEAD is exactly the two rows; no A address moved. 8d: 16 old-codec test files (141 deftests), `lift_support`, `v2_support`, `checkpoint_fixtures`, three fixtures and the scalars minter removed; surviving helpers moved to `rows_support`; `handoff.cljc` (3783 lines) and `checkpoint.cljc` are RETAINED until 8f because `test/yang/python/antlr/int_heap_test.cljc:241` (`cell-refusal`, an other-seat C4 file, untouched) still calls `handoff/export-task` and cannot be ported without editing the walker/old-kernel harness; codex also made one trivial port in `test/yang/python/antlr/int_contract_test.cljc` (`an-image-carries-no-profile-test` now uses a semantic-register machine, a fork row pack and `rows/lower-task`): tell the other seat.
 Decisions (owner): fork custody slot nil; the REPL custody gap accepted until the phase 8 rename; install checks (link-id = parent, image address = manifest) enforced at lower; code and trees load through the linker's `source-index`/fetch/admission, no resolver of our own; `debruijn/stack.cljc` and `debruijn/register.cljc` are BACKENDS (lowerings of the semantic-register bytecode), kept after phase 8, documented fragment, NOT widened, the retained-FFI seam (6c Q2) rejected, the native lane matrix 61/350 accepted (justified by "supported fragment", not by deletion); dao.jing default hash is BLAKE3, SHA-256 stays an explicitly mintable registry member; phase 8 rulings 2026-10-14 ("go with your recommendations"): this track edits the 10 C4 test files under `test/yang/python/antlr/`, `linked_harness.cljc:105-120` and the two C4 manifest goldens in slice 8f under a freeze window on those files announced by a collab note the owner relays; old codec versions 0/1/2, `handoff.cljc`, `checkpoint.cljc` die in 8d/8f; `docs/design/yin.vm.semantic-register-vm.md` is renamed `yin.vm.semantic.md` and the old v3 doc deleted with a history paragraph (8g); routing: implementation to CODEX (`codex exec -m gpt-6.1-sol -s workspace-write --json ... < /dev/null`), reviews and mutation checks by a non-author family (Fable `claude -p --model claude-fable-5-1`, or opus read-only); never `--yolo`. Open and non-blocking: whether `:running` roots (any-pc snapshots) enter custody (default: waiting-point tasks only); slice 6d any-pc snapshots (Fable assessment `collab/1792430000000-architect-any-pc-snapshot.report.md`, recommended after phase 8 if wanted).
@@ -11288,3 +11512,32 @@ Decisions (owner): GLM first then codex for implementation after the "use GLM un
 Verification: JVM quick tier 4021 tests / 249864 assertions green; Node and Dart green on every touched namespace (Node follow-up 194 tests, Dart +189); Dart slow tier +756 with 4 failures, all expected. Gate gaps found and fixed this stretch: `yin.vm.semantic.scan-test` slow bodies were missing from the slow-tier list (red since the C4 seat's I4-a; added to the list, handed to muse with the cause); Node full-suite exit codes lie (read the counts); jupiter's mise snap is broken (explicit tool paths in `~/ci/*.sh`).
 Delegates: codex gpt-6.1-sol (G1, G2, follow-up-1 two rounds, NaN fixes, frame fix, Node fix); glm-5.3 (8f-2b verification, 8g first draft, 8e/8f-3 audits); Fable (claude-fable-5-1) planned, ruled and signed off every slice and the gap list. Briefs and reports in the archive and in `collab/`.
 Next: muse rebases `c4-i5` and `c4-i6` onto master `50c53b0d` after its JVM slow lane posts, re-verifies pins, then regenerates `dht-import-v1.edn` if needed and the `[:c4 :py]`/`[:c4 :t]` scanner goldens once with Architect review; master's slow tier is red on `dht-import-test` and the `scan-test` C4 bodies until then. Open for the owner: slice 6d (any-pc snapshots) and the REPL export command (capabilities, not defects); Fable's continuation §11 Q1-Q10 recommendations (registry-names re-discharge on lower is the only one with a runtime symptom); one P3 ledger row added today (lower `keyed` builder host-collapse guard for JS identifier keys).
+Completed-GMT: 2026-10-03 02:55:00 GMT (corrected below)
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@72592bd9 local (AHEAD of origin/master@b60ed285 by 2 unpushed commits: d27adce4 I4-a statement-time
+  imports with try-require thunks, 72592bd9 dht-import-v1.edn regen + dht_import_test alignment — landed by the
+  admission-track seat per its 11303 entry); muse's handoff at 06:34:47, this takeover at 06:39.
+Done: OWNER, verbatim: "you're taking back the orchestrator.md role from muse". Re-derived per the handoff
+  posture: muse's final handoff collab/1792107287000-orchestrator-handoff-yang-python-seat-muse.md read whole;
+  its facts spot-checked against the tree (c4-i5@594a6dce pushed clean; c4-i6@cdc27aee local clean; shiva
+  reachable by FQDN; the i5-summary.txt shows only the start line — the JVM slow lane @f11c7056 is STILL
+  RUNNING ~3.4h in, as muse left it). Log housekeeping: found the working file missing two committed
+  2026-10-14 entries (admission AD-0..AL-4; srvm phase-7 handoff) — deletion predates this seat (muse's last
+  write); restored verbatim by append with provenance (see the RESTORED block above); the deletion must not be
+  committed. Known pre-existing uncommitted state left as-is: staged docs/agents/build-n-test.md (+7/-5, prior
+  seats), muse's untracked drafts (docs/design/adr/0004-external-effects-are-interpreted-stream-deposits.md
+  Proposed; public/chp/blog/python-without-foreign-functions.blog) — owner-decided per muse's entries.
+Interim learned (from the log tail, not re-derived): the srvm epic landed (phase 8 cutover — the register
+  kernel IS yin.vm.semantic; old stack kernel/lowerers removed; BLAKE3 defaults), the admission epic landed
+  (linker-owned imports, AD/AL slices), I4-a landed locally, C4 I5 is pushed on origin/c4-i5 pending slow
+  lanes + fable pin review + owner landing authorization, I6 is rebased and waiting. Routing now: codex
+  implements (gpt-6.1-sol workspace-write), fable reviews (claude channel dead from interactive seats —
+  owner-run ! or a substitute), glm available, cmd available, agy out, muse out.
+Corrections to THIS entry: the Completed-GMT line above is wrong (clock confusion at write time) — the true
+  takeover time is 2026-10-16 06:39:00 +0700 = 2026-10-15 23:39:00 GMT. This correction is itself the record.
+Next: poll shiva i5-summary.txt; when the JVM slow lane posts — muse's section 3 chain in order: rebase c4-i5
+  (+c4-i6) onto the moved target (origin/master@50c53b0d per Addendum 3, but NOTE master has since advanced to
+  72592bd9 locally with I4-a + regen — the rebase target decision needs the owner/the srvm seat's push state
+  confirmed), re-verify pins, full gates (JVM+Node+Dart yang.python --slow), fable pin review (owner-run ! or
+  substitute), land I5 (owner authorization), then I6. Do not rebase while the lane runs.
