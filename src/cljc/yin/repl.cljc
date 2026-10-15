@@ -26,15 +26,14 @@
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.data :as data]
             [yin.vm.debruijn-code :as dcode]
-            [yin.vm.debruijn-linearize :as debruijn-linearize]
             [yin.vm.debruijn-register-code :as rcode]
-            [yin.vm.debruijn-register-compile :as register-compile]
+            [yin.vm.semantic.derive :as derive]
             [yin.vm.debruijn.register :as register]
             [yin.vm.debruijn.stack :as stack]
             [yin.vm.encoder :as encoder]
             [yin.vm.engine :as engine]
             [yin.vm.integer :as integer]
-            [yin.vm.linearize :as linearize]
+            [yin.vm.semantic.linearize :as linearize]
             [yin.vm.linker.interpreter :as link]
             [yin.vm.macro :as macro]
             [yin.vm.module :as module]
@@ -137,9 +136,8 @@
 
 
 (def vm-constructors
-  "The evaluators on `yin.vm`: the ast-walker, the linear semantic VM
-   (`docs/design/yin.vm.semantic.md`), and the nameless de Bruijn stack
-   and register kernels, each starting with an empty image."
+  "The evaluators on `yin.vm`: the ast-walker, the semantic register VM,
+   and the nameless de Bruijn stack and register kernels, each starting with an empty image."
   {:ast-walker ast-walker/create-vm
    :semantic semantic/create-vm
    :stack #(stack/create-vm [] %)
@@ -153,12 +151,9 @@
    :register "DebruijnRegisterVM"})
 
 
-(defn- packet->named-datoms
-  "The named `:yin/*` datoms of one expanded tree packet, the input the de
-   Bruijn resolver reads."
+(defn- packet->vector
   [packet]
-  (vm/ast->datoms
-    (vm/semantic-bytecode->ast (macro/packet->row-set packet))))
+  (:vector (linearize/project-rows (macro/packet->row-set packet))))
 
 
 (defn- append-stack-image
@@ -211,9 +206,9 @@
    evaluator.  Every value there is one expanded canonical tree packet
    `[root rows]` (yin.vm.macro.md §2.4); each loader takes its row set — the
    ast-walker through `vm-load-rows`, the semantic VM through
-   `linearize/rows-loader` over `semantic/load-vector`, and the de Bruijn
-   kernels through their lowerings to a stack image (H) or a register
-   image (R).  No evaluator learns that an expander ran."
+   `semantic/load-vector` over the v4 projection, and the de Bruijn
+   kernels through A-derived stack and register images.
+   No evaluator learns that an expander ran."
   {:ast-walker (fn [vm packet]
                  (ast-walker/vm-load-rows vm
                                           (macro/packet->row-set packet)
@@ -221,21 +216,17 @@
    ;; every loader here is the trusted fresh-producer path: the only
    ;; producer of `program-out` is the expander, so each supplies the
    ;; current stamp itself
-   :semantic (let [load-rows (linearize/rows-loader semantic/load-vector)]
-               (fn [vm packet]
-                 (load-rows vm
-                            (macro/packet->row-set packet)
-                            vm/ast-contract)))
+   :semantic (fn [vm packet]
+               (semantic/load-vector vm (packet->vector packet)
+                                     vm/semantic-contract))
    :stack (fn [vm packet]
             (append-stack-image
               vm
-              (:image (debruijn-linearize/adapt
-                        (packet->named-datoms packet)))))
+              (:image (derive/stack-image (packet->vector packet)))))
    :register (fn [vm packet]
                (append-register-image
                  vm
-                 (:image (register-compile/adapt
-                           (packet->named-datoms packet)))))})
+                 (derive/register-image (packet->vector packet))))})
 
 
 (def lang-labels {:clojure "Clojure" :python "Python" :php "PHP"})

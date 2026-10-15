@@ -10,10 +10,10 @@
             [dao.jing.mem :as mem]
             [dao.stream :as stream]
             [yin.vm :as vm]
-            [yin.vm.code :as code]
             [yin.vm.linker :as linker]
             [yin.vm.linker-test :as lt]
-            [yin.vm.semantic :as semantic]))
+            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic.code :as code]))
 
 
 ;; =============================================================================
@@ -446,6 +446,7 @@
 ;; Code identity: the addressed stream runs under its stamp or is refused
 ;; =============================================================================
 
+;; Phase 8c: the linker serves A, so validate and execute with the v4 kernel.
 (deftest an-addressed-instruction-stream-runs-under-its-stamp-or-is-refused
   (let [store (mem/create-content-mem)
         v (lt/semantic-vector lt/worked-example)

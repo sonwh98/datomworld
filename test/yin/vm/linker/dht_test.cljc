@@ -19,7 +19,7 @@
             [dao.space.query :as query]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.debruijn-vm-contract-test :as b0]
+            [yin.vm.debruijn-code-test :as b0]
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.linker :as linker]
@@ -210,8 +210,7 @@
     (let [source (mem/create-content-mem)
           res (ct/publish-base! source)
           m (:address res)
-          h (get-in res [:identities :yin.debruijn.code])
-          h-address (get-in res [:manifest :yin.module/index h])
+          h-address (get-in res [:manifest :yin.module/index :yin.debruijn.code])
           w (world {} {:local (ct/without source h-address)})
           w (update w :b ld/load-module m)
           seen (atom #{})

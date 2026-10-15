@@ -21,21 +21,18 @@
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
             [yin.vm.debruijn-code :as dcode]
-            [yin.vm.debruijn-linearize :as dl]
             [yin.vm.debruijn-register-code :as rcode]
-            [yin.vm.debruijn-register-compile :as rc]
+            [yin.vm.semantic.derive :as derive]
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
-            [yin.vm.linearize :as linearize]
             [yin.vm.linker :as linker]
             [yin.vm.linker.interpreter :as link]
             [yin.vm.linker.publish :as publish]
             [yin.repl :as repl]
             [yin.vm.module :as module]
-            [yin.vm.semantic :as semantic]
-            [yin.vm.semantic-register :as sr]
-            [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic :as sr]
+            [yin.vm.semantic.linearize :as sr-linearize]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values]))
 
@@ -90,22 +87,22 @@
 ;; =============================================================================
 
 (def ^:private semantic-loader
-  (linearize/ast-loader semantic/vm-load-program))
+  sr/load-ast)
 
 
 (defn- stack-image
   [ast]
-  (:image (dl/adapt (vm/ast->datoms ast))))
+  (:image (derive/stack-image (:vector (sr-linearize/project ast)))))
 
 
 (defn- register-image
   [ast]
-  (:image (rc/adapt (second (vm/ast->datoms-with-root ast)))))
+  (derive/register-image (:vector (sr-linearize/project ast))))
 
 
 (defn- semantic-vector
   [ast]
-  (:vector (linearize/lower-rows (vm/ast->semantic-bytecode ast))))
+  (:vector (sr-linearize/project ast)))
 
 
 (defn- single-part-obligations
@@ -120,14 +117,7 @@
    `:continue` admits the next top-level input to a halted task, as
    `yin.repl` does; `:obligations` runs the real linker's steps 3 to 5a
    over an image."
-  {:semantic-register
-   {:image (fn [ast] (:vector (sr-linearize/project ast))),
-    :vm (fn [ast opts] (sr/load-ast (sr/create-vm opts) (vm/ast->datoms ast) vm/ast-contract)),
-    :continue (fn [task ast] (sr/load-ast task (vm/ast->datoms ast) vm/ast-contract)),
-    ;; install-mechanics fixture: empty obligations until phase 5 supplies
-    ;; the register-vector scanners; proves install, not dependency completeness
-    :obligations (constantly [])},
-   :stack
+  {:stack
    {:image stack-image,
     :vm (fn [ast opts]
           (dvm/create-vm (stack-image ast)
@@ -168,7 +158,7 @@
    :semantic
    {:image semantic-vector,
     :vm (fn [ast opts]
-          (semantic-loader (semantic/create-vm opts)
+          (semantic-loader (sr/create-vm opts)
                            (vm/ast->datoms ast)
                            vm/ast-contract)),
     :continue (fn [task ast]
@@ -610,8 +600,7 @@
 
 
 (deftest a-body-read-applied-before-its-definition-keeps-its-obligation-test
-  ;; excluded until phase 5c supplies the register-vector scanners; install mechanics are covered by link-test
-  (doseq [backend (remove #{:semantic-register} (keys backends))]
+  (doseq [backend (keys backends)]
     (testing (name backend)
       (let [{:keys [image obligations]} (get backends backend)
             module (progn (def! 'f (lam [] (v 'y)))
@@ -1259,7 +1248,7 @@
                                            :contract vm/stack-contract}))
         closure (values/payload (get (vm/store stack-task) 'f))
         marker (module/lift-closure stack-task closure identity)
-        semantic-task (semantic/create-vm {})
+        semantic-task (sr/create-vm {})
         register-task (rvm/create-vm nil {})]
     (is (= :positional (:yin.k/binding marker)))
     (is (= :binding-mismatch

@@ -3,15 +3,15 @@
    deterministic, allocation-triggered, stop-the-world mark-sweep over the
    task `:heap`, on all four VMs -- the AST walker, the semantic VM, and
    the de Bruijn stack and register VMs."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-compile :as rc]
+
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
-            [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]
@@ -39,16 +39,14 @@
    :semantic (fn [ast o]
                (semantic/load-vector
                  (semantic/create-vm o)
-                 (:vector (linearize/lower-rows (vm/ast->semantic-bytecode
-                                                  ast)))
+                 (:vector (sr-linearize/project-rows (vm/ast->semantic-bytecode
+                                                       ast)))
                  vm/semantic-contract)),
    :stack (fn [ast o]
-            (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
+            (dvm/create-vm (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                            (assoc o :contract vm/stack-contract))),
    :register (fn [ast o]
-               (rvm/create-vm (:image (rc/adapt (second
-                                                  (vm/ast->datoms-with-root
-                                                    ast))))
+               (rvm/create-vm (derive/register-image (:vector (sr-linearize/project ast)))
                               (assoc o :contract vm/register-contract)))})
 
 
@@ -186,11 +184,10 @@
     (let [parent (run-on k (spin 5) 2)
           image (case k
                   :ast-walker (vm/ast->semantic-bytecode (lit 1))
-                  :semantic (:vector (linearize/lower-rows
+                  :semantic (:vector (sr-linearize/project-rows
                                        (vm/ast->semantic-bytecode (lit 1))))
-                  :stack (:image (dl/adapt (vm/ast->datoms (lit 1))))
-                  :register (:image (rc/adapt (second (vm/ast->datoms-with-root
-                                                        (lit 1))))))
+                  :stack (:image (derive/stack-image (:vector (sr-linearize/project (lit 1)))))
+                  :register (derive/register-image (:vector (sr-linearize/project (lit 1)))))
           child (module/spawn-module parent
                                      image
                                      {:modules (:modules parent),

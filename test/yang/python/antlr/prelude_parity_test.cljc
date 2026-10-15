@@ -11,27 +11,26 @@
    never changes an interpreter-generated exception's class. Cross-module
    exception identity is not tested here: it needs two units sharing one
    task's prelude, which arrives with P2."
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [clojure.walk :as walk]
-    [dao.jing :as jing]
-    [dao.jing.cbor :as cbor]
-    [dao.test-slow :as slow]
-    [yang.python.antlr.int-ops-test :as ops]
-    [yang.python.antlr.prelude :as prelude]
-    [yang.python.antlr.render :as render]
-    [yang.python.antlr.uast :as u]
-    [yin.vm :as vm]
-    [yin.vm.data :as data]
-    [yin.vm.debruijn-linearize :as dl]
-    [yin.vm.debruijn-register-compile :as rc]
-    [yin.vm.debruijn.register :as rvm]
-    [yin.vm.debruijn.stack :as dvm]
-    [yin.vm.integer :as integer]
-    [yin.vm.linearize :as linearize]
-    [yin.vm.module :as module]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.test-utils :as tu]))
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
+            [clojure.walk :as walk]
+            [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
+            [dao.test-slow :as slow]
+            [yang.python.antlr.int-ops-test :as ops]
+            [yang.python.antlr.prelude :as prelude]
+            [yang.python.antlr.render :as render]
+            [yang.python.antlr.uast :as u]
+            [yin.vm :as vm]
+            [yin.vm.data :as data]
+
+            [yin.vm.debruijn.register :as rvm]
+            [yin.vm.debruijn.stack :as dvm]
+            [yin.vm.integer :as integer]
+            [yin.vm.module :as module]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.test-utils :as tu]))
 
 
 (defn- opts-under
@@ -48,7 +47,7 @@
 
 
 (def ^:private load-semantic-ast
-  (vm/fresh-code-loader (linearize/ast-loader semantic/vm-load-program)
+  (vm/fresh-code-loader semantic/load-ast
                         vm/ast-contract))
 
 
@@ -61,12 +60,12 @@
                                           (vm/ast->datoms ast)))),
    :stack (fn [ast]
             (vm/run (dvm/create-vm
-                      (:image (dl/lower-stack (tu/resolved-of ast)))
+                      (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                       (assoc opts :contract vm/stack-contract)))),
    :register (fn [ast]
                (vm/run
                  (rvm/create-vm
-                   (:image (rc/lower-register (tu/resolved-of ast)))
+                   (derive/register-image (:vector (sr-linearize/project ast)))
                    (assoc opts :contract vm/register-contract))))})
 
 
@@ -229,9 +228,9 @@
      :py/stop]
     [(py/to-vector (py/range3 -5 5 1)) [-5 -4 -3 -2 -1 0 1 2 3 4]]
     [(py/to-vector (py/range3 5 -5 -3)) [5 2 -1 -4]]
-    [(py/float-mod 1.0E20 3.0) 1.0]
-    [(py/float-mod -1.0E20 3.0) 2.0]
-    [(py/float-mod 1.0E300 7.0) 1.0]
+    [(py/mod {:py/float 1.0E20} {:py/float 3.0}) {:py/float 1.0}]
+    [(py/mod {:py/float -1.0E20} {:py/float 3.0}) {:py/float 2.0}]
+    [(py/mod {:py/float 1.0E300} {:py/float 7.0}) {:py/float 1.0}]
     [(py/snapshot {:py/str "s"}) "s"]
     [(py/snapshot :py/None) nil]])
 
@@ -239,10 +238,7 @@
 (defn- prelude-semantics-on-every-vm
   []
   (let [form (reduce (fn [acc [f _]]
-                       (list 'py/vconj acc
-                             (if (= 'py/float-mod (first f))
-                               (with-float64 f)
-                               (ops/exact-literals (with-float64 f)))))
+                       (list 'py/vconj acc (ops/exact-literals (with-float64 f))))
                      []
                      cases)
         expected (ops/canon-ints (mapv (comp with-float64 second) cases))

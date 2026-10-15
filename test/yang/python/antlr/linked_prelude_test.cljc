@@ -229,11 +229,11 @@
    py/star-item, `__all__` read by index (ranges included), and
    py/run-session, the REPL `__main__` runner. It moved once more with
    the rebase onto master 4529b5bd: the profile digest in the manifest
-   uses BLAKE3 since 492ff50b. I4-a moves it with statement-time
-   delivery, ModuleNotFoundError and grouped builtin initialization."
+   uses BLAKE3 since 492ff50b. Phase 8ab regenerates the H/R
+   checksums, derivation records and index keys. The rebase onto I4-a
+   regenerates this again for statement-time import delivery."
   (keyword (str "segment/blake3-"
-                "6e003ac4ac8edae670ff7eb46816134"
-                "dec4982ffb42e74ceac3bbfd0eed53662")))
+                "4aaaa09b192c5fed22786810b43880260aa2293ea0f0bb9c7c7978f14182048a")))
 
 
 (def ^:private vector-formats

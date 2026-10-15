@@ -9,27 +9,26 @@
    the integer-valued floats, and the guest exception each limit reason
    becomes. The CPython columns are data; on the JVM python3 recomputes
    them when it is exactly 3.9.6, and the test says loudly when it skips."
-  (:require
-    [clojure.string :as str]
-    [clojure.test :refer [deftest is testing]]
-    #?@(:cljd [] :clj [[clojure.java.shell :as shell]])
-    [dao.test-slow :as slow]
-    [yang.python.antlr.int-contract-fixtures :as f]
-    [yang.python.antlr.prelude :as prelude]
-    [yang.python.antlr.uast :as u]
-    [yin.vm :as vm]
-    [yin.vm.data :as data]
-    [yin.vm.debruijn-linearize :as dl]
-    [yin.vm.debruijn-register-compile :as rc]
-    [yin.vm.debruijn.register :as rvm]
-    [yin.vm.debruijn.stack :as dvm]
-    [yin.vm.integer :as integer]
-    [yin.vm.linearize :as linearize]
-    [yin.vm.module :as module]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.test-utils :as tu]
-    [yin.vm.ucf.handoff :as handoff]
-    [yin.vm.ucf.lift-support :as s]))
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
+            #?@(:cljd [] :clj [[clojure.java.shell :as shell]])
+            [dao.test-slow :as slow]
+            [yang.python.antlr.int-contract-fixtures :as f]
+            [yang.python.antlr.prelude :as prelude]
+            [yang.python.antlr.uast :as u]
+            [yin.vm :as vm]
+            [yin.vm.data :as data]
+
+            [yin.vm.debruijn.register :as rvm]
+            [yin.vm.debruijn.stack :as dvm]
+            [yin.vm.integer :as integer]
+            [yin.vm.module :as module]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.test-utils :as tu]
+            [yin.vm.ucf.rows :as rows]
+            [yin.vm.ucf.rows-support :as s]))
 
 
 (def ^:private fixture (delay (f/read-file)))
@@ -156,7 +155,7 @@
 
 
 (def ^:private load-semantic-ast
-  (vm/fresh-code-loader (linearize/ast-loader semantic/vm-load-program)
+  (vm/fresh-code-loader semantic/load-ast
                         vm/ast-contract))
 
 
@@ -169,14 +168,14 @@
                                                     (vm/ast->datoms ast))))),
    :stack (fn [ast]
             (vm/value
-              (vm/run (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
+              (vm/run (dvm/create-vm (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                                      (assoc opts
                                             :contract vm/stack-contract))))),
    :register (fn [ast]
                (vm/value
                  (vm/run
                    (rvm/create-vm
-                     (:image (rc/adapt (vm/ast->datoms ast)))
+                     (derive/register-image (:vector (sr-linearize/project ast)))
                      (assoc opts :contract vm/register-contract)))))})
 
 
@@ -466,8 +465,8 @@
 
 (deftest an-image-carries-no-profile-test
   (testing "a halted result holding 2^100, lifted under the wide
-            composition with a version-1 header, resumes under `small`
-            intact: the body names no limit, and under `small` the value
+            composition with a version-3 row pack, resumes under `small`
+            intact: the pack names no limit, and under `small` the value
             meets the S0 `small` column"
     (let [wide (prelude/admit (registry-under items
                                               prelude/register-integer-module
@@ -479,18 +478,17 @@
           m (vm/run (s/load-ast (s/new-machine {:modules wide})
                                 (s/app (s/v 'integer/pow) (s/lit 2)
                                        (s/lit 100))))
-          r (s/lift m (s/header 0 s/origin #{}))
-          out (handoff/resume-task (s/new-machine {:modules small})
-                                   (:bytes r) (fn [_] nil))
-          resumed? (= :ok (:status out))]
-      (is (= :ok (:status r)) (pr-str (dissoc r :bytes)))
-      (is (= 1 (:yin.k/version (:body r))))
+          r (s/lift m nil)
+          out (rows/lower-task (s/new-machine {:modules small}) r (fn [_] nil))
+          resumed? (vm/halted? out)]
+      (is (= true (:yin.k/handoff r)))
+      (is (= 3 (:yin.k/version r)))
       (is (not-any? #{::integer/max-bits ::integer/max-digits
                       ::data/max-items}
-                    (tree-seq coll? seq (:body r))))
+                    (tree-seq coll? seq r)))
       (is resumed? (pr-str (dissoc out :vm)))
       (when resumed?
-        (let [n (vm/value (:vm out))]
+        (let [n (vm/value out)]
           (is (= (f/column @fixture "2^100" "dec")
                  (f/call (f/module 128 64) 'format n)))
           (is (= (f/column @fixture "2^100" "small")

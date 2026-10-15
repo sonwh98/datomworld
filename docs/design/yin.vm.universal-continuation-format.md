@@ -56,8 +56,8 @@ full, and unknown transport acceptance is neither commitment nor its
 absence.
 Amended 2026-10-11 (r8) for the register-shaped canonical machine, on the
 codex-reviewed amendment texts of
-`yin.vm.semantic-register-vm.derivations.md` §9.2 (unitarity) and
-`yin.vm.semantic-register-vm.continuation.md` §10.2 (U1-U7): 7.3.4
+`yin.vm.semantic.derivations.md` §9.2 (unitarity) and
+`yin.vm.semantic.continuation.md` §10.2 (U1-U7): 7.3.4
 carries register-shaped vectors by A and `:yin.k/trees`, one vector load
 path (the projection path is retired); 7.4.1 is superseded for the
 register-shaped machine and its frame example is the keyed `act`/`tail`
@@ -74,7 +74,9 @@ specification historical; 7.6.1's fixed point roots include the task's
 free environment. Segment addresses are spelled under Jing's default
 digest, BLAKE3.
 Subordinate to [`datom.world.md`](./datom.world.md); builds on the Phase 0
-contract in [`yin.vm.semantic.md`](./yin.vm.semantic.md) (§1–§4), the storage
+contract in [the v3 design history](./yin.vm.semantic.md#history) (the deleted v3
+design's §1–§4; the file name now belongs to the register-shaped design
+whose §§1-§8 take precedence per §7.3.2 below), the storage
 contract in [`dao.jing.md`](./dao.jing.md), the stream contract in
 [`dao.stream.md`](./dao.stream.md), and the lease vocabulary in
 [`dao.lease.md`](./dao.lease.md). The five blockers above are answered in
@@ -88,8 +90,8 @@ resolves each blocker with tests.
 
 ## §7.1 Stance: a continuation is a value, not a session
 
-The semantic VM already parks as pure data (`yin.vm.semantic.md` §3.5): a
-wait entry or a `:parked-continuation` record is `{segment pc env stack k}`
+The deleted v3 design (§3.5; [history](./yin.vm.semantic.md#history))
+already parked as pure data: a wait entry or a `:parked-continuation` record is `{segment pc env stack k}`
 plus a reason and resource ids, with no handle and no closure attached. That
 record is *locally* complete and *globally* meaningless: its segment is a
 tempid, its stream ids are keys into this VM's store, its environment may hold
@@ -121,8 +123,10 @@ deduplication and materialization; occurrence identity is what custody names
 never does.
 
 The reference engine for every rule below is `yin.vm.semantic`. Its
-configuration ⟨C, E, S, K⟩ with C = ⟨seg, pc, val, St⟩ (`yin.vm.semantic.md`
-§4.1) is the **canonical CESK**. A foreign engine conforms by lifting into and
+configuration ⟨C, E, S, K⟩ with C = ⟨seg, pc, val, St⟩ (the deleted v3
+design's §4.1; the register machine's C drops `val` and `St`, §2.1 and the safepoints of §4.1 in
+`yin.vm.semantic.md`)
+is the **canonical CESK**. A foreign engine conforms by lifting into and
 lowering from this configuration, never by extending it.
 
 ## §7.2 Vocabulary and envelope
@@ -187,9 +191,10 @@ key. The full algebra is in 7.9.
 **Scope (2026-10-11).** Body versions 0, 1 and 2 and every clause of
 this document that admits, reads, recovers or interoperates with them
 are **historical**: they describe the stack-shaped machine's handoff,
-which leaves at `yin.vm.semantic-register-vm.md` §10 phase 8. The row
+which left at `yin.vm.semantic.md`'s §10 phase 8 (2026-10-15; the old
+transport sources died in 8f-1). The row
 carrier of body version 3 (`yin.vm.ucf-transport-tuples.md` as amended by
-`yin.vm.semantic-register-vm.continuation.md`) reads no other version and
+`yin.vm.semantic.continuation.md`) reads no other version and
 takes **precedence** over any sentence below that implies otherwise; a
 conflict is resolved in its favour without further amendment. **Not
 historical**: the custody, fencing and operation-id semantics (§7.7.8,
@@ -202,7 +207,7 @@ say "a version-0 body" or "fork", "a root whose policy is `:yin.k/fork`"
 0}` wherever this document shows it (§7.2's envelope example, the body
 example below, §7.3.3) is the stack-shaped machine's; the
 register-shaped machine's contract is `"v4"`
-(`yin.vm.semantic-register-vm.md` §6), the one the version-3 profile map
+(`yin.vm.semantic.md` §6), the one the version-3 profile map
 names, and §7.2's envelope example is superseded for version 3 by the
 row carrier's wire unit (`yin.vm.ucf-transport-tuples.md` §3, ids under
 Jing's default digest).
@@ -375,9 +380,9 @@ therefore not a value, it is a pointer. UCF names code by **what it is**.
 
 **Precedence (2026-10-11).** For the contract `"v4"`, the register-shaped
 canonical machine's, the canonical vector is the instruction table of
-`yin.vm.semantic-register-vm.md` §2.3, minted by the lowering walk and
+`yin.vm.semantic.md` §2.3, minted by the lowering walk and
 minting order of its §3.3 and validated by the one vector validator of
-its §3.4 (`yin.vm.semantic-register.code/well-formed?`); those sections
+its §3.4 (`yin.vm.semantic.code/well-formed?`); those sections
 take precedence over this one wherever the two differ, without further
 amendment. What survives of this section for `"v4"` is the identity
 layer: the address is `(dao.jing/segment-key vector)` computed over the
@@ -387,13 +392,16 @@ resolved instruction streams and nothing more. The rest of this section
 (the stack-shaped vector, the §2.4 opcode table, the batch-loader
 resolved interpretation, saturation from a batch and the normalization
 gate) describes the `"v3"` stack-shaped machine's vector and is
-**historical**: that machine leaves at the frozen design's §10 phase 8,
-and a `"v4"` vector is never computed from a datom batch by the
+**historical**: that machine left at the frozen design's §10 phase 8
+(2026-10-15), and the code half of this procedure — `yin.vm.ucf`'s
+batch canonicalizer — was deleted with it, un-ported (8f-1 ruling R2);
+`yin.vm.ucf` is now only `code-address`. A `"v4"` vector is never
+computed from a datom batch by the
 procedure below (the two AST projection lanes of §7.3.4 produce it from
 the tree). The vector→datoms projection is retired (§7.3.4).
 
-The segment attribute `:yin.code/hash`, reserved in `yin.vm.semantic.md`
-§2.2, becomes required on any segment a continuation may reference. Its
+The segment attribute `:yin.code/hash`, reserved in the deleted v3
+design's §2.2, becomes required on any segment a continuation may reference. Its
 value is the `dao.jing` segment address of the segment's **canonical
 instruction vector**. The canonical form has had two predecessors, each
 named so no later plan reinvents it: the first draft's sorted `[e a v]`
@@ -534,7 +542,9 @@ changing a transition, or changing the resolution order is a new revision; a
 resumer on the old one cannot run code that observes the difference, and the
 stamp is how it finds out before lowering rather than at an unknown integer
 in `case`. Two revisions may be declared compatible only by a published
-statement in `yin.vm.semantic.md` §2.4, never by an engine's own judgment.
+statement in the contract's published revision history
+(`yin.vm.ucf-revisions.md`; the v3 design's §2.4 index until its
+deletion at the 2026-10-15 cutover), never by an engine's own judgment.
 Because interpretation is part of identity, an engine's code index is keyed
 **per stamp revision**: lookup is `(get-in index [stamp address])`, and the
 same address under different stamps is a different image the same way the
@@ -577,10 +587,10 @@ resolution mechanism for UCF; `:yin.k/carried` and the body's code map
 carry **register-shaped canonical vectors keyed by A**, never batches,
 never datoms projected from a vector, and never a native stack or
 register image: a receiver of either native kernel derives its image from
-A (`yin.vm.semantic-register-vm.derivations.md` §2-3). `:yin.k/requires
+A (`yin.vm.semantic.derivations.md` §2-3). `:yin.k/requires
 :yin.k/trees` maps every address in `:yin.k/segments` to the non-empty
 set of tree addresses the emitter's `source-index` held for it
-(`yin.vm.semantic-register-vm.derivations.md` §9.2; §7.6.1a below). The
+(`yin.vm.semantic.derivations.md` §9.2; §7.6.1a below). The
 three-way resolution order below applies to **vectors**; a tree is
 resolved by address through the resumer's own `source-index` or by a
 `dao.jing` read, and the value's `:yin.k/trees` entries are merged into
@@ -593,9 +603,9 @@ is what the unitarity invariant asks (`datom.world.md`).
 
 Loading a fetched vector has **one path**: the direct decode of the
 canonical vector into an image through the one validator
-(`yin.vm.semantic-register.code/well-formed?`). The projection path
+(`yin.vm.semantic.code/well-formed?`). The projection path
 (vector → datoms → loader) is retired (owner ruling 2026-09-18;
-`yin.vm.semantic-register-vm.md` §3.4). The conformance obligation is
+`yin.vm.semantic.md` §3.4). The conformance obligation is
 that the two AST projection lanes and the direct vector load yield one
 image and address (`load_paths_test.cljc`).
 
@@ -646,9 +656,14 @@ runnable checkpoint.
 ### 7.4.1 Only safepoints lift, and the table is the machine's
 
 Superseded for the register-shaped machine by
-`yin.vm.semantic-register-vm.md` §4.1 (two state columns, `act` and
+`yin.vm.semantic.md` §4.1 (two state columns, `act` and
 `tail`, and the `deliver` record); the table below describes the
-stack-shaped machine, which leaves at that design's phase 8.
+stack-shaped machine, which left at that design's phase 8 (2026-10-15),
+and the stack-shaped halves of the old `yin.vm.ucf` that served it —
+the safepoint table, `stack-effect`, `parking-kinds` — were deleted
+with it, un-ported (8f-1 ruling R2); the register machine's safepoint
+facts live in `yin.vm.semantic.md` §4 and the frame validator of
+`yin.vm.semantic.frame`.
 
 The linear machine's registers are canonical only *between* instructions.
 Inside a `:call` that has popped its operands but not yet pushed a frame, or
@@ -682,8 +697,8 @@ point. And `pc+1` as the resume pc is verified sound for every row above:
 has a successor in its own segment.
 
 The `:yin.k/frame` is the decoded canonical frame of the register-shaped
-machine (`yin.vm.semantic-register-vm.md` §4.2;
-`yin.vm.semantic-register-vm.continuation.md` §1.2), with segments as
+machine (`yin.vm.semantic.md` §4.2;
+`yin.vm.semantic.continuation.md` §1.2), with segments as
 addresses and values in their portable encodings (§7.5), in its keyed
 form:
 
@@ -782,7 +797,7 @@ canonical stream at its own load time — is the static half:
 Rules:
 
 - `def`, `use`, `live` and `lexically-required` are **derived from the
-  canonical vector alone** (`yin.vm.semantic-register.analysis`). They are
+  canonical vector alone** (`yin.vm.semantic.analysis`). They are
   identical for every engine and checkable against the reference machine
   by a conformance test that runs the segment to each safepoint and
   compares the saved window's key set with `live − {rd}` and the E-reads.
@@ -855,7 +870,7 @@ Three rules make these resumable somewhere other than where they were minted:
 A pending rides on an `act` state (write-result delivery) or a `tail`
 state (through-return delivery); the variants are unchanged, and
 `:yin.k/registers R` of the version-2 amendment is the `act`/`tail` state
-of the frozen design `yin.vm.semantic-register-vm.md` §4.2.
+of the frozen design `yin.vm.semantic.md` §4.2.
 
 - **The response position is a kept cursor, never an anchor.** Reattaching
   at `:oldest` replays responses that belong to other calls; attaching at
@@ -1479,7 +1494,7 @@ guessed from the current environment:
 
 #### 7.6.1a `:yin.k/trees`: the source association (amendment 2026-10-11)
 
-(`yin.vm.semantic-register-vm.derivations.md` §9.2, under the unitarity
+(`yin.vm.semantic.derivations.md` §9.2, under the unitarity
 invariant of `datom.world.md`: the AST tree must be retrievable wherever
 code is lowered.) `:yin.k/carried` carries vectors, not batches, and
 `:yin.k/requires :yin.k/trees` maps every address in `:yin.k/segments` to
@@ -1504,14 +1519,14 @@ association is intact and the read is retried or reported as the
 ordinary fetch outcome of the medium. Nothing here turns a failed read
 into a refusal of code that is otherwise linkable: retrievability is a
 property of the association, not of one read. A is not a key to one
-tree (several ASTs project to one A, `yin.vm.semantic-register-vm.derivations.md`
+tree (several ASTs project to one A, `yin.vm.semantic.derivations.md`
 §4.2); any one retrievable member satisfies the invariant.
 
 The fixed point starts from the frame, its K frames, the parked records of
 §7.6.3, the store slice, the task's initial free environment (the root's
 `free-env`, `yin.vm.ucf-transport-tuples.md` §5.5; a value reachable only
 through it can carry closures, streams and primitives,
-`yin.vm.semantic-register-vm.continuation.md` §7.1), and the pending
+`yin.vm.semantic.continuation.md` §7.1), and the pending
 wait. The row carrier's census (its §8 step 9) is computed from the same
 roots and must agree with `:yin.k/requires` exactly. Its unit of analysis is a work
 item `[code-address context]`, not an address: `context` is the finite
@@ -2869,7 +2884,9 @@ the review's named architectural obligations; they are blockers to
   (§7.3.3): the tuple grammar — mnemonic set, per-mnemonic arity and operand
   kinds, saturation/defaults table — the opcode table and transitions, the
   resolution and last-value-wins rules, the effect outcome map, and the
-  scheduler semantics. The index is in `yin.vm.semantic.md` 2.4 and the
+  scheduler semantics. The index was the deleted v3 design's §2.4 (its
+  history is now `yin.vm.semantic.md`'s history block and
+  `yin.vm.ucf-revisions.md`) and the
   history landed in dbae125b (`yin.vm.ucf-revisions.md`); runtime profile
   checks below remain open.
 - **Primitive profile publication.** The standard `yin.vm/primitives`
@@ -2898,13 +2915,15 @@ the review's named architectural obligations; they are blockers to
   `lexically-required` checks, the frame validator on every frame, and
   **cross-engine canonical equality**: one program at one safepoint lifts
   to row sets with equal root ids after the harness's specified
-  re-emission (`yin.vm.semantic-register-vm.continuation.md` §5.5) from
-  the semantic-register kernel and from the stack and register kernels
+  re-emission (`yin.vm.semantic.continuation.md` §5.5) from
+  the canonical semantic kernel and from the stack and register backends
   through their layouts, the stack kernel with its tail-completion seam.
-  **Amended after 7 (2026-10-14)** — Reason: the owner retains both kernels as backends on a fixed fragment.
-  The stack and register kernels are backends of the semantic-register
-  VM, checked on their documented fragment and required to refuse the
-  unsupported remainder before attach (continuation design §4.6). They are retained
+  **Amended after 7 (2026-10-14; names updated at the 2026-10-15 cutover)** — Reason: the owner retains both kernels as backends on a fixed fragment.
+  The canonical kernel and its two backends are checked on the
+  documented fragment and required to refuse the
+  unsupported remainder before attach (continuation design §4.6, the retained
+  backend fragment, including the implemented checks and harness-only
+  exclusions; there is no general pre-attach fragment gate). They are retained
   after phase 8 without widening the fragment;
   and the §7.3.4 image-equality assertion (the two AST projection lanes
   and the direct vector load yield one image and address).
@@ -3070,7 +3089,7 @@ claim that all five blockers have closed.
   refusal case.
   **Amended after 7 (2026-10-14)** — Reason: cross-engine conformance covers the documented backend fragment.
   Separately prepare the canonical kernel and its two backends
-  (semantic-register; register; stack after its tail-completion seam),
+  (semantic; register; stack after its tail-completion seam),
   within continuation design §4.6's fragment, with
   a nontrivial call stack, a captured closure, and a blocked effect at
   the handoff point.
@@ -3332,7 +3351,7 @@ Clauses, with the stage that owes the evidence
    Stage: C for the epoch, D for the sequence.
 10. **Amended after 7 (2026-10-14)** — Reason: 7d ports Stage E to the canonical kernel and distinguishes host evidence.
     Composition (linker 14.2.4). Crash, partition, reclaim and completion
-    contracts run through semantic-register source/receiver compositions
+    contracts run through semantic-kernel source/receiver compositions
     using packs.
     **Amended after 7 (2026-10-14)** — Reason: the fence is journaled after both durable stores.
     Recovery format 2 is stored before the whole pack; both are stored durably before the fence is journaled and before any offer.

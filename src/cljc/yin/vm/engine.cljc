@@ -2318,9 +2318,9 @@
    signature `yin.vm.engine.md` §2.1 states). Returns the polled state when
    nothing woke, so a caller always gets a state back.
 
-   This is `yin.vm.semantic/scheduler-round` with its restore made a
-   parameter (`yin.vm.engine.md` §7, edit 1); every VM was writing this
-   composition by hand."
+   The restore operation is a composition parameter
+   (`yin.vm.engine.md` §7, edit 1); every VM was writing this composition
+   by hand."
   [state restore-fn]
   (let [v' (check-wait-set state)]
     (or (resume-from-run-queue v' restore-fn) v')))

@@ -26,7 +26,8 @@ Status: design only, not authorized for implementation.
 >
 > A second ruling of the same date makes the canonical semantic vector
 > register-shaped with virtual registers; its design
-> (`yin.vm.semantic-register-vm.md`, forthcoming) will restate §3.7's
+> (`yin.vm.semantic-register-vm.md`, forthcoming; landed and renamed
+> `yin.vm.semantic.md` at the 2026-10-15 cutover) will restate §3.7's
 > reasons for targeting the register image in terms of a forthcoming
 > A-derived lowering, whose simplicity is not assumed here. Not applied.
 

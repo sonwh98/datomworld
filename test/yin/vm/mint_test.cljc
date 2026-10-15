@@ -11,20 +11,20 @@
    which since M3 reads over a ring-buffer content pair served from the
    store (`yin.vm.linker-test/fetch-local`). The two mint functions
    exercised here, `yin.vm/materialize-tree!` and
-   `yin.vm.code/materialize-vector!`, live beside the grammars they
-   enforce -- they are not a content category of their own."
+   `yin.vm.semantic.code/materialize-vector!`, live beside the
+   grammars they enforce -- they are not a content category of their own."
   (:require #?@(:cljd [["dart:io" :as dart-io]])
             [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.jing.file :as jing-file]
             [dao.jing.mem :as jing-mem]
             [yin.vm :as vm]
-            [yin.vm.code :as code]
-            [yin.vm.linearize :as linearize]
             [yin.vm.linker :as linker]
             [yin.vm.linker-test :as lt]
             [yin.vm.parity-test :as parity]
             [yin.vm.semantic :as semantic]
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.linearize :as linearize]
             [yin.vm-test :as vm-test]))
 
 
@@ -99,6 +99,8 @@
                 (catch #?(:cljd Object :default Exception) _ nil))))
 
 
+;; Phase 8c: semantic-format serves A (v4); project, mint and load that
+;; same format throughout. The tree corpus and round-trip assertions stay whole.
 (deftest materialize-get-validate-round-trips-every-tree-and-vector
   (testing "every corpus tree and its lowered vector, memory backend"
     (let [h (jing-mem/create-content-mem)]
@@ -111,7 +113,7 @@
           (is (= (vm/semantic-bytecode->ast loaded)
                  (vm/semantic-bytecode->ast tree))
               (str "the fetched tree reconstructs to the same map AST: " name)))
-        (let [vector (:vector (linearize/lower-rows (vm/ast->semantic-bytecode ast)))
+        (let [vector (:vector (linearize/project-rows (vm/ast->semantic-bytecode ast)))
               address (code/materialize-vector! h vector)
               fetched (fetch-vector h address)]
           (is (= (jing/segment-key vector) address)
@@ -129,7 +131,7 @@
                   :body {:type :application,
                          :operator {:type :variable, :name 'x},
                          :operands [{:type :literal, :value 1}] :tail? true}})
-          vector (:vector (linearize/lower-rows tree))
+          vector (:vector (linearize/project-rows tree))
           h (jing-file/create-content-file path)]
       (try
         (let [root (vm/materialize-tree! h tree)
@@ -268,7 +270,7 @@
                   :body {:type :application,
                          :operator {:type :variable, :name 'x},
                          :operands [{:type :literal, :value 1}]}})
-          vector (:vector (linearize/lower-rows tree))
+          vector (:vector (linearize/project-rows tree))
           address (code/materialize-vector! h vector)
           res (lt/fetch-local h {address address} linker/semantic-format
                               address receiver

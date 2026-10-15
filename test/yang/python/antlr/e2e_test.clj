@@ -15,31 +15,30 @@
    real `data` module and the real `integer` module; nothing is stubbed.
    Printed output is compared as Python text rendered at the boundary
    (`yang.python.antlr.render`)."
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.stream :as stream]
-    [yang.python.antlr.linked-harness :as linked]
-    [yang.python.antlr.lower :as lower]
-    [yang.python.antlr.parser :as parser]
-    [yang.python.antlr.prelude :as prelude]
-    [yang.python.antlr.render :as render]
-    [yang.python.antlr.safepoint :as hooks]
-    [yang.python.antlr.import-programs :as imports]
-    [yang.python.antlr.safepoint-programs :as programs]
-    [yang.safepoint :as safepoint]
-    [yin.vm :as vm]
-    [yin.vm.data :as data]
-    [yin.vm.encoder :as encoder]
-    [yin.vm.engine :as engine]
-    [yin.vm.integer :as integer]
-    [yin.vm.debruijn-linearize :as dl]
-    [yin.vm.debruijn-register-compile :as rc]
-    [yin.vm.debruijn.register :as rvm]
-    [yin.vm.debruijn.stack :as dvm]
-    [yin.vm.linearize :as linearize]
-    [yin.vm.module :as module]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.test-utils :as tu]))
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
+            [dao.stream :as stream]
+            [yang.python.antlr.linked-harness :as linked]
+            [yang.python.antlr.lower :as lower]
+            [yang.python.antlr.parser :as parser]
+            [yang.python.antlr.prelude :as prelude]
+            [yang.python.antlr.render :as render]
+            [yang.python.antlr.safepoint :as hooks]
+            [yang.python.antlr.import-programs :as imports]
+            [yang.python.antlr.safepoint-programs :as programs]
+            [yang.safepoint :as safepoint]
+            [yin.vm :as vm]
+            [yin.vm.data :as data]
+            [yin.vm.encoder :as encoder]
+            [yin.vm.engine :as engine]
+            [yin.vm.integer :as integer]
+
+            [yin.vm.debruijn.register :as rvm]
+            [yin.vm.debruijn.stack :as dvm]
+            [yin.vm.module :as module]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.test-utils :as tu]))
 
 
 ;; =============================================================================
@@ -97,7 +96,7 @@
 
 
 (def ^:private load-semantic
-  (vm/fresh-code-loader (linearize/ast-loader semantic/vm-load-program)
+  (vm/fresh-code-loader semantic/load-ast
                         vm/ast-contract))
 
 
@@ -188,7 +187,7 @@
                                                                    hooks/profile)))))
                      (run-member (first (tu/drain program))))
                datoms (vec (vm/ast->datoms ast))
-               resolved #(tu/resolved-of ast)
+               projected #(:vector (sr-linearize/project ast))
                attempt (fn [f]
                          (try (render/output (f))
                               (catch Exception e [:thrown (ex-message e)])))]
@@ -199,14 +198,12 @@
                                                     datoms)))),
             :stack (attempt #(vm/value
                                (vm/run (prep (dvm/create-vm
-                                               (:image (dl/lower-stack
-                                                         (resolved)))
+                                               (:image (derive/stack-image (projected)))
                                                (assoc opts
                                                       :contract vm/stack-contract)))))),
             :register (attempt #(vm/value
                                   (vm/run (prep (rvm/create-vm
-                                                  (:image (rc/lower-register
-                                                            (resolved)))
+                                                  (derive/register-image (projected))
                                                   (assoc opts
                                                          :contract
                                                          vm/register-contract))))))}))))))

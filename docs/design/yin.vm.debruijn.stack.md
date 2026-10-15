@@ -59,9 +59,21 @@ Status: B0-B3 implemented and merged; B4-B7 not started
 > register shaped instead of stack-shaped is the right way to go"*, with
 > virtual registers, changes the *shape* of A and therefore this
 > document's lowering input; that is a separate design
-> (`yin.vm.semantic-register-vm.md`, forthcoming) and is not applied here.
+> (`yin.vm.semantic-register-vm.md`, forthcoming; landed and renamed
+> `yin.vm.semantic.md` at the 2026-10-15 cutover) and is not applied here.
 > Architect review of both rulings:
 > `collab/1791510000000-architect-semantic-register-vm.gpt-6.1-sol.findings.md`.
+>
+> **Amendment 2026-10-15 (phase 8, 8g).** This kernel survived the
+> cutover: `debruijn/stack.cljc` is a **backend** of the canonical
+> semantic kernel, executing the lowering `A → H` over the documented
+> fragment (continuation design §4.6), checked by the cross-engine laws
+> on that fragment. Refusal of the unsupported remainder before attach
+> remains the requirement; §4.6 lists the four implemented checks and the
+> harness-only exclusions, not a general fragment gate.
+> The old lowerers that produced its input are gone; `derive` lowers
+> from A. The opcode table is this dimension's own literal data since
+> 8f-1 (below, §2); the fragment is not widened.
 
 This document specifies a second executable path for `yin.vm`. The existing
 path lowers named Universal AST datoms to `:yin.code/*` and executes that
@@ -213,6 +225,10 @@ existing `yin.vm.code/vector-operand-table`; only lexical addressing differs:
 arity and body references rather than parameter symbols. The stack operations,
 `:const`, `:push`, `:halt`, `:branch-false`, stream operations, store
 operations, park, resume, gensym, and FFI retain their existing opcode shapes.
+*(Amended 2026-10-15: `yin.vm.code` was deleted at 8f-3; since 8f-1 R1 the opcode table
+is this dimension's own literal data — the same 23 mnemonics, slots and
+kinds, frozen under `lowering-contract-version` 2 — and the derivation
+from the named table is historical.)*
 Its descriptor declares a lowering-contract version, arity, ordered slots,
 canonical encoding, and one lift
 morphism from `:yin.debruijn.code/*` to `:yin.code/*`; the lift uses diagnostic
@@ -222,7 +238,9 @@ so no-NFC behavior is a slot rule, not an exception to the dimension contract.
 The new code namespace copies its small framing and length-prefix helpers and
 defines its own scalar tag table; it does not reach private vars in the merged
 dormant projection namespace.
-It uses `jing/sha256` and a separate executable scalar encoding: distinct tags
+It uses `jing/blake3` (SHA-256 until the phase-8 cutover, 2026-10-15;
+the descriptor row and every H moved then, once, without a version bump)
+and a separate executable scalar encoding: distinct tags
 represent nil, booleans, long, double, ratio, bigint, char, string, keyword,
 symbol, vectors, lists, maps, sets, and other explicitly supported values.
 Map and set entries are ordered by encoded bytes; vectors and lists are
@@ -279,11 +297,18 @@ keyed by H. A receiver hashes the received canonical wire bytes before
 decoding; those bytes are H's preimage. `jing/segment-key` is only the storage
 address for the same bytes and is not H; `yin.vm.content` stores and fetches
 bytes, while verification recomputes `image-hash`. H is computed using explicit
-SHA-256 and is pinned by the VM format contract version; it is completely
+BLAKE3 (SHA-256 until the phase-8 cutover, 2026-10-15) and is pinned by the
+VM format contract version; it is completely
 independent of DaoJing's `default-hash-algorithm` and does not change when
 DaoJing defaults to BLAKE3.
 
 ## 3. Lowering and scope
+
+> **Historical since 8e (2026-10-15).** The resolver, `lower-stack`,
+> `adapt` and `lift` below were deleted with the old lowerers. The
+> current `A → H` walk is `yin.vm.semantic.derive/stack-image`
+> (`yin.vm.semantic.md` §8.3); it consumes the recovered expression
+> grammar of A, not the old stack-shaped semantic table.
 
 Lowering is two stages, both pure stream-to-stream functions:
 
@@ -509,7 +534,8 @@ reserved key), and pushes the value back as the expression's value. It
 never resolves the definition operator, so no binding can redirect a
 definition. `:define` is opcode data from `vector-operand-table`
 (`[[:yin.debruijn.code/name :sym]]`), carried into this dimension's
-opcode table like every other retained shape.
+opcode table like every other retained shape. *(Since 8f-1 the table is
+this dimension's own literal data; the row is the same.)*
 
 The VM is a new `yin.vm.debruijn.stack` namespace. It may implement existing VM
 protocols without adding methods, and it may reuse data-only engine helpers
@@ -616,6 +642,11 @@ literal values, spelling-sensitive store keys, front-end tail choices, stream
 outcomes, or error classifications.
 
 ## 6. Implementation phases
+
+> **Cutover note (2026-10-15).** This is the original B0-B7 plan. The
+> B2 lowerer and lift were deleted at 8e; B1's table became this
+> dimension's own literal data at 8f-1. References to `yin.vm.code`,
+> `yin.vm.linearize` and `completion_test` below are historical.
 
 Each phase B0 through B7 has a file box, a must-not-change list, completion
 criteria, and JVM, Node/CLJS, ClojureDart, kondo, and cljstyle verification.

@@ -1,29 +1,28 @@
 (ns yin.vm.ucf.rows-support
   "Test support for the row carrier under custody (phase 7a): real
-   semantic-register machines the engine parks, the composition's source
+   semantic machines the engine parks, the composition's source
    index, a deterministic exporter, the custody header parts and `lift`,
-   rows/lift-task over one machine. It mirrors yin.vm.ucf.lift-support,
-   whose AST helpers, one-slot streams, exporter and header parts it
-   reuses, over yin.vm.semantic-register instead of the old kernel.
+   rows/lift-task over one machine. It owns the shared AST helpers,
+   one-slot streams, exporter, header parts and remote stream test seams.
 
    Every pack the 7a tests and the rows checkpoint fixtures check comes
    out of `lift`, never from a hand-built map. The one thing set by hand
-   is an operation id on a wait entry (`with-op-id`), as in lift-support.
+   is an operation id on a wait entry (`with-op-id`), for custody fixtures.
    The streams carry no random identity and `serve-table` answers s0, s1
    ... in first-asked order, so a pack's bytes are the same on every run
    and host."
   (:require [dao.jing :as jing]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ringbuffer]
+            [dao.stream.remote :as remote]
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
             [yin.vm.ledger :as ledger]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as sr]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.linearize :as linearize]
+            [yin.vm.semantic :as sr]
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.linearize :as linearize]
             [yin.vm.test-utils :as tu]
-            [yin.vm.ucf.lift-support :as ls]
             [yin.vm.ucf.rows :as rows]
             [yin.vm.values :as values]))
 
@@ -45,27 +44,156 @@
     v))
 
 
-(def lit ls/lit)
-(def v ls/v)
-(def lam ls/lam)
-(def app ls/app)
-(def then ls/then)
-(def let1 ls/let1)
-(def def! ls/def!)
-(def cursor-of ls/cursor-of)
-(def next-of ls/next-of)
-(def one-slot-stream ls/one-slot-stream)
-(def serve-table ls/serve-table)
-(def with-op-id ls/with-op-id)
-(def occurrence ls/occurrence)
-(def predecessor ls/predecessor)
-(def origin ls/origin)
-(def arbitration ls/arbitration)
-(def op-id ls/op-id)
-(def header ls/header)
+(defn lit
+  [x]
+  {:type :literal, :value x})
 
 
-(defn- ring
+(defn v
+  [n]
+  {:type :variable, :name n})
+
+
+(defn lam
+  [params body]
+  {:type :lambda, :params params, :body body})
+
+
+(defn app
+  [f & args]
+  {:type :application, :operator f, :operands (vec args)})
+
+
+(defn then
+  [a b]
+  (app (lam ['_] b) a))
+
+
+(defn let1
+  [param init body]
+  (app (lam [param] body) init))
+
+
+(defn def!
+  [k val]
+  (app (v 'yin/def) (lit k) val))
+
+
+(defn cursor-of
+  [source]
+  {:type :stream/cursor, :source source})
+
+
+(defn next-of
+  [source]
+  {:type :stream/next, :source source})
+
+
+(defn one-slot-stream
+  "A stream that answers `full` while one value sits in it."
+  [identity]
+  (let [slot (atom :empty)]
+    (reify
+      stream/IDaoStreamDescriptor
+      (descriptor
+        [_]
+        {:dao.stream/outcome :dao.stream/ok,
+         :dao.stream/identity identity,
+         :dao.stream/descriptor
+         {:dao.stream/type :dao.stream.test/channel,
+          :dao.stream/identity identity}})
+
+
+      stream/IDaoStreamReader
+
+      (cursor
+        [_ _anchor]
+        {:dao.stream/outcome :dao.stream/ok, :dao.stream/cursor 0})
+
+      (next
+        [_ cursor]
+        (if (and (= 0 cursor) (not= :empty @slot))
+          (let [x @slot]
+            (reset! slot :empty)
+            {:dao.stream/outcome :dao.stream/ok,
+             :dao.stream/value x, :dao.stream/cursor 1})
+          {:dao.stream/outcome :dao.stream/blocked}))
+
+
+      stream/IDaoStreamWriter
+
+      (append!
+        [_ x]
+        (if (not= :empty @slot)
+          {:dao.stream/outcome :dao.stream/full}
+          (do (reset! slot x)
+              {:dao.stream/outcome :dao.stream/ok}))))))
+
+
+(defn serve-table
+  "A `serve!` answering one stable identity per handle, \"s0\", \"s1\"
+   ... in the order the handles are first asked about."
+  []
+  (let [table (atom {})]
+    (fn [h]
+      (or (get @table h)
+          (let [served {:dao.stream/identity (str "s" (count @table))
+                        :dao.stream/channel {:dao.stream/type
+                                             :dao.stream.test/channel}}]
+            (swap! table assoc h served)
+            served)))))
+
+
+(defn with-op-id
+  "`machine` with `id` as the `:op-id` of its first wait entry whose
+   reason is `reason`, in the root or, with `path`, in the install child
+   at `path`.  D11 replaces this: its fenced writer assigns ids, and its
+   tests must show a real run's wait entries equal in shape to what this
+   sets."
+  ([machine reason id] (with-op-id machine [] reason id))
+  ([machine path reason id]
+   (let [at (into [] (mapcat (fn [m] [:installs m :vm])) path)
+         waits (get-in machine (conj at :wait-set))
+         i (first (keep-indexed #(when (= reason (:reason %2)) %1) waits))]
+     (assert (some? i) (str "no wait entry of reason " reason))
+     (assoc-in machine (into at [:wait-set i :op-id]) id))))
+
+
+(def occurrence "8f0c6a52-6a1e-4e43-9d55-3f0a4c1b2e01")
+
+
+(def predecessor "1d3e5b7a-0c2f-4a69-8b11-7e6d5c4b3a02")
+
+
+(def origin
+  {:yin.k/occurrence predecessor
+   :dao.lease/lease "lease-7"
+   :yin.k/emitter "peer-a"})
+
+
+(def arbitration
+  {:dao.stream/identity "arbitration-1"
+   :dao.stream/descriptor {:dao.stream/type :remote :peer "peer-b"}})
+
+
+(defn op-id
+  ([n] (op-id predecessor n))
+  ([occ n] {:yin.k/occurrence occ :yin.k/seq n}))
+
+
+(defn header
+  "The custody header for the row lift: a first export when `o` is
+   nil."
+  ([n] (header n origin #{}))
+  ([n o enrolled]
+   (cond-> {:yin.k/occurrence occurrence
+            :yin.k/arbitration arbitration
+            :yin.k/next-op-seq n
+            :yin.k/enrolled enrolled}
+     (some? o) (assoc :yin.k/origin o))))
+
+
+(defn ring
   [capacity]
   (:dao.stream/handle
     (ringbuffer/create! {:dao.stream/type ringbuffer/transport-type ringbuffer/capacity-key capacity})))
@@ -293,3 +421,75 @@
           [rb m2] (engine/attach-resource m1 w)
           [rx m3] (engine/attach-resource m2 x)]
       (vm/run (assoc m3 :store {'w ra, 'w2 rb, 'x2 rx})))))
+
+
+(defn toy
+  []
+  (let [ab (ring 64)
+        ba (ring 64)
+        cd {:dao.stream/type :dao.stream.test/channel
+            :dao.stream/identity "ucf-handoff-toy"}]
+    {:channel cd, :ab ab, :ba ba,
+     :a-end {:reader ba, :writer ab},
+     :b-end {:reader ab, :writer ba}}))
+
+
+(defn served-peer
+  [t]
+  {:table (atom {})
+   :b-reader (:reader (:b-end t))
+   :b-writer (:writer (:b-end t))
+   :mirror (atom (:dao.stream/cursor
+                   (stream/cursor (:reader (:b-end t))
+                                  :dao.stream/oldest)))})
+
+
+(defn serve-mirror!
+  [peer]
+  (swap! (:mirror peer)
+         #(remote/mirror-step @(:table peer) (:b-reader peer) %
+                              (:b-writer peer))))
+
+
+(defn server
+  "The exporter's `serve!`: a stable identity per handle, entering it in
+   the peer's table under the toy channel."
+  ([peer chan] (server peer chan #{:reader}))
+  ([peer chan surfaces]
+   (fn [h]
+     (if-let [existing (some (fn [[id e]] (when (= h (:handle e)) id))
+                             @(:table peer))]
+       {:dao.stream/identity existing, :dao.stream/channel chan}
+       (let [id (str (gensym "seg"))]
+         (swap! (:table peer) assoc id {:handle h, :surface surfaces})
+         {:dao.stream/identity id, :dao.stream/channel chan})))))
+
+
+(defn stream-of
+  "The stream handle a parked reader's first wait entry polls."
+  [parked]
+  (let [entry (first (:wait-set parked))]
+    (get (:resources parked) (:stream-id entry))))
+
+
+(defn call-node
+  [op arg]
+  {:type :dao.stream.apply/call, :op op, :operands [(lit arg)]})
+
+
+(defn remote-attacher
+  [t]
+  (remote/attacher
+    {:dao.stream.remote/channels {(:channel t) (:a-end t)}}))
+
+
+(defn halted-result-closure
+  "A result-only module closure reaching two otherwise unreferenced cursors."
+  []
+  (let [m (vm/run (load-ast (new-machine) (lam [] (lit 1))))
+        {:keys [c1 c2 machine]} (fresh-cursors m)
+        real (values/payload (:value machine))]
+    (assoc machine
+           :value (values/closure (:owner machine)
+                                  (assoc real :env {engine/store-of-key 'host.mod}))
+           :module-stores {'host.mod {'c c1 'd c2}})))

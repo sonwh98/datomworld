@@ -1,7 +1,7 @@
 (ns yin.vm.ucf.rows
   "Version-3 row codec. Pure row construction, graph decoding and
    discovery-order cursor-cell numbering (design note §1), then full task
-   transport for the semantic-register kernel (continuation design §7):
+   transport for the semantic kernel (continuation design §7):
    lift-task walks a quiescent machine into an abstract task and emits it;
    lower-task decodes, checks and restores one into a fresh receiver.
    An abstract row is {:kind keyword :slots vector}. Structural references
@@ -25,10 +25,10 @@
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
             [yin.vm.values :as values]
-            [yin.vm.semantic-register.analysis :as analysis]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.frame :as frame]
-            [yin.vm.semantic-register.scan :as scan]
+            [yin.vm.semantic.analysis :as analysis]
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.frame :as frame]
+            [yin.vm.semantic.scan :as scan]
             [yin.vm.ucf.custody :as custody]
             [yin.vm.ucf.remote :as remote]))
 
@@ -230,7 +230,7 @@
 
 
 ;; Discovery-order cursor-cell numbering (design note
-;; yin.vm.semantic-register-vm.cursor-cell-numbering.md §1). A cursor cell is
+;; yin.vm.semantic.cursor-cell-numbering.md §1). A cursor cell is
 ;; named by the order in which a fixed pre-order walk of the task meets it. A
 ;; guest :set or :map is entered as the vector of its members sorted by key:
 ;; the member's spelling by a key walk, numbered cursor cells by number and
@@ -925,7 +925,9 @@
            (check-literal-markers! (if (contains? #{:V :optional-V} d)
                                      (when (= :lit (first x)) (second x)) x))))
        (doseq [[id kind & slots] rs]
-         (when-not (= (vec slots) (ordered-slots kind (vec slots))) (bad! :row-order [id]))
+         ;; Slots may carry NaN literals; compare each by canonical content.
+         (when-not (every? true? (map cbor/content= slots (ordered-slots kind (vec slots))))
+           (bad! :row-order [id]))
          (when (contains? #{:map :bindings :store :parked-table :window :cursor-cells :set} kind)
            (let [keys (if (= kind :set) slots (map first (partition 2 slots)))]
              (when-not (and (= (count keys) (count (distinct keys)))
@@ -1318,7 +1320,7 @@
 ;; Task transport (continuation design §7): lift-task and lower-task
 ;; =============================================================================
 ;;
-;; The lift walks a quiescent semantic-register machine into the abstract
+;; The lift walks a quiescent semantic machine into the abstract
 ;; task the codec above emits: waits, parked records, the store, module
 ;; stores, the free environment, the result and install children, every
 ;; value classified as [:lit x], [:row n] or [:cursor-cell source]. A
@@ -1733,7 +1735,7 @@
 
 
 (defn lift-task
-  "The lift of §7.1: quiescent semantic-register machine m as a version-3
+  "The lift of §7.1: quiescent semantic machine m as a version-3
    carrier, or a refusal thrown as ex-data {:yin.k/status :yin.k/kind}.
    serve! is the exporter's remote-table entry (yin.vm.ucf.remote).
    opts: :free-env, the task's initial free environment (default: the
@@ -2076,7 +2078,9 @@
                                    {:modules registry :origin origin
                                     :ancestry (conj (vec (:ancestry recv)) mn)
                                     :capability-secret (when (fn? source) (source origin))})]
-    [(cond-> child fenced? (assoc :make-stream (:make-stream recv)))
+    [(cond-> (dissoc child :yin.k/closes :yin.k/issued :yin.k/gate :yin.k/custody
+                     :yin.k/recovery-waits :yin.k/recovery-parked :yin.k/recovery-cell-ids)
+       fenced? (assoc :make-stream (:make-stream recv)))
      (assoc recv :origins (inc n))]))
 
 
@@ -2088,7 +2092,9 @@
   (let [[_ _ kind _ id-counter free-env store module-stores parked census _ code installs waits parked-id result]
         (:slots task)
         base (reduce (fn [r [_ v]] (module/attach-module r v))
-                     (assoc recv :code {} :code-aliases {} :program nil)
+                     (assoc (dissoc recv :yin.k/closes :yin.k/issued :yin.k/gate :yin.k/custody
+                                    :yin.k/recovery-waits :yin.k/recovery-parked :yin.k/recovery-cell-ids)
+                            :code {} :code-aliases {} :program nil)
                      (sort-by #(str (key %)) code))
         aliases (:code-aliases base)
         used (atom (into fixed-resource-keys (keys (:resources base))))
@@ -2120,7 +2126,7 @@
                   :closure (let [[a entry params bindings store-of] ss]
                              (module/lower-closure base
                                                    (cond-> {:yin.k/binding :named
-                                                            :yin.k/format :yin.semantic-register/code
+                                                            :yin.k/format :yin.semantic/code
                                                             :yin.k/segment a :yin.k/entry entry :yin.k/params params
                                                             :yin.k/env (keyed bindings)}
                                                      (some? store-of) (assoc :yin.k/store-of store-of))
@@ -2238,7 +2244,7 @@
 
 
 (defn lower-task
-  "The lower of §7.2 into recv, a fresh semantic-register machine of the
+  "The lower of §7.2 into recv, a fresh semantic machine of the
    receiver's composition: gate to frames (decode) and the store keys,
    then pendings and install records, dependency closure (code, closures,
    primitives), each step over the whole tree before the next, then

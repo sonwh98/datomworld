@@ -1,29 +1,27 @@
 (ns yang.python.antlr.int-heap-test
   "S6: Python integer leaves in the heap, streams and kernel images."
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.jing :as jing]
-    [dao.test-slow :as slow]
-    [yang.python.antlr.int-contract-fixtures :as f]
-    [yang.python.antlr.int-ops-test :refer [canon-ints]]
-    [yang.python.antlr.prelude :as prelude]
-    [yang.python.antlr.uast :as u]
-    [yin.vm :as vm]
-    [yin.vm.ast-walker :as walker]
-    [yin.vm.data :as data]
-    [yin.vm.debruijn-linearize :as dl]
-    [yin.vm.debruijn-register-compile :as rc]
-    [yin.vm.debruijn.register :as rvm]
-    [yin.vm.debruijn.stack :as dvm]
-    [yin.vm.engine :as engine]
-    [yin.vm.integer :as integer]
-    [yin.vm.integer.host :as integer-host]
-    [yin.vm.linearize :as linearize]
-    [yin.vm.module :as module]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.test-utils :as tu]
-    [yin.vm.ucf.handoff :as handoff]
-    [yin.vm.values :as values]))
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
+            [dao.jing :as jing]
+            [dao.test-slow :as slow]
+            [yang.python.antlr.int-contract-fixtures :as f]
+            [yang.python.antlr.int-ops-test :refer [canon-ints]]
+            [yang.python.antlr.prelude :as prelude]
+            [yang.python.antlr.uast :as u]
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as walker]
+            [yin.vm.data :as data]
+
+            [yin.vm.debruijn.register :as rvm]
+            [yin.vm.debruijn.stack :as dvm]
+            [yin.vm.engine :as engine]
+            [yin.vm.integer :as integer]
+            [yin.vm.integer.host :as integer-host]
+            [yin.vm.module :as module]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.test-utils :as tu]
+            [yin.vm.values :as values]))
 
 
 (def ^:private opts
@@ -73,18 +71,17 @@
                         (walker/vm-load-rows (walker/create-vm o) image
                                              vm/ast-contract))},
    :semantic {:image (fn [ast]
-                       (:vector (linearize/lower-rows
+                       (:vector (sr-linearize/project-rows
                                   (vm/ast->semantic-bytecode ast)))),
               :load (fn [image o]
                       (semantic/load-vector (semantic/create-vm o) image
                                             vm/semantic-contract))},
-   :stack {:image (fn [ast] (:image (dl/adapt (vm/ast->datoms ast)))),
+   :stack {:image (fn [ast] (:image (derive/stack-image (:vector (sr-linearize/project ast))))),
            :load (fn [image o]
                    (dvm/create-vm image
                                   (assoc o :contract vm/stack-contract)))},
    :register {:image (fn [ast]
-                       (:image (rc/adapt (second (vm/ast->datoms-with-root
-                                                   ast))))),
+                       (derive/register-image (:vector (sr-linearize/project ast)))),
               :load (fn [image o]
                       (rvm/create-vm image
                                      (assoc o :contract
@@ -235,12 +232,6 @@
 
 (defn- cell-refusal
   []
-  (run-all
-    (guest '(py/list (py/vconj [] (py/int-lit "10000000000000000"))))
-    (fn [final]
-      (let [r (handoff/export-task final (fn [_h] nil))]
-        (is (= :yin.k/non-portable (:yin.k/status r)))
-        (is (= :cell (:yin.k/kind r))))))
   (run-all
     (guest '(yin/def (quote held) (py/dict-new)))
     (fn [final]

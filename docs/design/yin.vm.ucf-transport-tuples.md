@@ -19,9 +19,9 @@ Nothing here is implemented. This document specifies body version 3, the
 one carrier; older bodies are not read.
 
 > **Amendment 2026-10-11.** This draft is amended by
-> `yin.vm.semantic-register-vm.continuation.md` §10.3 (R1-R11, codex
+> `yin.vm.semantic.continuation.md` §10.3 (R1-R11, codex
 > rulings of 2026-10-10) for the register-shaped canonical machine of
-> `yin.vm.semantic-register-vm.md`, and the amended text below
+> `yin.vm.semantic.md`, and the amended text below
 > **supersedes** the draft's earlier §5.2 (the `:regs`/`:stack`/
 > `stack-base` frame rows), its §8 step 7 (stack-base checks) and its
 > "the `"v3"` stamp does not move" positioning: the carrier is body
@@ -75,7 +75,7 @@ upgraded. The profile map is `{:yin.code/contract "v4" :yin.k/version 1}`;
 there is no engine key, because the frame is the canonical
 register-shaped machine's and the executing kernel is the receiving
 composition's choice: the stack and register kernels lower the same rows
-through their layouts (`yin.vm.semantic-register-vm.continuation.md`
+through their layouts (`yin.vm.semantic.continuation.md`
 §2.1, §4). Any other profile map is `:yin.k/profile-mismatch`.
 
 ## 3. Rows, id spaces, and the census
@@ -285,7 +285,7 @@ rules do not apply to a key or element list spelled as a vector.
 | `:prim` | `name-S` | the named primitive after the profile check (UCF §7.5.2); the profile lives in requires |
 | `:stream` | `identity  descriptor` | a stream marker; both plain, authenticated at lift and re-sealed at lower |
 | `:reified` | `act-cref` | a captured continuation: the decoded act state of frozen §4.2, no pending |
-| `:parked-ref` | `parked-id-P` | the keyed `act` state (`yin.vm.semantic-register-vm.continuation.md` §1.2) reached through `P`: resolves in the task's parked table; never duplicates the state |
+| `:parked-ref` | `parked-id-P` | the keyed `act` state (`yin.vm.semantic.continuation.md` §1.2) reached through `P`: resolves in the task's parked table; never duplicates the state |
 
 `:reified` and `:parked-ref` keep the two outer discriminants amendment
 §6 requires and lower differently: a reified value becomes a
@@ -296,8 +296,8 @@ validated in context `:captured` (continuation §3.2 P3): its `pc−1` is a
 
 ### 5.2 Frame rows: states, windows, waits, frames (content rows)
 
-(Replaced 2026-10-11 by `yin.vm.semantic-register-vm.continuation.md`
-§2.3, under frozen `yin.vm.semantic-register-vm.md` §4.2.)
+(Replaced 2026-10-11 by `yin.vm.semantic.continuation.md`
+§2.3, under frozen `yin.vm.semantic.md` §4.2.)
 
 | Kind | Slots | Notes |
 |---|---|---|
@@ -487,7 +487,7 @@ which any algorithm is checked.
 defined as the output of the discovery-order procedure below, a function
 of the state up to renaming of cursor cells and host enumeration of guest
 sets, maps and the census (proof in
-`yin.vm.semantic-register-vm.cursor-cell-numbering.md` §2). It is not the
+`yin.vm.semantic.cursor-cell-numbering.md` §2). It is not the
 minimum of the root bytes over all bijections. The one choice the walk
 cannot make by itself, between tied members of one guest set or map that
 the tie test cannot prove interchangeable, is refused
@@ -775,13 +775,13 @@ one attachment. The order follows amendment §8 and is binding:
 7. **Frames.** For each body (the root and every install child), first
    decode its task context (parked key, live FFI call ids, the root's
    free environment from `free-env-cref`) and judge it once by
-   `yin.vm.semantic-register.frame/task-defect` (continuation §3.2 rule
+   `yin.vm.semantic.frame/task-defect` (continuation §3.2 rule
    X1: the free environment is a sorted, unique symbol-keyed map with no
    reserved name); this runs for every body, a `:halted` body with no
    frames included, since no frame rule establishes X1. Then every
    `:act`, `:tail`, `:kframe`, `:reified` and parked-table state is
    decoded to its keyed frame and judged by
-   `yin.vm.semantic-register.frame/defect` with its context (`:wait`,
+   `yin.vm.semantic.frame/defect` with its context (`:wait`,
    `:captured`, `:parked`) and that task context; a defect of either
    function is `:yin.k/undecodable` with the rule's kind and the row path
    (continuation §3.3). This step runs after canonical numbering (step 6)
@@ -948,9 +948,9 @@ marked a point as an owner decision it is labelled so.
    context.
 6. **Foreign-engine value profiles.** Required before an implementation
    brief claims execution conformance for an engine **outside the three
-   repository lanes** (the semantic-register kernel and the stack and
-   register kernels, whose reconstruction is the layouts of
-   `yin.vm.semantic-register-vm.continuation.md` §4 and needs no value
+   repository lanes** (the canonical semantic kernel and the stack and
+   register backends, whose reconstruction is the layouts of
+   `yin.vm.semantic.continuation.md` §4 and needs no value
    profile), and not drafted here: admitted values, numeric behaviour,
    key equality, metadata, resource and profile requirements, refusal
    sets, and safepoint reconstruction obligations. Slot losslessness

@@ -3,10 +3,10 @@
    between them through a DaoStream v2 medium.
 
    Source compiles through yang to a Universal AST, which
-   `yin.vm.linearize` lowers to one `:yin.code/*` segment. VM-A loads it
+   `yin.vm/ast->datoms` projects to `:yin/*` datoms. VM-A loads them
    and steps; every handoff interval the owner's registers — segment, pc,
-   accumulator, operand stack, environment, continuation frames — are
-   appended to the medium as one batch together with the segment's datoms
+   value, register window, environment, continuation frames — are
+   appended to the medium as one batch together with the AST's datoms
    (`datomworld.demo.continuation-handoff`, §7 of yin.vm.semantic.md).
 
    Nothing is handed over off-stream. The registers travel as EDN text, and
@@ -41,7 +41,6 @@
             [yang.clojure :as yang]
             [yin.demo.utils :as demo.utils]
             [yin.vm :as vm]
-            [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]))
 
@@ -90,9 +89,9 @@
    composition hands to observer coordination; the demo calls it directly
    because it animates single steps rather than running to halt."
   [code-datoms]
-  (semantic/vm-load-program (make-vm :vm-a)
-                            (vec code-datoms)
-                            vm/semantic-contract))
+  (semantic/load-ast (make-vm :vm-a)
+                     (vec code-datoms)
+                     vm/ast-contract))
 
 
 (defn codemirror-editor
@@ -205,7 +204,7 @@
 
 (defn v2-k-frames
   "Summarize the continuation's frames, innermost last. A semantic frame is
-   {:type :return :segment id :pc n :env E :stack-base n}."
+   {:type :return :segment id :pc n :env E :window W :rd r}."
   [frames]
   (->> (or frames [])
        (take-last 12)
@@ -273,7 +272,7 @@
   (try
     (let [forms (reader/read-string (str "[" (:source-code state) "]"))
           ast (yang/compile-program forms)
-          datoms (linearize/lower-ast ast)]
+          datoms (vm/ast->datoms ast)]
       (assoc (fresh-run state)
              :ast ast
              :datoms datoms
@@ -459,7 +458,7 @@
     (let [continuation (vm/continuation vm-state)]
       {:control {:segment (get-in vm-state [:control :segment]),
                  :pc (vm-control-counter vm-key vm-state),
-                 :stack (:stack vm-state),
+                 :window (:window vm-state),
                  :halted? (:halted? vm-state),
                  :blocked? (:blocked? vm-state)},
        :environment (:env vm-state),
@@ -688,7 +687,7 @@
                  :style {:height "100%"}}]]]
              [:div {:style {:min-height (responsive/fluid-height 280 42 380)}}
               [card "Code Segment"
-               "yang -> AST -> linearize: the :yin.code/* datoms shipped with every handoff."
+               "yang -> AST -> datoms: the :yin/* AST datoms shipped with every handoff."
                [codemirror-editor
                 {:value program-view,
                  :read-only true,

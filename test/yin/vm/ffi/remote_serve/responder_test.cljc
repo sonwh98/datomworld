@@ -29,7 +29,6 @@
             [yin.vm.ffi.remote-serve :as rs]
             [yin.vm.ffi.remote-serve.caller :as caller]
             [yin.vm.ffi.remote-serve.responder :as resp]
-            [yin.vm.linearize :as linearize]
             [yin.vm.semantic :as semantic]
             [yin.vm.ucf.remote :as ucf.remote]))
 
@@ -268,7 +267,7 @@
 
 
 (def ^:private load-ast
-  (vm/fresh-code-loader (linearize/ast-loader semantic/vm-load-program)
+  (vm/fresh-code-loader semantic/load-ast
                         vm/ast-contract))
 
 
@@ -749,7 +748,7 @@
         lifted (rs/lift-frame b (:resources parked) [entry])
         pending (first (:yin.k/pending lifted))
         pa (peer-a (:a-end t))
-        registers (select-keys entry [:segment :pc :env :stack :k])
+        registers (select-keys entry [:segment :pc :env :window :k :deliver])
         receiver-base (semantic/create-vm {:make-stream make-ring-stream
                                            :capability-secret secret})
         lowered (ucf.remote/lower-pending (:attach! pa) pending
@@ -1076,7 +1075,7 @@
                                           (:yin.k/cells lifted)
                                           (select-keys entry
                                                        [:segment :pc :env
-                                                        :stack :k])
+                                                        :window :k :deliver])
                                           (:resources receiver-base))
         receiver (assoc (load-ast receiver-base datoms)
                         :control nil, :k nil, :value :yin/blocked,

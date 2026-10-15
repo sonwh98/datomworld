@@ -37,12 +37,11 @@
             [yin.vm.ucf.custody :as custody]
             [yin.vm.ucf.rows :as rows]
             [yin.vm.ucf.rows-checkpoint-fixtures :as f]
-            [yin.vm.ucf.rows-support :as rs]
             [yin.vm.ucf.holder.export :as export]
             [yin.vm.ucf.holder.reader :as reader]
             [yin.vm.ucf.holder.writer :as writer]
             [yin.vm.ucf.ledger :as ledger]
-            [yin.vm.ucf.v2-support :as s]))
+            [yin.vm.ucf.rows-support :as s]))
 
 
 (def ^:private arb "arb-d16")
@@ -159,9 +158,9 @@
   "A real gated machine parked on one read of `source`, whose
    continuation writes the value it read to `target`."
   [source target]
-  (let [m0 (rs/load-ast (rs/new-machine)
-                        (s/let1 'v (s/next-of (s/v 'c))
-                                {:type :stream/put, :target (s/v 'w), :val (s/v 'v)}))
+  (let [m0 (s/load-ast (s/new-machine)
+                       (s/let1 'v (s/next-of (s/v 'c))
+                               {:type :stream/put, :target (s/v 'w), :val (s/v 'v)}))
         [sref m1] (engine/attach-resource m0 source)
         [cref m2] (engine/handle-cursor m1 {:stream sref} :k1)
         [wref m3] (engine/attach-resource m2 target)]
@@ -184,7 +183,7 @@
         wire (rows/lift-task
                (reading-writer source (:reader w))
                (same-id-server peer (:channel t))
-               {:source-index @rs/source-index
+               {:source-index @s/source-index
                 :header {:yin.k/occurrence occ
                          :yin.k/arbitration arbitration
                          :yin.k/next-op-seq 0
@@ -207,12 +206,12 @@
    prefix `p`.  Answers [outcome attaches]."
   [w cp lease-id epoch p]
   (let [attaches (atom 0)
-        base (s/attacher (:t cp))
+        base (s/remote-attacher (:t cp))
         attach! (fn [d] (swap! attaches inc) (base d))
         address (:address (:export cp))
         r (try
             {:vm (rows/lower-task
-                   (rs/new-machine {:attach-stream attach!})
+                   (s/new-machine {:attach-stream attach!})
                    (cbor/decode (:bytes (:export cp))) attach!
                    {:exclusive true
                     :protection {(:target w) :enrolled
@@ -443,29 +442,29 @@
 
 (defn- retained-caller
   []
-  (let [in (rs/one-slot-stream "call-in")
+  (let [in (s/one-slot-stream "call-in")
         out (s/ring 8)
         _ (stream/append! in :warmed)]
-    (vm/run (rs/load-ast
-              (rs/new-machine {:call-in in :call-out out
-                               :call-out-cursor (vm/mint-oldest out :test)})
+    (vm/run (s/load-ast
+              (s/new-machine {:call-in in :call-out out
+                              :call-out-cursor (vm/mint-oldest out :test)})
               (s/then (s/call-node :op/echo "hello")
                       (s/call-node :op/echo "world"))))))
 
 
 (defn- retained-linker
   []
-  (let [request (rs/one-slot-stream "link-request")
+  (let [request (s/one-slot-stream "link-request")
         response (s/ring 64)
         _ (stream/append! request :warmed)]
-    (vm/run (rs/load-ast
-              (rs/new-machine {:link-request request :link-response response})
+    (vm/run (s/load-ast
+              (s/new-machine {:link-request request :link-response response})
               (s/app (s/v 'require) (s/lit 'host.the-module))))))
 
 
 (def ^:private retained-writes
   "[reason parked-machine-builder enrolled-identity] on the reference kernel."
-  [[:put rs/parked-writer "w"]
+  [[:put s/parked-writer "w"]
    [:ffi-request retained-caller "call-in"]
    [:link-request retained-linker "link-request"]])
 
@@ -511,7 +510,7 @@
                                    :dao.lease/lease "lease-1"
                                    :yin.k/emitter "holder-a"}}
             prepared (export/prepare (:machine entered) (:record entered)
-                                     (same-id-server peer (:channel t)) header @rs/source-index)
+                                     (same-id-server peer (:channel t)) header @s/source-index)
             ;; bytes
             export (export/encode (:machine entered) (:record prepared))
             body (cbor/decode (:bytes export))
@@ -522,8 +521,8 @@
             r (try
                 {:status :ok
                  :vm (rows/lower-task
-                       (rs/new-machine {:attach-stream (s/attacher t)})
-                       body (s/attacher t)
+                       (s/new-machine {:attach-stream (s/remote-attacher t)})
+                       body (s/remote-attacher t)
                        {:exclusive true
                         :protection classes
                         :grant {:checkpoint (:address export)
@@ -603,7 +602,7 @@
                                :yin.k/emitter "holder-a"}}
         prepared (export/prepare exporting (:record entered)
                                  (same-id-server (s/served-peer t2) (:channel t2))
-                                 header @rs/source-index)
+                                 header @s/source-index)
         ;; a failed carrier append retries from the retained record
         first-try (export/encode exporting (:record prepared))
         retry (export/encode exporting (:record prepared))

@@ -27,7 +27,7 @@
             [yin.repl.frontends :as repl.frontends]
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
-            [yin.vm.debruijn-vm-contract-test :as b0]
+            [yin.vm.debruijn-code-test :as b0]
             [yin.vm.linker.interpreter :as link]
             [yin.vm.linker.publish :as publish]
             [yin.vm.test-utils :as tu]))
@@ -112,10 +112,10 @@
 (defn- publish-module
   "Publish `ast` as the module `name` in `store`: its tree, its three
    lowered images, their derivation records under the profiles this
-   linker re-lowers, and the schema-1 manifest naming them.  Returns
-   `{:address a :h h :r r}`: the manifest's content address and the two
-   lowered identities, which are distinct for any corpus worth
-   linking.  `overlay` supplies requires and primitive declarations."
+   linker re-lowers, and the schema-1 manifest naming them. The result
+   names the manifest address, the shared execution identity A, both
+   native identities and their distinct H/R checksums (phase 8c).
+   `overlay` supplies requires and primitive declarations."
   [store ast name exports & [overlay]]
   (let [declared (merge {'+ (get vm/primitives '+)}
                         (into {} (map (fn [[n _]] [n (get vm/primitives n)]))
@@ -125,6 +125,8 @@
                         :requires (or (:yin.module/requires overlay) {})
                         :primitives declared})]
     {:address (:address result)
+     :a (get-in result [:identities :yin.semantic/code])
+     :checksums (:checksums result)
      :h (get-in result [:identities :yin.debruijn.code])
      :r (get-in result [:identities :yin.debruijn.register])}))
 
@@ -260,16 +262,21 @@
 
 (deftest the-h-and-r-backends-link-one-manifest-b0-equal-test
   "The criterion's own clause: the same manifest linked by `(vm :stack)`
-   and `(vm :register)` -- by H and by R, through each one's derivation
-   record -- produces B0-equal results."
+   and `(vm :register)` pins one A through distinct H/R derivations and
+   produces B0-equal results."
   (let [store (mem/create-content-mem)
-        {:keys [address h r]} (publish-module store store-module 'mod
-                                              store-exports)
+        {:keys [address a h r checksums]}
+        (publish-module store store-module 'mod store-exports)
         [stack-answered stack] (require-and-apply :stack store address)
         [register-answered register] (require-and-apply :register store
                                                         address)]
-    (testing "one manifest, two distinct lowered identities"
-      (is (not= h r)))
+    (testing "phase 8c: one manifest pins A for both backends, with distinct H/R checksums"
+      (is (some? a))
+      (is (= a h r))
+      (is (some? (:yin.debruijn.code checksums)))
+      (is (some? (:yin.debruijn.register checksums)))
+      (is (not= (:yin.debruijn.code checksums)
+                (:yin.debruijn.register checksums))))
     (testing "both prompt sessions answer the same value"
       (is (= (b0/normalize (:value stack))
              (b0/normalize (:value register))))

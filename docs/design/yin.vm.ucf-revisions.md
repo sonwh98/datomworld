@@ -9,6 +9,10 @@ Status: authoritative revision history for the `v2` stamp in
 documentation part of UCF section 7.11's contract-revision-publication
 blocker and the Phase 1 sign-off's P2 publication gate. This ruling does
 not accept UCF as a whole; UCF 7.11's other gates and tests remain.
+(2026-10-15: the stamp carrier and the "semantic.md" referent are both
+deleted — entry I-6 below records the phase-8 cutover; the file name
+`yin.vm.semantic.md` now belongs to the register-shaped design, and this
+document is the authority for the historical `"v2"`/`"v3"` contracts.)
 
 Quotes below are verbatim except that section marks are written `S`
 and em dashes `--`, so every line here stays ASCII.
@@ -622,11 +626,70 @@ Phase 1 reviewer and architect identified this as a Phase 2 gate:
 `collab/1790268690622-reviewer-ucf-phase1.glm-flash.findings.md`
 and `collab/1790280923723-architect-ucf-phase1-signoff.gpt-6-sol.stdout.log`.
 
+I-6. Phase 8 cutover records (2026-10-15; slices 8d, 8f-1, 8f-3 and
+the documentation slice 8g, per the phase-8 plan
+`collab/1792560000000-architect-phase8-plan.report.md`). Three facts
+this history owes its reader.
+
+First, the old transport **sources** died in 8f-1, not 8d. 8d removed
+the old-codec tests (16 files, 141 deftests) and fixtures; the sources
+`src/cljc/yin/vm/ucf/handoff.cljc` (3783 lines, codec versions 0-2,
+`export-task`/`resume-task`) and `src/cljc/yin/vm/ucf/checkpoint.cljc`
+were retained past 8d only because one other-seat C4 test still called
+`handoff/export-task`, and were deleted in 8f-1 (Architect ruling R2/R3,
+`collab/1792050511876-architect-8f1-ruling.report.md`) together with
+`yin.vm.completion`. With them the version-0/1/2 wire bytes are
+unreadable in-tree by design; the row carrier of body version 3
+(`yin.vm.ucf-transport-tuples.md`) is the one carrier, and this
+document's version-0/1/2 entries are the published description of those
+historical contracts.
+
+Also recorded here, so the fixture history is not silent: 8c regenerated
+`test/resources/yin/vm/ucf/rows-checkpoint-v3.txt` (a phase 7a/7b fixture) although
+the plan expected it to stay. The only content difference is its `installs` base
+pack: the install child carried a `{:yin.code/contract "v3"}` stamp and now carries
+`"v4"`, so three child segment addresses moved; no format keyword, lowering
+profile, H, R or descriptor is in any pack. A moved for exactly the one fixture
+whose child was still a v3 image (Architect final review of `srvm-phase8`).
+
+Second, the `"v3"` canonicalizer and the stack-shaped safepoint halves
+of `yin.vm.ucf` died in 8f-3, un-ported (8f-1 ruling R2, deferred
+step 4b; commit `7b8d2a93`): no producer
+of the v3 batch survived 8e, and the register machine's validator,
+safepoint facts and frame validator live in `yin.vm.semantic.code`,
+`yin.vm.semantic` §4 and `yin.vm.semantic.frame`. `yin.vm.ucf` is now
+only `code-address`; the `v2` stamp carrier this document's header
+names (`ucf.cljc:38`) is gone with it, so this file is the authority
+for the historical stamps. `"v4"` (`yin.vm.semantic.code/contract`) is
+the one semantic execution contract.
+
+Third, the design document this history referred to as "semantic.md" is
+deleted: at the 2026-10-15 cutover the frozen register-shaped design
+took the file name `docs/design/yin.vm.semantic.md` (owner ruling Q6
+(c), phase-8 plan) and the stack-shaped v3 design ("yin.vm.semantic on
+dao.stream -- linear executable datoms", revisions 1-2, contracts
+`"v2"` then `"v3"`) was deleted. Its revision 1 (2026-09-18; status
+corrected 2026-09-25) published `"v2"`; revision 2 (2026-09-25)
+published `"v3"`, adding `:define` and the reserved name `yin/def`
+(the landed contract change is I-4 above). Its §1 stance was: everything
+is a stream, with instruction fetch inside a loaded segment deliberately
+excepted; interpretation creates semantics; code and state are datoms;
+everything is a continuation. It enforced the six invariants: no hidden
+global state, implicit control flow, callbacks, shared mutable state,
+layer collapsing or assumed graphs. This stance and the revision dates
+are preserved in the new document's [history block](./yin.vm.semantic.md#history). Citations of
+its sections (2.2 the segment, 2.4 the opcode table and contract
+index, 2.6 well-formedness, 3.x the stack-machine semantics, 5.3 the
+flattening) are historical and resolve to this entry; the `"v4"`
+vector, validator and transitions are the renamed design's §§2-3.
+
 ## 9. Source index
 
 Design: `docs/design/yin.vm.universal-continuation-format.md` (7.3,
-7.4.1-7.4.3, 7.11); `docs/design/yin.vm.semantic.md` (header, 2.2,
-2.4, 7 pointer); `docs/design/yin.vm.code-as-tuples.md` (4.1, 7.2);
+7.4.1-7.4.3, 7.11); the deleted v3 `yin.vm.semantic.md` (header, 2.2,
+2.4, 7 pointer; its history now in the renamed
+`docs/design/yin.vm.semantic.md`'s history block);
+`docs/design/yin.vm.code-as-tuples.md` (4.1, 7.2);
 `docs/design/dao.jing.md` (open items); `docs/design/yin.vm.linker.md`
 (5.2, 9, 11 item 12, 12).
 

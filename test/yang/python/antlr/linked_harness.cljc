@@ -13,25 +13,23 @@
    until the VM stops blocking, as the REPL's drive does. The AST walker
    is not a backend here: its link of `py` is refused `:undeclared-free`
    until L-b."
-  (:require
-    [dao.jing.mem :as mem]
-    [yang.python.antlr.prelude :as prelude]
-    [yang.python.antlr.safepoint :as safepoint]
-    [yin.vm :as vm]
-    [yin.vm.data :as data]
-    [yin.vm.debruijn-code :as dcode]
-    [yin.vm.debruijn-linearize :as dl]
-    [yin.vm.debruijn-register-code :as rcode]
-    [yin.vm.debruijn-register-compile :as rc]
-    [yin.vm.debruijn.register :as rvm]
-    [yin.vm.debruijn.stack :as dvm]
-    [yin.vm.integer :as integer]
-    [yin.vm.linearize :as linearize]
-    [yin.vm.linker.interpreter :as link]
-    [yin.vm.linker.publish :as publish]
-    [yin.vm.module :as module]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.test-utils :as tu]))
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
+            [dao.jing.mem :as mem]
+            [yang.python.antlr.prelude :as prelude]
+            [yang.python.antlr.safepoint :as safepoint]
+            [yin.vm :as vm]
+            [yin.vm.data :as data]
+            [yin.vm.debruijn-code :as dcode]
+            [yin.vm.debruijn-register-code :as rcode]
+            [yin.vm.debruijn.register :as rvm]
+            [yin.vm.debruijn.stack :as dvm]
+            [yin.vm.integer :as integer]
+            [yin.vm.linker.interpreter :as link]
+            [yin.vm.linker.publish :as publish]
+            [yin.vm.module :as module]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.test-utils :as tu]))
 
 
 (def integer-limits
@@ -102,21 +100,17 @@
   (publish/publish-module! (:store @published) spec))
 
 
-(def ^:private semantic-loader
-  (linearize/ast-loader semantic/vm-load-program))
-
-
 (def backends
   "Each vector backend's root task over a program AST and composition."
   {:semantic (fn [ast opts]
-               (semantic-loader (semantic/create-vm opts)
-                                (vm/ast->datoms ast)
-                                vm/ast-contract)),
+               (semantic/load-ast (semantic/create-vm opts)
+                                  (vm/ast->datoms ast)
+                                  vm/ast-contract)),
    :stack (fn [ast opts]
-            (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
+            (dvm/create-vm (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                            (assoc opts :contract vm/stack-contract))),
    :register (fn [ast opts]
-               (rvm/create-vm (:image (rc/adapt (vm/ast->datoms ast)))
+               (rvm/create-vm (derive/register-image (:vector (sr-linearize/project ast)))
                               (assoc opts :contract vm/register-contract)))})
 
 
@@ -125,16 +119,16 @@
    task, as `yin.repl` admits an input line: the task keeps its store,
    heap, module registry and module stores."
   {:semantic (fn [task ast]
-               (semantic-loader task (vm/ast->datoms ast) vm/ast-contract)),
+               (semantic/load-ast task (vm/ast->datoms ast) vm/ast-contract)),
    :stack (fn [task ast]
-            (let [img (:image (dl/adapt (vm/ast->datoms ast)))
+            (let [img (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                   attached (dvm/attach-image task img vm/stack-contract)]
               (assoc attached
                      :pc (dvm/absolute-pc attached [(dcode/image-hash img) 0])
                      :frames [] :stack [] :continuation []
                      :halted? false :blocked? false :value nil))),
    :register (fn [task ast]
-               (let [img (:image (rc/adapt (vm/ast->datoms ast)))
+               (let [img (derive/register-image (:vector (sr-linearize/project ast)))
                      attached (rvm/attach-image task img vm/register-contract)
                      pc (rvm/absolute-pc attached
                                          [(rcode/register-hash img) 0])

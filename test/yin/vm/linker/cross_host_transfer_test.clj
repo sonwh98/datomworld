@@ -3,7 +3,9 @@
    The receiver starts with identity and index, never an image. Remote
    stream envelopes cross Transit pipes between two ring compositions.
    Build the test-only peer on every run so this gate cannot skip."
-  (:require [clojure.java.io :as io]
+  (:require [yin.vm.semantic.derive :as derive]
+            [yin.vm.semantic.linearize :as sr-linearize]
+            [clojure.java.io :as io]
             [clojure.java.shell :as shell]
             [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
@@ -14,9 +16,8 @@
             [dao.stream.ringbuffer :as ring]
             [dao.stream.transit :as transit]
             [yin.vm :as vm]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-compile :as rc]
-            [yin.vm.debruijn-vm-contract-test :as b0]
+
+            [yin.vm.debruijn-code-test :as b0]
             [yin.vm.linker :as linker]
             [yin.vm.linker.publish :as publish]
             [yin.vm.linker.remote-transfer-test :as fixtures]
@@ -115,14 +116,14 @@
 
 (defn- image
   [lower ast]
-  (:image (lower (second (vm/ast->datoms-with-root ast)))))
+  (lower (:vector (sr-linearize/project ast))))
 
 
 (deftest ^:slow jvm-images-transfer-to-an-identity-only-dart-receiver
   (build-peer!)
   (doseq [[kind format lower]
-          [[:H linker/stack-format dl/adapt]
-           [:R linker/register-format rc/adapt]]]
+          [[:H linker/stack-format #(:image (derive/stack-image %))]
+           [:R linker/register-format derive/register-image]]]
     (testing (name kind)
       (let [store (mem/create-content-mem)]
         (try
@@ -131,20 +132,16 @@
                                    :ast fixtures/worked-example
                                    :exports #{} :requires {}
                                    :primitives
-                                   {'+ {:yin.k/profile :test/add
-                                        :yin.k/effects #{}}}})
+                                   {'+ (get vm/primitives '+)}})
                 identity (get-in published [:identities (:format format)])
-                index (select-keys
-                        (get-in published [:manifest :yin.module/index])
-                        [identity])
-                initial {:kind kind :identity identity :index index}
+                initial {:kind kind :identity identity :manifest (:address published)}
                 received (receive! store initial)
                 local (b0/normalize
                         (vm/value (vm/eval (tu/create-vm)
                                            fixtures/worked-example)))]
             (is (jing/segment-address? (:address published)))
             (is (every? #(= :ok (:status %)) (vals (:links published))))
-            (is (= #{:kind :identity :index} (set (keys initial))))
+            (is (= #{:kind :identity :manifest} (set (keys initial))))
             (is (= :ok (get-in received [:result :status]))
                 (pr-str received))
             (is (true? (:identity-matches received)))
@@ -155,7 +152,12 @@
                     (linker/publish! store format
                                      (image lower fixtures/other-program))
                     reply (receive! store
-                                    (assoc initial :index {identity address}))]
+                                    (assoc initial :manifest
+                                           (jing/materialize!
+                                             store
+                                             (assoc-in (:manifest published)
+                                                       [:yin.module/index (:format format)]
+                                                       address))))]
                 (is (= {:status :refused :reason :hash-mismatch
                         :expected identity :actual foreign}
                        (:result reply)))

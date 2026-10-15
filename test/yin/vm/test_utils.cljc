@@ -21,10 +21,9 @@
             [dao.stream.observer :as observer]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.debruijn-resolve :as resolve]
             [yin.vm.encoder :as encoder]
             [yin.vm.engine :as engine]
-            [yin.vm.linearize :as linearize]
+            [yin.vm.semantic.linearize :as linearize]
             [yin.vm.semantic :as semantic]))
 
 
@@ -165,7 +164,21 @@
                         ;; the row medium's only producer is the encoder
                         ;; observer: trusted fresh code
                         (vm/fresh-code-loader
-                          (linearize/rows-loader semantic/load-vector)
+                          (fn [machine rows stamp]
+                            (vm/check-contract! vm/ast-contract stamp)
+                            (semantic/load-vector machine
+                                                  (:vector (if (contains? rows :yin/batch)
+                                                             (let [members (:yin/batch rows) root (:yin/root rows)]
+                                                               (when-not (and (vector? members) (integer? root)
+                                                                              (<= 0 root) (< root (count members)))
+                                                                 (throw (ex-info "Malformed provenance-bearing row batch"
+                                                                                 {:rule :batch-envelope})))
+                                                               (linearize/project-rows
+                                                                 (nth members root)
+                                                                 (vm/source-origin (:yin/source-medium rows)
+                                                                                   (:yin/batch-token rows) root)))
+                                                             (linearize/project-rows rows)))
+                                                  vm/semantic-contract))
                           vm/ast-contract)))
   ([session load-program]
    (assoc session
@@ -191,22 +204,6 @@
                           engine/ready-for-ingress?
                           load-fresh-program
                           run-vm))
-
-
-(def ^:private last-resolved (atom nil))
-
-
-(defn resolved-of
-  "`(resolve/resolve (vm/ast->datoms ast))`, kept for the last `ast` by
-   identity, so the stack and register runners of one run resolve its
-   program once (`adapt` is `lower-*` after exactly this `resolve`)."
-  [ast]
-  (let [[k v] @last-resolved]
-    (if (identical? k ast)
-      v
-      (let [v (resolve/resolve (vm/ast->datoms ast))]
-        (reset! last-resolved [ast v])
-        v))))
 
 
 (defn compile-and-run

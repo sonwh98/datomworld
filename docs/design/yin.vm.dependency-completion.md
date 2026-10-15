@@ -1,6 +1,14 @@
 # yin.vm dependency completion — the work-item fixed point (U14 design)
 
-> **Status: Proposed (design round for U14).** Refines `yin.vm.code-as-tuples.md`
+> **Status: Superseded (2026-10-15, phase 8).** The surviving
+> dependency facts are computed by `yin.vm.semantic.scan` (the scanners
+> over the v4 table), and the lift's completion side is the engine's
+> `lift-slice`; `yin.vm.completion`'s
+> segment-scoped work-item fold was deleted un-ported in 8f-1 (Architect
+> ruling R3), its tree/segment agreement facts surviving in
+> `test/yin/vm/semantic/scan_test.cljc`. Kept as the U14 design record.
+>
+> **Status (original): Proposed (design round for U14).** Refines `yin.vm.code-as-tuples.md`
 > §7.7.2–7.7.3 and UCF §7.6.1–7.6.3 (r3, as amended by U12) into data structures
 > and a traversal. Supplies the `:yin.k/requires`, `:yin.k/store`, and
 > `:yin.k/scheduler :yin.k/parked` inputs to the lift; it is not the lift.

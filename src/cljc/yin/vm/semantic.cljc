@@ -1,52 +1,17 @@
 (ns yin.vm.semantic
-  "Linear CESK interpreter for executable datoms on DaoStream v2
-   (`docs/design/yin.vm.semantic.md`).
-
-   Code arrives as one `:yin.code/*` segment batch per program value. The
-   loader (`load-image`, `vm-load-program`) checks §2.6 well-formedness,
-   decodes the batch into an image — one vector indexed by pc of
-   `[opcode & operands]` with every ref resolved to a pc integer — and
-   stores it under `:code {segment-id image}`. Mnemonics in the datoms stay
-   semantic and integers in the image stay mechanical (§2.4): the loader maps
-   `:const` onto `:literal` and a `:call` carrying `:yin.code/tail?` onto
-   `:tailcall`, and the dispatch below switches on the integers.
-
-   The hot loop keeps the five registers — segment, pc, accumulator, operand
-   stack, continuation — in `loop` locals and touches the record only at
-   effect points and exits (§4.3). K is a vector of frames, innermost last:
-   `{:type :return :segment :pc :env :stack-base}` for calls, and the wait
-   entries the engine polls carry the same `{segment pc env stack k}` shape
-   (§3.5). Park writes that map into `:parked`; resume reads it back. Nothing
-   in either is a host object except values the program itself put in `env`
-   or on the stack. A wait or ready entry is those registers plus `:reason`
-   and resource ids — never a resolved stream handle and never a resume
-   closure: `engine/check-wait-set` resolves handles from the store on every
-   poll and the scheduler restores a woken entry explicitly, so the wait set
-   of a blocked machine survives an EDN round-trip once any closure or
-   continuation in its registers, a host type (D7, `yin.vm.values`), is
-   encoded as the handoff demo encodes it. A segment id is stable:
-   loading different code under an id that continuations already name is a
-   load error; an identical reload is accepted.
-
-   `step` is this loop with a fuel of one instruction, so single-stepping and
-   full runs execute one transition code path. AST evaluation is not here:
-   lowering (`yin.vm.linearize`, Phase 2) is composition-supplied at the
-   observer boundary, so `eval` resumes loaded work and refuses an AST."
+  "The register-shaped canonical evaluator, phase 4b (effects, continuations, FFI and module installation)."
   (:require [dao.jing :as jing]
             [dao.stream.apply :as apply2]
             [yin.vm :as vm]
-            [yin.vm.code :as code]
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
             [yin.vm.module :as module]
             [yin.vm.telemetry :as telemetry]
-            [yin.vm.ucf :as ucf]
-            [yin.vm.values :as values]))
+            [yin.vm.values :as values]
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.linearize :as linearize]
+            [yin.vm.semantic.analysis :as analysis]))
 
-
-;; =============================================================================
-;; SemanticVM Record
-;; =============================================================================
 
 (defrecord SemanticVM
   [blocked?       ; boolean, true if blocked
@@ -56,7 +21,8 @@
    program        ; segment id of the last loaded batch
    control        ; {:segment id :pc n} or nil
    env            ; persistent lexical scope map
-   stack          ; operand stack, a vector (part of control, §4.1)
+   free-env       ; checked initial environment, fixed for this instance
+   window         ; sparse body-local register map
    id-counter     ; integer counter for unique IDs
    parked         ; parked continuations map
    primitives     ; primitive operations map
@@ -80,819 +46,305 @@
    gc])           ; {:since :base :threshold :pinned}: heap reclamation
 
 
-(declare semantic-restore scheduler-round)
+
+(defn put-registers
+  "Materialize control, window, environment and continuation; value is exit-only."
+  [machine seg pc W E K]
+  (assoc machine :control (when seg {:segment seg :pc pc})
+         :window W :env E :k (when (seq K) K)
+         :halted? (and (not (:blocked? machine)) (nil? seg))))
 
 
-;; =============================================================================
-;; Register materialization
-;; =============================================================================
-
-(defn- put-registers
-  "Write the five registers back into the record. This is the linear machine's
-   cesk-return: the one seam where the running configuration becomes an
-   observable value, and therefore where per-step trace emission (§3.6) will
-   land when telemetry is designed. A nil segment means the machine has no
-   control left, which is the halted state.
-
-   An empty continuation is stored as nil rather than [] so that
-   `engine/ready-for-ingress?`, which asks `(nil? (:k vm))`, sees a machine
-   between evaluations."
-  [vm seg pc val St E K]
-  (assoc vm
-         :control (when seg {:segment seg, :pc pc})
-         :value val
-         :stack (or St [])
-         :env E
-         :k (if (seq K) K nil)
-         :halted? (and (not (:blocked? vm)) (nil? seg))))
+(defn- return-to
+  "The one popped-frame delivery: retain exactly the saved window and write rd."
+  [frame value]
+  (assoc frame :window (assoc (:window frame) (:rd frame) value)))
 
 
-(defn- response-wait-entry
-  "The polling wait entry for a sent call awaiting its correlated response:
-   the machine registers {segment pc env stack k} plus the call-out reader
-   fields, in the shape `ffi/call-response-wait-entry` gives the walker."
-  [seg pc env stack k call-id]
-  {:segment seg, :pc pc, :env env, :stack stack, :k k,
-   :call-id call-id,
-   :reason :next,
-   :cursor-ref {:type :cursor-ref, :id vm/call-out-cursor-key},
-   :stream-id vm/call-out-stream-key})
+(defn- act-payload
+  [seg pc E W K rd facts]
+  {:segment seg :pc (inc pc) :env E
+   :window (select-keys W (analysis/saved facts (inc pc) rd))
+   :k K :deliver {:deliver :rd :rd rd}})
 
 
-(defn- carried-response-route
-  "The response route a lowered retained writer carries -- its
-   [response cursor key, response stream key] pair, the route data
-   `yin.vm.ucf.remote` stamps on the lowered entry
-   (`yin.vm.universal-continuation-format.md` S7.4.3). nil when the
-   writer carries none: an ordinary retained call waits on the fixed
-   local call-out keys."
-  [entry]
-  (when (and (contains? entry :response-cursor)
-             (contains? entry :response-stream))
-    [(:response-cursor entry) (:response-stream entry)]))
-
-
-(defn semantic-restore
-  "Restore a wait-set or ready-queue entry into machine registers.
-
-   Two entry shapes carry more than registers:
-
-   - A `:request-sent` entry is a writer whose retained FFI request has now
-     been appended. The call starts waiting for its correlated response,
-     exactly as an immediately-sent one does, so the entry is replaced by its
-     response reader and the machine stays blocked. A writer carrying a
-     lowered call's response route (`:response-cursor`, `:response-stream`)
-     waits on that carried route; an ordinary one waits on the fixed local
-     call-out keys.
-   - A `:call-id` entry is a response reader. The woken value is a response
-     envelope, so `ffi/call-result` unwraps it, checks correlation, and the
-     parked call leaves `:parked` rather than accumulating."
-  ([base entry] (semantic-restore base entry (:value entry)))
-  ([base entry val]
-   (if (:request-sent entry)
-     (let [wait (response-wait-entry (:segment entry)
-                                     (:pc entry)
-                                     (:env entry)
-                                     (:stack entry)
-                                     (:k entry)
-                                     (:call-id entry))
-           wait (if-let [[cursor-key stream-key]
-                         (carried-response-route entry)]
-                  (assoc wait
-                         :cursor-ref {:type :cursor-ref, :id cursor-key}
-                         :stream-id stream-key)
-                  wait)]
-       (assoc base
-              :wait-set (conj (vec (or (:wait-set base) [])) wait)
-              :control nil
-              :k nil
-              :value :yin/blocked
-              :blocked? true
-              :halted? false))
-     (let [call-id (:call-id entry)
-           base (if call-id (update base :parked dissoc call-id) base)
-           val (if call-id (ffi/call-result val call-id) val)]
-       (put-registers base
-                      (:segment entry)
-                      (:pc entry)
-                      val
-                      (:stack entry)
-                      (:env entry)
-                      (:k entry))))))
-
-
-(defn- call-park-entries
-  "Wait-entry builders for an instruction whose effect may block. The
-   continuation of an effect is the machine state after the instruction:
-   {segment, pc+1, env, stack, k} plus the transport fields the engine
-   fills in (§3.5). `St` is the operand stack with the instruction's operands
-   already popped."
-  [seg pc E St K]
+(defn- entry-builders
+  [payload]
   {:stream/put (fn [_state _effect result]
-                 {:segment seg, :pc (inc pc), :env E, :stack St, :k K,
-                  :reason :put,
-                  :stream-id (:stream-id result)})
+                 (assoc payload :reason :put :stream-id (:stream-id result)))
    :stream/next (fn [_state _effect result]
-                  {:segment seg, :pc (inc pc), :env E, :stack St, :k K,
-                   :reason :next,
-                   :cursor-ref (:cursor-ref result),
-                   :stream-id (:stream-id result)})
-   :module/require (fn [_state _effect _result]
-                     {:segment seg, :pc (inc pc), :env E, :stack St, :k K})})
+                  (assoc payload :reason :next :cursor-ref (:cursor-ref result)
+                         :stream-id (:stream-id result)))
+   :module/require (fn [_state _effect _result] payload)})
+
+
+(defn- act-builders
+  [seg pc E W K rd facts]
+  (entry-builders (act-payload seg pc E W K rd facts)))
+
+
+(defn- tail-builders
+  [seg pc K]
+  (entry-builders {:segment seg :site pc :k K :deliver {:deliver :return}}))
 
 
 (defn- run-effect
-  "Materialize the registers, dispatch one effect through the engine, and
-   normalize the answer for the loop: `{:continue [state value]}` to go on at
-   pc+1 with `value` in the accumulator, or `{:stop vm}` when the effect
-   parked and the machine is blocked.
-
-   No `:restore-fn` crosses this boundary. A parked entry is pure data and
-   the scheduler below resumes it explicitly, so nothing live is attached to
-   the wait set (§1.1)."
-  [vm seg pc val St E K effect park-entry-fns]
+  [machine seg pc W E K effect builders]
   (let [{:keys [state value blocked?]}
-        (engine/handle-effect (put-registers vm seg pc val St E K)
-                              effect
-                              (when park-entry-fns
-                                {:park-entry-fns park-entry-fns}))]
+        (engine/handle-effect (put-registers machine seg pc W E K) effect
+                              (when builders {:park-entry-fns builders}))]
     (if blocked?
       {:stop (assoc state :control nil :k nil)}
       {:continue [state value]})))
 
 
-(defn- apply-call
-  "The §4.2 call transition, with the arguments already isolated from the
-   operand stack. Returns `{:goto [seg pc val St E K vm image]}` to continue,
-   `{:stop vm}` when the call blocked, or throws for a non-function.
+(defn register-restore
+  "Re-park a retained FFI request, decode its response, then deliver exactly once."
+  ([base entry] (register-restore base entry (:value entry)))
+  ([base entry value]
+   (if (:request-sent entry)
+     (let [wait (cond-> (ffi/response-wait-entry entry (:call-id entry))
+                  (and (:response-cursor entry) (:response-stream entry))
+                  (assoc :cursor-ref {:type :cursor-ref :id (:response-cursor entry)}
+                         :stream-id (:response-stream entry)))]
+       (assoc base :wait-set (conj (vec (:wait-set base)) wait)
+              :control nil :k nil :value :yin/blocked :blocked? true :halted? false))
+     (let [call-id (:call-id entry)
+           base (if call-id (update base :parked dissoc call-id) base)
+           value (if call-id (ffi/call-result value call-id) value)]
+       (case (get-in entry [:deliver :deliver])
+         :rd (put-registers base (:segment entry) (:pc entry)
+                            (assoc (:window entry) (get-in entry [:deliver :rd]) value)
+                            (:env entry) (:k entry))
+         :return (if-let [frame (peek (:k entry))]
+                   (put-registers base (:segment frame) (:pc frame)
+                                  (:window (return-to frame value))
+                                  (:env frame) (pop (:k entry)))
+                   (assoc (put-registers base nil nil {}
+                                         (engine/without-store-of (:env base)) nil)
+                          :value value))
+         (throw (ex-info "Entry carries no delivery record" {:rule :deliver :entry entry})))))))
 
-   A tail call grows neither K nor St: the frame the caller would have pushed
-   is the frame its own caller gave it. A primitive that yields an effect
-   parks with the continuation after the call site."
-  [code seg pc val St E K vm tail? f args]
-  (case (engine/operator-kind vm f)
-    :closure
-    (let [c (values/payload f)
-          E' (merge (:env c) (engine/bind-params (:params c) args))
-          frame {:type :return, :segment seg, :pc (inc pc), :env E,
-                 :stack-base (count St)}
-          seg' (:segment c)]
-      {:goto [seg' (:entry c) val St E' (if tail? K (conj K frame))
-              vm (get code seg')]})
-    :host-fn
-    (let [result (apply f args)]
-      (if (module/effect? result)
-        (let [{:keys [state value blocked?]}
-              (engine/handle-effect
-                (put-registers (engine/check-callee-effect! vm f result)
-                               seg pc val St E K)
-                result
-                {:park-entry-fns (call-park-entries seg pc E St K)})]
-          (if blocked?
-            {:stop (assoc state :control nil :k nil)}
-            {:goto [seg (inc pc) value St E K state (get code seg)]}))
-        {:goto [seg (inc pc) result St E K vm (get code seg)]}))
-    ;; An abortive jump: the call site's St/E/K are dropped and the
-    ;; captured registers take over, with the argument in val as the
-    ;; capture instruction left it (19). The store is not a register.
-    :continuation
-    (let [v (engine/continuation-argument args)
-          c (values/payload f)
-          seg' (:segment c)]
-      {:goto [seg' (:pc c) v (:stack c) (:env c) (:k c) vm
-              (get code seg')]})))
-
-
-;; =============================================================================
-;; The hot loop
-;; =============================================================================
-
-(defn- vm-hot
-  "Run loaded work with the registers in loop locals.
-
-   `fuel`, when non-nil, is a number of instructions to execute before
-   materializing: `step` supplies 1 and `run` supplies nil. The loop exits by
-   returning a record when the machine halts, parks, blocks on an effect, or
-   runs out of fuel; every non-exit transition is one `case` arm and one
-   operation on locals (§4.3). A machine with no control and no continuation
-   is between evaluations, so one scheduler round is run instead."
-  [vm fuel]
-  (if (and (nil? (:control vm)) (nil? (:k vm)))
-    (scheduler-round vm)
-    (let [code (:code vm)
-          {:keys [segment pc]} (:control vm)]
-      (loop [seg segment
-             pc pc
-             val (:value vm)
-             St (or (:stack vm) [])
-             E (:env vm)
-             K (or (:k vm) [])
-             vm vm
-             image (get code segment)
-             fuel fuel]
-        (if (and fuel (zero? fuel))
-          (put-registers vm seg pc val St E K)
-          (let [inst (nth (:code image) pc)
-                op (nth inst 0)]
-            (case op
-              ;; :const — val ← literal (opcode 1, :literal)
-              1 (recur seg (inc pc) (nth inst 1) St E K vm image
-                       (and fuel (dec fuel)))
-              ;; :var — val ← resolve(E, S, prims, modules, name) (2, :load-var)
-              2 (recur seg (inc pc)
-                       (engine/resolve-var E
-                                           (engine/active-store
-                                             vm (engine/env-store-of E))
-                                           (:primitives vm)
-                                           (:modules vm) (nth inst 1))
-                       St E K vm image (and fuel (dec fuel)))
-              ;; :closure — val ← clo(params, entry, seg, E) (4, :lambda)
-              4 (recur seg (inc pc)
-                       (values/closure (:owner vm)
-                                       {:type :closure,
-                                        :params (vm/check-params!
-                                                  (nth inst 1)),
-                                        :entry (nth inst 2),
-                                        :segment seg,
-                                        :env E})
-                       St E K vm image (and fuel (dec fuel)))
-              ;; :push — St ← St ⧺ [val] (22, :push)
-              22 (recur seg (inc pc) val (conj St val) E K vm image
-                        (and fuel (dec fuel)))
-              ;; :jump — pc ← target (8, :jump)
-              8 (recur seg (nth inst 1) val St E K vm image
-                       (and fuel (dec fuel)))
-              ;; :branch-false — pc ← val ? pc+1 : target (7, :branch)
-              7 (recur seg (if val (inc pc) (nth inst 1)) val St E K vm image
-                       (and fuel (dec fuel)))
-              ;; :halt -- halt with val as the result (23, :halt); a halt
-              ;; leaves no module store context
-              23 (put-registers vm nil nil val [] (engine/without-store-of E)
-                                nil)
-              ;; :return — pop a frame, or halt on an empty K (6, :return)
-              6 (if-let [frame (peek K)]
-                  (recur (:segment frame) (:pc frame) val
-                         (subvec St 0 (:stack-base frame))
-                         (:env frame) (pop K)
-                         vm (get (:code vm) (:segment frame))
-                         (and fuel (dec fuel)))
-                  (put-registers vm nil nil val []
-                                 (engine/without-store-of E) nil))
-              ;; :gensym — val ← fresh id; counter advances (9, :gensym)
-              9 (let [[id vm'] (engine/gensym vm (nth inst 1))]
-                  (recur seg (inc pc) id St E K vm' image
-                         (and fuel (dec fuel))))
-              ;; :store-get -- val <- S[key] (10, :store-get); a module
-              ;; closure's store instructions route to its module store
-              10 (recur seg (inc pc)
-                        (get (engine/active-store vm (engine/env-store-of E))
-                             (nth inst 1))
-                        St E K vm image (and fuel (dec fuel)))
-              ;; :store-put — S[key] ← v; val ← v (11, :store-put)
-              11 (let [vm' (engine/put-active vm (engine/env-store-of E)
-                                              (nth inst 1) (nth inst 2))]
-                   (recur seg (inc pc) (nth inst 2) St E K vm' image
-                          (and fuel (dec fuel))))
-              ;; :define -- S[name] <- val; val unchanged (24). The
-              ;; definition transition: the operator is never resolved.
-              24 (let [vm' (engine/put-active vm (engine/env-store-of E)
-                                              (nth inst 1) val)]
-                   (recur seg (inc pc) val St E K vm' image
-                          (and fuel (dec fuel))))
-              ;; :current-continuation — val ← {seg, pc+1, E, St, K} (19)
-              19 (recur seg (inc pc)
-                        (values/continuation (:owner vm)
-                                             {:type :reified-continuation,
-                                              :segment seg,
-                                              :pc (inc pc),
-                                              :env E,
-                                              :stack St,
-                                              :k K})
-                        St E K vm image (and fuel (dec fuel)))
-              ;; :park — write {segment pc+1 env stack k} and halt (17)
-              17 (-> (put-registers vm seg pc val St E K)
-                     (engine/park-continuation {:segment seg,
-                                                :pc (inc pc),
-                                                :env E,
-                                                :stack St,
-                                                :k K})
-                     (assoc :control nil :k nil))
-              ;; :resume — restore the parked configuration with val (18)
-              18 (let [vm' (engine/resume-continuation
-                             (put-registers vm seg pc val St E K)
-                             (nth inst 1)
-                             val
-                             (fn [base parked resume-val]
-                               (put-registers base
-                                              (:segment parked)
-                                              (:pc parked)
-                                              resume-val
-                                              (:stack parked)
-                                              (:env parked)
-                                              (:k parked))))
-                       control (:control vm')]
-                   (recur (:segment control) (:pc control) val
-                          (or (:stack vm') []) (:env vm') (or (:k vm') [])
-                          vm' (get (:code vm') (:segment control))
-                          (and fuel (dec fuel))))
-              ;; :call — apply f to argc popped arguments (5, :call)
-              5 (let [argc (nth inst 1)
-                      total (count St)
-                      f-pos (- total argc 1)
-                      r (apply-call code seg pc val
-                                    (subvec St 0 f-pos) E K vm
-                                    false (nth St f-pos)
-                                    (subvec St (inc f-pos) total))]
-                  (if-let [[seg' pc' val' St' E' K' vm' image'] (:goto r)]
-                    (recur seg' pc' val' St' E' K' vm' image'
-                           (and fuel (dec fuel)))
-                    (:stop r)))
-              ;; :call with :yin.code/tail? — same, frame-free (20, :tailcall)
-              20 (let [argc (nth inst 1)
-                       total (count St)
-                       f-pos (- total argc 1)
-                       r (apply-call code seg pc val
-                                     (subvec St 0 f-pos) E K vm
-                                     true (nth St f-pos)
-                                     (subvec St (inc f-pos) total))]
-                   (if-let [[seg' pc' val' St' E' K' vm' image'] (:goto r)]
-                     (recur seg' pc' val' St' E' K' vm' image'
-                            (and fuel (dec fuel)))
-                     (:stop r)))
-              ;; :stream-make — effect :stream/make (12)
-              12 (let [r (run-effect vm seg pc val St E K
-                                     (module/make-effect :stream/make {:capacity (or (nth inst 1)
-                                                                                     vm/default-stream-capacity)})
-                                     nil)]
-                   (if-let [[vm' val'] (:continue r)]
-                     (recur seg (inc pc) val' St E K vm' image
-                            (and fuel (dec fuel)))
-                     (:stop r)))
-              ;; :stream-put — target popped from St, value in val (13)
-              13 (let [St' (pop St)
-                       r (run-effect vm seg pc val St' E K
-                                     (module/make-effect :stream/put {:stream (peek St),
-                                                                      :val val})
-                                     (call-park-entries seg pc E St' K))]
-                   (if-let [[vm' val'] (:continue r)]
-                     (recur seg (inc pc) val' St' E K vm' image
-                            (and fuel (dec fuel)))
-                     (:stop r)))
-              ;; :stream-cursor — source ref in val (14)
-              14 (let [r (run-effect vm seg pc val St E K
-                                     (module/make-effect :stream/cursor {:stream val})
-                                     nil)]
-                   (if-let [[vm' val'] (:continue r)]
-                     (recur seg (inc pc) val' St E K vm' image
-                            (and fuel (dec fuel)))
-                     (:stop r)))
-              ;; :stream-next — cursor ref in val (15)
-              15 (let [r (run-effect vm seg pc val St E K
-                                     (module/make-effect :stream/next {:cursor val})
-                                     (call-park-entries seg pc E St K))]
-                   (if-let [[vm' val'] (:continue r)]
-                     (recur seg (inc pc) val' St E K vm' image
-                            (and fuel (dec fuel)))
-                     (:stop r)))
-              ;; :stream-close — source ref in val (16)
-              16 (let [r (run-effect vm seg pc val St E K
-                                     (module/make-effect :stream/close {:stream val})
-                                     nil)]
-                   (if-let [[vm' val'] (:continue r)]
-                     (recur seg (inc pc) val' St E K vm' image
-                            (and fuel (dec fuel)))
-                     (:stop r)))
-              ;; :ffi-call — park-and-call over the FFI pair (21)
-              21 (let [ffi-op (nth inst 1)
-                       argc (nth inst 2)
-                       total (count St)
-                       args (subvec St (- total argc))
-                       St' (subvec St 0 (- total argc))
-                       ;; The pair is checked before parking: an error raised
-                       ;; after park-continuation would strand a continuation
-                       ;; in :parked and consume an id counter.
-                       {:keys [call-in]}
-                       (ffi/require-call-pair! (:resources vm) ffi-op)
-                       ;; the request carries `args` out of the VM's view
-                       vm' (put-registers (engine/pin-refs vm args)
-                                          seg pc val St' E K)
-                       call-id (ffi/call-id vm' (engine/park-id vm'))
-                       parked (engine/park-continuation
-                                vm'
-                                {:segment seg, :pc (inc pc),
-                                 :env E, :stack St', :k K}
-                                call-id)
-                       request (apply2/request call-id ffi-op args)
-                       result (ffi/put-request vm' call-in request)]
-                   (case (:dao.stream/outcome result)
-                     :dao.stream/ok
-                     (-> parked
-                         (update :wait-set (fnil conj [])
-                                 (response-wait-entry seg (inc pc) E St' K
-                                                      call-id))
-                         (assoc :control nil
-                                :k nil
-                                :value :yin/blocked
-                                :blocked? true
-                                :halted? false))
-                     :dao.stream/full
-                     (-> parked
-                         (update :wait-set (fnil conj [])
-                                 {:segment seg, :pc (inc pc),
-                                  :env E, :stack St', :k K,
-                                  :request-sent true,
-                                  :call-id call-id,
-                                  :op ffi-op,
-                                  :reason :put,
-                                  :stream-id vm/call-in-stream-key,
-                                  :datom request})
-                         (assoc :control nil
-                                :k nil
-                                :value :yin/blocked
-                                :blocked? true
-                                :halted? false))
-                     (throw (ex-info "FFI request could not be appended"
-                                     {:op ffi-op,
-                                      :outcome (or (:dao.stream/outcome result)
-                                                   (:dao.stream.apply/outcome
-                                                     result))}))))
-              ;; No decoded image holds another opcode (:move stays unused)
-              (throw (ex-info "Unknown opcode in segment"
-                              {:op op, :segment seg, :pc pc})))))))))
-
-
-;; =============================================================================
-;; Scheduler
-;; =============================================================================
 
 (defn- scheduler-round
-  "One round between continuations: poll the wait set, then run whatever
-   woke. Entries here carry no :resume, so `engine/resume-from-run-queue`
-   with this machine's restore function is what resumes them."
-  [vm]
-  (let [v' (engine/check-wait-set vm)]
-    (or (engine/resume-from-run-queue v' semantic-restore) v')))
+  [machine]
+  (engine/scheduler-round machine register-restore))
 
 
-(defn- resume-from-run-queue
-  "Pop first entry from the ready-queue, merge store-updates, and restore
-   machine registers."
-  [state]
-  (engine/resume-from-run-queue state semantic-restore))
+(defn vm-hot
+  "Execute fuel instructions with the activation in locals; nil fuel runs to exit."
+  [machine fuel]
+  (if (and (nil? (:control machine)) (nil? (:k machine)))
+    (scheduler-round machine)
+    (let [{:keys [segment pc]} (:control machine)]
+      (loop [machine machine seg segment pc pc W (:window machine)
+             E (:env machine) K (or (:k machine) []) fuel fuel]
+        (if (and fuel (zero? fuel))
+          (put-registers machine seg pc W E K)
+          (let [image (get (:code machine) seg)
+                inst (nth (:vector image) pc)
+                op (nth inst 0)
+                remaining (when fuel (dec fuel))]
+            (case op
+              :const (recur machine seg (inc pc) (assoc W (nth inst 1) (nth inst 2)) E K remaining)
+              :var (recur machine seg (inc pc)
+                          (assoc W (nth inst 1)
+                                 (engine/resolve-var E
+                                                     (engine/active-store machine (engine/env-store-of E))
+                                                     (:primitives machine) (:modules machine) (nth inst 2)))
+                          E K remaining)
+              :closure (recur machine seg (inc pc)
+                              (assoc W (nth inst 1)
+                                     (values/closure (:owner machine)
+                                                     {:type :closure :params (vm/check-params! (nth inst 2))
+                                                      :entry (nth inst 3) :segment seg :env E}))
+                              E K remaining)
+              :jump (recur machine seg (nth inst 1) W E K remaining)
+              :branch-false (recur machine seg (if (get W (nth inst 1)) (inc pc) (nth inst 2)) W E K remaining)
+              :define (let [value (get W (nth inst 3))
+                            next-state (engine/put-active machine
+                                                          (engine/env-store-of E) (nth inst 2) value)]
+                        (recur next-state seg (inc pc) (assoc W (nth inst 1) value) E K remaining))
+              :gensym (let [[id next-state] (engine/gensym machine (nth inst 2))]
+                        (recur next-state seg (inc pc) (assoc W (nth inst 1) id) E K remaining))
+              :store-get (recur machine seg (inc pc)
+                                (assoc W (nth inst 1) (get (engine/active-store machine (engine/env-store-of E)) (nth inst 2)))
+                                E K remaining)
+              :store-put (let [next-state (engine/put-active machine
+                                                             (engine/env-store-of E) (nth inst 2) (nth inst 3))]
+                           (recur next-state seg (inc pc) (assoc W (nth inst 1) (nth inst 3)) E K remaining))
+              :halt (assoc (put-registers machine nil nil {} (engine/without-store-of E) nil) :value (get W (nth inst 1)))
+              :return (let [value (get W (nth inst 1))]
+                        (if-let [frame (peek K)]
+                          (recur machine (:segment frame) (:pc frame)
+                                 (:window (return-to frame value)) (:env frame) (pop K) remaining)
+                          (assoc (put-registers machine nil nil {} (engine/without-store-of E) nil) :value value)))
+              :call (let [rd (nth inst 1) f (get W (nth inst 2))
+                          args (mapv #(get W %) (nth inst 3)) tail? (nth inst 4)]
+                      (case (engine/operator-kind machine f)
+                        :closure (let [c (values/payload f)
+                                       frame (when-not tail?
+                                               {:type :return :segment seg :pc (inc pc) :env E
+                                                :window (select-keys W (analysis/saved (:analysis image) (inc pc) rd)) :rd rd})]
+                                   (recur machine (:segment c) (:entry c) {}
+                                          (merge (:env c) (engine/bind-params (:params c) args))
+                                          (if tail? K (conj K frame)) remaining))
+                        :host-fn
+                        (let [result (apply f args)
+                              effect? (module/effect? result)
+                              r (if effect?
+                                  (run-effect (engine/check-callee-effect!
+                                                (put-registers machine seg pc W E K) f result)
+                                              seg pc W E K result
+                                              (if tail? (tail-builders seg pc K)
+                                                  (act-builders seg pc E W K rd (:analysis image))))
+                                  {:continue [machine result]})]
+                          (if-let [[next-state value] (:continue r)]
+                            (let [E' (if effect? (:env next-state) E)
+                                  K' (if effect? (or (:k next-state) []) K)
+                                  W' (if effect? (:window next-state) W)]
+                              (if tail?
+                                (if-let [frame (peek K')]
+                                  (recur next-state (:segment frame) (:pc frame)
+                                         (:window (return-to frame value)) (:env frame) (pop K') remaining)
+                                  (assoc (put-registers next-state nil nil {} (engine/without-store-of E') nil) :value value))
+                                (recur next-state seg (inc pc) (assoc W' rd value) E' K' remaining)))
+                            (:stop r)))
+                        :continuation
+                        (let [value (engine/continuation-argument args)
+                              restored (register-restore machine (values/payload f) value)
+                              control (:control restored)]
+                          (recur restored (:segment control) (:pc control) (:window restored)
+                                 (:env restored) (or (:k restored) []) remaining))))
+              (:stream-make :stream-cursor :stream-close :stream-put :stream-next)
+              (let [rd (nth inst 1)
+                    effect (case op
+                             :stream-make (module/make-effect :stream/make {:capacity (nth inst 2)})
+                             :stream-cursor (module/make-effect :stream/cursor {:stream (get W (nth inst 2))})
+                             :stream-close (module/make-effect :stream/close {:stream (get W (nth inst 2))})
+                             :stream-put (module/make-effect :stream/put {:stream (get W (nth inst 2)) :val (get W (nth inst 3))})
+                             :stream-next (module/make-effect :stream/next {:cursor (get W (nth inst 2))}))
+                    r (run-effect machine seg pc W E K effect
+                                  (when (contains? #{:stream-put :stream-next} op)
+                                    (act-builders seg pc E W K rd (:analysis image))))]
+                (if-let [[next-state value] (:continue r)]
+                  (recur next-state seg (inc pc) (assoc (:window next-state) rd value)
+                         (:env next-state) (or (:k next-state) []) remaining)
+                  (:stop r)))
+              :ffi-call
+              (let [rd (nth inst 1) ffi-op (nth inst 2)
+                    args (mapv #(get W %) (nth inst 3))
+                    {:keys [call-in]} (ffi/require-call-pair! (:resources machine) ffi-op)
+                    state (put-registers (engine/pin-refs machine args) seg pc W E K)
+                    call-id (ffi/call-id state (engine/park-id state))
+                    payload (act-payload seg pc E W K rd (:analysis image))
+                    parked (engine/park-continuation state payload call-id)
+                    request (apply2/request call-id ffi-op args)
+                    result (ffi/put-request state call-in request)
+                    entry (case (:dao.stream/outcome result)
+                            :dao.stream/ok (ffi/response-wait-entry payload call-id)
+                            :dao.stream/full (assoc payload :request-sent true :call-id call-id
+                                                    :op ffi-op :reason :put
+                                                    :stream-id vm/call-in-stream-key :datom request)
+                            (throw (ex-info "FFI request could not be appended"
+                                            {:op ffi-op :outcome (or (:dao.stream/outcome result)
+                                                                     (:dao.stream.apply/outcome result))})))]
+                (-> parked
+                    (update :wait-set (fnil conj []) entry)
+                    (assoc :control nil :k nil :value :yin/blocked :blocked? true :halted? false)))
+              :current-continuation
+              (let [rd (nth inst 1)
+                    payload (assoc (act-payload seg pc E W K rd (:analysis image)) :type :reified-continuation)]
+                (recur machine seg (inc pc) (assoc W rd (values/continuation (:owner machine) payload)) E K remaining))
+              :park (-> (put-registers machine seg pc W E K)
+                        (engine/park-continuation (act-payload seg pc E W K (nth inst 1) (:analysis image)))
+                        (assoc :control nil :k nil))
+              :resume (let [restored (engine/resume-continuation (put-registers machine seg pc W E K)
+                                                                 (nth inst 1) (get W (nth inst 2)) register-restore)
+                            control (:control restored)]
+                        (if (:halted? restored) restored
+                            (recur restored (:segment control) (:pc control) (:window restored)
+                                   (:env restored) (or (:k restored) []) remaining)))
+              (throw (ex-info "Unknown register instruction" {:op op})))))))))
 
 
-(defn- semantic-run-scheduler
-  "The raw runner: already-loaded work only, through the shared scheduler
-   loop. `ffi/maybe-run` wraps this for bridge dispatch, and `vm/run` stops
-   here — no program stream is polled.
-
-   Woken entries stay pure data and are resumed explicitly through `resume-from-run-queue`, which dispatches the
-   terminal-outcome check and the machine's restore itself."
-  [vm]
-  (engine/run-loop vm
-                   engine/active-continuation?
-                   (fn [v] (vm-hot v nil))
-                   resume-from-run-queue))
-
-
-;; =============================================================================
-;; Loading
-;; =============================================================================
-
-(def ^:private mnemonic-aliases
-  "The §2.4 mnemonic → `vm/opcode-table` key mapping. Everything not here
-   decodes under its own name."
-  {:const :literal,
-   :var :load-var,
-   :closure :lambda,
-   :branch-false :branch,
-   :current-continuation :current-cont,
-   :ffi-call :dao.stream.apply/call})
-
-
-(defn- index-batch
-  "Entity ids in order of first appearance, and each entity's attribute map.
-   A repeated single-valued attribute keeps its last value, as
-   `yin.vm.code` reads one."
-  [datoms]
-  (reduce (fn [[order attrs] [e a v]]
-            [(if (contains? attrs e) order (conj order e))
-             (assoc-in attrs [e a] v)])
-          [[] {}]
-          datoms))
-
-
-(defn load-image
-  "Decode one `:yin.code/*` batch into an executable image.
-
-   Returns `{:segment id, :length n, :code instructions}` where `instructions`
-   is a vector indexed by pc of decoded `[opcode & operands]` vectors with
-   every `:yin.code/target` and `:yin.code/body` ref resolved to a pc integer
-   of the same segment, plus `:address` when the segment entity carries
-   `:yin.code/hash` (§2.2) — a claim checked here: the canonical vector the
-   batch reconstructs to must hash to it (UCF §7.3.4's content-integrity
-   check, its `:yin.k/hash-mismatch` outcome), so a false claim never
-   reaches the alias column. Throws a load error naming the entity and rule
-   when the batch is not well formed (§2.6); the loader is total over the
-   outcomes of its inputs and does not guess."
-  [datoms]
-  (let [defect (code/well-formed? datoms)]
-    (when defect
-      (throw (ex-info (str "Cannot load segment: " (name (:rule defect))
-                           " (entity " (:entity defect) ")")
-                      {:defect defect})))
-    (let [[order attrs] (index-batch datoms)
-          segments (filterv #(= :segment (get-in attrs [% :yin.code/type]))
-                            order)
-          seg (first segments)
-          structural [:yin.code/segment :yin.code/pc :yin.code/op]
-          instructions (filterv (fn [e]
-                                  (and (not= seg e)
-                                       (some #(contains? (get attrs e) %)
-                                             structural)))
-                                order)
-          ;; Rule 3 sorts by pc, so an instruction's position is its pc.
-          pc-of (zipmap instructions (range))
-          resolve-ref (fn [e ref]
-                        (or (get pc-of ref)
-                            (throw (ex-info
-                                     "Ref resolves to no instruction of this segment"
-                                     {:entity e, :ref ref}))))
-          decode (fn [e]
-                   (let [ia (get attrs e)
-                         mnem (:yin.code/op ia)
-                         opcode (or (get vm/opcode-table
-                                         (get mnemonic-aliases mnem mnem))
-                                    (throw (ex-info "Mnemonic has no opcode"
-                                                    {:op mnem, :entity e})))]
-                     (case mnem
-                       :const [opcode (:yin.code/value ia)]
-                       :var [opcode (:yin.code/name ia)]
-                       :closure [opcode (:yin.code/params ia)
-                                 (resolve-ref e (:yin.code/body ia))]
-                       :call (if (:yin.code/tail? ia)
-                               [(:tailcall vm/opcode-table) (:yin.code/argc ia)]
-                               [opcode (:yin.code/argc ia)])
-                       :return [opcode]
-                       :jump [opcode (resolve-ref e (:yin.code/target ia))]
-                       :branch-false [opcode
-                                      (resolve-ref e (:yin.code/target ia))]
-                       :halt [opcode]
-                       :gensym [opcode (or (:yin.code/prefix ia) "id")]
-                       :store-get [opcode (:yin.code/key ia)]
-                       :store-put [opcode (:yin.code/key ia)
-                                   (:yin.code/value ia)]
-                       :define [opcode (:yin.code/name ia)]
-                       :stream-make [opcode (or (:yin.code/buffer ia)
-                                                vm/default-stream-capacity)]
-                       :stream-put [opcode]
-                       :stream-cursor [opcode]
-                       :stream-next [opcode]
-                       :stream-close [opcode]
-                       :park [opcode]
-                       :resume [opcode (:yin.code/parked-id ia)]
-                       :current-continuation [opcode]
-                       :ffi-call [opcode (:yin.code/ffi-op ia)
-                                  (or (:yin.code/argc ia) 0)]
-                       :push [opcode]
-                       (throw (ex-info "Unknown mnemonic"
-                                       {:op mnem, :entity e})))))
-          claimed (get-in attrs [seg :yin.code/hash])
-          ;; A claimed address is earned, never trusted: the batch must
-          ;; reconstruct to the canonical vector that hashes to it.
-          ;; UCF §7.3.4 checks an address whenever one is claimed, so a
-          ;; false claim fails the load here and never reaches the alias
-          ;; column. The vector is the one `yin.vm.ucf` mints, saturated,
-          ;; so a batch omitting a defaulted operand earns the same
-          ;; address as one stating it.
-          canonical-vec (when claimed
-                          (ucf/batch->canonical-instruction-vector datoms))]
-      (if (and claimed (not (jing/segment-matches? claimed canonical-vec)))
-        (throw (ex-info (str "Cannot load segment: hash-mismatch (entity "
-                             seg ")")
-                        {:defect {:rule :hash-mismatch, :entity seg},
-                         :claimed claimed,
-                         :actual (let [algo (try
-                                              (jing/segment-algorithm claimed)
-                                              (catch #?(:cljd Object
-                                                        :clj Throwable
-                                                        :cljs :default)
-                                                     _
-                                                jing/default-hash-algorithm))]
-                                   (jing/segment-key canonical-vec
-                                                     {:algorithm algo}))}))
-        (cond-> {:segment seg,
-                 :length (get-in attrs [seg :yin.code/length]),
-                 :code (mapv decode instructions)}
-          ;; A batch carrying no hash — every `lower` output — records no
-          ;; alias.
-          claimed (assoc :address claimed))))))
+(defn- register-run-scheduler
+  [machine]
+  (engine/run-loop machine engine/active-continuation? #(vm-hot % nil)
+                   #(engine/resume-from-run-queue % register-restore)))
 
 
 (defn- store-image
-  "Register one decoded image under its segment id, returning the code map.
-
-   Segment identity is stable: continuations, frames, and closures name
-   segments by id, so an id must never come to mean different code. An
-   identical reload — a batch re-sent, a batch run twice — decodes to the
-   same image and is accepted. A different image under a live id is a
-   conflict, and loading it fails rather than silently redirecting every
-   continuation that names the id."
-  [code image]
+  [images image]
   (let [seg (:segment image)]
-    (if-let [existing (find code seg)]
-      (if (= (val existing) image)
-        code
-        (throw (ex-info "Cannot load segment: the id already holds different code"
-                        {:segment seg})))
-      (assoc code seg image))))
+    (if-let [existing (find images seg)]
+      (if (= (:address (val existing)) (:address image)) images
+          (throw (ex-info "Cannot load segment: the id already holds different code" {:segment seg})))
+      (assoc images seg image))))
 
 
 (defn- store-alias
-  "Record one loaded image's address in the `address → local-id` alias
-   column (UCF §7.3.4). The column is checked: an address may never land
-   under a second live local id. An image claiming no address — every batch
-   the datom lane's `lower` produces — leaves the column unchanged."
   [aliases image]
-  (if-let [address (:address image)]
+  (let [address (:address image) seg (:segment image)]
     (if-let [prior (find aliases address)]
-      (if (= (val prior) (:segment image))
-        aliases
-        (throw (ex-info "Cannot load segment: the address is already aliased to another id"
-                        {:address address, :aliased-to (val prior)})))
-      (assoc aliases address (:segment image)))
-    aliases))
+      (if (= (val prior) seg) aliases
+          (throw (ex-info "Cannot load segment: the address is already aliased to another id" {:address address :aliased-to (val prior)})))
+      (assoc aliases address seg))))
 
 
-(defn vm-load-program
-  "Load one `:yin.code/*` batch: validate it, decode it, store the image under
-   `:code {segment-id image}`, record the segment's claimed address — verified
-   against the batch's own content by `load-image` — in the alias column when
-   it carries one, and set control to `{:segment id :pc 0}`.
-
-   This is the loader a composition hands to `dao.stream.observer/
-   run-on-stream` beside `engine/ready-for-ingress?` and the VM's runner; a
-   composition whose program stream carries `:yin/*` AST datoms composes the
-   Phase 2 linearizer in front of it. Parked continuations survive a load, so
-   one segment can resume another's. A segment id already holding different
-   code is a load error; loading the same image again is accepted.
-
-   `contract` is required and compared with `vm/semantic-contract` before
-   the batch is judged (`:contract-missing`, `:contract-mismatch`); S2.6
-   well-formedness then includes Rule R's reserved-operand rule."
-  [vm datoms contract]
-  (vm/check-contract! vm/semantic-contract contract)
-  (let [image (load-image datoms)]
-    (assoc vm
-           :program (:segment image)
-           :code (store-image (:code vm) image)
-           :code-aliases (store-alias (:code-aliases vm) image)
-           :control {:segment (:segment image), :pc 0}
-           :stack []
-           :k nil
-           :halted? false
-           :blocked? false
-           :value nil)))
-
-
-(defn- decode-tuple
-  "One canonical tuple onto the image, reading `(nth tuple i)` for every
-   operand: mnemonics onto `vm/opcode-table` and `[:call argc tail?]`
-   folded to `:tailcall` by the loader's rule — the fold UCF §7.3.2 leaves
-   to the decoder. The vector is saturated and its refs are resolved pcs,
-   so nothing defaults and nothing resolves here."
-  [t]
-  (if (= :call (nth t 0))
-    (if (nth t 2)
-      [(:tailcall vm/opcode-table) (nth t 1)]
-      [(:call vm/opcode-table) (nth t 1)])
-    (let [mnem (nth t 0)
-          opcode (or (get vm/opcode-table (get mnemonic-aliases mnem mnem))
-                     (throw (ex-info "Mnemonic has no opcode" {:op mnem})))]
-      (into [opcode] (rest t)))))
+(defn- admit-image
+  [machine v stamp opts]
+  (let [image (code/load-vector v stamp)
+        seg (or (get (:code-aliases machine) (:address image)) (:id opts)
+                (dec (vm/loaded-code-floor (:code machine))))]
+    (assoc image :segment seg :length (count v) :analysis (analysis/analyze v))))
 
 
 (defn load-vector
-  "Load one canonical instruction vector (UCF §7.3.2) by the direct path
-   (§7.1): validate it against §7.5 — a defect throws naming the pc — then
-   decode the positional operands into the same image `load-image` builds
-   from the projected batch, and register it under `:code` with the
-   vector's address `(jing/segment-key v)` in the alias column.
-
-   A vector claims no local id, so one is minted below the loaded floor
-   (`vm/loaded-code-floor`), as `ast-loader` mints for lowered AST batches;
-   an address already aliased reloads under its id, which `store-image`
-   accepts as the identical image. Options:
-     :id claim this local segment id instead of minting one. The §3.1 rule
-          applies: an id already holding a different image is a load error,
-          an identical reload is accepted. Ignored when the address is
-          already aliased.
-
-   `contract` is required and compared with `vm/semantic-contract` before
-   S7.5 validation."
-  ([vm v contract] (load-vector vm v contract {}))
-  ([vm v contract opts]
-   (vm/check-contract! vm/semantic-contract contract)
-   (when-let [defect (code/well-formed-vector? v)]
-     (throw (ex-info (str "Cannot load vector: " (name (:rule defect))
-                          " (pc " (:pc defect) ")")
-                     {:defect defect})))
-   (let [address (jing/segment-key v)
-         aliases (:code-aliases vm)
-         seg (or (get aliases address)
-                 (:id opts)
-                 (dec (vm/loaded-code-floor (:code vm))))
-         image {:segment seg,
-                :length (count v),
-                :code (mapv decode-tuple v),
-                :address address}]
-     (assoc vm
-            :program seg
-            :code (store-image (:code vm) image)
-            :code-aliases (store-alias aliases image)
-            :control {:segment seg, :pc 0}
-            :stack []
-            :k nil
-            :halted? false
-            :blocked? false
-            :value nil))))
+  "Validate and load a v4 vector; an existing address retains its local id."
+  ([machine v stamp] (load-vector machine v stamp {}))
+  ([machine v stamp opts]
+   (let [image (admit-image machine v stamp opts) seg (:segment image)]
+     (assoc machine :code (store-image (:code machine) image)
+            :code-aliases (store-alias (:code-aliases machine) image)
+            :program seg :control {:segment seg :pc 0} :window {} :k nil
+            :halted? false :blocked? false :value nil))))
 
 
 (defn attach-image
-  "Extend the code space of `vm` with the canonical instruction vector
-   `v`, non-destructively (yin.vm.linker.md section 7.3, act 3): `v` is
-   validated as `load-vector` validates it, decoded, and added under a
-   fresh local id with its address in the alias column. `:control`,
-   `:program`, `:env`, `:stack`, `:k`, every frame's segment and pc, and
-   the store are unchanged, because existing local ids are never
-   renumbered (UCF section 7.3.4). An address already aliased is not
-   attached twice. The caller reads the id from the alias column."
-  [vm v contract]
-  (vm/check-contract! vm/semantic-contract contract)
-  (when-let [defect (code/well-formed-vector? v)]
-    (throw (ex-info (str "Cannot load vector: " (name (:rule defect))
-                         " (pc " (:pc defect) ")")
-                    {:defect defect})))
-  (let [address (jing/segment-key v)
-        aliases (:code-aliases vm)]
-    (if (contains? aliases address)
-      vm
-      (let [image {:segment (dec (vm/loaded-code-floor (:code vm))),
-                   :length (count v),
-                   :code (mapv decode-tuple v),
-                   :address address}]
-        (assoc vm
-               :code (store-image (:code vm) image)
-               :code-aliases (store-alias aliases image))))))
+  "Attach a validated vector without changing execution fields."
+  [machine v stamp]
+  (let [image (admit-image machine v stamp {})]
+    (assoc machine :code (store-image (:code machine) image)
+           :code-aliases (store-alias (:code-aliases machine) image))))
 
 
-;; =============================================================================
-;; SemanticVM Protocol Implementation
-;; =============================================================================
-
-(defn- vm-reset
-  "Reset execution state, preserving loaded code."
-  [vm]
-  (assoc vm
-         :control (when-let [seg (:program vm)] {:segment seg, :pc 0})
-         :k nil
-         :stack []
-         :value nil
-         :halted? (nil? (:program vm))
-         :blocked? false))
-
-
-(defn- vm-eval
-  "Resume loaded work. An AST is refused: lowering belongs to
-   `yin.vm.linearize` (Phase 2) and is composed in at the observer
-   boundary, so this evaluator never learns which form travels."
-  [vm ast]
-  (when ast
-    (throw (ex-info
-             "The semantic VM executes :yin.code/* segments: lower :yin/* ASTs with yin.vm.linearize (Phase 2) or call vm-load-program with a code batch"
-             {:ast ast})))
-  (let [initial-env (:env vm)
-        res (vm/run vm)]
-    (engine/restore-initial-env initial-env res)))
+(defn load-ast
+  "Project AST datoms through the phase-3 loader."
+  [machine datoms stamp]
+  (vm/check-contract! vm/ast-contract stamp)
+  (load-vector machine (:vector (linearize/project-datoms datoms)) code/contract))
 
 
 (extend-type SemanticVM
   vm/IVM
-  (step [vm]
-    (telemetry/emit-snapshot
-      (if (engine/ready-for-ingress? vm) vm (vm-hot vm 1))
-      :step))
-  (run [vm] (ffi/maybe-run vm semantic-run-scheduler))
-  (eval [vm ast] (vm-eval vm ast))
-  (reset [vm] (vm-reset vm))
-  (halted? [vm] (engine/halted-with-empty-queue? vm))
-  (blocked? [vm] (engine/vm-blocked? vm))
-  (value [vm] (engine/vm-value vm))
+  (step [machine] (telemetry/emit-snapshot
+                    (if (engine/ready-for-ingress? machine) machine (vm-hot machine 1)) :step))
+  (run [machine] (ffi/maybe-run machine register-run-scheduler))
+  (eval [machine ast]
+    (when ast (throw (ex-info "The semantic VM executes loaded vectors; use load-ast" {:ast ast})))
+    (engine/restore-initial-env (:env machine) (vm/run machine)))
+  (reset [machine]
+    (assoc machine :control (when-let [seg (:program machine)] {:segment seg :pc 0})
+           :window {} :k nil :value nil :halted? (nil? (:program machine)) :blocked? false))
+  (halted? [machine] (engine/halted-with-empty-queue? machine))
+  (blocked? [machine] (engine/vm-blocked? machine))
+  (value [machine] (engine/vm-value machine))
   vm/IVMState
-  (control [vm] (:control vm))
-  (environment [vm] (:env vm))
-  (store [vm] (:store vm))
-  (continuation [vm] (:k vm)))
+  (control [machine] (:control machine))
+  (environment [machine] (:env machine))
+  (store [machine] (:store machine))
+  (continuation [machine] (:k machine)))
 
 
 (defn create-vm
@@ -939,7 +391,8 @@
                                   :program nil,
                                   :control nil,
                                   :env env,
-                                  :stack [],
+                                  :free-env env,
+                                  :window {},
                                   :k nil,
                                   :value nil,
                                   :code {},
@@ -951,28 +404,10 @@
          (telemetry/emit-snapshot :init)))))
 
 
-;; =============================================================================
-;; Module kernel (yin.vm.linker.md section 7.3)
-;; =============================================================================
-;; A named closure lifts by the alias column: its local segment id's
-;; address, its entry pc, its params, and its environment encoded value by
-;; value, the module store context read out of the environment. It lowers
-;; by the receiving alias column's local id for that address, which act 3
-;; minted; existing local ids are never renumbered.
-
-(defn- binding-mismatch!
-  [marker]
-  (throw (ex-info "Closure marker of another binding discipline or format"
-                  {:reason :binding-mismatch,
-                   :binding (:yin.k/binding marker),
-                   :format (:yin.k/format marker),
-                   :expected-format :yin.semantic/code})))
-
-
 (extend-type SemanticVM
   module/IModuleKernel
   (link-format [_]
-    {:format :yin.semantic/code, :contract vm/semantic-contract})
+    {:format :yin.semantic/code, :contract code/contract})
   (spawn-module
     [vm image {:keys [modules origin ancestry capability-secret]}]
     (load-vector (create-vm
@@ -992,10 +427,10 @@
                     :attach-stream (:attach-stream vm),
                     :gc-threshold (:base (:gc vm))})
                  image
-                 vm/semantic-contract))
+                 code/contract))
   (image-identity [_ image] (jing/segment-key image))
   (image-holds? [_ image segment] (jing/segment-matches? segment image))
-  (attach-module [vm image] (attach-image vm image vm/semantic-contract))
+  (attach-module [vm image] (attach-image vm image code/contract))
   (lift-closure [vm closure encode]
     (let [local (:segment closure)
           address (some (fn [[a l]] (when (= l local) a)) (:code-aliases vm))
@@ -1019,25 +454,25 @@
   (lower-closure [vm marker decode]
     (when-not (and (= :named (:yin.k/binding marker))
                    (= :yin.semantic/code (:yin.k/format marker)))
-      (binding-mismatch! marker))
+      (throw (ex-info "Closure binding or format does not match this kernel" {:reason :binding-mismatch :marker marker})))
     (let [local (get (:code-aliases vm) (:yin.k/segment marker))
           entry (:yin.k/entry marker)
           store-of (:yin.k/store-of marker)]
       ;; An entry outside the attached image names no code of it either.
       (when-not (and (some? local)
                      (nat-int? entry)
-                     (< entry (count (get-in vm [:code local :code]))))
+                     (< entry (count (get-in vm [:code local :vector]))))
         (throw (ex-info "Closure origin image is not attached"
                         {:reason :origin-not-attached,
                          :segment (:yin.k/segment marker)})))
-      ;; the binders are those of a `:closure` (4) of the attached image
+      ;; the binders are those of a `:closure` tuple of the attached image
       ;; whose entry this is, never the wire's
       (vm/check-params! (:yin.k/params marker))
       (when-not (some (fn [inst]
-                        (and (= 4 (nth inst 0))
-                             (= entry (nth inst 2))
-                             (= (:yin.k/params marker) (nth inst 1))))
-                      (get-in vm [:code local :code]))
+                        (and (= :closure (nth inst 0))
+                             (= entry (nth inst 3))
+                             (= (:yin.k/params marker) (nth inst 2))))
+                      (get-in vm [:code local :vector]))
         (engine/marker-mismatch! marker))
       (values/closure
         (:owner vm)
@@ -1049,10 +484,7 @@
                             (map (fn [[k x]] [k (decode x)]))
                             (:yin.k/env marker))
                 store-of (assoc engine/store-of-key store-of))})))
-  (gc-roots [vm]
-    {:kernel [(:control vm) (:k vm)],
-     :values [(:env vm) (:stack vm) (:value vm)]})
-  ;; Nothing of this kernel's shape holds code: a closure names its segment
-  ;; and entry, and a frame or continuation its segment and pc, so every
-  ;; value is plain data and is walked whole.
+  (gc-roots [machine]
+    {:kernel [(:control machine) (:k machine)]
+     :values [(:free-env machine) (:env machine) (:window machine) (:value machine)]})
   (gc-children [_ _x] nil))

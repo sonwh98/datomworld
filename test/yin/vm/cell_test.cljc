@@ -4,16 +4,15 @@
    `:heap`, reached by a sealed `:cell-ref`. Each program runs on all four
    VMs -- the AST walker, the semantic VM, and the de Bruijn stack and
    register VMs -- with the same expectation."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
-            [yin.vm.completion :as completion]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-compile :as rc]
+
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
-            [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
@@ -34,11 +33,11 @@
   "Each lowers an AST to what its VM's loader and `spawn-module` load."
   {:ast-walker vm/ast->semantic-bytecode,
    :semantic (fn [ast]
-               (:vector (linearize/lower-rows (vm/ast->semantic-bytecode
-                                                ast)))),
-   :stack (fn [ast] (:image (dl/adapt (vm/ast->datoms ast)))),
+               (:vector (sr-linearize/project-rows (vm/ast->semantic-bytecode
+                                                     ast)))),
+   :stack (fn [ast] (:image (derive/stack-image (:vector (sr-linearize/project ast))))),
    :register (fn [ast]
-               (:image (rc/adapt (second (vm/ast->datoms-with-root ast)))))})
+               (derive/register-image (:vector (sr-linearize/project ast))))})
 
 
 (def ^:private builders
@@ -438,16 +437,3 @@
     (let [r (refusal-of #(engine/lift-slice result :segment/own ['r]))]
       (is (= :yin.k/non-portable (:yin.k/status r)) (str k))
       (is (= :cell (:yin.k/kind r)) (str k)))))
-
-
-(deftest completion-over-a-cell-is-not-complete-test
-  (let [machine (run-on :semantic
-                        (let1 'c (new-cell (lit 5))
-                              (lam [] (get-cell (v 'c)))))
-        outcome (try {:result (completion/complete {:vm machine})}
-                     (catch #?(:clj Exception :cljs :default :cljd Object) e
-                       {:refusal (ex-data e)}))]
-    (is (not= :complete
-              (get-in outcome [:result :yin.k/requires :yin.k/discovery])))
-    (is (= {:yin.k/status :yin.k/non-portable, :yin.k/kind :cell}
-           (select-keys (:refusal outcome) [:yin.k/status :yin.k/kind])))))

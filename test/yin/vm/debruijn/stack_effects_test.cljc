@@ -8,23 +8,23 @@
    Two kinds of program run here. Hand-built instruction vectors, as the
    B3 test builds them, pin instruction-level behaviour: the stack layout
    each effect opcode reads, the shape of a parked entry, the refusals.
-   Parity fixtures take one named AST through both lowerers -- `adapt`
-   onto this VM, `yin.vm.linearize` onto the semantic VM, B4's parity
-   oracle -- on fresh instances every time (D4), and compare under B0's
-   normalizer (`yin.vm.debruijn-vm-contract-test/normalize`), reused rather
+   Parity fixtures project one named AST and derive this VM's stack image;
+   the register semantic VM loads the AST as the parity oracle. Both use
+   fresh instances every time (D4), and compare under B0's
+   normalizer (`yin.vm.debruijn-code-test/normalize`), reused rather
    than reimplemented."
-  (:require [clojure.edn :as edn]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
+            [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
             [yin.vm :as vm]
             [yin.vm.debruijn-code :as dc]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-vm-contract-test :as b0]
+            [yin.vm.debruijn-code-test :as b0]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
-            [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]
@@ -83,7 +83,7 @@
 ;; this suite is the AST's only producer: the trusted fresh path
 (def ^:private load-ast
   (vm/fresh-code-loader
-    (linearize/ast-loader semantic/vm-load-program)
+    semantic/load-ast
     vm/ast-contract))
 
 
@@ -97,7 +97,7 @@
 
 (defn- debruijn-image
   [ast]
-  (:image (dl/adapt (vm/ast->datoms ast))))
+  (:image (derive/stack-image (:vector (sr-linearize/project ast)))))
 
 
 (defn- debruijn-run

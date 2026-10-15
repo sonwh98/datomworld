@@ -2,7 +2,7 @@
   "`ffi_test.cljc` on the semantic VM: `:ffi-call` parks with the pure-data
    registers after the call and waits for its correlated response in the
    polling wait set. Programs are lowered ASTs, so the call sites exercised are
-   the ones `yin.vm.linearize` emits."
+   the ones `yin.vm.semantic.linearize` emits."
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
@@ -10,7 +10,6 @@
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
-            [yin.vm.linearize :as linearize]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
@@ -24,7 +23,7 @@
 ;; this suite is the AST's only producer: the trusted fresh path
 (def ^:private load-ast
   (vm/fresh-code-loader
-    (linearize/ast-loader semantic/vm-load-program)
+    semantic/load-ast
     vm/ast-contract))
 
 

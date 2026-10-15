@@ -266,7 +266,7 @@
 (def semantic-contract
   "The contract of the linear `:yin.code/*` segment and its canonical
    instruction vector."
-  "v3")
+  "v4")
 
 
 (def stack-contract
@@ -610,76 +610,6 @@
    `:exporting` or `:ended`, read from `:yin.k/gate`."
   [state]
   (:yin.k/gate state))
-
-
-;; Bytecode Opcodes
-;; =============================================================================
-;; Shared instruction set for stack and register bytecode VMs.
-
-(def opcode-table
-  {:literal 1,
-   :load-var 2,
-   :move 3,
-   :lambda 4,
-   :call 5,
-   :return 6,
-   :branch 7,
-   :jump 8,
-   :gensym 9,
-   :store-get 10,
-   :store-put 11,
-   :stream-make 12,
-   :stream-put 13,
-   :stream-cursor 14,
-   :stream-next 15,
-   :stream-close 16,
-   :park 17,
-   :resume 18,
-   :current-cont 19,
-   :tailcall 20,
-   :dao.stream.apply/call 21,
-   :push 22,
-   :halt 23,
-   :define 24})
-
-
-#?(:clj
-   (defmacro opcase
-     "Dispatch on a numeric opcode using keyword mnemonics.
-      Resolved at compile-time to a standard 'case' over integers."
-     [op-expr & clauses]
-     (let [default (when (odd? (count clauses)) (last clauses))
-           paired (if default (butlast clauses) clauses)
-           pairs (partition 2 paired)
-           ;; Keep a local literal map so CLJD macro host compilation
-           ;; does not depend on resolving `opcode-table` as a host
-           ;; symbol.
-           opcodes {:literal 1,
-                    :load-var 2,
-                    :move 3,
-                    :lambda 4,
-                    :call 5,
-                    :return 6,
-                    :branch 7,
-                    :jump 8,
-                    :gensym 9,
-                    :store-get 10,
-                    :store-put 11,
-                    :stream-make 12,
-                    :stream-put 13,
-                    :stream-cursor 14,
-                    :stream-next 15,
-                    :stream-close 16,
-                    :park 17,
-                    :resume 18,
-                    :current-cont 19,
-                    :tailcall 20,
-                    :dao.stream.apply/call 21,
-                    :push 22,
-                    :halt 23,
-                    :define 24}
-           resolved (mapcat (fn [[kw body]] [(get opcodes kw) body]) pairs)]
-       `(case (int ~op-expr) ~@resolved ~@(when default [default])))))
 
 
 (def schema
@@ -1045,7 +975,7 @@
   "The lowest entity id claimed by the segments in a `{segment-id image}`
    code map — each segment id minus its length — or 0 when none is loaded.
    A loader minting a fresh local segment id allocates below this floor
-   (`linearize/ast-loader` for lowered AST batches, `semantic/load-vector`
+   (`semantic/load-ast` for projected AST batches, `semantic/load-vector`
    for canonical instruction vectors), so successive loads never collide
    with a live id."
   [code]
@@ -1139,11 +1069,16 @@
       x')))
 
 
-(defn- same-meta?
-  "True when the `=` values `a` and `b` also carry `=` metadata at every
-   depth, including inside metadata itself (a metadata value, or a metadata
-   map's own metadata, compares through `same-meta?` too). `=` alone ignores
+(defn- same-content?
+  "True when `a` and `b` have equal content, comparing leaves by
+   `dao.jing.cbor/content=`, the encoder's own kind-strict equality, so canonical
+   NaNs are equal and `0.0`/`-0.0` are not,
+   and carry `=` metadata at every depth, including inside metadata itself (a metadata value, or a metadata
+   map's own metadata, compares through `same-content?` too). `=` alone ignores
    metadata.
+
+   NaN map keys and set elements inside data payloads are out of scope
+   and fail closed when lookup misses.
 
    Scope boundary: the set branch assumes ordinary set semantics, at most one
    element per `=`-equivalence class; a set built with a comparator that
@@ -1155,16 +1090,24 @@
    mismatch may throw or may be silently accepted."
   [a b]
   (and (= (meta a) (meta b))
-       (or (nil? (meta a)) (same-meta? (meta a) (meta b)))
-       (cond (map? a) (every? (fn [[k v]]
-                                (let [[k' v'] (find b k)]
-                                  (and (same-meta? k k') (same-meta? v v'))))
-                              a)
-             (set? a) (every? (fn [e]
-                                (same-meta? e (some #(when (= e %) %) b)))
-                              a)
-             (sequential? a) (every? true? (map same-meta? a b))
-             :else true)))
+       (or (nil? (meta a)) (same-content? (meta a) (meta b)))
+       (cond (map? a) (and (map? b)
+                           (= (count a) (count b))
+                           (every? (fn [[k v]]
+                                     (and (contains? b k)
+                                          (let [[k' v'] (find b k)]
+                                            (and (same-content? k k')
+                                                 (same-content? v v')))))
+                                   a))
+             (set? a) (and (set? b)
+                           (= (count a) (count b))
+                           (every? (fn [e]
+                                     (same-content? e (some #(when (= e %) %) b)))
+                                   a))
+             (sequential? a) (and (sequential? b)
+                                  (= (count a) (count b))
+                                  (every? true? (map same-content? a b)))
+             :else (cbor/content= a b))))
 
 
 (defn ast->semantic-bytecode
@@ -1179,13 +1122,14 @@
    commits to its children's ids; structurally identical subtrees mint one
    id and are stored as one row (§4.4).
 
-   Known limitation, inherited from `dao.jing` and not fixed here: the
-   transitional encoder does not hash metadata on scalars, so two payloads
-   differing only in retained symbol metadata (e.g. `^{:meaning 1} x` and
-   `^{:meaning 2} x` as literal values) mint one address. Such a collision
-   throws `\"Semantic bytecode address collision\"` rather than letting one
-   row's metadata silently replace the other's. It disappears when
-   `dao.jing`'s encoding covers scalar metadata."
+   Two nodes that mint one id must have one content: the row is checked
+   against the stored row with `same-content?` (metadata at every depth,
+   leaves by `dao.jing.cbor/content=`), and a mismatch throws
+   \"Semantic bytecode address collision\" rather than letting one row silently
+   replace the other. No known input reaches that throw: the encoder hashes
+   symbol and collection metadata, and makes every NaN one quiet NaN, so two
+   NaN scalars are one row value. The guard is a defence against the encoder
+   and this check disagreeing."
   [ast]
   (let [rows (atom {})]
     (letfn
@@ -1212,7 +1156,7 @@
                row (into [id] body)
                prior (get @rows id)]
            (when (and prior
-                      (not (and (= prior row) (same-meta? prior row))))
+                      (not (same-content? prior row)))
              (throw (ex-info "Semantic bytecode address collision"
                              {:id id, :row row, :prior prior})))
            (swap! rows assoc id row)
@@ -1334,21 +1278,6 @@
   [row]
   (when (and (vector? row) (<= 2 (count row)))
     (nth row 1)))
-
-
-(defn- semantic-bytecode-child-refs
-  "`[[path-suffix child-id] ..]` for every `node`/`nodes` slot of a row
-   whose `tag` and `body` already passed `:arity`, in slot order; a `node`
-   slot's suffix is its slot index, a `nodes` slot's suffix is `[slot-index
-   item-index]` (§2.5)."
-  [tag body]
-  (let [slots (get semantic-bytecode-grammar tag)]
-    (mapcat (fn [i [_ kind] v]
-              (case kind
-                :node [[[i] v]]
-                :nodes (map-indexed (fn [j cid] [[[i j] cid]]) v)
-                nil))
-            (range 1 (inc (count slots))) slots (rest body))))
 
 
 (defn- rows-reserved-defect
@@ -1492,7 +1421,7 @@
                                         slots (safe-slots tag)
                                         body (subvec row 1)]
                                     (some identity
-                                          (map (fn [i [field kind] v]
+                                          (map (fn [i [field _kind] v]
                                                  (when (and (nil? v)
                                                             (contains? semantic-bytecode-defaults [tag field]))
                                                    (defect-res :saturation id [i])))
@@ -1500,7 +1429,7 @@
                                 rows)
         id-resolves-defect (or (when-not (contains? rows root)
                                  {:rule :id-resolves :path []})
-                               (some (fn [[id row]]
+                               (some (fn [[id _row]]
                                        (some (fn [[suffix cid]]
                                                (when-not (contains? rows cid)
                                                  (defect-res :id-resolves id suffix)))
@@ -1514,7 +1443,7 @@
                                    (let [row (get rows id)]
                                      (when row
                                        (let [on-path' (conj on-path id)]
-                                         (some (fn [[suffix cid]]
+                                         (some (fn [[_suffix cid]]
                                                  (check-cycle cid on-path'))
                                                (safe-children id)))))))]
                          (check-cycle root #{}))
@@ -1749,8 +1678,8 @@
    validators give it — and the extraction queries' tag/mnemonic sets are
    table subsets, so over validated rows the lookup is total. The design
    table's tag↔mnemonic correspondence is 1:1 for the effect rows and
-   deliberately lumped for the last (5 tags lower to 9 mnemonics; see
-   `yin.vm.linearize`), so it is not re-stated as a map here. Its \"other
+   deliberately lumped for the structural rows (see
+   `yin.vm.semantic.linearize`), so it is not re-stated as a map here. Its \"other
    requirement\" column is realized by the extraction queries themselves:
    an FFI op goes to the receiver-capability requirement
    (`:yin.k/ffi-ops` — the pair's own store keys are never a store-slice
@@ -1790,7 +1719,7 @@
                 ;; a definition writes the store, machine state, like
                 ;; :store-put; its AST side is an :application
                 :define #{},
-                :const #{}, :var #{}, :closure #{}, :push #{}, :call #{},
+                :const #{}, :var #{}, :closure #{}, :call #{},
                 :return #{}, :jump #{}, :branch-false #{}, :halt #{}}}})
 
 
@@ -1837,28 +1766,6 @@
                                  ?tag)]]})
 
 
-(def ^:private segment-extraction-queries
-  "§7.7 over `$code`, the union of the segment-qualified rows
-   (`yin.vm.code/project-segment-qualified`) of the reachable segments,
-   verbatim from the design. The segment-side free-name query (derive free
-   names from the vector's own scoping) is §7.7's to name but stays
-   unverified there; `free-names` over `$ast`/`$occ` is the shipped
-   extraction."
-  {:store-keys '[:find ?key :in $code
-                 :where (or [$code _ _ :store-get ?key]
-                            [$code _ _ :store-put ?key _]
-                            [$code _ _ :define ?key])],
-   :ffi-ops '[:find ?op :in $code
-              :where [$code _ _ :ffi-call ?op _]],
-   :parked-ids '[:find ?pid :in $code
-                 :where [$code _ _ :resume ?pid]],
-   :effect-raisers '[:find ?mn :in $code
-                     :where [$code _ _ ?mn & _]
-                     [(contains? #{:stream-make :stream-put :stream-cursor
-                                   :stream-next :stream-close :ffi-call}
-                                 ?mn)]]})
-
-
 (defn- requirements
   "The S7.7 syntactic requirement set of one relation under the
    current semantic contract: the three value queries as extracted,
@@ -1884,15 +1791,6 @@
    point remain the walk that consumes this."
   [db]
   (requirements db ast-extraction-queries :tags))
-
-
-(defn segment-requirements
-  "The same over a `$code` relation of segment-qualified rows
-   (`yin.vm.code/project-segment-qualified`). For every tree,
-   `(ast-requirements tree-relation)` and this over its lowered segment's
-   rows are equal in every field — the §7.7.1 conformance obligation."
-  [db]
-  (requirements db segment-extraction-queries :mnemonics))
 
 
 (def ^:private many-attrs #{:yin/operands :yin/args :yin/params})

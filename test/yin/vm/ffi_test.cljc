@@ -1,18 +1,17 @@
 (ns yin.vm.ffi-test
-  (:require [clojure.edn :as edn]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
+            [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-compile :as rc]
+
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.ffi :as ffi]
-            [yin.vm.linearize :as linearize]
             [yin.vm.semantic :as semantic]
-            [yin.vm.semantic-register :as sr]
             [yin.vm.test-utils :as tu]))
 
 
@@ -374,29 +373,25 @@
 ;; =============================================================================
 
 (def ^:private load-semantic
-  (vm/fresh-code-loader (linearize/ast-loader semantic/vm-load-program)
+  (vm/fresh-code-loader semantic/load-ast
                         vm/ast-contract))
 
 
 (def ^:private vm-kinds
   "Each VM kind's run of `ast` on a fresh VM built from `opts`."
-  {:semantic-register (fn [opts ast]
-                        (vm/run (sr/load-ast (sr/create-vm opts) (vm/ast->datoms ast) vm/ast-contract))),
-   :ast-walker (fn [opts ast] (vm/eval (ast-walker/create-vm opts) ast)),
+  {:ast-walker (fn [opts ast] (vm/eval (ast-walker/create-vm opts) ast)),
    :semantic (fn [opts ast]
                (vm/run (load-semantic (semantic/create-vm opts)
                                       (vm/ast->datoms ast)))),
    :debruijn-stack
    (fn [opts ast]
-     (vm/run (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
+     (vm/run (dvm/create-vm (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                             (assoc opts
                                    :contract vm/stack-contract
                                    :primitives vm/primitives)))),
    :debruijn-register
    (fn [opts ast]
-     (vm/run (rvm/create-vm (:image (rc/adapt (second
-                                                (vm/ast->datoms-with-root
-                                                  ast))))
+     (vm/run (rvm/create-vm (derive/register-image (:vector (sr-linearize/project ast)))
                             (assoc opts :contract vm/register-contract))))})
 
 

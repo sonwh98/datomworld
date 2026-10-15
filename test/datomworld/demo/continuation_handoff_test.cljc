@@ -1,12 +1,12 @@
 (ns datomworld.demo.continuation-handoff-test
   "The v2 handoff payload: one key list, one evaluator, and no program medium."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [clojure.edn :as edn]
+            [clojure.test :refer [deftest is testing]]
             [dao.stream.ringbuffer :as ringbuffer]
             [datomworld.demo.continuation-handoff :as handoff]
             [datomworld.demo.continuation-transport :as transport]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.linearize :as linearize]
             [yin.vm.semantic :as semantic]))
 
 
@@ -68,9 +68,9 @@
 
 
 (deftest semantic-continuation-ships-in-band-test
-  (let [code (linearize/lower-ast sum-to-ast)
-        loaded (semantic/vm-load-program (make-semantic-vm) code
-                                         vm/semantic-contract)
+  (let [code (vm/ast->datoms sum-to-ast)
+        loaded (semantic/load-ast (make-semantic-vm) code
+                                  vm/ast-contract)
         mid (nth (iterate vm/step loaded) 60)
         state (transport/enqueue-batch (transport/init-state [:vm-a :vm-b])
                                        {:from :vm-a, :to :vm-b}
@@ -97,9 +97,9 @@
 
 
 (deftest a-continuation-holding-a-host-function-is-refused-test
-  (let [code (linearize/lower-ast {:type :literal, :value 1})
-        vm0 (assoc (semantic/vm-load-program (make-semantic-vm) code
-                                             vm/semantic-contract)
+  (let [code (vm/ast->datoms {:type :literal, :value 1})
+        vm0 (assoc (semantic/load-ast (make-semantic-vm) code
+                                      vm/ast-contract)
                    :env {'f (fn [x] x)})]
     (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object)
           (handoff/continuation-datoms code vm0)))))
@@ -109,15 +109,15 @@
   ;; ((fn [s] (stream/cursor s)) (stream/make 4)): once :stream-make runs, the
   ;; handle lives in the sender's private resources and the registers only
   ;; name it.
-  (let [code (linearize/lower-ast
+  (let [code (vm/ast->datoms
                {:type :application,
                 :operator {:type :lambda,
                            :params ['s],
                            :body {:type :stream/cursor,
                                   :source {:type :variable, :name 's}}},
                 :operands [{:type :stream/make, :buffer 4}]})
-        loaded (semantic/vm-load-program (make-semantic-vm) code
-                                         vm/semantic-contract)
+        loaded (semantic/load-ast (make-semantic-vm) code
+                                  vm/ast-contract)
         made (first (filter #(seq (handoff/resource-keys %))
                             (take-while (complement vm/halted?)
                                         (iterate vm/step loaded))))]
@@ -134,26 +134,26 @@
 
 
 (deftest register-encoding-keeps-data-and-primitives-apart-test
-  (let [code (linearize/lower-ast {:type :literal, :value 1})
+  (let [code (vm/ast->datoms {:type :literal, :value 1})
         plus (vm/primitive-function (get vm/primitives '+))
         tag handoff/tag-key
         env {'marker {tag :primitive, :name '+},
              'quoted {tag :quote, :value {tag :primitive, :name '+}},
              'nested [{:inner {tag :primitive, :name '+}} #{:a} '(1 2)],
              'op plus}
-        sender (assoc (semantic/vm-load-program (make-semantic-vm) code
-                                                vm/semantic-contract)
+        sender (assoc (semantic/load-ast (make-semantic-vm) code
+                                         vm/ast-contract)
                       :env env
-                      :stack [plus {tag :bogus}])
+                      :window {0 plus 1 {tag :bogus}})
         received (handoff/datoms->semantic-vm
                    (handoff/continuation-datoms code sender)
                    make-semantic-vm)]
     (testing "Literal maps that look like tags arrive as the same literal data"
       (is (= (dissoc env 'op) (dissoc (:env received) 'op)))
-      (is (= {tag :bogus} (second (:stack received)))))
+      (is (= {tag :bogus} (get (:window received) 1))))
     (testing "Actual primitive references arrive as the receiver's primitive"
       (is (identical? plus (get-in received [:env 'op])))
-      (is (identical? plus (first (:stack received)))))))
+      (is (identical? plus (get (:window received) 0))))))
 
 
 (deftest one-payload-shape-for-both-endpoints-test
@@ -304,3 +304,20 @@
             [state' message] (transport/consume-k-for state :vm-a)]
         (is (nil? message))
         (is (= (:cursors state) (:cursors state')))))))
+
+
+(deftest semantic-handoff-requires-both-contracts-test
+  (let [code (vm/ast->datoms {:type :literal :value 1})
+        machine (semantic/load-ast (make-semantic-vm) code vm/ast-contract)
+        batch (handoff/continuation-datoms code machine)]
+    (doseq [field [:contract :ast-contract]
+            [stamp rule] [[nil :contract-missing] ["old" :contract-mismatch]]]
+      (let [tampered (mapv (fn [[e a value t m :as datom]]
+                             (if (= handoff/registers-attr a)
+                               [e a (pr-str (assoc (edn/read-string value) field stamp)) t m]
+                               datom)) batch)
+            data (try (handoff/datoms->semantic-vm tampered make-semantic-vm)
+                      nil
+                      (catch #?(:cljd Object :clj Exception :cljs js/Error) ex
+                        (ex-data ex)))]
+        (is (= rule (:rule data)) (str field " " stamp))))))

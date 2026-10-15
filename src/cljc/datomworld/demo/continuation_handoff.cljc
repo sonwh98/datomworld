@@ -63,10 +63,10 @@
 ;; Semantic VM: the continuation is the datoms that travel
 ;; =============================================================================
 ;;
-;; A semantic VM between instructions is a code segment plus five registers —
-;; {:segment :pc :value :stack :env :k} — all plain data (yin.vm.semantic.md
-;; §7). Nothing travels off-stream: the handoff batch is the segment's
-;; `:yin.code/*` datoms followed by one registers datom whose value is EDN
+;; A semantic VM between instructions is a code segment plus register window —
+;; {:segment :pc :value :window :env :k} — all plain data (yin.vm.semantic.md
+;; §7). Nothing travels off-stream: the handoff batch is the AST's
+;; `:yin/*` datoms followed by one registers datom whose value is EDN
 ;; text, so the receiver rebuilds the machine from bytes it read, not from a
 ;; host object it shares with the sender. Definitions the program made
 ;; (symbol-keyed store entries) travel with the registers; primitives,
@@ -177,8 +177,9 @@
 
 (defn semantic-registers
   "The plain-data registers of a shippable semantic VM, stamped with the
-   semantic contract its segment was admitted under. A primitive the
-   program resolved (a `+` pushed before its call) travels by name; any other
+   semantic execution contract and the shipped program's AST contract.
+   A primitive the
+   program resolved (a `+` resolved before its call) travels by name; any other
    host function throws, as does a VM holding stream handles, which would
    arrive as references to nothing."
   [vm-state]
@@ -188,10 +189,11 @@
   (encode-primitives
     (:primitives vm-state)
     {:contract vm/semantic-contract,
+     :ast-contract vm/ast-contract,
      :segment (get-in vm-state [:control :segment]),
      :pc (get-in vm-state [:control :pc]),
      :value (:value vm-state),
-     :stack (:stack vm-state),
+     :window (:window vm-state),
      :env (:env vm-state),
      :k (:k vm-state),
      :id-counter (:id-counter vm-state),
@@ -200,7 +202,7 @@
 
 (defn continuation-datoms
   "The handoff batch for a shippable semantic VM running `code-datoms`: the
-   segment, then one registers datom carrying EDN text."
+   AST datoms, then one registers datom carrying EDN text."
   [code-datoms vm-state]
   (let [registers (semantic-registers vm-state)
         k-eid (dec (reduce min 0 (map first code-datoms)))]
@@ -210,18 +212,20 @@
 
 (defn datoms->semantic-vm
   "Rebuild a semantic VM from a received handoff batch: load the shipped
-   segment through the ordinary loader into `(make-vm)`, then install the
+   AST through the ordinary loader into `(make-vm)`, then install the
    registers read back from EDN."
   [batch make-vm]
-  (let [code (filterv #(= "yin.code" (namespace (nth % 1))) batch)
+  (let [code (filterv #(= "yin" (namespace (nth % 1))) batch)
         registers-datom (some #(when (= registers-attr (nth % 1)) %) batch)
         _ (when-not registers-datom
             (throw (ex-info "Handoff batch carries no registers" {:batch-size (count batch)})))
         base (make-vm)
-        {:keys [contract segment pc value stack env k id-counter defs]}
+        {:keys [contract ast-contract segment pc value window env k id-counter defs]}
         (decode-primitives base (edn/read-string (nth registers-datom 2)))
-        ;; the batch carries its own stamp; the receiver never assigns one
-        loaded (semantic/vm-load-program base code contract)]
+        ;; Both code and execution carry their own stamps: pc is meaningful
+        ;; only under the semantic contract that minted the registers.
+        _ (vm/check-contract! vm/semantic-contract contract)
+        loaded (semantic/load-ast base code ast-contract)]
     (when-not (= segment (:program loaded))
       (throw (ex-info "Handoff registers name a segment the batch does not carry"
                       {:segment segment, :shipped (:program loaded)})))
@@ -229,7 +233,7 @@
         (update :store merge (vm/check-bindings! :store defs))
         (assoc :control {:segment segment, :pc pc}
                :value value
-               :stack stack
+               :window window
                :env env
                :k k
                :id-counter id-counter

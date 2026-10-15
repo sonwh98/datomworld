@@ -9,33 +9,32 @@
    for. Also: kind survives projection and decoding, 1 and 1.0 stay
    distinct, a zero keeps its sign, and the program runs on all four VMs,
    decoded or not."
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.jing :as jing]
-    [dao.jing.cbor :as cbor]
-    [dao.test-slow :as slow]
-    [yang.python.antlr.lower :as lower]
-    [yang.python.antlr.lower-portable-test :refer [packet]]
-    [yang.python.antlr.prelude :as prelude]
-    [yang.python.antlr.render :as render]
-    [yang.python.antlr.safepoint :as hooks]
-    [yang.python.antlr.uast :as u]
-    [yang.safepoint :as safepoint]
-    [yin.vm :as vm]
-    [yin.vm.ast-walker :as walker]
-    [yin.vm.data :as data]
-    [yin.vm.debruijn-linearize :as dl]
-    [yin.vm.debruijn-register-compile :as rc]
-    [yin.vm.debruijn.register :as rvm]
-    [yin.vm.debruijn.stack :as dvm]
-    [yin.vm.encoder :as encoder]
-    [yin.vm.engine :as engine]
-    [yin.vm.integer :as integer]
-    [yin.vm.linearize :as linearize]
-    [yin.vm.module :as module]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.test-utils :as tu]
-    [yin.vm.values :as values]))
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
+            [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
+            [dao.test-slow :as slow]
+            [yang.python.antlr.lower :as lower]
+            [yang.python.antlr.lower-portable-test :refer [packet]]
+            [yang.python.antlr.prelude :as prelude]
+            [yang.python.antlr.render :as render]
+            [yang.python.antlr.safepoint :as hooks]
+            [yang.python.antlr.uast :as u]
+            [yang.safepoint :as safepoint]
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as walker]
+            [yin.vm.data :as data]
+
+            [yin.vm.debruijn.register :as rvm]
+            [yin.vm.debruijn.stack :as dvm]
+            [yin.vm.encoder :as encoder]
+            [yin.vm.engine :as engine]
+            [yin.vm.integer :as integer]
+            [yin.vm.module :as module]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.test-utils :as tu]
+            [yin.vm.values :as values]))
 
 
 ;; =============================================================================
@@ -299,7 +298,7 @@
 
 
 (def ^:private load-semantic-ast
-  (vm/fresh-code-loader (linearize/ast-loader semantic/vm-load-program)
+  (vm/fresh-code-loader semantic/load-ast
                         vm/ast-contract))
 
 
@@ -311,13 +310,13 @@
    :stack (fn [ast]
             (vm/value
               (vm/run (dvm/create-vm
-                        (:image (dl/lower-stack (tu/resolved-of ast)))
+                        (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                         (assoc opts :contract vm/stack-contract))))),
    :register (fn [ast]
                (vm/value
                  (vm/run
                    (rvm/create-vm
-                     (:image (rc/lower-register (tu/resolved-of ast)))
+                     (derive/register-image (:vector (sr-linearize/project ast)))
                      (assoc opts :contract vm/register-contract)))))})
 
 
@@ -539,18 +538,17 @@
                         (walker/vm-load-rows (walker/create-vm o) image
                                              vm/ast-contract))},
    :semantic {:image (fn [ast]
-                       (:vector (linearize/lower-rows
+                       (:vector (sr-linearize/project-rows
                                   (vm/ast->semantic-bytecode ast)))),
               :load (fn [image o]
                       (semantic/load-vector (semantic/create-vm o) image
                                             vm/semantic-contract))},
-   :stack {:image (fn [ast] (:image (dl/adapt (vm/ast->datoms ast)))),
+   :stack {:image (fn [ast] (:image (derive/stack-image (:vector (sr-linearize/project ast))))),
            :load (fn [image o]
                    (dvm/create-vm image
                                   (assoc o :contract vm/stack-contract)))},
    :register {:image (fn [ast]
-                       (:image (rc/adapt (second (vm/ast->datoms-with-root
-                                                   ast))))),
+                       (derive/register-image (:vector (sr-linearize/project ast)))),
               :load (fn [image o]
                       (rvm/create-vm image
                                      (assoc o :contract

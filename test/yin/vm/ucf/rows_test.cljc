@@ -1,9 +1,15 @@
 (ns yin.vm.ucf.rows-test
-  (:require [clojure.test :refer [deftest is]]
+  (:require [clojure.test :refer [deftest is testing]]
+            [dao.stream :as stream]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
+            [dao.jing.cbor-fixtures :as fx]
+            [yang.python.antlr.int-contract-fixtures :as ints]
+            [yin.vm :as vm]
+            [yin.vm.module :as module]
+            [yin.vm.ucf.rows-support :as support]
             [dao.test-slow :as slow]
-            [yin.vm.semantic-register.frame-test :as ft]
+            [yin.vm.semantic.frame-test :as ft]
             [yin.vm.values :as values]
             [yin.vm.engine :as engine]
             [yin.vm.ucf.rows :as rows]))
@@ -350,7 +356,7 @@
 
 
 ;; Discovery-order numbering (design note
-;; yin.vm.semantic-register-vm.cursor-cell-numbering.md §5, items 12 to 21).
+;; yin.vm.semantic.cursor-cell-numbering.md §5, items 12 to 21).
 
 (defn- descriptors
   [kind slots]
@@ -1034,3 +1040,258 @@
         (let [{:keys [numbered refused failures]} (search-states label gen seeds)]
           (is (= [] failures) label)
           (is (= (count seeds) (+ numbered refused)) label))))))
+
+
+(deftest legacy-version-headers-refuse-before-attachment
+  (let [pack (rows/emit (task-node [] [:lit nil]))]
+    (doseq [version [0 1 2]]
+      (let [attached (atom 0)
+            refusal (error #(rows/lower-task
+                              (support/new-machine)
+                              (assoc pack :yin.k/version version)
+                              (fn [_] (swap! attached inc))))]
+        (is (= {:yin.k/status :yin.k/profile-mismatch
+                :yin.k/kind :version :yin.k/path [:yin.k/version]}
+               refusal))
+        (is (zero? @attached))))))
+
+
+(deftest numeric-scalars-round-trip-through-rows
+  (let [payload (reduce (fn [m n] (assoc m n (ints/value n)))
+                        {:floats (mapv cbor/float64
+                                       [0.0 -0.0 ##NaN ##Inf 5e-324
+                                        (ints/float-value "f:2^53")
+                                        (ints/float-value "f:2^63")])
+                         :strings ["plain" "😀"] :true true :none nil}
+                        ints/int-names)
+        ;; Literal :data slots use plain-data?, which accepts float64 but
+        ;; not JS/Dart BigInt carriers. Keep the full JVM literal coverage;
+        ;; the other AST lanes use integers native on every host. The full
+        ;; machine payload still crosses the halted-result path on all hosts.
+        literal-payload #?(:clj payload
+                           :default (select-keys payload
+                                                 [:floats :strings :true :none
+                                                  "0" "1" "-1" "2^31-1" "2^31"
+                                                  "2^31+1" "2^32" "2^53-1" "-2^53+1"]))
+        encoded #(fx/bytes->hex (cbor/encode %))]
+    (doseq [[expected machine]
+            [[payload (assoc (support/halted-machine) :value payload)]
+             [literal-payload (vm/run (support/load-ast (support/new-machine)
+                                                        (support/lit literal-payload)))]]]
+      (let [pack (support/lift machine nil)
+            restored (rows/lower-task (support/new-machine) pack (fn [_] nil))]
+        (is (vm/halted? restored))
+        (is (= (encoded expected) (encoded (vm/value restored))))))
+    (let [fixture (ints/read-file)]
+      (doseq [n ints/int-names]
+        (is (= (ints/column fixture n "cbor") (encoded (ints/value n))) n)))))
+
+
+(def receiver-custody-keys
+  [:yin.k/closes :yin.k/issued :yin.k/gate :yin.k/custody
+   :yin.k/recovery-waits :yin.k/recovery-parked :yin.k/recovery-cell-ids])
+
+
+(defn poison-receiver-custody
+  [m]
+  (assoc m :yin.k/closes [{:stream-id :yin.k/k-9 :yin.k/issue 5}]
+         :yin.k/issued 99 :yin.k/gate :ended :yin.k/custody {:receiver-only true}
+         :yin.k/recovery-waits [{:receiver-only true}]
+         :yin.k/recovery-parked (assoc {} :receiver-only :wrong)
+         :yin.k/recovery-cell-ids (assoc {} :receiver-only :wrong)))
+
+
+(deftest lowering-isolates-task-state-from-a-populated-receiver
+  (doseq [[label source path expected]
+          [[:reader (vm/run (support/load-ast
+                              (support/new-machine)
+                              (support/then
+                                (support/def! 'reader-owned (support/lit 7))
+                                (support/next-of
+                                  (support/cursor-of {:type :stream/make :buffer 4})))))
+            [] "B"]
+           [:install-child (support/parked-installer) [:installs 'host.mod :vm] 42]]]
+    (testing (name label)
+      (let [pack (support/lift source nil)
+            ;; Share attached handles so install records can be compared
+            ;; directly, including the child's entire VM. No constructor
+            ;; runs during either lower; the task's streams are attached.
+            handles (atom {})
+            attach! (fn [descriptor]
+                      (let [id (:dao.stream/identity descriptor)
+                            h (or (get @handles id)
+                                  (let [h (support/one-slot-stream id)]
+                                    (swap! handles assoc id h)
+                                    h))]
+                        {:dao.stream/outcome :dao.stream/ok :dao.stream/handle h}))
+            fresh (update (support/receiver {:make-stream nil :attach-stream attach!})
+                          :modules module/assoc-module 'receiver.mod
+                          {:manifest {:yin.module/name 'receiver.mod} :address :receiver-only})
+            receiver-stream (support/one-slot-stream "receiver-only")
+            ;; A fixed composition key is already reserved by lower-task,
+            ;; so adding it does not rename the task's fresh keys. This
+            ;; permits exact equality of all seven fields, without masking
+            ;; differences behind a relift or a normalization of VM state.
+            resource-key vm/call-in-stream-key
+            populated (assoc (poison-receiver-custody
+                               (support/load-ast fresh (support/lit :receiver-only)))
+                             :store (assoc {} 'receiver-only :wrong)
+                             :module-stores (assoc {} 'receiver.mod (assoc {} 'x :wrong))
+                             :parked (assoc {} :receiver-only {:type :parked-continuation})
+                             :installs (assoc {} 'receiver.mod {:phase :running})
+                             :wait-set [{:reason :next :receiver-only true}]
+                             :ready-queue [{:receiver-only true}]
+                             :resources (assoc {} resource-key receiver-stream))
+            clean (rows/lower-task fresh pack attach!)
+            restored (rows/lower-task populated pack attach!)
+            fields [:code :store :module-stores :parked :installs :wait-set :ready-queue]
+            clean-task (get-in clean path)
+            restored-task (get-in restored path)
+            stream-key (:stream-id (first (:wait-set restored-task)))
+            cursor-key (get-in restored-task [:wait-set 0 :cursor-ref :id])
+            ;; Also occupy the exact key the clean task would use. This
+            ;; lower must allocate different keys, rather than overwrite
+            ;; or reuse the receiver's stream (including its cursor key).
+            collision-receiver (assoc populated :resources (assoc {} stream-key receiver-stream))
+            collision (when (= :reader label)
+                        (rows/lower-task collision-receiver pack attach!))
+            collision-task (get-in collision path)
+            collision-stream-key (:stream-id (first (:wait-set collision-task)))
+            collision-cursor-key (get-in collision-task [:wait-set 0 :cursor-ref :id])]
+        (doseq [k receiver-custody-keys]
+          (is (contains? populated k) (str k " is poisoned"))
+          (is (not (contains? restored k)) (str k " is receiver-local"))
+          (is (not (contains? restored-task k)) (str k " is absent in the install child too")))
+        (is (= (select-keys clean receiver-custody-keys)
+               (select-keys restored receiver-custody-keys)))
+        (is (some? (module/resolve-module (:modules restored) 'receiver.mod))
+            "the composition's registry is the receiver's")
+        (is (seq (:code populated)) "the receiver already owns code")
+        (doseq [field fields]
+          (is (not= (get populated field) (get clean field))
+              (str field " has receiver-only state to discard"))
+          (is (= (get clean field) (get restored field))
+              (str field " equals a fresh receiver's lower"))
+          (is (= (get clean-task field) (get restored-task field))
+              (str field " is isolated in the resumed task, including an install child")))
+        (is (not (contains? (:store restored) 'receiver-only)))
+        (is (not (contains? (:module-stores restored) 'receiver.mod)))
+        (is (not (contains? (:parked restored) :receiver-only)))
+        (is (not (contains? (:installs restored) 'receiver.mod)))
+        (is (not-any? :receiver-only (:wait-set restored)))
+        (is (= receiver-stream (get (:resources restored) resource-key))
+            "resource merging retains the receiver's composition stream")
+        (is (not (contains? (:resources populated) stream-key)))
+        (is (not (contains? (:resources populated) cursor-key)))
+        (is (contains? (:resources restored-task) stream-key))
+        (is (contains? (:resources restored-task) cursor-key))
+        (when collision
+          (is (= receiver-stream (get (:resources collision) stream-key)))
+          (is (not (contains? (:resources collision-receiver) collision-stream-key)))
+          (is (not (contains? (:resources collision-receiver) collision-cursor-key))))
+        (is (= (:stream-id (first (:wait-set clean-task))) stream-key))
+        (is (= :next (:reason (first (:wait-set restored-task)))))
+        (is (empty? (:ready-queue restored-task)))
+        (doseq [m (cond-> [clean restored] collision (conj collision))]
+          (let [task (get-in m path)
+                _ (is (= :dao.stream/ok
+                         (:dao.stream/outcome
+                           (stream/append! (support/stream-of task) "B"))))
+                done (vm/run (vm/run m))]
+            (is (vm/halted? done))
+            (is (= expected (vm/value done))
+                "the source read resumes to the same value in every receiver")))))))
+
+
+(deftest exclusive-and-fenced-lowers-own-their-custody-state
+  (let [wire (support/lift (support/parked-reader) (support/header 0 nil #{}))
+        c (nth (:slots (rows/decode wire)) 16)
+        occurrence (:yin.k/occurrence c)
+        prefix {:yin.k/occurrence occurrence :dao.lease/lease "lease-1"
+                :yin.k/frontier 0 :yin.k/inputs []}
+        ;; Same grant construction as rows-custody-test, through public APIs.
+        grant {:checkpoint (rows/pack-address wire)
+               :dao.lease/lease "lease-1" :dao.lease/holder "holder-a"
+               :tenure {:live true :now 0 :bound 10}
+               :evidence {:yin.k/status :yin.k/ready
+                          :yin.k/binding {:yin.k/occurrence occurrence :dao.lease/lease "lease-1"
+                                          :dao.lease/holder "holder-a" :yin.k/epoch 0
+                                          :yin.k/transaction {:yin.k/arbitration
+                                                              (get-in c [:yin.k/arbitration :dao.stream/identity])}}
+                          :yin.k/prefix prefix :yin.k/enrolled #{}}}
+        identities (into #{} (keep (fn [r] (when (= :stream (second r)) (nth r 2))))
+                         (:yin.k/rows wire))
+        opts {:grant grant :protection (into {} (map (fn [id] [id :at-least-once])) identities)}
+        fresh (support/receiver {:make-stream nil})
+        populated (poison-receiver-custody fresh)
+        {:keys [attach!]} (support/attacher)
+        m (rows/lower-task populated wire attach! opts)]
+    (is (empty? (:yin.k/closes m)))
+    (is (not (contains? m :yin.k/closes)))
+    (is (= 0 (:yin.k/issued m)))
+    (is (= :running (:yin.k/gate m)))
+    (is (= {:yin.k/occurrence occurrence :dao.lease/lease "lease-1" :dao.lease/holder "holder-a"
+            :yin.k/epoch 0 :yin.k/arbitration support/arbitration :yin.k/next-op-seq 0
+            :protection (:protection opts) :input {:next 0 :prefix prefix} :tenure {:bound 10}}
+           (:yin.k/custody m)))
+    (doseq [k [:yin.k/recovery-waits :yin.k/recovery-parked :yin.k/recovery-cell-ids]]
+      (is (not (contains? m k))))
+    (testing "fenced restoration owns recovery data throughout an install tree"
+      (let [pack (support/lift (support/parked-installer) nil)
+            handles (atom {})
+            attach! (fn [d]
+                      (let [id (:dao.stream/identity d)
+                            h (or (get @handles id) (support/one-slot-stream id))]
+                        (swap! handles assoc id h)
+                        {:dao.stream/outcome :dao.stream/ok :dao.stream/handle h}))
+            clean (rows/lower-task fresh pack attach! {:fenced true})
+            restored (rows/lower-task populated pack attach! {:fenced true})]
+        (doseq [path [[] [:installs 'host.mod :vm]]]
+          (let [task (get-in restored path)]
+            (is (= (select-keys (get-in clean path) receiver-custody-keys)
+                   (select-keys task receiver-custody-keys)))
+            (is (= :exporting (:yin.k/gate task)))
+            (is (not (contains? task :yin.k/closes)))
+            (is (not (contains? task :yin.k/custody)))
+            (is (seq (:yin.k/recovery-waits task)))
+            (is (map? (:yin.k/recovery-parked task)))
+            (is (map? (:yin.k/recovery-cell-ids task)))
+            (is (empty? (:wait-set task)))
+            (is (empty? (:parked task)))))))))
+
+
+(deftest result-only-values-complete-the-census
+  (doseq [[f expected] [[(fn [a _b] [a a]) 1]
+                        [(fn [a b] [a b]) 2]]]
+    (let [pack (support/lift (support/halted-with-cursors f) nil)
+          {:keys [attach! count]} (support/attacher)
+          recv (rows/lower-task (support/new-machine) pack attach!)
+          [a b] (vm/value recv)]
+      (is (= expected @count))
+      (is (= expected (clojure.core/count (filter #(= :cursor-cell-body (second %)) (:yin.k/rows pack)))))
+      (is (= (= 1 expected) (= a b)))))
+  (doseq [m [(vm/run (support/load-ast (support/new-machine)
+                                       (support/lam [] (support/lit 1))))
+             (support/halted-result-closure)]]
+    (let [pack (support/lift m nil)
+          {:keys [attach! count]} (support/attacher)
+          recv (rows/lower-task (support/new-machine) pack attach!)]
+      (is (values/closure? (vm/value recv)))
+      (is (seq (:code recv)) "the result-only closure carries its code")
+      (when (seq (:module-stores m))
+        (is (= 2 @count))
+        (is (= #{'c 'd} (set (keys (get-in recv [:module-stores 'host.mod])))))))))
+
+
+(deftest nan-valued-row-slots-are-canonical
+  (let [base (task-node [] [:lit nil])
+        bindings (rows/node :task (assoc (:slots base) 5
+                                         (rows/node :bindings ['x [:lit (* 1.0 ##NaN)]])))
+        body (cursor-cell-body :s 0)]
+    (doseq [task [bindings
+                  (task-node [[:x body]] [:row (rows/node :set [[:lit ##NaN] [:cursor-cell :x]])])
+                  (task-node [[:x body]] [:row (rows/node :map [[:lit :n] [:lit ##NaN]
+                                                                [:lit :c] [:cursor-cell :x]])])]]
+      (let [wire (rows/emit task)]
+        (is (nil? (error #(rows/decode wire))))
+        (is (= (:yin.k/root wire) (:yin.k/root (rows/emit (rows/decode wire)))))))))

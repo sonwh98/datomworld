@@ -3,15 +3,14 @@
    call/cc): abortive, multi-shot, store not rolled back, one argument. Each
    program runs on all four VMs -- the AST walker, the semantic VM, and the
    de Bruijn stack and register VMs -- with the same expectation."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-compile :as rc]
+
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
-            [yin.vm.linearize :as linearize]
             [yin.vm.semantic :as semantic]
-            [yin.vm.semantic-register :as sr]
             [yin.vm.test-utils :as tu]))
 
 
@@ -26,34 +25,25 @@
 
 
 (def ^:private load-semantic-ast
-  (vm/fresh-code-loader (linearize/ast-loader semantic/vm-load-program)
+  (vm/fresh-code-loader semantic/load-ast
                         vm/ast-contract))
 
 
 (def ^:private runners
-  {:semantic-register (fn [ast]
-                        (loop [machine (sr/load-ast (sr/create-vm opts) (vm/ast->datoms ast) vm/ast-contract)
-                               steps 0]
-                          (cond
-                            (vm/halted? machine) (vm/value machine)
-                            (vm/blocked? machine) (throw (ex-info "Register continuation test blocked" {}))
-                            (= steps 10000) (throw (ex-info "Register continuation step bound exhausted" {}))
-                            :else (recur (vm/step machine) (inc steps))))),
-   :ast-walker tu/compile-and-run,
+  {:ast-walker tu/compile-and-run,
    :semantic (fn [ast]
                (vm/value (vm/run (load-semantic-ast (semantic/create-vm opts)
                                                     (vm/ast->datoms ast)))))
    :stack (fn [ast]
             (vm/value
-              (vm/run (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
+              (vm/run (dvm/create-vm (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                                      (assoc opts
                                             :contract vm/stack-contract)))))
    :register (fn [ast]
                (vm/value
                  (vm/run
                    (rvm/create-vm
-                     (:image (rc/adapt
-                               (second (vm/ast->datoms-with-root ast))))
+                     (derive/register-image (:vector (sr-linearize/project ast)))
                      (assoc opts :contract vm/register-contract)))))})
 
 

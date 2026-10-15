@@ -5,13 +5,12 @@
   (:require [dao.jing :as jing]
             [dao.space.query :as query]
             [yin.vm :as vm]
-            [yin.vm.code :as code]
+            [yin.vm.semantic.code :as code]
             [yin.vm.debruijn-code :as dcode]
-            [yin.vm.debruijn-linearize :as dl]
             [yin.vm.debruijn-register-code :as rcode]
-            [yin.vm.debruijn-register-compile :as rc]
+            [yin.vm.semantic.derive :as derive]
             [yin.vm.ledger :as ledger]
-            [yin.vm.linearize :as linearize]
+            [yin.vm.semantic.linearize :as linearize]
             [yin.vm.linker :as linker]
             [yin.vm.linker.closure :as closure]
             [yin.vm.linker.requirements :as requirements]
@@ -155,18 +154,18 @@
 
       :else
       (let [tree-address (vm/materialize-tree! handle tree)
-            sem-vector (:vector (linearize/lower-rows tree))
+            sem-vector (:vector (linearize/project-rows tree))
             sem (code/materialize-vector! handle sem-vector)
-            h-image (:image (dl/adapt (vm/ast->datoms ast)))
-            r-image (:image (rc/adapt (second (vm/ast->datoms-with-root ast))))
+            h-image (:image (derive/stack-image sem-vector))
+            r-image (derive/register-image sem-vector)
             h (dcode/image-hash h-image)
             r (rcode/register-hash r-image)
             h-address (jing/materialize! handle h-image)
             r-address (jing/materialize! handle r-image)
-            mint (fn [output profile]
+            mint (fn [input output profile]
                    (jing/materialize!
                      handle
-                     (assoc (ledger/derive-record tree-address output)
+                     (assoc (ledger/derive-record input output)
                             :yin.ledger/profile profile)))
             manifest {:yin.module/name name
                       :yin.module/schema linker/manifest-schema
@@ -177,12 +176,13 @@
                        :yin.debruijn.register vm/register-contract}
                       :yin.module/tree tree-address
                       :yin.module/derivations
-                      {:yin.semantic/code (mint sem ledger/lowering-profile)
+                      {:yin.semantic/code (mint tree-address sem ledger/lowering-profile)
                        :yin.debruijn.code
-                       (mint h linker/stack-lowering-profile)
+                       (mint sem h linker/stack-lowering-profile)
                        :yin.debruijn.register
-                       (mint r linker/register-lowering-profile)}
-                      :yin.module/index {h h-address r r-address}
+                       (mint sem r linker/register-lowering-profile)}
+                      :yin.module/index {:yin.debruijn.code h-address
+                                         :yin.debruijn.register r-address}
                       :yin.module/exports (set exports)
                       :yin.module/requires (or requires {})
                       :yin.module/primitives
@@ -203,8 +203,9 @@
                             code-formats)]
             {:address address :manifest manifest
              :identities {:yin.semantic/code sem
-                          :yin.debruijn.code h
-                          :yin.debruijn.register r}
+                          :yin.debruijn.code sem
+                          :yin.debruijn.register sem}
+             :checksums {:yin.debruijn.code h :yin.debruijn.register r}
              :links links}))))))
 
 

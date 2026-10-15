@@ -2,18 +2,18 @@
   "D4: the gate on the engine's immediate stream effects (put, next, poll)
    and the observe/apply split. Counting handles show that a gated machine
    makes zero stream calls."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-compile :as rc]
+
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
-            [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
@@ -411,7 +411,7 @@
 
 
 (def ^:private load-semantic
-  (vm/fresh-code-loader (linearize/ast-loader semantic/vm-load-program)
+  (vm/fresh-code-loader semantic/load-ast
                         vm/ast-contract))
 
 
@@ -429,16 +429,14 @@
                          gate (assoc :yin.k/gate gate)))),
    :debruijn-stack
    (fn [opts gate ast]
-     (vm/run (cond-> (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
+     (vm/run (cond-> (dvm/create-vm (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                                     (assoc opts
                                            :contract vm/stack-contract
                                            :primitives vm/primitives))
                gate (assoc :yin.k/gate gate)))),
    :debruijn-register
    (fn [opts gate ast]
-     (vm/run (cond-> (rvm/create-vm (:image (rc/adapt (second
-                                                        (vm/ast->datoms-with-root
-                                                          ast))))
+     (vm/run (cond-> (rvm/create-vm (derive/register-image (:vector (sr-linearize/project ast)))
                                     (assoc opts
                                            :contract vm/register-contract))
                gate (assoc :yin.k/gate gate))))})
@@ -829,7 +827,7 @@
    (deftest created-install-child-carries-the-mode-test
      (let [start (deref (var engine/start-install))
            calls (atom 0)
-           image (:vector (linearize/lower-rows
+           image (:vector (sr-linearize/project-rows
                             (vm/ast->semantic-bytecode (lit 1))))
            root (semantic/create-vm (kernel-opts calls))]
        (doseq [mode [nil :running :exporting :ended]]

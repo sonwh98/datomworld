@@ -10,7 +10,7 @@
    `[:current-continuation]`, `[:park]`, `[:resume parked-id]`,
    `[:ffi-call op argc]`, `[:define name]` (Rule R's definition
    transition) -- whose shapes come from
-   `yin.vm.code/vector-operand-table` and section 2 of the design doc.
+   `yin.vm.debruijn-code/opcode-table` and section 2 of the design doc.
 
    B3 implemented the pure kernel: frames, closures, loads, calls, returns,
    branches, `:const`, and the store operations. B4 puts this machine on
@@ -42,7 +42,7 @@
 
    Every program used in this namespace's own tests is a hand-built
    instruction vector, the same technique B1's standalone validator tests
-   use; B2 (`yin.vm.debruijn-linearize`) produces real images against this
+   use; `yin.vm.semantic.derive/stack-image` produces images against this
    kernel from its own test namespace. This namespace requires
    `yin.vm.debruijn-code` for one thing only: computing H at load time.
 
@@ -716,17 +716,9 @@
                                        :body-pc body-pc, :frames frames}
                                 store-of (assoc :store-of store-of))))))
 
-      ;; The named VM (semantic.cljc) keeps a separate `val` accumulator
-      ;; distinct from its operand stack `St`, so `:push` there commits
-      ;; `val` onto `St` (St <- St ++ [val]). This machine has no such
-      ;; split: every value-producing case already conjes its result
-      ;; straight onto `:stack`. By the time control reaches a `:push`,
-      ;; the value it would push is already there -- so here it is a no-op
-      ;; that only advances `pc`. Every value-producing opcode below
-      ;; (:stream-*, :gensym, :current-continuation, :resume, and the
-      ;; restore after :ffi-call) honours this, or a `:push` immediately
-      ;; after it would silently drop the value -- there is no `val`
-      ;; register to recover it from.
+      ;; Every value-producing opcode puts its result directly onto :stack.
+      ;; The retained :push instruction therefore only advances pc: its value
+      ;; is already present, with no separate accumulator to copy from.
       :push
       (assoc vm :pc (inc pc))
 
@@ -919,7 +911,7 @@
   (run [this] (ffi/maybe-run this run-scheduler))
   (eval [_ ast]
     (throw (ex-info
-             "The de Bruijn kernel executes raw instruction vectors, not AST: lower and adapt it first (yin.vm.debruijn-linearize/adapt), then load and run the resulting image"
+             "The de Bruijn kernel executes raw instruction vectors, not AST: lower and adapt it first (yin.vm.semantic.derive/stack-image over the projected semantic vector), then load and run the resulting image"
              {:ast ast})))
   (reset [this]
     (assoc this

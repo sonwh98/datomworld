@@ -14,7 +14,6 @@
             [dao.stream :as stream]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.linearize :as linearize]
             [yin.vm.semantic :as semantic]
             [yin.vm.telemetry :as telemetry]
             [yin.vm.test-utils :as tu]))
@@ -136,11 +135,11 @@
                                           :capability-secret tu/secret}
                                          opts)))
     :load (fn [vm ast]
-            ((linearize/ast-loader semantic/vm-load-program)
-             vm (vm/ast->datoms ast) vm/ast-contract))
+            (semantic/load-ast
+              vm (vm/ast->datoms ast) vm/ast-contract))
     :run (fn [vm ast]
-           (vm/run ((linearize/ast-loader semantic/vm-load-program)
-                    vm (vm/ast->datoms ast) vm/ast-contract)))}})
+           (vm/run (semantic/load-ast
+                     vm (vm/ast->datoms ast) vm/ast-contract)))}})
 
 
 (def ^:private tiny-ast {:type :literal, :value 42})
@@ -316,9 +315,9 @@
         done (-> (semantic/create-vm {:make-stream tu/make-stream,
                                       :capability-secret tu/secret
                                       :telemetry {:stream sink}})
-                 ((linearize/ast-loader semantic/vm-load-program)
-                  (vm/ast->datoms tiny-ast)
-                  vm/ast-contract)
+                 (semantic/load-ast
+                   (vm/ast->datoms tiny-ast)
+                   vm/ast-contract)
                  step-to-halt
                  vm/run)
         phases (phase-seq (tu/drain sink))]

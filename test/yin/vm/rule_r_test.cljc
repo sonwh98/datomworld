@@ -11,24 +11,22 @@
    datoms and vectors, stack, register), at transition time on raw walker
    control, and at construction; the four backends agree on the stores a
    definition program writes."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
             [dao.space.query :as query]
             [dao.stream :as stream]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.code :as code]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-compile :as rc]
+            [yin.vm.semantic.code :as code]
+
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
-            [yin.vm.linearize :as linearize]
             [yin.vm.macro :as m]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
-            [yin.vm.semantic-register :as sr]
-            [yin.vm.test-utils :as tu]
-            [yin.vm.ucf :as ucf]))
+            [yin.vm.test-utils :as tu]))
 
 
 ;; =============================================================================
@@ -82,24 +80,6 @@
   (:rule (refusal thunk)))
 
 
-(defn- segment-batch
-  "A `:yin.code/*` segment batch whose instructions are `tuples`, positional
-   operands named by `code/vector-operand-table` (no `:pc` operands)."
-  [tuples]
-  (into [[-1 :yin.code/type :segment 0 0]
-         [-1 :yin.code/length (count tuples) 0 0]]
-        (mapcat (fn [pc t]
-                  (let [e (- -2 pc)]
-                    (into [[e :yin.code/segment -1 0 0]
-                           [e :yin.code/pc pc 0 0]
-                           [e :yin.code/op (nth t 0) 0 0]]
-                          (map (fn [[attr _] x] [e attr x 0 0])
-                               (get code/vector-operand-table (nth t 0))
-                               (rest t)))))
-                (range)
-                tuples)))
-
-
 (defn- register-image
   [n instructions]
   {:bodies [{:locals 0, :registers n, :start 0,
@@ -114,16 +94,16 @@
 
 (defn- semantic-run
   [ast]
-  (vm/run (semantic/vm-load-program
+  (vm/run (semantic/load-ast
             (semantic/create-vm {:make-stream tu/make-stream,
                                  :capability-secret tu/secret})
-            (linearize/lower-ast ast)
-            vm/semantic-contract)))
+            (vm/ast->datoms ast)
+            vm/ast-contract)))
 
 
 (defn- stack-run
   [ast]
-  (vm/run (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
+  (vm/run (dvm/create-vm (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                          {:primitives vm/primitives,
                           :make-stream tu/make-stream,
                           :capability-secret tu/secret
@@ -132,7 +112,7 @@
 
 (defn- register-run
   [ast]
-  (vm/run (rvm/create-vm (:image (rc/adapt (vm/ast->datoms ast)))
+  (vm/run (rvm/create-vm (derive/register-image (:vector (sr-linearize/project ast)))
                          {:primitives vm/primitives,
                           :make-stream tu/make-stream,
                           :capability-secret tu/secret
@@ -140,10 +120,7 @@
 
 
 (def ^:private backends
-  {:semantic-register (fn [ast]
-                        (vm/run (sr/load-ast (sr/create-vm {:make-stream tu/make-stream :capability-secret tu/secret})
-                                             (vm/ast->datoms ast) vm/ast-contract))),
-   :ast-walker walker-run,
+  {:ast-walker walker-run,
    :semantic semantic-run,
    :stack stack-run,
    :register register-run})
@@ -224,7 +201,7 @@
 
 
 (deftest a-parked-read-in-a-definition-resumes-and-writes
-  (doseq [[backend run] (select-keys backends [:ast-walker :semantic :semantic-register])]
+  (doseq [[backend run] (select-keys backends [:ast-walker :semantic])]
     (testing (name backend)
       (let [blocked (run parked-definition)
             handle (get (:resources blocked) :stream-0)]
@@ -268,11 +245,11 @@
                          (tu/create-vm) (vm/ast->semantic-bytecode ast)
                          vm/ast-contract)))
           "the row loader's S7.4 validation includes Rule R")
-      (is (= :reserved-name (rule-of #(linearize/lower-ast ast)))
+      (is (= :reserved-name (rule-of #(sr-linearize/project-datoms (vm/ast->datoms ast))))
           "the datom lane lowerer refuses")
       (is (= :reserved-name
-             (rule-of #(dl/adapt (vm/ast->datoms ast))))
-          "the de Bruijn resolver refuses"))))
+             (rule-of #(derive/stack-image (:vector (sr-linearize/project ast)))))
+          "the semantic projection refuses before deriving the stack image"))))
 
 
 (deftest a-shared-row-is-judged-at-every-occurrence
@@ -285,33 +262,28 @@
 
 
 (deftest reserved-operands-are-refused-by-the-semantic-loaders
-  (doseq [[label v] {"a :var" [[:var 'yin/def] [:halt]],
-                     "the old call shape" [[:var 'yin/def] [:push]
-                                           [:const 'x] [:push]
-                                           [:const 1] [:push]
-                                           [:call 2 false] [:halt]],
-                     "a :define key" [[:const 1] [:define 'yin/def] [:halt]],
-                     "a binder" [[:closure '[yin/def] 2] [:halt]
-                                 [:const 1] [:return]],
-                     "a store-get key" [[:store-get 'yin/def] [:halt]],
-                     "a store-put key" [[:store-put 'yin/def 1] [:halt]]}]
+  (doseq [[label v] {"a :var" [[:var 0 'yin/def] [:halt 0]],
+                     "the old call shape" [[:var 1 'yin/def] [:const 2 'x]
+                                           [:const 3 1] [:call 0 1 [2 3] false] [:halt 0]],
+                     "a :define key" [[:const 1 1] [:define 0 'yin/def 1] [:halt 0]],
+                     "a binder" [[:closure 0 '[yin/def] 2] [:halt 0]
+                                 [:const 0 1] [:return 0]],
+                     "a store-get key" [[:store-get 0 'yin/def] [:halt 0]],
+                     "a store-put key" [[:store-put 0 'yin/def 1] [:halt 0]]}]
     (testing label
-      (is (= :reserved-name (:rule (code/well-formed-vector? v))))
+      (is (= :reserved-name (:rule (code/well-formed? v))))
       (is (= :reserved-name
              (rule-of #(semantic/load-vector (semantic/create-vm) v
                                              vm/semantic-contract)))
           "the vector loader")))
-  (doseq [[label tuples] {"a :var" [[:var 'yin/def] [:halt]],
-                          "a :define key" [[:const 1] [:define 'yin/def]
-                                           [:halt]],
-                          "a store-put key" [[:store-put 'yin/def 1]
-                                             [:halt]]}]
+  (doseq [[label ast] {"a :var" (v 'yin/def),
+                       "a :define key" (def! 'yin/def (lit 1)),
+                       "a store-put key" {:type :vm/store-put :key 'yin/def :val 1}}]
     (testing (str label " (datom loader)")
       (is (= :reserved-name
-             (rule-of #(semantic/vm-load-program
-                         (semantic/create-vm)
-                         (segment-batch tuples)
-                         vm/semantic-contract)))))))
+             (rule-of #(semantic/load-ast (semantic/create-vm)
+                                          (vm/ast->datoms ast)
+                                          vm/ast-contract)))))))
 
 
 (deftest reserved-operands-are-refused-by-the-stack-loader
@@ -538,18 +510,17 @@
   (let [ast (app (v '+) (lit 1) (lit 2))
         datoms (vm/ast->datoms ast)
         rows (vm/ast->semantic-bytecode ast)
-        batch (linearize/lower-ast ast)
-        v1 (:vector (linearize/lower-rows rows))
-        stack-image (:image (dl/adapt datoms))
-        register-image* (:image (rc/adapt datoms))
+        v1 (:vector (sr-linearize/project-rows rows))
+        stack-image (:image (derive/stack-image (:vector (sr-linearize/project ast))))
+        register-image* (derive/register-image (:vector (sr-linearize/project ast)))
         loaders
         {"walker datoms" [#(ast-walker/vm-load-program (tu/create-vm)
                                                        datoms %)
                           "v2"],
          "walker rows" [#(ast-walker/vm-load-rows (tu/create-vm) rows %)
                         "v2"],
-         "semantic datoms" [#(semantic/vm-load-program (semantic/create-vm)
-                                                       batch %)
+         "semantic datoms" [#(semantic/load-ast (semantic/create-vm)
+                                                datoms %)
                             "v2"],
          "semantic vector" [#(semantic/load-vector (semantic/create-vm) v1 %)
                             "v2"],
@@ -568,9 +539,10 @@
           (is (= :contract-mismatch (:rule d))
               "an old-stamped image with no definition fails by stamp")
           (is (= old (:actual d))))))
+    ;; Phase 8c makes the semantic register vector v4 the execution identity A.
     (is (= [vm/ast-contract vm/semantic-contract vm/stack-contract
             vm/register-contract]
-           ["v3" "v3" "b2" "r2"]))
+           ["v3" "v4" "b2" "r2"]))
     (testing "vm/eval supplies the current stamp itself"
       (is (= 3 (vm/value (vm/eval (tu/create-vm) ast)))))))
 
@@ -581,8 +553,11 @@
     (let [ast (app (v '+) (lit 1) (lit 2))
           datoms (vm/ast->datoms ast)
           rows (vm/ast->semantic-bytecode ast)
-          load-ast (linearize/ast-loader semantic/vm-load-program)
-          load-rows (linearize/rows-loader semantic/load-vector)
+          load-ast semantic/load-ast
+          load-rows (fn [machine rows stamp]
+                      (vm/check-contract! vm/ast-contract stamp)
+                      (semantic/load-vector machine (:vector (sr-linearize/project-rows rows))
+                                            vm/semantic-contract))
           adapters {"ast-loader" #(load-ast (semantic/create-vm) datoms %)
                     "rows-loader" #(load-rows (semantic/create-vm) rows %)}]
       (doseq [[label load] adapters]
@@ -597,20 +572,11 @@
               "a current-stamped input lowers, loads, and runs")))))
   (testing "the explicitly trusted fresh-producer path supplies the stamp"
     (let [load (vm/fresh-code-loader
-                 (linearize/ast-loader semantic/vm-load-program)
+                 semantic/load-ast
                  vm/ast-contract)]
       (is (= 3 (vm/value (vm/run (load (semantic/create-vm)
                                        (vm/ast->datoms
                                          (app (v '+) (lit 1) (lit 2)))))))))))
-
-
-(deftest canonicalize-verifies-the-batch-stamp
-  (let [batch (segment-batch [[:const 1] [:halt]])]
-    (is (= :contract-missing (rule-of #(ucf/canonicalize batch nil))))
-    (is (= :contract-mismatch (rule-of #(ucf/canonicalize batch "v2"))))
-    (is (= {:yin.code/contract "v3", :yin.k/version 0}
-           (:yin.k/contract (ucf/canonicalize batch vm/semantic-contract)))
-        "the stamp on the outcome is the one verified, never assigned")))
 
 
 ;; =============================================================================

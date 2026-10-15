@@ -4,14 +4,14 @@
    keys it carries, and a profiled callee's effect is checked against its
    declared effect set. Each program runs on all four VMs -- the AST walker,
    the semantic VM, and the de Bruijn stack and register VMs."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-compile :as rc]
+
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.effect :as effect]
-            [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
@@ -28,7 +28,7 @@
 
 
 (def ^:private load-semantic-ast
-  (vm/fresh-code-loader (linearize/ast-loader semantic/vm-load-program)
+  (vm/fresh-code-loader semantic/load-ast
                         vm/ast-contract))
 
 
@@ -41,13 +41,11 @@
                                           (vm/ast->datoms ast)))),
    :stack (fn [opts ast prep]
             (vm/run (prep (dvm/create-vm
-                            (:image (dl/adapt (vm/ast->datoms ast)))
+                            (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                             (assoc opts :contract vm/stack-contract))))),
    :register (fn [opts ast prep]
                (vm/run (prep (rvm/create-vm
-                               (:image (rc/adapt (second
-                                                   (vm/ast->datoms-with-root
-                                                     ast))))
+                               (derive/register-image (:vector (sr-linearize/project ast)))
                                (assoc opts
                                       :contract vm/register-contract)))))})
 

@@ -26,7 +26,7 @@ sections 4 and 5, and the ledger of `yin.vm.ledger`.
 Amended 2026-10-11 under the unitarity invariant of `datom.world.md`
 (the AST is retrievable wherever code is lowered), on the
 codex-reviewed amendment texts of
-`yin.vm.semantic-register-vm.derivations.md` §9.2: the §3 amendment
+`yin.vm.semantic.derivations.md` §9.2: the §3 amendment
 gains the composition `source-index` (A to the set of tree addresses),
 `:yin.link/trees` on by-identity outcomes and `:tree-unavailable`;
 §8.1 `:trusted` skips re-lowering, never retrievability; §8.3's host
@@ -39,7 +39,9 @@ Related documents:
 - `docs/design/yin.vm.code-as-tuples.md` - AST rows, segment vectors,
   derivation records
 - `docs/design/yin.vm.dependency-completion.md` - the work-item fixed
-  point that computes a program's requirements
+  point that computes a program's requirements (superseded at phase 8 by
+  `yin.vm.semantic.scan` and the engine's `lift-slice`; see its status
+  note)
 - `docs/design/yin.vm.universal-continuation-format.md` - code identity,
   contract stamp, safepoints, pending waits, primitive profiles
 - `docs/design/dao.jing.md` - content-addressed storage and the stepped
@@ -239,7 +241,7 @@ a choice.
 >   composition knows no tree is a composition defect
 >   (`:tree-unavailable` at step 2), distinct from a known tree whose
 >   read fails, which is the medium's ordinary `:absent`
->   (`yin.vm.semantic-register-vm.derivations.md` §9.2, 2026-10-11). The
+>   (`yin.vm.semantic.derivations.md` §9.2, 2026-10-11). The
 >   derivation record of
 >   §8.1 for format `f` leads from the canonical tree to A and from A to
 >   the native image, recording the checksum as evidence, not identity.
@@ -271,6 +273,24 @@ a choice.
 >   `yin.vm.debruijn.targets.md`), as does the UCF v2 amendment §4.
 > Detailed rewriting of §4-§8 under this rule follows in a later
 > revision; nothing in M1-M5's landed code changes by this amendment.
+>
+> **Amendment 2026-10-15 (phase 8, 8g).** The cutover landed this rule's
+> production shape, with two residue facts stated rather than hidden.
+> (1) A is the code identity and the manifest's derivation records are
+> `tree → A` and `A → H`, `A → R`; but the two native format records
+> still mint their request identity through H and R
+> (`:identity-fn debruijn-code/image-hash` / `register-hash`), so a
+> by-identity fetch, `publish!`'s index datom and `index-from-datoms`
+> still name the native bytes by H and R under the
+> `:yin.debruijn.code/address` / `:yin.debruijn.register/address`
+> attributes — H and R as checksum keys into a format-keyed index, not
+> as code identity. (2) The descriptor-pinned hashes are BLAKE3 since
+> 8ab (`:hash :blake3`), and SHA-256 remains only dao.jing's explicitly mintable
+> registry member. The old stack-shaped `:yin.semantic/code` record of
+> §5.2 (validator `yin.vm.code/well-formed-vector?`, contract `"v3"`)
+> died at 8f-3; §5.2's current record is the register kernel's
+> (`:contract "v4"`, validator `yin.vm.semantic.code/well-formed?`,
+> scanners `yin.vm.semantic.scan`).
 
 The linker moves between three kinds of name. Confusing them was the
 defect B6 guarded against with D9, and the unification here adds a third.
@@ -292,7 +312,8 @@ families:
 
 - *Contract-pinned identities* (H, R): computed by the format's own hash
   function over a descriptor that embeds the lowering contract version,
-  pinned to SHA-256 by contract freeze, independent of the storage
+  pinned to BLAKE3 since phase 8 (SHA-256 before the 2026-10-15
+  cutover), independent of the storage
   encoder. Their preimage differs from the storage address's preimage.
   For these two formats, storage address and VM identity are strictly
   decoupled (D9).
@@ -762,6 +783,17 @@ the store-key query carrying each binding row's path and
 refuses `:contract-missing` or `:contract-mismatch` before validation.
 
 ### 5.2 `:yin.semantic/code` (the semantic VM)
+
+> **Amendment 2026-10-15 (phase 8).** The record below describes the
+> stack-shaped v3 semantic VM and is historical: its validator namespace
+> (`yin.vm.code`) and its loader died at 8f-3. The current record
+> (`linker.cljc:693`) is the register kernel's: `:contract "v4"`
+> (`yin.vm.semantic.code/contract`), `row-defect-fn`/`validate-fn`
+> `yin.vm.semantic.code/well-formed?`, and the three scanners are
+> `yin.vm.semantic.scan`'s (`free-occurrences`,
+> `definition-occurrences`, `application-sites`); loading is
+> `yin.vm.semantic/load-vector`. The identity layer is unchanged: the
+> vector at its own `segment-key`, A the code identity.
 
 ```clojure
 {:format              :yin.semantic/code
@@ -1876,7 +1908,7 @@ Rules:
     for the tree being retrievable from it (the publisher's store, or a
     store it can reach); no fetch is performed by the policy, and a tree
     whose read fails later is the medium's `:absent`, not a policy
-    violation (`yin.vm.semantic-register-vm.derivations.md` §9.2).
+    violation (`yin.vm.semantic.derivations.md` §9.2).
   The B6 fallback pair maps onto these: `verifying-fallback` is the
   `:verifying` policy applied to an H image selected in place of an
   unsupported R; `trusted-fallback` is `:trusted` applied the same way.
@@ -1897,7 +1929,9 @@ Rules:
   maps each assumed host function to its profile address (UCF section
   7.5.2). Together they are the declarations step 5a joins free names
   with.
-- `:yin.module/footprint` is what `yin.vm.dependency-completion.md`
+- `:yin.module/footprint` is what the dependency-closure walk
+  (`yin.vm.dependency-completion.md`, superseded at phase 8 by
+  `yin.vm.semantic.scan` and the engine's `lift-slice`)
   needs to report `:complete`; an undeclared footprint is `:incomplete`,
   never a silent under-approximation.
 - The manifest is verified like any content: a `:yin.module/manifest`
@@ -2090,7 +2124,7 @@ and declares only profiles; its manifest therefore carries no tree, and
 `:manifest-shape` requires that a manifest without `:yin.module/tree`
 also have empty `:yin.module/derivations` and no `:yin.module/index`,
 so a tree-less manifest can never name an image
-(`yin.vm.semantic-register-vm.derivations.md` §9.2).
+(`yin.vm.semantic.derivations.md` §9.2).
 
 **The host module is the trusted composition boundary, and the check
 above is a declaration check, not a proof.** A host function is opaque
@@ -2329,7 +2363,7 @@ Edited:   src/cljc/yin/vm/module.cljc                 (M4)
 Depends:  dao.jing (segment-key, segment-matches?, materialize!)
           dao.jing.content, dao.jing.content.step (dao.stream.remote.md)
           yin.vm (validate-rows, free-names, primitive-profiles)
-          yin.vm.code (well-formed-vector?)
+          yin.vm.semantic.code (well-formed?; v4 since phase 8)
           yin.vm.ledger (derive-record, verify-derivation)
           yin.vm.debruijn-code, yin.vm.debruijn-register-code
 Must not change:
