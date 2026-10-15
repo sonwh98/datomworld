@@ -11,6 +11,7 @@
    belongs to the evaluator (phase 4); the static facts of §8.1 are
    `yin.vm.semantic-register.analysis`'s."
   (:require [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
             [yin.vm :as vm]))
 
 
@@ -704,6 +705,18 @@
           (get operand-table (nth t 0)))))
 
 
+(defn- tuple=
+  "Item 13's tuple equality. Host `=` is not NaN-reflexive on JS and Dart
+   (only the JVM short-circuits on the shared box), so a NaN literal would
+   refuse its own re-projection. Slot by slot: the re-projection copies
+   literal operands by reference, so `identical?` settles them without a
+   traversal; everything else goes through the encoder's own kind-strict
+   equality, under which canonical NaNs are equal and 0.0 and -0.0 are not."
+  [a b]
+  (and (= (count a) (count b))
+       (every? true? (map cbor/content= a b))))
+
+
 (defn- reprojected
   "The body's register-bearing tuples re-projected from its parse tree
    under §3.3's minting: pre-order, body-local from 0, an arm lowered
@@ -805,19 +818,20 @@
    first, body by body at their own pcs: a difference is
    `:noncanonical-registers` at the least differing pc. With ids equal,
    any remaining difference (bodies out of FIFO order, labels placed
-   otherwise) is `:noncanonical-layout` at the least differing pc."
+   otherwise) is `:noncanonical-layout` at the least differing pc.
+   Tuples compare by the encoder's content equality, not host `=`."
   [{:keys [v parsed], :as ctx}]
   (or (for-bodies ctx
                   (fn [v body]
                     (let [canon (reprojected v body)]
                       (some (fn [pc]
                               (when-let [t (get canon pc)]
-                                (when-not (= t (nth v pc))
+                                (when-not (tuple= t (nth v pc))
                                   (tuple-defect :noncanonical-registers pc))))
                             (body-pcs body)))))
       (let [canon (reprojected-segment v (:bodies @parsed))]
         (some (fn [pc]
-                (when-not (= (get canon pc) (nth v pc))
+                (when-not (tuple= (get canon pc) (nth v pc))
                   (tuple-defect :noncanonical-layout pc)))
               (range (max (count v) (count canon)))))))
 

@@ -278,7 +278,7 @@
   [images image]
   (let [seg (:segment image)]
     (if-let [existing (find images seg)]
-      (if (= (val existing) image) images
+      (if (= (:address (val existing)) (:address image)) images
           (throw (ex-info "Cannot load segment: the id already holds different code" {:segment seg})))
       (assoc images seg image))))
 

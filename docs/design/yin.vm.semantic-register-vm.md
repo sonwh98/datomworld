@@ -596,7 +596,8 @@ adding register rules; items 1-5 (one segment, instruction shape, pcs
 13. **Canonical projection**: re-projecting the parsed trees of the
     whole segment under §3.3 (minting, FIFO body queue order, label
     placement, saturation) reproduces **the entire vector** exactly,
-    register ids and layout alike (`:noncanonical-registers` when ids
+    register ids and layout alike, with tuple equality by content (kind-strict,
+    canonical NaN equal, signed zero distinct) (`:noncanonical-registers` when ids
     differ, `:noncanonical-layout` when bodies or labels are placed
     differently). This is what makes A the unique projection rather
     than one of several equivalent spellings: an id-only comparison
