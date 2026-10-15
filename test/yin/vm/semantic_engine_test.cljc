@@ -6,8 +6,7 @@
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [yin.vm :as vm]
-            [yin.vm.linearize :as linearize]
-            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic-register :as semantic]
             [yin.vm.test-utils :as tu]))
 
 
@@ -20,7 +19,7 @@
 ;; this suite is the AST's only producer: the trusted fresh path
 (def ^:private load-ast
   (vm/fresh-code-loader
-    (linearize/ast-loader semantic/vm-load-program)
+    semantic/load-ast
     vm/ast-contract))
 
 

@@ -31,9 +31,8 @@
             [yin.vm.encoder :as encoder]
             [yin.vm.engine :as engine]
             [yin.vm.integer :as integer]
-            [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
-            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic-register :as semantic]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values]))
 
@@ -299,7 +298,7 @@
 
 
 (def ^:private load-semantic-ast
-  (vm/fresh-code-loader (linearize/ast-loader semantic/vm-load-program)
+  (vm/fresh-code-loader semantic/load-ast
                         vm/ast-contract))
 
 
@@ -539,7 +538,7 @@
                         (walker/vm-load-rows (walker/create-vm o) image
                                              vm/ast-contract))},
    :semantic {:image (fn [ast]
-                       (:vector (linearize/lower-rows
+                       (:vector (sr-linearize/project-rows
                                   (vm/ast->semantic-bytecode ast)))),
               :load (fn [image o]
                       (semantic/load-vector (semantic/create-vm o) image

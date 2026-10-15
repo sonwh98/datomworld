@@ -12,9 +12,8 @@
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
-            [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
-            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic-register :as semantic]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values]))
 
@@ -40,8 +39,8 @@
    :semantic (fn [ast o]
                (semantic/load-vector
                  (semantic/create-vm o)
-                 (:vector (linearize/lower-rows (vm/ast->semantic-bytecode
-                                                  ast)))
+                 (:vector (sr-linearize/project-rows (vm/ast->semantic-bytecode
+                                                       ast)))
                  vm/semantic-contract)),
    :stack (fn [ast o]
             (dvm/create-vm (:image (derive/stack-image (:vector (sr-linearize/project ast))))
@@ -185,7 +184,7 @@
     (let [parent (run-on k (spin 5) 2)
           image (case k
                   :ast-walker (vm/ast->semantic-bytecode (lit 1))
-                  :semantic (:vector (linearize/lower-rows
+                  :semantic (:vector (sr-linearize/project-rows
                                        (vm/ast->semantic-bytecode (lit 1))))
                   :stack (:image (derive/stack-image (:vector (sr-linearize/project (lit 1)))))
                   :register (derive/register-image (:vector (sr-linearize/project (lit 1)))))

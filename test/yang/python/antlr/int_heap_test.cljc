@@ -18,9 +18,8 @@
             [yin.vm.engine :as engine]
             [yin.vm.integer :as integer]
             [yin.vm.integer.host :as integer-host]
-            [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
-            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic-register :as semantic]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values]))
 
@@ -72,7 +71,7 @@
                         (walker/vm-load-rows (walker/create-vm o) image
                                              vm/ast-contract))},
    :semantic {:image (fn [ast]
-                       (:vector (linearize/lower-rows
+                       (:vector (sr-linearize/project-rows
                                   (vm/ast->semantic-bytecode ast)))),
               :load (fn [image o]
                       (semantic/load-vector (semantic/create-vm o) image

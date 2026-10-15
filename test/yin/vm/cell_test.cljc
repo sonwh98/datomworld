@@ -13,9 +13,8 @@
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
-            [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
-            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic-register :as semantic]
             [yin.vm.test-utils :as tu]))
 
 
@@ -34,8 +33,8 @@
   "Each lowers an AST to what its VM's loader and `spawn-module` load."
   {:ast-walker vm/ast->semantic-bytecode,
    :semantic (fn [ast]
-               (:vector (linearize/lower-rows (vm/ast->semantic-bytecode
-                                                ast)))),
+               (:vector (sr-linearize/project-rows (vm/ast->semantic-bytecode
+                                                     ast)))),
    :stack (fn [ast] (:image (derive/stack-image (:vector (sr-linearize/project ast))))),
    :register (fn [ast]
                (derive/register-image (:vector (sr-linearize/project ast))))})

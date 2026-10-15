@@ -7,8 +7,7 @@
    register ids. This namespace owns the operand table, the contract stamp,
    the §3.1 grammar parser (with the result-or-terminal outcome relation),
    and the §3.4 rules 1-13, which run in order, first defect wins, each
-   defect naming its rule and pc, as `yin.vm.code/well-formed-vector?`
-   does for the stack-shaped vector. Decoding into an executable image
+   defect naming its rule and pc. Decoding into an executable image
    belongs to the evaluator (phase 4); the static facts of §8.1 are
    `yin.vm.semantic-register.analysis`'s."
   (:require [dao.jing :as jing]
@@ -24,7 +23,7 @@
 (def operand-table
   "§2.3 in UCF §7.3.2's positional form: mnemonic → ordered `[attribute
    kind]` operands; position `i` of a tuple (from 1) holds entry `i-1`.
-   The kinds are `yin.vm.code/vector-operand-table`'s plus `:reg` (a
+   The operand kinds include `:reg` (a
    non-negative integer register id) and `:regs` (a vector of them), as
    the register design's R2 descriptor names them. `:yin.code/rd` marks
    the destination; every other `:reg`/`:regs` operand is a use, and the

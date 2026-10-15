@@ -22,9 +22,9 @@
             [dao.stream.memory-log :as memory-log]
             [dao.stream.ringbuffer :as ringbuffer]
             [yin.vm :as vm]
-            [yin.vm.code :as code]
             [yin.vm.semantic-register.code :as sr-code]
-            [yin.vm.linearize :as linearize]
+            [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.scan :as scan]
             #?@(:cljd [["dart:io" :as dart-io]])))
 
 
@@ -1814,8 +1814,7 @@
   "The `$code` relation of one tree's lowered segment: its
    segment-qualified rows."
   [ast]
-  (rel (code/project-segment-qualified
-         (:vector (linearize/lower-rows (vm/ast->semantic-bytecode ast))))))
+  (rel (scan/segment-rows (:vector (sr-linearize/project ast)))))
 
 
 (deftest footprint-table-has-a-row-for-every-tag-and-mnemonic
@@ -1829,7 +1828,7 @@
              :stream/close}
            (into #{} (mapcat val) (:tags table)))
         "the identifiers contributed are exactly the effects the machine
-          raises (`{:effect …}` in semantic.cljc's hot loop); FFI, park,
+          raises (`{:effect …}` in semantic_register.cljc's hot loop); FFI, park,
           resume, gensym, store, and current-continuation contribute none")))
 
 
@@ -1859,7 +1858,7 @@
   (let [ast requirements-kitchen-sink
         joined (qq '[:find ?key :in $ast $code
                      :where [$ast _ :vm/store-put ?key _]
-                     [$code _ _ :store-put ?key _]]
+                     [$code _ _ :store-put _ ?key & _]]
                    (tree-db ast) (segment-db ast))]
     (is (= #{[99]} joined)
         "the numeric store-put key joins its tree row to its segment row by

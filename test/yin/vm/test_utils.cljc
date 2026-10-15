@@ -23,8 +23,8 @@
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.encoder :as encoder]
             [yin.vm.engine :as engine]
-            [yin.vm.linearize :as linearize]
-            [yin.vm.semantic :as semantic]))
+            [yin.vm.semantic-register.linearize :as linearize]
+            [yin.vm.semantic-register :as semantic]))
 
 
 (def default-capacity 64)
@@ -164,7 +164,21 @@
                         ;; the row medium's only producer is the encoder
                         ;; observer: trusted fresh code
                         (vm/fresh-code-loader
-                          (linearize/rows-loader semantic/load-vector)
+                          (fn [machine rows stamp]
+                            (vm/check-contract! vm/ast-contract stamp)
+                            (semantic/load-vector machine
+                                                  (:vector (if (contains? rows :yin/batch)
+                                                             (let [members (:yin/batch rows) root (:yin/root rows)]
+                                                               (when-not (and (vector? members) (integer? root)
+                                                                              (<= 0 root) (< root (count members)))
+                                                                 (throw (ex-info "Malformed provenance-bearing row batch"
+                                                                                 {:rule :batch-envelope})))
+                                                               (linearize/project-rows
+                                                                 (nth members root)
+                                                                 (vm/source-origin (:yin/source-medium rows)
+                                                                                   (:yin/batch-token rows) root)))
+                                                             (linearize/project-rows rows)))
+                                                  vm/semantic-contract))
                           vm/ast-contract)))
   ([session load-program]
    (assoc session

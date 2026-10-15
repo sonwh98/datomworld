@@ -15,9 +15,8 @@
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
-            [yin.vm.linearize :as linearize]
             [yin.vm.parity-test :as parity]
-            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic-register :as semantic]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values]))
 
@@ -67,7 +66,7 @@
 
 
 (def ^:private load-semantic-ast
-  (vm/fresh-code-loader (linearize/ast-loader semantic/vm-load-program)
+  (vm/fresh-code-loader semantic/load-ast
                         vm/ast-contract))
 
 

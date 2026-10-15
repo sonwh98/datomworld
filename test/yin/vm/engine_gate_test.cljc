@@ -14,9 +14,8 @@
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
-            [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
-            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic-register :as semantic]
             [yin.vm.test-utils :as tu]))
 
 
@@ -412,7 +411,7 @@
 
 
 (def ^:private load-semantic
-  (vm/fresh-code-loader (linearize/ast-loader semantic/vm-load-program)
+  (vm/fresh-code-loader semantic/load-ast
                         vm/ast-contract))
 
 
@@ -828,7 +827,7 @@
    (deftest created-install-child-carries-the-mode-test
      (let [start (deref (var engine/start-install))
            calls (atom 0)
-           image (:vector (linearize/lower-rows
+           image (:vector (sr-linearize/project-rows
                             (vm/ast->semantic-bytecode (lit 1))))
            root (semantic/create-vm (kernel-opts calls))]
        (doseq [mode [nil :running :exporting :ended]]

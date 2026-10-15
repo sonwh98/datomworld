@@ -19,8 +19,7 @@
   (:require [dao.stream.ringbuffer :as ringbuffer]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.linearize :as linearize]
-            [yin.vm.semantic :as semantic])
+            [yin.vm.semantic-register :as semantic])
   (:import ["dart:core" DateTime]))
 
 
@@ -116,10 +115,10 @@
               :capability-secret (str (random-uuid))}]
     (case evaluator
       :ast-walker (vm/eval (ast-walker/create-vm opts) ast)
-      :semantic (vm/run (semantic/vm-load-program
+      :semantic (vm/run (semantic/load-ast
                           (semantic/create-vm opts)
-                          (linearize/lower-ast ast)
-                          vm/semantic-contract)))))
+                          (vm/ast->datoms ast)
+                          vm/ast-contract)))))
 
 
 (defn- run-iterations

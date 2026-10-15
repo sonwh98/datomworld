@@ -10,7 +10,7 @@
    `[:current-continuation]`, `[:park]`, `[:resume parked-id]`,
    `[:ffi-call op argc]`, `[:define name]` (Rule R's definition
    transition) -- whose shapes come from
-   `yin.vm.code/vector-operand-table` and section 2 of the design doc.
+   `yin.vm.debruijn-code/opcode-table` and section 2 of the design doc.
 
    B3 implemented the pure kernel: frames, closures, loads, calls, returns,
    branches, `:const`, and the store operations. B4 puts this machine on
@@ -141,7 +141,7 @@
    stack, and continuation, and the machine is running unless the segment
    is empty. The store, the parked map, the wait set, the ready queue,
    the id counter, and the composition values survive, exactly as they
-   survive a `yin.vm.semantic/load-vector`. The offset table restarts at
+   survive a `yin.vm.semantic-register/load-vector`. The offset table restarts at
    `[H 0 n]`, so a continuation parked under an earlier image names no row
    of it and `stack-restore` refuses it.
 
@@ -716,17 +716,9 @@
                                        :body-pc body-pc, :frames frames}
                                 store-of (assoc :store-of store-of))))))
 
-      ;; The named VM (semantic.cljc) keeps a separate `val` accumulator
-      ;; distinct from its operand stack `St`, so `:push` there commits
-      ;; `val` onto `St` (St <- St ++ [val]). This machine has no such
-      ;; split: every value-producing case already conjes its result
-      ;; straight onto `:stack`. By the time control reaches a `:push`,
-      ;; the value it would push is already there -- so here it is a no-op
-      ;; that only advances `pc`. Every value-producing opcode below
-      ;; (:stream-*, :gensym, :current-continuation, :resume, and the
-      ;; restore after :ffi-call) honours this, or a `:push` immediately
-      ;; after it would silently drop the value -- there is no `val`
-      ;; register to recover it from.
+      ;; Every value-producing opcode puts its result directly onto :stack.
+      ;; The retained :push instruction therefore only advances pc: its value
+      ;; is already present, with no separate accumulator to copy from.
       :push
       (assoc vm :pc (inc pc))
 

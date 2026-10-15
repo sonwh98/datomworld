@@ -2,7 +2,7 @@
   "`project`: the Universal AST → the register-shaped canonical vector
    (`docs/design/yin.vm.semantic-register-vm.md` §3.3).
 
-   One flattening, two lanes, as `yin.vm.linearize` has them: the datom
+   One flattening, two lanes: the datom
    lane reads `:yin/*` datoms through an entity index, the row lane reads
    code-as-tuples rows (§5.1) by the grammar table's positions. Both hand
    the same walk a node reader, so the order is shared by construction:
@@ -195,7 +195,7 @@
    one provenance row per pc, `path` being the emitting node's §2.5
    structural path from the root row (row-position steps; a `nodes` item
    is a `[position i]` pair); a body's `:return` carries its lambda's
-   path, as in `yin.vm.linearize/lower-rows`."
+   path."
   ([bc] (project-rows bc nil))
   ([{:keys [root rows], :as bc} origin]
    (when-not (or (nil? origin) (vm/occurrence-origin? origin))

@@ -29,8 +29,7 @@
 
 
 (def worked-example
-  "`((fn [x] (+ x 1)) 10)`, the same worked example `yin.vm.linearize-test`
-   uses -- a simple program with no duplicate parameters, no free-variable
+  "`((fn [x] (+ x 1)) 10)`, a simple program with no duplicate parameters, no free-variable
    surprises beyond the primitive `+`, and one level of closure nesting."
   (app (lam '[x] (tail (app (v '+) (v 'x) (lit 1)))) (lit 10)))
 

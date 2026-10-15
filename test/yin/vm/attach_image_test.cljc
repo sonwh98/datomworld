@@ -21,9 +21,8 @@
             [yin.vm.debruijn-register-code :as rcode]
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
-            [yin.vm.linearize :as linearize]
             [yin.vm.module :as module]
-            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic-register :as semantic]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values]))
 
@@ -87,7 +86,7 @@
 
 (defn- semantic-vector
   [ast]
-  (:vector (linearize/lower-rows (vm/ast->semantic-bytecode ast))))
+  (:vector (sr-linearize/project-rows (vm/ast->semantic-bytecode ast))))
 
 
 (defn- opts
@@ -585,7 +584,7 @@
 ;; =============================================================================
 
 (def ^:private load-ast
-  (vm/fresh-code-loader (linearize/ast-loader semantic/vm-load-program)
+  (vm/fresh-code-loader semantic/load-ast
                         vm/ast-contract))
 
 
@@ -607,10 +606,10 @@
       (is (some? local))
       (is (not (contains? (:code vm) local)))
       (is (= address (get-in attached [:code local :address]))))
-    (testing "control, env, stack, k, program, and store are unchanged"
-      (is (= (select-keys vm [:control :env :stack :k :program :store
+    (testing "control, env, window, k, program, and store are unchanged"
+      (is (= (select-keys vm [:control :env :window :k :program :store
                               :halted? :value])
-             (select-keys attached [:control :env :stack :k :program :store
+             (select-keys attached [:control :env :window :k :program :store
                                     :halted? :value]))))
     (testing "an image already aliased is not attached twice"
       (is (= attached
@@ -626,7 +625,7 @@
         entry (first (:wait-set parked))
         attached (semantic/attach-image parked (semantic-vector module-ast)
                                         vm/semantic-contract)]
-    (is (seq (:stack entry)))
+    (is (seq (:window (peek (:k entry)))))
     (is (= (:code parked) (select-keys (:code attached) (keys (:code parked))))
         "existing local ids are never renumbered")
     (stream/append! (stream-of attached) 41)

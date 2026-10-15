@@ -1,10 +1,13 @@
 (ns yin.vm.semantic-register.linearize-test
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
+            [yin.vm.parity-test :as parity]
+            [yin.vm.semantic-register :as sr]
+            [yin.vm.test-utils :as tu]
             [yin.vm.malformed-rows :as malformed]
             [yin.vm.semantic-register.code :as code]
             [yin.vm.semantic-register.corpus :as corpus
-             :refer [app lam lit tail v]]
+             :refer [app def! if-node lam lit tail v]]
             [yin.vm.semantic-register.linearize :as linearize]
             [yin.vm.ucf :as ucf]))
 
@@ -108,6 +111,7 @@
   (let [ast (get (into {} corpus/programs) :shared-occurrence)
         bc (vm/ast->semantic-bytecode ast)
         {:keys [vector provenance]} (linearize/project-rows bc)]
+    (is (nil? (nth (first provenance) 1)))
     (is (= 5 (count (:rows bc)))
         "+, g, 1, the root, and one (g 1) row: the shared node is one row")
     (is (= [[:call 2 3 [4] false] [:call 5 6 [7] false]]
@@ -172,3 +176,219 @@
   (doseq [[n [_expected bc]] malformed/malformed-row-sets]
     (testing n
       (is (some? (throws-ex-data #(linearize/project-rows bc)))))))
+
+
+(defn- recording-primitives
+  "Rule R: a definition is syntax, so nothing can intercept it. `rec`
+   records each definition instead: `(rec 'k (yin/def 'k v))` logs right
+   after the definition runs and returns its value."
+  [log]
+  (assoc vm/primitives
+         'rec (fn [key val]
+                (swap! log conj [key val])
+                val)))
+
+
+(defn- rdef!
+  [k val]
+  (app (v 'rec) (lit k) (def! k (if (map? val) val (lit val)))))
+
+
+(def ^:private def-program
+  "Definitions in operator position, in operands, in an `if` test and both
+   arms, in a closure body run later, in a tail call, and read back
+   through the store."
+  (app (if-node (rdef! 'pick true)
+                (lam '[f x]
+                     (tail (app (v 'f)
+                                (rdef! 'c (v 'x))
+                                (rdef! 'd (app (v '+) (v 'b) (lit 1))))))
+                (lam '[f x] (rdef! 'never 0)))
+       (lam '[p q]
+            (if-node (rdef! 'e false)
+                     (rdef! 'never (v 'q))
+                     (tail (app (v '+)
+                                (rdef! 'f (v 'p))
+                                (rdef! 'g (app (v '*) (v 'q) (lit 2)))))))
+       (rdef! 'b (app (v '+) (rdef! 'a 1) (rdef! 'a 2)))))
+
+
+(deftest evaluation-order-matches-the-walker
+  (let [walker-log (atom [])
+        walker (vm/eval (tu/create-vm {:primitives (recording-primitives
+                                                     walker-log)})
+                        def-program)
+        lowered-log (atom [])
+        result (vm/value (vm/run
+                           (sr/load-ast (sr/create-vm {:primitives (recording-primitives lowered-log)})
+                                        (vm/ast->datoms def-program) vm/ast-contract)))]
+    (is (= '[[pick true] [a 1] [a 2] [b 3] [c 3] [d 4] [e false] [f 3] [g 8]]
+           @walker-log)
+        "the walker's order is the reference")
+    (is (= @walker-log @lowered-log))
+    (is (= (vm/value walker) result 11))))
+
+
+(deftest lower-rows-evaluation-order-matches-the-walker
+  (let [walker-log (atom [])
+        walker (vm/eval (tu/create-vm {:primitives (recording-primitives walker-log)}) def-program)
+        row-log (atom [])
+        result (vm/value (vm/run
+                           (sr/load-vector (sr/create-vm {:primitives (recording-primitives row-log)})
+                                           (:vector (linearize/project-rows (vm/ast->semantic-bytecode def-program)))
+                                           vm/semantic-contract)))]
+    (is (= @walker-log @row-log))
+    (is (= (vm/value walker) result 11))))
+
+
+(deftest literals-are-opaque-data
+  (doseq [type [:vm/store-update :yin/macro-expand]]
+    (let [ast (lit {:type type :key 'k})
+          rows (linearize/project ast)
+          datoms (linearize/project-datoms (vm/ast->datoms ast))]
+      (is (= (:vector rows) (:vector datoms)))
+      (is (= {:type type :key 'k} (nth (first (:vector rows)) 2))))))
+
+
+(deftest host-values-are-rejected-naming-the-node
+  (doseq [value [{:nested [inc]}
+                 (with-meta {:x 1} {:host inc})
+                 {:x (with-meta [1] {:nested {:host inc}})}
+                 (with-meta {:x 1} (with-meta {:k 1} {:host inc}))]]
+    (let [[root datoms] (vm/ast->datoms-with-root (lit value))
+          data (throws-ex-data #(linearize/project-datoms datoms))]
+      (is (= root (:node data)))
+      (is (= :value (:field data)))))
+  (let [data (throws-ex-data #(linearize/project-datoms
+                                (vm/ast->datoms {:type :vm/store-put :key 'k :val #{inc}})))]
+    (is (= :val (:field data)))
+    (is (some? (:node data))))
+  (let [value (with-meta {:x 1} {:line 3})]
+    (is (= {:line 3}
+           (meta (nth (first (:vector (linearize/project-datoms
+                                        (vm/ast->datoms (lit value))))) 2)))))
+  (is (= '+ (nth (first (:vector (linearize/project (v '+)))) 2))))
+
+
+(deftest lower-rows-rejects-incomplete-source-occurrence-identities
+  (let [bc (vm/ast->semantic-bytecode (lit 1))]
+    (doseq [origin [[:source :medium :batch]
+                    [:source :medium :batch -1]
+                    [:source nil :batch 0]
+                    [:source :medium nil 0]
+                    [:expansion :not-an-address]
+                    {:source :medium}]]
+      (is (= :origin (:rule (throws-ex-data #(linearize/project-rows bc origin))))
+          (pr-str origin)))))
+
+
+(def ^:private projection-worked-example
+  "`((fn [x] (+ x 1)) 10)`, yin.vm.semantic.md §2.7."
+  (app (lam '[x] (tail (app (v '+) (v 'x) (lit 1)))) (lit 10)))
+
+
+(def ^:private projection-corpus
+  {:projection-worked-example projection-worked-example,
+   :literal (lit 42),
+   :nil-literal (lit nil),
+   :zero-arity-call (app (lam [] (lit 1))),
+   :nested-lambdas (app (app (lam '[a] (tail (lam '[b] (tail (app (v '+) (v 'a) (v 'b))))))
+                             (lit 1))
+                        (lit 2)),
+   :if-in-tail (app (lam '[n] (if-node (app (v '<) (v 'n) (lit 1))
+                                       (lit :done)
+                                       (tail (app (v '-) (v 'n) (lit 1)))))
+                    (lit 3)),
+   :nested-if (if-node (if-node (lit true) (lit false) (lit true))
+                       (lit :a)
+                       (if-node (lit nil) (lit :b) (lit :c))),
+   :streams {:type :stream/put,
+             :target {:type :stream/make, :buffer 4},
+             :val {:type :stream/next,
+                   :source {:type :stream/cursor,
+                            :source {:type :stream/close,
+                                     :source (lit nil)}}}},
+   :ffi {:type :dao.stream.apply/call, :op :op/echo, :operands [(lit 1) (lit 2)]},
+   :ffi-no-args {:type :dao.stream.apply/call, :op :op/ping, :operands []},
+   ;; §2.4 saturation: both lanes must materialize the same defaults.
+   :default-gensym {:type :vm/gensym},
+   :default-buffer {:type :stream/make},
+   :store-and-control (app (lam '[a b c d]
+                                (tail (app (v 'vector) (v 'a) (v 'b) (v 'c) (v 'd))))
+                           {:type :vm/store-put, :key 'k, :val 5}
+                           {:type :vm/store-get, :key 'k}
+                           {:type :vm/gensym, :prefix "g"}
+                           {:type :vm/current-continuation}),
+   :park-resume (if-node (lit false)
+                         {:type :vm/park}
+                         {:type :vm/resume, :parked-id :p1, :val (lit 7)})})
+
+
+(defn- path-row
+  "The row id a §2.5 structural path names, walked through `node`/`nodes`
+   slots by the §2.3 table's row positions (id 0, tag 1, first slot 2):
+   a node slot is its row position, a nodes item a `[position i]` pair —
+   the same convention as `occurrences`' relation, which provenance joins."
+  [{:keys [root rows]} path]
+  (reduce (fn [id step]
+            (let [slot (fn [pos] (nth (get rows id) pos))]
+              (if (vector? step)
+                (nth (slot (first step)) (second step))
+                (slot step))))
+          root
+          path))
+
+
+(def ^:private emitting-tag
+  "The §2.3 tag each directly-emitted mnemonic lowers from; the structural
+   mnemonics (:push :jump :branch-false :halt :return) name no single tag."
+  {:const :literal,
+   :var :variable,
+   :closure :lambda,
+   :call :application,
+   :ffi-call :dao.stream.apply/call,
+   :gensym :vm/gensym,
+   :store-get :vm/store-get,
+   :store-put :vm/store-put,
+   :park :vm/park,
+   :resume :vm/resume,
+   :current-continuation :vm/current-continuation,
+   :stream-make :stream/make,
+   :stream-put :stream/put,
+   :stream-cursor :stream/cursor,
+   :stream-next :stream/next,
+   :stream-close :stream/close})
+
+
+(deftest lower-rows-provenance-paths-resolve-to-the-emitting-node
+  (doseq [[label ast] (into projection-corpus (map (fn [[n a _]] [n a]) parity/corpus))]
+    (testing label
+      (let [bc (vm/ast->semantic-bytecode ast)
+            {:keys [vector provenance]} (linearize/project-rows bc)
+            occ (vm/occurrences bc)]
+        (is (= (count vector) (count provenance)))
+        (doseq [[pc _origin root path] provenance
+                :let [mnem (nth (nth vector pc) 0)
+                      id (path-row bc path)]]
+          (is (contains? (:rows bc) id)
+              (str "path resolves at pc " pc))
+          (is (contains? occ [root path id])
+              "the §5.3 join key [root path node] is an occurrence")
+          (when-let [tag (get emitting-tag mnem)]
+            (is (= tag (nth (get (:rows bc) id) 1))
+                (str mnem " at pc " pc " is emitted by a " tag))))))))
+
+
+(deftest unsupported-nodes-are-rejected-naming-the-node
+  (doseq [type [:vm/store-update :yin/macro-expand]]
+    (let [datoms [[-20 :yin/type type 0 :db/add]
+                  [-21 :yin/type :application 0 :db/add]
+                  [-21 :yin/operator -20 0 :db/add]
+                  [-21 :yin/operands [] 0 :db/add]
+                  [-21 :yin/root true 0 :db/add]]]
+      (is (= {:type type :node -20}
+             (throws-ex-data #(linearize/project-datoms datoms))))))
+  (is (= {:type :no/such :id -20}
+         (throws-ex-data #(linearize/project-datoms
+                            [[-20 :yin/root true 0 :db/add]
+                             [-20 :yin/type :no/such 0 :db/add]])))))

@@ -612,76 +612,6 @@
   (:yin.k/gate state))
 
 
-;; Bytecode Opcodes
-;; =============================================================================
-;; Shared instruction set for stack and register bytecode VMs.
-
-(def opcode-table
-  {:literal 1,
-   :load-var 2,
-   :move 3,
-   :lambda 4,
-   :call 5,
-   :return 6,
-   :branch 7,
-   :jump 8,
-   :gensym 9,
-   :store-get 10,
-   :store-put 11,
-   :stream-make 12,
-   :stream-put 13,
-   :stream-cursor 14,
-   :stream-next 15,
-   :stream-close 16,
-   :park 17,
-   :resume 18,
-   :current-cont 19,
-   :tailcall 20,
-   :dao.stream.apply/call 21,
-   :push 22,
-   :halt 23,
-   :define 24})
-
-
-#?(:clj
-   (defmacro opcase
-     "Dispatch on a numeric opcode using keyword mnemonics.
-      Resolved at compile-time to a standard 'case' over integers."
-     [op-expr & clauses]
-     (let [default (when (odd? (count clauses)) (last clauses))
-           paired (if default (butlast clauses) clauses)
-           pairs (partition 2 paired)
-           ;; Keep a local literal map so CLJD macro host compilation
-           ;; does not depend on resolving `opcode-table` as a host
-           ;; symbol.
-           opcodes {:literal 1,
-                    :load-var 2,
-                    :move 3,
-                    :lambda 4,
-                    :call 5,
-                    :return 6,
-                    :branch 7,
-                    :jump 8,
-                    :gensym 9,
-                    :store-get 10,
-                    :store-put 11,
-                    :stream-make 12,
-                    :stream-put 13,
-                    :stream-cursor 14,
-                    :stream-next 15,
-                    :stream-close 16,
-                    :park 17,
-                    :resume 18,
-                    :current-cont 19,
-                    :tailcall 20,
-                    :dao.stream.apply/call 21,
-                    :push 22,
-                    :halt 23,
-                    :define 24}
-           resolved (mapcat (fn [[kw body]] [(get opcodes kw) body]) pairs)]
-       `(case (int ~op-expr) ~@resolved ~@(when default [default])))))
-
-
 (def schema
   "DaoDB schema for :yin/ AST datoms.
    Complete data model for the Universal AST as queryable datoms."
@@ -1045,7 +975,7 @@
   "The lowest entity id claimed by the segments in a `{segment-id image}`
    code map — each segment id minus its length — or 0 when none is loaded.
    A loader minting a fresh local segment id allocates below this floor
-   (`linearize/ast-loader` for lowered AST batches, `semantic/load-vector`
+   (`semantic-register/load-ast` for projected AST batches, `semantic-register/load-vector`
    for canonical instruction vectors), so successive loads never collide
    with a live id."
   [code]
@@ -1740,7 +1670,7 @@
   "§7.7.1's effect normalization as a data value, keyed by the execution
    contract stamp (UCF §7.3.3) — the effect a syntax tag or mnemonic raises
    is part of that contract, lifted out of the reference machine's hot loop
-   (`semantic.cljc`). Two directions: `:tags` over every §2.3 syntax tag
+   (`semantic_register.cljc`). Two directions: `:tags` over every §2.3 syntax tag
    and `:mnemonics` over every §2.4 mnemonic, each to the set of effect
    identifiers it contributes. Every tag and every mnemonic has a row, so
    \"no external effect\" is an explicit `#{}`, never an absence; a tag or
@@ -1748,8 +1678,8 @@
    validators give it — and the extraction queries' tag/mnemonic sets are
    table subsets, so over validated rows the lookup is total. The design
    table's tag↔mnemonic correspondence is 1:1 for the effect rows and
-   deliberately lumped for the last (5 tags lower to 9 mnemonics; see
-   `yin.vm.linearize`), so it is not re-stated as a map here. Its \"other
+   deliberately lumped for the structural rows (see
+   `yin.vm.semantic-register.linearize`), so it is not re-stated as a map here. Its \"other
    requirement\" column is realized by the extraction queries themselves:
    an FFI op goes to the receiver-capability requirement
    (`:yin.k/ffi-ops` — the pair's own store keys are never a store-slice
