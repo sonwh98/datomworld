@@ -18,6 +18,7 @@
     [yang.python.antlr.lower :as lower]
     [yang.python.antlr.lower-portable-test :as portable]
     [yang.python.antlr.prelude :as prelude]
+    [yang.python.antlr.publication :as publication]
     [yang.python.antlr.render :as render]
     [yang.python.antlr.scope :as scope]
     [yang.python.antlr.uast :as u]
@@ -1126,3 +1127,129 @@
 (deftest ^:slow optional-dependency-does-not-abort-install-test-test
   (slow/guard "optional-dependency-does-not-abort-install-test"
               optional-dependency-does-not-abort-install-test))
+
+
+;; I5 fixtures use the same portable CST constructors as the earlier tests.
+(defn- i5-assignment
+  [n value]
+  (statement [:expr_stmt (chain expr-chain [:name ["NAME" n]])
+              ["ASSIGN" "="] (chain expr-chain ["NUMBER" (str value)])]))
+
+
+(defn- i5-print-attributes
+  [pairs]
+  (statement
+    [:expr_stmt
+     (chain (take 7 expr-chain)
+            [:atom_expr [:atom [:name ["NAME" "print"]]]
+             [:trailer ["OPEN_PAREN" "("]
+              (into [:arglist]
+                    (interpose ["COMMA" ","]
+                               (map (fn [[m n]]
+                                      [:argument
+                                       (chain (take 6 (rest expr-chain))
+                                              (into [:atom_expr [:atom [:name ["NAME" m]]]]
+                                                    (map (fn [attr] [:trailer ["DOT" "."] [:name ["NAME" attr]]])
+                                                         (str/split n #"\."))))]) pairs)))
+              ["CLOSE_PAREN" ")"]]])]))
+
+
+(defn- i5-packet
+  [statements]
+  (portable/packet (into [:file_input] (conj (vec statements) ["EOF" "<EOF>"]))))
+
+
+(defn- i5-unit
+  [n statements]
+  {:name n, :packet (i5-packet statements)})
+
+
+(defn- i5-source
+  [units]
+  (let [result (publication/publish-units! (:store @h/published) (h/registry)
+                                           (:address @h/published) units)]
+    (is (= :ok (:status result)) (pr-str result))
+    (h/source (merge {'py (:address @h/published)}
+                     (into {} (map (fn [[n a]] [(lower/module-symbol n) a])) (:addresses result))
+                     (:bundles result)))))
+
+
+(deftest ^:slow mutually-importing-modules-test
+  (slow/guard "mutually-importing-modules"
+              (fn []
+                (let [units [(i5-unit "a" [(i5-assignment "x" 1)
+                                           (statement (import-simple-stmt "b"))])
+                             (i5-unit "b" [(i5-assignment "x" 2)
+                                           (statement (import-simple-stmt "a"))])]
+                      source (i5-source units)]
+                  (doseq [order [["a" "b"] ["b" "a"]]]
+                    (every= [true false {:py/out ["1 2 2 1"], :py/exception nil}]
+                            (on-every-vm
+                              (i5-packet (concat (map #(statement (import-simple-stmt %)) order)
+                                                 [(i5-print-attributes [["a" "x"] ["b" "x"]
+                                                                        ["a" "b.x"] ["b" "a.x"]])]))
+                              source)))))))
+
+
+(deftest ^:slow cyclic-partial-initialization-test
+  (slow/guard "cyclic-partial-initialization"
+              (fn []
+                (let [source (i5-source
+                               [(i5-unit "a" [(statement (relative-from-stmt 0 "b" "x"))])
+                                (i5-unit "b" [(statement (import-simple-stmt "a"))
+                                              (i5-assignment "x" 2)])])]
+                  (every= [true false
+                           {:py/out [],
+                            :py/exception {:type "ImportError",
+                                           :args ["cannot import name 'x' from partially initialized module 'b'"]}}]
+                          (on-every-vm (i5-packet [(statement (import-simple-stmt "b"))]) source))))))
+
+
+(deftest ^:slow three-member-cycle-test
+  (slow/guard "three-member-cycle"
+              (fn []
+                (let [source (i5-source
+                               [(i5-unit "a" [(statement (import-simple-stmt "b")) (i5-assignment "x" 1)])
+                                (i5-unit "b" [(statement (import-simple-stmt "c")) (i5-assignment "x" 2)])
+                                (i5-unit "c" [(statement (import-simple-stmt "a")) (i5-assignment "x" 3)])])]
+                  (every= [true false {:py/out ["1 2 3"], :py/exception nil}]
+                          (on-every-vm
+                            (i5-packet [(statement (import-simple-stmt "a"))
+                                        (statement (import-simple-stmt "b"))
+                                        (statement (import-simple-stmt "c"))
+                                        (i5-print-attributes [["a" "x"] ["b" "x"] ["c" "x"]])]) source))))))
+
+
+(deftest i5-fixtures-and-initialization-lowering-test
+  (let [a (i5-unit "a" [(statement (relative-from-stmt 0 "b" "x"))])
+        b (i5-unit "b" [(statement (import-simple-stmt "a")) (i5-assignment "x" 2)])
+        [bundle] (lower/scc-module-specs (h/registry) [a b] :test/py {})
+        main (lower/lower-packet
+               (i5-packet [(statement (import-simple-stmt "a"))
+                           (i5-print-attributes [["a" "b.x"]])]) {:prelude :linked})]
+    (is (= ["b"] (lower/imported-module-names (:packet a))))
+    (is (= ["a"] (lower/imported-module-names (:packet b))))
+    (is (= 2 (count (call-sites (:ast bundle) 'py/try-finally))))
+    (is (= 1 (count (call-sites (:ast bundle) 'py/import-fail))))
+    (is (= #{true false}
+           (set (keep #(when (= :yang.python.antlr/initializing
+                                (get-in % [:operands 1 :value]))
+                         (get-in % [:operands 2 :value]))
+                      (call-sites (:ast bundle) 'assoc)))))
+    (is (= 2 (count (call-sites main 'py/getattr))))
+    (is (nil? (vm/ast-reserved-defect main)))))
+
+
+(deftest ^:slow cyclic-from-import-present-name-test
+  (slow/guard "cyclic-from-import-present-name"
+              (fn []
+                (let [source (i5-source
+                               [(i5-unit "a" [(i5-assignment "x" 1)
+                                              (statement (import-simple-stmt "b"))])
+                                (i5-unit "b" [(statement (relative-from-stmt 0 "a" "x"))])])]
+                  (doseq [order [["a" "b"] ["b" "a"]]]
+                    (every= [true false {:py/out ["1 1"], :py/exception nil}]
+                            (on-every-vm
+                              (i5-packet (concat (map #(statement (import-simple-stmt %)) order)
+                                                 [(i5-print-attributes [["a" "x"] ["b" "x"]])]))
+                              source)))))))
