@@ -1,29 +1,29 @@
 (ns yang.python.antlr.int-heap-test
   "S6: Python integer leaves in the heap, streams and kernel images."
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [dao.jing :as jing]
-    [dao.test-slow :as slow]
-    [yang.python.antlr.int-contract-fixtures :as f]
-    [yang.python.antlr.int-ops-test :refer [canon-ints]]
-    [yang.python.antlr.prelude :as prelude]
-    [yang.python.antlr.uast :as u]
-    [yin.vm :as vm]
-    [yin.vm.ast-walker :as walker]
-    [yin.vm.data :as data]
-    [yin.vm.debruijn-linearize :as dl]
-    [yin.vm.debruijn-register-compile :as rc]
-    [yin.vm.debruijn.register :as rvm]
-    [yin.vm.debruijn.stack :as dvm]
-    [yin.vm.engine :as engine]
-    [yin.vm.integer :as integer]
-    [yin.vm.integer.host :as integer-host]
-    [yin.vm.linearize :as linearize]
-    [yin.vm.module :as module]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.test-utils :as tu]
-    [yin.vm.ucf.handoff :as handoff]
-    [yin.vm.values :as values]))
+  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
+            [dao.jing :as jing]
+            [dao.test-slow :as slow]
+            [yang.python.antlr.int-contract-fixtures :as f]
+            [yang.python.antlr.int-ops-test :refer [canon-ints]]
+            [yang.python.antlr.prelude :as prelude]
+            [yang.python.antlr.uast :as u]
+            [yin.vm :as vm]
+            [yin.vm.ast-walker :as walker]
+            [yin.vm.data :as data]
+
+            [yin.vm.debruijn.register :as rvm]
+            [yin.vm.debruijn.stack :as dvm]
+            [yin.vm.engine :as engine]
+            [yin.vm.integer :as integer]
+            [yin.vm.integer.host :as integer-host]
+            [yin.vm.linearize :as linearize]
+            [yin.vm.module :as module]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.test-utils :as tu]
+            [yin.vm.ucf.handoff :as handoff]
+            [yin.vm.values :as values]))
 
 
 (def ^:private opts
@@ -78,13 +78,12 @@
               :load (fn [image o]
                       (semantic/load-vector (semantic/create-vm o) image
                                             vm/semantic-contract))},
-   :stack {:image (fn [ast] (:image (dl/adapt (vm/ast->datoms ast)))),
+   :stack {:image (fn [ast] (:image (derive/stack-image (:vector (sr-linearize/project ast))))),
            :load (fn [image o]
                    (dvm/create-vm image
                                   (assoc o :contract vm/stack-contract)))},
    :register {:image (fn [ast]
-                       (:image (rc/adapt (second (vm/ast->datoms-with-root
-                                                   ast))))),
+                       (derive/register-image (:vector (sr-linearize/project ast)))),
               :load (fn [image o]
                       (rvm/create-vm image
                                      (assoc o :contract

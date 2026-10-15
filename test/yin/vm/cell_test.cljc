@@ -4,12 +4,13 @@
    `:heap`, reached by a sealed `:cell-ref`. Each program runs on all four
    VMs -- the AST walker, the semantic VM, and the de Bruijn stack and
    register VMs -- with the same expectation."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
             [yin.vm.completion :as completion]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-compile :as rc]
+
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
@@ -36,9 +37,9 @@
    :semantic (fn [ast]
                (:vector (linearize/lower-rows (vm/ast->semantic-bytecode
                                                 ast)))),
-   :stack (fn [ast] (:image (dl/adapt (vm/ast->datoms ast)))),
+   :stack (fn [ast] (:image (derive/stack-image (:vector (sr-linearize/project ast))))),
    :register (fn [ast]
-               (:image (rc/adapt (second (vm/ast->datoms-with-root ast)))))})
+               (derive/register-image (:vector (sr-linearize/project ast))))})
 
 
 (def ^:private builders

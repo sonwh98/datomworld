@@ -27,7 +27,7 @@
             [yin.repl.frontends :as repl.frontends]
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
-            [yin.vm.debruijn-vm-contract-test :as b0]
+            [yin.vm.debruijn-code-test :as b0]
             [yin.vm.linker.interpreter :as link]
             [yin.vm.linker.publish :as publish]
             [yin.vm.test-utils :as tu]))

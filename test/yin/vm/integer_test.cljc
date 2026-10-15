@@ -5,11 +5,12 @@
    the module path on all four VMs, and exact-integer carriers recognized
    as scalars by the UCF encoder, the heap trace, pinning, `kind-of` and
    `data/number?`."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
             [yin.vm.data :as data]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-compile :as rc]
+
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
@@ -661,12 +662,11 @@
                (vm/run (load-semantic-ast (semantic/create-vm opts)
                                           (vm/ast->datoms ast)))),
    :stack (fn [opts ast]
-            (vm/run (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
+            (vm/run (dvm/create-vm (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                                    (assoc opts :contract vm/stack-contract)))),
    :register (fn [opts ast]
                (vm/run (rvm/create-vm
-                         (:image (rc/adapt (second (vm/ast->datoms-with-root
-                                                     ast))))
+                         (derive/register-image (:vector (sr-linearize/project ast)))
                          (assoc opts :contract vm/register-contract))))})
 
 

@@ -4,14 +4,14 @@
    and the effects tier -- verified across JVM, Node.js/CLJS, and
    ClojureDart with B0-normalizer parity against the Semantic VM and
    Stack VM."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [yin.vm :as vm]
-            [yin.vm.debruijn-linearize :as dl]
             [yin.vm.debruijn-register-code :as rcode]
-            [yin.vm.debruijn-register-compile :as rc]
             [yin.vm.debruijn-register-effects :as effects]
-            [yin.vm.debruijn-vm-contract-test :as b0]
+            [yin.vm.debruijn-code-test :as b0]
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
@@ -56,19 +56,14 @@
   {:type :if, :test test-node, :consequent cons-node, :alternate alt-node})
 
 
-(defn- ast-datoms
-  [ast]
-  (second (vm/ast->datoms-with-root ast)))
-
-
 (defn- adapted-register
   [ast]
-  (:image (rc/adapt (ast-datoms ast))))
+  (derive/register-image (:vector (sr-linearize/project ast))))
 
 
 (defn- adapted-stack
   [ast]
-  (:image (dl/adapt (vm/ast->datoms ast))))
+  (:image (derive/stack-image (:vector (sr-linearize/project ast)))))
 
 
 (def ^:private load-semantic-ast

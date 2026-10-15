@@ -11,27 +11,27 @@
    never changes an interpreter-generated exception's class. Cross-module
    exception identity is not tested here: it needs two units sharing one
    task's prelude, which arrives with P2."
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [clojure.walk :as walk]
-    [dao.jing :as jing]
-    [dao.jing.cbor :as cbor]
-    [dao.test-slow :as slow]
-    [yang.python.antlr.int-ops-test :as ops]
-    [yang.python.antlr.prelude :as prelude]
-    [yang.python.antlr.render :as render]
-    [yang.python.antlr.uast :as u]
-    [yin.vm :as vm]
-    [yin.vm.data :as data]
-    [yin.vm.debruijn-linearize :as dl]
-    [yin.vm.debruijn-register-compile :as rc]
-    [yin.vm.debruijn.register :as rvm]
-    [yin.vm.debruijn.stack :as dvm]
-    [yin.vm.integer :as integer]
-    [yin.vm.linearize :as linearize]
-    [yin.vm.module :as module]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.test-utils :as tu]))
+  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
+            [clojure.walk :as walk]
+            [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
+            [dao.test-slow :as slow]
+            [yang.python.antlr.int-ops-test :as ops]
+            [yang.python.antlr.prelude :as prelude]
+            [yang.python.antlr.render :as render]
+            [yang.python.antlr.uast :as u]
+            [yin.vm :as vm]
+            [yin.vm.data :as data]
+
+            [yin.vm.debruijn.register :as rvm]
+            [yin.vm.debruijn.stack :as dvm]
+            [yin.vm.integer :as integer]
+            [yin.vm.linearize :as linearize]
+            [yin.vm.module :as module]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.test-utils :as tu]))
 
 
 (defn- opts-under
@@ -61,12 +61,12 @@
                                           (vm/ast->datoms ast)))),
    :stack (fn [ast]
             (vm/run (dvm/create-vm
-                      (:image (dl/lower-stack (tu/resolved-of ast)))
+                      (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                       (assoc opts :contract vm/stack-contract)))),
    :register (fn [ast]
                (vm/run
                  (rvm/create-vm
-                   (:image (rc/lower-register (tu/resolved-of ast)))
+                   (derive/register-image (:vector (sr-linearize/project ast)))
                    (assoc opts :contract vm/register-contract))))})
 
 

@@ -3,11 +3,12 @@
    deterministic, allocation-triggered, stop-the-world mark-sweep over the
    task `:heap`, on all four VMs -- the AST walker, the semantic VM, and
    the de Bruijn stack and register VMs."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-compile :as rc]
+
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
@@ -43,12 +44,10 @@
                                                   ast)))
                  vm/semantic-contract)),
    :stack (fn [ast o]
-            (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
+            (dvm/create-vm (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                            (assoc o :contract vm/stack-contract))),
    :register (fn [ast o]
-               (rvm/create-vm (:image (rc/adapt (second
-                                                  (vm/ast->datoms-with-root
-                                                    ast))))
+               (rvm/create-vm (derive/register-image (:vector (sr-linearize/project ast)))
                               (assoc o :contract vm/register-contract)))})
 
 
@@ -188,9 +187,8 @@
                   :ast-walker (vm/ast->semantic-bytecode (lit 1))
                   :semantic (:vector (linearize/lower-rows
                                        (vm/ast->semantic-bytecode (lit 1))))
-                  :stack (:image (dl/adapt (vm/ast->datoms (lit 1))))
-                  :register (:image (rc/adapt (second (vm/ast->datoms-with-root
-                                                        (lit 1))))))
+                  :stack (:image (derive/stack-image (:vector (sr-linearize/project (lit 1)))))
+                  :register (derive/register-image (:vector (sr-linearize/project (lit 1)))))
           child (module/spawn-module parent
                                      image
                                      {:modules (:modules parent),

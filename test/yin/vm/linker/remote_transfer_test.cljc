@@ -7,11 +7,13 @@
    The publisher holds a dao.jing store and serves its content pair
    through dao.stream.remote. The receiver starts with the identity
    (H or R), index, and channel, and attaches reflections of the two
-   content streams. The fetched contract-pinned images lift to named
-   vectors, load, and execute B0-equal to local execution. A swapped
+   content streams. The fetched contract-pinned images execute on the
+   native kernels B0-equal to local execution. A swapped
    identity, corrupt payload, and absent address are qualified refusals.
    The shared channel is a pair of ring buffers."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
             [dao.jing.content :as jing-content]
@@ -20,11 +22,11 @@
             [dao.stream.remote :as remote]
             [dao.stream.ringbuffer :as ring]
             [yin.vm :as vm]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-compile :as rc]
-            [yin.vm.debruijn-vm-contract-test :as b0]
+
+            [yin.vm.debruijn-code-test :as b0]
             [yin.vm.linker :as linker]
-            [yin.vm.semantic :as semantic]
+            [yin.vm.debruijn.stack :as dvm]
+            [yin.vm.debruijn.register :as rvm]
             [yin.vm.test-utils :as tu]))
 
 
@@ -70,21 +72,21 @@
 (defn- stack-image
   "The H image `ast` lowers to (section 5.3)."
   [ast]
-  (:image (dl/adapt (second (vm/ast->datoms-with-root ast)))))
+  (:image (derive/stack-image (:vector (sr-linearize/project ast)))))
 
 
 (defn- register-image
   "The R image `ast` lowers to (section 5.4)."
   [ast]
-  (:image (rc/adapt (second (vm/ast->datoms-with-root ast)))))
+  (derive/register-image (:vector (sr-linearize/project ast))))
 
 
 (def ^:private pinned-formats
   "The two contract-pinned formats, each beside the lowering that mints
    its images and the lift that raises a fetched image to a named
    vector (section 3: H and R)."
-  [[:H linker/stack-format stack-image dl/lift]
-   [:R linker/register-format register-image rc/lift]])
+  [[:H linker/stack-format stack-image dvm/create-vm]
+   [:R linker/register-format register-image rvm/create-vm]])
 
 
 (def ^:private receiver-env
@@ -207,14 +209,9 @@
   (b0/normalize (vm/value (vm/eval (tu/create-vm) ast))))
 
 
-(defn- lifted-value
-  "The B0-normalized value the named vector `named-vector` runs to
-   under the semantic VM."
-  [named-vector]
-  (b0/normalize
-    (vm/value (vm/run (semantic/load-vector (semantic/create-vm)
-                                            named-vector
-                                            vm/semantic-contract)))))
+(defn- native-value
+  [create image contract]
+  (b0/normalize (vm/value (vm/run (create image {:primitives vm/primitives :contract contract})))))
 
 
 ;; =============================================================================
@@ -222,7 +219,7 @@
 ;; =============================================================================
 
 (deftest an-image-transfers-to-a-receiver-holding-identity-and-index
-  (doseq [[label format mint lift] pinned-formats]
+  (doseq [[label format mint create] pinned-formats]
     (testing label
       (let [pub (publisher-leg)
             image (mint worked-example)
@@ -239,9 +236,8 @@
         (is (= '[+] (mapv :name (:obligations res)))
             "the free `+` is the image's one retained obligation")
         (is (= (named-value worked-example)
-               (lifted-value (lift (:value res))))
-            "lifted, the transferred image runs under the semantic VM
-             B0-equal to the local evaluation")
+               (native-value create (:value res) (:contract format)))
+            "the transferred native image runs B0-equal to local evaluation")
         (jing/close! (:store pub))))))
 
 

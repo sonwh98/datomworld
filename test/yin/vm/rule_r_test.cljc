@@ -11,14 +11,15 @@
    datoms and vectors, stack, register), at transition time on raw walker
    control, and at construction; the four backends agree on the stores a
    definition program writes."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
             [dao.space.query :as query]
             [dao.stream :as stream]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.code :as code]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-compile :as rc]
+
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
@@ -123,7 +124,7 @@
 
 (defn- stack-run
   [ast]
-  (vm/run (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
+  (vm/run (dvm/create-vm (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                          {:primitives vm/primitives,
                           :make-stream tu/make-stream,
                           :capability-secret tu/secret
@@ -132,7 +133,7 @@
 
 (defn- register-run
   [ast]
-  (vm/run (rvm/create-vm (:image (rc/adapt (vm/ast->datoms ast)))
+  (vm/run (rvm/create-vm (derive/register-image (:vector (sr-linearize/project ast)))
                          {:primitives vm/primitives,
                           :make-stream tu/make-stream,
                           :capability-secret tu/secret
@@ -271,8 +272,8 @@
       (is (= :reserved-name (rule-of #(linearize/lower-ast ast)))
           "the datom lane lowerer refuses")
       (is (= :reserved-name
-             (rule-of #(dl/adapt (vm/ast->datoms ast))))
-          "the de Bruijn resolver refuses"))))
+             (rule-of #(derive/stack-image (:vector (sr-linearize/project ast)))))
+          "the semantic projection refuses before deriving the stack image"))))
 
 
 (deftest a-shared-row-is-judged-at-every-occurrence
@@ -540,8 +541,8 @@
         rows (vm/ast->semantic-bytecode ast)
         batch (linearize/lower-ast ast)
         v1 (:vector (linearize/lower-rows rows))
-        stack-image (:image (dl/adapt datoms))
-        register-image* (:image (rc/adapt datoms))
+        stack-image (:image (derive/stack-image (:vector (sr-linearize/project ast))))
+        register-image* (derive/register-image (:vector (sr-linearize/project ast)))
         loaders
         {"walker datoms" [#(ast-walker/vm-load-program (tu/create-vm)
                                                        datoms %)

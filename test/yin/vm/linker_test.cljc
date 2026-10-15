@@ -20,14 +20,11 @@
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic :as old-semantic]
             [yin.vm.semantic-register.linearize :as sr-linearize]
             [yin.vm.semantic-register.derive :as derive]
             [yin.vm.debruijn-code :as dcode]
-            [yin.vm.debruijn-linearize :as dl]
             [yin.vm.debruijn-register-code :as rcode]
-            [yin.vm.debruijn-register-compile :as rc]
-            [yin.vm.debruijn-vm-contract-test :as b0]
+            [yin.vm.debruijn-code-test :as b0]
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.linker :as linker]
@@ -1975,14 +1972,6 @@
   (b0/normalize (vm/value (vm/eval (tu/create-vm) ast))))
 
 
-(defn- lifted-value
-  [named-vector]
-  (b0/normalize
-    (vm/value (vm/run (old-semantic/load-vector (old-semantic/create-vm)
-                                                named-vector
-                                                vm/semantic-contract)))))
-
-
 (deftest fetched-images-execute-like-local-code
   (doseq [ast [worked-example closed-program other-program]]
     (let [store (mem/create-content-mem)
@@ -2003,14 +1992,12 @@
           fs (fetch-local store (:index s) linker/semantic-format
                           (:identity s) receiver
                           (requested linker/semantic-format))]
-      (is (= local (lifted-value (dl/lift (:value fh))))
-          "H: lifted to :yin.code/* and run on the semantic VM")
-      (is (= local (lifted-value (rc/lift (:value fr))))
-          "R: lifted to :yin.code/* and run on the semantic VM")
       (is (= local
              (b0/normalize
                (vm/value (run-fetched linker/stack-format fh))))
           "H: run directly on the de Bruijn stack kernel")
+      (is (= local (b0/normalize (vm/value (run-fetched linker/register-format fr))))
+          "R: run directly on the de Bruijn register kernel")
       (is (= local
              (b0/normalize
                (vm/value (run-fetched linker/semantic-format fs))))
@@ -2043,17 +2030,7 @@
         (is (linker/ok? res))
         (is (= image (:value res)))
         (is (= (named-value worked-example)
-               (cond
-                 (= :yin.ast/code (:format format))
-                 (b0/normalize (vm/value (run-fetched format res)))
-
-                 (= :yin.semantic/code (:format format))
-                 (b0/normalize (vm/value (run-fetched format res)))
-
-                 (= :yin.debruijn.code (:format format))
-                 (lifted-value (dl/lift (:value res)))
-
-                 :else (lifted-value (rc/lift (:value res))))))
+               (b0/normalize (vm/value (run-fetched format res)))))
         (is (= :absent
                (:reason (fetch-local publisher
                                      {identity (jing/segment-key [:none])}

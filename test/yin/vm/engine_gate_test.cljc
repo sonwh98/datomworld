@@ -2,13 +2,14 @@
   "D4: the gate on the engine's immediate stream effects (put, next, poll)
    and the observe/apply split. Counting handles show that a gated machine
    makes zero stream calls."
-  (:require [clojure.test :refer [deftest is testing]]
+  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-register-compile :as rc]
+
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
@@ -429,16 +430,14 @@
                          gate (assoc :yin.k/gate gate)))),
    :debruijn-stack
    (fn [opts gate ast]
-     (vm/run (cond-> (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
+     (vm/run (cond-> (dvm/create-vm (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                                     (assoc opts
                                            :contract vm/stack-contract
                                            :primitives vm/primitives))
                gate (assoc :yin.k/gate gate)))),
    :debruijn-register
    (fn [opts gate ast]
-     (vm/run (cond-> (rvm/create-vm (:image (rc/adapt (second
-                                                        (vm/ast->datoms-with-root
-                                                          ast))))
+     (vm/run (cond-> (rvm/create-vm (derive/register-image (:vector (sr-linearize/project ast)))
                                     (assoc opts
                                            :contract vm/register-contract))
                gate (assoc :yin.k/gate gate))))})

@@ -6,26 +6,26 @@
    `yang.python.antlr.e2e-test`. Expected output is CPython 3.9.6's for the
    same source. The continuation-length check reads the final VM's heap,
    so it is JVM-only."
-  (:require
-    [clojure.test :refer [deftest is testing]]
-    [yang.python.antlr.e2e-test :as e2e]
-    [yang.python.antlr.lower :as lower]
-    [yang.python.antlr.parser :as parser]
-    [yang.python.antlr.prelude :as prelude]
-    [yang.python.antlr.render :as render]
-    [yin.vm :as vm]
-    [yin.vm.data :as data]
-    [yin.vm.debruijn-linearize :as dl]
-    [yin.vm.debruijn-register-compile :as rc]
-    [yin.vm.debruijn.register :as rvm]
-    [yin.vm.debruijn.stack :as dvm]
-    [yin.vm.engine :as engine]
-    [yin.vm.integer :as integer]
-    [yin.vm.linearize :as linearize]
-    [yin.vm.module :as module]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.test-utils :as tu]
-    [yin.vm.values :as values]))
+  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
+            [clojure.test :refer [deftest is testing]]
+            [yang.python.antlr.e2e-test :as e2e]
+            [yang.python.antlr.lower :as lower]
+            [yang.python.antlr.parser :as parser]
+            [yang.python.antlr.prelude :as prelude]
+            [yang.python.antlr.render :as render]
+            [yin.vm :as vm]
+            [yin.vm.data :as data]
+
+            [yin.vm.debruijn.register :as rvm]
+            [yin.vm.debruijn.stack :as dvm]
+            [yin.vm.engine :as engine]
+            [yin.vm.integer :as integer]
+            [yin.vm.linearize :as linearize]
+            [yin.vm.module :as module]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.test-utils :as tu]
+            [yin.vm.values :as values]))
 
 
 (defn- prints
@@ -1146,11 +1146,11 @@
   "Each VM's final state for a lowered program."
   {:ast-walker (fn [ast _] (vm/eval (tu/create-vm opts) ast)),
    :semantic (fn [_ datoms] (vm/run (load-semantic (semantic/create-vm opts) datoms))),
-   :stack (fn [_ datoms]
-            (vm/run (dvm/create-vm (:image (dl/adapt datoms))
+   :stack (fn [ast _]
+            (vm/run (dvm/create-vm (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                                    (assoc opts :contract vm/stack-contract)))),
-   :register (fn [_ datoms]
-               (vm/run (rvm/create-vm (:image (rc/adapt datoms))
+   :register (fn [ast _]
+               (vm/run (rvm/create-vm (derive/register-image (:vector (sr-linearize/project ast)))
                                       (assoc opts :contract vm/register-contract))))})
 
 

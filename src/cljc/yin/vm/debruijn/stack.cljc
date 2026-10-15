@@ -42,7 +42,7 @@
 
    Every program used in this namespace's own tests is a hand-built
    instruction vector, the same technique B1's standalone validator tests
-   use; B2 (`yin.vm.debruijn-linearize`) produces real images against this
+   use; `yin.vm.semantic-register.derive/stack-image` produces images against this
    kernel from its own test namespace. This namespace requires
    `yin.vm.debruijn-code` for one thing only: computing H at load time.
 
@@ -919,7 +919,7 @@
   (run [this] (ffi/maybe-run this run-scheduler))
   (eval [_ ast]
     (throw (ex-info
-             "The de Bruijn kernel executes raw instruction vectors, not AST: lower and adapt it first (yin.vm.debruijn-linearize/adapt), then load and run the resulting image"
+             "The de Bruijn kernel executes raw instruction vectors, not AST: lower and adapt it first (yin.vm.semantic-register.derive/stack-image over the projected semantic vector), then load and run the resulting image"
              {:ast ast})))
   (reset [this]
     (assoc this

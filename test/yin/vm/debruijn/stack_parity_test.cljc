@@ -9,7 +9,7 @@
    `yin.vm.parity-test/corpus` and `yin.vm-test/semantic-bytecode-corpus`
    (the every-tag corpus mint_test and completion_test reuse). Every
    run is on a fresh VM (D4), and outcomes compare under B0's normalizer
-   (`yin.vm.debruijn-vm-contract-test/normalize`).
+   (`yin.vm.debruijn-code-test/normalize`).
 
    H laws: binder renames share H; exact scalar spelling, front-end tail
    flags, and free names split it. Golden bytes and H below are committed
@@ -26,8 +26,7 @@
             [yin.vm.debruijn-code :as dc]
             [yin.vm.semantic-register.linearize :as sr-linearize]
             [yin.vm.semantic-register.derive :as derive]
-            [yin.vm.debruijn-linearize :as dl]
-            [yin.vm.debruijn-vm-contract-test :as b0]
+            [yin.vm.debruijn-code-test :as b0]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.linearize :as linearize]
             [yin.vm.parity-test :as parity]
@@ -88,7 +87,7 @@
 
 (defn- adapted
   [ast]
-  (dl/adapt (named-datoms ast)))
+  (derive/stack-image (:vector (sr-linearize/project ast))))
 
 
 (defn- image-of

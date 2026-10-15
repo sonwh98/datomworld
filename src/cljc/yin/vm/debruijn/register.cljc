@@ -852,7 +852,7 @@
       (ex-info
         (str "The de Bruijn register kernel executes raw instruction vectors, "
              "not AST: lower and adapt it first "
-             "(yin.vm.debruijn-register-compile/adapt), then load and run the "
+             "(yin.vm.semantic-register.derive/register-image over the projected semantic vector), then load and run the "
              "resulting image")
         {:ast ast})))
   ;; A reset is a fresh run over the held code space, not a load: the

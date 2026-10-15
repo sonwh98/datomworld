@@ -9,27 +9,27 @@
    the integer-valued floats, and the guest exception each limit reason
    becomes. The CPython columns are data; on the JVM python3 recomputes
    them when it is exactly 3.9.6, and the test says loudly when it skips."
-  (:require
-    [clojure.string :as str]
-    [clojure.test :refer [deftest is testing]]
-    #?@(:cljd [] :clj [[clojure.java.shell :as shell]])
-    [dao.test-slow :as slow]
-    [yang.python.antlr.int-contract-fixtures :as f]
-    [yang.python.antlr.prelude :as prelude]
-    [yang.python.antlr.uast :as u]
-    [yin.vm :as vm]
-    [yin.vm.data :as data]
-    [yin.vm.debruijn-linearize :as dl]
-    [yin.vm.debruijn-register-compile :as rc]
-    [yin.vm.debruijn.register :as rvm]
-    [yin.vm.debruijn.stack :as dvm]
-    [yin.vm.integer :as integer]
-    [yin.vm.linearize :as linearize]
-    [yin.vm.module :as module]
-    [yin.vm.semantic :as semantic]
-    [yin.vm.test-utils :as tu]
-    [yin.vm.ucf.rows :as rows]
-    [yin.vm.ucf.rows-support :as s]))
+  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic-register.derive :as derive]
+            [clojure.string :as str]
+            [clojure.test :refer [deftest is testing]]
+            #?@(:cljd [] :clj [[clojure.java.shell :as shell]])
+            [dao.test-slow :as slow]
+            [yang.python.antlr.int-contract-fixtures :as f]
+            [yang.python.antlr.prelude :as prelude]
+            [yang.python.antlr.uast :as u]
+            [yin.vm :as vm]
+            [yin.vm.data :as data]
+
+            [yin.vm.debruijn.register :as rvm]
+            [yin.vm.debruijn.stack :as dvm]
+            [yin.vm.integer :as integer]
+            [yin.vm.linearize :as linearize]
+            [yin.vm.module :as module]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.test-utils :as tu]
+            [yin.vm.ucf.rows :as rows]
+            [yin.vm.ucf.rows-support :as s]))
 
 
 (def ^:private fixture (delay (f/read-file)))
@@ -169,14 +169,14 @@
                                                     (vm/ast->datoms ast))))),
    :stack (fn [ast]
             (vm/value
-              (vm/run (dvm/create-vm (:image (dl/adapt (vm/ast->datoms ast)))
+              (vm/run (dvm/create-vm (:image (derive/stack-image (:vector (sr-linearize/project ast))))
                                      (assoc opts
                                             :contract vm/stack-contract))))),
    :register (fn [ast]
                (vm/value
                  (vm/run
                    (rvm/create-vm
-                     (:image (rc/adapt (vm/ast->datoms ast)))
+                     (derive/register-image (:vector (sr-linearize/project ast)))
                      (assoc opts :contract vm/register-contract)))))})
 
 
