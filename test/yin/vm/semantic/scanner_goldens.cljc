@@ -1,4 +1,4 @@
-(ns yin.vm.semantic-register.scanner-goldens
+(ns yin.vm.semantic.scanner-goldens
   "Historical v3 scanner answers generated on JVM from master 993d5411.
    Only :c4/:py was regenerated after C4 I2/I3 on e6337294; reproduce with
    collab/1792570000000-engineer-p7m-scan-golden.clj.")

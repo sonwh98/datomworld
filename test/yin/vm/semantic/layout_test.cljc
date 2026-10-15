@@ -1,4 +1,4 @@
-(ns yin.vm.semantic-register.layout-test
+(ns yin.vm.semantic.layout-test
   "Phase 6c acceptance 1-9 (docs/design/yin.vm.semantic-register-vm.continuation.md
    §8.3): the register pairing and live sets, the register destination from
    A, the stack correspondence, operand layout and K slices, E
@@ -15,13 +15,13 @@
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
             [yin.vm.values :as values]
-            [yin.vm.semantic-register.analysis :as analysis]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.corpus :as corpus]
-            [yin.vm.semantic-register.derive :as derive]
-            [yin.vm.semantic-register.layout :as layout]
-            [yin.vm.semantic-register.linearize :as linearize]
-            [yin.vm.semantic-register.safepoint-harness-test :as h]
+            [yin.vm.semantic.analysis :as analysis]
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.corpus :as corpus]
+            [yin.vm.semantic.derive :as derive]
+            [yin.vm.semantic.layout :as layout]
+            [yin.vm.semantic.linearize :as linearize]
+            [yin.vm.semantic.safepoint-harness-test :as h]
             [yin.vm.ucf.rows-support :as s]))
 
 

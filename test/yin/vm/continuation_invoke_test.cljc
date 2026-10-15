@@ -3,14 +3,14 @@
    call/cc): abortive, multi-shot, store not rolled back, one argument. Each
    program runs on all four VMs -- the AST walker, the semantic VM, and the
    de Bruijn stack and register VMs -- with the same expectation."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
 
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
 

@@ -2,7 +2,7 @@
   "`ffi_test.cljc` on the semantic VM: `:ffi-call` parks with the pure-data
    registers after the call and waits for its correlated response in the
    polling wait set. Programs are lowered ASTs, so the call sites exercised are
-   the ones `yin.vm.semantic-register.linearize` emits."
+   the ones `yin.vm.semantic.linearize` emits."
   (:require [clojure.edn :as edn]
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
@@ -10,7 +10,7 @@
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
 

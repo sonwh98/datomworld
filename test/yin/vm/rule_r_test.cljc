@@ -11,21 +11,21 @@
    datoms and vectors, stack, register), at transition time on raw walker
    control, and at construction; the four backends agree on the stores a
    definition program writes."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [clojure.test :refer [deftest is testing]]
             [dao.space.query :as query]
             [dao.stream :as stream]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.semantic-register.code :as code]
+            [yin.vm.semantic.code :as code]
 
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
             [yin.vm.macro :as m]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
 

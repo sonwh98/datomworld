@@ -5,8 +5,8 @@
    the module path on all four VMs, and exact-integer carriers recognized
    as scalars by the UCF encoder, the heap trace, pinning, `kind-of` and
    `data/number?`."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
             [yin.vm.data :as data]
@@ -17,7 +17,7 @@
             [yin.vm.integer :as integer]
             [yin.vm.integer-v3-fixtures :as fx]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values])
   #?@(:cljd [(:import ["dart:core" BigInt])]))

@@ -16,7 +16,7 @@
             [dao.stream.ringbuffer :as ringbuffer]
             [yin.vm :as vm]
             [yin.vm.ledger :as ledger]
-            [yin.vm.semantic-register.linearize :as linearize]))
+            [yin.vm.semantic.linearize :as linearize]))
 
 
 ;; ---------------------------------------------------------------------------

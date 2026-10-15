@@ -6,8 +6,8 @@
    `yang.python.antlr.e2e-test`. Expected output is CPython 3.9.6's for the
    same source. The continuation-length check reads the final VM's heap,
    so it is JVM-only."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [clojure.test :refer [deftest is testing]]
             [yang.python.antlr.e2e-test :as e2e]
             [yang.python.antlr.lower :as lower]
@@ -22,7 +22,7 @@
             [yin.vm.engine :as engine]
             [yin.vm.integer :as integer]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values]))
 

@@ -11,7 +11,7 @@
    positional instructions'): it is `{:bodies [...], :instructions [...]}`.
    `:instructions` is the pc-indexed positional tuple vector, main body
    first then out-of-line lambda bodies in discovery order, exactly the
-   layout `yin.vm.semantic-register.derive/stack-image` uses for the
+   layout `yin.vm.semantic.derive/stack-image` uses for the
    stack image. `:bodies` names each contiguous pc range's declared
    register file: body 0 is the main program (zero locals); every other
    body is a lambda's, `:locals` its declared arity (registers `0` ..

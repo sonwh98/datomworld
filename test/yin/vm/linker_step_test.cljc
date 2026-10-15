@@ -12,8 +12,8 @@
             [yin.vm :as vm]
             [yin.vm.linker :as linker]
             [yin.vm.linker-test :as lt]
-            [yin.vm.semantic-register :as semantic]
-            [yin.vm.semantic-register.code :as code]))
+            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic.code :as code]))
 
 
 ;; =============================================================================

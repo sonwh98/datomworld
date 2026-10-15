@@ -4,8 +4,8 @@
    and the effects tier -- verified across JVM, Node.js/CLJS, and
    ClojureDart with B0-normalizer parity against the Semantic VM and
    Stack VM."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [yin.vm :as vm]
@@ -16,7 +16,7 @@
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
             [yin.vm.parity-test :as parity]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values]))
 

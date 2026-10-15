@@ -11,8 +11,8 @@
    native kernels B0-equal to local execution. A swapped
    identity, corrupt payload, and absent address are qualified refusals.
    The shared channel is a pair of ring buffers."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]

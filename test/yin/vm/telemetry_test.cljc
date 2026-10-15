@@ -14,7 +14,7 @@
             [dao.stream :as stream]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.telemetry :as telemetry]
             [yin.vm.test-utils :as tu]))
 

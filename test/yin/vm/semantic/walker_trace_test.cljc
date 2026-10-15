@@ -1,13 +1,13 @@
-(ns yin.vm.semantic-register.walker-trace-test
+(ns yin.vm.semantic.walker-trace-test
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
             [yin.vm.values :as values]
             [yin.vm.ast-walker :as walker]
-            [yin.vm.semantic-register :as sr]
+            [yin.vm.semantic :as sr]
             [yin.vm.parity-test :as b0]
-            [yin.vm.semantic-register.corpus :as corpus]
-            [yin.vm.semantic-register.parity-test :as parity]))
+            [yin.vm.semantic.corpus :as corpus]
+            [yin.vm.semantic.parity-test :as parity]))
 
 
 (def fuel-bound 100000)

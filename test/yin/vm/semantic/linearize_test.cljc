@@ -1,14 +1,14 @@
-(ns yin.vm.semantic-register.linearize-test
+(ns yin.vm.semantic.linearize-test
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
             [yin.vm.parity-test :as parity]
-            [yin.vm.semantic-register :as sr]
+            [yin.vm.semantic :as sr]
             [yin.vm.test-utils :as tu]
             [yin.vm.malformed-rows :as malformed]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.corpus :as corpus
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.corpus :as corpus
              :refer [app def! if-node lam lit tail v]]
-            [yin.vm.semantic-register.linearize :as linearize]
+            [yin.vm.semantic.linearize :as linearize]
             [yin.vm.ucf :as ucf]))
 
 

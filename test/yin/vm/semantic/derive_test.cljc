@@ -1,4 +1,4 @@
-(ns yin.vm.semantic-register.derive-test
+(ns yin.vm.semantic.derive-test
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.edn :as edn]
             [dao.test-slow :as slow]
@@ -21,11 +21,11 @@
             [yin.vm.debruijn-code :as dc]
 
             [yin.vm.debruijn-register-code-test :as contract]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.analysis :as analysis]
-            [yin.vm.semantic-register.corpus :as corpus :refer [lit v lam app tail if-node def! resume]]
-            [yin.vm.semantic-register.linearize :as linearize]
-            [yin.vm.semantic-register.derive :as derive]))
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.analysis :as analysis]
+            [yin.vm.semantic.corpus :as corpus :refer [lit v lam app tail if-node def! resume]]
+            [yin.vm.semantic.linearize :as linearize]
+            [yin.vm.semantic.derive :as derive]))
 
 
 (def worked-example
@@ -196,7 +196,7 @@
      (is (empty? (filter (fn [n]
                            (or (re-find #"hash|key|identity|digest" (str n))
                                (contains? #{'address 'code-address} n)))
-                         (keys (ns-publics 'yin.vm.semantic-register.derive))))))
+                         (keys (ns-publics 'yin.vm.semantic.derive))))))
   (doseq [[_ ast] C]
     (let [r (derive/resolve (projected ast))]
       (is (= r (edn/read-string (pr-str r))))

@@ -10,8 +10,8 @@
    primitives this slice adds: `image-pc` and `absolute-pc` on the
    positional kernels, the alias column on the semantic VM, and
    `closure-row` and `row-node` on the walker."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.stream :as stream]
@@ -22,7 +22,7 @@
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values]))
 

@@ -29,7 +29,7 @@
             [yin.vm.ffi.remote-serve :as rs]
             [yin.vm.ffi.remote-serve.caller :as caller]
             [yin.vm.ffi.remote-serve.responder :as resp]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.ucf.remote :as ucf.remote]))
 
 

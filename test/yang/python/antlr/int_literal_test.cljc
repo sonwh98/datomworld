@@ -10,8 +10,8 @@
    and binary tokens have none. Evaluated literals reproduce the frozen S0
    columns, a bignum survives every container and prints exactly, and
    malformed encodings and wrong carriers keep their refusals."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [dao.test-slow :as slow]
@@ -32,7 +32,7 @@
             [yin.vm.integer :as integer]
             [yin.vm.integer.host :as host]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
 

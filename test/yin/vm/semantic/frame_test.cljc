@@ -1,15 +1,15 @@
-(ns yin.vm.semantic-register.frame-test
+(ns yin.vm.semantic.frame-test
   (:require [clojure.test :refer [deftest is testing]]
             #?(:cljd nil :clj [clojure.java.io :as io])
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
             [yin.vm.values :as values]
-            [yin.vm.semantic-register.linearize :as linearize]
-            [yin.vm.semantic-register.analysis :as analysis]
-            [yin.vm.semantic-register.frame :as frame]
-            [yin.vm.semantic-register.corpus :as corpus]
-            [yin.vm.semantic-register.parity-test :as parity]
+            [yin.vm.semantic.linearize :as linearize]
+            [yin.vm.semantic.analysis :as analysis]
+            [yin.vm.semantic.frame :as frame]
+            [yin.vm.semantic.corpus :as corpus]
+            [yin.vm.semantic.parity-test :as parity]
             [yin.vm.ucf.rows-support :as s]
             [dao.stream :as stream]
             [dao.jing :as jing]
@@ -167,9 +167,9 @@
 (deftest contract-is-pure
   (is (nil? (frame/defect worked-frame worked-code :wait task)))
   #?(:cljd nil
-     :clj (let [source (slurp (io/file "src/cljc/yin/vm/semantic_register/frame.cljc"))
+     :clj (let [source (slurp (io/file "src/cljc/yin/vm/semantic/frame.cljc"))
                 ns-form (first (re-seq #"(?s)^.*?\n\n" source))]
-            (is (not (re-find #"yin.vm.engine|yin.vm.semantic-register\s+:|yin.vm.debruijn.(stack|register)" ns-form))))))
+            (is (not (re-find #"yin.vm.engine|yin.vm.semantic\s+:|yin.vm.debruijn.(stack|register)" ns-form))))))
 
 
 (deftest every-reference-frame-validates

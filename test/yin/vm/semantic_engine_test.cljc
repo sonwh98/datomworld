@@ -7,8 +7,8 @@
             [dao.jing.cbor :as cbor]
             [dao.stream :as stream]
             [yin.vm :as vm]
-            [yin.vm.semantic-register :as semantic]
-            [yin.vm.semantic-register.code :as code]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic.code :as code]
             [yin.vm.test-utils :as tu]))
 
 

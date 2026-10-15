@@ -9,7 +9,7 @@
             [yin.vm.module :as module]
             [yin.vm.ucf.rows-support :as support]
             [dao.test-slow :as slow]
-            [yin.vm.semantic-register.frame-test :as ft]
+            [yin.vm.semantic.frame-test :as ft]
             [yin.vm.values :as values]
             [yin.vm.engine :as engine]
             [yin.vm.ucf.rows :as rows]))

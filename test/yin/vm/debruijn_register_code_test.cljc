@@ -1,9 +1,9 @@
 (ns yin.vm.debruijn-register-code-test
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm.parity-test :as parity]
-            [yin.vm.semantic-register.corpus :refer [lit if-node]]
-            [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+            [yin.vm.semantic.corpus :refer [lit if-node]]
+            [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [yin.vm.debruijn-register-code :as rcode]))
 
 

@@ -1,7 +1,7 @@
 (ns yang.python.antlr.int-heap-test
   "S6: Python integer leaves in the heap, streams and kernel images."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.test-slow :as slow]
@@ -19,7 +19,7 @@
             [yin.vm.integer :as integer]
             [yin.vm.integer.host :as integer-host]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values]))
 

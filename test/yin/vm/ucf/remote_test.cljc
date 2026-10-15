@@ -36,7 +36,7 @@
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.ucf.remote :as ucf.remote]))
 
 

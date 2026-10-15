@@ -7,8 +7,8 @@
    never reads guest data as a kernel shape. Every program runs on all
    four VMs -- the AST walker, the semantic VM, and the de Bruijn stack
    and register VMs."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
@@ -21,7 +21,7 @@
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values]))
 

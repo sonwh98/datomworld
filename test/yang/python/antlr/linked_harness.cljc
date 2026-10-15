@@ -13,8 +13,8 @@
    until the VM stops blocking, as the REPL's drive does. The AST walker
    is not a backend here: its link of `py` is refused `:undeclared-free`
    until L-b."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [dao.jing.mem :as mem]
             [yang.python.antlr.prelude :as prelude]
             [yang.python.antlr.safepoint :as safepoint]
@@ -28,7 +28,7 @@
             [yin.vm.linker.interpreter :as link]
             [yin.vm.linker.publish :as publish]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
 

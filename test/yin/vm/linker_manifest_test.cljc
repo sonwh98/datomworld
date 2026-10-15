@@ -10,8 +10,8 @@
             [dao.jing.mem :as mem]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
-            [yin.vm.semantic-register.derive :as derive]
-            [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
+            [yin.vm.semantic.linearize :as sr-linearize]
             [yin.vm.debruijn-code-test :as b0]
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
@@ -20,7 +20,7 @@
             [yin.vm.linker.publish :as publish]
             [yin.vm.linker-test :as lt]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
 

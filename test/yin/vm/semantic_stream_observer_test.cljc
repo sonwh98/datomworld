@@ -19,9 +19,9 @@
             [yin.vm :as vm]
             [yin.vm.encoder :as encoder]
             [yin.vm.engine :as engine]
-            [yin.vm.semantic-register.linearize :as linearize]
+            [yin.vm.semantic.linearize :as linearize]
             [yin.vm.malformed-rows :as malformed]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
 

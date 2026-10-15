@@ -1,14 +1,14 @@
-(ns yin.vm.semantic-register.parity-test
+(ns yin.vm.semantic.parity-test
   (:require [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
             [yin.vm.parity-test :as b0]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values]
-            [yin.vm.semantic-register :as sr]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.corpus :as corpus :refer [lit v lam app tail if-node def!]]
-            [yin.vm.semantic-register.linearize :as sr-linearize]))
+            [yin.vm.semantic :as sr]
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.corpus :as corpus :refer [lit v lam app tail if-node def!]]
+            [yin.vm.semantic.linearize :as sr-linearize]))
 
 
 (def slice-4a-mnemonics

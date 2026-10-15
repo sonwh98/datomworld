@@ -2,8 +2,8 @@
   "R2 (docs/design/yin.vm.debruijn.register.md S5.2): test suite for
    pure effect descriptors, sparse continuation snapshots, wait-entry
    validators, and engine seam equivalence for the de Bruijn register VM."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             #?(:clj [clojure.edn :as edn]
                :cljs [cljs.reader :as edn]
                :cljd [clojure.edn :as edn])

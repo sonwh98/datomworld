@@ -1,7 +1,7 @@
-(ns yin.vm.semantic-register.analysis-test
+(ns yin.vm.semantic.analysis-test
   (:require [clojure.test :refer [deftest is testing]]
-            [yin.vm.semantic-register.analysis :as analysis]
-            [yin.vm.semantic-register.corpus :as corpus]))
+            [yin.vm.semantic.analysis :as analysis]
+            [yin.vm.semantic.corpus :as corpus]))
 
 
 ;; =============================================================================

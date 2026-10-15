@@ -11,7 +11,7 @@
    which since M3 reads over a ring-buffer content pair served from the
    store (`yin.vm.linker-test/fetch-local`). The two mint functions
    exercised here, `yin.vm/materialize-tree!` and
-   `yin.vm.semantic-register.code/materialize-vector!`, live beside the
+   `yin.vm.semantic.code/materialize-vector!`, live beside the
    grammars they enforce -- they are not a content category of their own."
   (:require #?@(:cljd [["dart:io" :as dart-io]])
             [clojure.test :refer [deftest is testing]]
@@ -22,9 +22,9 @@
             [yin.vm.linker :as linker]
             [yin.vm.linker-test :as lt]
             [yin.vm.parity-test :as parity]
-            [yin.vm.semantic-register :as semantic]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.linearize :as linearize]
+            [yin.vm.semantic :as semantic]
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.linearize :as linearize]
             [yin.vm-test :as vm-test]))
 
 

@@ -1,4 +1,4 @@
-(ns yin.vm.semantic-register.safepoint-harness-test
+(ns yin.vm.semantic.safepoint-harness-test
   "Phase 6b: the safepoint harness on the :semantic-register lane
    (docs/design/yin.vm.semantic-register-vm.continuation.md §5, §8.2).
 
@@ -14,7 +14,7 @@
 
    Phase 6c adds the two de Bruijn lanes (§5.3): a world built under
    *lane* :stack or :register runs A's derived image on that kernel and
-   lifts and lowers through yin.vm.semantic-register.layout. Law 4 (one
+   lifts and lowers through yin.vm.semantic.layout. Law 4 (one
    root id on all three lanes under canonical-under), law 5 (six ordered
    lowering pairs, each continuing to the reference result) and the
    layout refusals close the file."
@@ -30,17 +30,17 @@
             [yin.vm.module :as module]
             [yin.vm.values :as values]
             [yin.vm.test-utils :as tu]
-            [yin.vm.semantic-register :as sr]
+            [yin.vm.semantic :as sr]
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.parity-test :as b0]
-            [yin.vm.semantic-register.analysis :as analysis]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.corpus :as corpus]
-            [yin.vm.semantic-register.frame :as frame]
-            [yin.vm.semantic-register.frame-test :as ft]
-            [yin.vm.semantic-register.layout :as layout]
-            [yin.vm.semantic-register.linearize :as linearize]
+            [yin.vm.semantic.analysis :as analysis]
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.corpus :as corpus]
+            [yin.vm.semantic.frame :as frame]
+            [yin.vm.semantic.frame-test :as ft]
+            [yin.vm.semantic.layout :as layout]
+            [yin.vm.semantic.linearize :as linearize]
             [yin.vm.ucf.rows :as rows]
             [yin.vm.ucf.rows-support :as s]))
 

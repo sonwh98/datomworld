@@ -6,8 +6,8 @@
    parser is JVM-only); their node ids are the parser's, so this is the
    real lowering's output. Topology: lowering envelope -> encoder projection
    -> safepoint stage -> the VM runs the hook prelude, then `A'`."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [dao.test-slow :as slow]
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
@@ -28,7 +28,7 @@
             [yin.vm.encoder :as encoder]
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))
 
 

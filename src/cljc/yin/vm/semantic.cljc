@@ -1,4 +1,4 @@
-(ns yin.vm.semantic-register
+(ns yin.vm.semantic
   "The register-shaped canonical evaluator, phase 4b (effects, continuations, FFI and module installation)."
   (:require [dao.jing :as jing]
             [dao.stream.apply :as apply2]
@@ -8,9 +8,9 @@
             [yin.vm.module :as module]
             [yin.vm.telemetry :as telemetry]
             [yin.vm.values :as values]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.linearize :as linearize]
-            [yin.vm.semantic-register.analysis :as analysis]))
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.linearize :as linearize]
+            [yin.vm.semantic.analysis :as analysis]))
 
 
 (defrecord RegisterVM

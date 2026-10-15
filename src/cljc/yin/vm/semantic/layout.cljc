@@ -1,4 +1,4 @@
-(ns yin.vm.semantic-register.layout
+(ns yin.vm.semantic.layout
   "Phase 6c (docs/design/yin.vm.semantic-register-vm.continuation.md §4):
    the de Bruijn register and stack kernels reconstruct the canonical
    frame of the register machine through their layouts, and lower it
@@ -39,9 +39,9 @@
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register.analysis :as analysis]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.derive :as derive]
+            [yin.vm.semantic.analysis :as analysis]
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.derive :as derive]
             [yin.vm.ucf.rows :as rows]
             [yin.vm.values :as values]))
 

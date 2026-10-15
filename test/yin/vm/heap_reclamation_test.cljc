@@ -3,8 +3,8 @@
    deterministic, allocation-triggered, stop-the-world mark-sweep over the
    task `:heap`, on all four VMs -- the AST walker, the semantic VM, and
    the de Bruijn stack and register VMs."
-  (:require [yin.vm.semantic-register.linearize :as sr-linearize]
-            [yin.vm.semantic-register.derive :as derive]
+  (:require [yin.vm.semantic.linearize :as sr-linearize]
+            [yin.vm.semantic.derive :as derive]
             [clojure.test :refer [deftest is testing]]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as walker]
@@ -13,7 +13,7 @@
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as semantic]
+            [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values]))
 

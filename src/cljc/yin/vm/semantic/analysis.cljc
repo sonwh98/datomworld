@@ -1,4 +1,4 @@
-(ns yin.vm.semantic-register.analysis
+(ns yin.vm.semantic.analysis
   "Static facts per pc derived from A
    (`docs/design/yin.vm.semantic-register-vm.md` §8.1): per body, the
    explicit control-flow graph, `def`, `use`, the live-in set `L` by
@@ -6,10 +6,10 @@
    `saved(p, rd) = L(p) − {rd}`.
 
    Pure functions of a vector that passed
-   `yin.vm.semantic-register.code/well-formed?`. Nothing here is persisted
+   `yin.vm.semantic.code/well-formed?`. Nothing here is persisted
    in A; a receiver recomputes it from the vector alone."
   (:require [clojure.set :as set]
-            [yin.vm.semantic-register.code :as code]))
+            [yin.vm.semantic.code :as code]))
 
 
 (defn successors

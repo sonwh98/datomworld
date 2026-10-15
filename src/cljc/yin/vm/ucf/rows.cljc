@@ -25,10 +25,10 @@
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
             [yin.vm.values :as values]
-            [yin.vm.semantic-register.analysis :as analysis]
-            [yin.vm.semantic-register.code :as code]
-            [yin.vm.semantic-register.frame :as frame]
-            [yin.vm.semantic-register.scan :as scan]
+            [yin.vm.semantic.analysis :as analysis]
+            [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.frame :as frame]
+            [yin.vm.semantic.scan :as scan]
             [yin.vm.ucf.custody :as custody]
             [yin.vm.ucf.remote :as remote]))
 

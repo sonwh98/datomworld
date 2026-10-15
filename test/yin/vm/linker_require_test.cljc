@@ -22,7 +22,7 @@
             [yin.vm.ast-walker :as walker]
             [yin.vm.debruijn-code :as dcode]
             [yin.vm.debruijn-register-code :as rcode]
-            [yin.vm.semantic-register.derive :as derive]
+            [yin.vm.semantic.derive :as derive]
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
@@ -31,8 +31,8 @@
             [yin.vm.linker.publish :as publish]
             [yin.repl :as repl]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as sr]
-            [yin.vm.semantic-register.linearize :as sr-linearize]
+            [yin.vm.semantic :as sr]
+            [yin.vm.semantic.linearize :as sr-linearize]
             [yin.vm.test-utils :as tu]
             [yin.vm.values :as values]))
 

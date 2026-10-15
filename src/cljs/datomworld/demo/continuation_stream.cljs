@@ -42,7 +42,7 @@
             [yin.demo.utils :as demo.utils]
             [yin.vm :as vm]
             [yin.vm.module :as module]
-            [yin.vm.semantic-register :as semantic]))
+            [yin.vm.semantic :as semantic]))
 
 
 (def source-example
