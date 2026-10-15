@@ -117,9 +117,9 @@
 (def descriptor
   "The `:yin.debruijn.code/*` dimension declared as data (S2): a lowering-
    contract version, arity (the opcode table's own mnemonic count), the
-   ordered opcode table and the canonical encoding rule. The H formula is
-   prose, kept in this docstring rather than hashed, per P3-4 of the
-   debruijn-b1-fix review: this whole vector feeds `descriptor-hash` (via
+   ordered opcode table and the canonical encoding rule. Prose such as
+   the H formula is kept out of this vector rather than hashed, per P3-4
+   of the debruijn-b1-fix review: this whole vector feeds `descriptor-hash` (via
    `encode-scalar`), so an editorial change to a hashed sentence would
    fork every image's H even though `lowering-contract-version` already
    guards every real shape change. `image-hash`'s own docstring carries
