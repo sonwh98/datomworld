@@ -1201,7 +1201,7 @@
                   (every= [true false
                            {:py/out [],
                             :py/exception {:type "ImportError",
-                                           :args ["cannot import name 'x' from partially initialized module 'b'"]}}]
+                                           :args ["cannot import name 'x' from partially initialized module 'b' (most likely due to a circular import)"]}}]
                           (on-every-vm (i5-packet [(statement (import-simple-stmt "b"))]) source))))))
 
 
@@ -1253,3 +1253,43 @@
                               (i5-packet (concat (map #(statement (import-simple-stmt %)) order)
                                                  [(i5-print-attributes [["a" "x"] ["b" "x"]])]))
                               source)))))))
+
+
+(deftest ^:slow cyclic-from-import-after-initialization-test
+  (slow/guard "cyclic-from-import-after-initialization"
+              (fn []
+                (let [print-message
+                      (statement
+                        [:expr_stmt
+                         (chain (take 7 expr-chain)
+                                [:atom_expr [:atom [:name ["NAME" "print"]]]
+                                 [:trailer ["OPEN_PAREN" "("]
+                                  [:arglist
+                                   [:argument
+                                    (chain (take 6 (rest expr-chain))
+                                           [:atom_expr [:atom [:name ["NAME" "error"]]]
+                                            [:trailer ["DOT" "."] [:name ["NAME" "args"]]]
+                                            [:trailer ["OPEN_BRACK" "["]
+                                             [:subscriptlist
+                                              [:subscript_ (chain (rest expr-chain) ["NUMBER" "0"])]]
+                                             ["CLOSE_BRACK" "]"]]])]]
+                                  ["CLOSE_PAREN" ")"]]])])
+                      caught-import
+                      [:stmt [:compound_stmt
+                              [:try_stmt ["TRY" "try"] ["COLON" ":"]
+                               [:block ["NEWLINE" "\n"] ["INDENT" "    "]
+                                (statement (relative-from-stmt 0 "b" "missing")) ["DEDENT" ""]]
+                               [:except_clause ["EXCEPT" "except"]
+                                (chain (rest expr-chain) [:name ["NAME" "ImportError"]])
+                                ["AS" "as"] [:name ["NAME" "error"]]]
+                               ["COLON" ":"]
+                               [:block ["NEWLINE" "\n"] ["INDENT" "    "] print-message ["DEDENT" ""]]]]]
+                      ;; a imports b to completion, then checks its missing
+                      ;; name inside a bundled body, where the flag matters.
+                      source (i5-source
+                               [(i5-unit "a" [(statement (import-simple-stmt "b")) caught-import])
+                                (i5-unit "b" [(statement (import-simple-stmt "a"))])])]
+                  (every= [true false
+                           {:py/out ["cannot import name 'missing' from 'b' (unknown location)"],
+                            :py/exception nil}]
+                          (on-every-vm (i5-packet [(statement (import-simple-stmt "a"))]) source))))))

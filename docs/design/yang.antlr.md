@@ -3226,9 +3226,9 @@ precompiled CST packets or rows, since the parser is JVM-only):
   equal it. A refused import is observed to print nothing and start no
   guest install child.
   `yang.python.antlr.publication` orders a unit set by its static
-  imports and publishes it bottom-up, pinning each import, and refuses a
-  cycle before anything is written (`:yang.python.antlr/import-cycle`,
-  naming its modules) and an import nothing supplies; the republished
+  imports and publishes it bottom-up, pinning each import, and refuses
+  an import nothing supplies. I3's `:yang.python.antlr/import-cycle`
+  publication refusal was superseded by I5's SCC bundling; the republished
   dependency is the linker's `:mismatch` binding. `py` does not travel:
   three of its code images (about 0.8 to 1 MB) exceed the DHT's 64 KiB
   message bound, which a `dao.space.dht` node does not let a composition
@@ -3262,7 +3262,11 @@ precompiled CST packets or rows, since the parser is JVM-only):
   `import_test`, including unchanged I1/I2 behavior and the unchanged
   import-free linked program root. I4-b covers DHT end to end.
 - I5: mutually importing `a` and `b` both import; `from b import x`
-  during partial initialization gives CPython's error text.
+  during partial initialization gives
+  `cannot import name 'x' from partially initialized module 'b' (most likely due to a circular import)`:
+  CPython's initializing-branch text with the filesystem path omitted.
+  After initialization, a missing name uses the no-`__file__` text
+  `cannot import name 'missing' from 'b' (unknown location)`.
 - I6: `reload(m)` re-runs the body against the same dict with `m`'s
   identity unchanged; registering a finder raises the explicit
   unsupported error.

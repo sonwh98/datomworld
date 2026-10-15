@@ -1973,6 +1973,19 @@
   '#{spec body})
 
 
+(defn- validate-module-name!
+  [name]
+  (when (or (empty? name)
+            (str/starts-with? name ".")
+            (str/ends-with? name ".")
+            (str/includes? name "..")
+            (str/includes? name "$"))
+    (throw (ex-info "a module name is dotted identifiers"
+                    {:yang.python.antlr/diagnostic :yang.python.antlr/unsupported,
+                     :construct "malformed module name",
+                     :name name}))))
+
+
 (defn module-packet
   "One ok packet as the linker module `pym.<mangled>`: one wide
    application whose operands are `(require 'py)`, then the spec and
@@ -1985,15 +1998,7 @@
    body is the same form `lower-packet` runs as `__main__`: one code
    image, two roles."
   [packet {:keys [name package?]}]
-  (when (or (empty? name)
-            (str/starts-with? name ".")
-            (str/ends-with? name ".")
-            (str/includes? name "..")
-            (str/includes? name "$"))
-    (throw (ex-info "a module name is dotted identifiers"
-                    {:yang.python.antlr/diagnostic :yang.python.antlr/unsupported,
-                     :construct "malformed module name",
-                     :name name})))
+  (validate-module-name! name)
   (let [unit {:name name, :package? (boolean package?)}
         defs [(u/def! 'spec (u/lit unit))
               (u/def! 'body (u/lam [globals-sym globals-fn-sym]
@@ -2090,7 +2095,7 @@
                                                            (u/lit "' from partially initialized module '")
                                                            (app* 'get (app* 'py/lookup-attr (u/v '%from-module)
                                                                             (u/lit "__name__")) (u/lit :py/str))
-                                                           (u/lit "'"))))
+                                                           (u/lit "' (most likely due to a circular import)"))))
                                          (app* 'py/raise (u/v '%from-error))))
                                 (u/lam [] (app* 'cell/get (u/v '%from-result))))))))
 
@@ -2102,6 +2107,8 @@
    requiring aliases. Only py and outgoing imports are pinned by the bundle.
    Alias :requires is filled with the bundle address after publication."
   [registry units py-address deps]
+  (doseq [{:keys [name]} units]
+    (validate-module-name! name))
   (let [units (vec (sort-by :name units))
         deps (apply dissoc deps (map :name units))
         bundle-name (symbol (str "pyscc." (str/join "$$" (map #(str/replace (:name %) "." "$") units))))
@@ -2109,11 +2116,9 @@
                             (fn [i unit]
                               [(:name unit) [(symbol (str "m" i "-spec"))
                                              (symbol (str "m" i "-body"))]]) units))
-        cell-syms (into {} (map-indexed
-                             (fn [i unit]
-                               [(:name unit) (symbol (str "%cell-m" i))]) units))
         units-by-name (into {} (map (fn [u] [(:name u) u]) units))
-        internal (set (map module-symbol (keys keys-for)))
+        internal-names (into {} (map (fn [nm] [(module-symbol nm) nm])) (keys keys-for))
+        internal (set (keys internal-names))
         rewrite (fn [node]
                   (cond
                     (and (= :variable (:type node))
@@ -2121,7 +2126,7 @@
                          (some? (namespace (:name node)))
                          (contains? internal (symbol (namespace (:name node))))
                          (= "spec" (name (:name node))))
-                    (let [nm (subs (namespace (:name node)) 4)
+                    (let [nm (get internal-names (symbol (namespace (:name node))))
                           u (get units-by-name nm)]
                       (u/lit {:name nm, :package? (boolean (:package? u))}))
                     (and (= :variable (:type node))
@@ -2129,9 +2134,9 @@
                          (some? (namespace (:name node)))
                          (contains? internal (symbol (namespace (:name node))))
                          (= "body" (name (:name node))))
-                    (let [nm (subs (namespace (:name node)) 4)
-                          cs (get cell-syms nm)]
-                      (app* 'cell/get (u/v cs)))
+                    (let [nm (get internal-names (symbol (namespace (:name node))))
+                          [_ body-key] (get keys-for nm)]
+                      (u/v body-key))
                     (and (= :application (:type node))
                          (= 'try-require (get-in node [:operator :name]))
                          (contains? internal (get-in node [:operands 0 :value])))
@@ -2160,28 +2165,17 @@
                         unit {:name name, :package? (boolean package?)}]
                     [(u/def! spec-key (u/lit unit))]))
                 units)
-        cell-inits
-        (map (fn [_] (app* 'cell/new none)) units)
-        cell-sets
-        (mapv (fn [{:keys [name]} body]
-                (let [cs (get cell-syms name)]
-                  (app* 'cell/set! (u/v cs) body)))
-              units wrapped-bodies)
         body-defs
-        (mapcat (fn [{:keys [name]}]
-                  (let [[_ body-key] (get keys-for name)
-                        cs (get cell-syms name)]
-                    [(u/def! body-key (app* 'cell/get (u/v cs)))]))
-                units)
-        defs-expr
-        (apply u/app
-               (u/lam (mapv #(get cell-syms (:name %)) units)
-                      (u/seq-nodes
-                        (concat cell-sets
-                                spec-defs
-                                body-defs)))
-               cell-inits)
-        ast (module-tree [(require-node prelude/module-name) defs-expr])
+        (map (fn [{:keys [name]} body]
+               (let [[_ body-key] (get keys-for name)]
+                 (u/def! body-key body)))
+             units wrapped-bodies)
+        ;; The linker discharges body reads only when their definitions
+        ;; precede every module-level application site. Install the pure
+        ;; sibling bindings before require; defining the lambdas runs no py.
+        ast (module-tree (concat spec-defs
+                                 body-defs
+                                 [(require-node prelude/module-name)]))
         exports (set (mapcat val keys-for))
         requires (into {prelude/module-name py-address}
                        (map (fn [[n a]] [(module-symbol n) a])) deps)
