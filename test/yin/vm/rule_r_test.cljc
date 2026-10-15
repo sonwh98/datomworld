@@ -120,10 +120,7 @@
 
 
 (def ^:private backends
-  {:semantic-register (fn [ast]
-                        (vm/run (semantic/load-ast (semantic/create-vm {:make-stream tu/make-stream :capability-secret tu/secret})
-                                                   (vm/ast->datoms ast) vm/ast-contract))),
-   :ast-walker walker-run,
+  {:ast-walker walker-run,
    :semantic semantic-run,
    :stack stack-run,
    :register register-run})
@@ -204,7 +201,7 @@
 
 
 (deftest a-parked-read-in-a-definition-resumes-and-writes
-  (doseq [[backend run] (select-keys backends [:ast-walker :semantic :semantic-register])]
+  (doseq [[backend run] (select-keys backends [:ast-walker :semantic])]
     (testing (name backend)
       (let [blocked (run parked-definition)
             handle (get (:resources blocked) :stream-0)]

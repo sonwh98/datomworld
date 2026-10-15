@@ -379,9 +379,7 @@
 
 (def ^:private vm-kinds
   "Each VM kind's run of `ast` on a fresh VM built from `opts`."
-  {:semantic-register (fn [opts ast]
-                        (vm/run (semantic/load-ast (semantic/create-vm opts) (vm/ast->datoms ast) vm/ast-contract))),
-   :ast-walker (fn [opts ast] (vm/eval (ast-walker/create-vm opts) ast)),
+  {:ast-walker (fn [opts ast] (vm/eval (ast-walker/create-vm opts) ast)),
    :semantic (fn [opts ast]
                (vm/run (load-semantic (semantic/create-vm opts)
                                       (vm/ast->datoms ast)))),

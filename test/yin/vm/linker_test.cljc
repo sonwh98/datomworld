@@ -2040,7 +2040,7 @@
         (jing/close! publisher)))))
 
 
-(deftest semantic-register-scanners-yield-position-bearing-records
+(deftest semantic-scanners-yield-position-bearing-records
   (let [vector (:vector (sr-linearize/project def-then-use))
         {:keys [obligations-fn definitions-fn applications-fn]} linker/semantic-format
         defs (definitions-fn vector)
@@ -2053,7 +2053,7 @@
     (is (seq (applications-fn vector)))))
 
 
-(deftest semantic-register-format-refuses-a-malformed-vector
+(deftest semantic-format-refuses-a-malformed-vector
   (doseq [[label format] [[:v3 linker/semantic-format]
                           [:v4 linker/semantic-format]]]
     (testing label

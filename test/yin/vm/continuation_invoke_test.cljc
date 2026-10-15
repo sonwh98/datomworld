@@ -30,15 +30,7 @@
 
 
 (def ^:private runners
-  {:semantic-register (fn [ast]
-                        (loop [machine (semantic/load-ast (semantic/create-vm opts) (vm/ast->datoms ast) vm/ast-contract)
-                               steps 0]
-                          (cond
-                            (vm/halted? machine) (vm/value machine)
-                            (vm/blocked? machine) (throw (ex-info "Register continuation test blocked" {}))
-                            (= steps 10000) (throw (ex-info "Register continuation step bound exhausted" {}))
-                            :else (recur (vm/step machine) (inc steps))))),
-   :ast-walker tu/compile-and-run,
+  {:ast-walker tu/compile-and-run,
    :semantic (fn [ast]
                (vm/value (vm/run (load-semantic-ast (semantic/create-vm opts)
                                                     (vm/ast->datoms ast)))))

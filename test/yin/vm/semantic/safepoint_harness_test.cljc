@@ -1,5 +1,5 @@
 (ns yin.vm.semantic.safepoint-harness-test
-  "Phase 6b: the safepoint harness on the :semantic-register lane
+  "Phase 6b: the safepoint harness on the :semantic lane
    (docs/design/yin.vm.semantic-register-vm.continuation.md §5, §8.2).
 
    Each row of the §5.2 matrix is built twice under each of the four
@@ -94,13 +94,13 @@
 
 
 (def ^:dynamic *lane*
-  "The kernel a world is built on: :semantic-register (the reference
+  "The kernel a world is built on: :semantic (the reference
    lane), or :stack or :register, which run A's derived image and lift
    and lower through the layouts (§5.3)."
-  :semantic-register)
+  :semantic)
 
 
-(def lanes [:semantic-register :stack :register])
+(def lanes [:semantic :stack :register])
 
 
 (defn- composition
@@ -123,7 +123,7 @@
   ([] (machine {}))
   ([opts]
    (case *lane*
-     :semantic-register (sr/create-vm (composition opts))
+     :semantic (sr/create-vm (composition opts))
      :stack (dvm/create-vm [] (kernel-opts opts))
      :register (rvm/create-vm (assoc {} :bodies [] :instructions []) (kernel-opts opts)))))
 
@@ -133,7 +133,7 @@
   (let [f (:format (module/link-format m))]
     (cond (= dvm/format-tag f) :stack
           (= rvm/format-tag f) :register
-          :else :semantic-register)))
+          :else :semantic)))
 
 
 (def segment-of
@@ -172,7 +172,7 @@
 
 (defn load-program
   [m ast]
-  (if (= :semantic-register (lane-of m))
+  (if (= :semantic (lane-of m))
     (sr/load-vector m (project ast) code/contract)
     (kernel-load m (project ast))))
 
@@ -180,7 +180,7 @@
 (defn lane-closure
   "Canonical closure payload c, its :segment an A, as machine m's value."
   [m c]
-  (if (= :semantic-register (lane-of m))
+  (if (= :semantic (lane-of m))
     (values/closure (:owner m) (update c :segment #(get (:code-aliases m) %)))
     (layout/positional-value (layout/lower-context m (kernel-space m)) (values/closure (:owner m) c))))
 
@@ -1453,16 +1453,16 @@
 (defn lane-lift
   "The lift of §7.1 on m's own lane."
   [m serve!]
-  (if (= :semantic-register (lane-of m))
+  (if (= :semantic (lane-of m))
     (rows/lift-task m serve! (lift-opts))
-    (layout/lift-task m (kernel-space m) (on-lane :semantic-register machine) serve! (lift-opts))))
+    (layout/lift-task m (kernel-space m) (on-lane :semantic machine) serve! (lift-opts))))
 
 
 (defn lane-lower
   "The lower of §7.2 into a fresh receiver on lane, of composition opts."
   [lane opts wire attach!]
-  (let [scratch (on-lane :semantic-register #(machine opts))]
-    (if (= :semantic-register lane)
+  (let [scratch (on-lane :semantic #(machine opts))]
+    (if (= :semantic lane)
       (rows/lower-task scratch wire attach!)
       (layout/lower-task scratch (on-lane lane #(machine opts)) wire attach!))))
 
@@ -1601,7 +1601,7 @@
   [build expected]
   (let [roots (mapv #(lane-root % build) lanes)]
     (is (= 3 (count roots)))
-    (is (= [:semantic-register :stack :register] (mapv :lane roots)) "three distinct kernel lanes")
+    (is (= [:semantic :stack :register] (mapv :lane roots)) "three distinct kernel lanes")
     (is (apply = (map :root roots)) "law 4: one root id on every lane")
     (when-not (descriptors-equivalent? (mapv :descriptors roots))
       (throw (ex-info "The descriptors differ under the correspondence"
@@ -1713,7 +1713,7 @@
    4 is lifted from a de Bruijn source but not lowered into a de Bruijn
    receiver, whose re-park names its own call pair
    (ffi/response-wait-entry), not the carried response cursor cell the
-   semantic-register kernel restores. Emptied when the retained-FFI seam
+   semantic kernel restores. Emptied when the retained-FFI seam
    (§4, 6c-post-D2) lands, raising law 5 to 366 and 96."
   #{[4 :stack] [4 :register]})
 
@@ -1744,7 +1744,7 @@
   "Law 5 for one case: every admitted ordered pair continues to the
    reference. Answers the pairs that ran."
   [row build]
-  (let [ref (reference (on-lane :semantic-register build))]
+  (let [ref (reference (on-lane :semantic build))]
     (is (:halted ref))
     (reduce (fn [ran [from to]]
               (if (contains? unlowerable [row to])
@@ -1933,6 +1933,6 @@
           (is (zero? @n) "refused before any attachment")
           (testing ", the stack kernel holds it"
             (let [ref (reference (build identity))
-                  got (crossed :semantic-register :stack #(build identity))]
+                  got (crossed :semantic :stack #(build identity))]
               (is (= expected (:value ref)))
               (is (= (:value ref) (:value got))))))))))
