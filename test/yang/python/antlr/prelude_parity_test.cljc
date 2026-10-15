@@ -228,9 +228,9 @@
      :py/stop]
     [(py/to-vector (py/range3 -5 5 1)) [-5 -4 -3 -2 -1 0 1 2 3 4]]
     [(py/to-vector (py/range3 5 -5 -3)) [5 2 -1 -4]]
-    [(py/float-mod 1.0E20 3.0) 1.0]
-    [(py/float-mod -1.0E20 3.0) 2.0]
-    [(py/float-mod 1.0E300 7.0) 1.0]
+    [(py/mod {:py/float 1.0E20} {:py/float 3.0}) {:py/float 1.0}]
+    [(py/mod {:py/float -1.0E20} {:py/float 3.0}) {:py/float 2.0}]
+    [(py/mod {:py/float 1.0E300} {:py/float 7.0}) {:py/float 1.0}]
     [(py/snapshot {:py/str "s"}) "s"]
     [(py/snapshot :py/None) nil]])
 
@@ -238,10 +238,7 @@
 (defn- prelude-semantics-on-every-vm
   []
   (let [form (reduce (fn [acc [f _]]
-                       (list 'py/vconj acc
-                             (if (= 'py/float-mod (first f))
-                               (with-float64 f)
-                               (ops/exact-literals (with-float64 f)))))
+                       (list 'py/vconj acc (ops/exact-literals (with-float64 f))))
                      []
                      cases)
         expected (ops/canon-ints (mapv (comp with-float64 second) cases))
