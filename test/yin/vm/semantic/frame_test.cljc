@@ -236,10 +236,13 @@
         (is (nil? (frame/defect f code context t)) "fresh and literal NaNs have the same content")
         (doseq [env [{'x 1.0} {'y ##NaN}]]
           (is (= :free-env-mismatch (kind f code context (assoc t :free-env env)))))
-        (is (= :free-env-mismatch
-               (kind (assoc-in f [:yin.k/env :yin.k/bindings 'x] 0.0)
-                     code context (assoc t :free-env {'x -0.0}))))
-        (is (not (cbor/content= 0.0 -0.0)))
+        ;; JS has one zero: 0.0 and -0.0 are the same Number there, so the
+        ;; signed-zero distinction holds on the JVM and Dart only.
+        #?@(:cljs []
+            :default [(is (= :free-env-mismatch
+                             (kind (assoc-in f [:yin.k/env :yin.k/bindings 'x] 0.0)
+                                   code context (assoc t :free-env {'x -0.0}))))
+                      (is (not (cbor/content= 0.0 -0.0)))])
         (let [nested {'x {:n [(* 1.0 ##NaN)]}}]
           (is (nil? (frame/defect (assoc-in f [:yin.k/env :yin.k/bindings] nested)
                                   code context (assoc t :free-env {'x {:n [##NaN]}})))))
