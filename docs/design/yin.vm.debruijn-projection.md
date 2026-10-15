@@ -166,10 +166,14 @@ and, if persisted for diagnostics, is a separate side index.
 For every projected node:
 
 ```
-hash(node) = SHA-256(dimension-hash
-                     || encode(tag-specific-slots-in-descriptor-order))
+hash(node) = BLAKE3(dimension-hash
+                    || encode(tag-specific-slots-in-descriptor-order))
 fingerprint = hash(root)
 ```
+
+(SHA-256 until the phase-8 cutover, 2026-10-15; the descriptor's `:hash`
+row and every dimension and node hash moved to BLAKE3 then, once, without
+a version bump.)
 
 The dimension hash follows the d1 content-addressing floor; an ad hoc string
 domain separator is not used. Only slots belonging to the node's tag are
@@ -270,7 +274,8 @@ identity, and tree/graph emission has one semantic graph and fingerprint.
 
 ### D3 — canonical encoder and fingerprint
 
-Implement the descriptor-based SHA-256 encoder and numeric/string rules,
+Implement the descriptor-based SHA-256 encoder (BLAKE3 since the
+phase-8 cutover) and numeric/string rules,
 including distinct signed zero and disjoint int64 and double classes.
 Completion means CLJ, CLJS, and CLJD produce identical bytes and all canonical
 fixtures hash identically across hosts.
@@ -345,7 +350,8 @@ The six open questions are resolved: source-leftmost parameter position is
 zero; duplicate names are rightmost-wins; shared nodes may be duplicated by
 lexical context but sharing is invisible to identity; maps and sets use
 canonical byte ordering; the published `:yin.debruijn/*` dimension supplies
-the domain separator and SHA-256 is the hash; the source-to-projected index is
+the domain separator and BLAKE3 is the hash (SHA-256 until the phase-8
+cutover); the source-to-projected index is
 ephemeral by default and separate if later persisted. The Dart NFC source is
 `unorm_dart` (Unicode 16.0), settled by the owner 2026-09-21 and validated by
 the D3 cross-host fixtures. At the D0 review 2026-09-21 the value table's

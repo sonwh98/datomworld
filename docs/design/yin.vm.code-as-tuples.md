@@ -17,7 +17,7 @@ This document is subordinate to
 [`datom.world.md`](./datom.world.md) (axioms and invariants),
 [`datom.md`](./datom.md) (the datom contract: stream-local `e`/`t`/`m`,
 foreign references only in `v`, reserved markers),
-[`yin.vm.semantic.md`](./yin.vm.semantic.md) (the segment, its opcode table
+[the deleted v3 design](./yin.vm.semantic.md#history) (the segment, its opcode table
 §2.4, well-formedness §2.6, lowering §5),
 [`yin.vm.universal-continuation-format.md`](./yin.vm.universal-continuation-format.md)
 (UCF: the canonical instruction vector §7.3.2, contract stamp §7.3.3,
@@ -30,12 +30,19 @@ surface and current-state resolution). It extends them; where it restates
 one of their rules it cites the rule. Where it supersedes one, it says so
 (§7.2). Line numbers were read from the working tree on 2026-09-14 and
 re-verified on 2026-09-15. Amended 2026-10-11 in §7.2 (C1 of
-`yin.vm.semantic-register-vm.continuation.md` §10.4): the
+`yin.vm.semantic.continuation.md` §10.4): the
 vector-to-datoms projection path is retired; one direct vector load, two
 AST projection lanes, one validator. §6.5, §7.1 and the §10 impact table
 name the loads the same way (the datom lane is an AST lane; no
 `:yin.code/*` datom batch is a load input), and the §1 table's and §2's
 row-id examples are spelled under Jing's default digest, BLAKE3.
+Amended 2026-10-15 (phase 8, 8g): citations below of
+[`yin.vm.semantic.md`](./yin.vm.semantic.md) sections — the segment, the
+opcode table §2.4, well-formedness §2.6, the flattening §5.3 — are to
+the stack-shaped v3 design that file named until the cutover, and are
+historical; its stance and contract history survive in the renamed
+`yin.vm.semantic.md`'s history block and in `yin.vm.ucf-revisions.md`,
+and the `"v4"` vector and validator are the renamed design's §§2.3-3.4.
 
 ---
 
@@ -323,14 +330,14 @@ is a node: the walker evaluates it (`ast_walker.cljc:431-438`).
 **`tail?` is a slot of `:application` only.** The one reader of the tail
 mark in the whole v2 lineage is the linearizer's `:call` emission
 (`linearize.cljc:107-108`), which reads it on `:application`; the walker
-never reads it; `:ffi-call` has no tail operand (`yin.vm.semantic.md`
+never reads it; `:ffi-call` has no tail operand ([the deleted v3 design](./yin.vm.semantic.md#history)
 §2.4). The yang frontends mark `:tail? true` on literals, defs, and other
 nodes (`src/cljc/yang/clojure.cljc:132`, `:164`; `src/cljc/yang/python.cljc:481`),
 and the codec faithfully persists every such mark (`v2.cljc:412`). The
 boundary projection drops those marks: a mark no evaluator can
 observe is not part of the program's syntax as the evaluators read it. The
 mark on an `:if`'s branches is carried by the branch `:application` nodes
-themselves, which is how `yin.vm.semantic.md` §5.3's "branches inherit it"
+themselves, which is how [the deleted v3 design](./yin.vm.semantic.md#history) §5.3's "branches inherit it"
 is realized.
 
 ### 2.4 Saturation
@@ -807,10 +814,10 @@ writes its literal key, it does not resolve its operator.
 
 The segment's canonical form is the positional instruction tuple vector of
 UCF §7.3.2: one tuple per instruction, pc is the index, the
-`yin.vm.semantic.md` §2.4 table fixes each mnemonic's arity and operand
+[the deleted v3 design](./yin.vm.semantic.md#history) §2.4 table fixes each mnemonic's arity and operand
 kinds, defaults are saturated, refs are resolved pcs, and the header folds
 away. Its address is `(dao.jing/segment-key vector)`, the value
-`yin.vm.semantic.md` §2.2 already types `:yin.code/hash` as. The two
+[the deleted v3 design](./yin.vm.semantic.md#history) §2.2 already types `:yin.code/hash` as. The two
 levels are uniform under this design: an AST row (§2.1) and an instruction
 tuple are both flat positional tuples, canonical and content-addressed,
 and the instruction vector was already this shape before the flat-row
@@ -865,7 +872,7 @@ only against a **lowering profile**, a published revision that pins:
 +---------------------------------------+--------------------------------------------------------------------------------------------------------------------------------+
 | normalization applied before emission | saturation (§2.4), tail marks on `:application` only (§2.3), nothing else                                                      |
 +---------------------------------------+--------------------------------------------------------------------------------------------------------------------------------+
-| emission rules                        | the §5.3 flattening table of `yin.vm.semantic.md`, in the walker's evaluation order (operator, then operands left to right)    |
+| emission rules                        | the §5.3 flattening table of [the deleted v3 design](./yin.vm.semantic.md#history), in the walker's evaluation order (operator, then operands left to right)    |
 +---------------------------------------+--------------------------------------------------------------------------------------------------------------------------------+
 | label and body order                  | labels numbered in emission order (`linearize.cljc:76-77`); bodies emitted after the main sequence, in the order lambdas were  |
 |                                       | encountered, including lambdas found inside bodies (`linearize.cljc:151-158`)                                                  |
@@ -919,7 +926,7 @@ including the member index `j` for admitted syntax, is an input to the
 lowering, supplied by the composition that admitted or generated the
 tree; the lowering never infers it. Rendering an instruction range back to
 source is a join over that table and the source-position table on the
-occurrence key, which is the query `yin.vm.semantic.md` §5.3 says it is;
+occurrence key, which is the query [the deleted v3 design](./yin.vm.semantic.md#history) §5.3 says it is;
 for generated code the join goes through the producing event's record
 address to its call occurrence (§8.4).
 
@@ -1109,13 +1116,13 @@ the vector.
 ### 7.2 Conformance: one validator, one image
 
 The vector-to-datoms projection path is **retired** (owner ruling
-2026-09-18; frozen `yin.vm.semantic-register-vm.md` §3.4 "One vector
+2026-09-18; frozen `yin.vm.semantic.md` §3.4 "One vector
 validator"). There is one load path for a vector, the direct one, and
 two AST projection lanes (datom lane, row lane) that produce the vector;
 all three feed one validator
-(`yin.vm.semantic-register.code/well-formed?`). UCF §7.3.4's projection
+(`yin.vm.semantic.code/well-formed?`). UCF §7.3.4's projection
 path is superseded accordingly (amended 2026-10-11,
-`yin.vm.semantic-register-vm.continuation.md` §10.4 C1).
+`yin.vm.semantic.continuation.md` §10.4 C1).
 
 All lanes invoke the same validator (§7.4 for rows, §7.5 for vectors)
 before anything is registered, and the conformance obligation has four
@@ -1141,7 +1148,7 @@ parts:
    vectors, each violating one rule of §7.5, and malformed row sets, each
    violating one rule of §7.4, the direct vector load refuses with the
    published defect (rule and pc) for every rule of the frozen
-   `yin.vm.semantic-register-vm.md` §3.4, and the row load with its rule
+   `yin.vm.semantic.md` §3.4, and the row load with its rule
    and path. A correctly hashed `[[:jump 9]]` is in
    the set. Image equality on valid input does not establish this; the
    malformed set does.
@@ -1202,7 +1209,7 @@ restricted admission domain, and ordinary identity uses are unblocked.
 
 ### 7.5 Vector rules
 
-Defects name a pc. Rules 1–4 of `yin.vm.semantic.md` §2.6 (one segment,
+Defects name a pc. Rules 1–4 of [the deleted v3 design](./yin.vm.semantic.md#history) §2.6 (one segment,
 dense pcs, sorted by pc, refs resolve to entities) are satisfied by the
 vector form by construction and have no rule here; rules 5 and 6 and the
 UCF §7.3.4 checks are translated as follows.
@@ -1214,7 +1221,7 @@ UCF §7.3.4 checks are translated as follows.
 +------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+
 | `:mnemonic`      | the first element is not a mnemonic of `code/mnemonics` (`code.cljc:12-16`), or the element is not a `vector?` tuple — the same canonical-form rule  |
 +------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+
-| `:arity`         | the tuple's count differs from the mnemonic's arity in `yin.vm.semantic.md` §2.4 as saturated by UCF §7.3.2                                         |
+| `:arity`         | the tuple's count differs from the mnemonic's arity in [the deleted v3 design](./yin.vm.semantic.md#history) §2.4 as saturated by UCF §7.3.2                                         |
 +------------------+-----------------------------------------------------------------------------------------------------------------------------------------------------+
 | `:operand-kind`  | an operand is not of its kind: `:const` and `:store-put` values or `:store-get`/`:store-put` keys fail `plain-data?` (the `key` kind of §2.2), a    |
 |                  | a `:var` name is not a symbol, a `:closure` params is not a vector of symbols, a `:ffi-call` op or `:resume` parked id is not a keyword, a `:gensym`  |
@@ -1238,7 +1245,7 @@ The one name the vector rules do judge is the reserved definition
 operator (Rule R, `:reserved-name` above): it is syntax, lowered to
 `[:define name]`, so no `:var` may name it. The batch checker
 `code/well-formed?` carries the same rule as its rule 8 (S2.6 of
-`yin.vm.semantic.md`), and the row checker as the last S7.4 rule.
+[the deleted v3 design](./yin.vm.semantic.md#history)), and the row checker as the last S7.4 rule.
 
 The address check (the vector hashes to the address it claims) is UCF
 §7.3.4's and runs before these rules whenever an address is claimed; a
@@ -1251,11 +1258,11 @@ naming the same.
 
 The walker dispatches on `(:type node)` and reads named fields of the map
 AST it reconstructed at load; the semantic VM runs `(aget code pc)` over
-an image decoded once at load (`yin.vm.semantic.md` §3.1). Neither touches
+an image decoded once at load ([the deleted v3 design](./yin.vm.semantic.md#history) §3.1). Neither touches
 a relation, a ref, an address
 index, or a projection while stepping. Projection and query are load-time
 and tooling-time operations. This is the rule that keeps
-`yin.vm.semantic.md` §6's cost model intact under this design: queryability
+[the deleted v3 design](./yin.vm.semantic.md#history) §6's cost model intact under this design: queryability
 is paid once at load, or by whoever asks, never per step.
 
 ### 7.7 Dependency closure is Datalog over the tuples
@@ -2014,7 +2021,7 @@ rows behind it. The semantics do not change; the boundary does.
 | codec, `v2.cljc:372-559`                         | becomes `yin.vm/ast->semantic-bytecode`, the projection pair of §6.5 mapping Universal AST to Canonical Rows/Datoms.            |
 |                                                  | `:yin/root` and `:eid` removed; `:yin/address` added; retains `:yin/params` on lambda and `:yin/name` on variable |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
-| `code/mnemonics`, `code/well-formed?`,           | `code/mnemonics` (`code.cljc:12-16`) is unchanged (§4.5). The datom-batch judgement of `well-formed?` goes with the retired vector-to-datoms projection (§7.2); the one vector validator of §7.5 (`yin.vm.semantic-register.code/well-formed?`) runs on the direct vector load and on the vector either AST lane produces |
+| `code/mnemonics`, `code/well-formed?`,           | `code/mnemonics` (`code.cljc:12-16`) is unchanged (§4.5). The datom-batch judgement of `well-formed?` goes with the retired vector-to-datoms projection (§7.2); the one vector validator of §7.5 (`yin.vm.semantic.code/well-formed?`) runs on the direct vector load and on the vector either AST lane produces |
 | `code.cljc:12-180`                               |                                                                                                                     |
 +--------------------------------------------------+---------------------------------------------------------------------------------------------------------------------+
 | `semantic/load-image`,                           | decodes from the vector directly on the primary path; frame binding for `:closure` matches arguments to `params` by position, binding each to its name (§7.7.2); apply (`semantic.cljc:200`) changes from `zipmap` to nil-filling missing params; `:var` opcode is unchanged, resolving env → store → primitives → modules (§4.5); decodes the new operand (`:closure params body`); the direct vector load and both AST lanes call the §7.5 validator   |
@@ -2082,7 +2089,7 @@ seen from the migration side:
   attributes, one per attempt; only their values changed kind.
 - **The datom projection of code** (§6.5): kept for the three query classes
   it alone serves, regenerable from the content at any time.
-- **Execution traces** (`yin.vm.semantic.md` §3.6): state over time is a
+- **Execution traces** ([the deleted v3 design](./yin.vm.semantic.md#history) §3.6): state over time is a
   datom stream by design and is untouched.
 
 ---
@@ -2184,8 +2191,8 @@ seen from the migration side:
     tested over the corpus before any row set is treated as canonical.
     The corpus already lives as map ASTs in the test tree, so the test
     is writable now.
-14. **`yin.vm.semantic.md` Instruction Grammar Amendment** (§5.1) —
-    **done 2026-09-18**, alongside item 7. `yin.vm.semantic.md` revision 1
+14. **[the deleted v3 design](./yin.vm.semantic.md#history) Instruction Grammar Amendment** (§5.1) —
+    **done 2026-09-18**, alongside item 7. [the deleted v3 design](./yin.vm.semantic.md#history) revision 1
     adds the argument-to-named-parameter binding rule of §7.7.2 to §4.1
     (correcting two stale `zipmap` references to the real
     `engine/bind-params` nil-fill behavior), and publishes the `"v2"`

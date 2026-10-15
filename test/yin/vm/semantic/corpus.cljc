@@ -1,5 +1,5 @@
 (ns yin.vm.semantic.corpus
-  "The phase-3 corpus of `yin.vm.semantic-register-vm.md` §10: map ASTs
+  "The phase-3 corpus of `yin.vm.semantic.md` §10: map ASTs
    covering every §3.1 production, each with its golden register-shaped
    vector and code address. The same literal goldens are compiled on
    JVM, Node and Dart, so a test asserting them on every host is the

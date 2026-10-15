@@ -46,8 +46,19 @@ Status: design, revised; not implemented
 > A second ruling of the same date makes the canonical semantic vector
 > register-shaped with virtual registers (*"rebuilding the semantic-vm as
 > register shaped ... is the right way to go"*); its design
-> (`yin.vm.semantic-register-vm.md`, forthcoming) will restate §4's
+> (`yin.vm.semantic-register-vm.md`, forthcoming; landed and renamed
+> `yin.vm.semantic.md` at the 2026-10-15 cutover) will restate §4's
 > input and lowering contract. Not applied here.
+>
+> **Amendment 2026-10-15 (phase 8, 8g).** This kernel survived the
+> cutover: `debruijn/register.cljc` is a **backend** of the canonical
+> semantic kernel, executing the lowering `A → R` over the documented
+> fragment (continuation design §4.6), checked by the cross-engine laws
+> on that fragment. Refusal of the unsupported remainder before attach
+> remains the requirement; §4.6 lists the four implemented checks and the
+> harness-only exclusions, not a general fragment gate.
+> The old lowerers that produced its input are gone; `derive` lowers
+> from A. The fragment is not widened.
 
 This document specifies a register execution path that is a peer of the
 committed de Bruijn stack path. Both are projections of the same de Bruijn
@@ -170,6 +181,18 @@ both, never inside either preimage. A receiver verifies a fetched register
 image with R alone and never needs to have seen the stack image.
 
 ## 2. Compilation topology and stream contract
+
+> **Amendment 2026-10-15 (phase 8, 8g).** The derivation prose of this
+> section and §2.1 is historical: the stages it names —
+> `(resolve …)`, `(lower-stack …)`, `(lower-register …)` over named
+> datoms — are the deleted old lowerers (`yin.vm.debruijn-resolve`,
+> `debruijn-linearize`, `debruijn-register-compile`, removed at 8e). The
+> living lowering is `yin.vm.semantic.derive`: A (the semantic vector)
+> is resolved per `:var` by the surviving `yin.vm.debruijn/resolve-name`
+> and lowered to R by one walk (the register design of
+> `yin.vm.semantic.md` §8.2, derivations design §2). The resolved tuples
+> remain what §2.1 says — a stage value with no identity — inside
+> `derive`. The topology below is the coexistence-era record.
 
 The register projection is a peer of the stack projection. Both branch from
 the resolved tuples, the de Bruijn encoding of the named AST datoms:
@@ -332,10 +355,12 @@ shape, allocation, scalar framing, or control-flow rules change.
 
 The lowerer's R formula is:
 
-    R = sha256(register-descriptor-hash || canonical-register-vector)
+    R = blake3(register-descriptor-hash || canonical-register-vector)
 
 Both components are canonical bytes. R is an executable-format identity
-pinned to explicit SHA-256 by VM contract freeze, completely decoupled from
+pinned to explicit BLAKE3 (SHA-256 until the phase-8 cutover, 2026-10-15;
+the descriptor row and every R moved then, once, without a version bump)
+by VM contract freeze, completely decoupled from
 DaoJing's `default-hash-algorithm`. A receiver verifies R over the
 received image before trusting it, as B1's wire rule requires for H; the
 descriptor hash and contract version are inside R, so descriptor

@@ -356,7 +356,7 @@
 
 
 ;; Discovery-order numbering (design note
-;; yin.vm.semantic-register-vm.cursor-cell-numbering.md §5, items 12 to 21).
+;; yin.vm.semantic.cursor-cell-numbering.md §5, items 12 to 21).
 
 (defn- descriptors
   [kind slots]

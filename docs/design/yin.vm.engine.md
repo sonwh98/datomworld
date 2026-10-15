@@ -332,7 +332,8 @@ and the inline round from `ast_walker.cljc`) and is the owner's call.
 - `yin.vm.ast_walker` passes `{:restore-fn ast-walker-restore}` into
   `engine/handle-effect` at six sites. The v2 engine destructures only
   `:park-entry-fns` and ignores it. This is v1 plumbing that survived the
-  port; `yin.vm.semantic.md` section 3.5 states the rule the walker does not
+  port; the deleted v3 design's section 3.5 (park/resume rule; now
+  `yin.vm.semantic.md` §5) states the rule the walker does not
   yet follow. Harmless, and B4 must not copy it.
 - `ready-for-ingress?` speaks the named register vocabulary (section 1).
 - The semantic VM's private `response-wait-entry` becomes redundant with

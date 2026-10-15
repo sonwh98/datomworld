@@ -1,7 +1,7 @@
 # yin.vm — the divergence register
 
 Status: deliverable of phase V6 of
-[`yin.vm.implementation-plan.md`](./yin.vm.implementation-plan.md),
+the since-deleted `yin.vm.implementation-plan.md` (historical V6 plan),
 amended by its phase V7. Subordinate to [`dao.stream.md`](./dao.stream.md)
 and [`datom.world.md`](./datom.world.md).
 
@@ -18,7 +18,9 @@ Each such note states what changed after the baseline, not a second
 baseline.
 
 Scope is the ast-walker slice against v1. The v2 linear semantic VM
-(`yin.vm.semantic.md`) is recorded against the v2 ast-walker in
+(`yin.vm.semantic.md`, the stack-shaped v3 design deleted at the
+2026-10-15 cutover; see the renamed `yin.vm.semantic.md`'s history
+block) is recorded against the v2 ast-walker in
 [its own section](#the-semantic-vm-against-the-ast-walker). `register`,
 `stack`, `space`, `macro` and `wasm` are not ported, so nothing here speaks
 for them.
@@ -33,7 +35,7 @@ for them.
    either REPL.
    *Semantic Phase 4:* v2 now ships a second evaluator,
    `yin.vm.semantic`, and `yin.repl.core` defaults to it
-   (`yin.vm.semantic.md` §8). v1's REPL was deleted on 2026-09-16
+   (the deleted v3 design's §8; [history](./yin.vm.semantic.md#history)). v1's REPL was deleted on 2026-09-16
    (`yin.vm.v1-retirement.implementation-plan.md`); there is no v1 REPL.
 2. **User-defined macros stop evaluating.** `yang.clojure` emits
    `:yin/macro-expand` for every macro call site. `ast-walker` has no
@@ -311,9 +313,10 @@ than against values chosen freshly.
 
 ## The semantic VM against the ast-walker
 
-Deliverable of Phase 4 of [`yin.vm.semantic.md`](./yin.vm.semantic.md).
+Historical comparison (before the 2026-10-15 cutover): deliverable of
+Phase 4 of [the deleted v3 design](./yin.vm.semantic.md#history).
 Both evaluators run on `yin.vm`, share `engine`, `ffi`, `module` and the
-observer, and are measured against each other in §8 there. Everything above
+observer, and were measured against each other in that design's §8. Everything above
 this section applies to both. This section lists only where they differ.
 
 **Program values: same.** A REPL corpus produced byte-identical output under

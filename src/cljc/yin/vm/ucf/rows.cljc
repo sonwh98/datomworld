@@ -230,7 +230,7 @@
 
 
 ;; Discovery-order cursor-cell numbering (design note
-;; yin.vm.semantic-register-vm.cursor-cell-numbering.md §1). A cursor cell is
+;; yin.vm.semantic.cursor-cell-numbering.md §1). A cursor cell is
 ;; named by the order in which a fixed pre-order walk of the task meets it. A
 ;; guest :set or :map is entered as the vector of its members sorted by key:
 ;; the member's spelling by a key walk, numbered cursor cells by number and

@@ -7,11 +7,16 @@ the row codec, the row-fed loaders, the canonical instruction vector, the
 lowering profile and derivation records, the ledger, occurrence identity,
 dependency closure, and the macro batch protocol. Subordinate to that
 document, to
-[`yin.vm.semantic.md`](./yin.vm.semantic.md),
+[the deleted v3 design](./yin.vm.semantic.md#history),
 [`yin.vm.universal-continuation-format.md`](./yin.vm.universal-continuation-format.md)
 (UCF), [`yin.vm.macro.md`](./yin.vm.macro.md), and
 [`dao.jing.md`](./dao.jing.md), each of which owns rules this plan can
 only schedule against, not change.
+(2026-10-15: `yin.vm.semantic.md` here and in the dated rows below is
+the stack-shaped v3 design that file named until the phase-8 cutover;
+its §1 stance and contract history survive in the renamed
+`yin.vm.semantic.md`'s history block and `yin.vm.ucf-revisions.md`, and
+the file name now belongs to the register-shaped design.)
 
 Drafted 2026-09-17, architect r1, against the working tree on the
 `dao.stream-redesign-v2` branch at `1116497`. Line numbers are as of that

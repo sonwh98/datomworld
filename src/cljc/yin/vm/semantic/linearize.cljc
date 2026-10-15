@@ -1,6 +1,6 @@
 (ns yin.vm.semantic.linearize
   "`project`: the Universal AST → the register-shaped canonical vector
-   (`docs/design/yin.vm.semantic-register-vm.md` §3.3).
+   (`docs/design/yin.vm.semantic.md` §3.3).
 
    One flattening, two lanes: the datom
    lane reads `:yin/*` datoms through an entity index, the row lane reads
