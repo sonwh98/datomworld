@@ -1281,3 +1281,17 @@
       (when (seq (:module-stores m))
         (is (= 2 @count))
         (is (= #{'c 'd} (set (keys (get-in recv [:module-stores 'host.mod])))))))))
+
+
+(deftest nan-valued-row-slots-are-canonical
+  (let [base (task-node [] [:lit nil])
+        bindings (rows/node :task (assoc (:slots base) 5
+                                         (rows/node :bindings ['x [:lit (* 1.0 ##NaN)]])))
+        body (cursor-cell-body :s 0)]
+    (doseq [task [bindings
+                  (task-node [[:x body]] [:row (rows/node :set [[:lit ##NaN] [:cursor-cell :x]])])
+                  (task-node [[:x body]] [:row (rows/node :map [[:lit :n] [:lit ##NaN]
+                                                                [:lit :c] [:cursor-cell :x]])])]]
+      (let [wire (rows/emit task)]
+        (is (nil? (error #(rows/decode wire))))
+        (is (= (:yin.k/root wire) (:yin.k/root (rows/emit (rows/decode wire)))))))))

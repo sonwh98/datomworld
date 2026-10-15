@@ -219,6 +219,41 @@
     (is (= :reserved-name (:yin.k/kind (frame/task-defect {:free-env {'yin/def 1}}))))))
 
 
+(deftest free-env-compares-values-by-content
+  (doseq [[context op] [[:wait :stream-next] [:captured :current-continuation] [:parked :park]]]
+    (testing (name context)
+      (let [v (if (= :wait context)
+                [[:closure 0 [] 2] [:halt 0] [:const 0 nil] [op 0 0] [:return 0]]
+                [[:closure 0 [] 2] [:halt 0] [op 0] [:return 0]])
+            address (jing/segment-key v)
+            code {address v}
+            f (cond-> {:yin.k/state :act :yin.k/segment address
+                       :yin.k/pc (if (= :wait context) 4 3)
+                       :yin.k/env {:yin.k/bindings {'x (* 1.0 ##NaN)}} :yin.k/window {}
+                       :yin.k/deliver {:yin.k/deliver :rd :yin.k/rd 0} :yin.k/k []}
+                (= :wait context) (assoc :yin.k/pending {:yin.k/reason :next}))
+            t (assoc task :free-env {'x ##NaN})]
+        (is (nil? (frame/defect f code context t)) "fresh and literal NaNs have the same content")
+        (doseq [env [{'x 1.0} {'y ##NaN}]]
+          (is (= :free-env-mismatch (kind f code context (assoc t :free-env env)))))
+        ;; JS has one zero: 0.0 and -0.0 are the same Number there, so the
+        ;; signed-zero distinction holds on the JVM and Dart only.
+        #?@(:cljs []
+            :default [(is (= :free-env-mismatch
+                             (kind (assoc-in f [:yin.k/env :yin.k/bindings 'x] 0.0)
+                                   code context (assoc t :free-env {'x -0.0}))))
+                      (is (not (cbor/content= 0.0 -0.0)))])
+        (let [nested {'x {:n [(* 1.0 ##NaN)]}}]
+          (is (nil? (frame/defect (assoc-in f [:yin.k/env :yin.k/bindings] nested)
+                                  code context (assoc t :free-env {'x {:n [##NaN]}})))))
+        (doseq [opaque [(fn [] nil)
+                        {:type :stream-ref :id :s :host (fn [] nil)}
+                        {:type :cursor-ref :id :c :host (fn [] nil)}
+                        {:type :cell-ref :id :v :host (fn [] nil)}]]
+          (is (nil? (frame/defect (assoc-in f [:yin.k/env :yin.k/bindings 'x] opaque)
+                                  code context (assoc t :free-env {'x opaque})))))))))
+
+
 (deftest first-defect-is-structural
   (is (= :k-shape (kind (assoc worked-frame :yin.k/k [nil] :yin.k/window nil) worked-code :wait task))))
 

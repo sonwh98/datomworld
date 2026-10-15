@@ -1,6 +1,8 @@
 (ns yin.vm.semantic.frame
   "Pure, ordered validation of decoded canonical continuation frames (§3)."
-  (:require [yin.vm :as vm]
+  (:require [dao.jing.cbor :as cbor]
+            [yin.vm :as vm]
+            [yin.vm.values :as values]
             [yin.vm.semantic.code :as code]
             [yin.vm.semantic.analysis :as analysis]))
 
@@ -57,6 +59,22 @@
       (contains? w rd) (problem (kind "window-self") p)
       (some #(not (contains? wanted %)) ks) (problem (kind "window-extra") p)
       (some #(not (contains? w %)) wanted) (problem (kind "window-missing") p))))
+
+
+(defn- bindings=
+  "Compare free bindings slotwise by encoder content, retaining host equality
+   for callables and stream, cursor or cell references as data-content= does."
+  [a b]
+  (let [opaque? (fn [x]
+                  (or (fn? x) (values/closure? x) (values/continuation? x)
+                      (and (map? x) (contains? #{:stream-ref :cursor-ref :cell-ref} (:type x)))))]
+    (and (= (set (keys a)) (set (keys b)))
+         (every? (fn [[k v]]
+                   (let [w (get b k)]
+                     (or (identical? v w)
+                         (if (or (opaque? v) (opaque? w))
+                           (= v w)
+                           (cbor/content= v w))))) a))))
 
 
 (defn defect
@@ -138,8 +156,8 @@
                   (let [names (lexical-names (get code-map (:yin.k/segment f)) (:yin.k/pc f))
                         bindings (get-in f [:yin.k/env :yin.k/bindings])]
                     (when-not (and (every? #(contains? bindings %) names)
-                                   (= (apply dissoc bindings names)
-                                      (apply dissoc (:free-env task) names)))
+                                   (bindings= (apply dissoc bindings names)
+                                              (apply dissoc (:free-env task) names)))
                       (problem :free-env-mismatch (conj p :yin.k/env :yin.k/bindings))))) envs)
           (when-not (and (contains? #{:wait :captured :parked} context)
                          (= (= :wait context) (contains? frame :yin.k/pending)))
