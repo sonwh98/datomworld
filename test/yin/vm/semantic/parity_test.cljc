@@ -7,7 +7,7 @@
             [yin.vm.values :as values]
             [yin.vm.semantic :as sr]
             [yin.vm.semantic.code :as code]
-            [yin.vm.semantic.corpus :as corpus :refer [lit v lam app tail if-node def!]]
+            [yin.vm.semantic.corpus :refer [lit v lam app tail if-node def! programs]]
             [yin.vm.semantic.linearize :as sr-linearize]))
 
 
@@ -61,20 +61,20 @@
 
 (defn then
   [a b]
-  (corpus/app (corpus/lam '[ignored] b) a))
+  (app (lam '[ignored] b) a))
 
 
 ;; Respelled from rule-r-test/definition-programs, which is private.
 (def definition-programs
-  [["define then read" (then (corpus/def! 'x (corpus/lit 1))
-                             (corpus/def! 'y (corpus/app (corpus/v '+) (corpus/v 'x) (corpus/lit 1)))) 2 {'x 1 'y 2}]
+  [["define then read" (then (def! 'x (lit 1))
+                             (def! 'y (app (v '+) (v 'x) (lit 1)))) 2 {'x 1 'y 2}]
    ["redefine x twice reads the second value"
-    (then (corpus/def! 'x (corpus/lit 1)) (then (corpus/def! 'x (corpus/lit 2)) (corpus/v 'x))) 2 {'x 2}]
-   ["a definition's value is its own value" (corpus/def! 'z (corpus/lit 9)) 9 {'z 9}]
+    (then (def! 'x (lit 1)) (then (def! 'x (lit 2)) (v 'x))) 2 {'x 2}]
+   ["a definition's value is its own value" (def! 'z (lit 9)) 9 {'z 9}]
    ["a stored closure is called by name"
-    (then (corpus/def! 'f (corpus/lam '[n] (corpus/app (corpus/v '*) (corpus/v 'n) (corpus/lit 2))))
-          (then (corpus/def! 'r (corpus/app (corpus/v 'f) (corpus/lit 5))) (corpus/v 'r))) 10 {'r 10}]
-   ["the reserved symbol as a literal value is data" (corpus/def! 'q (corpus/lit 'yin/def)) 'yin/def {'q 'yin/def}]])
+    (then (def! 'f (lam '[n] (app (v '*) (v 'n) (lit 2))))
+          (then (def! 'r (app (v 'f) (lit 5))) (v 'r))) 10 {'r 10}]
+   ["the reserved symbol as a literal value is data" (def! 'q (lit 'yin/def)) 'yin/def {'q 'yin/def}]])
 
 
 (deftest b0-values
@@ -89,7 +89,7 @@
 
 
 (deftest corpus-outcomes
-  (let [rows corpus/programs]
+  (let [rows programs]
     (is (= 32 (count rows)))
     (doseq [[label ast] rows]
       (testing label (is (= (outcome (walker-machine ast)) (outcome (register-machine ast))))))))
@@ -109,16 +109,16 @@
 ;; Slice-4a extras stay separate from the phase-3 corpus and its pinned addresses.
 (def slice-4a-extra-rows
   [[:parameter-shadowing
-    (corpus/app (corpus/lam '[x]
-                            (corpus/app (corpus/lam '[x] (corpus/v 'x)) (corpus/lit 2)))
-                (corpus/lit 1))
+    (app (lam '[x]
+              (app (lam '[x] (v 'x)) (lit 2)))
+         (lit 1))
     2]
    [:caller-env-after-return
-    (corpus/app (corpus/lam '[x]
-                            (corpus/app (corpus/v 'list)
-                                        (corpus/app (corpus/lam '[x] (corpus/lit 2)) (corpus/lit 9))
-                                        (corpus/v 'x)))
-                (corpus/lit 1))
+    (app (lam '[x]
+              (app (v 'list)
+                   (app (lam '[x] (lit 2)) (lit 9))
+                   (v 'x)))
+         (lit 1))
     '(2 1)]])
 
 
