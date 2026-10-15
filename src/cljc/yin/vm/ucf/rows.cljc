@@ -41,9 +41,9 @@
    :put [[:ref :stream] :V :D]
    :ffi [:C :D :D]
    :ffi-request [:D :V [:ref :stream] [:ref :stream] :C :D]
-   :link-request [:D :S [:ref :stream] [:ref :stream] :C :D :D]
-   :link-response [:D :S [:ref :stream] [:ref :stream] :C]
-   :install [:S]})
+   :link-request [:D :S [:ref :stream] [:ref :stream] :C :D :D :D]
+   :link-response [:D :S [:ref :stream] [:ref :stream] :C :D]
+   :install [:S :D]})
 
 
 (def row-table
@@ -1029,9 +1029,9 @@
    :put [:yin.k/stream :yin.k/value :yin.k/op-id]
    :ffi [:yin.k/cursor-cell :yin.k/call-id :yin.k/op]
    :ffi-request [:yin.k/call-id :yin.k/envelope :yin.k/request-stream :yin.k/response-stream :yin.k/response-cursor-cell :yin.k/op-id]
-   :link-request [:yin.k/link-id :yin.k/name :yin.k/request-stream :yin.k/response-stream :yin.k/cursor-cell :yin.k/envelope :yin.k/op-id]
-   :link-response [:yin.k/link-id :yin.k/name :yin.k/request-stream :yin.k/response-stream :yin.k/cursor-cell]
-   :install [:yin.k/name]})
+   :link-request [:yin.k/link-id :yin.k/name :yin.k/request-stream :yin.k/response-stream :yin.k/cursor-cell :yin.k/envelope :yin.k/op-id :yin.k/try?]
+   :link-response [:yin.k/link-id :yin.k/name :yin.k/request-stream :yin.k/response-stream :yin.k/cursor-cell :yin.k/try?]
+   :install [:yin.k/name :yin.k/try?]})
 
 
 (defn frame->rows
@@ -1539,10 +1539,11 @@
       (:link-request :link-response)
       (let [c (cell! ctx [(:response e) (:cursor e)] (:response e) (:cursor e))
             base [(:reason e) (:link-id e) (:name e) (stream-row! ctx (:request e)) (stream-row! ctx (:response e)) c]]
-        (node :pending (if (= :link-request (:reason e)) (conj base (:envelope e) (:op-id e)) base)))
+        (node :pending (conj (if (= :link-request (:reason e)) (conj base (:envelope e) (:op-id e)) base)
+                             (boolean (:try? e)))))
       :install (do (when-not (contains? (:installs m) (:name e))
                      (outcome! :yin.k/non-portable :incomplete-install {:yin.k/name (:name e)}))
-                   (node :pending [:install (:name e)]))
+                   (node :pending [:install (:name e) (boolean (:try? e))]))
       (outcome! :yin.k/non-portable :reason-mismatch {:yin.k/reason (:reason e)}))))
 
 
@@ -2189,13 +2190,14 @@
                                                 :response-cursor (get cell-keys c) :response-stream (stream-key resp))
                                    (some? op-id) (assoc :op-id op-id)))
                   (:link-request :link-response)
-                  (let [[link-id mn _ _ c envelope op-id] xs]
+                  (let [[link-id mn _ _ c] xs
+                        [envelope op-id] (when (= :link-request reason) (drop 5 xs))]
                     (cond-> (assoc p :reason reason :link-id link-id :name mn
                                    :request module/link-request-resource :response module/link-response-resource
-                                   :cursor (second (:slots (get bodies c))))
+                                   :try? (last xs) :cursor (second (:slots (get bodies c))))
                       (= :link-request reason) (assoc :envelope envelope)
                       (some? op-id) (assoc :op-id op-id)))
-                  :install (assoc p :reason :install :name (first xs)))))]
+                  :install (assoc p :reason :install :name (first xs) :try? (second xs)))))]
       (let [store' (reduce (fn [s [k v]] (engine/store-put s k (value v))) {} (partition 2 (:slots store)))
             stores (into {} (map (fn [ms]
                                    (let [[mid s] (:slots ms)]

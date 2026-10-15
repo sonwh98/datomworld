@@ -334,3 +334,18 @@
   (is (= :pc-kind (kind (assoc worked-frame :yin.k/pc (cbor/float64 4)) worked-code :wait task)))
   (is (= :window-representation
          (kind (assoc worked-frame :yin.k/window {(cbor/float64 1) nil}) worked-code :wait task))))
+
+
+(deftest link-pendings-require-a-boolean-return-contract
+  (doseq [reason [:link-request :link-response :install]]
+    (let [f (assoc worked-frame :yin.k/pending {:yin.k/reason reason :yin.k/try? false})]
+      (doseq [flag [false true]]
+        (is (nil? (frame/defect (assoc-in f [:yin.k/pending :yin.k/try?] flag)
+                                worked-code :wait task))))
+      (doseq [flag [nil :true 1 "true"]]
+        (is (= {:yin.k/kind :pending-try :yin.k/path [:yin.k/pending :yin.k/try?]}
+               (frame/defect (assoc-in f [:yin.k/pending :yin.k/try?] flag)
+                             worked-code :wait task))))
+      (is (= :pending-try
+             (:yin.k/kind (frame/defect (update f :yin.k/pending dissoc :yin.k/try?)
+                                        worked-code :wait task)))))))

@@ -1295,3 +1295,20 @@
       (let [wire (rows/emit task)]
         (is (nil? (error #(rows/decode wire))))
         (is (= (:yin.k/root wire) (:yin.k/root (rows/emit (rows/decode wire)))))))))
+
+
+(deftest link-pending-frame-bijection
+  (doseq [try? [true false]
+          pending [{:yin.k/reason :link-request :yin.k/link-id [:t0 7] :yin.k/name 'host.mod
+                    :yin.k/request-stream (rows/node :stream [:request :served])
+                    :yin.k/response-stream (rows/node :stream [:response :served])
+                    :yin.k/cursor-cell :response/cell :yin.k/envelope {:yin.link/id [:t0 7]}
+                    :yin.k/op-id nil}
+                   {:yin.k/reason :link-response :yin.k/link-id [:t0 7] :yin.k/name 'host.mod
+                    :yin.k/request-stream (rows/node :stream [:request :served])
+                    :yin.k/response-stream (rows/node :stream [:response :served])
+                    :yin.k/cursor-cell :response/cell}
+                   {:yin.k/reason :install :yin.k/name 'host.mod}]]
+    (let [f (assoc ft/worked-frame :yin.k/pending (assoc pending :yin.k/try? try?))
+          wire (rows/frame->rows f encoded)]
+      (is (= f (rows/rows->frame wire))))))

@@ -333,9 +333,11 @@ the amendment r5 required-keys list fixes them; `:park` and
 | `:put` | `stream-cref  value-V  op-id-D` |
 | `:ffi` | `cursor-cell-C  call-id-D  op` (op may be nil) |
 | `:ffi-request` | `call-id-D  envelope-V  request-stream-cref  response-stream-cref  response-cursor-cell-C  op-id-D` |
-| `:link-request` | `link-id-D  name-S  request-stream-cref  response-stream-cref  cursor-cell-C  envelope-D  op-id-D` |
-| `:link-response` | `link-id-D  name-S  request-stream-cref  response-stream-cref  cursor-cell-C` |
-| `:install` | `name-S` |
+| `:link-request` | `link-id-D  name-S  request-stream-cref  response-stream-cref  cursor-cell-C  envelope-D  op-id-D  try?-D` |
+| `:link-response` | `link-id-D  name-S  request-stream-cref  response-stream-cref  cursor-cell-C  try?-D` |
+| `:install` | `name-S  try?-D` |
+
+`try?-D` is a required boolean, the waiter's return contract (true: the refusal returns as a status, false: it raises); a non-boolean refuses as `:pending-try` at `[:yin.k/pending :yin.k/try?]`.
 
 The retained FFI request's `envelope-V` is the complete envelope map,
 recursively encoded under §4's ordinary rules: `[:lit m]` when it
@@ -850,7 +852,7 @@ Refusals are thrown `ex-info` with `:yin.k/status` and a `:yin.k/kind`.
 Diagnostics use the established families and no new top-level outcome:
 `:yin.k/profile-mismatch`, `:yin.k/undecodable` with `:yin.k/path` as
 `[row-id slot-index …]` and a `:yin.k/kind` where one is named above
-(`:reason-mismatch`, `:noncanonical-cursor-cells`,
+(`:reason-mismatch`, `:pending-try`, `:noncanonical-cursor-cells`,
 `:unresolved-cursor-cells`), `:yin.k/hash-mismatch`,
 `:yin.k/unsatisfied`, and on the lift side `:yin.k/non-portable` with
 the three kinds this carrier adds to UCF §7.5.4's set: `:byte-string`,

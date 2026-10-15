@@ -704,6 +704,8 @@ Commits: 27fc0f9a, 394940e6, 2ce4451d, 3325815d, 3e987123,
 ae76fe0d, b82813d8, 66d55abd, a76674a5, 0aa710e7, f05599f7,
 3ddaa21b, e149aa31 (merge), f51077f2, c2b110a6 (merge), 1f7990d5.
 
+I-7. G1 / L-d-1b (2026-10-16): append one required boolean `:yin.k/try?` slot to each `:link-request`, `:link-response` and `:install` pending row, preserving each waiter's return contract; regenerate `rows-checkpoint-v3.txt` via `rows-checkpoint-fixtures/render`: only `installs` and its three derived cases (`child-header`, `install-without-entry`, `child-op-id-out-of-range`) re-mint, with no code address or descriptor change.
+
 Code: `src/cljc/yin/vm/ucf.cljc` (38-47, 265-273, 339-351);
 `src/cljc/yin/vm/semantic.cljc` (113, 167, 171, 450, 605-616, 713);
 `src/cljc/yin/vm/engine.cljc` (375-395);

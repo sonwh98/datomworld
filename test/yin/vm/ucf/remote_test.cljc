@@ -1148,16 +1148,16 @@
           "an appended request carries its envelope no more"))))
 
 
-(deftest install-passes-through-unchanged
+(deftest install-carries-the-return-contract
   (let [entry {:reason :install, :name 'foo}
         lifted (ucf.remote/lift-pending (constantly nil) {} entry)]
-    (is (= {:yin.k/reason :install, :yin.k/name 'foo}
+    (is (= {:yin.k/reason :install, :yin.k/name 'foo, :yin.k/try? false}
            (:yin.k/pending lifted)))
     (is (empty? (:yin.k/cells lifted)))
     (let [lowered (ucf.remote/lower-pending
                     (constantly nil) (:yin.k/pending lifted) {}
                     {:segment 0, :pc 3} {})]
-      (is (= {:reason :install, :name 'foo, :segment 0, :pc 3}
+      (is (= {:reason :install, :name 'foo, :segment 0, :pc 3, :try? false}
              (:entry lowered))))))
 
 
@@ -1339,3 +1339,20 @@
               "at the kept position, on its own reflection")
           (is (contains? (:resources frame) (:stream-id cursor))
               "naming an attached reflection"))))))
+
+
+(deftest link-pending-return-contract-round-trips
+  (doseq [reason [:link-request :link-response :install]
+          try? [true false]]
+    (let [resources {module/link-request-resource [:handle :req]
+                     module/link-response-resource [:handle :resp]}
+          entry {:reason reason :link-id [:t0 7] :name 'foo :try? try?
+                 :request module/link-request-resource
+                 :response module/link-response-resource :cursor 3
+                 :envelope {:yin.link/id [:t0 7]}}
+          lifted (ucf.remote/lift-pending (stub-serve! chan) resources entry)
+          pending (:yin.k/pending lifted)
+          lowered (ucf.remote/lower-pending (stub-attach!) pending
+                                            (:yin.k/cells lifted) {:segment 0 :pc 3} {})]
+      (is (= try? (:yin.k/try? pending)))
+      (is (= try? (:try? (:entry lowered)))))))

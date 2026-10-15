@@ -171,6 +171,11 @@
                             #{})]
               (when-not (contains? reasons (get-in frame [:yin.k/pending :yin.k/reason]))
                 (problem :reason-mismatch [:yin.k/pending :yin.k/reason]))))
+          (when (and (= :wait context)
+                     (contains? #{:link-request :link-response :install}
+                                (get-in frame [:yin.k/pending :yin.k/reason]))
+                     (not (boolean? (get-in frame [:yin.k/pending :yin.k/try?]))))
+            (problem :pending-try [:yin.k/pending :yin.k/try?]))
           (when (and (= :captured context) (not (and act? (= :current-continuation op))))
             (problem :captured-site [(if act? :yin.k/pc :yin.k/site)]))
           (when (and (= :parked context)
