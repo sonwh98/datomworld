@@ -1,9 +1,9 @@
 (ns yang.python.antlr.dht-import-test
-  "C4 slice I3 (docs/design/yang.antlr.md 8.5.6): Python modules published
+  "C4 slices I3/I5 (docs/design/yang.antlr.md 8.5.6): Python modules published
    by name and imported over the DHT.
 
    The fast tests pin the publication: a unit set publishes bottom-up, a
-   cyclic pair is refused by name before anything is written, an import
+   cyclic pair publishes as one SCC bundle step, an import
    no unit or publication supplies is refused.
 
    The slow test is the acceptance over the `dao.jing.dht` mesh seam, the
