@@ -50,8 +50,9 @@
 ;; and sparse continuation formats.
 
 (def contract-version
-  "The descriptor records this dimension's opcode table, allocation, scalar
-   framing, and control-flow rules (design section 3). Phase 8 regenerates
+  "Bumped whenever this dimension's opcode table, allocation, scalar
+   framing, or control-flow rules change shape (design section 3).
+   Phase 8's `:dim/lift-to` removal and BLAKE3 `:hash` flip regenerate
    descriptors and checksums without a version bump (owner ruling 2).
    3, as of design sections 4.4-4.6 and 5.2: the complete R2 register
    effects set, in-band live sets on all six boundary opcodes, and
