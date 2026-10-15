@@ -2922,8 +2922,8 @@ the review's named architectural obligations; they are blockers to
   The canonical kernel and its two backends are checked on the
   documented fragment and required to refuse the
   unsupported remainder before attach (continuation design §4.6, the retained
-  backend fragment, including the implemented checks and harness-only
-  exclusions; there is no general pre-attach fragment gate). They are retained
+  backend fragment, including the `:retained-ffi` pre-attach refusal and
+  remaining harness-only exclusions; there is no general pre-attach fragment gate). They are retained
   after phase 8 without widening the fragment;
   and the §7.3.4 image-equality assertion (the two AST projection lanes
   and the direct vector load yield one image and address).

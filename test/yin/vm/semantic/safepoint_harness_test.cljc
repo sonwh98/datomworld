@@ -1740,6 +1740,22 @@
          :halted (vm/halted? done) :value (normalize (vm/value done)) :trace @(:trace world)}))))
 
 
+(deftest unlowerable-retained-ffi-is-refused
+  (doseq [[from to] ordered-pairs
+          :when (contains? unlowerable [4 to])]
+    (testing (str (name from) " -> " (name to))
+      (scoped
+        (fn []
+          (let [world (on-lane from #(retained-ffi identity))
+                {:keys [toy serve!]} (served (:surfaces world))
+                wire (lane-lift (:machine world) serve!)
+                {:keys [attach!] n :count} (recording-attacher toy)
+                receiver ((:receiver world))
+                d (error #(lane-lower to (merge {:attach-stream attach!} (:opts receiver)) wire attach!))]
+            (is (= {:yin.k/status :yin.k/unsupported :yin.k/kind :retained-ffi} d))
+            (is (zero? @n) "row 4 is gated before attachment")))))))
+
+
 (defn cross-lowering
   "Law 5 for one case: every admitted ordered pair continues to the
    reference. Answers the pairs that ran."

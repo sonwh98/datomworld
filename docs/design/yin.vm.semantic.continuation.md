@@ -1094,15 +1094,17 @@ checked through the layouts on the shared fragment in §5.3. They remain
 through and after phase 8; the fragment is not widened. It excludes link
 and install rows 7-12 and 17, and row 4 is not lowered into either
 backend while the retained-FFI seam remains absent.
-**Amended after 7 (2026-10-14)** — Reason: the code's four pre-attach checks do not gate the whole harness fragment.
+**Amended after 7 (2026-10-14)** — Reason: the code's five pre-attach checks do not gate the whole harness fragment.
 `lower-defect` checks, in order, image collision (`:ambiguous-image`),
 install children (`:installs`), closures or continuations in the free
-environment (`:free-env-value`, including nested collections), and, for
+environment (`:free-env-value`, including nested collections), a retained
+FFI request (`:retained-ffi`), and, for
 the register backend, primitive functions in wait or parked-state
 payloads (`:continuation-registers`). These refuse before attachment
-on lower (§4.1-4.4 and §7.2). Of the excluded rows, only the install
-rows 10-12 are refused before attach (`lower-defect` `:installs`); rows
-4, 7-9 and 17 are excluded by the harness only, not by a general
+on lower (§4.1-4.4 and §7.2). Of the excluded rows, retained FFI row 4 (limit 5)
+is now refused before attach (`:yin.k/unsupported :retained-ffi`) alongside install
+rows 10-12 (`:installs`); rows
+7-9 and 17 are excluded by the harness only, not by a general
 pre-attach fragment gate (§11 6c Q2). The harness's `link-rows` excludes
 rows 7-12 and 17 from backend lanes; `unlowerable` excludes row 4 when
 the receiver is a stack or register backend. The owner's
