@@ -1,13 +1,13 @@
 (ns yang.python.antlr.publication
-  "C4 slice I3 (docs/design/yang.antlr.md 8.5.6): a set of compiled Python
+  "C4 slices I3 and I5 (docs/design/yang.antlr.md 8.5.6): a set of compiled Python
    units published as linker modules.
 
    A unit set publishes bottom-up. Each unit's static imports
    (`lower/imported-module-names`, the requires `lower/module-packet`
    hoists) order it after the units it imports, and each is published
-   pinning the manifest address of every import. A delivery cycle cannot
-   be pinned by content, so a cyclic set is refused before anything is
-   written, naming the cycle (ruling 9's first step; SCC units are I5).
+   pinning the manifest address of every import. Cyclic components are
+   bundled into one unit with lazy member bodies and thin member aliases
+   (ruling 9, I5), eliminating circular content pins.
    Name assertions stay the linker's (`yin.vm.linker.publish/assertion`
    and `name-envelopes`): this namespace publishes content, it signs
    nothing."
@@ -27,24 +27,51 @@
                                {:name name, :package? (boolean package?)}))
 
 
-(defn- rotate-least
-  "The cycle `names` rotated to start at its least name, so one cycle has
-   one diagnostic whatever unit the search entered it by."
-  [names]
-  (let [least (first (sort names))
-        i (first (keep-indexed (fn [i n] (when (= least n) i)) names))]
-    (vec (concat (drop i names) (take i names)))))
+(defn- components
+  "Kosaraju's two passes, with immutable search state. Members are sorted;
+   singleton components keep the old depth-first publication order."
+  [names imports]
+  (let [names-set (set names)
+        edges (into {} (map (fn [n] [n (filterv names-set (get imports n))])) names)
+        reverse-edges (reduce (fn [acc [n deps]]
+                                (reduce #(update %1 %2 (fnil conj []) n) acc deps))
+                              {} edges)]
+    (letfn [(finish
+              [acc n]
+              (if (contains? (:seen acc) n)
+                acc
+                (update (reduce finish (update acc :seen conj n) (get edges n))
+                        :order conj n)))
+            (collect
+              [acc n]
+              (if (contains? (:seen acc) n)
+                acc
+                (reduce collect (-> acc (update :seen conj n) (update :members conj n))
+                        (get reverse-edges n))))]
+      (let [finished (:order (reduce finish {:seen #{}, :order []} names))
+            partition (reduce (fn [acc n]
+                                (if (contains? (:seen acc) n)
+                                  acc
+                                  (let [r (collect {:seen (:seen acc), :members []} n)]
+                                    {:seen (:seen r),
+                                     :groups (conj (:groups acc) (vec (sort (:members r))))})))
+                              {:seen #{}, :groups []} (reverse finished))
+            group-of (into {} (mapcat (fn [g] (map #(vector % g) g))) (:groups partition))]
+        (letfn [(order-group
+                  [acc g]
+                  (if (contains? (:done acc) g)
+                    acc
+                    (let [deps (distinct (map group-of (mapcat edges g)))
+                          next (reduce order-group (update acc :done conj g)
+                                       (remove #{g} deps))]
+                      (update next :order conj g))))]
+          (:order (reduce order-group {:done #{}, :order []} (map group-of names))))))))
 
 
 (defn publication-order
-  "The names of `units` (`[{:name :package? :packet}]`) in an order that
-   publishes every unit after the units of the set it imports, input order
-   otherwise; an import outside the set must be in `published`
-   ({python-name address}). Answers `{:status :ok :order [...]}`, or a
-   refusal: `:yang.python.antlr/import-cycle` with the `:cycle`'s names,
-   least first, in import order; `:yang.python.antlr/unpublished-import`
-   naming the `:module` no unit and no publication supplies and the unit
-   `:imported-by`."
+  "Dependency-first names, retaining the I3 order for acyclic units.
+   Cyclic components appear as sorted member vectors in :order, one
+   publication step per SCC. External imports must be in `published`."
   [units published]
   (let [by-name (into {} (map (juxt :name identity)) units)
         imports (into {} (map (juxt :name unit-imports)) units)
@@ -57,32 +84,9 @@
                       units)]
     (if missing
       (refused :yang.python.antlr/unpublished-import missing)
-      ;; depth first; `path` is the chain being visited, so meeting a name
-      ;; on it closes a cycle
-      (letfn [(visit
-                [acc path n]
-                (cond
-                  (:cycle acc) acc
-                  (some #{n} path) (assoc acc
-                                          :cycle
-                                          (rotate-least
-                                            (drop-while #(not= n %) path)))
-                  (contains? (:done acc) n) acc
-                  (not (contains? by-name n)) acc
-                  :else (let [a (reduce #(visit %1 (conj path n) %2)
-                                        acc
-                                        (get imports n))]
-                          (if (:cycle a)
-                            a
-                            (-> a
-                                (update :done conj n)
-                                (update :order conj n))))))]
-        (let [r (reduce #(visit %1 [] %2)
-                        {:done #{}, :order []}
-                        (map :name units))]
-          (if (:cycle r)
-            (refused :yang.python.antlr/import-cycle {:cycle (:cycle r)})
-            {:status :ok, :order (:order r)}))))))
+      {:status :ok,
+       :order (mapv #(if (= 1 (count %)) (first %) %)
+                    (components (mapv :name units) imports))})))
 
 
 (defn publish-units!
@@ -101,19 +105,33 @@
      (if (= :refused (:status plan))
        plan
        (reduce
-         (fn [acc n]
-           (let [{:keys [packet package?]} (get by-name n)
+         (fn [acc step]
+           (let [members (if (vector? step) step [step])
                  known (merge published (:addresses acc))
-                 deps (select-keys known (unit-imports (get by-name n)))
-                 res (publish/publish-module!
-                       handle
-                       (lower/module-spec registry packet
-                                          {:name n,
-                                           :package? package?,
-                                           :py-address py-address,
-                                           :deps deps}))]
-             (if (= :refused (:status res))
-               (reduced (assoc res :unit n))
-               (assoc-in acc [:addresses n] (:address res)))))
-         {:status :ok, :addresses {}}
+                 deps (select-keys known
+                                   (mapcat #(unit-imports (get by-name %)) members))
+                 specs (if (vector? step)
+                         (lower/scc-module-specs registry (mapv by-name members)
+                                                 py-address deps)
+                         [(lower/module-spec registry (:packet (get by-name step))
+                                             {:name step,
+                                              :package? (:package? (get by-name step)),
+                                              :py-address py-address, :deps deps})])
+                 bundle (first specs)
+                 result (publish/publish-module! handle bundle)]
+             (if (= :refused (:status result))
+               (reduced (assoc result :unit step))
+               (if (vector? step)
+                 (let [aliases (reduce (fn [a [n spec]]
+                                         (let [r (publish/publish-module!
+                                                   handle (assoc spec :requires
+                                                                 {(:name bundle) (:address result)}))]
+                                           (if (= :refused (:status r))
+                                             (reduced (assoc r :unit n))
+                                             (assoc-in a [:addresses n] (:address r)))))
+                                       (assoc-in acc [:bundles (:name bundle)] (:address result))
+                                       (map vector members (rest specs)))]
+                   (if (= :refused (:status aliases)) (reduced aliases) aliases))
+                 (assoc-in acc [:addresses step] (:address result))))))
+         {:status :ok, :addresses {}, :bundles {}}
          (:order plan))))))
