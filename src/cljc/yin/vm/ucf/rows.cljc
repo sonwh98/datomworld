@@ -925,7 +925,9 @@
            (check-literal-markers! (if (contains? #{:V :optional-V} d)
                                      (when (= :lit (first x)) (second x)) x))))
        (doseq [[id kind & slots] rs]
-         (when-not (= (vec slots) (ordered-slots kind (vec slots))) (bad! :row-order [id]))
+         ;; Slots may carry NaN literals; compare each by canonical content.
+         (when-not (every? true? (map cbor/content= slots (ordered-slots kind (vec slots))))
+           (bad! :row-order [id]))
          (when (contains? #{:map :bindings :store :parked-table :window :cursor-cells :set} kind)
            (let [keys (if (= kind :set) slots (map first (partition 2 slots)))]
              (when-not (and (= (count keys) (count (distinct keys)))
