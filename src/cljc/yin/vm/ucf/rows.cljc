@@ -836,6 +836,16 @@
     (when (= :task (:kind root)) (check-task root []))))
 
 
+(defn- pin-map?
+  [pins qualified? value?]
+  (and (map? pins)
+       (every? (fn [[k v]]
+                 (and (symbol? k) (= qualified? (some? (namespace k))) (value? v)))
+               pins)
+       ;; Rebuilding symbol keys must preserve cardinality on every host.
+       (= (count pins) (count (into {} (map (fn [[k v]] [(symbol (str k)) v])) pins)))))
+
+
 (defn- decode*
   "Validate gate, local schema, finite reachable graph, hashes, canonical
    form and cursor-cell numbering, then expand structural refs. No attachment.
@@ -915,6 +925,11 @@
          (when-not (jing/segment-matches? id (vec body))
            (refuse! :yin.k/hash-mismatch :row [id])))
        (doseq [[id kind & slots] rs :when (= :task kind)]
+         (let [requires (nth slots 10)]
+           (when-not (and (map? requires)
+                          (pin-map? (:yin.k/modules requires) false #(or (nil? %) (keyword? %)))
+                          (pin-map? (:yin.k/host-exports requires) true keyword?))
+             (bad! :requires [id 10])))
          (doseq [[address v] (nth slots 11)]
            (when-not (jing/segment-matches? address v)
              (refuse! :yin.k/hash-mismatch :code [id 11 address]))
@@ -1603,6 +1618,7 @@
    the lift is :yin.k/unsatisfied, discovery :incomplete."
   [ctx code]
   (let [m (:m ctx)
+        pins (atom {:yin.k/modules {} :yin.k/host-exports {}})
         installing (installing-names m)
         answered? (fn [sym e]
                     (let [store-of (engine/env-store-of e)
@@ -1612,9 +1628,19 @@
                             (when (= :host (:yin.k/class profile))
                               (outcome! :yin.k/non-portable :host-state-primitive {:yin.k/name sym}))
                             (or (some? profile) (contains? installing sym)
-                                (and (some? (namespace sym))
-                                     (some? (module/resolve-module (:modules m)
-                                                                   (symbol (str (namespace sym) "." (name sym)))))))))))
+                                (when (some? (namespace sym))
+                                  (when (some? (module/resolve-module (:modules m)
+                                                                      (symbol (str (namespace sym) "." (name sym)))))
+                                    (let [mn (symbol (namespace sym))
+                                          entry (module/resolve-module (:modules m) mn)
+                                          address (:address entry)]
+                                      (swap! pins assoc-in [:yin.k/modules mn] address)
+                                      (when (nil? address)
+                                        (let [profile (module/host-export-profile (:modules m) sym)]
+                                          (when (nil? profile)
+                                            (outcome! :yin.k/non-portable :host-export-profile {:yin.k/name sym}))
+                                          (swap! pins assoc-in [:yin.k/host-exports sym] profile)))
+                                      true))))))))
         scanned (into {} (map (fn [[a v]] [a (scan/free-occurrences v)])) code)
         missing (into #{}
                       (mapcat (fn [{:keys [a at env]}]
@@ -1626,7 +1652,8 @@
                                         (get scanned a)))))
                       (:contexts @(:acc ctx)))]
     (when (seq missing)
-      (outcome! :yin.k/unsatisfied nil {:yin.k/discovery :incomplete :yin.k/missing {:obligations missing}}))))
+      (outcome! :yin.k/unsatisfied nil {:yin.k/discovery :incomplete :yin.k/missing {:obligations missing}}))
+    @pins))
 
 
 (declare lift-task*)
@@ -1635,8 +1662,9 @@
 (defn- install-node
   [ctx mn inst opts]
   (let [{:keys [phase parent response]} inst
-        response (dissoc response :yin.admit/id :yin.admit/decision
-                         :yin.admit/asserters :yin.admit/address)]
+        response (into {} (remove (fn [[k _]]
+                                    (and (keyword? k) (= "yin.admit" (namespace k)))))
+                       response)]
     (when-not (contains? #{:running :parked} phase)
       (outcome! :yin.k/non-portable :incomplete-install {:yin.k/name mn :yin.k/phase phase}))
     (when-not (try (cbor/encode response) true
@@ -1681,14 +1709,14 @@
                                [a v]
                                (outcome! :yin.k/unsatisfied nil {:yin.k/segment a}))))
                    segments)
-        _ (discharge! ctx code)
+        pins (discharge! ctx code)
         index (or (:source-index opts) {})
         missing-trees (into #{} (remove #(seq (get index %))) segments)
         _ (when (seq missing-trees)
             (outcome! :yin.k/unsatisfied nil {:yin.k/discovery :incomplete :yin.k/missing {:yin.k/trees missing-trees}}))
-        requires {:yin.k/cursor-profiles (if (seq (:cells acc)) remote/cursor-profiles #{})
-                  :yin.k/segments segments
-                  :yin.k/trees (select-keys index segments)}
+        requires (merge pins {:yin.k/cursor-profiles (if (seq (:cells acc)) remote/cursor-profiles #{})
+                              :yin.k/segments segments
+                              :yin.k/trees (select-keys index segments)})
         task (node :task [3 profile kind role (or (:id-counter m) 0) free-node store module-stores parked
                           (node :cursor-cells (mapcat identity (:cells acc))) requires code installs waits
                           (when (= :parked kind) (:id value)) result nil])]
@@ -1883,16 +1911,33 @@
     (run! #(check-install! recv %) installs)))
 
 
-(defn- check-install-admission!
-  "Carried children require the receiver composition's explicit name/address
-   admission. Sender admission evidence never authorizes a receiver install."
-  [task opts]
-  (doseq [inst (nth (:slots task) 12)]
-    (let [[mn _ _ response] (:slots inst)
-          address (jing/segment-key (:manifest response))]
-      (when-not (= address (get (:yin.k/admitted-modules opts) mn))
-        (outcome! :yin.k/unsatisfied nil
-                  {:yin.k/missing {:yin.k/modules {mn address}}})))))
+(defn- check-modules!
+  "Check every task's binding pins and collect every missing prerequisite.
+   Terminal skew wins over discovery; no stream is attached by this check."
+  [recv task opts]
+  (let [missing (atom {})]
+    (doseq [[t _] (task-tree task :root)]
+      (let [requires (nth (:slots t) 10)]
+        (doseq [[mn address] (sort-by #(str (key %)) (:yin.k/modules requires))]
+          (if-some [entry (module/resolve-module (:modules recv) mn)]
+            (when-not (= address (:address entry))
+              (outcome! :yin.k/unsatisfied :module-pin-mismatch
+                        {:yin.k/name mn :yin.k/pinned address :yin.k/linked (:address entry)}))
+            (swap! missing assoc-in [:yin.k/modules mn] address)))
+        (doseq [[sym profile] (sort-by #(str (key %)) (:yin.k/host-exports requires))]
+          (if-some [held (module/host-export-profile (:modules recv) sym)]
+            (when-not (= profile held)
+              (outcome! :yin.k/unsatisfied :host-export-mismatch
+                        {:yin.k/name sym :yin.k/pinned profile :yin.k/held held}))
+            (swap! missing assoc-in [:yin.k/host-exports sym] profile))))
+      (doseq [inst (nth (:slots t) 12)]
+        (let [[mn _ _ response] (:slots inst)
+              address (jing/segment-key (:manifest response))]
+          (when-not (= address (get (:yin.k/admitted-modules opts) mn))
+            (swap! missing assoc-in [:yin.k/modules mn] address)))))
+    (when (seq @missing)
+      (outcome! :yin.k/unsatisfied nil
+                {:yin.k/discovery :complete :yin.k/missing @missing}))))
 
 
 (defn- check-closure!
@@ -1918,7 +1963,10 @@
    closure names a closure of its code, every :prim is the receiver's."
   [recv task _role]
   (let [[_ _ _ _ _ _ _ module-stores _ _ requires code] (:slots task)]
-    (when-not (and (map? requires) (= (set (:yin.k/segments requires)) (set (keys code))))
+    (when-not (and (map? requires)
+                   (pin-map? (:yin.k/modules requires) false #(or (nil? %) (keyword? %)))
+                   (pin-map? (:yin.k/host-exports requires) true keyword?)
+                   (= (set (:yin.k/segments requires)) (set (keys code))))
       (outcome! :yin.k/undecodable :requires {}))
     (let [trees (:yin.k/trees requires)
           missing (into #{} (remove #(seq (get trees %))) (keys code))]
@@ -2273,14 +2321,13 @@
    receiver's composition: gate to frames (decode) and the store keys,
    then pendings and install records, dependency closure (code, closures,
    primitives), each step over the whole tree before the next, then
-   custody (check-custody!), all before the first attach! (step 11); then
+   custody (check-custody!) and whole-tree module/profile pins plus install
+   admission (check-modules!), all before the first attach! (step 11); then
    restore (step 12), which therefore meets no carrier defect. Answers the
    restored machine, or throws the first refusal as ex-data.
    opts: :budget; :yin.k/admitted-modules, a composition-supplied {name manifest-address}
-   for carried install children (default empty, fail closed). Name-keyed admission
-   is flat over the whole task tree: the same name at different addresses cannot
-   be admitted together. The lift never carries sender admission fields; a carried
-   one is refused as :yin.k/undecodable :install-response; :exclusive, refuse a fork root; :grant and :protection,
+   for carried install children (default empty, fail closed);
+   :exclusive, refuse a fork root; :grant and :protection,
    required by a blocked or parked exclusive root (handoff.cljc's reader
    contract: the grant names :checkpoint, the pack address, its lease,
    holder, tenure and evidence; :protection maps every stream identity of
@@ -2289,7 +2336,11 @@
    its waits in :yin.k/recovery-waits and its parked records in
    :yin.k/recovery-parked (none in the scheduler), its id counter the
    carried one exactly and :yin.k/recovery-cell-ids mapping each cursor
-   cell's resource key to its carried cell id."
+   cell's resource key to its carried cell id.
+   Name-keyed admission is flat over the whole task tree: the same name at
+   different addresses cannot be admitted together. The lift never carries
+   sender admission fields; a carried one is refused as
+   :yin.k/undecodable :install-response."
   ([recv wire attach!] (lower-task recv wire attach! {}))
   ([recv wire attach! opts]
    (let [task (decode wire (merge default-budget (:budget opts)))]
@@ -2299,6 +2350,5 @@
              [t role] (task-tree task :root)]
        (step recv t role))
      (let [custody (check-custody! task wire opts)]
-       (doseq [[t _] (task-tree task :root)]
-         (check-install-admission! t opts))
+       (check-modules! recv task opts)
        (restore-task recv task (attach-streams! attach! task) custody true)))))

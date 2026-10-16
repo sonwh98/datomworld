@@ -357,13 +357,12 @@ markers (`:request-sent`, `:call-id`, `:op`, `:datom`,
   through the values of stores already discovered (`module-store-nodes`);
   a named store the kernel lacks is `:yin.k/non-portable
   :missing-module-store`.
-- **Linked registry entries do not travel.** The row table has no slot
-  for the receiver's module registry; only module stores do. A name a
-  carried closure resolves through the source's registry is a
-  **composition prerequisite** of the receiver: row 17's receiver is
-  given the source's registry value, and without it the relift refuses
-  `:yin.k/unsatisfied {:obligations #{host.mod/f}}`. The receiver's
-  registry is kept as given; there is no isolated-receiver pruning.
+- **Linked registry entries do not travel.** Their binding facts travel in
+  `requires`: `:yin.k/modules {name address-keyword-or-nil}` and
+  `:yin.k/host-exports {qualified-symbol profile-keyword}` for used host
+  exports only. Both maps are always present, including `{}`. The receiver's
+  registry stays as given and must satisfy exact address equality and each
+  used host export's profile equality before any stream attaches.
 - **Amended after 7 (2026-10-14)** — Reason: phase 7 admits exclusive custody on rows.
   Fork custody is nil on every task row. An exclusive blocked or parked
   root carries policy, occurrence, arbitration and next-op-seq, with
@@ -1697,12 +1696,13 @@ The merged order is:
    The parser admits no backward jump (§3.1 of the frozen design), so no
    carried vector exercises the backward edge; `live-pcs` is public and
    is tested directly on a hand-built vector with a `:jump` to an earlier
-   pc. Discharge runs at lift only; the lower does not re-discharge free
-   names against the receiver (§7.2).
+   pc. Registry answers record the entry's own address unchanged, and host
+   answers also record the used export's profile address. The lower
+   re-discharges these binding facts against the receiver (§7.2).
 7. **Trees** (§6.1): every carried segment has a non-empty entry in the
    `:source-index` option, else `:yin.k/unsatisfied` with `:yin.k/trees`.
 8. **The task.** `requires` is `{:yin.k/cursor-profiles … :yin.k/segments
-   … :yin.k/trees …}`; the abstract task is initially assembled with nil custody.
+   … :yin.k/trees … :yin.k/modules … :yin.k/host-exports …}`; the abstract task is initially assembled with nil custody.
 9. **Frames.** `validate-frames` over the assembled abstract task (X1,
    every wait, parked state and reified value, children recursively); a
    defect is `:yin.k/non-portable :inconsistent-state` carrying it. The
@@ -1808,6 +1808,7 @@ that attach early are killed by the attach-count law):
 | pendings and install records | `check-pendings!` | the task's role slot equals its position (`:root`/`:child`); every `:install` pending names a carried install row; kind consistency (`:halted` has no waits, `:blocked` has waits, `:parked` names a key of its parked table); then every install record by `check-install!` (§5.2: phase ∈ `#{:running :parked}`, the retained response and image contract, response `:yin.link/id` equals non-nil parent, manifest-named derivation record hashes correctly and connects the manifest tree to the image A, the child `:blocked`) | `:role`, `:incomplete-install`, `:kind`, `:parked-id`, `:install-phase`, `:install-response`, `:install-link-id`, `:install-image`, `:install-child`, all `:yin.k/undecodable` |
 | dependencies | `check-dependencies!` | `requires` is a map whose `:yin.k/segments` equals the key set of `code` (`:requires`); every segment has a non-empty `:yin.k/trees` entry; every `store-of` of every `:closure` and `:env` row of **this task** (children excluded, each checked in its own stage pass) names one of this task's `:module-store` rows (§2.6), so a parent's or sibling's store of the same key cannot answer (codex F7, F8); every vector attaches in the receiving kernel under its A (`attaches?`: `module/attach-module` into a throwaway copy, the result discarded) (`:segment`); every `:closure` row names a `:closure` tuple of its vector at its entry (`:closure-origin`) with the same binders (`:closure-binders`); every `:prim` names a primitive the receiver holds | `:yin.k/undecodable :requires`, `:yin.k/unsatisfied` with `:yin.k/trees` or **`:yin.k/stores`** (`:yin.k/discovery :incomplete`), `:yin.k/undecodable :segment`, `:closure-origin`, `:closure-binders`, `:yin.k/unsatisfied {:yin.k/name p}` |
 | custody | `check-custody!` | `custody-baseline` over the tree; fork refused under `:exclusive`; halted exclusive needs no grant; blocked/parked exclusive validates grant evidence, pack checkpoint, binding, lease/holder, arbitration, epoch, live tenure and input prefix, then protection in both directions and op-id presence against enrollment; `:fenced` skips grant/protection | grammar's `:yin.k/undecodable` kinds; `:yin.k/profile-mismatch`, `:yin.k/awaiting-grant`, `:yin.k/not-holder`, `:yin.k/unsatisfied` |
+| modules | `check-modules!` | Whole-tree module address and used host-export profile equality; carried install children require receiver admission; after custody, before attach | `:yin.k/unsatisfied :module-pin-mismatch`, `:host-export-mismatch`, or collected missing with `:yin.k/discovery :complete` |
 
 **Amended 2026-10-16 (module-pins, R4).** After custody validation and
 before attachment, every carried install child must have its manifest
@@ -1815,6 +1816,7 @@ address listed under its module name in the receiving composition's
 `opts {:yin.k/admitted-modules {name manifest-address}}`. The default is empty:
 an absent or different address refuses as
 `{:yin.k/status :yin.k/unsatisfied
+  :yin.k/discovery :complete
   :yin.k/missing {:yin.k/modules {name carried-address}}}`.
 This applies to children throughout the task tree, including fenced
 restoration; `holder.export/rehydrate-fenced` forwards the composition's
@@ -1840,10 +1842,13 @@ restored recursively (the spawn's initial control is replaced, no
 `vm/run`); the free environment as both `:env` and `:free-env`; the id
 counter `max(local, carried)` for ordinary resume. Restore meets no carrier
 defect, by
-construction of the stages above. The lower does **not** re-discharge
-free names against the receiver: a name a closure resolves through the
-registry is the composition prerequisite of §2.5, and the receiver's
-registry is kept as given. The kinds `:role :custody :incomplete-install
+construction of the stages above. `check-modules!` checks bindings over the
+whole tree after custody and before attachment: unequal held addresses or
+profiles refuse terminally as `:module-pin-mismatch` or `:host-export-mismatch`;
+absent bindings, absent exports and unadmitted install children are collected
+in one `:yin.k/unsatisfied` with `:yin.k/discovery :complete` and
+`:yin.k/missing {:yin.k/modules … :yin.k/host-exports …}` (only nonempty keys).
+The receiver's registry is kept as given. The kinds `:role :custody :incomplete-install
 :kind :parked-id :requires :segment :install-phase :install-response
 :install-child :closure-origin :closure-binders` and the `:yin.k/stores`
 census are the engineer's and the fix rounds' naming; the earlier text
@@ -2771,20 +2776,13 @@ property, not a reader restriction.
   before attachment. The broader cursor-cell stream, envelope-id and module
   correlation agreement promised by draft §8 is not implemented as a
   general check; Q3's install-parent agreement is implemented.
-- **Q5, answered C by the Architect threat model (2026-10-16);
-  implementation blocked on the host-profile carrier schema.** The ruling
-  requires `requires {:yin.k/modules {name manifest-address-or-nil}}`,
-  equal-address receiver re-discharge before attach, and equal export
-  profiles for host-module nil pins. The report specifies no carrier
-  slot for those host profiles; the module-pins brief requires stopping
-  that sub-part for a decision. Until it lands, the implementation still
-  has the following gap: free names are discharged at lift
-  only (§7.1); the lower checks carried segments, trees, store census,
-  closures and primitives, and a name a closure resolves through the
-  registry is a composition prerequisite (§2.5). A receiver lacking that
-  registry entry accepts the carrier and fails at run time
-  (`Unable to resolve symbol`). This behavior is not the accepted final
-  contract; the receiver-side pin check remains required.
+- **Q5, closed as C (2026-10-16, module-pins I-8).** Both pin maps
+  always travel in `requires`; the lower checks exact entry address keywords
+  (or nil for hosts), and profile keywords for used host exports, before attach.
+  Missing keys are `:yin.k/undecodable :requires`. Terminal skew precedes
+  exhaustive missing discovery, including receiver admission for install
+  children. Fetch and the per-run lease remain composition work, outside this
+  slice; the pure lower performs neither.
 - **Q6, conservatism of the live-code rule.** `live-pcs` follows both
   successor edges of every branch and enters every reachable closure
   body, with no constant propagation. The harness's `(if false (fn []

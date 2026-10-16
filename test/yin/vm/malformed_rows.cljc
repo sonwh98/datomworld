@@ -58,10 +58,27 @@
   (let [task (rows/node :task
                         [3 rows/profile :halted :root 0 (rows/node :bindings [])
                          (rows/node :store []) [] (rows/node :parked-table [])
-                         (rows/node :cursor-cells []) {} {} [] [] nil
+                         (rows/node :cursor-cells [])
+                         {:yin.k/modules {} :yin.k/host-exports {}} {} [] [] nil
                          [:row (rows/node :map [[:lit 1] [:lit :a]
                                                 [:lit (cbor/float64 1.0)] [:lit :b]])] nil])
         wire (rows/emit-numbered task {})
         id (first (first (filter #(= :map (second %)) (:yin.k/rows wire))))]
-    {:equality-collapse [{:yin.k/status :yin.k/undecodable
-                          :yin.k/kind :equality-collapse :yin.k/path [id]} wire]}))
+    (into {:equality-collapse [{:yin.k/status :yin.k/undecodable
+                                :yin.k/kind :equality-collapse :yin.k/path [id]} wire]}
+          (map (fn [[label f]]
+                 (let [wire (rows/emit-numbered
+                              (-> task
+                                  (assoc-in [:slots 15] [:lit nil])
+                                  (update-in [:slots 10] f)) {})]
+                   [label [{:yin.k/status :yin.k/undecodable :yin.k/kind :requires
+                            :yin.k/path [(:yin.k/root wire) 10]} wire]])))
+          [[:modules-absent #(dissoc % :yin.k/modules)]
+           [:exports-absent #(dissoc % :yin.k/host-exports)]
+           [:modules-not-map #(assoc % :yin.k/modules [])]
+           [:modules-key #(assoc % :yin.k/modules {"host.mod" nil})]
+           [:modules-qualified-key #(assoc % :yin.k/modules {'host/mod nil})]
+           [:modules-value #(assoc % :yin.k/modules {'host.mod "wrong"})]
+           [:exports-not-map #(assoc % :yin.k/host-exports [])]
+           [:exports-key #(assoc % :yin.k/host-exports {'f :profile})]
+           [:exports-value #(assoc % :yin.k/host-exports {'host.mod/f "profile"})]])))

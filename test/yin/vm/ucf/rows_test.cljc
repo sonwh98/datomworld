@@ -25,7 +25,8 @@
   [cursor-cells result]
   (rows/node :task [3 rows/profile :halted :root 0 (rows/node :bindings [])
                     (rows/node :store []) [] (rows/node :parked-table [])
-                    (rows/node :cursor-cells (mapcat identity cursor-cells)) {} {} [] [] nil result nil]))
+                    (rows/node :cursor-cells (mapcat identity cursor-cells))
+                    {:yin.k/modules {} :yin.k/host-exports {}} {} [] [] nil result nil]))
 
 
 (defn cursor-cell-body
@@ -524,7 +525,7 @@
 
 
 (deftest canonical-roots-are-pinned
-  (is (= :segment/blake3-fab223d9b3540fdce0ccf2132f8a4041917a158a32295470a4936754742d3ac4
+  (is (= :segment/blake3-01c05feeff35291a595f1ff65b4cb912bc7c9ca8acf68d8164b88848053cbe2e
          (:yin.k/root (rows/emit (fixture :s1 :s2 :x :y)))))
   (is (= :segment/blake3-c4a7c7e6de3b44400efec5930bc3d85d86b29153b4b2d548acba630bfbc3da7d
          (:yin.k/root (rows/frame->rows ft/worked-frame))))
@@ -537,15 +538,15 @@
     (is (= [:a :b] (:yin.k/cursor-cells d)))
     (is (= (verdict d) (verdict (error #(rows/emit (renamed-reversed task)))))))
   (doseq [[pin task]
-          [[:segment/blake3-a850fce6317b426090fa65758805c26b3628efe75d16d507095563c1608ab533
+          [[:segment/blake3-c50089d09d1fd203d23369b225979449fde4a2aeae511eb74fe76c3625c7e80c
             (equal-bodies [:x :y] [:row (rows/node :vec [(s [(c :x) (c :y)]) (c :x)])])]
-           [:segment/blake3-4993b5b192de7d903a90f7bc87dde8c7d5ac007c2b013ef62b998dc988282576
+           [:segment/blake3-e5c8c82e6079df50b884cbac278d1134aa1c8dd587e9c539bdade7fc93e6669c
             (equal-bodies [:x :y] (v [:x :x :y]))]
-           [:segment/blake3-536c810b07c7cab1dd812fcb1bbf0c7433dc41af4e39037c5f278e82abf1e032
+           [:segment/blake3-e1de5400ed3aca2f8b68390df524135b12ac65deb7be6d18bf324b17ab145c95
             (equal-bodies [:x :y] (v [:x :y :y]))]
-           [:segment/blake3-e67405ecd326c239a84e29a50ca53dfe503fa6baf20c5b79e685c878a40257d7
+           [:segment/blake3-525ba654dc2cc3575abc81b70f399b18b8808c410bbb67bf0f3565ce4d581e14
             (equal-bodies [:x :y :z :w] [:row (rows/node :vec [(s [(s [(c :x) (c :y)]) (s [(c :z) (c :w)])]) (c :x)])])]
-           [:segment/blake3-6e7c7a6b0674c41c21e33d9630d4aaf7fc92e4b30234a9c2a1b8c7bae7792f88
+           [:segment/blake3-18ae5ebc90b121ce3ff21c08f61d18b6fb287369b77ac2ab67a3032e0fd744e6
             (let [ids (mapv #(keyword "src" (str "x" %)) (range 10))]
               (task-node (mapv (fn [id i] [id (cursor-cell-body :s i)]) ids (range)) (v ids)))]]]
     (is (= pin (root-of task)))
@@ -687,8 +688,8 @@
     ;; Frames: the free environment (slot 5) is met before the parked table
     ;; (slot 8) and the waits (slot 13).
     (doseq [[task pin] (map vector (frame-fixtures)
-                            [:segment/blake3-0b9ef61ebd08535b10e136a6452d942fb0598ad2dd5a13665d7756fac69702b5
-                             :segment/blake3-ff124bfc1fd2e6c2b8ce29487204b442b8c1143f71339ccab5efd6e48ccc142f])]
+                            [:segment/blake3-e209ab0e6539b30cbfedca526693c7591cb6e96a243252b54a112717a7b0061b
+                             :segment/blake3-137d7203380b85bc7d555951225f653c6bcbc577900fffbd32ac6983f1fae456])]
       (is (= (n :y 1 :x 2 :test/cursor 3) (rows/canonical-numbering task)))
       (let [wire (rows/emit task)]
         (is (= pin (:yin.k/root wire)))
@@ -698,22 +699,22 @@
 
 (deftest occurrence-count-separates-members
   (doseq [[pin task]
-          [[:segment/blake3-2d9873a8f860440d056768d02172a59f28856f804677a5ac0eaba8a8b6edbcf7 (review-counterexample)]
-           [:segment/blake3-726a9fbb35cfe76b6d3caf63c5f7e4ce61d4e73d34efda9c3674eb73db830da1 (path-abc)]
-           [:segment/blake3-d84480d4d7e186937a9165be103f7cfaf0d3f4ced83ff65f5be3e906a48107a2 (two-sets-shared)]]]
+          [[:segment/blake3-8d0639824c8f9cb6dc5ba6a6b7f15e3ab840d15ac003ddd97ad3f4e06814081a (review-counterexample)]
+           [:segment/blake3-2dfc65d2d06637ce2a99732aeefc6634c8831e39a993e98eeb75f3015ae3f444 (path-abc)]
+           [:segment/blake3-6dc110420a7be0afe3d725f4fa879465321114a7be4777c19cfd6225ac84969b (two-sets-shared)]]]
     (is (= pin (root-of task)))
     (is (= pin (root-of (renamed-reversed task))))))
 
 
 (deftest interchangeable-ties
   (doseq [[pin task]
-          [[:segment/blake3-07eda35d34844aa8e1ce89f07395bd877a49e7a69bdabea55bcf22e600671494
+          [[:segment/blake3-6eff99968d148843d4354e207cb25d302e175654ddc57c1b6d4ebed0aef544de
             (equal-bodies [:x :y] (s [(c :x) (c :y)]))]
-           [:segment/blake3-da69c679d10e5356b17cdb24909a43d7475df9114bba9c09a8f98ac1a35b971e
+           [:segment/blake3-284223c34bef7b455856c0f946dbbac2671e859dafbd210089ab04dbbd0134a2
             (equal-bodies [:x :y] (s [(v [:x :x]) (v [:y :y])]))]
-           [:segment/blake3-49d4478ce74e89a973c9640498342dfea85867eff1662b9656f7e6b9bcd44e93
+           [:segment/blake3-67dfa215ee3c1cbc0c9a14cf1dc82a82e4aae2f672950d70d83b52c239f520b5
             (equal-bodies [:x :y] [:row (rows/node :map [(c :x) [:lit 1] (c :y) [:lit 1]])])]
-           [:segment/blake3-18b70de6d4533d5ca797464568b5dd7812ca4b2f36a1e8fb64ef823a2eb3da45
+           [:segment/blake3-ff4ab85017768eb2b7bf6347d03e1bb4aeb0d167ff716adcadf1b43cb54b31ae
             (equal-bodies [:x :y :z :w] (s [(s [(c :x) (c :y)]) (s [(c :z) (c :w)])]))]]]
     (is (= pin (root-of task)))
     (is (= pin (root-of (renamed-reversed task))))))
@@ -721,15 +722,15 @@
 
 (deftest alias-pattern-is-part-of-the-key
   (doseq [[pin a b]
-          [[:segment/blake3-387f294a2f1963f2f2241e8527d8698dedff5d50de4f46bb762b456a01375090
+          [[:segment/blake3-8cc2defe531a8581d4b15f7fabb28aeb9bbacaa16a15bb5f6cba13cdd9643fea
             (equal-bodies [:x :y :z] (s [(v [:x :x]) (v [:y :z])]))
             (equal-bodies [:x :y :z] (s [(v [:y :z]) (v [:x :x])]))]
-           [:segment/blake3-be62ba43d9d07dc7b5e29375e195ab839ab37b721074af816e540615f6167ee9
+           [:segment/blake3-10d92587620fd86b56ccbfd10348c69ebc06903f00afb87772b28d2ce180f42a
             (equal-bodies [:x :y :z] [:row (rows/node :map [(c :x) (c :x) (c :y) (c :z)])])
             (equal-bodies [:x :y :z] [:row (rows/node :map [(c :y) (c :z) (c :x) (c :x)])])]
            ;; Balanced aliases: four cursor cells of one body, every count 2;
            ;; only the alias pattern and the local index separate the members.
-           [:segment/blake3-5376f133e83957e727611ee977a7b565e8e3c6b41a916f7a1857ecaf84f83907
+           [:segment/blake3-b20e118772567652309a63ace21fb24ea76dd089e389a844d78bb840728eee51
             (equal-bodies [:x :y :z :w] (s [(v [:x :x :y :y]) (v [:z :w :z :w])]))
             (equal-bodies [:x :y :z :w] (s [(v [:z :w :z :w]) (v [:x :x :y :y])]))]]]
     (is (= pin (root-of a)))
@@ -738,7 +739,7 @@
   (let [witness (equal-bodies [:a :b] [:row (rows/node :vec [(s [(s [(v [:a :b]) (v [:b :a])])]) (c :a)])])
         wire (rows/emit witness)]
     (is (= {:b :yin.k/cc-1 :a :yin.k/cc-2} (rows/canonical-numbering witness)))
-    (is (= :segment/blake3-0193312113d9c4928b148f220ef82a623c397e1b98cd67fac8712d1fc286a032 (:yin.k/root wire)))
+    (is (= :segment/blake3-415b8a3bebf6b0b21bb054f31c4f6a1bc5e0fc1613605b77addd00f6fd935aef (:yin.k/root wire)))
     (is (= (:yin.k/root wire) (root-of (rows/decode wire))))))
 
 
@@ -1370,6 +1371,7 @@
 (deftest carried-install-requires-receiver-admission
   (let [sender-record {:yin.admit/id "sender-only"
                        :yin.admit/decision :allow
+                       :yin.admit/other :future-evidence
                        :yin.admit/asserters #{'sender}
                        :yin.admit/address :sender-only}
         source (update-in (support/parked-installer)
@@ -1393,9 +1395,9 @@
       (let [{:keys [attach! count]} (support/attacher)
             refusal (error #(rows/lower-task recv wire attach! opts))]
         (is (= :yin.k/unsatisfied (:yin.k/status refusal)))
+        (is (= :complete (:yin.k/discovery refusal)))
         (is (= {:yin.k/modules {'host.mod address}} (:yin.k/missing refusal)))
-        (is (zero? @count))
-        (is (empty? (:installs recv)))))
+        (is (zero? @count))))
     (let [{:keys [attach! count]} (support/attacher)
           restored (rows/lower-task (assoc recv :attach-stream attach!) wire attach! {:yin.k/admitted-modules {'host.mod address}})
           response (get-in restored [:installs 'host.mod :response])
@@ -1411,3 +1413,148 @@
         (is (= 42 (:value done)))
         (is (= address (:address installed)))
         (is (not (contains? installed :admission)))))))
+
+
+(def pin-profile (vm/primitive-profile 'f :pure [0] #{} :none))
+
+
+(defn pin-registry
+  "A host module with an unused export whose profile must never be pinned."
+  ([] (pin-registry pin-profile))
+  ([profile]
+   (module/register-host-module (:modules (support/new-machine)) 'host.mod
+                                {'f (fn [] 42) 'unused (fn [] 0)}
+                                {'f profile 'unused (vm/primitive-profile 'unused :pure [0] #{} :none)})))
+
+
+(defn pin-machine
+  [registry]
+  (vm/run (support/load-ast
+            (assoc (support/new-machine) :modules registry)
+            (support/then
+              (support/next-of (support/cursor-of {:type :stream/make :buffer 4}))
+              (support/app (support/v 'host.mod/f))))))
+
+
+(defn pin-requires
+  [wire]
+  (nth (:slots (rows/decode wire)) 10))
+
+
+(defn pin-lower-refusal
+  [registry wire]
+  (let [{:keys [attach! count]} (support/attacher)
+        refusal (error #(rows/lower-task (assoc (support/new-machine) :modules registry) wire attach!))]
+    (is (zero? @count) "every refusal precedes the first attach")
+    refusal))
+
+
+(deftest lift-pins-only-registry-answered-live-names
+  (let [registry (pin-registry)
+        machine (pin-machine registry)
+        wire (support/lift machine nil)
+        profile (:yin.k/profile pin-profile)]
+    (is (= {'host.mod nil} (:yin.k/modules (pin-requires wire))))
+    (is (= {'host.mod/f profile} (:yin.k/host-exports (pin-requires wire))))
+    (doseq [m [(vm/run (support/load-ast
+                         (assoc (support/new-machine) :modules registry)
+                         (support/let1 'host.mod/f (support/lit 42)
+                                       (support/then
+                                         (support/next-of (support/cursor-of {:type :stream/make :buffer 4}))
+                                         (support/v 'host.mod/f)))))
+               (assoc-in machine [:store 'host.mod/f] 42)
+               (vm/run (support/load-ast
+                         (assoc (support/new-machine) :modules registry
+                                :env {engine/store-of-key 'context}
+                                :module-stores {'context {'host.mod/f 42}})
+                         (support/then
+                           (support/next-of (support/cursor-of {:type :stream/make :buffer 4}))
+                           (support/app (support/v 'host.mod/f)))))
+               (assoc-in machine [:primitives 'host.mod/f]
+                         (assoc pin-profile :yin.k/function (fn [] 42)))]]
+      (let [r (pin-requires (support/lift m nil))]
+        (is (= {} (:yin.k/modules r)))
+        (is (= {} (:yin.k/host-exports r)))))
+    (let [bad (update-in registry [:modules 'host 'mod :manifest] dissoc :yin.module/primitives)
+          refusal (support/lift (pin-machine bad) nil)]
+      (is (= [:yin.k/non-portable :host-export-profile 'host.mod/f]
+             ((juxt :yin.k/status :yin.k/kind :yin.k/name) refusal))))))
+
+
+(deftest lift-keeps-a-linked-manifests-actual-address
+  (let [response (support/linked-response (support/lit 42) 'pym.k #{'f})
+        manifest (:manifest response)
+        registry (module/link-module (:modules (support/new-machine)) manifest
+                                     (:derivation response) {:slice {'f 42}})
+        machine (vm/run (support/load-ast
+                          (assoc (support/new-machine) :modules registry)
+                          (support/then
+                            (support/next-of (support/cursor-of {:type :stream/make :buffer 4}))
+                            (support/v 'pym.k/f))))
+        requires (pin-requires (support/lift machine nil))]
+    (is (= {'pym.k (jing/segment-key manifest)} (:yin.k/modules requires)))
+    (is (= {} (:yin.k/host-exports requires)))))
+
+
+(deftest linked-module-pins-compare-address-before-attach
+  (let [address (jing/segment-key [:manifest :sender])
+        other (jing/segment-key [:manifest :receiver])
+        registry (assoc-in (pin-registry) [:modules 'host 'mod :address] address)
+        wire (support/lift (pin-machine registry) nil)]
+    (is (= {'host.mod address} (:yin.k/modules (pin-requires wire))))
+    (is (= {} (:yin.k/host-exports (pin-requires wire))))
+    (is (= {:yin.k/status :yin.k/unsatisfied :yin.k/discovery :complete
+            :yin.k/missing {:yin.k/modules {'host.mod address}}}
+           (pin-lower-refusal (module/empty-registry) wire)))
+    (doseq [held [other nil]]
+      (is (= {:yin.k/status :yin.k/unsatisfied :yin.k/kind :module-pin-mismatch
+              :yin.k/name 'host.mod :yin.k/pinned address :yin.k/linked held}
+             (pin-lower-refusal (assoc-in registry [:modules 'host 'mod :address] held) wire))))
+    (let [{:keys [attach! count]} (support/attacher)]
+      (is (map? (rows/lower-task (assoc (support/new-machine) :modules registry) wire attach!)))
+      (is (pos? @count)))))
+
+
+(deftest host-export-pins-compare-profiles-and-ignore-unused-exports
+  (let [registry (pin-registry)
+        wire (support/lift (pin-machine registry) nil)
+        profile (:yin.k/profile pin-profile)
+        other (vm/primitive-profile 'f :pure [0 1] #{} :none)]
+    (is (= {:yin.k/status :yin.k/unsatisfied :yin.k/discovery :complete
+            :yin.k/missing {:yin.k/modules {'host.mod nil}
+                            :yin.k/host-exports {'host.mod/f profile}}}
+           (pin-lower-refusal (module/empty-registry) wire)))
+    (is (= {:yin.k/status :yin.k/unsatisfied :yin.k/kind :host-export-mismatch
+            :yin.k/name 'host.mod/f :yin.k/pinned profile :yin.k/held (:yin.k/profile other)}
+           (pin-lower-refusal (pin-registry other) wire)))
+    (is (= {:yin.k/status :yin.k/unsatisfied :yin.k/discovery :complete
+            :yin.k/missing {:yin.k/host-exports {'host.mod/f profile}}}
+           (pin-lower-refusal (update-in registry [:modules 'host 'mod :manifest :yin.module/primitives]
+                                         dissoc 'f) wire)))
+    (is (= :module-pin-mismatch
+           (:yin.k/kind (pin-lower-refusal
+                          (assoc-in registry [:modules 'host 'mod :address] :linked) wire))))
+    (doseq [r [registry
+               (update-in registry [:modules 'host 'mod :manifest :yin.module/primitives] dissoc 'unused)
+               (assoc-in registry [:modules 'host 'mod :manifest :yin.module/primitives 'unused] :changed)]]
+      (let [{:keys [attach! count]} (support/attacher)]
+        (is (map? (rows/lower-task (assoc (support/new-machine) :modules r) wire attach!)))
+        (is (pos? @count))))))
+
+
+(deftest module-pins-collect-whole-tree-and-prioritize-terminal-mismatch
+  (let [task (rows/decode (support/lift (support/parked-installer) nil))
+        profile (:yin.k/profile pin-profile)
+        task (-> task
+                 (assoc-in [:slots 10 :yin.k/modules] {'root.mod :root})
+                 (assoc-in [:slots 12 0 :slots 4 :slots 10 :yin.k/modules] {'child.mod nil})
+                 (assoc-in [:slots 12 0 :slots 4 :slots 10 :yin.k/host-exports] {'host.mod/f profile}))
+        wire (rows/emit task)
+        address (jing/segment-key (:manifest (support/module-response)))]
+    (is (= {:yin.k/status :yin.k/unsatisfied :yin.k/discovery :complete
+            :yin.k/missing {:yin.k/modules {'root.mod :root 'host.mod address 'child.mod nil}
+                            :yin.k/host-exports {'host.mod/f profile}}}
+           (pin-lower-refusal (module/empty-registry) wire)))
+    (is (= :host-export-mismatch
+           (:yin.k/kind (pin-lower-refusal
+                          (pin-registry (vm/primitive-profile 'f :pure [1] #{} :none)) wire))))))

@@ -22,7 +22,13 @@
    - Inbox & Journal: positional inboxes & crash recovery (inbox-and-journal-cuts-test)
    - Row 10 canonical-byte agreement: exercised cross-host in stage-e-process-test
      (ordered JVM/Node pairs over file media)."
-  (:require [clojure.test :refer [deftest]]
+  (:require [clojure.test :refer [deftest is]]
+            [dao.jing.cbor :as cbor]
+            [dao.jing.cbor-fixtures :as cfx]
+            [yin.vm.module :as module]
+            [yin.vm.ucf.rows :as rows]
+            [yin.vm.ucf.rows-test :as pins]
+            [yin.vm.ucf.rows-support :as support]
             [dao.test-slow :as slow]
             [yin.vm.ucf.stage-e-scenarios :as sc]))
 
@@ -108,3 +114,28 @@
     (fn []
       (run-all (concat (map #(sc/journal-row {:cut %}) sc/journal-cuts)
                        (map #(sc/journal-row {:fail %}) sc/uncertain-retentions))))))
+
+
+(deftest module-pin-carrier-and-refusals-agree-on-every-host
+  (let [registry (pins/pin-registry)
+        profile (:yin.k/profile pins/pin-profile)
+        host-wire (support/lift (pins/pin-machine registry) nil)
+        linked (assoc-in registry [:modules 'host 'mod :address] :segment/sender)
+        linked-wire (support/lift (pins/pin-machine linked) nil)
+        hex #(cfx/bytes->hex (cbor/encode %))]
+    (is (= (hex host-wire) (hex (rows/emit (rows/decode host-wire)))))
+    (is (= {:yin.k/modules {'host.mod nil} :yin.k/host-exports {'host.mod/f profile}}
+           (select-keys (pins/pin-requires host-wire) [:yin.k/modules :yin.k/host-exports])))
+    (doseq [[wire recv expected]
+            [[linked-wire registry
+              {:yin.k/status :yin.k/unsatisfied :yin.k/kind :module-pin-mismatch
+               :yin.k/name 'host.mod :yin.k/pinned :segment/sender :yin.k/linked nil}]
+             [host-wire (assoc-in registry [:modules 'host 'mod :manifest :yin.module/primitives 'f] :profile/other)
+              {:yin.k/status :yin.k/unsatisfied :yin.k/kind :host-export-mismatch
+               :yin.k/name 'host.mod/f :yin.k/pinned profile :yin.k/held :profile/other}]
+             [host-wire (module/empty-registry)
+              {:yin.k/status :yin.k/unsatisfied :yin.k/discovery :complete
+               :yin.k/missing {:yin.k/modules {'host.mod nil} :yin.k/host-exports {'host.mod/f profile}}}]]]
+      (let [actual (pins/pin-lower-refusal recv wire)]
+        (is (= expected actual))
+        (is (= (hex expected) (hex actual)))))))

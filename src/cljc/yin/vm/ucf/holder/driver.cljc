@@ -211,6 +211,7 @@
   "The step state every constructor fills from `config`."
   [config units]
   {:phase :validating
+   :config (select-keys config [:yin.k/admitted-modules])
    :status nil
    :detail nil
    :me (:me config)
@@ -260,6 +261,9 @@
      :units             optional unit table, dao.lease's default
      :receiver          the receiving machine of the receiver's own
                         composition
+     :yin.k/admitted-modules  optional {name manifest-address} supplied
+                        by the composition for carried install children;
+                        forwarded to lowering and fenced recovery
      :attach!           the receiver's :dao.stream/attach dispatch
      :append-request!   (fn [request] append-outcome), the holder's
                         inbound stream
@@ -1562,7 +1566,9 @@
     (if (or (= ::undecodable wire) (not (map? wire)))
       {:yin.k/status :yin.k/undecodable}
       (try
-        (let [m (rows/lower-task (assoc (:receiver state) :attach-stream attach!) wire attach! opts)]
+        (let [m (rows/lower-task (assoc (:receiver state) :attach-stream attach!) wire attach!
+                                 (assoc opts :yin.k/admitted-modules
+                                        (:yin.k/admitted-modules (:config state))))]
           {:status :ok :vm m})
         (catch #?(:cljd Object :clj Throwable :cljs :default) e
           (let [d (ex-data e)]
@@ -2454,6 +2460,7 @@
                   "matching fenced recovery references" {})
         recovered (export/rehydrate-fenced (:receiver state) recovery-bytes
                                            {:address (:record fence)
+                                            :yin.k/admitted-modules (:yin.k/admitted-modules (:config state))
                                             :attach (get-in state [:seams :attach!])})
         _ (check! (= :ok (:status recovered)) "valid fenced recovery" recovered)
         _ (check! (= (:address fence)

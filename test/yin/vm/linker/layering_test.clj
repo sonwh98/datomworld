@@ -156,3 +156,18 @@
 (deftest linker-requires-no-repl-test
   (testing (str "no namespace under " roots " requires yin.repl")
     (is (= {} (violations)))))
+
+
+(deftest portable-evaluator-and-lower-have-no-fetch-or-lease-dependencies
+  (doseq [path (filter #(or (= % "src/cljc/yin/vm/engine.cljc")
+                            (= % "src/cljc/yin/vm/semantic.cljc")
+                            (.startsWith % "src/cljc/yin/vm/semantic/")
+                            (= % "src/cljc/yin/vm/ucf/rows.cljc"))
+                       (source-files "src/cljc/yin/vm"))]
+    (let [form (reader/read {:read-cond :preserve}
+                            (rt/indexing-push-back-reader (slurp path)))
+          dependencies (->> (clauses (rest form))
+                            (filter #(and (seq? %) (require-clauses (first %))))
+                            (mapcat symbols-in))]
+      (is (not-any? #{'yin.vm.linker.interpreter 'yin.vm.linker.dht 'dao.lease} dependencies)
+          path))))

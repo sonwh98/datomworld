@@ -580,7 +580,7 @@
   reopen), the world's content store, the exporter's server and the
   carrier medium -- ride along."
   [w holder sources v & {:keys [ledger protection-as raw attach-table
-                                journal-as]}]
+                                journal-as admitted-modules]}]
   (let [{:keys [bytes address]} (or raw (get sources v))
         _ (assert (some? bytes) "the variant's bytes")
         prog (int-stream "prog-r")
@@ -596,6 +596,7 @@
         j (or journal-as (fresh-journal))]
     {:state (driver/initial
               {:me holder
+               :yin.k/admitted-modules admitted-modules
                :bytes bytes
                :address address
                :protection (or protection-as {"prog-r" :at-least-once})
@@ -681,6 +682,25 @@
   (merge (select-keys state [:me :bytes :address :protection :renewal-interval :units :receiver])
          (:seams state)
          {:store (get-in state [:seams :content-store])}))
+
+
+(deftest parked-installer-needs-composition-admission-test
+  (doseq [admitted? [false true]]
+    (let [lifted (lift-under (s/parked-installer) (header-of 0) (serve-as "prog-r"))
+          sources {"v1" lifted}
+          w (world :holders ["holder-a"] :sources sources)
+          d (driver-for w "holder-a" sources "v1"
+                        :admitted-modules (when admitted?
+                                            (:yin.k/admitted-modules s/installer-lower-opts)))
+          result (drive-to w d (phase-of (if admitted? :running :failed)) 8 :judge {:s 2})
+          state (:state result)]
+      (if admitted?
+        (do (is (contains? (:installs (:machine state)) 'host.mod))
+            (is (pos? @(:attaches result))))
+        (do (is (= :yin.k/unsatisfied (:status state)))
+            (is (= (:yin.k/admitted-modules s/installer-lower-opts)
+                   (get-in state [:detail :yin.k/missing :yin.k/modules])))
+            (is (zero? @(:attaches result))))))))
 
 
 (defn- retained-record
