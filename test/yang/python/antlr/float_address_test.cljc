@@ -221,12 +221,13 @@
             host (JVM goldens; the prelude moved once with I1's module
             runtime -- sys.modules, module objects, py/import -- once
             with I2's package imports, once with I3's indexed
-            __all__, and once with I4-a's delivery and builtin changes;
+            __all__, once with I4-a's delivery and builtin changes,
+            and again on I6 over landed I5 (re-minted from source);
             the hook prelude did not move)"
     (is (= (keyword
              (str "segment/blake3-"
-                  "cfee487768bf7911d559d44a45f29460"
-                  "50ce2f9ea1ddb17da76c95461a2f61a0"))
+                  "2bc76b3ce21b919ded37755685d4eab9"
+                  "8abf18271f0cae2c54ba0171f13bcbbe"))
            (:root (vm/ast->semantic-bytecode prelude/uast))))
     (is (= :segment/blake3-2d387d0d4787a7222ad358d8d262d2d64b169162889461e84b954c1812074d08
            (:root (vm/ast->semantic-bytecode hooks/uast))))))
@@ -247,28 +248,29 @@
     (is (nil? (vm/validate-rows a')))
     (testing "A, A' and the record: one address on every host (JVM goldens;
               all three moved once with I1's prelude changes, once with
-              I2's, once with I3's, and once with I4-a's)"
+              I2's, once with I3's, once with I4-a's, and again on I6
+              over landed I5 (re-minted from the source packet))"
       (is (= (keyword
                (str "segment/blake3-"
-                    "8f6f6d6e85e5027d51ac3e4ffbc155e3"
-                    "056bb0bcc435226aac9ee194a70d9fac"))
+                    "e0a762bf0cfd823b6cea3e46d67eec64"
+                    "5744c6f245762cf8e6089bbc128a3a5a"))
              (:root a)))
       (is (= (keyword
                (str "segment/blake3-"
-                    "9bf21a1516b4aa14a8a43877b3b86b59"
-                    "6db3bb9159212c4ef4c1510872dabae5"))
+                    "2de8098a6353837c150d49d302592826"
+                    "56d6a52bee494fca0d7a981074a226a2"))
              (:root a')))
       (is (= (keyword
                (str "segment/blake3-"
-                    "ec2c04ffde26feb8edd56e6f2a7a4600"
-                    "449fcbd16021d688190d2b9b374bbeb0"))
+                    "8728d356a4f02fcab60c5a49bdafa684"
+                    "c3ee0bef41d79dff90f0609db4069d69"))
              record-address)))
     (testing "the bundled prelude is the same subtree in A and A'"
       (is (= (prelude-id a) (prelude-id a')))
       (is (= (keyword
                (str "segment/blake3-"
-                    "fb5a390a03acf410c2040696e273fe08"
-                    "78c20476724c131b0833d8bd3308c668"))
+                    "231cbc80225185736d332f5ad068d14e"
+                    "630003ea9882034b47a29879e6724f14"))
              (prelude-id a))))
     (testing "decoding A and projecting it again keeps every address"
       (let [decoded (cbor/decode (jing/canonical-bytes a))]
