@@ -3,11 +3,7 @@
        :date #inst "2026-10-09T00:00:00.000-00:00",
        :abstract
        [:p
-        "What is the Universal Continuation Format really doing? Two older ideas answer the question from opposite directions. Hygienic macro systems taught Lisp how to move "
-        [:em "code"]
-        " across lexical boundaries without accidental capture. Differential geometry taught physics how to move a "
-        [:em "vector"]
-        " across a curved manifold without distortion. UCF is both at once: it is hygiene for suspended computation, and it is the connection that parallel-transports a CESK configuration across the distributed spacetime of nodes, runtimes, and checkpoints. Transport alone is not enough: a carrier that never consumes what it delivers hands the same checkpoint to every reader, and under exclusive custody the lease is the condition that admits at most one of those readings at a time as the computation. A third part extends the transport past the boundary it was designed for: from one yin.vm to a different virtual machine altogether. The extension turned out to be narrow, and the path to seeing that it is narrow is recorded here, wrong turns included."],
+        "UCF is two old ideas at once: hygiene for suspended computation, and parallel transport for a CESK configuration across nodes, runtimes and checkpoints. Exclusive custody admits one reader at a time. A final part extends the transport to another virtual machine, and records why it is narrow."],
        :content
        [:section.blog-article
         [:div.section-inner
