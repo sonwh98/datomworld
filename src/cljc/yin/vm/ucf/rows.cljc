@@ -1634,7 +1634,9 @@
 
 (defn- install-node
   [ctx mn inst opts]
-  (let [{:keys [phase parent response]} inst]
+  (let [{:keys [phase parent response]} inst
+        response (dissoc response :yin.admit/id :yin.admit/decision
+                         :yin.admit/asserters :yin.admit/address)]
     (when-not (contains? #{:running :parked} phase)
       (outcome! :yin.k/non-portable :incomplete-install {:yin.k/name mn :yin.k/phase phase}))
     (when-not (try (cbor/encode response) true
@@ -1844,6 +1846,7 @@
     (when-not (contains? #{:running :parked} phase)
       (outcome! :yin.k/undecodable :install-phase {:yin.k/name mn :yin.k/phase phase}))
     (when-not (and (map? response) (= :ok (:status response)) (map? manifest)
+                   (not-any? #(= "yin.admit" (namespace %)) (filter keyword? (keys response)))
                    (= mn (:yin.module/name manifest))
                    (coll? (:yin.module/exports manifest)) (every? symbol? (:yin.module/exports manifest))
                    (map? (:image response)) (attaches? recv (:value (:image response)) nil))
@@ -1878,6 +1881,18 @@
                 (outcome! :yin.k/undecodable :parked-id {}))
       (outcome! :yin.k/undecodable :kind {:yin.k/task-kind kind}))
     (run! #(check-install! recv %) installs)))
+
+
+(defn- check-install-admission!
+  "Carried children require the receiver composition's explicit name/address
+   admission. Sender admission evidence never authorizes a receiver install."
+  [task opts]
+  (doseq [inst (nth (:slots task) 12)]
+    (let [[mn _ _ response] (:slots inst)
+          address (jing/segment-key (:manifest response))]
+      (when-not (= address (get (:yin.k/admitted-modules opts) mn))
+        (outcome! :yin.k/unsatisfied nil
+                  {:yin.k/missing {:yin.k/modules {mn address}}})))))
 
 
 (defn- check-closure!
@@ -2261,7 +2276,11 @@
    custody (check-custody!), all before the first attach! (step 11); then
    restore (step 12), which therefore meets no carrier defect. Answers the
    restored machine, or throws the first refusal as ex-data.
-   opts: :budget; :exclusive, refuse a fork root; :grant and :protection,
+   opts: :budget; :yin.k/admitted-modules, a composition-supplied {name manifest-address}
+   for carried install children (default empty, fail closed). Name-keyed admission
+   is flat over the whole task tree: the same name at different addresses cannot
+   be admitted together. The lift never carries sender admission fields; a carried
+   one is refused as :yin.k/undecodable :install-response; :exclusive, refuse a fork root; :grant and :protection,
    required by a blocked or parked exclusive root (handoff.cljc's reader
    contract: the grant names :checkpoint, the pack address, its lease,
    holder, tenure and evidence; :protection maps every stream identity of
@@ -2280,4 +2299,6 @@
              [t role] (task-tree task :root)]
        (step recv t role))
      (let [custody (check-custody! task wire opts)]
+       (doseq [[t _] (task-tree task :root)]
+         (check-install-admission! t opts))
        (restore-task recv task (attach-streams! attach! task) custody true)))))

@@ -1809,6 +1809,22 @@ that attach early are killed by the attach-count law):
 | dependencies | `check-dependencies!` | `requires` is a map whose `:yin.k/segments` equals the key set of `code` (`:requires`); every segment has a non-empty `:yin.k/trees` entry; every `store-of` of every `:closure` and `:env` row of **this task** (children excluded, each checked in its own stage pass) names one of this task's `:module-store` rows (§2.6), so a parent's or sibling's store of the same key cannot answer (codex F7, F8); every vector attaches in the receiving kernel under its A (`attaches?`: `module/attach-module` into a throwaway copy, the result discarded) (`:segment`); every `:closure` row names a `:closure` tuple of its vector at its entry (`:closure-origin`) with the same binders (`:closure-binders`); every `:prim` names a primitive the receiver holds | `:yin.k/undecodable :requires`, `:yin.k/unsatisfied` with `:yin.k/trees` or **`:yin.k/stores`** (`:yin.k/discovery :incomplete`), `:yin.k/undecodable :segment`, `:closure-origin`, `:closure-binders`, `:yin.k/unsatisfied {:yin.k/name p}` |
 | custody | `check-custody!` | `custody-baseline` over the tree; fork refused under `:exclusive`; halted exclusive needs no grant; blocked/parked exclusive validates grant evidence, pack checkpoint, binding, lease/holder, arbitration, epoch, live tenure and input prefix, then protection in both directions and op-id presence against enrollment; `:fenced` skips grant/protection | grammar's `:yin.k/undecodable` kinds; `:yin.k/profile-mismatch`, `:yin.k/awaiting-grant`, `:yin.k/not-holder`, `:yin.k/unsatisfied` |
 
+**Amended 2026-10-16 (module-pins, R4).** After custody validation and
+before attachment, every carried install child must have its manifest
+address listed under its module name in the receiving composition's
+`opts {:yin.k/admitted-modules {name manifest-address}}`. The default is empty:
+an absent or different address refuses as
+`{:yin.k/status :yin.k/unsatisfied
+  :yin.k/missing {:yin.k/modules {name carried-address}}}`.
+This applies to children throughout the task tree, including fenced
+restoration; `holder.export/rehydrate-fenced` forwards the composition's
+`:yin.k/admitted-modules` option to the lower. The lift never carries the sender's
+`:yin.admit/id`, `:yin.admit/decision`,
+`:yin.admit/asserters` and `:yin.admit/address` from an install
+response; a carried admission field is refused as
+`:yin.k/undecodable :install-response` before `link-install` can record it as receiver evidence. The
+composition supplies admissions from its own policy, never from the pack.
+
 Then **attachment** (step 11, `attach-streams!`): one `attach!` per
 distinct stream identity of the whole tree, `:yin.k/unsatisfied
 {:dao.stream/identity …}` when the composition declines. Then **restore**
@@ -2741,8 +2757,11 @@ property, not a reader restriction.
   equal to response `:yin.link/id`. The manifest's semantic derivation
   address must hash the response's derivation record; its input equals
   the manifest tree and its output equals the image vector's A.
-  This verifies response self-consistency; binding to composition-known
-  content addresses remains the linker's fetch/admission responsibility.
+  This verifies response self-consistency. Amended 2026-10-16 (R4): the
+  lower additionally requires the receiver composition's explicit
+  `:yin.k/admitted-modules {name manifest-address}` before attaching any stream,
+  and the lift never carries sender admission evidence; a carried admission
+  field is refused as `:yin.k/undecodable :install-response`.
 - **Amended after 7 (2026-10-14)** — Reason: 7a implements the op-id grammar; correlation checks remain narrower.
   **6b Q4, CLOSED for operation ids; correlation agreement remains open.**
   `custody-baseline` checks retained put/FFI-request/link-request ids
@@ -2752,14 +2771,20 @@ property, not a reader restriction.
   before attachment. The broader cursor-cell stream, envelope-id and module
   correlation agreement promised by draft §8 is not implemented as a
   general check; Q3's install-parent agreement is implemented.
-- **Q5, no re-discharge on lower.** Free names are discharged at lift
+- **Q5, answered C by the Architect threat model (2026-10-16);
+  implementation blocked on the host-profile carrier schema.** The ruling
+  requires `requires {:yin.k/modules {name manifest-address-or-nil}}`,
+  equal-address receiver re-discharge before attach, and equal export
+  profiles for host-module nil pins. The report specifies no carrier
+  slot for those host profiles; the module-pins brief requires stopping
+  that sub-part for a decision. Until it lands, the implementation still
+  has the following gap: free names are discharged at lift
   only (§7.1); the lower checks carried segments, trees, store census,
   closures and primitives, and a name a closure resolves through the
   registry is a composition prerequisite (§2.5). A receiver lacking that
   registry entry accepts the carrier and fails at run time
-  (`Unable to resolve symbol`). Accept, or require the lower to
-  re-discharge registry-answered names against the receiver's registry
-  before attachment?
+  (`Unable to resolve symbol`). This behavior is not the accepted final
+  contract; the receiver-side pin check remains required.
 - **Q6, conservatism of the live-code rule.** `live-pcs` follows both
   successor edges of every branch and enters every reachable closure
   body, with no constant propagation. The harness's `(if false (fn []

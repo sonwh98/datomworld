@@ -2327,6 +2327,14 @@ registry and its installation-family inheritance:
 - a name already resolvable in the registry answers with no link request
   and hence no question.
 
+**Amended 2026-10-16 (carried install children, R4).** A lowered pack's
+install child enters this family only when the receiving composition
+explicitly admits its name and manifest address through lower opts
+`:yin.k/admitted-modules`. The lower refuses unlisted or differently addressed
+children before any stream attachment, including during fenced restore.
+The lift never carries sender admission fields; a carried admission field
+is refused as `:yin.k/undecodable :install-response`. They do not become the receiving registry entry's `:admission`.
+
 The exposure domain is therefore the installation family for its life,
 not one task. It is about principal plus address plus holder context,
 and it is language-blind: any frontend compiling to a require of that

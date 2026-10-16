@@ -495,8 +495,10 @@
    record is prepared again from what was attached and must encode the
    published pack byte for byte, or the answer is `:yin.k/undecodable`
    with `:yin.k/reason :recovery-inconsistent`.  Answers `{:status :ok
-   :machine m :record r}`, `r` marked `:recovered?` (abort refuses it)."
-  [receiver recovery-bytes {:keys [address attach]}]
+   :machine m :record r}`, `r` marked `:recovered?` (abort refuses it).
+   opts :yin.k/admitted-modules is the receiver composition's name/address map
+   for carried install children, passed to the lower (default empty)."
+  [receiver recovery-bytes {:keys [address attach] :as opts}]
   (try
     (let [recovery (cbor/decode recovery-bytes)]
       (cond
@@ -534,7 +536,7 @@
                                (let [answer (attach descriptor)]
                                  (swap! attached assoc identity {:answer answer :descriptor descriptor})
                                  answer))))
-                         {:fenced true})
+                         (assoc (select-keys opts [:yin.k/admitted-modules]) :fenced true))
               {:keys [machine record]} (extract-recovered restored state)
               ;; each attached handle answers the descriptor it was served under
               by-handle (into {}

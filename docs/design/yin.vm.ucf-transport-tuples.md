@@ -409,6 +409,18 @@ The response's `:derivation` record must hash to the manifest's
 hash-identify the image's `:value` vector (`:install-image`). These are
 response self-consistency checks; the linker's source-index, fetch and
 admission path binds code and trees to composition-known addresses.
+
+**Amended 2026-10-16 (R4).** Self-consistency does not admit a carried
+child into the receiver's installation family. Before any stream attach,
+the lower additionally requires the receiving composition's opts
+`:yin.k/admitted-modules {name manifest-address}` to list the child's manifest
+address under its name. Default empty refuses with
+`{:yin.k/status :yin.k/unsatisfied
+  :yin.k/missing {:yin.k/modules {name carried-address}}}`. The lift never carries
+the sender's four `:yin.admit/*` decision fields in the install response;
+a carried admission field is refused as `:yin.k/undecodable :install-response`
+before `link-install` can record it on the receiver's entry.
+This changes admission behavior, not the `:install` row's slots.
 A remains the only code identity and the Universal AST is never lost.
 No new resolver or independent claimed-image-address check is added.
 

@@ -346,6 +346,12 @@
     (if tail? (s/app (s/lam ['u] (tail call)) (s/lit 0)) call)))
 
 
+(def install-lower-opts
+  "Receiver admission of this composition's fixed blocking-body module."
+  {:yin.k/admitted-modules {'host.mod (jing/segment-key
+                                        (:manifest (module-response blocking-body #{'f})))}})
+
+
 (defn link-receiver
   [trace]
   (fn []
@@ -560,7 +566,7 @@
         corr (into {} (map (fn [[id _]] [id id])) @(:table peer))
         receiver ((or (:receiver world) (constantly nil)))
         {:keys [attach! origin] n :count} (recording-attacher toy)
-        recv (rows/lower-task (machine (merge {:attach-stream attach!} (:opts receiver))) wire attach!)
+        recv (rows/lower-task (machine (merge {:attach-stream attach!} (:opts receiver))) wire attach! install-lower-opts)
         attaches @n
         again (served surfaces)
         relift (rows/lift-task recv (:serve! again) (lift-opts))
@@ -734,7 +740,7 @@
             [install] (slot (root-task wire) 12)
             [mn carried-phase _ _ child] (:slots install)
             {:keys [attach!] n :count} (recording-attacher toy)
-            recv (rows/lower-task (machine {:attach-stream attach!}) wire attach!)
+            recv (rows/lower-task (machine {:attach-stream attach!}) wire attach! install-lower-opts)
             inst (get-in recv [:installs 'host.mod])
             lowered (:vm inst)]
         (is (= (count (stream-identities wire)) @n) "one attach per distinct stream identity of the tree")
@@ -879,7 +885,7 @@
   "Lower wire into a fresh receiver: [outcome attaches]."
   [toy wire]
   (let [{:keys [attach!] n :count} (recording-attacher toy)
-        r (try (rows/lower-task (machine {:attach-stream attach!}) wire attach!)
+        r (try (rows/lower-task (machine {:attach-stream attach!}) wire attach! install-lower-opts)
                (catch #?(:cljd Object :clj Throwable :cljs :default) e (ex-data e)))]
     [r @n]))
 
@@ -1139,7 +1145,7 @@
         wire (rows/lift-task m serve! (lift-opts))
         task (root-task wire)
         {:keys [attach!] n :count} (recording-attacher toy)
-        recv (rows/lower-task (machine {:attach-stream attach!}) wire attach!)
+        recv (rows/lower-task (machine {:attach-stream attach!}) wire attach! install-lower-opts)
         lowered-child (get-in recv [:installs 'host.mod :vm])
         handle (fn [x] (get (:resources x) (:id (get-in x [:store 'rq]))))]
     (is (< (count (stream-identities wire)) (stream-occurrences task)) "the tree reaches one identity twice")
@@ -1463,7 +1469,7 @@
   [lane opts wire attach!]
   (let [scratch (on-lane :semantic #(machine opts))]
     (if (= :semantic lane)
-      (rows/lower-task scratch wire attach!)
+      (rows/lower-task scratch wire attach! install-lower-opts)
       (layout/lower-task scratch (on-lane lane #(machine opts)) wire attach!))))
 
 
@@ -1988,7 +1994,7 @@
           wire (rows/lift-task (:machine world) serve! (lift-opts))
           pending (first-pending (root-task wire))
           attach! (s/remote-attacher toy)
-          recv (rows/lower-task (machine) wire attach!)
+          recv (rows/lower-task (machine) wire attach! install-lower-opts)
           abandoned (engine/abandon-installs recv :test-abandoned)]
       (is (= [:install 'host.mod try?] (:slots pending)))
       (is (= try? (:try? (first (:wait-set recv)))))

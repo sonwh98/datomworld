@@ -136,7 +136,9 @@
 (defn- rehydrate
   ([frozen] (rehydrate frozen (rs/new-machine) (:attach (counting-attach))))
   ([frozen receiver attach]
-   (export/rehydrate-fenced receiver (:bytes frozen) {:address (:address frozen) :attach attach})))
+   (export/rehydrate-fenced receiver (:bytes frozen)
+                            (merge rs/installer-lower-opts
+                                   {:address (:address frozen) :attach attach}))))
 
 
 (defn- reproduces?
@@ -478,6 +480,34 @@
                @attaches)
             "every stream attached, once")
         (is (reproduces? frozen restored) "the published pack, byte for byte")))))
+
+
+(deftest recovery-of-installer-with-sender-admission-is-reproducible-test
+  (let [sender-record {:yin.admit/id "sender-only"
+                       :yin.admit/decision :allow
+                       :yin.admit/asserters #{'sender}
+                       :yin.admit/address :sender-only}
+        source (update-in (rs/parked-installer)
+                          [:installs 'host.mod :response] merge sender-record)
+        {:keys [frozen]} (frozen-of source)
+        restored (rehydrate frozen)]
+    (is (= :ok (:status frozen)) (pr-str frozen))
+    (is (= :ok (:status restored)) (pr-str restored))
+    (is (reproduces? frozen restored) "the published pack, byte for byte")))
+
+
+(deftest recovery-requires-receiver-install-admission-test
+  (let [{:keys [frozen]} (frozen-of (rs/parked-installer))
+        address (jing/segment-key (:manifest (rs/module-response)))]
+    (doseq [admitted [nil {'host.mod :wrong-address}]]
+      (let [{:keys [attaches attach]} (counting-attach)
+            refused (export/rehydrate-fenced
+                      (rs/new-machine) (:bytes frozen)
+                      {:address (:address frozen) :attach attach
+                       :yin.k/admitted-modules admitted})]
+        (is (= :yin.k/unsatisfied (:yin.k/status refused)))
+        (is (= {:yin.k/modules {'host.mod address}} (:yin.k/missing refused)))
+        (is (zero? @attaches))))))
 
 
 (deftest a-restarted-abort-is-refused-test
