@@ -2309,85 +2309,87 @@
      :last-return (last (keep-indexed #(when (= :return (first (:instruction %2))) %1) points))}))
 
 
-(defn check-returned-boundaries
-  ([cases] (check-returned-boundaries cases :all))
-  ([cases execution]
-   (mapv
-     (fn [[row segment _ build]]
-       (let [points (atom []) successful? (atom false)
-             observe (fn [m]
-                       (let [serves (atom 0)
-                             d (error #(rows/lift-task m (fn [_] (swap! serves inc) nil) (lift-opts)))
-                             ;; Use a working server to distinguish discharge refusals
-                             ;; from the deliberately unavailable server above.
-                             result (try {:snapshot (boundary-round-trip m)}
-                                         (catch #?(:cljd Object :clj Throwable :cljs :default) e
-                                           {:refusal (ex-data e)}))
-                             refusal (:refusal result)
-                             excluded? (= [:yin.k/unsatisfied :incomplete]
-                                          [(:yin.k/status refusal) (:yin.k/discovery refusal)])]
-                         (when refusal
-                           (is (and (not @successful?) excluded?) (pr-str refusal))
-                           (when-not (and (not @successful?) excluded?)
-                             (throw (ex-info "Refusal after first successful lift" refusal)))
-                           (is (zero? @serves) "leading refusal serves nothing")
-                           (is (= refusal d)))
-                         (when-not refusal
-                           (reset! successful? true)
-                           (check-window-tampers (root-task (get-in result [:snapshot :wire])) m))
-                         (swap! points conj (assoc (boundary-description m)
-                                                   :excluded? (boolean refusal)
-                                                   :obligations (get-in refusal [:yin.k/missing :obligations])))
-                         m))
-             expected (reference (build))
-             ;; :cljd first — ClojureDart has no with-redefs; its callers are
-             ;; :cljd-excluded, so this branch is never reached there
-             result #?(:cljd (throw (ex-info "The boundary driver needs with-redefs" {}))
-                       :default (with-redefs [vm/run #(fuel-drive % observe)] (reference (build))))
-             excluded (filterv :excluded? @points)
-             measured (keep-indexed #(when-not (:excluded? %2) %1) @points)]
-         (is (= expected result) (str row " " segment))
-         (doseq [[i p] (map-indexed vector @points) :when (:excluded? p)]
-           (is (every? :excluded? (take (inc i) @points)))
-           (is (seq (:obligations p)))
-           (is (every? (apply set/union #{} (map :store-keys (drop (inc i) @points)))
-                       (:obligations p)) "obligations are definitions later in this case"))
-         (when (seq excluded)
-           (let [first-measured (first (remove :excluded? @points))]
-             (is (every? (:store-keys first-measured) (apply set/union (map :obligations excluded)))
-                 "lifts from the first boundary at which its definitions are answered")
-             (doseq [p excluded]
-               (is (not-any? (:store-keys p) (:obligations p)) "unanswered at the excluded boundary"))))
-         (if (= row 20)
-           ;; The ruling predicted [S0]; measured, the setup batch's first
-           ;; s/def! stores s only after pcs 0-2 (conservative-prefixes-
-           ;; refuse-before-serving pins the same three prefixes).
-           (is (= [{:pc 0 :obligations #{'s}} {:pc 1 :obligations #{'s}} {:pc 2 :obligations #{'s}}]
-                  (mapv #(select-keys % [:pc :obligations]) excluded)))
-           (if (= row 17)
-             (is (every? #(= #{'host.mod/f} (:obligations %)) excluded))
-             (is (empty? excluded))))
-         (when execution
-           (doseq [target (if (and (= :sample execution) (not (contains? #{1 20} row)))
-                            (sort (set (remove nil? (vals (structural-sample @points))))) measured)
-                   :when (not (:excluded? (nth @points target)))]
-             (let [i (atom -1)
-                   replay #?(:cljd (throw (ex-info "The boundary driver needs with-redefs" {}))
-                             :default (with-redefs [vm/run #(fuel-drive % (fn [m]
-                                                                            (if (= target (swap! i inc))
-                                                                              (direct-transfer m) m)))]
-                                        (reference (build))))]
-               (is (= expected replay) (str "isolated law 1 " [row segment target])))))
-         (let [measurement {:row row :segment segment :measured (count measured)
-                            :samples (structural-sample @points)
-                            :coverage (boundary-coverage @points)
-                            :excluded-leading (mapv #(select-keys % [:pc :obligations]) excluded)
-                            :to-first-park (first (keep-indexed #(when (contains? #{:parked :waiting} (:stop %2)) (inc %1)) @points))
-                            :to-final-halt (last (keep-indexed #(when (= :halted (:stop %2)) (inc %1)) @points))
-                            :park (count (filter #(= :parked (:stop %)) @points))
-                            :halt (count (filter #(= :halted (:stop %)) @points))}]
-           (println "6d-a measured case:" (pr-str measurement))
-           measurement))) cases)))
+;; :cljd first — cljd compiler NPE on multi-arity + destructuring; stub — JVM/cljs
+;; use the real body; no cljd caller (gated)
+#?(:cljd (defn check-returned-boundaries
+           [& _]
+           nil)
+   :default
+   (defn check-returned-boundaries
+     ([cases] (check-returned-boundaries cases :all))
+     ([cases execution]
+      (mapv
+        (fn [[row segment _ build]]
+          (let [points (atom []) successful? (atom false)
+                observe (fn [m]
+                          (let [serves (atom 0)
+                                d (error #(rows/lift-task m (fn [_] (swap! serves inc) nil) (lift-opts)))
+                                ;; Use a working server to distinguish discharge refusals
+                                ;; from the deliberately unavailable server above.
+                                result (try {:snapshot (boundary-round-trip m)}
+                                            (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                                              {:refusal (ex-data e)}))
+                                refusal (:refusal result)
+                                excluded? (= [:yin.k/unsatisfied :incomplete]
+                                             [(:yin.k/status refusal) (:yin.k/discovery refusal)])]
+                            (when refusal
+                              (is (and (not @successful?) excluded?) (pr-str refusal))
+                              (when-not (and (not @successful?) excluded?)
+                                (throw (ex-info "Refusal after first successful lift" refusal)))
+                              (is (zero? @serves) "leading refusal serves nothing")
+                              (is (= refusal d)))
+                            (when-not refusal
+                              (reset! successful? true)
+                              (check-window-tampers (root-task (get-in result [:snapshot :wire])) m))
+                            (swap! points conj (assoc (boundary-description m)
+                                                      :excluded? (boolean refusal)
+                                                      :obligations (get-in refusal [:yin.k/missing :obligations])))
+                            m))
+                expected (reference (build))
+                result (with-redefs [vm/run #(fuel-drive % observe)] (reference (build)))
+                excluded (filterv :excluded? @points)
+                measured (keep-indexed #(when-not (:excluded? %2) %1) @points)]
+            (is (= expected result) (str row " " segment))
+            (doseq [[i p] (map-indexed vector @points) :when (:excluded? p)]
+              (is (every? :excluded? (take (inc i) @points)))
+              (is (seq (:obligations p)))
+              (is (every? (apply set/union #{} (map :store-keys (drop (inc i) @points)))
+                          (:obligations p)) "obligations are definitions later in this case"))
+            (when (seq excluded)
+              (let [first-measured (first (remove :excluded? @points))]
+                (is (every? (:store-keys first-measured) (apply set/union (map :obligations excluded)))
+                    "lifts from the first boundary at which its definitions are answered")
+                (doseq [p excluded]
+                  (is (not-any? (:store-keys p) (:obligations p)) "unanswered at the excluded boundary"))))
+            (if (= row 20)
+              ;; The ruling predicted [S0]; measured, the setup batch's first
+              ;; s/def! stores s only after pcs 0-2 (conservative-prefixes-
+              ;; refuse-before-serving pins the same three prefixes).
+              (is (= [{:pc 0 :obligations #{'s}} {:pc 1 :obligations #{'s}} {:pc 2 :obligations #{'s}}]
+                     (mapv #(select-keys % [:pc :obligations]) excluded)))
+              (if (= row 17)
+                (is (every? #(= #{'host.mod/f} (:obligations %)) excluded))
+                (is (empty? excluded))))
+            (when execution
+              (doseq [target (if (and (= :sample execution) (not (contains? #{1 20} row)))
+                               (sort (set (remove nil? (vals (structural-sample @points))))) measured)
+                      :when (not (:excluded? (nth @points target)))]
+                (let [i (atom -1)
+                      replay (with-redefs [vm/run #(fuel-drive % (fn [m]
+                                                                   (if (= target (swap! i inc))
+                                                                     (direct-transfer m) m)))]
+                               (reference (build)))]
+                  (is (= expected replay) (str "isolated law 1 " [row segment target])))))
+            (let [measurement {:row row :segment segment :measured (count measured)
+                               :samples (structural-sample @points)
+                               :coverage (boundary-coverage @points)
+                               :excluded-leading (mapv #(select-keys % [:pc :obligations]) excluded)
+                               :to-first-park (first (keep-indexed #(when (contains? #{:parked :waiting} (:stop %2)) (inc %1)) @points))
+                               :to-final-halt (last (keep-indexed #(when (= :halted (:stop %2)) (inc %1)) @points))
+                               :park (count (filter #(= :parked (:stop %)) @points))
+                               :halt (count (filter #(= :halted (:stop %)) @points))}]
+              (println "6d-a measured case:" (pr-str measurement))
+              measurement))) cases))))
 
 
 (def quick-boundary-pins
@@ -2831,7 +2833,8 @@
           plus (vm/primitive-function (get (:primitives swept) '+))
           leaf (if unsupported? {:nested [[plus]]} {:nested [[:portable]]})
           wkeys (keys (get-in swept [:ready-queue 0 :window]))
-          _ (when (= root :state) (is (seq wkeys)))
+          ;; trailing nil: cljd compiles a value-position `is` to a void expect
+          _ (when (= root :state) (is (seq wkeys)) nil)
           m (case root
               :state (assoc-in swept [:ready-queue 0 :window (first wkeys)] leaf)
               :outcome (assoc-in swept [:ready-queue 0 :value] leaf)
