@@ -26,6 +26,7 @@ observer attribute and observe the way the composition's resolver would."
             [yin.vm.ucf.rows-checkpoint-fixtures :as fx]
             [yin.vm.ucf.custody :as custody]
             [yin.vm.ucf.holder.reader :as reader]
+            [yin.vm.ucf.holder.export :as export]
             [yin.vm.ucf.holder.writer :as writer]
             [yin.vm.ucf.rows-support :as s]))
 
@@ -1443,3 +1444,52 @@ live disposition")
         (is (= {:yin.k/status :yin.k/unsatisfied :yin.k/reason :no-prefix}
                (:unsatisfied out)))
         (is (empty? (:applied out)))))))
+
+
+(deftest hold-resolution-needs-acknowledgement-and-backpressure-can-persist-test
+  (let [h (ring 8)
+        _ (stream/append! h "A")
+        [_ poll] (gated-poll h)
+        [next cref] (waiter-machine h :one)
+        [sref m] (engine/attach-resource (assoc (s/new-machine) :yin.k/gate :running) h)
+        mint (:state (engine/handle-effect m (module/make-effect :stream/cursor {:stream sref}) {}))
+        link (vm/run (-> (s/new-machine {:link-request (ring 8) :link-response (ring 8)})
+                         (s/load-ast (s/app (s/v 'require) (s/lit 'host.mod)))
+                         (assoc :yin.k/gate :running)))
+        held (:machine (reader/step (assoc next :yin.k/custody (prefix-custody []))
+                                    (fn [_] {:dao.stream/outcome :dao.stream/full})
+                                    (first (counting-observe))))]
+    (doseq [[kind source] [[:observe poll] [:held held] [:unminted-cursor mint]
+                           [:link-cursor-not-installed link]]]
+      (let [w (world)
+            source (assoc source :yin.k/custody (custody-for (:target w)))
+            [observe! calls] (counting-observe)
+            one (:machine (reader/step source (appender w) observe!))]
+        (is (= kind (:yin.k/hold (export/enter source))))
+        (is (not= :ok (:status (export/enter one)))
+            "one cycle without authority acknowledgement does not resolve the hold")
+        (answer! w 2)
+        (let [settled (:machine (reader/drain one (ack-reader w)))]
+          (is (= :ok (:status (export/enter settled))))
+          (is (empty? (filter :yin.k/held (:wait-set settled)))))
+        (is (<= @calls 1))))
+    (let [m (assoc next :yin.k/custody (prefix-custody []))
+          [observe! calls] (counting-observe)
+          full (fn [_] {:dao.stream/outcome :dao.stream/full})
+          round (fn [m] (:machine (reader/step m full observe!)))
+          one (round m)
+          ten (nth (iterate round one) 9)]
+      (is (= one ten) "backpressure retains the exact machine for repeated cycles")
+      (is (= 1 @calls))
+      (is (= :held (:yin.k/hold (export/enter ten)))))
+    (let [;; The close is on the attached handle, with no outstanding read.
+          with-close (assoc next :wait-set []
+                            :yin.k/custody (prefix-custody [] {:protection {(stream-id h) :at-least-once}})
+                            :yin.k/closes [{:stream-id (get-in next [:resources (:id cref) :stream-id])
+                                            :yin.k/issue 0}])
+          emitted (:machine (writer/emit with-close
+                                         (fn [_] {:dao.stream/outcome :dao.stream/ok})
+                                         (fn [_] nil)))]
+      (is (= :pending-close (:yin.k/hold (export/enter with-close))))
+      (is (empty? (:yin.k/closes emitted)))
+      (is (= :ok (:status (export/enter emitted)))))))

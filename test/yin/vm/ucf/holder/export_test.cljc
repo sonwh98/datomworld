@@ -13,6 +13,7 @@
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
+            [yin.vm.semantic :as sr]
             [yin.vm.values :as values]
             [yin.vm.test-utils :as tu]
             [yin.vm.ucf.holder.export :as export]
@@ -233,15 +234,16 @@
         (is (zero? @calls))))))
 
 
-(deftest a-non-empty-ready-queue-is-not-quiescent-test
-  (let [[s _ _ _] (gated)
-        r (export/enter (assoc s :ready-queue [{:id 1}]))]
-    (is (= :yin.k/not-quiescent (:yin.k/status r)))
-    (testing "a child's queue too"
-      (let [r (export/enter
-                (assoc s :installs {'foo {:vm (assoc (vm/empty-state {})
-                                                     :ready-queue [{:id 1}])}}))]
-        (is (= :yin.k/not-quiescent (:yin.k/status r)))))))
+(deftest completed-queues-are-retained-without-execution-test
+  (let [[s _ _ calls] (gated)
+        ready [{:id 1} {:id 2}]
+        source (assoc s :ready-queue ready)
+        r (export/enter source)]
+    (is (= :ok (:status r)))
+    (is (= ready (get-in r [:record :ready-queue])))
+    (is (empty? (get-in r [:machine :ready-queue])))
+    (is (= source (:machine (export/abort (:machine r) (:record r) [] nil))))
+    (is (zero? @calls))))
 
 
 (defn- refused-as
@@ -450,7 +452,7 @@
     (is (= (vec (:bytes published)) (vec (:pack-bytes frozen))
            (vec (jing/base64->bytes (:yin.k/pack-bytes recovery)))))
     (is (jing/segment-bytes-match? (:address frozen) (:bytes frozen)))
-    (is (= #{:gate :origins :issues :issued :children} (set (keys (:yin.k/state recovery)))))))
+    (is (= #{:gate :origins :issues :issued :ready-count :children} (set (keys (:yin.k/state recovery)))))))
 
 
 ;; =============================================================================
@@ -558,6 +560,7 @@
              ["no tag" (dissoc recovery :yin.k/export-recovery) :yin.k/profile-mismatch]
              ["a header the root does not carry" (assoc recovery :yin.k/header (rs/header 0 nil #{})) :yin.k/undecodable]
              ["a malformed header" (assoc recovery :yin.k/header {:yin.k/enrolled #{}}) :yin.k/undecodable]
+             ["ready count differs" (assoc-in recovery [:yin.k/state :ready-count] 1) :yin.k/undecodable]
              ["issues of another wait count" (assoc-in recovery [:yin.k/state :issues] []) :yin.k/undecodable]
              ["children the tree does not carry" (assoc-in recovery [:yin.k/state :children] {'x {}}) :yin.k/undecodable]
              ["another root id" (assoc recovery :yin.k/root (:yin.k/root other)) :yin.k/undecodable]
@@ -1008,3 +1011,32 @@
     (is (empty? (get-in restored [:machine :parked])))
     (is (zero? @calls))
     (is (reproduces? frozen restored))))
+
+
+(deftest running-products-rehydrate-byte-for-byte-and-refuse-execution-test
+  (doseq [ready? [false true]]
+    (let [parked (rs/parked-reader)
+          entry (first (:wait-set parked))
+          source (-> parked
+                     (assoc :env (:free-env parked))
+                     (rs/load-ast (rs/app (rs/v '+) (rs/lit 40) (rs/lit 2)))
+                     (cond-> ready? (assoc :wait-set [] :ready-queue [(assoc entry :value "answer" :status :dao.stream/ok)])))
+          {:keys [frozen prepared machine]} (frozen-of source)
+          {:keys [attach calls]} (counting-attach)
+          restored (rehydrate frozen (rs/new-machine) attach)
+          m (:machine restored)]
+      (is (= :ok (:status frozen)) (pr-str frozen))
+      (is (= :running (:kind (export/encode machine (:record prepared)))))
+      (is (= :ok (:status restored)) (pr-str restored))
+      (is (= :offer-possibly-accepted
+             (:yin.k/reason (export/abort machine (:record prepared)
+                                          [{:append :dao.stream/transport-error}] nil))))
+      (is (reproduces? frozen restored))
+      (is (= (count (:ready-queue source)) (count (get-in restored [:record :ready-queue]))))
+      (is (empty? (:ready-queue m)))
+      (doseq [run [vm/step vm/run #(sr/run-fuel % 1) #(sr/vm-hot % 1)]]
+        (let [failure (try (run m) nil (catch #?(:cljd Object :clj Throwable :cljs :default) e e))]
+          (is (= "Gate is closed" (ex-message failure)))
+          (is (= :gate-closed (:rule (ex-data failure))))))
+      (is (reproduces? frozen restored))
+      (is (zero? @calls)))))

@@ -24,6 +24,9 @@
             [yin.vm :as vm]
             [yin.vm.engine :as engine]
             [yin.vm.module :as module]
+            [yin.vm.semantic :as sr]
+            [yin.vm.ucf.holder.reader :as reader]
+            [yin.vm.ucf.holder.writer :as writer]
             [yin.vm.ucf.authority :as authority]
             [yin.vm.ucf.authority.admission :as admission]
             [yin.vm.ucf.authority.completion :as completion]
@@ -679,7 +682,7 @@
 
 (defn- reopen-config
   [state]
-  (merge (select-keys state [:me :bytes :address :protection :renewal-interval :units :receiver])
+  (merge (select-keys state [:me :bytes :address :protection :renewal-interval :fuel :units :receiver])
          (:seams state)
          {:store (get-in state [:seams :content-store])}))
 
@@ -2745,11 +2748,14 @@
                     (assoc-in [:yin.k/custody :protection "bare"] :at-least-once)
                     (assoc-in [:installs :child :vm]
                               (assoc (s/halted-machine) :yin.k/gate :running)))
+        expected (assoc (:machine (reader/replay (vm/run machine) {:control-outstanding? false}))
+                        :yin.k/gate :ended)
         st (driver/step (assoc (:state running) :machine machine))]
     (is (= [1] @emitted))
     (is (= :releasing (:phase st)))
     (is (= :ended (vm/gate-mode (:machine st))))
-    (is (= :ended (vm/gate-mode (get-in st [:machine :installs :child :vm]))))
+    (is (= expected (:machine st))
+        "the completed sweep retired the halted child before emit lost tenure")
     (is (some? (:release st)))))
 
 
@@ -4279,3 +4285,218 @@
         (is (seq (requests-of world' "holder-a" :yin.k/release)))
         (is (= 1 (count (read-all (:diagnostics prepared))))
             "one diagnostic, the run end's own")))))
+
+
+;; The clock cuts use the same :cljd-first gate as the 6d-a harness:
+;; ClojureDart cannot redefine these vars. JVM/cljs run the full campaign.
+(defn- pure-body
+  []
+  (reduce (fn [body n] (s/then (s/lit n) body)) (s/lit 42) (range 12)))
+
+
+(defn- running-pure
+  [record]
+  (update record :state
+          (fn [state]
+            (assoc state :fuel 1 :machine
+                   (s/load-ast (assoc (:machine state) :env (:free-env (:machine state)) :wait-set [] :ready-queue [])
+                               (pure-body))))))
+
+
+(deftest fuel-configuration-and-repeated-boundaries-test
+  (let [{:keys [sources]} (reader-source)
+        w (world :holders ["holder-a"] :sources sources)
+        record (driver-for w "holder-a" sources "v1")
+        config (reopen-config (:state record))]
+    (doseq [fuel [0 -1 1.5 "1" false]]
+      (is (try (driver/initial (assoc config :fuel fuel)) false
+               (catch #?(:cljd Object :clj Throwable :cljs :default) _ true))))
+    (doseq [fuel [nil 1 10]]
+      (is (= fuel (:fuel (driver/initial (assoc config :fuel fuel))))))
+    (let [{:keys [sources]} (reader-source)
+          w (world :holders ["holder-a"] :sources sources)
+          record (running-pure (to-running w (driver-for w "holder-a" sources "v1")))
+          m0 (get-in record [:state :machine])
+          one (driver/program-step (:state record))
+          two (driver/program-step one)]
+      (is (= :running (:phase one) (:phase two)))
+      (is (true? (get-in one [:detail :yin.k/at-boundary])))
+      (is (= (sr/run-fuel m0 1) (:machine one)))
+      (is (= (sr/run-fuel (:machine one) 1) (:machine two)))
+      (is (not= (:machine one) (:machine two))))))
+
+
+(deftest clock-cuts-retain-the-exact-completed-stage-test
+  #?(:cljd nil
+     :default
+     (doseq [cut [:before :after-slice :replay :after-replay :emit :after-emit :read :after-read :between]]
+       (let [{:keys [sources]} (reader-source)
+             w (world :holders ["holder-a" "holder-b"] :sources sources)
+             record (running-pure (to-running w (driver-for w "holder-a" sources "v1")))
+             state (:state record)
+             m0 (:machine state)
+             expected (atom m0)
+             serves (atom 0)
+             expire! #(reset! (:clock record) {:s 31})
+             run sr/run-fuel
+             replay reader/replay
+             emit writer/emit
+             read-step reader/step
+             mark (fn [result stage]
+                    (let [m (assoc (:machine result) ::completed-stage stage)]
+                      ;; The emit wrapper captures guarded handles before run-cycle calls restore-handles.
+                      (reset! expected (assoc m :resources (:resources m0)))
+                      (assoc result :machine m)))
+             _ (reset! (:attaches record) 0)
+             state (assoc-in state [:seams :serve!] (fn [_] (swap! serves inc) nil))
+             _ (when (= :before cut) (expire!))
+             result
+             (with-redefs [sr/run-fuel (fn [m n]
+                                         (let [m (run m n)]
+                                           (reset! expected m)
+                                           (when (= :after-slice cut) (expire!)) m))
+                           reader/replay (fn [& args]
+                                           (when (= :replay cut) (expire!))
+                                           ;; A failure within a stage retains its input.
+                                           (if (= :replay cut)
+                                             (throw (ex-info "cut" {::driver/cause :lease-bound}))
+                                             (let [r (mark (apply replay args) :replay)]
+                                               (when (= :after-replay cut) (expire!)) r)))
+                           writer/emit (fn [& args]
+                                         (when (= :emit cut) (expire!))
+                                         (if (= :emit cut)
+                                           (throw (ex-info "cut" {::driver/cause :lease-bound}))
+                                           (let [r (mark (apply emit args) :emit)]
+                                             (when (= :after-emit cut) (expire!)) r)))
+                           reader/step (fn [& args]
+                                         (when (= :read cut) (expire!))
+                                         (if (= :read cut)
+                                           (throw (ex-info "cut" {::driver/cause :lease-bound}))
+                                           (let [r (mark (apply read-step args) :read)]
+                                             (when (= :after-read cut) (expire!)) r)))]
+               (let [first (driver/program-step state)]
+                 (if (= :between cut)
+                   (do (reset! expected (:machine first)) (expire!) (driver/program-step first)) first)))
+             ended (assoc @expected :yin.k/gate :ended)]
+         (testing (str cut)
+           (is (= ended (:machine result)))
+           (is (= :lease-bound (get-in result [:detail :cause])))
+           (is (= (:address state) (get-in result [:yin.k/retained-boundary :yin.k/checkpoint])))
+           (is (= (get-in ended [:control :pc]) (get-in result [:yin.k/retained-boundary :yin.k/pc])))
+           (is (= (:bytes state) (:bytes result)) "retained state never replaces the checkpoint")
+           (is (= (if (= :before cut) 0 1)
+                  (get-in result [:yin.k/retained-boundary :yin.k/steps-since-checkpoint])))
+           (is (zero? @serves))
+           (is (zero? @(:attaches record)))
+           (is (zero? @(:observations record)))
+           (is (try (vm/step (:machine result)) false
+                    (catch #?(:clj Throwable :cljs :default) e (= "Gate is closed" (ex-message e)))))
+           (let [recovered (to-running w (driver-for w "holder-b" sources "v1"))]
+             (is (= (:bytes state) (get-in recovered [:state :bytes])))
+             (is (nil? (get-in recovered [:state :machine :control])))
+             (is (nil? (get-in recovered [:state :machine ::completed-stage])))
+             (is (not= (:machine result) (get-in recovered [:state :machine])))))))))
+
+
+(deftest two-candidates-for-a-running-offer-test
+  (let [machine (s/load-ast (s/new-machine) (pure-body))
+        lifted (lift-under machine (header-of 0) (serve-as "prog-r"))
+        sources {"v1" lifted "v2" (variant-of lifted)}
+        w (world :holders ["holder-a" "holder-b"] :sources sources)
+        a (driver-for w "holder-a" sources "v1")
+        b (driver-for w "holder-b" sources "v2")
+        a (drive w (drive w a))
+        b (drive w (drive w b))
+        _ (judge! w {:s 2})
+        won (drive w a)
+        lost (drive w b)]
+    (is (= :running (get-in won [:state :phase])))
+    (is (some? (get-in won [:state :machine :control])))
+    (is (= :yin.k/not-holder (get-in lost [:state :status])))
+    (is (nil? (get-in lost [:state :machine])))
+    (is (zero? @(:attaches lost)))
+    (is (= 42 (vm/value (vm/run (get-in won [:state :machine])))))))
+
+
+(deftest running-hand-off-publishes-and-successor-finishes-test
+  (let [{:keys [sources]} (reader-source)
+        w (world :holders ["holder-a" "holder-b"] :sources sources)
+        running (running-pure (to-running w (driver-for w "holder-a" sources "v1")))
+        one (driver/program-step (:state running))
+        handed (driver/hand-off one)
+        old (:machine handed)
+        exited (drive-to w (assoc running :state handed) (phase-of :exited) 30 :judge {:s 3})
+        cp (get-in exited [:state :exit])
+        successor (to-running w (driver-for w "holder-b" {"next" cp} "next"))]
+    (is (= :exporting (vm/gate-mode old)))
+    (is (= :running (:kind cp)))
+    (is (= :running (get-in successor [:state :phase])))
+    (is (= 42 (vm/value (vm/run (get-in successor [:state :machine])))))
+    (is (try (vm/step old) false
+             (catch #?(:cljd Object :clj Throwable :cljs :default) e
+               (= "Gate is closed" (ex-message e)))))))
+
+
+(deftest running-grant-expiry-refuses-before-attachment-test
+  (let [machine (s/load-ast (s/new-machine) (pure-body))
+        lifted (lift-under machine (header-of 0) (serve-as "prog-r"))
+        sources {"v1" lifted}
+        w (world :holders ["holder-a"] :sources sources)
+        accepted (split-grant w sources)
+        _ (reset! (:clock accepted) {:s 31})
+        state (driver/program-step (:state accepted))]
+    (is (= :releasing (:phase state)))
+    (is (nil? (:machine state)))
+    (is (zero? @(:attaches accepted)))
+    (is (zero? @(:observations accepted)))))
+
+
+(deftest running-export-tenure-cuts-keep-the-exact-fence-test
+  #?(:cljd nil
+     :default
+     (doseq [cut [:mint :prepare :offer]]
+       (let [{:keys [sources]} (reader-source)
+             w (world :holders ["holder-a" "holder-b"] :sources sources)
+             run (running-pure (to-running w (driver-for w "holder-a" sources "v1")))
+             run (update-in run [:state :machine] assoc :store {})
+             state (driver/hand-off (driver/program-step (:state run)))
+             exact (:machine state)
+             past-serves (atom 0)
+             past-requests (atom [])
+             expire! #(reset! (:clock run) {:s 31})
+             expired? #(>= (:s @(:clock run)) 31)
+             prepare export/prepare
+             append (get-in state [:seams :append-request!])
+             serve (get-in state [:seams :serve!])
+             state (-> state
+                       (assoc-in [:seams :serve!] (fn [h]
+                                                    (when (expired?) (swap! past-serves inc))
+                                                    (serve h)))
+                       (assoc-in [:seams :append-request!]
+                                 (fn [r]
+                                   (when (and (expired?) (not= :yin.k/release (:yin.k/request r)))
+                                     (swap! past-requests conj r))
+                                   (let [answer (append r)]
+                                     (when (and (= :offer cut) (= :yin.k/offer (:yin.k/request r)))
+                                       (expire!)) answer))))
+             _ (reset! (:attaches run) 0)
+             _ (when (= :mint cut) (expire!))
+             result (with-redefs [export/prepare (fn [& args]
+                                                   (when (= :prepare cut) (expire!))
+                                                   (apply prepare args))]
+                      (loop [st state n 0]
+                        (if (or (= :releasing (:phase st)) (> n 8)) st
+                            (let [next (driver/program-step (driver/control-step st))]
+                              (carry! w)
+                              (recur next (inc n))))))]
+         (is (= :releasing (:phase result)) (pr-str (select-keys result [:phase :detail])))
+         (is (= (assoc exact :yin.k/gate :ended) (:machine result)))
+         (is (= (:address state) (get-in result [:yin.k/retained-boundary :yin.k/checkpoint])))
+         (is (= (:bytes state) (:bytes result)))
+         (is (zero? @past-serves))
+         (is (empty? @past-requests))
+         (is (zero? @(:attaches run)))
+         (is (zero? @(:observations run)))
+         (is (empty? (requests-of w "holder-a" :yin.k/resumed)))
+         (is (not= :ok (:status (export/abort (:machine result) (get-in result [:exit :record])
+                                              [{:append :dao.stream/transport-error}] nil))))))))

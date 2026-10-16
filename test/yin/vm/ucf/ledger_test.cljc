@@ -527,3 +527,9 @@
     (is (nil? (::ledger/defect p)))
     (is (= {} (:answered p))
         "as dao.lease's judge records no answer for it")))
+
+
+(deftest running-baselines-are-offerable-test
+  (let [b (assoc baseline :yin.k/kind :running)
+        p (fold [(offered addr-1 b)])]
+    (is (= b (get-in p [:occurrences occ :yin.k/baseline])))))

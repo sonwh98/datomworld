@@ -44,6 +44,7 @@
             [dao.stream.journal.file :as file-journal]
             [dao.stream.memory-log :as memory-log]
             [yin.vm :as vm]
+            [yin.vm.semantic :as sr]
             [yin.vm.engine :as engine]
             [yin.vm.ucf.authority :as authority]
             [yin.vm.ucf.authority.completion :as completion]
@@ -2594,3 +2595,61 @@
         (is (= {:yin.k/status :refused :yin.k/reason :wrong-origin} r))
         (is (= before (authority/projection (:authority c)))
             "an unfenced fork result establishes no completion")))))
+
+
+(defn- fuelled-source
+  [child?]
+  (if-not child?
+    {:machine (s/load-ast (s/new-machine)
+                          (apply s/app (s/v '+) (map s/lit (range 100))))
+     :result 4950}
+    (let [request (s/ring 64) response (s/ring 64)
+          body (s/then (apply s/app (s/v '+) (map s/lit (range 100)))
+                       (s/def! 'f (s/lam [] (s/lit 42))))
+          reply (s/linked-response body 'host.mod #{'f})
+          parent (vm/run (s/load-ast (s/new-machine {:link-request request :link-response response})
+                                     (s/then (s/app (s/v 'require) (s/lit 'host.mod))
+                                             (s/app (s/v 'host.mod/f)))))
+          _ (stream/append! response (assoc reply :yin.link/id (:link-id (first (:wait-set parent)))))
+          m (sr/run-fuel parent 1)]
+      {:machine m :result 42
+       :admission {'host.mod (jing/segment-key (:manifest reply))}})))
+
+
+(deftest exclusive-fuel-boundary-and-running-install-child-handoff-test
+  (doseq [child? [false true]]
+    (exclusive-row
+      (fn [w]
+        (let [{:keys [machine admission result]} (fuelled-source child?)
+              handles (atom {})
+              serve (fn [h]
+                      (or (some (fn [[id value]] (when (= h value) {:dao.stream/identity id :dao.stream/channel {}})) @handles)
+                          (let [id (str "compute-" (count @handles))]
+                            (swap! handles assoc id h)
+                            {:dao.stream/identity id :dao.stream/channel {}})))
+              config {:machine machine :fuel 1 :yin.k/admitted-modules admission
+                      :protection {} :receiver (s/new-machine)
+                      :serve! serve
+                      :attach! (fn [d]
+                                 {:dao.stream/outcome :dao.stream/ok
+                                  :dao.stream/handle (get @handles (:dao.stream/identity d))})
+                      :observe! (counting-observe (atom 0))}
+              c (compose/source (:c w) "compute" config)
+              c (step-until c #(= :running (get-in % [:holders "compute" :phase])) 60)
+              m (get-in c [:holders "compute" :machine])
+              _ (if child?
+                  (do (is (= :running (get-in m [:installs 'host.mod :phase])))
+                      (is (some? (get-in m [:installs 'host.mod :vm :control]))))
+                  (is (some? (:control m))))
+              c (compose/hand-off c "compute")
+              stale (get-in c [:holders "compute" :machine])
+              c (step-until c #(= :exited (get-in % [:holders "compute" :phase])) 90)
+              cp (get-in c [:holders "compute" :exit])
+              c (compose/holder c "receiver" (-> config (dissoc :machine)
+                                                 (assoc :bytes (:bytes cp) :address (:address cp))))
+              c (step-until c #(= :exited (get-in % [:holders "receiver" :phase])) 250)]
+          (is (= :exited (get-in c [:holders "receiver" :phase])))
+          (is (= result (get-in c [:holders "receiver" :machine :value])))
+          (is (try (vm/step stale) false
+                   (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                     (= "Gate is closed" (ex-message e))))))))))

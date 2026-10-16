@@ -139,3 +139,11 @@
       (let [actual (pins/pin-lower-refusal recv wire)]
         (is (= expected actual))
         (is (= (hex expected) (hex actual)))))))
+
+
+(deftest ^:slow running-boundary-handoff-and-expiry-test
+  (slow/guard
+    "running-boundary-handoff-and-expiry-test"
+    (fn []
+      (run-all (concat (map sc/running-handoff [nil :running/before-offer :row7/after-successor-append])
+                       [sc/running-expiry])))))
