@@ -1,0 +1,146 @@
+#:blog{:title "Python Without Foreign Functions: The Standard Library as Bound Surfaces"
+       :date #inst "2026-10-16T00:00:00.000-00:00"
+       :abstract
+       [:p
+        "The Python module system is nearly complete in datom.world. What comes next is everything a program touches outside itself: files, sockets, and C libraries. There will be no FFI. Each surface becomes a lowering to stream effects plus a host-side interpreter, bound one slice at a time."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p.subtitle
+           [:em
+            "From import statements to effect deposits: how an entire standard library crosses into a world with no outside."]]
+
+          [:p
+           "Most of a Python program is not Python. It is calls to elsewhere: "
+           [:code "open"] " to the filesystem, "
+           [:code "socket"] " to the network, "
+           [:code "numpy"] " to Fortran and C compiled decades ago. A Python implementation is therefore mostly an "
+           "implementation of elsewhere. In datom.world there is no elsewhere. There are only streams, and "
+           "interpreters that read them. This post describes how the standard library gets built under that "
+           "constraint: no foreign function interface, ever, only bound surfaces, one slice at a time."]
+
+          [:h2 "A finished module system, and the question it raises"]
+
+          [:p
+           "The module system now completing in datom.world settles how code is organized and delivered: "
+           "packages publish bottom-up through content addressing, "
+           "modules arrive over the DHT, cyclic imports resolve as SCC bundles, and reloading re-runs a body "
+           "against its living namespace. The refusals shipping alongside it are just as deliberate: no finders, no loaders, "
+           "no " [:code "sys.path"] ", no dynamic import names, no " [:code "__import__"] " override. From the "
+           "outside those refusals look like missing FFI. They are architecture. A program whose meaning depends "
+           "on whatever the host happened to link that day cannot be published, reproduced, or reviewed, so the "
+           "guest is never given the power to reach for it."]
+
+          [:p
+           "That leaves the real question. If Python code can never name a host resource, how does it ever open "
+           "a file? The answer is the oldest idea in this architecture, applied at last to a guest language: "
+           "effects are data, and data is interpreted. The mechanism is described in "
+           [:a {:href "/blog/io-monad-dao-stream.blog"} "The I/O Monad and dao.stream"]
+           ". What follows is the applied program: what it means, concretely, to implement a standard library "
+           "and a C FFI out of nothing but streams and interpreters."]
+
+          [:h2 "One file open, end to end"]
+
+          [:p
+           "Consider " [:code "open('data.txt')"] ". In CPython this names a path and receives a file descriptor, "
+           "an integer index into a kernel table the process never sees. In datom.world the call lowers to an "
+           "effect deposit, a plain data map describing the request and nothing else: which surface, which "
+           "operation, which arguments. The guest holds no descriptor, no handle, no capability of any kind. "
+           "It pauses, the way any continuation pauses while the world answers."]
+
+          [:p
+           "A host-side interpreter holding the filesystem capability reads the deposit, performs the open, and "
+           "deposits the outcome as data: either a stream reference the guest can read through (a file "
+           "descriptor reimagined as a stream, exactly as "
+           [:a {:href "/blog/libc-as-streams.blog"} "Reimagining LibC"] " describes) or a refusal the guest "
+           "observes as an exception. Three independent parties can read the same deposit: the interpreter "
+           "that touches the disk, an auditor that logs it, and a test interpreter that injects a canned "
+           "response without any disk existing. The test suite for file I/O is therefore a set of pinned "
+           "request sequences and replayed outcomes. No test depends on the world answering twice."]
+
+          [:h2 "How the standard library gets implemented"]
+
+          [:p
+           "Every stdlib module falls into one of three classes, and each class has a fixed implementation "
+           "shape. The remaining roadmap is the resulting backlog, not a sequence of architectural decisions."]
+
+          [:ul.bulleted
+           [:li
+            [:strong "Pure modules lower directly: "]
+            "No effects, no interpreter. " [:code "math"] ", " [:code "itertools"] ", string handling: "
+            "ordinary lowering to the Universal AST, tested like any other compiled code."]
+           [:li
+            [:strong "I/O modules get effect schemas: "]
+            "Each operation becomes a request/response data contract. " [:code "open"] ", "
+            [:code "socket"] ", " [:code "subprocess"] ": one slice per surface, each stating its effect "
+            "schema, its interpreter, and (for non-idempotent operations) its compensation story, since a "
+            "packet already sent cannot be recomputed away."]
+           [:li
+            [:strong "C-backed modules get host interpreters: "]
+            "The C code is never linked into the guest. " [:code "hashlib"] ", "
+            [:code "zlib"] ", and eventually " [:code "numpy"] "-scale surfaces: the guest deposits the call "
+            "as data, and the interpreter holding the native library discharges it. Small surfaces are small "
+            "slices; " [:code "numpy"] " is a large one. Size varies, mechanism never does."]]
+
+          [:p
+           "Until a surface is bound, its call sites lower to the existing refusal behavior: an explicit "
+           [:code "ImportError"] " or " [:code "NotImplementedError"] " naming the surface. Loud failure while "
+           "unbound, never a stub that pretends success. That is the same posture the module system already takes toward unbound "
+           "imports, extended uniformly."]
+
+          [:h2 "How C FFI works without a foreign function interface"]
+
+          [:p
+           "There is no " [:code "dlopen"] " from the guest, no guest-side pointer, no marshaling layer owned "
+           "by the caller. A C function becomes a named bound surface like any other: arguments cross as data, "
+           "results return as data, and the " [:em "only"] " thing that touches the " [:code ".so"] " is the "
+           "interpreter composed above the guest. This is the "
+           [:a {:href "/blog/beyond-ffi-yin-vm-datom-streaming.blog"} "beyond-FFI boundary"]
+           " applied one level up: first the VM stopped calling C and started telling streams; now the guest "
+           "language does the same."]
+
+          [:p
+           "The uniformity buys three properties C FFIs never have. First, capability discipline: the guest "
+           "cannot smuggle a pointer because it has no pointer type aimed outside. Second, determinism on "
+           "demand: a test interpreter answers " [:code "sin"] " from a table while the production "
+           "interpreter answers it from silicon, and the guest cannot tell which answered. Third, audit for "
+           "free: every native call the program ever made is already sitting on the stream as data, which is "
+           "what makes post-hoc review of untrusted guest code possible at all."]
+
+          [:h2 "No network, no problem"]
+
+          [:p
+           "A content-addressed module system degrades gracefully when the network disappears, because the "
+           "link source never cared what transport backs the mesh. With no network, publisher and reader run "
+           "as nodes in an in-process mesh: the publisher serves module bytes from its local store, and the "
+           "reader imports them through the identical admission and delivery path. Loopback gives the same "
+           "result one layer down. A single node alone is just a local content store with DHT-shaped "
+           "addressing."]
+
+          [:p
+           "This is not a fallback mode. The acceptance tests run the mesh seam identically on every host "
+           "precisely because the seam is portable and only the transport underneath differs. Offline is "
+           "therefore not an edge case but the ordinary floor the system stands on: bytes are bytes, and "
+           "delivery works wherever two nodes can exchange them, including inside one process."]
+
+          [:h2 "What this means for pip"]
+
+          [:p
+           "The installer mechanism stays refused permanently. Content addressing replaces resolution: there "
+           "is no index to query, no path to search, no finder to consult, so there is nothing to bind them "
+           "to. But what a package " [:em "delivers"] ", code plus native dependencies, remains admissible. "
+           "Each arrives as bound, interpreted surfaces, reviewed on its own merits. The distinction is "
+           "mechanism versus payload: the mechanism contradicts the architecture, the payloads just need "
+           "bindings. When someone asks whether datom.world will ever run a real Python dependency tree, "
+           "this is the shape of yes: not the tree, but each of its fruits, bound deliberately."]]
+
+          [:h2 "Related Articles"]
+
+          [:ul
+           [:li [:a {:href "/blog/io-monad-dao-stream.blog"} "The I/O Monad and dao.stream"]]
+           [:li [:a {:href "/blog/libc-as-streams.blog"} "Reimagining LibC: The Standard Library as a Stream"]]
+           [:li [:a {:href "/blog/beyond-ffi-yin-vm-datom-streaming.blog"} "Beyond FFI with Datom Streams"]]]]]}
