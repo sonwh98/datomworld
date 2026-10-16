@@ -181,7 +181,7 @@
              (disj (sexp-def-keys (get (into {} prelude/definitions)
                                        'py/init!))
                    'py.rt/state)))
-      (is (= 66 (count prelude/runtime-keys))))))
+      (is (= 69 (count prelude/runtime-keys))))))
 
 
 ;; =============================================================================
@@ -231,9 +231,10 @@
    the rebase onto master 4529b5bd: the profile digest in the manifest
    uses BLAKE3 since 492ff50b. Phase 8ab regenerates the H/R
    checksums, derivation records and index keys. The rebase onto I4-a
-   regenerates this again for statement-time import delivery."
+   regenerates this again for statement-time import delivery. I6 over
+   landed I5 re-mints it through dht-import-v1.generate.clj."
   (keyword (str "segment/blake3-"
-                "4aaaa09b192c5fed22786810b43880260aa2293ea0f0bb9c7c7978f14182048a")))
+                "1fa7f8fc13f58096d98412e5f5a307d5d25976c33e4d83cdc60c62b64d2b209f")))
 
 
 (def ^:private vector-formats
