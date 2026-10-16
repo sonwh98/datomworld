@@ -3776,6 +3776,7 @@ from carried scheduler state, not map iteration or sorted cursor-cell ids.
 
 | Safepoint kind | Required resume evidence |
 |---|---|
+| Between instructions (:running) | Active control; ordered waits and completed wakes travel; the window is exactly L(pc); continue at pc. |
 | Explicit park | No active wait; reachable cursor cells keep their positions. |
 | Blocked read | Poll the remapped cursor cell at its kept position. |
 | Blocked write | Retry the retained value on the original target. |
@@ -3795,7 +3796,7 @@ because a task moves. A retained request is not recomputed. Reflection
 outbound acceptance alone never wakes a writer: source acceptance is the
 completion evidence; an unknown append remains undischarged.
 
-Static `:yin.safepoint/kinds` checks pc eligibility only. Dynamic reasons
+Static `:yin.safepoint/kinds` checks a parking pc’s kinds; a `run` pc is any pc of a body. Dynamic reasons
 and pending variants come from observed parked records, wait entries, and
 effect outcomes, as ruled in `yin.vm.ucf-revisions.md` section 8. An
 explicit park uses the approved no-wait shape. An effectful call must use
@@ -3806,7 +3807,7 @@ refuses before publication.
 
 #### 14.1.2 State, wire, and lift/lower
 
-The driver retains an export record containing the whole blocked task,
+The driver retains an export record containing the whole task, its active control, ordered completed outcomes,
 ordered waits, reachable parked records, fresh-name counter, isolated
 store and module snapshots, and private resource graph. It also carries
 explicit composition state for remote table entries and their lease
@@ -3824,7 +3825,7 @@ records during one lift; separate encoders per root would erase aliasing.
 
 Lift proceeds as follows:
 
-1. Validate the safepoint and empty ready queue; enter exporting before
+1. Validate the instruction boundary (§7.4.1 as amended); enter exporting before
    any carrier append. Capture the ordered waits without polling them.
 2. Walk the complete reachable graph with one source-resource-to-cursor-cell
    map. Authenticate sealed references against the source's private
@@ -3879,7 +3880,7 @@ coverage is recorded separately, never inferred from mesh coverage.
   ids, and seals occur nowhere in the transferred value.
 - Setup: The same task at each row of 14.1.1, with distinct activation
   depths and ordinary/tail calls. Action: hand off, satisfy the wait,
-  continue to the next safepoint. Assert: canonical frame, result, error,
+  continue to the next park, halt or fuel boundary. Assert: canonical frame, result, error,
   and effect trace equal the reference run; dynamic reason and pending
   variant match observed evidence. Halt remains a result. Incomplete
   install or call evidence refuses without publishing a partial body.
@@ -3897,8 +3898,7 @@ coverage is recorded separately, never inferred from mesh coverage.
 - Setup: Missing, extra, cyclic, or malformed cursor-cell references, forged
   resource references, and a correctly hashed malformed body. Action:
   lift/decode. Assert: existing non-portable/undecodable path outcomes;
-  no restored wait or committed effect. A non-safepoint pc and queued work
-  yield the existing not-at-safepoint and not-quiescent outcomes.
+  no restored wait or committed effect. A pc outside every body yields `not-at-safepoint`; queued work travels as `:ready` rows.
 
 ### 14.2 Exclusive custody and effect fencing
 
@@ -4115,7 +4115,7 @@ collection requires authoritative closure and permanent replay rejection.
 
 #### 14.2.3 Exact handoff and admission steps
 
-1. Quiesce and enter exporting as in 14.1.2. Retain any already assigned
+1. Retain completed outcomes and enter exporting as in 14.1.2. Retain any already assigned
    op id and sequence. Validate portability and completeness. Append code
    and body, then offer O on the declared arbitration medium. Carrier
    publication alone is no offer and no grant. Retry every failed phase
@@ -4142,7 +4142,7 @@ collection requires authoritative closure and permanent replay rejection.
    driver advances a pending wait only on its correlated completion.
    Remote outbound ok, a lease stamp, and absence of lapse prove nothing
    about commitment. An unreachable authority suspends protected admission.
-6. At the next safepoint or halt, publish the successor, report resumed
+6. At the next park, halt, or fuel boundary, publish the successor, report resumed
    with predecessor O and lease, then release. Offer admission may initially
    answer `:awaiting-completion`; it is not a prerequisite for reporting. An
    accepted report commits the completion identity. A release or policy lapse
