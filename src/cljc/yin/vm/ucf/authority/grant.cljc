@@ -72,7 +72,7 @@
           succession (when-not known (completion/offer-refusal p address b))]
       (cond
         (or (:yin.k/fork b)
-            (not (contains? #{:blocked :parked} (:yin.k/kind b))))
+            (not (contains? #{:running :blocked :parked} (:yin.k/kind b))))
         (reply :refused :not-offerable nil)
         (not (custody/occurrence? o))
         (reply :refused :malformed-occurrence nil)

@@ -4,8 +4,8 @@
    machine value and data.
 
    `enter` is the one-step transition into exporting: it sets
-   `:yin.k/gate :exporting` on the root, requires an empty ready queue,
-   and moves the wait set and every parked record into an export record.
+   `:yin.k/gate :exporting` on the root and moves the wait set, ordered ready queue and
+   every parked record into an export record.
    The machine then has nothing to poll, resume or advance, and the gate
    refuses what remains.  It refuses, as `:yin.k/non-portable` of kind
    `:reason-mismatch`, a task that holds (root or any install child) an
@@ -104,16 +104,6 @@
       {:yin.k/hold :link-cursor-not-installed})))
 
 
-(defn- first-refusal
-  [vm]
-  (some (fn [[path m]]
-          (when (seq (:ready-queue m))
-            {:yin.k/status :yin.k/not-quiescent
-             :yin.k/path path
-             :yin.k/ready (count (:ready-queue m))}))
-        (machines [] vm)))
-
-
 ;; =============================================================================
 ;; Entering exporting
 ;; =============================================================================
@@ -121,12 +111,12 @@
 (defn enter
   "Enter exporting from `machine`.  Answers
    `{:status :ok :machine m :record r}`: `m` is `machine` with the gate
-   `:exporting`, an empty wait set and no parked record, and `r` the
-   export record, holding the wait set in order, every parked record
+   `:exporting`, empty wait and ready queues and no parked record,
+   and `r` the export record, holding waits and completed outcomes in
+   order, every parked record
    (the row carrier carries them all, continuation §2.5), and the gate
    to return to.  Otherwise answers the data outcome of the first
-   refusal, leaving `machine` as it was: `:yin.k/not-quiescent` for
-   queued work in the root or a child, a `:yin.k/non-portable` of kind
+   refusal, leaving `machine` as it was: a `:yin.k/non-portable` of kind
    `:reason-mismatch` (naming the hold and the task path), or
    `:yin.k/refused` for a machine that is already exporting or ended."
   [machine]
@@ -135,15 +125,15 @@
     (refused :not-running)
 
     :else
-    (or (first-refusal machine)
-        (some (fn [[path m]]
+    (or (some (fn [[path m]]
                 (when-some [h (refusal-at m)]
                   (non-portable (assoc h :yin.k/path path))))
               (machines [] machine))
         {:status :ok
-         :machine (cond-> (assoc machine :yin.k/gate :exporting :wait-set [])
+         :machine (cond-> (assoc machine :yin.k/gate :exporting :wait-set [] :ready-queue [])
                     (contains? machine :parked) (assoc :parked {}))
          :record {:wait-set (vec (:wait-set machine))
+                  :ready-queue (:ready-queue machine)
                   :parked (:parked machine)
                   :gate (vm/gate-mode machine)
                   :served {}}})))
@@ -157,7 +147,7 @@
                    (update-in restored [:installs module-name :vm]
                               reinstated child-record))
                  machine (or (:children record) {}))
-      (assoc :wait-set (:wait-set record))
+      (assoc :wait-set (:wait-set record) :ready-queue (:ready-queue record))
       (update :parked merge (:parked record))))
 
 
@@ -276,9 +266,10 @@
   [m]
   (let [value (:value m)]
     (cond
+      (some? (:control m)) :running
       (and (map? value) (= :parked-continuation (:type value))
            (contains? (:parked m) (:id value))) :parked
-      (seq (:wait-set m)) :blocked
+      (or (seq (:wait-set m)) (seq (:ready-queue m))) :blocked
       :else :halted)))
 
 
@@ -324,11 +315,12 @@
 (defn- recovery-metadata
   "The holder-local engine state of one task the pack does not carry:
    the gate to return to, each wait's issue stamp in wait order, the
-   issued and origin counters, and each install child's, recursively."
+   ready count, issued and origin counters, and each install child's, recursively."
   [machine record]
   {:gate (:gate record)
    :origins (:origins machine)
    :issues (mapv :yin.k/issue (:wait-set record))
+   :ready-count (count (:ready-queue record))
    :issued (:yin.k/issued machine)
    :children (into {}
                    (map (fn [[module-name install]]
@@ -337,7 +329,8 @@
                              (:vm install)
                              (or (get-in record [:children module-name])
                                  {:gate (vm/gate-mode (:vm install))
-                                  :wait-set (:wait-set (:vm install))}))]))
+                                  :wait-set (:wait-set (:vm install))
+                                  :ready-queue (:ready-queue (:vm install))}))]))
                    (:installs machine))})
 
 
@@ -386,8 +379,8 @@
 
 (defn- header-agrees?
   "The recovery's header is the custody the pack's root slot carries:
-   nil exactly for a fork; otherwise the slot's keys by kind (blocked or
-   parked: occurrence, arbitration, counter and origin; halted: origin),
+   nil exactly for a fork; otherwise the slot's keys by kind (running,
+   blocked or parked: occurrence, arbitration, counter and origin; halted: origin),
    a nil header value being an absent key, as the lift writes it."
   [header baseline]
   (if (nil? header)
@@ -407,7 +400,7 @@
 
 (defn- valid-state?
   "The recovery state fits the decoded task: one issue stamp per carried
-   wait, and one child state per carried install, recursively."
+   wait, the ready count, and one child state per install, recursively."
   [task state]
   (let [ss (:slots task)
         installs (nth ss 12)
@@ -416,6 +409,7 @@
          (contains? #{nil :running :exporting :ended} (:gate state))
          (vector? (:issues state))
          (= (count (:issues state)) (count waits))
+         (= (:ready-count state) (count (nth ss 18)))
          (every? counter? (:issues state))
          (counter? (:issued state))
          (counter? (:origins state))
@@ -457,6 +451,7 @@
                     (:yin.k/recovery-waits machine)
                     (:issues state))
         record {:wait-set waits
+                :ready-queue (vec (:yin.k/recovery-ready machine))
                 :parked (or (:yin.k/recovery-parked machine) {})
                 :recovered? true
                 :gate (:gate state)
@@ -468,9 +463,9 @@
                             (assoc-in parent [:installs module-name :vm]
                                       (:machine recovered)))
                           (cond-> (-> machine
-                                      (dissoc :yin.k/recovery-waits :yin.k/recovery-parked
+                                      (dissoc :yin.k/recovery-waits :yin.k/recovery-ready :yin.k/recovery-parked
                                               :yin.k/custody :yin.k/closes :yin.k/issued :origins)
-                                      (assoc :wait-set [] :parked {} :yin.k/gate :exporting))
+                                      (assoc :wait-set [] :ready-queue [] :parked {} :yin.k/gate :exporting))
                             (some? (:origins state)) (assoc :origins (:origins state))
                             (some? (:issued state)) (assoc :yin.k/issued (:issued state)))
                           children)]

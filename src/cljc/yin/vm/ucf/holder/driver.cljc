@@ -25,7 +25,7 @@
    `rows/lower-task` under `:exclusive` with no grant, which refuses
    before any attachment, so nothing is attached and no machine is
    exposed: it answers `:yin.k/awaiting-grant` for a valid exclusive
-   blocked or parked root; anything else is a data refusal with no
+   running, blocked or parked root; anything else is a data refusal with no
    cleanup owed.  A halted exclusive root is not a lease subject: it
    lowers once, gated `:ended`, and the driver publishes it with no
    custody.
@@ -71,8 +71,9 @@
    completion evidence, and the occurrence of an ordinary failed run
    stays regrantable under the ordinary policy.
 
-   :safepoint -- the machine has nothing left to drive (halted, no wait
-   entry, no queued work); the exit half (D14) owns what follows, under
+   :safepoint -- automatic exit after a halt with no waits or queued
+   work, or explicit hand-off at a park, halt or instruction boundary;
+   the exit half (D14) owns what follows, under
    tenure that is still held: renewal and the recheck continue while it
    runs, and all IO stops at the bound.
 
@@ -116,6 +117,7 @@
             [dao.lease :as lease]
             [dao.stream :as stream]
             [yin.vm :as vm]
+            [yin.vm.semantic :as sr]
             [yin.vm.ucf.authority.completion :as completion]
             [yin.vm.ucf.authority.front :as front]
             [yin.vm.ucf.custody :as custody]
@@ -190,6 +192,9 @@
           {:protection (:protection config)})
   (check! (map? (:receiver config)) "a receiving machine" {})
   (check-interval! units (:renewal-interval config))
+  (check! (or (nil? (:fuel config))
+              (and (integer? (:fuel config)) (pos? (:fuel config))))
+          "positive integer fuel or nil" {:fuel (:fuel config)})
   (doseq [s seams]
     (check! (fn? (get config s)) (str "the seam " (name s)) {}))
   (doseq [key (vals inbox/lanes)]
@@ -219,6 +224,7 @@
    :address (:address config)
    :protection (:protection config)
    :renewal-interval (:renewal-interval config)
+   :fuel (:fuel config)
    :units units
    :receiver (:receiver config)
    :seams (-> (select-keys config (into (into seams optional-seams) (vals inbox/lanes)))
@@ -258,6 +264,7 @@
                         class (:enrolled, :at-least-once or :fail-stop)
      :renewal-interval  the composition's interval, sized strictly below
                         half the duration it arranges (H2/S1)
+     :fuel              optional positive integer instruction budget; nil runs unrestricted
      :units             optional unit table, dao.lease's default
      :receiver          the receiving machine of the receiver's own
                         composition
@@ -319,8 +326,7 @@
    `initial` takes except :bytes and :address -- the driver mints those
    itself -- plus
 
-     :machine           the machine at its liftable safepoint (parked,
-                        blocked or halted), gate :running; never one
+     :machine           the machine at a park, halt or instruction boundary, gate :running; never one
                         that already holds custody (a holder exports its
                         successor through `hand-off`)
      :arbitration       the arbitration medium the composition names, an
@@ -1120,9 +1126,9 @@
 
 
 (defn hand-off
-  "Arm the exit half over a holder whose machine is parked or blocked
-   at a liftable safepoint: the composition's explicit export of a
-   parked continuation (UCF 7.8's lift is composition-driven, never
+  "Arm the exit half over a holder at a park, halt or instruction
+   boundary: the composition's explicit export of a continuation
+   (UCF 7.8's lift is composition-driven, never
    automatic on a park).  The phase becomes :safepoint and the next
    step mints the successor; a machine that cannot enter exporting
    answers the refusal, arms nothing and keeps running."
@@ -1467,7 +1473,13 @@
    earlier in the same drain -- folds into that one diagnostic under
    :also-ended, never a second diagnostic."
   [state cause detail]
-  (let [also (some-> (:run-end state) :cause)
+  (let [m (:machine state)
+        boundary {:yin.k/pc (get-in m [:control :pc])
+                  :yin.k/segment (get-in m [:control :segment])
+                  :yin.k/steps-since-checkpoint (or (:completed-slices state) 0)
+                  :yin.k/checkpoint (:address state)}
+        state (assoc state :yin.k/retained-boundary boundary)
+        also (some-> (:run-end state) :cause)
         detail (if (some? also) (assoc detail :also-ended also) detail)
         diagnostic {:yin.k/diagnostic :yin.k/run-ended
                     :yin.k/occurrence (:occurrence state)
@@ -2114,40 +2126,65 @@
           machine (machines original)))
 
 
+(defn- stage-result
+  "Run one stage under tenure. Failure carries this stage's input, the
+   latest completed state; uncertain journal and inbox failures propagate."
+  [state operation]
+  (try
+    (require-tenure! state)
+    {:status :ok :state (operation state)}
+    (catch #?(:cljd Object :clj Throwable :cljs :default) failure
+      (if (or (::journal-uncertain (ex-data failure)) (::inbox/refusal (ex-data failure)))
+        (throw failure)
+        {:status :failed :state state :failure failure}))))
+
+
+(defn- completed-stage
+  [state result]
+  (assoc state :machine (:machine result)
+         :run-end (or (:run-end state) (:run-end result))
+         :step-unsatisfied (or (:step-unsatisfied state) (:unsatisfied result))))
+
+
 (defn- run-cycle
-  "One program cycle of the run, after tenure: the machine's internal
-   computation, replay below the frontier, the writer's emit, the
-   reader's live step.  The unsatisfied answers of the writer and the
-   reader ride the state as :step-unsatisfied; a run end anywhere
-   rides it as :run-end."
+  "One execution slice, replay, emit and live read, with a state-bearing
+   outcome before each next tenure check. No unreturned partial state is adopted."
   [state]
-  (let [_ (require-tenure! state)
-        m0 (:machine state)
-        m1 (if (and (= :running (vm/gate-mode m0)) (not (:halted? m0)))
-             (vm/run m0)
-             m0)
-        _ (require-tenure! state)
-        replay (reader/replay m1 {:control-outstanding?
-                                  (control-outstanding? state)})
-        m2 (:machine replay)
-        _ (require-tenure! state)
-        request! (fn [request] (require-tenure! state) (append-request! state request))
-        emit (writer/emit (guard-writes state m2) request!
-                          (fn [diagnostic]
-                            (require-tenure! state)
-                            (append-diagnostic! state diagnostic)))
-        m3 (restore-handles (:machine emit) m2)
-        live (reader/step m3 request!
-                          (fn [h op arg]
-                            (require-tenure! state)
-                            (observe! state h op arg)))
-        m4 (:machine live)]
-    (assoc state
-           :machine m4
-           :run-end (or (:run-end replay) (:run-end emit) (:run-end live))
-           :step-unsatisfied (or (:unsatisfied replay)
-                                 (:unsatisfied emit)
-                                 (:unsatisfied live)))))
+  (reduce
+    (fn [outcome operation]
+      (if (= :failed (:status outcome)) (reduced outcome)
+          (stage-result (:state outcome) operation)))
+    {:status :ok :state state}
+    [(fn [state]
+       (let [m0 (:machine state)
+             fuel (:fuel state)
+             m1 (if (and (= :running (vm/gate-mode m0)) (not (:halted? m0)))
+                  (if fuel (sr/run-fuel m0 fuel) (vm/run m0)) m0)]
+         ;; :bytes is fixed for this holder's life; future re-checkpointing must reset this count.
+         (-> state (assoc :machine m1) (update :completed-slices (fnil inc 0)))))
+     (fn [state]
+       (completed-stage state (reader/replay (:machine state)
+                                             {:control-outstanding? (control-outstanding? state)})))
+     (fn [state]
+       (let [m (:machine state)
+             result (writer/emit
+                      (guard-writes state m)
+                      (fn [request] (require-tenure! state) (append-request! state request))
+                      (fn [diagnostic] (require-tenure! state) (append-diagnostic! state diagnostic)))]
+         (completed-stage state (update result :machine restore-handles m))))
+     (fn [state]
+       (completed-stage state
+                        (reader/step (:machine state)
+                                     (fn [request] (require-tenure! state) (append-request! state request))
+                                     (fn [h op arg] (require-tenure! state) (observe! state h op arg)))))]))
+
+
+(defn- failed-stage
+  [{:keys [state failure]}]
+  (if (= :lease-bound (::cause (ex-data failure)))
+    (end-run state :lease-bound {:dao.lease/lease (:lease state)})
+    (end-run state :program-failure
+             {:failure {:message (ex-message failure) :data (ex-data failure)}})))
 
 
 (defn- at-safepoint?
@@ -2188,7 +2225,8 @@
                  :detail {:yin.k/occurrence (:occurrence state)
                           :dao.lease/lease (:lease state)})))
       :else (with-status base :yin.k/ok
-              {:yin.k/occurrence (:occurrence base) :dao.lease/lease (:lease base)}))))
+              (cond-> {:yin.k/occurrence (:occurrence base) :dao.lease/lease (:lease base)}
+                (some? (:control (:machine base))) (assoc :yin.k/at-boundary true))))))
 
 
 (defn- step-active-held
@@ -2240,7 +2278,12 @@
                   (or (= :control mode) (= :activating (:phase state)))
                   (with-status state :yin.k/ok
                     {:yin.k/occurrence (:occurrence state) :dao.lease/lease (:lease state)})
-                  :else (cycle-result (drain (run-cycle state) mode)))))))))))
+                  :else (let [outcome (run-cycle state)
+                              drained (if (= :failed (:status outcome)) outcome
+                                          (stage-result (:state outcome) #(drain % mode)))]
+                          (if (= :failed (:status drained))
+                            (failed-stage drained)
+                            (cycle-result (:state drained)))))))))))))
 
 
 (defn- step-active
@@ -2255,11 +2298,7 @@
        (catch #?(:cljd Object :clj Throwable :cljs :default) failure
          (if (or (::journal-uncertain (ex-data failure)) (::inbox/refusal (ex-data failure)))
            (throw failure)
-           (if (= :lease-bound (::cause (ex-data failure)))
-             (end-run state :lease-bound {:dao.lease/lease (:lease state)})
-             (end-run state :program-failure
-                      {:failure {:message (ex-message failure)
-                                 :data (ex-data failure)}}))))))
+           (failed-stage {:state state :failure failure})))))
 
 
 ;; =============================================================================
@@ -2299,7 +2338,7 @@
   (let [b (checkpoint/inspect (:address state) (:bytes state))
         r (if (:yin.k/status b) b (lowered state {:exclusive true}))]
     (cond
-      ;; a valid blocked or parked root answers awaiting-grant at
+      ;; a valid running, blocked or parked root answers awaiting-grant at
       ;; the custody gate, before any attachment
       (= :yin.k/awaiting-grant (:yin.k/status r))
       (assoc state :phase :proposing

@@ -484,7 +484,8 @@ resource."
 (defn- send-held
   "(Re)send the request of the held observation `held` through
    `append-input!`, moving it to state 2 when the request may have
-   left, and answering `[machine' appended]`."
+   left, and answering `[machine' appended]`. Backpressure or acknowledgement
+   delay may preserve the hold over arbitrarily many cycles."
   [machine custody held append-input!]
   (let [k (:yin.k/input-seq held)
         r (input-request custody k (:yin.k/source held) (:yin.k/observed held))

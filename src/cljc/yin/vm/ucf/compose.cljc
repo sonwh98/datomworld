@@ -663,14 +663,15 @@
    address), the source's machine, the arbitration decision
    (arbitration-of's, never the caller's), the protection declaration,
    the receiving machine, the receiver's own attach/observe/serve seams,
-   an optional renewal-interval override, and an optional :inbound stream
+   optional :fuel and :yin.k/admitted-modules, an optional renewal-interval
+   override, and an optional :inbound stream
    (consumed by holder-media, not passed to the driver).  Every other key
    -- :journal, :reply-inbox, :outcome-inbox, :read-ledger!,
    :append-request!, :append-diagnostic!, :clock, :store, :medium, :me,
    :units, :source-index, :enroll!, :journals -- is a composition seam,
    refused at add-holder, never overridable by a holder config."
-  [:bytes :address :machine :arbitration :protection :receiver
-   :attach! :observe! :serve! :renewal-interval :inbound])
+  [:bytes :address :machine :arbitration :protection :receiver :yin.k/admitted-modules
+   :attach! :observe! :serve! :renewal-interval :fuel :inbound])
 
 
 (defn- check-holder-config-keys!
@@ -796,8 +797,8 @@
 
 (defn source
   "Add the source half: `config` carries :machine -- the machine at its
-   liftable safepoint, holding no custody -- beside the holder seams of
-   `holder` (no :bytes and :address: the driver mints those).  An
+   park, halt or instruction boundary, holding no custody -- beside the
+   holder seams of `holder` (no :bytes and :address: the driver mints those).  An
    exclusive composition offers the export on its own arbitration --
    the composition names it, and a supplied :arbitration is a refused
    assembly; a fork composition (the composition's fork decision,
@@ -838,9 +839,9 @@
 
 
 (defn hand-off
-  "The composition's explicit export of holder `h`'s parked continuation
-   (`driver/hand-off`): the exit half arms over the safepoint the next
-   control and program steps drive to its report, release and closure."
+  "Export holder `h` at a park, halt or instruction boundary
+   (`driver/hand-off`): subsequent control and program steps drive the
+   exit to its report, release and closure."
   [c h]
   (update-in c [:holders h] driver/hand-off))
 
