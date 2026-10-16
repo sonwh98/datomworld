@@ -53,6 +53,9 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | claude          | Flat: Pro Max plan ($100/mo)           | Use freely within budget. Invoked only through `claude` or `agy`.                                           |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
+| claude-cloud    | Metered: Anthropic API ($242 balance)  | Dedicated API credits. Invoked via `claude-cloud`. Reserved strictly for Fable until Tuesday reset           |
+|                 |                                        | (Architect & security sign-offs). Do not assign general implementation or routine reviews.                   |
++-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | cmd             | Flat: CommandCode.ai Go plan ($1/mo)   | Use freely within budget. Used to invoke any LLMs not directly listed in this table.                        |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | codex           | Flat: ChatGPT Plus ($20/mo)            | Strict rate limits. Reserved strictly for Architectural Review roles. Do not assign implementation tasks.   |
@@ -94,13 +97,15 @@ The following guide details the strengths, weaknesses, and optimal use cases for
 | `deepseek-v4-pro`           | Legacy 1.6T MoE architecture. **Best for:** Advanced logic         | Actively being superseded by V4.1-Flash; high cost and undercooked  |
 |                             | workflows and adversarial reviews.                                 | relative to size. **Avoid for:** General use (use Flash instead).   |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
-| `gemini-3.1-pro-high`       | Native 2M token context; deep reasoning. **Best for:** Massive     | High context overhead makes it computationally heavy compared to    |
-|                             | document/repo analysis, system-wide root-cause debugging, complex  | newer, specialized models. **Avoid for:** Simple, high-volume       |
-|                             | multimodal knowledge synthesis, and adversarial review fallback.   | repetitive coding loops where deep context is unnecessary.          |
-+-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `gemini-3.8-flash`          | Lightning-fast; highly cost-efficient; 1M+ context with native     | Can oversimplify subtle invariant edge cases vs frontier models.    |
 |                             | multimodal support. **Best for:** High-volume agentic loops,       | **Avoid for:** Core security capability enforcement; top-level      |
 |                             | visual/frontend inspection, rapid TDD/QA, and subagents.           | architecture.                                                       |
++-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
+| `gemini-4-argon`            | Frontier reasoning with configurable effort and deep synthesis     | Higher latency/cost at medium/high effort than Flash-tier models;   |
+|                             | across large multi-file specs and codebases; strong architectural  | sandboxed headless CLI cannot run local JVM (`clojure`) suites.     |
+|                             | judgment, invariant verification, and surgical cross-checking.     | **Avoid for:** High-volume trivial edits, mechanical sweeps, or     |
+|                             | **Best for:** System architecture, design/code review, complex     | headless tasks requiring in-session JVM test execution.             |
+|                             | debugging, and multi-step implementation.                          |                                                                     |
 +-----------------------------+--------------------------------------------------------------------+---------------------------------------------------------------------+
 | `glm-5.3`                   | Scaled post-training for exceptional long-horizon tasks and        | Heavier footprint; can overcomplicate simple data framing. **Avoid  |
 |                             | cybersecurity. **Best for:** Complex programming workflows, VMs,   | for:** UI/UX, canvas, or WebGPU tasks.                              |

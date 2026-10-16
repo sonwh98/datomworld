@@ -1,5 +1,5 @@
 ---
-description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, glm, deepseek, muse, codex, cmd, agy)
+description: Session-ID mechanics, CLI flags, canonical recipes, and known quirks for invoking delegate agents (claude, claude-cloud, glm, deepseek, muse, codex, cmd, agy)
 ---
 
 # DELEGATE INVOCATION REFERENCE
@@ -15,8 +15,8 @@ Agents preserve conversational context only when a follow-up resumes the
 exact session, conversation, or thread ID — reading earlier prompts, logs,
 findings, and diffs reconstructs task context but does not resume the session.
 
-Before the first invocation of a Claude Code-based CLI (`claude`, `glm`,
-`deepseek`, or `muse`), generate and record an ID:
+Before the first invocation of a Claude Code-based CLI (`claude`, `claude-cloud`,
+`glm`, `deepseek`, or `muse`), generate and record an ID:
 
 ```sh
 TASK_SESSION_ID="$(uuidgen | tr '[:upper:]' '[:lower:]')"
@@ -72,23 +72,25 @@ grep -l "<task>" ~/.gemini/antigravity-cli/brain/*/.system_generated/logs/transc
   | sed 's|.*/brain/||; s|/.system_generated.*||'
 ```
 
-+----------+-----------------------------+----------------------------------+------------------------------------------+
-| CLI      | Session store               | New-session ID source            | Related follow-up                        |
-+==========+=============================+==================================+==========================================+
-| agy      | `~/.gemini/antigravity-cli` | JSON `conversation_id`           | `--conversation <id>`                    |
-+----------+-----------------------------+----------------------------------+------------------------------------------+
-| claude   | `~/.claude`                 | caller UUID via `--session-id`   | `--resume <uuid>`                        |
-+----------+-----------------------------+----------------------------------+------------------------------------------+
-| cmd      | `~/.commandcode`            | NDJSON `result.sessionId`        | `--resume <id>` or `--session <id|path>` |
-+----------+-----------------------------+----------------------------------+------------------------------------------+
-| codex    | `~/.codex`                  | JSONL `thread.started.thread_id` | `codex exec resume <id> --json -`        |
-+----------+-----------------------------+----------------------------------+------------------------------------------+
-| deepseek | `~/.claude-deepseek`        | caller UUID via `--session-id`   | `--resume <uuid>`                        |
-+----------+-----------------------------+----------------------------------+------------------------------------------+
-| glm      | `~/.claude-glm`             | caller UUID via `--session-id`   | `--resume <uuid>`                        |
-+----------+-----------------------------+----------------------------------+------------------------------------------+
-| muse     | `~/.claude-muse`            | caller UUID via `--session-id`   | `--resume <uuid>`                        |
-+----------+-----------------------------+----------------------------------+------------------------------------------+
++--------------+-----------------------------+----------------------------------+------------------------------------------+
+| CLI          | Session store               | New-session ID source            | Related follow-up                        |
++==============+=============================+==================================+==========================================+
+| agy          | `~/.gemini/antigravity-cli` | JSON `conversation_id`           | `--conversation <id>`                    |
++--------------+-----------------------------+----------------------------------+------------------------------------------+
+| claude       | `~/.claude`                 | caller UUID via `--session-id`   | `--resume <uuid>`                        |
++--------------+-----------------------------+----------------------------------+------------------------------------------+
+| claude-cloud | `~/.claude`                 | caller UUID via `--session-id`   | `--resume <uuid>`                        |
++--------------+-----------------------------+----------------------------------+------------------------------------------+
+| cmd          | `~/.commandcode`            | NDJSON `result.sessionId`        | `--resume <id>` or `--session <id|path>` |
++--------------+-----------------------------+----------------------------------+------------------------------------------+
+| codex        | `~/.codex`                  | JSONL `thread.started.thread_id` | `codex exec resume <id> --json -`        |
++--------------+-----------------------------+----------------------------------+------------------------------------------+
+| deepseek     | `~/.claude-deepseek`        | caller UUID via `--session-id`   | `--resume <uuid>`                        |
++--------------+-----------------------------+----------------------------------+------------------------------------------+
+| glm          | `~/.claude-glm`             | caller UUID via `--session-id`   | `--resume <uuid>`                        |
++--------------+-----------------------------+----------------------------------+------------------------------------------+
+| muse         | `~/.claude-muse`            | caller UUID via `--session-id`   | `--resume <uuid>`                        |
++--------------+-----------------------------+----------------------------------+------------------------------------------+
 
 > [!IMPORTANT]
 > **Don't probe before delegating.** Never run throwaway commands (`echo ok`, `--version`, `--help`) to
@@ -124,59 +126,66 @@ listed CLIs.
 
 ## CLI reference
 
-+------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| CLI        | Provider / models          | Model select               | Review-mode flags    | Implementation-mode flags  | Session start        | Resume             |
-+============+============================+============================+======================+============================+======================+====================+
-| `claude`   | Anthropic; default         | `--model <model>`          | `--permission-mode   | `--permission-mode         | `--session-id <uuid> | `--resume <uuid>`  |
-|            | **claude-fable-5-1**       |                            | plan --allowed-tools | acceptEdits`               | --name <task>`       |                    |
-|            |                            |                            | Read "Bash(git diff  |                            |                      |                    |
-|            |                            |                            | *)" "Bash(git status |                            |                      |                    |
-|            |                            |                            | *)"`                 |                            |                      |                    |
-+------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `glm`      | Zhipu GLM; default         | `MODEL=<model> glm`        | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
-|            | **glm-5.3** (Sonnet/Haiku  |                            |                      |                            |                      |                    |
-|            | tier: `glm-5.3-flash`)     |                            |                      |                            |                      |                    |
-+------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `deepseek` | DeepSeek; default          | `MODEL=<model> deepseek`   | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
-|            | **deepseek-v4-pro**        |                            |                      |                            |                      |                    |
-|            | (Sonnet/Haiku tier:        |                            |                      |                            |                      |                    |
-|            | `deepseek-flash`)          |                            |                      |                            |                      |                    |
-+------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `muse`     | Meta/Muse; default **muse- | `MODEL=<model> muse`       | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
-|            | spark-1.3-contributor**    |                            |                      |                            |                      |                    |
-|            | (Sonnet tier: `muse-       |                            |                      |                            |                      |                    |
-|            | spark-1.3`)                |                            |                      |                            |                      |                    |
-+------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `codex`    | OpenAI, flat-rate ChatGPT  | `-m <model>`               | `-s read-only`       | `-s workspace-write`       | no caller ID;        | `codex exec resume |
-|            | Plus; `gpt-6-astra`,       |                            |                      |                            | capture `thread.star | <thread-id>`       |
-|            | `gpt-6.1-sol`,             |                            |                      |                            | ted.thread_id` (see  |                    |
-|            | `gpt-6-terra`,             |                            |                      |                            | Session continuity)  |                    |
-|            | `gpt-6-luna`,              |                            |                      |                            |                      |                    |
-|            | `gpt-5.4-mini`             |                            |                      |                            |                      |                    |
-+------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `cmd`      | CommandCode.ai; **reserved | `-m <model>`               | `--plan`             | `--permission-mode auto-   | no caller ID;        | `--resume          |
-|            | strictly for               |                            |                      | accept`                    | capture              | <session-id>` (or  |
-|            | external/unsupported       |                            |                      |                            | `result.sessionId`   | `--session         |
-|            | models with no dedicated   |                            |                      |                            |                      | <id|path>`)        |
-|            | wrapper** (e.g.            |                            |                      |                            |                      |                    |
-|            | `moonshotai/kimi-k3`, `moo |                            |                      |                            |                      |                    |
-|            | nshotai/kimi-k2.7-code`,   |                            |                      |                            |                      |                    |
-|            | `qwen/qwen3.8-max`) —      |                            |                      |                            |                      |                    |
-|            | never for models a         |                            |                      |                            |                      |                    |
-|            | dedicated CLI already      |                            |                      |                            |                      |                    |
-|            | covers                     |                            |                      |                            |                      |                    |
-+------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `agy`      | Gemini, flat-rate;         | `--model <model> --effort  | `--mode plan         | `--mode accept-edits       | no caller ID;        | `--conversation    |
-|            | `gemini-3.1-ultra`,        | <effort>`                  | --sandbox`           | --sandbox`                 | capture              | <id>`              |
-|            | `gemini-3.1-pro-high`,     |                            |                      |                            | `conversation_id`    |                    |
-|            | `gemini-3.8-flash`         |                            |                      |                            |                      |                    |
-+------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
++----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| CLI            | Provider / models          | Model select               | Review-mode flags    | Implementation-mode flags  | Session start        | Resume             |
++================+============================+============================+======================+============================+======================+====================+
+| `claude`       | Anthropic; default         | `--model <model>`          | `--permission-mode   | `--permission-mode         | `--session-id <uuid> | `--resume <uuid>`  |
+|                | **claude-fable-5-1**       |                            | plan --allowed-tools | acceptEdits`               | --name <task>`       |                    |
+|                |                            |                            | Read "Bash(git diff  |                            |                      |                    |
+|                |                            |                            | *)" "Bash(git status |                            |                      |                    |
+|                |                            |                            | *)"`                 |                            |                      |                    |
++----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| `claude-cloud` | Anthropic Cloud API        | `--model <model>`          | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
+|                | (metered credits); default |                            |                      |                            |                      |                    |
+|                | **claude-sonnet-5-5** /    |                            |                      |                            |                      |                    |
+|                | **claude-opus-5-5**        |                            |                      |                            |                      |                    |
++----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| `glm`          | Zhipu GLM; default         | `MODEL=<model> glm`        | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
+|                | **glm-5.3** (Sonnet/Haiku  |                            |                      |                            |                      |                    |
+|                | tier: `glm-5.3-flash`)     |                            |                      |                            |                      |                    |
++----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| `deepseek`     | DeepSeek; default          | `MODEL=<model> deepseek`   | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
+|                | **deepseek-v4-pro**        |                            |                      |                            |                      |                    |
+|                | (Sonnet/Haiku tier:        |                            |                      |                            |                      |                    |
+|                | `deepseek-flash`)          |                            |                      |                            |                      |                    |
++----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| `muse`         | Meta/Muse; default **muse- | `MODEL=<model> muse`       | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
+|                | spark-1.3-contributor**    |                            |                      |                            |                      |                    |
+|                | (Sonnet tier: `muse-       |                            |                      |                            |                      |                    |
+|                | spark-1.3`)                |                            |                      |                            |                      |                    |
++----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| `codex`        | OpenAI, flat-rate ChatGPT  | `-m <model>`               | `-s read-only`       | `-s workspace-write`       | no caller ID;        | `codex exec resume |
+|                | Plus; `gpt-6-astra`,       |                            |                      |                            | capture `thread.star | <thread-id>`       |
+|                | `gpt-6.1-sol`,             |                            |                      |                            | ted.thread_id` (see  |                    |
+|                | `gpt-6-terra`,             |                            |                      |                            | Session continuity)  |                    |
+|                | `gpt-6-luna`,              |                            |                      |                            |                      |                    |
+|                | `gpt-5.4-mini`             |                            |                      |                            |                      |                    |
++----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| `cmd`          | CommandCode.ai; **reserved | `-m <model>`               | `--plan`             | `--permission-mode auto-   | no caller ID;        | `--resume          |
+|                | strictly for               |                            |                      | accept`                    | capture              | <session-id>` (or  |
+|                | external/unsupported       |                            |                      |                            | `result.sessionId`   | `--session         |
+|                | models with no dedicated   |                            |                      |                            |                      | <id|path>`)        |
+|                | wrapper** (e.g.            |                            |                      |                            |                      |                    |
+|                | `moonshotai/kimi-k3`, `moo |                            |                      |                            |                      |                    |
+|                | nshotai/kimi-k2.7-code`,   |                            |                      |                            |                      |                    |
+|                | `qwen/qwen3.8-max`) —      |                            |                      |                            |                      |                    |
+|                | never for models a         |                            |                      |                            |                      |                    |
+|                | dedicated CLI already      |                            |                      |                            |                      |                    |
+|                | covers                     |                            |                      |                            |                      |                    |
++----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
+| `agy`          | Gemini, flat-rate;         | `--model <model> --effort  | `--mode plan         | `--mode accept-edits       | no caller ID;        | `--conversation    |
+|                | `gemini-3.1-ultra`,        | <effort>`                  | --sandbox`           | --sandbox`                 | capture              | <id>`              |
+|                | `gemini-3.1-pro-high`,     |                            |                      |                            | `conversation_id`    |                    |
+|                | `gemini-3.8-flash`         |                            |                      |                            |                      |                    |
++----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
 
-The wrapper scripts (`glm`, `deepseek`, `muse`) configure provider endpoints and credentials, then execute
-`claude --model "$MODEL" "$@"`, so `claude`/`glm`/`deepseek`/`muse` share one CLI base: none needs a PTY, all
+The wrapper scripts (`claude-cloud`, `glm`, `deepseek`, `muse`) configure provider endpoints and credentials, then execute
+`claude --model "$MODEL" "$@"`, so `claude`/`claude-cloud`/`glm`/`deepseek`/`muse` share one CLI base: none needs a PTY, all
 accept redirected stdin under `-p` (pass `< /dev/null` to prevent hangs), and their startup warning
-`claude-code:unrecognized_model` is expected and benign. Never convert a review command into an editing
-command unless the user explicitly authorized edits.
+`claude-code:unrecognized_model` is expected and benign. `claude-cloud` scrubs wrapper routing overrides (`ANTHROPIC_BASE_URL`,
+`ANTHROPIC_AUTH_TOKEN`) and injects the official Anthropic API key to draw directly from metered cloud credits without
+interfering with `glm`, `muse`, or `deepseek`. Never convert a review command into an editing command unless the user explicitly
+authorized edits.
 
 > [!CAUTION]
 > **Never use the `--bare` flag with any CLI above.** It forces Claude Code to ignore user settings files,
@@ -188,8 +197,8 @@ One example per CLI. For a follow-up, swap the session-start flags for that row'
 table above and append `-r<n>` to the output artifact's basename.
 
 ```sh
-# Claude Code family (claude, glm, deepseek, muse) — CLAUDE_BIN picks the wrapper, MODEL=<model> the model
-CLAUDE_BIN="claude"   # or: MODEL=<model> glm | MODEL=<model> deepseek | MODEL=<model> muse
+# Claude Code family (claude, claude-cloud, glm, deepseek, muse) — CLAUDE_BIN picks the wrapper, MODEL=<model> the model
+CLAUDE_BIN="claude-cloud"   # or: claude | MODEL=<model> glm | MODEL=<model> deepseek | MODEL=<model> muse
 $CLAUDE_BIN --session-id <uuid> --name <task> <review-or-implementation-flags> \
   --output-format text -p "Read <prompt> and complete it now." < /dev/null \
   > collab/<timestamp>-<role>-<task>.<sanitized-model>.stdout.log 2>&1
@@ -228,6 +237,12 @@ Recognize it, apply the fix, and don't declare failure prematurely:
   recorded with model `gpt-6-sol` but is resuming with `gpt-6-luna`". Always
   pass the original `-m <model>` on resume, and grep the log for `recorded with
   model` before treating the answer as that model's.
+- **`codex exec resume` rejects `-s` and `-C` outright** (exit 2, "unexpected
+  argument"; observed 2026-10-16): the resume subcommand takes neither the
+  sandbox flag nor the working-directory flag. Run it with the shell's cwd set
+  to the intended working directory (`cd <worktree> && codex exec resume <id>
+  --json -m <model> - < prompt`) and write the resumed prompt's relative paths
+  against that cwd; the resumed turn keeps the original thread's sandbox.
 - **GLM/Muse `claude-code:unrecognized_model` startup warnings** are expected
   for their wrappers; verify the resulting artifact before declaring failure.
 - **The same benign startup warning can precede a real outage, not just a

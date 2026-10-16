@@ -304,10 +304,10 @@ Two Linux x86_64 servers run the full suite faster than a laptop. Both are
 reached over SSH as `sto` with key authentication, and both have `mise`, `tmux`
 and `git`.
 
-| Host | Cores / RAM | Toolchain state (checked 2026-10-11) |
+| Host | Cores / RAM | Toolchain state (server snapshot checked 2026-10-11; repo selection comes from `mise.toml`) |
 |---|---|---|
-| `shiva.stigmergy.systems` | 24 / 62 GB | Complete: java 21, clojure 1.12.4.1602, node 25.6.1, babashka, cljstyle, zprint, flutter 3.47.1-stable. All three lanes run. |
-| `jupiter.stigmergy.systems` | 48 / 62 GB | java 21, clojure, node, zprint; babashka installed with `mise install babashka@latest`; flutter 3.41.9 is NOT the pinned version. Run the JVM and Node lanes here, not Dart. |
+| `shiva.stigmergy.systems` | 24 / 62 GB | Server snapshot: java 21, clojure 1.12.4.1602, node 25.6.1, babashka, cljstyle, zprint, flutter 3.47.1. The repo's `mise.toml` selects Flutter `latest` on beta, not a fixed version. Activate the repo toolchain before running any lane. |
+| `jupiter.stigmergy.systems` | 48 / 62 GB | Server snapshot: java 21, clojure, node, zprint, babashka, flutter 3.41.9. The repo's `mise.toml` selects Flutter `latest` on beta, not a fixed version; use mise in the scratch clone to install and activate that selection before the Dart lane. |
 
 **Never test in `~/workspace/datomworld` on either host.** It is a working copy
 that is behind origin (shiva: 45 commits behind on 2026-10-11) and belongs to its
@@ -344,10 +344,12 @@ into the clone:
 export PATH="$HOME/.local/bin:/snap/bin:$PATH"   # mise: ~/.local/bin on shiva, /snap/bin on jupiter
 cd ~/ci/datomworld-<name>
 mise trust >/dev/null 2>&1                       # trust is per path; a fresh clone is untrusted
-eval "$(mise env -s bash)"                       # puts the repo-pinned tools on PATH
+mise install                                    # install versions selected by this checkout's mise.toml
+eval "$(mise env -s bash)"                       # puts the repo-selected tools on PATH
+mise current flutter                            # verify the selected Flutter version
 ```
 
-Activating mise before the `cd` and `mise trust` leaves the repo-pinned tools
+Activating mise before the `cd` and `mise trust` leaves the repo-selected tools
 (flutter in particular) off PATH: the Dart lane then dies in seconds with "Can't
 find flutter on PATH", and so does `bb build:yin-repl-peer`.
 
