@@ -11663,3 +11663,25 @@ Verification: Staged diff inspected prior to commit; subject syntax verified
 Delegates: none
 Next: Ready for orchestrator seats on active tracks (SRVM 6d-a, C4 I6) to
   route Fable-gated tasks to `claude-cloud`.
+
+## 2026-10-17 02:20:00 +07 — C4 I6 LANDED 19e7e879; scanner goldens LANDED 42aa4bcf (Fable claude-cloud READY x2)
+Completed-GMT: 2026-10-16 19:20:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@42aa4bcf == origin/master (I6 at 19e7e879 beneath; c0d3d001 = the I6 slice commit)
+Done: (1) C4 I6 (reload/loaders) LANDED 19e7e879: gates JVM slow rc=0 (164/0), Node rc=0 (275/41989/0), Dart
+  791 passed (only the deferred goldens), pins verified (codex regen + glm provenance proof + my 92/0), fable
+  content review READY (6 P3s, none behavioral). (2) The deferred scanner-golden regeneration LANDED 42aa4bcf:
+  glm computed the [:c4 :py]/[:c4 :t] answers via a checked-in abort-gated generator
+  (scanner-golden-c4.generate.clj, byte-identical double-run; the six other groups + b0 + register verified
+  unchanged three ways); deltas trace exactly to I5/I6 (+9 py free names, +4 t); Fable claude-cloud review
+  READY (the new channel's first gate use). The known-gaps row closed in the landing commit per fable's
+  action. Multi-seat master races during landing: the srvm seat's concurrent main-tree work twice reverted my
+  local ff; resolved by pushing from the scangold worktree branch directly (origin is authoritative).
+  Triage lesson recorded: in multi-shard flutter logs, only [E] markers and the Failing tests: list are
+  failures — counter-carrying progress lines name whichever tests run in other shards.
+  Routing note: codex hit its usage limit mid-round (reset not at 17:42 +07 as stated; recorded); glm-5.3
+  completed the pins round as already-dispatched-work continuation per the routing relay.
+Next: archive the C4 collab artifacts into archive/yang-python/ (committed, per the new step 11); C2-S3
+  resume (rebase onto the srvm-cutover master — a real port); C4 I1; ADR 0004 Architect round (claude-cloud
+  fable or agy/argon) — owner-gated.
