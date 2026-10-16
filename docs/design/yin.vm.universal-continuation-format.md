@@ -1705,6 +1705,14 @@ pins the effect handlers, the exported primitive profiles (§7.5.2), and —
 per §7.6.1 — the store footprint the fixed point needs to claim
 `:complete`.
 
+The row carrier implements this as required `:yin.k/modules
+{module-symbol address-keyword-or-nil}` and `:yin.k/host-exports
+{qualified-symbol profile-keyword}` maps in `requires`, both `{}` when empty.
+Entry addresses travel unchanged. Host entries pin nil and each used export's
+profile address; unused exports impose no requirement. Before attachment,
+terminal module/profile skew precedes one complete collected missing outcome,
+including unadmitted carried install children.
+
 ### 7.6.5 The satisfaction check
 
 Before lowering, the resumer evaluates `:yin.k/requires` against what it
@@ -1716,6 +1724,7 @@ holds and answers with one outcome:
  :yin.k/missing   {:yin.k/segments       #{:segment/blake3-9c02…}
                    :yin.k/primitives     {println <expected profile>}
                    :yin.k/modules        {my.mod …}
+                   :yin.k/host-exports   {host.mod/f <expected profile>}
                    :yin.k/streams        #{<identity>}
                    :yin.k/cursor-profiles #{:dao.stream/file-v1}}}  ; keys present only where something is missing
 ```
@@ -2867,8 +2876,10 @@ the review's named architectural obligations; they are blockers to
 - **Receiver module satisfaction and install admission (2026-10-16).**
   Architect verdict C requires registry bindings pinned by manifest address
   (§7.6.4/§7.6.5) and receiver re-discharge before attachment. The module-pin
-  carrier work is blocked pending the host-export-profile slot/schema
-  decision; do not treat name presence as equal-address satisfaction.
+  carrier implements both required pin maps, including `{}` when empty,
+  with module entry address keywords carried unchanged (I-8). The lower
+  checks exact module and used export profile equality before attach;
+  terminal mismatches precede complete collected missing discovery.
   Carried install admission (R4) is implemented by the lower's explicit
   `:yin.k/admitted-modules {name manifest-address}` option, default empty, and
   the lift never carries sender admission evidence; a carried admission field

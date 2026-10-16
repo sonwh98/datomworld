@@ -452,6 +452,24 @@ No new resolver or independent claimed-image-address check is added.
 `requires` gains `:yin.k/trees`.) No `layout` slot and no native image:
 those were the positional profiles' (v2 amendment §2, §4.1).
 
+Module-pins ruling (2026-10-16): `requires` always carries BOTH
+`:yin.k/modules` and `:yin.k/host-exports`, using `{}` when empty, just as
+existing requires collections are emitted when empty. A missing pin-map key
+is `:yin.k/undecodable :requires`; omission is not an alternative empty
+encoding. The module map records registry binding addresses (nil for host
+modules); the host-export map records profile keywords for used qualified
+exports only. The module map is `{module-symbol address-keyword-or-nil}`:
+carry `(:address entry)` unchanged and compare with `=`. The earlier ruling's
+string-or-nil wording was a typing slip; linked entries hold Jing segment
+keywords. The host-export map is `{qualified-symbol profile-keyword}`.
+Both maps are validated during decode and dependency checking, including
+symbol key cardinality. Malformed or absent maps refuse `:yin.k/undecodable
+:requires`. After custody, `check-modules!` checks every task before the first
+attach: terminal `:module-pin-mismatch` or `:host-export-mismatch` wins,
+then one `:yin.k/unsatisfied` with `:yin.k/discovery :complete` collects
+missing pins and unadmitted install children under `:yin.k/missing`.
+
+
 Kind rules are §7.2.1's: `:blocked` has nonempty frames and neither
 parked-id nor result; `:parked` has frames (possibly empty), a parked-id
 naming a key of the parked table, no result; `:halted` has a result and
