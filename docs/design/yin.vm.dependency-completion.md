@@ -291,6 +291,9 @@ Also pulled as roots (not by pid): every `:wait-set` entry, with the same shape
 (`:segment :pc :env :stack :k` plus `:stream-id` / `:cursor-ref`); `:ready-queue`
 must be empty (`:yin.k/not-quiescent` otherwise, UCF §7.4.1 — checked before the
 walk, not by it). `:id-counter` is copied verbatim into the output scheduler map.
+**Amended 2026-10-16 (any-pc):** the v4 carrier has no quiescence refusal; an
+active run state and every ready entry's delivery state are walked as contexts
+like wait entries (continuation design §2.3, §7.1), so discharge covers them.
 
 ## 8. The traversal
 
