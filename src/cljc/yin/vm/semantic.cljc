@@ -1,5 +1,6 @@
 (ns yin.vm.semantic
-  "The register-shaped canonical evaluator, phase 4b (effects, continuations, FFI and module installation)."
+  "The register-shaped canonical evaluator: effects, continuations, FFI,
+   module installation, bounded execution and custody-gate guards."
   (:require [dao.jing :as jing]
             [dao.stream.apply :as apply2]
             [yin.vm :as vm]
@@ -131,7 +132,14 @@
   (engine/scheduler-round machine register-restore))
 
 
-(defn vm-hot
+(defn- check-gate!
+  [machine]
+  (let [mode (vm/gate-mode machine)]
+    (when (contains? #{:exporting :ended} mode)
+      (throw (ex-info "Gate is closed" {:rule :gate-closed :yin.k/gate mode})))))
+
+
+(defn- vm-hot*
   "Execute fuel instructions with the activation in locals; nil fuel runs to exit."
   [machine fuel]
   (if (and (nil? (:control machine)) (nil? (:k machine)))
@@ -268,9 +276,31 @@
               (throw (ex-info "Unknown register instruction" {:op op})))))))))
 
 
+(defn vm-hot
+  "Execute fuel instructions, refusing a closed gate once at entry."
+  [machine fuel]
+  (check-gate! machine)
+  (vm-hot* machine fuel))
+
+
+(defn run-fuel
+  "One budgeted action, followed by at most one bridge step. Fuel counts
+   completed guest instructions per visited task, without a wall-clock bound."
+  [machine n]
+  (when-not (and (code/reg? n) (pos? n))
+    (throw (ex-info "Fuel must be a positive exact integer" {:rule :fuel :fuel n})))
+  (check-gate! machine)
+  (let [v (if (some? (:control machine))
+            (vm-hot* machine n)
+            (engine/scheduler-round-fuel machine register-restore #(run-fuel % n)))]
+    (if (and (:blocked? v) (ffi/installed? v))
+      (:vm (ffi/bridge-step v))
+      v)))
+
+
 (defn- register-run-scheduler
   [machine]
-  (engine/run-loop machine engine/active-continuation? #(vm-hot % nil)
+  (engine/run-loop machine engine/active-continuation? #(vm-hot* % nil)
                    #(engine/resume-from-run-queue % register-restore)))
 
 
@@ -328,9 +358,11 @@
 
 (extend-type SemanticVM
   vm/IVM
-  (step [machine] (telemetry/emit-snapshot
-                    (if (engine/ready-for-ingress? machine) machine (vm-hot machine 1)) :step))
-  (run [machine] (ffi/maybe-run machine register-run-scheduler))
+  (step [machine] (check-gate! machine)
+    (telemetry/emit-snapshot
+      (if (engine/ready-for-ingress? machine) machine (vm-hot* machine 1)) :step))
+  (run [machine] (check-gate! machine)
+    (ffi/maybe-run machine register-run-scheduler))
   (eval [machine ast]
     (when ast (throw (ex-info "The semantic VM executes loaded vectors; use load-ast" {:ast ast})))
     (engine/restore-initial-env (:env machine) (vm/run machine)))

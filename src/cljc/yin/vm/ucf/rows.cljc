@@ -2,7 +2,7 @@
   "Version-3 row codec. Pure row construction, graph decoding and
    discovery-order cursor-cell numbering (design note §1), then full task
    transport for the semantic kernel (continuation design §7):
-   lift-task walks a quiescent machine into an abstract task and emits it;
+   lift-task walks a machine at any boundary into an abstract task and emits it;
    lower-task decodes, checks and restores one into a fresh receiver.
    An abstract row is {:kind keyword :slots vector}. Structural references
    contain abstract rows; values use [:lit d], [:row abstract-row], [:cursor-cell id].
@@ -46,6 +46,16 @@
    :install [:S :D]})
 
 
+(def completion-table
+  {:next [:C]
+   :put [[:ref :stream] :V :optional-D]
+   :ffi [:C :D :D]
+   :ffi-request [:D :V [:ref :stream] [:ref :stream] :C :optional-D]
+   :link-request [:D :S :D :optional-D]
+   :link-response [:D :S :D]
+   :install [:S :D]})
+
+
 (def row-table
   "Slot descriptors, excluding id and kind. :repeat/:pairs are variadic;
    :refs is an ordered vector of structural references. :pending is
@@ -57,6 +67,9 @@
    :prim [:S] :stream [:D :D] :reified [[:ref :act]] :parked-ref [:D]
    :act [:A :N [:ref :env] [:ref :window] [:ref :k] :N]
    :tail [:A :N [:ref :k]]
+   :run [:A :N [:ref :env] [:ref :window] [:ref :k]]
+   :ready [[:ref :act :tail] [:ref :completion] :V :optional-D [:ref :cursor-cells] :optional-V]
+   :completion :completion
    :window [:pairs :N :V] :k [:repeat [:ref :kframe]]
    :kframe [:A :N [:ref :env] [:ref :window] :N]
    :wait [[:ref :act :tail] [:ref :pending]] :pending :pending
@@ -66,7 +79,7 @@
    :cursor-cells [:pairs :C [:ref :cursor-cell-body]] :cursor-cell-body [[:ref :stream] :D]
    :task [:N :D :D :D :N [:ref :bindings] [:ref :store]
           [:refs :module-store] [:ref :parked-table] [:ref :cursor-cells]
-          :D :D [:refs :install] [:refs :wait] :optional-D :optional-V :optional-D]})
+          :D :D [:refs :install] [:refs :wait] :optional-D :optional-V :optional-D [:refs :run] [:refs :ready]]})
 
 
 (defn node
@@ -132,6 +145,7 @@
   (let [schema (if (= :entry kind) [:V :V] (get row-table kind))]
     (cond
       (= schema :pending) (into [:D] (get pending-table (first slots)))
+      (= schema :completion) (into [:D] (get completion-table (first slots)))
       (= :repeat (first schema)) (vec (repeat (count slots) (second schema)))
       (= :pairs (first schema)) (vec (take (count slots) (cycle (rest schema))))
       :else schema)))
@@ -394,8 +408,9 @@
               :else nil))
           (row
             [n]
-            (when-not (or (= :cursor-cells (:kind n)) (child-task? ctx n))
-              (doseq [[d x] (map vector (descriptors (:kind n) (:slots n)) (:slots n))] (slot d x))))]
+            (when-not (child-task? ctx n)
+              (doseq [[i d x] (map vector (range) (descriptors (:kind n) (:slots n)) (:slots n))
+                      :when (not (and (= :task (:kind n)) (= 9 i)))] (slot d x))))]
     (slot d x)))
 
 
@@ -465,13 +480,15 @@
   [run n path]
   (let [{:keys [kind slots]} n ctx (:ctx run) ds (descriptors kind slots)]
     (cond
-      (or (= :cursor-cells kind) (child-task? ctx n)) nil
+      (child-task? ctx n) nil
       (= :task kind)
       (doseq [[i d x] (map vector (range) ds slots)]
-        (if (contains? #{7 12} i)
+        (cond
+          (= 9 i) nil
+          (contains? #{7 12} i)
           (doseq [child (sort-by-key! ctx #(first (:slots %)) x)]
             (enter-node! run child (conj path i (first (:slots child)))))
-          (enter-slot! run d x (conj path i))))
+          :else (enter-slot! run d x (conj path i))))
       (contains? keyed-structural kind)
       (doseq [[k v] (sort-by-key! ctx first (partition 2 slots))]
         (enter-slot! run (second ds) v (conj path k)))
@@ -620,13 +637,14 @@
   [run n path]
   (let [{:keys [kind slots]} n ctx (:ctx run) ds (descriptors kind slots)]
     (cond
-      (= :cursor-cells kind) [:cursor-cells]
       (child-task? ctx n) [:child]
       (= :task kind)
       (into [kind] (map (fn [i d x]
-                          (if (contains? #{7 12} i)
+                          (cond
+                            (= 9 i) [:cursor-cells]
+                            (contains? #{7 12} i)
                             (sort-by-key! ctx #(nth % 1) (mapv #(spell-node run % (conj path i (first (:slots %)))) x))
-                            (spell-slot run d x (conj path i))))
+                            :else (spell-slot run d x (conj path i))))
                         (range) ds slots))
       (contains? keyed-structural kind)
       (into [kind] (mapcat identity (sort-by-key! ctx first
@@ -816,7 +834,7 @@
                   (cond
                     (= :C d) (do (when-not (contains? cursor-cells x) (bad! :missing-cursor-cell p)) (swap! reached conj x))
                     (and (ref? d) (= :task (:kind x))) (check-task x p)
-                    (and (ref? d) (not= :cursor-cells (:kind x))) (visit x p cursor-cells reached)
+                    (and (ref? d) (not (and (= :task kind) (= 9 i)))) (visit x p cursor-cells reached)
                     (refs? d) (doseq [[j child] (map-indexed vector x)]
                                 (visit child (conj p j) cursor-cells reached))
                     (contains? #{:V :optional-V} d)
@@ -865,13 +883,13 @@
      (let [index (into {} (map (fn [r] [(first r) r])) rs)
            root (:yin.k/root wire)]
        (when-not (= (count rs) (count index)) (bad! :duplicate-row [:yin.k/rows]))
-       (when-not (contains? #{:task :act :tail :wait} (second (get index root))) (bad! :root [:yin.k/root]))
+       (when-not (contains? #{:task :act :tail :run :wait} (second (get index root))) (bad! :root [:yin.k/root]))
        ;; Gate children before schema, with an active path (DAG sharing is legal).
        (letfn [(gate
                  [id active]
                  (when (contains? active id) (bad! :cyclic [id]))
                  (let [row (get index id) slots (when row (subvec row 2))]
-                   (when-not (and (= :task (second row)) (= 17 (count slots))
+                   (when-not (and (= :task (second row)) (= 19 (count slots))
                                   (vector? (nth slots 12)) (every? keyword? (nth slots 12)))
                      (bad! :task-shape [id]))
                    (when-not (= 3 (nth slots 0)) (refuse! :yin.k/profile-mismatch :version [id 0]))
@@ -886,6 +904,7 @@
            (when-not (and schema
                           (cond
                             (= schema :pending) (contains? pending-table (first slots))
+                            (= schema :completion) (contains? completion-table (first slots))
                             (= :pairs (first schema)) (even? (count slots))
                             :else true)
                           (= (count ds) (count slots))) (bad! :row-shape [id]))
@@ -1057,10 +1076,13 @@
   ([f] (frame->rows f value-node))
   ([f encode]
    (let [k (node :k (mapv #(kframe-node % encode) (:yin.k/k f)))
-         state (if (= :act (:yin.k/state f))
-                 (node :act [(:yin.k/segment f) (:yin.k/pc f) (env-node (:yin.k/env f) encode)
-                             (keyed-node :window (:yin.k/window f) encode) k (get-in f [:yin.k/deliver :yin.k/rd])])
-                 (node :tail [(:yin.k/segment f) (:yin.k/site f) k]))
+         state (if (= :run (:yin.k/state f))
+                 (node :run [(:yin.k/segment f) (:yin.k/pc f) (env-node (:yin.k/env f) encode)
+                             (keyed-node :window (:yin.k/window f) encode) k])
+                 (if (= :act (:yin.k/state f))
+                   (node :act [(:yin.k/segment f) (:yin.k/pc f) (env-node (:yin.k/env f) encode)
+                               (keyed-node :window (:yin.k/window f) encode) k (get-in f [:yin.k/deliver :yin.k/rd])])
+                   (node :tail [(:yin.k/segment f) (:yin.k/site f) k])))
          pending (:yin.k/pending f)
          reason (:yin.k/reason pending)
          root (if (contains? f :yin.k/pending)
@@ -1102,13 +1124,13 @@
              (into {:yin.k/reason reason}
                    (map (fn [key d x] [key (if (= :V d) (decode-value x) x)])
                         (get pending-keys reason) (get pending-table reason) slots))))
-    (let [act? (= :act (:kind n)) [seg pc e w k rd] (:slots n)
-          k (if act? k e)]
+    (let [act? (= :act (:kind n)) run? (= :run (:kind n)) [seg pc e w k rd] (:slots n)
+          k (if (or act? run?) k e)]
       (cond-> {:yin.k/state (:kind n) :yin.k/segment seg
-               :yin.k/deliver (if act? {:yin.k/deliver :rd :yin.k/rd rd} {:yin.k/deliver :return})
                :yin.k/k (mapv #(decode-kframe % decode-value) (:slots k))}
-        act? (assoc :yin.k/pc pc :yin.k/env (decode-env e decode-value) :yin.k/window (decode-keyed w decode-value))
-        (not act?) (assoc :yin.k/site pc)))))
+        (not run?) (assoc :yin.k/deliver (if act? {:yin.k/deliver :rd :yin.k/rd rd} {:yin.k/deliver :return}))
+        (or act? run?) (assoc :yin.k/pc pc :yin.k/env (decode-env e decode-value) :yin.k/window (decode-keyed w decode-value))
+        (not (or act? run?)) (assoc :yin.k/site pc)))))
 
 
 (defn rows->frame
@@ -1129,9 +1151,11 @@
   (let [slots (:slots task) code-map (nth slots 11)
         free-env (decode-keyed (nth slots 5) decoded-value)
         waits (nth slots 13)
+        ready (nth slots 18)
+        completed (map #(second (:slots %)) ready)
         ffi-ids (into #{} (keep (fn [w]
                                   (let [[_ p] (:slots w) [reason & xs] (:slots p)]
-                                    (case reason :ffi (second xs) :ffi-request (first xs) nil)))) waits)
+                                    (case reason :ffi (second xs) :ffi-request (first xs) nil)))) (concat waits (map #(node :wait [nil %]) completed)))
         ctx {:free-env free-env :ffi-call-ids ffi-ids}]
     (letfn [(judge
               [n context context-map path]
@@ -1153,6 +1177,12 @@
                       (map vector (range) (descriptors (:kind n) (:slots n)) (:slots n)))))]
       (or
         (when-let [d (frame/task-defect ctx)] (assoc d :yin.k/status :yin.k/undecodable))
+        (some (fn [[i r]] (judge r :running ctx [:run i])) (map-indexed vector (nth slots 17)))
+        (some (fn [[i r]]
+                (let [[st completion] (:slots r) [tag & xs] (:slots completion)
+                      d {:yin.k/reason tag
+                         :yin.k/try? (case tag :install (second xs) (:link-request :link-response) (nth xs 2) nil)}]
+                  (judge st :ready (assoc ctx :completion d) [:ready i]))) (map-indexed vector ready))
         (some (fn [[i w]] (judge w :wait ctx [:frames i])) (map-indexed vector waits))
         (some (fn [[p state]] (judge state :parked (assoc ctx :parked-key p) [:parked p]))
               (partition 2 (:slots (nth slots 8))))
@@ -1240,16 +1270,22 @@
         (when (contains? c :yin.k/origin) (check-origin! c)))))
 
 
+(defn- check-op-id-shape!
+  [op-id p]
+  (when-not (and (map? op-id) (= 2 (count op-id))
+                 (custody/occurrence? (get op-id :yin.k/occurrence))
+                 (contains? op-id :yin.k/seq))
+    (custody-refuse! :malformed-op-id p))
+  (when-not (custody/exact? (get op-id :yin.k/seq))
+    (custody-refuse! :inexact (conj p :yin.k/seq))))
+
+
 (defn- check-op-id!
   "One carried id against the root context: its shape, an origin present,
    never the root's own occurrence, below the root counter (checkpoint.cljc's
    check-op-id!, verbatim)."
   [ctx op-id p]
-  (when-not (and (map? op-id) (= 2 (count op-id))
-                 (custody/occurrence? (get op-id :yin.k/occurrence))
-                 (contains? op-id :yin.k/seq))
-    (custody-refuse! :malformed-op-id p))
-  (when-not (custody/exact? (get op-id :yin.k/seq)) (custody-refuse! :inexact (conj p :yin.k/seq)))
+  (check-op-id-shape! op-id p)
   (when-not (contains? ctx :yin.k/origin) (custody-refuse! :op-id-without-origin p))
   (when (cbor/content= (get op-id :yin.k/occurrence) (get ctx :yin.k/occurrence))
     (custody-refuse! :op-id-own-occurrence p))
@@ -1273,7 +1309,9 @@
   [ctx task role path]
   (let [[_ _ kind role' _ _ _ _ _ _ _ _ installs waits] (:slots task)
         names (into #{} (map #(first (:slots %))) installs)]
-    (when-not (contains? #{:blocked :parked :halted} kind) (custody-refuse! :kind (conj path :kind)))
+    (when-not (and (contains? #{:running :blocked :parked :halted} kind)
+                   (= (if (= :running kind) 1 0) (count (nth (:slots task) 17))))
+      (custody-refuse! :kind (conj path :kind)))
     (when-not (= role role') (custody-refuse! :role (conj path :role)))
     (into (into []
                 (keep-indexed
@@ -1309,7 +1347,7 @@
    slot holds it ([:lit x], [:row id], or a :link-request's plain envelope)."
   [task]
   (let [slots (:slots task) kind (nth slots 2) c (nth slots 16) fork? (nil? c)]
-    (when-not (contains? #{:blocked :parked :halted} kind) (custody-refuse! :kind [:kind]))
+    (when-not (contains? #{:running :blocked :parked :halted} kind) (custody-refuse! :kind [:kind]))
     (when-not fork? (check-root-custody! c kind))
     (let [ctx (cond-> (select-keys c [:yin.k/occurrence :yin.k/origin :yin.k/next-op-seq]) fork? (assoc ::fork true))
           ops (reduce (fn [acc [p op-id in]]
@@ -1335,7 +1373,7 @@
 ;; Task transport (continuation design §7): lift-task and lower-task
 ;; =============================================================================
 ;;
-;; The lift walks a quiescent semantic machine into the abstract
+;; The lift walks a semantic machine at any boundary into the abstract
 ;; task the codec above emits: waits, parked records, the store, module
 ;; stores, the free environment, the result and install children, every
 ;; value classified as [:lit x], [:row n] or [:cursor-cell source]. A
@@ -1524,13 +1562,17 @@
   "An evaluator payload (wait entry, parked record, reified payload) as
    its :act or :tail row; engine fields are the pending's."
   [ctx p]
-  (if (contains? p :site)
-    ;; a tail state resumes through its K: its own segment never runs again
-    (node :tail [(address! ctx (:segment p)) (:site p) (k-node ctx (:k p))])
+  (if (= :run (:yin.k/state p))
     (let [a (address! ctx (:segment p))]
       (context! ctx a (:pc p) (:env p))
-      (node :act [a (:pc p) (lift-env-node ctx (:env p))
-                  (window-node ctx (:window p)) (k-node ctx (:k p)) (get-in p [:deliver :rd])]))))
+      (node :run [a (:pc p) (lift-env-node ctx (:env p)) (window-node ctx (:window p)) (k-node ctx (:k p))]))
+    (if (contains? p :site)
+      ;; a tail state resumes through its K: its own segment never runs again
+      (node :tail [(address! ctx (:segment p)) (:site p) (k-node ctx (:k p))])
+      (let [a (address! ctx (:segment p))]
+        (context! ctx a (:pc p) (:env p))
+        (node :act [a (:pc p) (lift-env-node ctx (:env p))
+                    (window-node ctx (:window p)) (k-node ctx (:k p)) (get-in p [:deliver :rd])])))))
 
 
 (defn- pending-node
@@ -1560,6 +1602,32 @@
                      (outcome! :yin.k/non-portable :incomplete-install {:yin.k/name (:name e)}))
                    (node :pending [:install (:name e) (boolean (:try? e))]))
       (outcome! :yin.k/non-portable :reason-mismatch {:yin.k/reason (:reason e)}))))
+
+
+(defn- completion-node
+  [ctx e]
+  ;; apply-observation completes a poll by removing its :observe reason.
+  ;; Its retained cursor identifies the ordinary completed read, without
+  ;; inventing an outstanding observation or polling the stream again.
+  (let [e (if (and (nil? (:reason e)) (:cursor-ref e)) (assoc e :reason :next) e)]
+    (case (:reason e)
+      (:next :put) (let [pending (pending-node ctx e)] (node :completion (:slots pending)))
+      ;; the engine is the trusted boolean producer of :try?; lower's Q2 check (:pending-try) carries the validation teeth
+      :link-request (node :completion [:link-request (:link-id e) (:name e) (boolean (:try? e)) (:op-id e)])
+      :link-response (node :completion [:link-response (:link-id e) (:name e) (boolean (:try? e))])
+      :install (node :completion [:install (:name e) (boolean (:try? e))])
+      (outcome! :yin.k/non-portable :reason-mismatch {:yin.k/reason (:reason e)}))))
+
+
+(defn- ready-node
+  [ctx e]
+  (node :ready [(state-node ctx e) (completion-node ctx e) (lift-value ctx (:value e)) (:status e)
+                (node :cursor-cells
+                      (mapcat (fn [[c body]]
+                                [(cell-for! ctx c)
+                                 (node :cursor-cell-body [(stream-row! ctx (:stream-id body)) (:cursor body)])])
+                              (:resource-updates e)))
+                (when (contains? e :refusal) (lift-value ctx (:refusal e)))]))
 
 
 (defn- store-node
@@ -1677,61 +1745,68 @@
 
 (defn- lift-task*
   [m serve! opts role]
-  (when (seq (:ready-queue m))
-    (outcome! :yin.k/not-quiescent nil {:yin.k/ready (count (:ready-queue m))}))
-  (when-some [h (unliftable-hold m)]
-    (outcome! :yin.k/non-portable :reason-mismatch {:yin.k/hold h}))
-  (when (some? (:control m))
-    (outcome! :yin.k/not-at-safepoint nil {:yin.k/pc (get-in m [:control :pc])}))
-  (let [value (:value m)
-        active? (and (map? value) (= :parked-continuation (:type value)) (contains? (:parked m) (:id value)))
-        kind (cond active? :parked
-                   (seq (:wait-set m)) :blocked
-                   (engine/halted-with-empty-queue? m) :halted
-                   :else (outcome! :yin.k/not-at-safepoint nil {}))
-        ;; §6.3: the explicit argument overrides the kernel's retained field
-        free-env (cond (some? (:free-env opts)) (:free-env opts)
-                       (some? (:free-env m)) (:free-env m)
-                       :else (outcome! :yin.k/non-portable :missing-free-env {}))
-        ctx {:m m :serve! serve! :serve-keyed (:serve-keyed opts) :path (or (:path opts) [])
-             :acc (atom {:streams {} :cells {} :stores #{} :segments #{} :contexts #{}})}
-        free-node (bindings-node ctx free-env)
-        waits (mapv (fn [e] (node :wait [(state-node ctx e) (pending-node ctx e)])) (:wait-set m))
-        parked (node :parked-table (mapcat (fn [[p rec]] [p (state-node ctx rec)]) (:parked m)))
-        store (store-node ctx (:store m))
-        result (when (= :halted kind) (lift-value ctx value))
-        installs (mapv (fn [[mn inst]] (install-node ctx mn inst opts)) (sort-by #(str (key %)) (:installs m)))
-        module-stores (module-store-nodes ctx)
-        acc @(:acc ctx)
-        segments (:segments acc)
-        code (into {} (map (fn [a]
-                             (if-some [v (get-in m [:code (get (:code-aliases m) a) :vector])]
-                               [a v]
-                               (outcome! :yin.k/unsatisfied nil {:yin.k/segment a}))))
-                   segments)
-        pins (discharge! ctx code)
-        index (or (:source-index opts) {})
-        missing-trees (into #{} (remove #(seq (get index %))) segments)
-        _ (when (seq missing-trees)
-            (outcome! :yin.k/unsatisfied nil {:yin.k/discovery :incomplete :yin.k/missing {:yin.k/trees missing-trees}}))
-        requires (merge pins {:yin.k/cursor-profiles (if (seq (:cells acc)) remote/cursor-profiles #{})
-                              :yin.k/segments segments
-                              :yin.k/trees (select-keys index segments)})
-        task (node :task [3 profile kind role (or (:id-counter m) 0) free-node store module-stores parked
-                          (node :cursor-cells (mapcat identity (:cells acc))) requires code installs waits
-                          (when (= :parked kind) (:id value)) result nil])]
-    ;; §3.3: a frame the evaluator itself minted that fails is inconsistent
-    (when-let [d (validate-frames task)]
-      (outcome! :yin.k/non-portable :inconsistent-state {:yin.k/defect d}))
-    task))
+  (let [m (cond-> m
+            (contains? m :yin.k/recovery-waits) (assoc :wait-set (:yin.k/recovery-waits m))
+            (contains? m :yin.k/recovery-ready) (assoc :ready-queue (:yin.k/recovery-ready m))
+            (contains? m :yin.k/recovery-parked) (assoc :parked (:yin.k/recovery-parked m)))]
+    (when-some [h (unliftable-hold m)]
+      (outcome! :yin.k/non-portable :reason-mismatch {:yin.k/hold h}))
+    (let [value (:value m)
+          active? (and (map? value) (= :parked-continuation (:type value)) (contains? (:parked m) (:id value)))
+          kind (cond (some? (:control m)) :running
+                     active? :parked
+                     (or (seq (:wait-set m)) (seq (:ready-queue m))) :blocked
+                     (engine/halted-with-empty-queue? m) :halted
+                     :else (outcome! :yin.k/non-portable :inconsistent-state {}))
+          ;; §6.3: the explicit argument overrides the kernel's retained field
+          free-env (cond (some? (:free-env opts)) (:free-env opts)
+                         (some? (:free-env m)) (:free-env m)
+                         :else (outcome! :yin.k/non-portable :missing-free-env {}))
+          ctx {:m m :serve! serve! :serve-keyed (:serve-keyed opts) :path (or (:path opts) [])
+               :acc (atom {:streams {} :cells {} :stores #{} :segments #{} :contexts #{}})}
+          free-node (bindings-node ctx free-env)
+          waits (mapv (fn [e] (node :wait [(state-node ctx e) (pending-node ctx e)])) (:wait-set m))
+          runs (if (= :running kind)
+                 (let [{:keys [segment pc]} (:control m)
+                       a (get-in m [:code segment :analysis])]
+                   [(state-node ctx {:yin.k/state :run :segment segment :pc pc :env (:env m)
+                                     :window (select-keys (:window m) (analysis/live a pc)) :k (:k m)})]) [])
+          ready (mapv #(ready-node ctx %) (:ready-queue m))
+          parked (node :parked-table (mapcat (fn [[p rec]] [p (state-node ctx rec)]) (:parked m)))
+          store (store-node ctx (:store m))
+          result (when (= :halted kind) (lift-value ctx value))
+          installs (mapv (fn [[mn inst]] (install-node ctx mn inst opts)) (sort-by #(str (key %)) (:installs m)))
+          module-stores (module-store-nodes ctx)
+          acc @(:acc ctx)
+          segments (:segments acc)
+          code (into {} (map (fn [a]
+                               (if-some [v (get-in m [:code (get (:code-aliases m) a) :vector])]
+                                 [a v]
+                                 (outcome! :yin.k/unsatisfied nil {:yin.k/segment a}))))
+                     segments)
+          pins (discharge! ctx code)
+          index (or (:source-index opts) {})
+          missing-trees (into #{} (remove #(seq (get index %))) segments)
+          _ (when (seq missing-trees)
+              (outcome! :yin.k/unsatisfied nil {:yin.k/discovery :incomplete :yin.k/missing {:yin.k/trees missing-trees}}))
+          requires (merge pins {:yin.k/cursor-profiles (if (seq (:cells acc)) remote/cursor-profiles #{})
+                                :yin.k/segments segments
+                                :yin.k/trees (select-keys index segments)})
+          task (node :task [3 profile kind role (or (:id-counter m) 0) free-node store module-stores parked
+                            (node :cursor-cells (mapcat identity (:cells acc))) requires code installs waits
+                            (when (= :parked kind) (:id value)) result nil runs ready])]
+      ;; §3.3: a frame the evaluator itself minted that fails is inconsistent
+      (when-let [d (validate-frames task)]
+        (outcome! :yin.k/non-portable :inconsistent-state {:yin.k/defect d}))
+      task)))
 
 
 (declare task-tree)
 
 
 (defn- header-custody
-  "The root's custody slot from the caller's header, by kind: blocked or
-   parked takes the occurrence, arbitration, counter and the exclusive
+  "The root's custody slot from the caller's header, by kind: running,
+   blocked or parked takes the occurrence, arbitration, counter and the exclusive
    policy, and the origin when the header names one; halted the origin
    alone (an empty map without one, which the grammar refuses). A nil
    value is an absent key (handoff.cljc's header-of)."
@@ -1765,8 +1840,24 @@
             :else nil))))))
 
 
+(defn- check-completions!
+  [ready]
+  (doseq [[i r] (map-indexed vector ready)]
+    (let [[_ completion _ status _ refusal] (:slots r)
+          [tag & xs] (:slots completion)
+          try? (case tag :link-request (nth xs 2) :link-response (nth xs 2) :install (second xs) nil)]
+      (when-not (and (or (nil? status) (keyword? status))
+                     (if (= :link-refused status)
+                       (and (contains? #{:link-request :link-response :install} tag) (false? try?) (some? refusal))
+                       (nil? refusal)))
+        (outcome! :yin.k/undecodable :ready-outcome {:yin.k/path [:ready i]})))))
+
+
+(declare task-tree)
+
+
 (defn lift-task
-  "The lift of §7.1: quiescent semantic machine m as a version-3
+  "The lift of §7.1: semantic machine m at any boundary as a version-3
    carrier, or a refusal thrown as ex-data {:yin.k/status :yin.k/kind}.
    serve! is the exporter's remote-table entry (yin.vm.ucf.remote).
    opts: :free-env, the task's initial free environment (default: the
@@ -1782,13 +1873,24 @@
    so a caller can retain each answer under its key (holder.export's
    record). No header is the fork: custody nil. A header writes the
    root's slot by kind (header-custody), refuses :op-seq-exhausted at
-   2^52-1 on a blocked or parked root, and protects every retained write
+   2^52-1 on a running, blocked or parked root, and protects every retained write
    of the tree (protect!). Before emitting, the lift runs custody-baseline
    over the task, so it never emits a carrier the inspector refuses."
   ([m serve!] (lift-task m serve! {}))
   ([m serve! opts]
    (let [opts (or opts {})
          header (:header opts)
+         ;; Validate state, portability and conservative discharge before
+         ;; entering a single handle in the caller's serving table. These
+         ;; temporary names are used only by the pure preflight graph.
+         provisional (atom {})
+         preflight-serve (fn [h]
+                           (or (get @provisional h)
+                               (let [d {:dao.stream/identity (str "preflight-" (count @provisional))
+                                        :dao.stream/channel {:dao.stream/type :yin.k/preflight}}]
+                                 (swap! provisional assoc h d) d)))
+         preflight (lift-task* m preflight-serve (dissoc opts :serve-keyed) :root)
+         _ (doseq [[t _] (task-tree preflight :root)] (check-completions! (nth (:slots t) 18)))
          task (lift-task* m serve! opts :root)
          kind (nth (:slots task) 2)
          task (if (nil? header)
@@ -1887,7 +1989,7 @@
                      (= (:yin.ledger/input record) (:yin.module/tree manifest))
                      (jing/segment-matches? (:yin.ledger/output record) (:value (:image response))))
         (outcome! :yin.k/undecodable :install-image {:yin.k/name mn})))
-    (when-not (= :blocked child-kind)
+    (when-not (= (case phase :parked :blocked :running :running) child-kind)
       (outcome! :yin.k/undecodable :install-child {:yin.k/name mn :yin.k/task-kind child-kind}))))
 
 
@@ -1895,19 +1997,31 @@
   "Step 8, pending and operations: role, kind, parked id, every :install
    pending names a carried install, every install record."
   [recv task role]
-  (let [[_ _ kind role' _ _ _ _ parked _ _ _ installs waits parked-id] (:slots task)]
+  (let [[_ _ kind role' _ _ _ _ parked _ _ _ installs waits parked-id result _ runs ready] (:slots task)]
     (when-not (= role role') (outcome! :yin.k/undecodable :role {:yin.k/role role'}))
     (let [names (into #{} (map #(first (:slots %))) installs)]
       (doseq [w waits]
         (let [[reason n] (:slots (second (:slots w)))]
           (when (and (= :install reason) (not (contains? names n)))
             (outcome! :yin.k/undecodable :incomplete-install {:yin.k/name n})))))
+    (when-not (and (= (if (= :running kind) 1 0) (count runs))
+                   (= (= :halted kind) (some? result))
+                   (or (= :parked kind) (nil? parked-id)))
+      (outcome! :yin.k/undecodable :kind {:yin.k/task-kind kind}))
     (case kind
-      :halted (when (seq waits) (outcome! :yin.k/undecodable :kind {:yin.k/task-kind kind}))
-      :blocked (when (empty? waits) (outcome! :yin.k/undecodable :kind {:yin.k/task-kind kind}))
+      :running nil
+      :halted (when (or (seq waits) (seq ready)) (outcome! :yin.k/undecodable :kind {}))
+      :blocked (when-not (or (seq waits) (seq ready)) (outcome! :yin.k/undecodable :kind {}))
       :parked (when-not (some #(= parked-id %) (take-nth 2 (:slots parked)))
                 (outcome! :yin.k/undecodable :parked-id {}))
-      (outcome! :yin.k/undecodable :kind {:yin.k/task-kind kind}))
+      (outcome! :yin.k/undecodable :kind {}))
+    (check-completions! ready)
+    ;; Slot 18 deliberately applies only shape validation to completed IDs.
+    (doseq [[i r] (map-indexed vector ready)
+            :let [[tag & xs] (:slots (second (:slots r)))
+                  op-id (case tag :put (nth xs 2) :ffi-request (nth xs 5) :link-request (nth xs 3) nil)]
+            :when (some? op-id)]
+      (check-op-id-shape! op-id [:ready i :op-id]))
     (run! #(check-install! recv %) installs)))
 
 
@@ -2072,7 +2186,7 @@
   "Step 10, once for the tree after the three staged checks: the custody
    grammar (custody-baseline), then by the root's slot: a fork (nil) is
    refused under :exclusive as :yin.k/profile-mismatch; an exclusive
-   blocked or parked root runs the grant checks unless :fenced (an
+   running, blocked or parked root runs the grant checks unless :fenced (an
    administrative rehydration: no grant, gate :exporting); a halted
    exclusive root needs no grant and is gated :ended. Answers
    {:exclusive? :fenced? :state}, which restore applies to every task."
@@ -2108,7 +2222,8 @@
             m)]
     (if fenced?
       (assoc m :yin.k/gate :exporting :yin.k/recovery-waits (:wait-set m) :wait-set []
-             :yin.k/recovery-parked (:parked m) :parked {})
+             :yin.k/recovery-parked (:parked m) :parked {}
+             :yin.k/recovery-ready (:ready-queue m) :ready-queue [])
       m)))
 
 
@@ -2143,7 +2258,7 @@
                                     :ancestry (conj (vec (:ancestry recv)) mn)
                                     :capability-secret (when (fn? source) (source origin))})]
     [(cond-> (dissoc child :yin.k/closes :yin.k/issued :yin.k/gate :yin.k/custody
-                     :yin.k/recovery-waits :yin.k/recovery-parked :yin.k/recovery-cell-ids)
+                     :yin.k/recovery-waits :yin.k/recovery-parked :yin.k/recovery-ready :yin.k/recovery-cell-ids)
        fenced? (assoc :make-stream (:make-stream recv)))
      (assoc recv :origins (inc n))]))
 
@@ -2153,11 +2268,11 @@
    under recv, waits as engine entries, parked records, installs, and the
    custody check-custody! answered (with-custody)."
   [recv task handles custody root?]
-  (let [[_ _ kind _ id-counter free-env store module-stores parked census _ code installs waits parked-id result]
+  (let [[_ _ kind _ id-counter free-env store module-stores parked census _ code installs waits parked-id result _ runs ready]
         (:slots task)
         base (reduce (fn [r [_ v]] (module/attach-module r v))
                      (assoc (dissoc recv :yin.k/closes :yin.k/issued :yin.k/gate :yin.k/custody
-                                    :yin.k/recovery-waits :yin.k/recovery-parked :yin.k/recovery-cell-ids)
+                                    :yin.k/recovery-waits :yin.k/recovery-parked :yin.k/recovery-ready :yin.k/recovery-cell-ids)
                             :code {} :code-aliases {} :program nil)
                      (sort-by #(str (key %)) code))
         aliases (:code-aliases base)
@@ -2276,6 +2391,21 @@
                          module-stores)
             parked' (into {} (map (fn [[p _]] [p (parked-record p)])) parked-index)
             entries (mapv entry waits)
+            ready-entries (mapv (fn [r]
+                                  (let [[st c v status updates refusal] (:slots r)
+                                        [tag & xs] (:slots c)
+                                        e (case tag
+                                            (:link-request :link-response)
+                                            (cond-> (assoc (payload st) :reason tag :link-id (first xs) :name (second xs) :try? (nth xs 2))
+                                              (and (= :link-request tag) (some? (nth xs 3))) (assoc :op-id (nth xs 3)))
+                                            :install (assoc (payload st) :reason :install :name (first xs) :try? (second xs))
+                                            (entry (node :wait [st c])))]
+                                    (cond-> (assoc e :value (value v) :status status
+                                                   :resource-updates (into {} (map (fn [[c b]]
+                                                                                     [(get cell-keys c)
+                                                                                      {:stream-id (stream-key (first (:slots b))) :cursor (second (:slots b))}]))
+                                                                           (partition 2 (:slots updates))))
+                                      (some? refusal) (assoc :refusal (value refusal))))) ready)
             link (some #(let [[reason _ _ req resp] (:slots (second (:slots %)))]
                           (when (contains? #{:link-request :link-response} reason) [req resp]))
                        waits)
@@ -2300,16 +2430,28 @@
             ;; max(local, carried)
             machine (cond-> (assoc base :store store' :module-stores stores :parked parked' :installs installs'
                                    :resources resources :env fe :free-env fe :window {} :k nil :control nil
-                                   :ready-queue []
+                                   :ready-queue ready-entries
                                    :id-counter (if (:fenced? custody)
                                                  id-counter
                                                  (max (or (:id-counter base) 0) id-counter)))
                       ;; resource key -> the carrier's cursor cell, so one
                       ;; cell is one key and two cells two (UCF 7.7.4)
                       (:fenced? custody)
-                      (assoc :yin.k/recovery-cell-ids (into {} (map (fn [[c k]] [k c])) cell-keys)))]
+                      (assoc :yin.k/recovery-cell-ids (into {} (map (fn [[c k]] [k c])) cell-keys)))
+            ;; The receiver registry's lowered bindings name its old local
+            ;; code coordinates. Reinstantiate its linked slices after the
+            ;; carried images and stores, using this task's fresh coordinates.
+            ;; receive-module preserves each carried live store.
+            machine (reduce (fn [m [mn entry]]
+                              (if (:address entry)
+                                (engine/receive-module m mn (dissoc entry :bindings)) m))
+                            machine (module/module-entries (:modules recv)))]
         (with-custody
           (case kind
+            :running (let [p (dissoc (payload (first runs)) :deliver)]
+                       (assoc machine :control (select-keys p [:segment :pc]) :env (:env p)
+                              :window (:window p) :k (when (seq (:k p)) (:k p))
+                              :halted? false :blocked? false :value nil :wait-set entries))
             :halted (assoc machine :halted? true :blocked? false :value (value result) :wait-set [])
             :parked (assoc machine :halted? true :blocked? false :value (get parked' parked-id) :wait-set entries)
             (assoc machine :halted? false :blocked? true :value :yin/blocked :wait-set entries))
@@ -2328,7 +2470,7 @@
    opts: :budget; :yin.k/admitted-modules, a composition-supplied {name manifest-address}
    for carried install children (default empty, fail closed);
    :exclusive, refuse a fork root; :grant and :protection,
-   required by a blocked or parked exclusive root (handoff.cljc's reader
+   required by a running, blocked or parked exclusive root (handoff.cljc's reader
    contract: the grant names :checkpoint, the pack address, its lease,
    holder, tenure and evidence; :protection maps every stream identity of
    the tree to its class); :fenced, an administrative rehydration that
