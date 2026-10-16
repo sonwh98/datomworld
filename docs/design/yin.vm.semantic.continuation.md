@@ -137,19 +137,20 @@ questions · §12 portability.
    identically to the reference on what it accepts, refuses before any
    attach what it cannot represent, and is not widened.
 
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17)**
+
+9. **Preemptive migration at any pc is a primary invariant of `yin.vm`** (owner, 2026-10-17: "preemptive migration, the ability to pause and continue at any PC, is a primary invariant of yin.vm. It is why yin.vm is defined as a continuation VM based on the CESK model. The UCF being only defined at a wait or parked state is a violation of this invariant"). The carrier expresses the evaluator's complete task state between **any** two instructions, including the scheduler's products (remaining waits, completed wakes), not only its two delivery states; a safepoint is a boundary at which the program stops by itself. Slices 6d-a (carrier, reference lane), 6d-b (holder, custody, expiry) and 6e (backends) land it.
+
 ### 0.2 The answer
 
-A continuation is a value: one **canonical frame** of the register
-machine, `act` or `tail`, with its saved window, its `K` of `:return`
-frames, its environment, its delivery record and its pending wait
-(frozen §2.4, §4.2), plus the task context it needs: the task's **free
+A continuation is a value: one **canonical frame** of the register machine, which is a `run` state `⟨A, pc, W↾L(pc), E, K⟩` at any instruction boundary (§1.3) or one of its two delivery states, `act` or `tail`, with the saved window, the delivery record and the pending wait the evaluator mints when it parks (frozen §2.4, §4.2); and a task is the product of its activation, its ordered waits and its ordered completed wakes (§2.6); plus the task context it needs: the task's **free
 environment**, store slice, module stores, parked table, cursor cells, code by
 A and the tree association. **§1** restates the frame as the 4b
 evaluator mints it. **§2** gives the row carrier: body version 3, one
 profile (`"v4"`), Merkle content rows under Jing's default digest, the
 window as a sorted keyed row in which a nil value is a present
 `[:lit nil]`, `:act`, `:tail`, `:window`, `:kframe`, `:reified` and
-`:parked-table` rows replacing the stale stack-shaped rows, a root
+`:parked-table` rows, the `:run`, `:ready` and `:completion` rows (6d) replacing the stale stack-shaped rows, a root
 `free-env` slot, the pending rows and census unchanged. **§3** gives the
 validator as an ordered set of rules over the decoded frame, the carried
 code and decoded task context, engine-independent, run after canonical
@@ -175,11 +176,12 @@ and 4b stage 2), 6c the layouts and the stack tail-completion seam
 **DECIDED** (frozen §2.4 "Delivery", §4.2; evaluator design §1.3-1.6;
 `srvm-phase4b:semantic_register.cljc:61-84` for `act-payload`,
 `entry-builders`, `tail-builders`; `:229-234` for the reified payload
-and the park). Two closed state shapes and one closed delivery record:
+and the park). Three closed state shapes and one closed delivery record:
 
 ```clojure
 act  = {:segment seg :pc n :env E :window W :k K :deliver {:deliver :rd :rd r}}
 tail = {:segment seg :site n :k K :deliver {:deliver :return}}
+run  = {:segment seg :pc n :env E :window W :k K}      ; between instructions; no deliver, no pending
 ret  = {:type :return :segment seg :pc n :env E :window W :rd r}     ; one frame kind of K
 ```
 
@@ -239,6 +241,22 @@ two are in bijection (§2.6).
 
 ---
 
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17)**
+
+```clojure
+;; run state (6d)
+{:yin.k/state :run
+ :yin.k/segment A :yin.k/pc n
+ :yin.k/env {:yin.k/bindings {sym V …} :yin.k/store-of M?}
+ :yin.k/window {r V …} ; exactly L(n), retaining nil-valued keys
+ :yin.k/k […]}        ; no deliver, no pending
+```
+
+### 1.3 States between instructions, and the task product
+
+The two delivery states of §1.1 are the states at which the evaluator parks by itself. They are special cases of its general state between any two instructions, `⟨A, pc, W↾L(pc), E, K⟩`, which `vm-hot` materializes whenever fuel runs out (`semantic.cljc:142-143`) and which the carrier expresses as the `run` state of §1.2. A step is atomic: effects are observed only inside a step or inside the scheduler's sweep, so no state between steps holds a half-issued effect; atomicity of a step is not transactionality of the outside world (an append performed before a host exception is not undone). A task is a **product**: at most one active activation (the `run`), its ordered pending waits, its ordered completed wakes (the ready queue: a woken wait with the value, status and cursor update its effect produced, carried by the `:ready` row of §2.3), its parked table, and its stores. The scheduler constructs every combination: resuming one of several woken waits leaves the others queued and the unresolved ones pending (`engine.cljc:2294-2312`, `:2305`). Every such state is **representable**. The lift refuses only what is not **portable** (a value with no wire form), not **satisfied** (code or dependencies the receiver lacks), or a **hold** (a driver-internal observation in flight: §7.1 step 1), never a pc. The static correspondence of §4 holds at every pc of a body: distinct virtuals in `L(p) ∪ def(p)` hold distinct physical registers (`derive/allocation`), and the stack kernel's operand region at A pc `p` is `stack-layout(p) ++ uses(p)` above a dead prefix (§4.3); both are checks (§5.6), not theorems. A root whose task has an active activation has kind `:running` (§2.6) and is a custody subject like a blocked or parked root (§7.3).
+
+
 ## 2. The row carrier
 
 The row-carrier draft (`yin.vm.ucf-transport-tuples.md`) is adopted
@@ -293,6 +311,9 @@ and `:tail` (§10.1 F1, reviewer: ACCEPTED):
 | Kind | Slots | Notes |
 |---|---|---|
 | `:act` | `segment-A  pc-N  env-cref  window-cref  k-cref  rd-N` | the delivery record is `{:deliver :rd :rd rd-N}` by kind |
+| `:run` | `segment-A pc-N env-cref window-cref k-cref` | between instructions; no delivery, no pending |
+| `:ready` | `state-cref completion-cref value optional-status updates-cref optional-refusal` | an ordered completed outcome |
+| `:completion` | discriminated by the table below | completed operations, separate from outstanding pendings |
 | `:tail` | `segment-A  site-N  k-cref` | delivery `{:deliver :return}` by kind; **no** env, window or pc slot |
 | `:window` | `r₁ V₁  r₂ V₂  …` sorted by `rᵢ` ascending, unique | `rᵢ` is `N`; **a nil-valued register is present as `rᵢ [:lit nil]`**; the empty window is `[:window]` |
 | `:k` | `kframe-cref …` outermost first | `[:k]` is the empty continuation |
@@ -308,6 +329,25 @@ structural rows, never a `V`; the draft's "a reference-free collection
 must be `[:lit d]`" rule is about guest collections. `rd` on `:act` is
 redundant with the instruction at `pc−1` and is checked (rule A2), as
 `pc` is redundant with the pending and checked.
+
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17)**
+
+A ready row contains a delivery-state reference, completed-operation descriptor, outcome value, optional status, cursor-update row and optional raised-refusal value. Its delivery state is act or tail, never run. It is judged in context `:ready`, without an outstanding pending.
+
+Completed descriptors cover ordinary reads and writes, FFI response and request-append outcomes, link-request and link-response outcomes, and install outcomes. Link/install completion does not require the request transport or install entry that existed before completion. A successful link/install outcome may have no status. Try failures return their carried value; ordinary require failures restore `:link-refused` and refusal data for the terminal-resume path.
+
+Slot 9 is the sole cell census. A ready update pairs an existing canonical C with its independently emitted cell body. One C may name different bodies across the census and ordered update rows. Restore maps C through the census’s fresh-key map and applies the update body carried by that ready row.
+
+| Completion tag | Slots after the tag | Restored engine meaning |
+|---|---|---|
+| `:next` | `C` | Ordinary completed reader; reconstruct cursor-ref and stream-id through the census. |
+| `:put` | `stream-cref, datom-V, optional-op-id-D` | Ordinary completed append outcome; never append again. |
+| `:ffi` | `C, call-id-D, op-D` | Completed FFI response reader; restore engine reason `:next` and correlation fields. |
+| `:ffi-request` | `call-id-D, envelope-V, request-stream-cref, response-stream-cref, C, optional-op-id-D` | Completed request append; restore `:request-sent true`, so successful resume creates the response wait rather than delivering the append result to the guest. |
+| `:link-request` | `link-id-D, module-S, try?-D, optional-op-id-D` | Completed link-request outcome; no outstanding request or response transport is required. |
+| `:link-response` | `link-id-D, module-S, try?-D` | Completed link-response outcome. |
+| `:install` | `module-S, try?-D` | Completed initializer outcome; no remaining install entry is required. |
+
 
 ### 2.4 Pending rows
 
@@ -377,7 +417,7 @@ markers (`:request-sent`, `:call-id`, `:op`, `:datom`,
 [T :task
    version          ; 3
    contract         ; {:yin.code/contract "v4" :yin.k/version 1}
-   kind             ; :blocked | :parked | :halted
+   kind             ; :running | :blocked | :parked | :halted
    role             ; :root | :child
    id-counter       ; N
    free-env-cref    ; NEW: a :bindings row, the task's initial free environment (§6.3)
@@ -388,10 +428,12 @@ markers (`:request-sent`, `:call-id`, `:op`, `:datom`,
    requires         ; plain: UCF §7.6.1's map plus :yin.k/trees (§6.1)
    code             ; plain: {A canonical-vector …}, "v4" vectors verified to hash to their key
    installs         ; crefs to :install rows, sorted by module name
-   frames           ; crefs to :wait rows, in wait order     (:blocked, :parked)
+   frames           ; crefs to :wait rows, in wait order     (:running, :blocked, :parked)
    parked-id        ; P or nil                                (:parked only)
    result           ; V or nil                                (:halted only)
-   custody]         ; plain, draft §5.5's table
+   custody          ; plain, draft §5.5's table
+   run              ; slot 17: crefs to :run rows
+   ready]           ; slot 18: crefs to :ready rows, in queue order
 ```
 
 No `layout` slot and no native image: those were the positional
@@ -400,12 +442,24 @@ profiles' (v2 amendment §2, §4.1).
 **Amended after 7 (2026-10-14)** — Reason: the owner chose nil fork custody and phase 7 enforces the slot grammar.
 The custody slot admits only `:yin.k/policy`, `:yin.k/occurrence`,
 `:yin.k/arbitration`, `:yin.k/next-op-seq` and `:yin.k/origin`.
-Fork roots of every kind and all children carry nil. Exclusive blocked
+Fork roots of every kind and all children carry nil. Exclusive running, blocked
 or parked roots require the first four keys, with policy
 `:yin.k/exclusive`, and carry origin when present; halted exclusive
 roots carry origin only. A header-bearing halt without origin refuses.
 No current lease, epoch or holder enters the body; the predecessor lease
 inside origin is lineage evidence.
+
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17)**
+
+| Kind | Machine classification | Waits | Run | Ready | Parked-id | Result |
+|---|---|---:|---:|---:|---|---|
+| `:running` | `:control` set | 0..n | exactly one | 0..n | absent | absent |
+| `:parked` | control nil; value names a held parked record | 0..n | none | 0..n | table key | absent |
+| `:blocked` | control nil; not parked; waits or ready nonempty | 0..n | none | 0..n | absent | absent |
+| `:halted` | control nil; halted; waits and ready empty | none | none | none | absent | present |
+
+A halted activation beside queued work classifies `:blocked`: the scheduler processes the queue before returning the halt result. A halted activation with outstanding waits and an empty queue also classifies `:blocked`, dropping its halt value as today. The latter is an existing carrier normalization, not a claim that the source halt value is unobservable; acceptance pins it separately.
+
 
 ### 2.7 The bijection with the keyed frame
 
@@ -432,10 +486,10 @@ return-frame sites, `K` structure, pending compatibility). **PROPOSED**
 (frame/defect frame code context task)
 ;; frame   : a decoded canonical frame (§1.2), any shape (the rules judge it)
 ;; code    : {A vector}, every vector already code/well-formed? (step 4 of the carrier ran)
-;; context : :wait | :captured | :parked
+;; context : :wait | :captured | :parked | :running | :ready
 ;; task    : decoded task context, plain data, no engine:
 ;;           {:parked-key P-or-nil                 ; the parked-table key this frame sits under (:parked only)
-;;            :ffi-call-ids #{…}                   ; call ids of the task's live :ffi and :ffi-request pendings
+;;            :ffi-call-ids #{…}                   ; call ids of the task's outstanding and completed FFI call ids
 ;;            :free-env {sym V …}}                 ; the root's free environment, decoded
 ;; => nil, or {:yin.k/kind k :yin.k/path p …}
 
@@ -469,7 +523,7 @@ body `b` as phase-5 §1.2 (closure pcs innermost first) and `params(c) =
 
 | # | Rule | Kind |
 |---|---|---|
-| S1 | `frame` is a map; `:yin.k/state` is `:act` or `:tail`; an `act` has exactly the keys `:yin.k/state :yin.k/segment :yin.k/pc :yin.k/env :yin.k/window :yin.k/deliver :yin.k/k` plus optionally `:yin.k/pending`; a `tail` exactly `:yin.k/state :yin.k/segment :yin.k/site :yin.k/deliver :yin.k/k` plus optionally `:yin.k/pending` | `:frame-shape` |
+| S1 | States are `:act`, `:tail`, `:run`; a run has exactly state, segment, pc, env, window and k. Delivery states keep their existing exact key sets. | `:frame-shape` |
 | S2 | `:yin.k/k` is a vector; every element is a map with exactly `:yin.k/frame-type :yin.k/segment :yin.k/pc :yin.k/env :yin.k/window :yin.k/rd`, `:yin.k/frame-type` is `:return` | `:k-shape` (path `[:yin.k/k i]`) |
 | S3 | every `:yin.k/window` present (the act's, each return frame's) is a map whose keys are exact non-negative integers (on the wire: sorted ascending, unique) and whose values are `V` | `:window-representation` |
 | S4 | every `:yin.k/env` present is `{:yin.k/bindings {S V …}}` optionally with `:yin.k/store-of M`; `:yin.k/deliver` is a map | `:env-shape` / `:deliver-shape` |
@@ -479,10 +533,10 @@ body `b` as phase-5 §1.2 (closure pcs innermost first) and `params(c) =
 | # | Rule | Kind |
 |---|---|---|
 | C1 | `:yin.k/segment` of the frame and of every return frame names a key of `code` | `:segment` |
-| C2 | an `act`'s `pc`, every return frame's `pc` and a `tail`'s `site` are **exact non-negative integers** (`cbor/numeric-kind` `:integer` for a wire value; never a float carrier), checked **before** any indexing; then `0 < pc < (count v)` and `0 ≤ site < (count v)` | `:pc-kind` / `:pc-bounds` |
-| C3 | `body(pc−1) = body(pc)` for the act and every return frame (no body ends in a parking instruction, frozen §3.4 rule 6) | `:pc-body` |
+| C2 | Exact integer PC; act and return-frame PCs are positive and in bounds; run PC may be zero. | `:pc-kind`, `:pc-bounds` |
+| C3 | Act and return frames retain body continuity; the run itself skips that predecessor check. | `:pc-body` |
 
-**The current activation (`act` only; a `tail` skips A1-A6).**
+**The current activation (`act` only; `tail` and `run` skip A1-A6).**
 
 | # | Rule | Kind |
 |---|---|---|
@@ -524,7 +578,7 @@ body `b` as phase-5 §1.2 (closure pcs innermost first) and `params(c) =
 
 | # | Rule | Kind |
 |---|---|---|
-| P1 | `context :wait` requires `:yin.k/pending` present; `:captured` and `:parked` require it absent | `:pending-presence` |
+| P1 | `:wait` requires pending; `:captured`, `:parked`, `:running`, `:ready` require pending absent. Run is admitted only in `:running`; `:ready` admits only act/tail. | `:pending-presence` |
 | P2 | (`:wait`) the pending's reason is admitted by `inst(pc−1)` (act) or `inst(site)` (tail): `:stream-next → :next`; `:stream-put → :put`; `:ffi-call → :ffi, :ffi-request`; `:call → :next :put :ffi :ffi-request :link-request :link-response :install`; `:park` and `:current-continuation` admit none (frozen §4.1; `wire-of-kind`, `handoff.cljc:491-504`; ucf-revisions §8) | `:reason-mismatch` |
 | P3 | (`:captured`) the frame is an `act` and `inst(pc−1)` is `:current-continuation` | `:captured-site` |
 | P4 | (`:parked`) either `inst(pc−1)` is `:park` (an `act`), or `(:parked-key task) ∈ (:ffi-call-ids task)` and the frame is an `act` with `inst(pc−1) = :ffi-call` or a `tail` whose `inst(site)` is a tail `:call` (bookkeeping, evaluator §1.6) | `:parked-site` |
@@ -535,6 +589,25 @@ environment, so the carrier carries it and the validator checks that
 every `E` agrees with it off the lexical names. Nothing here reads a
 stack depth, a stack base or a `live` vector.
 
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17)**
+
+| Rule | Requirement | Diagnostic |
+|---|---|---|
+| R1 | Run window keys are in the body’s register scope. | `:window-scope` |
+| R2 | Run window keys equal `L(pc)`; act/return windows retain `saved(pc, rd)`. | `:window-extra`, `:window-missing` |
+| Q1 | A ready completion’s tag must be compatible with the delivery site, using the same site/reason relation as waits. | `:reason-mismatch` |
+| Q2 | Link/install completion `try?` is boolean; completed install does not require membership in the task’s installs. | `:pending-try` |
+| Q3 | Ready status is nil or a keyword; `:link-refused` requires link/install completion, `try? false`, and refusal data; other outcomes have no refusal slot. | `:ready-outcome` |
+| Q4 | Every update key names a cell in this task’s slot-9 census; update rows have unique keys and valid bodies. | Existing missing-cell/duplicate-key diagnostics |
+| Q5 | Every present completed operation ID passes shape-only validation. | `:malformed-op-id`, `:inexact` |
+
+Q1 and Q2 receive the completion descriptor through the validation context; they do not fabricate a pending field on the delivery frame. Ready FFI descriptors contribute their call IDs to task context alongside outstanding FFI waits, so parked FFI records remain valid while their response or sent-request outcome is queued.
+
+
+`window-defect` is parameterised by the wanted set: `saved(pc, rd)` for act/return, `live(pc)` for run. A run has no window-self analogue.
+
+Validate every task context first; then judge outstanding waits in `:wait`, active run states in `:running`, ready delivery states in `:ready`, parked states in `:parked`, and reified states in `:captured`. Ready descriptors receive completed-operation validation separately from pending validation. FFI call IDs are collected from outstanding waits and completed outcomes.
+
 ### 3.3 Where and when the validator runs
 
 **DECIDED** (carrier order kept: draft §8, step 7 after step 6; the
@@ -543,7 +616,7 @@ hashes (4), canonical form (5), canonical numbering (6), **frames (7)**,
 pending and operations (8), dependency closure (9), custody (10),
 composition (11), restore (12). In step 7 the body's decoded task
 context is judged first by `frame/task-defect` (X1), then every `:act`,
-`:tail`, `:kframe`, `:reified` and parked-table state is decoded and
+`:tail`, `:run`, `:kframe`, `:reified`, ready delivery and parked-table state is decoded and
 judged by `frame/defect` with its context and that task context; a defect
 is `:yin.k/undecodable` with the rule's kind and the row path. A
 first-defect test therefore sees a numbering defect
@@ -807,6 +880,10 @@ the value at the entry's `pc` (`:748-752`, `:555-568`).
    `stack-layout(p)` is not consulted (it may be non-empty for a tail
    call in operand position, whose pushed siblings are dead layout
    syntax).
+
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17).** Static layouts are defined at every pc of every body. For a conditional's jump pc `j`, `stack-layout(j) = stack-layout(b) ++ [rd(if)]`, where `b` is its branch pc and both arms define `rd(if)`. A body's `:return` or `:halt` terminator has layout `[]`.
+
+Let `register-sequence(p) = layout(p) ++ uses-in-order(p)` and `expected-values(p) = [W[r] for r in register-sequence(p)]`. Compare ordered region length and contents to that sequence, including repeated-register agreement. Separately check `set(layout(p)) ∪ set(uses(p)) = L(p)` at reachable non-tail PCs except the four enumerated dead ambient operand PCs in §8.6 item 9, and `set(uses(p)) = L(p)` at reachable tail-call PCs. Ordered multiplicity is not the cardinality of `L(p)`. Retain the parked-window check. The dead-prefix treatment and running backend lift belong to 6e.
 
 **K slices (corrected).** Let the kernel's continuation be
 `[f₀ … f_{m−1}]` outermost first with bases `b₀ … b_{m−1}` and the
@@ -1198,7 +1275,7 @@ landed or stage-2 evaluator.
 | 8 | link response phase | `(require 'host.mod)` polling (request appended) | append the `:ok` response | act, `:link-response` | `'host.mod` | 4b stage 2 |
 | 9 | **link, tail** | `((fn [u] (require 'host.mod)) 0)` tail | as 8 | **tail**, `:link-response` | `'host.mod` through `K` | 4b stage 2 |
 | 10 | install, blocked child (**amended after 6b**) | `(require 'host.mod)` where `host.mod`'s body reads a stream the test has not fed, so the child is `:blocked` and the parent's wait is `:install` | feed the child's stream | act, `:install` + install entry, child kind `:blocked`, **phase `:parked`** | `'host.mod` | yes |
-| 11 | install, `:running` wire phase (**amended after 6b, synthetic phase**) | row 10's machine with the install entry's phase set to `:running` **by hand** before the lift | as 10 | act, `:install`, child kind `:blocked`, phase `:running` | `'host.mod` | the program is row 10's; the phase is not engine-reachable at a safepoint (see below) |
+| 11 | install at a running child's fuel boundary | row 10's child is fed and advanced by `run-fuel 1`; its active control is carried | as 10 | act, `:install`, child kind `:running`, phase `:running` | `'host.mod` | the running child is obtained by execution |
 | 12 | install, tail | `((fn [u] (require 'host.mod)) 0)` tail with 10's child | as 10 | **tail**, `:install` | `'host.mod` through `K` | 4b stage 2 |
 | 13 | explicit park | `(vm/park)` | `(vm/resume pid "back")` beside | parked record, root `:parked` | `"back"` | yes |
 | 14 | reified capture live in a window | `(let1 k (vm/current-continuation) (cat (cat [] k) (next-of c)))` | append `"B"` | act, `:next`; `k` is a `:reified` value in `W` | `[:continuation "B"]` normalised | yes |
@@ -1216,22 +1293,14 @@ landed or stage-2 evaluator.
 **Amended after 6b (2026-10-13), rows 10-12 and the install contract
 (B1).** The earlier text promised a child "`:blocked`, phase `:running`"
 (row 10) and a child "executing `:park`, kind `:parked`" (row 11).
-Neither is an engine state at a quiescent safepoint. `advance-install`
+The running child is an engine state at a fuel boundary; the parked child is blocked at a parking boundary. `advance-install`
 (`engine.cljc:1421-1454`) runs the child inside the sweep and then
 records it: a **blocked** child is retained at phase **`:parked`**
 (`:1444-1446`); a **halted** child goes straight to `link-install` in the
 same sweep (`:1447-1452`), so it is never retained; and a child that
 executes `:park` is `:halted?` with a parked value, so it too goes to
 `link-install`, which completes the install if the exports are already
-defined and otherwise refuses it `:export-missing`. Phase `:running` is
-assigned only in the `:else` arm, within one sweep, and is overwritten
-before any safepoint. So: row 10 is the engine's real state (child
-`:blocked`, phase `:parked`); row 11 exercises the `:running` **wire
-phase**, which the codec accepts (`install-node` admits `#{:running
-:parked}` on lift and `check-install!` on lower) and the harness
-constructs by hand on row 10's machine (`installing % false :running`,
-`safepoint_harness_test.cljc:342`); row 12 is row 10's child under tail
-delivery. No row promises an executable kind-`:parked` install child on
+defined and otherwise refuses it `:export-missing`. **Amended 2026-10-16 (any-pc, owner invariant 2026-10-17).** A budgeted sweep can retain a child with active control at phase `:running`. Row 11 now obtains that state by real execution. The lower requires a `:running` child at phase `:running` and a `:blocked` child at phase `:parked`. Row 12 is row 10's child under tail delivery. No row promises an executable kind-`:parked` install child on
 the current engine (owner question §11 Q1). **The install validation
 the lower enforces** (`check-install!`, before any attachment, §7.2):
 the phase is one of `#{:running :parked}` (`:install-phase`); the
@@ -1239,13 +1308,11 @@ retained response is a map with `:status :ok`, a `:manifest` map whose
 `:yin.module/name` equals the install's module name and whose
 `:yin.module/exports` is a collection of symbols, and an `:image` map
 whose `:value` the receiving kernel's loader admits (`:install-response`);
-and the carried child task's kind is **`:blocked`** (`:install-child`),
-because a halted or parked child would have been linked in the sweep it
-halted in. On lift, `install-node` refuses a phase outside the set as
+and the carried child task is **`:blocked`** at wire phase `:parked`, or **`:running`** at wire phase `:running` (`:install-child`); a halted child is linked in the sweep it halts in. On lift, `install-node` refuses a phase outside the set as
 `:yin.k/non-portable :incomplete-install` and a response CBOR cannot
 encode as `:yin.k/non-portable :install-response`.
 
-Refusal rows: `:yin.k/not-quiescent` (`a-nonempty-ready-queue-is-not-quiescent`,
+Historical phase-6 refusal rows (superseded by the completed carrier): `:yin.k/not-quiescent` (`a-nonempty-ready-queue-is-not-quiescent`,
 `:591-603`); `:yin.k/not-at-safepoint` (a register kernel stepped one
 instruction past a `:const`, asked to lift); `:yin.k/non-portable
 :reason-mismatch` (the `:observe` hold, `:675-692`); and the validator's
@@ -1452,6 +1519,40 @@ it cannot prove the harness proves separately (R4).
 
 ---
 
+Check ordered region length and contents against `layout(p) ++ uses-in-order(p)`, with repeated-register agreement and the specified dead-prefix treatment. Check the non-tail and tail set equations separately. Ordered multiplicity is not the cardinality of `L(p)`. Retain the parked-window check.
+
+### 5.7 The stepping driver
+
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17)**
+
+**Order per point** (reference lane, 6d-a; backends, 6e): at boundary `S_i` of the stepping source: (1) **lift**; (2) **lower** into a fresh receiver of an **isolated world** (§ below); (3) **immediate relift** of the receiver and **law 2** (`canonical-under` root equality with the lift; no execution in between); (4) **law 6** on every lifted frame (plus the two window tampers); (5) **run the receiver to the end** in its world, **law 1** (result and effect trace equal the reference's, after `normalize`'s fresh-identity correspondence); (6) negative controls kept: cursor positions and descriptors, windows and lexical values tampered are refused or differ as today.
+
+**Isolated worlds**: each point builds the receiver's composition and streams fresh from the case's **deterministic script** (the same scripted inputs the reference run saw, fed to the receiver's own streams); the stepping source's world is never shared with a receiver; fresh identities normalise through the existing correspondence (`normalize`, `:238`). The reference result and trace are computed once per case on a pristine world.
+
+**Coverage.**
+
+The stepping driver uses returned `run-fuel 1` boundaries. Its coverage classes are body entry, taken and untaken branch, jump, non-tail call, return, tail transition, capture, resume, park, FFI park, active-plus-waits, active-plus-ready, and running install child.
+
+Blocked-plus-ready is tested through an explicit **post-sweep/pre-resume fixture**, constructed with `check-wait-set`. It is not a mandatory returned boundary of the stepping driver. The shared-cursor fixture uses this same seam.
+
+Report driver coverage separately from constructed scheduler-product coverage. Pin per-case/per-host counts after measurement. Neither coverage inventory claims a theorem over all programs.
+
+**Refusal oracle.**
+
+The independent test traversal covers:
+
+- Run windows and lexical bindings.
+- Every K-frame window and lexical binding.
+- Outstanding wait delivery states.
+- Ready delivery states and ready outcome values.
+- Optional ready refusal values and restored value-bearing completion fields.
+- Parked states and recursively reached collections, closures and continuations.
+
+For register targets, exactly the expected unsupported points refuse `:yin.k/unsupported :continuation-registers` before attachment. Every other point in the admitted backend fragment transfers and continues to the reference outcome. Include a case whose only unsupported primitive is nested in a queued outcome.
+
+Terminal outcomes are compared as outcomes: receiver and source must raise the same classified failure with the same portable diagnostic data after identity normalization, rather than both being required to return a guest value.
+
+
 ## 6. Code and task context in the carrier
 
 ### 6.1 Code
@@ -1586,7 +1687,7 @@ the shared free environment; refuse, do not convert (R3; §11 6c Q3).
 
 ### 7.1 Lift
 
-**DECIDED** (draft §9, UCF §7.8): refuse unless quiescent; refuse the
+**DECIDED** (draft §9, UCF §7.8): carry ordered completed outcomes; refuse the
 holds (`unliftable-hold`, `handoff.cljc:588`) as `:yin.k/non-portable
 :reason-mismatch`; classify kind; run the **dependency closure over the
 `"v4"` vectors**, which needs the phase-5 scanners
@@ -1645,19 +1746,17 @@ fetch and admission path, with A the only code identity and the AST
 retained. The holder retains serve answers by `[task-path resource-id]`;
 encode uses those answers without serving externally.
 
+Before entering handles in the external serving table, `lift-task*` runs with temporary plain-data identities to check portability, frames and conservative discharge. This preflight does not call the composition's `serve!` or `:serve-keyed`. A discharge refusal therefore serves zero handles. `discharge!` and its edge-reachability conservatism are unchanged.
+
 The merged order is:
 
-1. **Quiescence and safepoint.** Refuse `:yin.k/not-quiescent` on a
-   non-empty ready queue; refuse the holds (`unliftable-hold`: `:observe`,
-   `:held`, `:unminted-cursor`, `:pending-close`,
-   `:link-cursor-not-installed`) as `:yin.k/non-portable :reason-mismatch`;
-   refuse `:yin.k/not-at-safepoint` when `:control` is set.
-2. **Kind.** `:parked` when the value is a parked continuation the parked
-   table holds, else `:blocked` on a non-empty wait set, else `:halted`
-   with an empty queue; anything else is `:yin.k/not-at-safepoint`.
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17)**
+
+1. **Holds.** Refuse `:yin.k/non-portable :reason-mismatch` on an observe wait, held entry, unminted cursor, pending close or link request without its cursor. These are driver-owned incomplete transitions. Their completion can depend on external acknowledgement or backpressure; there is no one-cycle resolution guarantee. There is no ready-queue quiescence refusal: completed outcomes travel in order.
+2. **Kind.** `:running` when `:control` is set; else `:parked` when the value is a parked continuation the parked table holds; else `:blocked` when the wait set or the ready queue is non-empty; else `:halted` with empty wait set and queue; anything else is `:yin.k/non-portable :inconsistent-state` (unreachable by construction).
 3. **Free environment** (§6.3): the option, else the kernel field, else
    `:missing-free-env`.
-4. **The walk.** Waits (state and pending), the parked table, the whole
+4. **The walk.** The active run state with its window trimmed to `L(pc)`, waits (state and pending), ordered ready outcomes, the parked table, the whole
    store, the result (halted only), install children (each a recursive
    `lift-task*` in the child role with its own accumulator), then the
    module stores by reachability. Every value is classified `[:lit x]`,
@@ -1666,7 +1765,7 @@ The merged order is:
    (`:forged-resource-reference`), a foreign-owned value is
    `:foreign-value`, a heap cell `:cell`, a host object `:host-object`.
    The walk records every **segment** reached and every **context**: a
-   closure's `(A, entry, E)`, an `act`'s `(A, pc, E)`, a return frame's
+   closure's `(A, entry, E)`, an `act`'s or `run`'s `(A, pc, E)`, a return frame's
    `(A, pc, E)`. A `tail` state contributes its `K` frames' contexts and
    none for its own dead activation.
 5. **Code.** `{A vector}` for the segments reached, from the kernel's
@@ -1704,12 +1803,12 @@ The merged order is:
 8. **The task.** `requires` is `{:yin.k/cursor-profiles … :yin.k/segments
    … :yin.k/trees … :yin.k/modules … :yin.k/host-exports …}`; the abstract task is initially assembled with nil custody.
 9. **Frames.** `validate-frames` over the assembled abstract task (X1,
-   every wait, parked state and reified value, children recursively); a
+   every wait, run state, ready delivery state and descriptor, parked state and reified value, children recursively); a
    defect is `:yin.k/non-portable :inconsistent-state` carrying it. The
    lift does not decode its own output a second time.
 10. **Header and custody, then emit.** After `lift-task*` has validated
     frames, a non-nil header refuses `:op-seq-exhausted` at 2^52-1 for
-    blocked/parked roots, checks every retained write of the tree against
+    running/blocked/parked roots, checks every retained write of the tree against
     enrollment (`:unprotected-pending` when an enrolled target lacks an
     op-id; `:yin.k/unsatisfied` when an id targets an unenrolled stream),
     and writes the root's custody slot by kind. `custody-baseline` then
@@ -1724,6 +1823,10 @@ The merged order is:
 whose ex-data carries `:yin.k/status`, a `:yin.k/kind` where one is
 named, and the defect's data, the same convention as `decode` and `emit`;
 nothing returns a `{:status …}` map (engineer deviation 2, accepted).
+
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17)**
+
+Each ready entry contributes its delivery state, completed descriptor, lifted outcome and optional refusal, and explicit resource-update bodies. Completed descriptors do not re-enter outstanding-pending validation.
 
 ### 7.2 Lower
 
@@ -1805,9 +1908,9 @@ that attach early are killed by the attach-count law):
 | Stage | Function | Checks, in order | Refusal |
 |---|---|---|---|
 | stores | `check-stores!` | no key of the root store or of any module store is a reserved name (`vm/reserved-name?`), refused here rather than by restore's `store-put` | `:yin.k/undecodable :reserved-name` (`:yin.k/role :store-key`) |
-| pendings and install records | `check-pendings!` | the task's role slot equals its position (`:root`/`:child`); every `:install` pending names a carried install row; kind consistency (`:halted` has no waits, `:blocked` has waits, `:parked` names a key of its parked table); then every install record by `check-install!` (§5.2: phase ∈ `#{:running :parked}`, the retained response and image contract, response `:yin.link/id` equals non-nil parent, manifest-named derivation record hashes correctly and connects the manifest tree to the image A, the child `:blocked`) | `:role`, `:incomplete-install`, `:kind`, `:parked-id`, `:install-phase`, `:install-response`, `:install-link-id`, `:install-image`, `:install-child`, all `:yin.k/undecodable` |
+| pendings and install records | `check-pendings!` | the task's role slot equals its position (`:root`/`:child`); every `:install` pending names a carried install row; kind consistency (the complete §2.6 product table: a single run for `:running`, waits or ready for `:blocked`, neither for `:halted`, a held key for `:parked`); completed-outcome status/refusal checks and shape-only IDs at slot 18; then every install record by `check-install!` (§5.2: phase ∈ `#{:running :parked}`, the retained response and image contract, response `:yin.link/id` equals non-nil parent, manifest-named derivation record hashes correctly and connects the manifest tree to the image A, child kind `:blocked` at phase `:parked`, `:running` at phase `:running`) | `:role`, `:incomplete-install`, `:kind`, `:parked-id`, `:install-phase`, `:install-response`, `:install-link-id`, `:install-image`, `:install-child`, all `:yin.k/undecodable` |
 | dependencies | `check-dependencies!` | `requires` is a map whose `:yin.k/segments` equals the key set of `code` (`:requires`); every segment has a non-empty `:yin.k/trees` entry; every `store-of` of every `:closure` and `:env` row of **this task** (children excluded, each checked in its own stage pass) names one of this task's `:module-store` rows (§2.6), so a parent's or sibling's store of the same key cannot answer (codex F7, F8); every vector attaches in the receiving kernel under its A (`attaches?`: `module/attach-module` into a throwaway copy, the result discarded) (`:segment`); every `:closure` row names a `:closure` tuple of its vector at its entry (`:closure-origin`) with the same binders (`:closure-binders`); every `:prim` names a primitive the receiver holds | `:yin.k/undecodable :requires`, `:yin.k/unsatisfied` with `:yin.k/trees` or **`:yin.k/stores`** (`:yin.k/discovery :incomplete`), `:yin.k/undecodable :segment`, `:closure-origin`, `:closure-binders`, `:yin.k/unsatisfied {:yin.k/name p}` |
-| custody | `check-custody!` | `custody-baseline` over the tree; fork refused under `:exclusive`; halted exclusive needs no grant; blocked/parked exclusive validates grant evidence, pack checkpoint, binding, lease/holder, arbitration, epoch, live tenure and input prefix, then protection in both directions and op-id presence against enrollment; `:fenced` skips grant/protection | grammar's `:yin.k/undecodable` kinds; `:yin.k/profile-mismatch`, `:yin.k/awaiting-grant`, `:yin.k/not-holder`, `:yin.k/unsatisfied` |
+| custody | `check-custody!` | `custody-baseline` over the tree; fork refused under `:exclusive`; halted exclusive needs no grant; running/blocked/parked exclusive validates grant evidence, pack checkpoint, binding, lease/holder, arbitration, epoch, live tenure and input prefix, then protection in both directions and op-id presence against enrollment; `:fenced` skips grant/protection | grammar's `:yin.k/undecodable` kinds; `:yin.k/profile-mismatch`, `:yin.k/awaiting-grant`, `:yin.k/not-holder`, `:yin.k/unsatisfied` |
 | modules | `check-modules!` | Whole-tree module address and used host-export profile equality; carried install children require receiver admission; after custody, before attach | `:yin.k/unsatisfied :module-pin-mismatch`, `:host-export-mismatch`, or collected missing with `:yin.k/discovery :complete` |
 
 **Amended 2026-10-16 (module-pins, R4).** After custody validation and
@@ -1848,7 +1951,7 @@ profiles refuse terminally as `:module-pin-mismatch` or `:host-export-mismatch`;
 absent bindings, absent exports and unadmitted install children are collected
 in one `:yin.k/unsatisfied` with `:yin.k/discovery :complete` and
 `:yin.k/missing {:yin.k/modules … :yin.k/host-exports …}` (only nonempty keys).
-The receiver's registry is kept as given. The kinds `:role :custody :incomplete-install
+The receiver's registry pins and slices are kept as given. Its task-local lowered bindings are recreated through `engine/receive-module` after the carried images and stores, so they name the restored task's code coordinates and carried live stores win. The kinds `:role :custody :incomplete-install
 :kind :parked-id :requires :segment :install-phase :install-response
 :install-child :closure-origin :closure-binders` and the `:yin.k/stores`
 census are the engineer's and the fix rounds' naming; the earlier text
@@ -1868,6 +1971,80 @@ re-emission. It restores no tenure or runnable gate; recovered abort refuses.
 A grant's `:checkpoint` names the pack address, never the root id.
 
 ---
+
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17)**
+
+A running task restores:
+
+```clojure
+{:control {:segment local :pc pc}
+ :window W
+ :env E
+ :k (when (seq K) K)
+ :halted? false
+ :blocked? false
+ :value nil
+ :wait-set entries}
+```
+
+Restore the ready queue in carried order using the task’s fresh resource keys. Restore each completion’s correlation and terminal-outcome fields. Nothing runs, polls or re-appends during lower. Fenced restoration retains the queue outside the scheduler, and the closed-gate guard prevents execution through every semantic execution entry.
+
+Every kind restores slot 18 in order. Resolve the ready state and completion descriptor, reconstruct the engine entry described in §3.1, then restore its value, status, refusal and resource updates. Update keys map through the slot-9 C→fresh-resource-key map; update bodies come from the ready row, not from slot 9.
+
+No completed operation is polled or reissued by lower. A completed FFI request append resumes through the existing response-wait transition. Link/install completion restores without resurrecting retired pending resources.
+
+A fenced restore retains ready entries in `:yin.k/recovery-ready`, alongside recovery waits and parked records, and exposes an empty scheduler queue. Running control remains available for byte-identical relift, protected by the 6d-a closed-gate guard.
+
+
+### 7.3 Custody and lifecycle of a running root
+
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17)**
+
+An exclusive running, blocked or parked root carries policy, occurrence, arbitration and next-op-seq, with origin on a successor; a halted exclusive root carries origin only. A completed `:put` wake is a completed operation: its op-id is well-formed but not a retained write. Completed outcomes never acquire publication or execution authority from their history.
+
+Stage-local execution returns the latest completed holder state explicitly on tenure failure. The ended holder retains that machine for inspection only. Recovery uses the last durable checkpoint; progress since it is lost. Inner immutable rebinding is not a channel to an outer catch.
+
+Progress since the last durable checkpoint is lost on expiry; fuel makes the computation interruptible, exporting before the bound is what preserves it. Stage-local holder transitions, tenure cuts and durable export are implemented and tested by 6d-b. The 6d-a carrier admits running custody subjects and retains fenced recovery data.
+
+Direct `vm-hot`, `vm/step`, `vm/run` and `run-fuel` refuse `:exporting` and `:ended` before guest, scheduler or bridge work. The guard is outside the instruction loop. The refusal is an ex-info whose data is `{:rule :gate-closed :yin.k/gate mode}` (`mode` the closed gate); 6d-b's holder paths reuse this name. A fenced running restore preserves control, window, environment, K and ordered completed outcomes for byte-identical relift; nothing runs during lower.
+
+### 7.4 Fuel
+
+**`yin.vm.semantic/run-fuel [machine n]`**, public, with positive exact integer `n`.
+
+One invocation performs:
+
+1. Closed-gate check.
+2. Exactly one raw budgeted action:
+   - If control is present, `vm-hot` with fuel `n`.
+   - Otherwise, one budgeted scheduler round.
+3. If the result is blocked and an explicit bridge is installed, at most one `ffi/bridge-step`.
+4. Return that resulting machine immediately.
+
+The implementation does **not** wrap the raw action in unchanged `ffi/maybe-run`. A handled response or malformed-request diagnostic does not restart the runner or bridge inside the same invocation. The next caller invocation resumes progress.
+
+The bounded bridge helper may be private to the semantic runner or a bounded variant beside `ffi/maybe-run`; its contract is the four steps above. Existing unrestricted `vm/run` bridge behavior remains unchanged for live machines.
+
+**Budgeted scheduler round.**
+
+Propagate the budget through `check-wait-set`, `poll-links`, `advance-installs` and `advance-install`. Each visited child is invoked once through `run-fuel child n`; nested children use the same rule. Preserve existing gate stamping and the prohibition on running children under closed gates.
+
+After the sweep, resume at most one queued entry. Do not immediately run the resumed activation in that invocation. A running child retains phase `:running`; blocked children retain `:parked`; halted children complete installation as today.
+
+The dispatch tests **control presence**, not merely `engine/active-continuation?`: the latter only tests blocked/halted flags and can classify a control-less ingress-ready machine as active. Therefore no `run-fuel` path falls through `vm-hot` into its unbudgeted scheduler fallback. A quiescent control-less machine takes the budgeted no-work round and returns.
+
+**Per-tree bound.**
+
+Each task visited during the invocation receives at most one budgeted action and at most one bridge step. Each task executes at most `n` guest instructions. For `t` distinct tasks visited during the invocation, including children created during the round, the instruction bound is `n × t`. No task is revisited with a fresh budget inside that invocation.
+
+**The honest guarantee**, copied verbatim into the documents:
+
+> Fuel counts completed guest instructions. One `run-fuel` invocation executes at most `n` instructions per visited task, at most one scheduler round per visited inactive task, and at most one bridge step per visited task. A bridge result never restarts execution inside that invocation. No wall-clock bound is claimed for an instruction, host function, stream constructor, variable resolution, bridge step or scheduler sweep. The VM has no clock and converts no time to instructions; `dao.lease` owns liveness and the composition chooses `n`.
+
+`vm/step` keeps its telemetry behavior. `run-fuel` adds no per-fuel snapshot; existing park, resume and bridge telemetry remains.
+
+Running install children use the same carrier and receiver-admission checks as other tasks. The backends continue to refuse install children.
+
 
 ## 8. Slices, gates, entry conditions
 
@@ -2248,6 +2425,43 @@ design names no kernel edit beyond 6c-pre (**Amended 2026-10-13
 
 ---
 
+**Dead ambient operands (static domain).** The non-tail set equation holds where the enclosing application's pending reads are still reachable. At the operand PCs of an application whose evaluation an operand-position tail call or `:resume` abandons (the corpus's `:resume-operand` and `:tail-operand` fixtures), ambient layout entries are dead per L while remaining in the region: the strongest static truth there is the inclusion `uses(p) ⊆ L(p) ⊆ layout(p) ∪ uses(p)`; the equality is permanently excluded at those pcs. 6e's dead-prefix rule governs the region after the transfer, and 6e's ordered dynamic checks — not the static set equality — carry those pcs.
+
+## 8.6 Slice 6d-a: reference lane
+
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17)**
+
+**Acceptance.**
+
+1. **Frame rules.** Run states at worked-example boundaries validate, including body start. Pin PC kind/bounds, window scope, missing/extra keys, forbidden deliver/pending and wrong-context diagnostics. C3 failures on act/return frames are `:pc-body`. Delivery frames use `saved(pc, rd)`; running frames use `L(pc)`.
+
+2. **Row grammar and completed validation.** Round-trip run frames; reject extra slots and incorrect reference kinds. Ready states admit act/tail only. Status is nil or keyword. Pin invalid completion tags, site mismatch, nonboolean link/install `try?`, inconsistent refusal slots, missing update-cell membership, duplicate update keys and malformed completed operation IDs. These lower refusals occur before attachment.
+
+3. **Task-product kinds.** Retain running-only, active-plus-waits, active-plus-ready, blocked-plus-ready and halted-plus-ready cases. Add halted-plus-outstanding-wait with empty queue: pin the existing blocked normalization and dropped result separately. Retain invalid run counts, illegal result/parked-id and empty-blocked cases.
+
+4. **Completed link/install outcomes.** Exercise success, try failure and ordinary raised failure for link/install producers. Capture completed install outcomes after removal of the install entry. Include active control beside a remaining completion. Immediate relift is equal; continuation delivers or raises once, without reconstructing retired pending resources.
+
+5. **Shared cursor.** Two waiters share one cursor. Snapshot after the sweep before any resume. Preserve one canonical cell identity, the slot-9 current body, both values and update rows in order. Assert immediate relift equality and source/receiver continuation equality. Add an encoding case where one C pairs with different bodies across census/update rows.
+
+6. **Completed write and terminal outcomes.** Fork and exclusive completed-write histories round-trip without enrollment or reappend. A malformed present ID refuses at the named slot-18 check. Nil IDs remain admissible where the ungated source produced none. Add a terminal-status ready case whose receiver raises identically, plus the FFI sent-request transition that creates a response wait without a second request append.
+
+7. **Every returned boundary, slow tier.** Run the existing corpus through `run-fuel 1`; lift, lower into isolated worlds, immediately relift, validate frames and continue to the reference outcome. Pin measured counts and the driver coverage classes of §3.6. Constructed post-sweep cases are reported separately. Row 20's setup batch (`s/def!` store definitions executed at runtime) lifts only from the first boundary at which its definitions are answered in the store; the leading boundaries are excluded as a **pinned conservative-discharge false refusal of the owner-ratified Q6 family (default 5: keep edge-reachability, derive don't persist)** — recorded per case with its obligations, each of which names the case's own execution later answers — store or environment names its own later definitions execute, or module exports its own `require` installs — and zero serves, never skipped silently: the driver asserts the excluded boundaries form a contiguous leading run and that every boundary after the first successful lift lifts.
+
+8. **Quick sample and products.** Retain v2’s structural sample and every-boundary small rows. Run the scheduler products and shared-cursor seam through the harness. Retain cursor-ref, reified-continuation, nil-live-register, `ghost` and hold-refusal cases.
+
+9. **Layout gates.** At every reachable corpus PC, check register injectivity and jump/terminator layout availability; at every reachable tail-call PC check `set(uses(p)) = L(p)`; at every other reachable PC check the inclusion `set(uses(p)) ⊆ L(p) ⊆ set(layout(p)) ∪ set(uses(p))`, and additionally the equality `set(layout(p)) ∪ set(uses(p)) = L(p)` everywhere **except the pinned dead-ambient operand PCs — exactly `{(:resume-operand 1), (:resume-operand 2), (:tail-operand 1), (:tail-operand 2)}`** — where an operand-position `:resume` (abortive) or tail call (the enclosing application's call is unreachable) makes the enclosing application's pushed operands dead per L while they remain in the static layout and on the stack. At the pinned PCs assert the exclusion's cause: the layout entries outside `L(p)` are exactly those dead ambient operands. The exclusion set is enumerated, never predicate-based: a future corpus entry with a dead ambient layout fails the equality loudly rather than being skipped. On executed paths compare ordered region length and values to the ordered register sequence, including repeated-register agreement. Do not compare that sequence length to `|L(pc)|`. No dead-prefix lift, `slice-window` widening, or running-backend lift is implemented in 6d-a; those remain 6e item 6's scope.
+
+10. **Budgeted children.** Preempt long and nested initializers; lift/lower running children under receiver admission; continue to linked. Count actual instruction transitions and assert at most `n` per visited task and `n × t` overall. No child receives a second budget inside one invocation.
+
+11. **Bounded bridge execution.** A program repeatedly making bridge-served FFI calls returns from every `run-fuel` invocation. Each invocation executes at most one raw action and one bridge step. Repeated invocations reach the reference result. Diagnostic-only bridge input also returns after one step. Pin control-less ingress-ready dispatch to the budgeted round. For a pure active computation lasting at least `n` instructions, compare with `n` single-instruction steps; an earlier park/halt ends the comparison there.
+
+12. **Fencing.** Lower a running snapshot with `{:fenced true}` and exercise direct `vm-hot`, `vm/step`, `vm/run` and `run-fuel`. Each refuses the closed gate before guest, scheduler or bridge work. Assert unchanged control/window/environment/K, unchanged ready recovery data and unchanged relift bytes. Cover `:ended` as well as `:exporting`.
+
+13. **Ready-value portability.** The only unsupported primitive is nested in the ready outcome; register-target lower refuses before attachment. Retain the corresponding portable positive case. Test ready delivery state, outcome and restored descriptor roots independently.
+
+14. **Landing checks.** Kondo clean; the quick tier passes on JVM, Node and Dart with every touched namespace present in logs; the slow tier runs once at landing on all three hosts. Remint fixtures from the integrated grammar. Review stops on satisfied gates, not a fixed round count.
+
+
 ## 9. Verification honesty
 
 - **Hand-derived numbers.** `saved(4, 2) = {1}` and `L(5)` on the worked
@@ -2320,7 +2534,13 @@ design names no kernel edit beyond 6c-pre (**Amended 2026-10-13
 
 ---
 
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17)**
+
+**Claims that are checks**: `L(p)` is sufficient at every boundary (law 1 at every step); injectivity over `L(p)` at every pc (item 3); the ordered stack equation at every pc (item 5); the dead-prefix rule (law 1 after a tail transition); the refusal oracle equality (6e). None is a theorem about all programs; each is a gate on the corpus.
+
 ## 10. Findings and proposed amendments
+
+**Historical amendment record.** The phase-specific findings below retain their original text. The any-PC rules in §§1–7 and §8.6 supersede earlier exhaustive state, context and eligibility lists.
 
 Reviewer rulings (codex gpt-6.1-sol, 2026-10-10): F1, F4, U2, U4, U5,
 R1, R2, R7, C1 **ACCEPT**; F2, F3, U1, U3, U6, R3, R4, R5, R6, R8, R9
@@ -2868,3 +3088,7 @@ numbered on their own, as 6c Q1-Q3, so the 6b numbering above stands.**
    integers; compare with `cbor/numeric-kind` before `=` on wire values
    (`ucf/profile-engine`, `ucf.cljc:77-91`, is the template).
 10. **Fresh worktree.** `mise trust` and `npm ci` before the Node lane.
+
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17)**
+
+**Q6 ruling.** Keep reachable by control-flow edges, never by value. At the pc before a constant-dead branch, `ghost` refuses `:yin.k/unsatisfied` with obligations `#{ghost}`. This is the conservative discharge rule, not constant propagation.

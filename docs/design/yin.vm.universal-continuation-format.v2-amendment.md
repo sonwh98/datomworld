@@ -561,10 +561,7 @@ to the existing heap/resource rules; serialization is not reclamation.
 
 ### 7.1 Whole-task requirements
 
-Only blocked, explicitly parked or halted tasks at the existing engine
-export boundary are eligible. Running CESK/PC snapshots are not a fourth
-kind. All ready queues are empty, all installs complete in the UCF sense,
-and root/child state is stable. Refuse any root or child with an observe
+**Amended 2026-10-16 (any-pc).** For the stack-shaped machine of versions 0-2, only blocked, explicitly parked or halted tasks were eligible and running snapshots were not a fourth kind. For the register-shaped machine and body version 3 this is reversed by the owner's invariant: a task between instructions is the fourth kind, `:running`, carried with its ordered waits and completed wakes (continuation design §1.3, §2.6), and is eligible for export and custody. Refuse any root or child with an observe
 wait, unapplied held observation, reachable unminted cursor, pending close,
 or link request without its installed response cursor. These are D4-D9
 holds, not occasions to invent a new pending variant or opcode.

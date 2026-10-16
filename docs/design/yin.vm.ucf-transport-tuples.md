@@ -398,10 +398,7 @@ response is a map with `:status :ok`, a `:manifest` whose
 `:yin.module/name` is the row's module and whose `:yin.module/exports`
 is a collection of symbols, and an `:image` map whose `:value` the
 receiving kernel's loader admits (`:install-response`); and the carried
-child task's kind is `:blocked` (`:install-child`), the only kind the
-engine retains at a safepoint (a halted or parked child is linked in the
-sweep it halts in, so phase `:running` is a wire phase the codec accepts
-but the engine never exposes at a safepoint). Lower also requires
+child task's kind is `:blocked` with wire phase `:parked`, or `:running` with wire phase `:running` (`:install-child`). Lower also requires
 non-nil `parent` equal to response `:yin.link/id` (`:install-link-id`).
 The response's `:derivation` record must hash to the manifest's
 `[:yin.module/derivations :yin.semantic/code]` address; its
@@ -430,7 +427,7 @@ No new resolver or independent claimed-image-address check is added.
 [T :task
    version          ; 3                       (gated first, §8)
    contract         ; {:yin.code/contract "v4" :yin.k/version 1}, the one profile map (§2)
-   kind             ; :blocked | :parked | :halted
+   kind             ; :running | :blocked | :parked | :halted
    role             ; :root | :child
    id-counter       ; N                       (UCF §7.6.3)
    free-env-cref    ; a :bindings row, the task's initial free environment (continuation §6.3)
@@ -441,10 +438,12 @@ No new resolver or independent claimed-image-address check is added.
    requires         ; plain: UCF §7.6.1's map plus :yin.k/trees (continuation §6.1)
    code             ; plain: {A canonical-vector …}, "v4" vectors verified to hash to their key
    installs         ; crefs to :install rows, sorted by module name
-   frames           ; crefs to :wait rows, IN WAIT ORDER   (:blocked, :parked)
+   frames           ; crefs to :wait rows, IN WAIT ORDER   (:running, :blocked, :parked)
    parked-id        ; P or nil                              (:parked only)
    result           ; V or nil                              (:halted only)
-   custody]         ; plain, see below
+   custody          ; plain, see below
+   run              ; slot 17: one :run for :running, none otherwise
+   ready]           ; slot 18: ordered :ready rows, none for :halted
 ```
 
 (Root replaced 2026-10-11 by continuation §2.6: `free-env-cref` added,
@@ -470,12 +469,7 @@ then one `:yin.k/unsatisfied` with `:yin.k/discovery :complete` collects
 missing pins and unadmitted install children under `:yin.k/missing`.
 
 
-Kind rules are §7.2.1's: `:blocked` has nonempty frames and neither
-parked-id nor result; `:parked` has frames (possibly empty), a parked-id
-naming a key of the parked table, no result; `:halted` has a result and
-neither frames nor parked-id. Frames restore in carried order and are
-never collapsed to one; a task with an empty ready queue may hold several
-ordered waits.
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17).** Kind rules are the task-product table below: a running activation takes precedence, then a held parked record, then outstanding or completed work, then halt. Frames restore in carried order and are never collapsed to one; a task may hold several ordered waits **and several ordered completed wakes**.
 
 **Amended after 7 (2026-10-14)** — Reason: the owner chose nil forks and phase 7 restricts custody keys.
 `custody` is the custody arm carried as plain data, under the rules of
@@ -483,8 +477,8 @@ ordered waits.
 
 | role | kind | policy | `custody` |
 |---|---|---|---|
-| root | blocked / parked | exclusive | `{:yin.k/policy :yin.k/exclusive :yin.k/occurrence :yin.k/arbitration :yin.k/next-op-seq}` plus `:yin.k/origin` on every successor, absent on a first export |
-| root | blocked / parked | fork | nil |
+| root | running / blocked / parked | exclusive | `{:yin.k/policy :yin.k/exclusive :yin.k/occurrence :yin.k/arbitration :yin.k/next-op-seq}` plus `:yin.k/origin` on every successor, absent on a first export |
+| root | running / blocked / parked | fork | nil |
 | root | halted | exclusive | `{:yin.k/origin …}` only: a result is not a lease subject |
 | root | halted | fork | nil: a fork halt has no custody data and a first fork halt has no origin to carry |
 | child | any | — | nil; validated with its root's occurrence, origin and counter passed down |
@@ -502,6 +496,37 @@ are inside it, as the governing rule keeps them (§10.1). The code map is
 plain data in the root rather than a row kind: each instruction vector
 keeps its own address `A` computed exactly as UCF §7.3.2 computes it, and
 the carrier verifies, never recomputes, that address.
+
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17)**
+
+| Kind | Machine classification | Waits | Run | Ready | Parked-id | Result |
+|---|---|---:|---:|---:|---|---|
+| `:running` | `:control` set | 0..n | exactly one | 0..n | absent | absent |
+| `:parked` | control nil; value names a held parked record | 0..n | none | 0..n | table key | absent |
+| `:blocked` | control nil; not parked; waits or ready nonempty | 0..n | none | 0..n | absent | absent |
+| `:halted` | control nil; halted; waits and ready empty | none | none | none | absent | present |
+
+A halted activation beside queued work classifies `:blocked`: the scheduler processes the queue before returning the halt result. A halted activation with outstanding waits and an empty queue also classifies `:blocked`, dropping its halt value as today. The latter is an existing carrier normalization, not a claim that the source halt value is unobservable; acceptance pins it separately.
+
+
+The row grammar includes run, ready and completed-operation rows as defined in the continuation design. Ready delivery frames are validated in context `:ready`; completion descriptors are validated independently of outstanding pendings.
+
+The task’s slot-9 row owns the cell census. Ready update rows refer to that census and carry their own cell bodies. Canonical traversal distinguishes census ownership from update references; one C may pair with different bodies across rows.
+
+Completed operation IDs, when present, receive shape-only validation in the slot-18 path of `check-pendings!`. Retained-write origin, occurrence and frontier checks remain in `check-op-id!`. Completed outcomes are excluded from retained operations, numbering and `protect!`; no completed operation is reissued by lower or resume.
+
+The canonical round-trip law still requires no execution between lower and relift.
+
+| Completion tag | Slots after the tag | Restored engine meaning |
+|---|---|---|
+| `:next` | `C` | Ordinary completed reader; reconstruct cursor-ref and stream-id through the census. |
+| `:put` | `stream-cref, datom-V, optional-op-id-D` | Ordinary completed append outcome; never append again. |
+| `:ffi` | `C, call-id-D, op-D` | Completed FFI response reader; restore engine reason `:next` and correlation fields. |
+| `:ffi-request` | `call-id-D, envelope-V, request-stream-cref, response-stream-cref, C, optional-op-id-D` | Completed request append; restore `:request-sent true`, so successful resume creates the response wait rather than delivering the append result to the guest. |
+| `:link-request` | `link-id-D, module-S, try?-D, optional-op-id-D` | Completed link-request outcome; no outstanding request or response transport is required. |
+| `:link-response` | `link-id-D, module-S, try?-D` | Completed link-response outcome. |
+| `:install` | `module-S, try?-D` | Completed initializer outcome; no remaining install entry is required. |
+
 
 ## 6. Canonical cursor-cell numbering
 
@@ -811,17 +836,17 @@ one attachment. The order follows amendment §8 and is binding:
    X1: the free environment is a sorted, unique symbol-keyed map with no
    reserved name); this runs for every body, a `:halted` body with no
    frames included, since no frame rule establishes X1. Then every
-   `:act`, `:tail`, `:kframe`, `:reified` and parked-table state is
+   `:act`, `:tail`, `:run`, ready delivery state, `:kframe`, `:reified` and parked-table state is
    decoded to its keyed frame and judged by
    `yin.vm.semantic.frame/defect` with its context (`:wait`,
-   `:captured`, `:parked`) and that task context; a defect of either
+   `:captured`, `:parked`, `:running`, `:ready`) and that task context; a defect of either
    function is `:yin.k/undecodable` with the rule's kind and the row path
    (continuation §3.3). This step runs after canonical numbering (step 6)
    and before pending validation (step 8).
 8. **Pending and operations.** Reason-specific slot rules; correlation
    agreement of §5.3 (cursor-cell stream, envelope ids, module names); every
-   op-id below `next-op-seq`, unique across the tree, absent without
-   origin; every install response verified as §5.4 requires.
+   retained-write op-id below `next-op-seq`, unique across the tree, absent without
+   origin; completed op-ids checked for shape only in slot 18; every install response verified as §5.4 requires.
 9. **Dependency closure.** Compute the census of amendment §6 from the
    rows (waits, pendings and envelopes, parked records, the initial free
    environment `free-env`, store, module stores, result, children; the
@@ -890,12 +915,12 @@ the three kinds this carrier adds to UCF §7.5.4's set: `:byte-string`,
 
 ## 9. Lift, lower, and the laws
 
-**Lift** (reference machine): refuse unless quiescent; number cursor cells (§6);
+**Lift** (reference machine): refuse a hold (continuation §7.1 step 1; amended 2026-10-16, any-pc: no quiescence refusal, completed wakes travel as `:ready` rows); number cursor cells (§6);
 walk waits, parked records, the slice, module stores, the initial free
 environment (continuation §6.3, §7.1), the result and each install
 child, emitting rows and the census; refuse by path as UCF
 §7.5.4 and §7.2.1 specify. **Amended after 6b (2026-10-13; continuation
-§7.1 B4):** the merged order is quiescence and safepoint, kind, free
+§7.1 B4):** the merged order is holds, kind, free
 environment, the walk (which fixes the segments, contexts and module
 stores), code, the per-context dependency closure over live code, tree
 coverage from the composition's `:source-index`, frame validation of

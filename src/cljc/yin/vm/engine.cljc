@@ -1457,7 +1457,8 @@
 
 (defn- advance-install
   "Step the install child of `module-name` in this round, beside every
-   other task (section 7.3): `running` runs it until it halts or parks.
+   other task (section 7.3): run-child supplies unrestricted or budgeted
+   execution; a fuel boundary retains phase `running`.
    A parked child stays `parked`; a halted one goes on to `validated`; an
    error refuses the install. An error while publishing -- attaching an
    origin image, lowering the slice or a store snapshot, or receiving a
@@ -1467,12 +1468,12 @@
 
    Under a custody gate the child is stamped with the root's mode before
    it runs; in `:exporting` and `:ended` it does not run."
-  [state module-name]
+  [state module-name run-child]
   (let [inst (get-in state [:installs module-name])
         mode (vm/gate-mode state)
         [child refusal]
         (when-not (contains? #{:exporting :ended} mode)
-          (try [(vm/run (stamp-gate (:vm inst) mode)) nil]
+          (try [(run-child (stamp-gate (:vm inst) mode)) nil]
                (catch #?(:cljd Object :clj Throwable :cljs :default) e
                  [nil (error-refusal module-name e)])))]
     (cond
@@ -1492,8 +1493,8 @@
 
 
 (defn- advance-installs
-  [state]
-  (reduce advance-install state (sort-by str (keys (:installs state)))))
+  [state run-child]
+  (reduce #(advance-install %1 %2 run-child) state (sort-by str (keys (:installs state)))))
 
 
 (defn- start-install
@@ -1628,7 +1629,7 @@
   "Poll every link wait entry once, in wait-set order, and then step the
    install children. Returns the state with the still-waiting link
    entries appended to `others` and the woken ones queued."
-  [state links others]
+  [state links others run-child]
   (let [[state waiting woken]
         (reduce (fn [[state waiting woken] entry]
                   (let [[state w k] (poll-link-entry state entry)]
@@ -1640,7 +1641,7 @@
     (-> state
         (assoc :wait-set (into (vec others) waiting))
         (update :ready-queue (fnil into []) woken)
-        advance-installs)))
+        (advance-installs run-child))))
 
 
 (defn- require-running!
@@ -2161,42 +2162,43 @@
    A gated machine (any `:yin.k/gate`) observes nothing here: no link
    retry or scan, no FFI response read, no put or next retry. Its install
    children are stamped and stepped in `:running` only."
-  [state]
-  (let [wait-set (:wait-set state)]
-    (if (and (empty? wait-set) (empty? (:installs state)))
-      state
-      (let [state (poll-links state
-                              (filterv link-entry? wait-set)
-                              (remove link-entry? wait-set))
-            wait-set (:wait-set state)
-            gated? (some? (vm/gate-mode state))
-            state (if gated?
-                    state
-                    (poll-ffi-responses state
-                                        (filterv ffi-response-entry? wait-set)
-                                        (remove ffi-response-entry?
-                                                wait-set)))
-            wait-set (:wait-set state)
-            engine-polled? (some-fn link-entry?
-                                    ffi-response-entry?
-                                    observe-entry?
-                                    (fn [e]
-                                      (and gated?
-                                           (contains? #{:put :next}
-                                                      (:reason e)))))
-            streams (filterv (complement engine-polled?) wait-set)
-            {:keys [woken store], :as result}
-            (waitset/check {:waiting streams}
-                           waitset-resolver
-                           (:resources state))
-            v (assoc state
-                     :resources store
-                     :wait-set (into (:waiting (:waitset result))
-                                     (filter engine-polled?)
-                                     wait-set))]
-        (update v
-                :ready-queue (fnil into [])
-                (make-woken-run-queue-entries v woken))))))
+  ([state] (check-wait-set state vm/run))
+  ([state run-child]
+   (let [wait-set (:wait-set state)]
+     (if (and (empty? wait-set) (empty? (:installs state)))
+       state
+       (let [state (poll-links state
+                               (filterv link-entry? wait-set)
+                               (remove link-entry? wait-set) run-child)
+             wait-set (:wait-set state)
+             gated? (some? (vm/gate-mode state))
+             state (if gated?
+                     state
+                     (poll-ffi-responses state
+                                         (filterv ffi-response-entry? wait-set)
+                                         (remove ffi-response-entry?
+                                                 wait-set)))
+             wait-set (:wait-set state)
+             engine-polled? (some-fn link-entry?
+                                     ffi-response-entry?
+                                     observe-entry?
+                                     (fn [e]
+                                       (and gated?
+                                            (contains? #{:put :next}
+                                                       (:reason e)))))
+             streams (filterv (complement engine-polled?) wait-set)
+             {:keys [woken store], :as result}
+             (waitset/check {:waiting streams}
+                            waitset-resolver
+                            (:resources state))
+             v (assoc state
+                      :resources store
+                      :wait-set (into (:waiting (:waitset result))
+                                      (filter engine-polled?)
+                                      wait-set))]
+         (update v
+                 :ready-queue (fnil into [])
+                 (make-woken-run-queue-entries v woken)))))))
 
 
 (declare handle-effect resume-continuation)
@@ -2324,6 +2326,14 @@
   [state restore-fn]
   (let [v' (check-wait-set state)]
     (or (resume-from-run-queue v' restore-fn) v')))
+
+
+(defn scheduler-round-fuel
+  "One sweep with one budgeted action per child, then at most one resume.
+   run-child is the semantic bounded entry with its budget already supplied."
+  [state restore-fn run-child]
+  (let [polled (check-wait-set state run-child)]
+    (or (resume-from-run-queue polled restore-fn) polled)))
 
 
 (defn park-id

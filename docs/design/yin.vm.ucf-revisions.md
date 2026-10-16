@@ -828,3 +828,5 @@ rows-test entries are task-row roots; ledger entries are pack-byte addresses):
 | ledger checkpoint 4 | `:segment/blake3-ab97dc5502245c63ab49b45088b88989fa143616cadf6e298b8ae90d9694d711` | `:segment/blake3-42b4357517e46880bcf804e32657f483088d0b5821b36249cdd38aa110afb79e` |
 
 Ledger projection digest: `2b26e75e8969428761c4f7813d1ffc886d30d160f2f3e8f80076bbe24ef1f227` → `419e3aa652d79cab6921cf7a6c02972bcfe2d3b88ba472bc03ac8f1a935f27d2`.
+
+**I-9 — 2026-10-16, any-PC.** The current lift rejects active control and queued completed outcomes, while the holder runs unrestricted computation. Slices 6d-a, 6d-b and 6e extend the carrier to run states and complete scheduler products. 6d-a includes completed stream/FFI/link/install outcomes, cursor-update encoding, bounded bridge-aware fuel and closed-gate execution guards. 6d-b adds explicit state retention on tenure failure and holder migration from fuel boundaries. 6e extends backend layouts and transfer laws. Earlier static-safepoint-only lift prescriptions are historical. No compatibility promise is added.

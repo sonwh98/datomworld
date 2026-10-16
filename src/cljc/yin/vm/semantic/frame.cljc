@@ -47,16 +47,15 @@
 
 
 (defn- window-defect
-  [f v rd prefix path]
+  [f v rd wanted prefix path]
   (let [pc (:yin.k/pc f) w (:yin.k/window f)
         body (nth (code/parse v) (code/body-index (code/body-ranges v) pc))
-        wanted (analysis/saved (analysis/analyze v) pc rd)
         ks (set (keys w))
         kind (fn [s] (keyword (str prefix s)))
         p (conj path :yin.k/window)]
     (cond
       (some #(>= % (:registers body)) ks) (problem (kind "window-scope") p)
-      (contains? w rd) (problem (kind "window-self") p)
+      (and (some? rd) (contains? w rd)) (problem (kind "window-self") p)
       (some #(not (contains? wanted %)) ks) (problem (kind "window-extra") p)
       (some #(not (contains? w %)) wanted) (problem (kind "window-missing") p))))
 
@@ -79,22 +78,26 @@
 
 (defn defect
   "First §3 defect, or nil. Code is already well formed; task is plain
-   {:free-env map :parked-key P :ffi-call-ids set}. No engine is read.
+   {:free-env map :parked-key P :ffi-call-ids set}, plus :completion
+   in the ready context. No engine is read.
    Values have already passed the carrier's value-domain checks."
   [frame code-map context task]
-  (let [act? (= :act (:yin.k/state frame))
-        required (if act?
-                   [:yin.k/state :yin.k/segment :yin.k/pc :yin.k/env
-                    :yin.k/window :yin.k/deliver :yin.k/k]
-                   [:yin.k/state :yin.k/segment :yin.k/site :yin.k/deliver :yin.k/k])
+  (let [run? (= :run (:yin.k/state frame))
+        act? (= :act (:yin.k/state frame))
+        required (if run?
+                   [:yin.k/state :yin.k/segment :yin.k/pc :yin.k/env :yin.k/window :yin.k/k]
+                   (if act?
+                     [:yin.k/state :yin.k/segment :yin.k/pc :yin.k/env
+                      :yin.k/window :yin.k/deliver :yin.k/k]
+                     [:yin.k/state :yin.k/segment :yin.k/site :yin.k/deliver :yin.k/k]))
         k (:yin.k/k frame)
         returns (when (vector? k) (mapv (fn [i] [(nth k i) [:yin.k/k i]]) (range (count k))))
         all (into [[frame []]] returns)
-        envs (if act? all returns)]
+        envs (if (or act? run?) all returns)]
     (or
       ;; S1-S4, globally before any dependent read.
-      (when-not (and (contains? #{:act :tail} (:yin.k/state frame))
-                     (closed? frame required [:yin.k/pending]))
+      (when-not (and (contains? #{:act :tail :run} (:yin.k/state frame))
+                     (closed? frame required (if run? [] [:yin.k/pending])))
         (problem :frame-shape []))
       (when-not (vector? k) (problem :k-shape [:yin.k/k]))
       (some (fn [[f p]]
@@ -109,38 +112,40 @@
       (some (fn [[f p]]
               (when-not (env? (:yin.k/env f))
                 (problem :env-shape (conj p :yin.k/env)))) envs)
-      (when-not (map? (:yin.k/deliver frame)) (problem :deliver-shape [:yin.k/deliver]))
+      (when-not (or run? (map? (:yin.k/deliver frame))) (problem :deliver-shape [:yin.k/deliver]))
       ;; C1-C3 across the entire continuation.
       (some (fn [[f p]]
               (when-not (contains? code-map (:yin.k/segment f))
                 (problem :segment (conj p :yin.k/segment)))) all)
       (some (fn [[f p]]
-              (let [slot (if (and (empty? p) (not act?)) :yin.k/site :yin.k/pc)
+              (let [slot (if (and (empty? p) (not (or act? run?))) :yin.k/site :yin.k/pc)
                     n (get f slot) v (get code-map (:yin.k/segment f))]
                 (cond
                   (not (code/reg? n)) (problem :pc-kind (conj p slot))
-                  (not (and (< n (count v)) (or (= slot :yin.k/site) (pos? n))))
+                  (not (and (< n (count v)) (or (= slot :yin.k/site) (and run? (empty? p)) (pos? n))))
                   (problem :pc-bounds (conj p slot))))) all)
       (some (fn [[f p]]
               (let [pc (:yin.k/pc f) bs (code/body-ranges (get code-map (:yin.k/segment f)))]
-                (when-not (= (code/body-index bs (dec pc)) (code/body-index bs pc))
+                (when-not (or (and run? (empty? p)) (= (code/body-index bs (dec pc)) (code/body-index bs pc)))
                   (problem :pc-body (conj p :yin.k/pc))))) envs)
       (let [v (get code-map (:yin.k/segment frame))
-            site (if act? (dec (:yin.k/pc frame)) (:yin.k/site frame))
+            site (cond run? (:yin.k/pc frame) act? (dec (:yin.k/pc frame)) :else (:yin.k/site frame))
             inst (nth v site) op (first inst) rd (code/rd inst)
             d (:yin.k/deliver frame)]
         (or
-          (if act?
-            (or
-              (when-not (or (contains? #{:stream-next :stream-put :ffi-call :park :current-continuation} op)
-                            (and (= :call op) (not (code/tail-call? inst))))
-                (problem :site [:yin.k/pc]))
-              (when-not (= rd (:yin.k/rd d)) (problem :destination [:yin.k/deliver :yin.k/rd]))
-              (when-not (= {:yin.k/deliver :rd :yin.k/rd rd} d) (problem :deliver [:yin.k/deliver]))
-              (window-defect frame v rd "" []))
-            (or
-              (when-not (code/tail-call? inst) (problem :site [:yin.k/site]))
-              (when-not (= {:yin.k/deliver :return} d) (problem :deliver [:yin.k/deliver]))))
+          (if run?
+            (window-defect frame v nil (analysis/live (analysis/analyze v) site) "" [])
+            (if act?
+              (or
+                (when-not (or (contains? #{:stream-next :stream-put :ffi-call :park :current-continuation} op)
+                              (and (= :call op) (not (code/tail-call? inst))))
+                  (problem :site [:yin.k/pc]))
+                (when-not (= rd (:yin.k/rd d)) (problem :destination [:yin.k/deliver :yin.k/rd]))
+                (when-not (= {:yin.k/deliver :rd :yin.k/rd rd} d) (problem :deliver [:yin.k/deliver]))
+                (window-defect frame v rd (analysis/saved (analysis/analyze v) (:yin.k/pc frame) rd) "" []))
+              (or
+                (when-not (code/tail-call? inst) (problem :site [:yin.k/site]))
+                (when-not (= {:yin.k/deliver :return} d) (problem :deliver [:yin.k/deliver])))))
           (some (fn [[f p]]
                   (let [fv (get code-map (:yin.k/segment f)) fi (nth fv (dec (:yin.k/pc f)))
                         frd (:yin.k/rd f)]
@@ -148,7 +153,7 @@
                       (when-not (and (= :call (first fi)) (not (code/tail-call? fi)))
                         (problem :return-site (conj p :yin.k/pc)))
                       (when-not (= frd (code/rd fi)) (problem :return-destination (conj p :yin.k/rd)))
-                      (window-defect f fv frd "return-" p)))) returns)
+                      (window-defect f fv frd (analysis/saved (analysis/analyze fv) (:yin.k/pc f) frd) "return-" p)))) returns)
           (some (fn [[f p]]
                   (when (some vm/reserved-name? (keys (get-in f [:yin.k/env :yin.k/bindings])))
                     (problem :reserved-name (conj p :yin.k/env :yin.k/bindings)))) envs)
@@ -159,22 +164,23 @@
                                    (bindings= (apply dissoc bindings names)
                                               (apply dissoc (:free-env task) names)))
                       (problem :free-env-mismatch (conj p :yin.k/env :yin.k/bindings))))) envs)
-          (when-not (and (contains? #{:wait :captured :parked} context)
+          (when-not (and (contains? #{:wait :captured :parked :running :ready} context)
+                         (= run? (= :running context))
                          (= (= :wait context) (contains? frame :yin.k/pending)))
             (problem :pending-presence [:yin.k/pending]))
-          (when (= :wait context)
+          (when (contains? #{:wait :ready} context)
             (let [reasons (case op
                             :stream-next #{:next}
                             :stream-put #{:put}
                             :ffi-call #{:ffi :ffi-request}
                             :call #{:next :put :ffi :ffi-request :link-request :link-response :install}
                             #{})]
-              (when-not (contains? reasons (get-in frame [:yin.k/pending :yin.k/reason]))
+              (when-not (contains? reasons (get-in (if (= :ready context) (:completion task) (:yin.k/pending frame)) [:yin.k/reason]))
                 (problem :reason-mismatch [:yin.k/pending :yin.k/reason]))))
-          (when (and (= :wait context)
+          (when (and (contains? #{:wait :ready} context)
                      (contains? #{:link-request :link-response :install}
-                                (get-in frame [:yin.k/pending :yin.k/reason]))
-                     (not (boolean? (get-in frame [:yin.k/pending :yin.k/try?]))))
+                                (get-in (if (= :ready context) (:completion task) (:yin.k/pending frame)) [:yin.k/reason]))
+                     (not (boolean? (:yin.k/try? (if (= :ready context) (:completion task) (:yin.k/pending frame))))))
             (problem :pending-try [:yin.k/pending :yin.k/try?]))
           (when (and (= :captured context) (not (and act? (= :current-continuation op))))
             (problem :captured-site [(if act? :yin.k/pc :yin.k/site)]))

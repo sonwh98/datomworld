@@ -653,7 +653,7 @@ runnable checkpoint.
 
 ## §7.4 Safepoints — where a canonical configuration exists (blocker 1)
 
-### 7.4.1 Only safepoints lift, and the table is the machine's
+### 7.4.1 Every instruction boundary is representable; the safepoint table is the machine's parking transitions
 
 Superseded for the register-shaped machine by
 `yin.vm.semantic.md` §4.1 (two state columns, `act` and
@@ -669,9 +669,7 @@ The linear machine's registers are canonical only *between* instructions.
 Inside a `:call` that has popped its operands but not yet pushed a frame, or
 inside a superinstruction the loader fused (§6.4), no ⟨C, E, S, K⟩ exists
 that both describes the state and is expressible in the §2.4 vocabulary.
-UCF resolves this by rule rather than by metadata: **a continuation may be
-lifted only at a safepoint**, and a safepoint is a transition of the
-reference machine at which the machine parks. The first draft's table
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17).** The register-shaped machine has no unserializable interior: its task state between any two instructions, `⟨A, pc, W↾L(pc), E, K⟩` with its ordered waits and completed wakes, is canonical (`yin.vm.semantic.md` §4.1; continuation design §1.3). **A continuation is representable at every instruction boundary**; the lift refuses a value with no wire form, a dependency the receiver cannot satisfy, or an observation in flight, never a pc. A *safepoint* is a boundary at which the program stops by itself: a park with a pending wait, an explicit park with none, or a halt with a result. The paragraph above describes the stack-shaped machine, which left at phase 8. The first draft's table
 presented itself as complete while omitting the parks that arrive through
 `:call` — a called host function that returns an effect blocks exactly as an
 instruction effect does, through `apply-call` → `handle-effect` →
@@ -759,10 +757,18 @@ and the stack are that row's in every state:
 
 The pending variants of the three reasons are in section 7.4.3.
 
-**Quiescence.** The migration unit is one task: the whole blocked machine
-(§7.6.3). Lifting additionally requires the machine's ready-queue to be
-empty — a machine with runnable work queued is mid-scheduling, its next
-configuration is not the parked one, and lift answers `:yin.k/not-quiescent`.
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17)**
+
+There is no quiescence requirement: a completed wake in the ready queue travels as a `:ready` row with its value, status and cursor update, and the receiver resumes it before any newly woken wait, in carried order.
+
+```clojure
+;; run state (6d)
+{:yin.k/state :run
+ :yin.k/segment A :yin.k/pc n
+ :yin.k/env {:yin.k/bindings {sym V …} :yin.k/store-of M?}
+ :yin.k/window {r V …} ; exactly L(n), retaining nil-valued keys
+ :yin.k/k […]}        ; no deliver, no pending
+```
 
 ### 7.4.2 Safepoint maps for foreign engines: static facts only
 
@@ -799,8 +805,7 @@ Rules:
 - `def`, `use`, `live` and `lexically-required` are **derived from the
   canonical vector alone** (`yin.vm.semantic.analysis`). They are
   identical for every engine and checkable against the reference machine
-  by a conformance test that runs the segment to each safepoint and
-  compares the saved window's key set with `live − {rd}` and the E-reads.
+  by a conformance test that runs the segment to every boundary of the stepping driver and compares the saved window's key set with `live − {rd}` at parks, the run window's key set with `live` between instructions, and the E-reads.
   Window values, environments, `K` and physical layouts are **not**
   claimed, not derived, and not in this table; they are the frame's
   business.
@@ -808,21 +813,12 @@ Rules:
   keeps so that its `lift` is a table lookup. It never travels in a UCF
   value; a resumer that is a different engine has its own.
 - `lift(engine-state, layout) → canonical frame` and
-  `lower(canonical frame, layout) → engine-state` are total on safepoints and
-  undefined elsewhere. The conformance obligation is `lift ∘ lower = id` on
+  `lower(canonical frame, layout) → engine-state` are total on every pc of A the engine reaches; a pc that is no pc of A relabels (a `:push` of the stack image) or refuses (outside every body). The conformance obligation is `lift ∘ lower = id` on
   canonical frames, tested against the reference machine's own frames —
   which is possible precisely because the dynamic half rides in the frame.
-- A request to lift at a pc that is not a safepoint of the segment returns
-  `:yin.k/not-at-safepoint` naming the pc. An engine that wants finer
-  interruption granularity must lower the program to a segment that
-  *contains* a `:park` where it wants one: that is a different instruction
-  record, a different address, and a different profile. An engine may not
-  invent safepoints a record does not have, and two engines that disagree
-  about the safepoint set of one address are not both conforming.
+- A request to lift at a pc outside every body returns `:yin.k/not-at-safepoint` naming the pc; the name is historical, the meaning is "no state of A exists here". A stack image's `:push` pc is relabelled to its successor's A pc without running anything. An engine may not invent states a record does not have, and two engines that disagree about the state set of one address are not both conforming. An engine that cannot hold a value of the canonical frame refuses before attachment with its own kind (the register backend's `:continuation-registers`); that is a limit of the engine, not of the address.
 
-Safepoints are datoms, so a query can ask "where can this program be
-migrated?" without running it, and a debugger's breakpoint set is a subset of
-the safepoint set by construction.
+A debugger's breakpoint set is any subset of the pcs of A; the safepoint set is where the program will stop by itself.
 
 ### 7.4.3 The pending wait travels as data — complete, and resumable elsewhere
 
@@ -1675,7 +1671,11 @@ carries the state:
   wait-set (as pending variants, §7.4.3), the referenced `:parked` records,
   and the fresh-name counter. The ready-queue must be empty at lift
   (`:yin.k/not-quiescent` otherwise, §7.4.1) — a task with queued runnable
-  work has a next configuration that is not the parked one.
+  work has a next configuration that is not the parked one. **Amended
+  2026-10-16 (any-pc):** for the register-shaped machine the unit also
+  carries an active run state and the ordered ready queue as completed
+  outcomes (§7.4.1 amendment; continuation design §2.3); there is no
+  quiescence refusal.
 - **Fresh-name state travels.** `:yin.k/scheduler {:yin.k/id-counter n
   …}` carries the counter verbatim; the lowered machine adopts
   `max(local, carried)` so generated ids never repeat, and ids already
@@ -2696,8 +2696,7 @@ family, disjoint from this one.
 | `:yin.k/status` | Raised by | Carries |
 |---|---|---|
 | `:yin.k/ok` | any | the value, or the lowered VM |
-| `:yin.k/not-at-safepoint` | lift | `:yin.k/segment`, `:yin.k/pc` |
-| `:yin.k/not-quiescent` | lift | the ready-queue depth |
+| `:yin.k/not-at-safepoint` | lift | `:yin.k/segment`, `:yin.k/pc`: the pc is outside every body of A |
 | `:yin.k/non-portable` | lift | `:yin.k/path`, `:yin.k/kind`, `:yin.k/hint` — kinds at §7.5.4, cycles included as `:kind :cyclic` |
 | `:yin.k/refused` | lift | `:yin.k/reason`, the export or abort refusal |
 | `:yin.k/profile-mismatch` | lower | `:yin.k/contract` expected and found |

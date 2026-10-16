@@ -6,6 +6,7 @@
             [dao.jing.cbor-fixtures :as fx]
             [yang.python.antlr.int-contract-fixtures :as ints]
             [yin.vm :as vm]
+            [yin.vm.semantic :as sr]
             [yin.vm.module :as module]
             [yin.vm.ucf.rows-support :as support]
             [dao.test-slow :as slow]
@@ -26,7 +27,7 @@
   (rows/node :task [3 rows/profile :halted :root 0 (rows/node :bindings [])
                     (rows/node :store []) [] (rows/node :parked-table [])
                     (rows/node :cursor-cells (mapcat identity cursor-cells))
-                    {:yin.k/modules {} :yin.k/host-exports {}} {} [] [] nil result nil]))
+                    {:yin.k/modules {} :yin.k/host-exports {}} {} [] [] nil result nil [] []]))
 
 
 (defn cursor-cell-body
@@ -525,7 +526,7 @@
 
 
 (deftest canonical-roots-are-pinned
-  (is (= :segment/blake3-01c05feeff35291a595f1ff65b4cb912bc7c9ca8acf68d8164b88848053cbe2e
+  (is (= :segment/blake3-149b2c38b073c07072f6aa1860becea2774a362072d3c4e01c57b88036cf5bfb
          (:yin.k/root (rows/emit (fixture :s1 :s2 :x :y)))))
   (is (= :segment/blake3-c4a7c7e6de3b44400efec5930bc3d85d86b29153b4b2d548acba630bfbc3da7d
          (:yin.k/root (rows/frame->rows ft/worked-frame))))
@@ -538,15 +539,15 @@
     (is (= [:a :b] (:yin.k/cursor-cells d)))
     (is (= (verdict d) (verdict (error #(rows/emit (renamed-reversed task)))))))
   (doseq [[pin task]
-          [[:segment/blake3-c50089d09d1fd203d23369b225979449fde4a2aeae511eb74fe76c3625c7e80c
+          [[:segment/blake3-587d8dd16ebca343ebc2ae1007e777f4c4a5bc2043e61d48753a84f44015558b
             (equal-bodies [:x :y] [:row (rows/node :vec [(s [(c :x) (c :y)]) (c :x)])])]
-           [:segment/blake3-e5c8c82e6079df50b884cbac278d1134aa1c8dd587e9c539bdade7fc93e6669c
+           [:segment/blake3-104da06dcbdc83d89e3f8eef0cc9b2ac1696cdd0072286c390a43078b60ec78f
             (equal-bodies [:x :y] (v [:x :x :y]))]
-           [:segment/blake3-e1de5400ed3aca2f8b68390df524135b12ac65deb7be6d18bf324b17ab145c95
+           [:segment/blake3-d3879e164ba9085c8d206103eb9253ce48088b496f15e1fa1676777cbd5192d6
             (equal-bodies [:x :y] (v [:x :y :y]))]
-           [:segment/blake3-525ba654dc2cc3575abc81b70f399b18b8808c410bbb67bf0f3565ce4d581e14
+           [:segment/blake3-859ae00e67b209ea82464d1fe2968ef8265ef01f781b94015a19fe17144858bb
             (equal-bodies [:x :y :z :w] [:row (rows/node :vec [(s [(s [(c :x) (c :y)]) (s [(c :z) (c :w)])]) (c :x)])])]
-           [:segment/blake3-18ae5ebc90b121ce3ff21c08f61d18b6fb287369b77ac2ab67a3032e0fd744e6
+           [:segment/blake3-e314e6904d5e511e9f513b72634c41d49a81775f5a98380e3f5e6f0db116142a
             (let [ids (mapv #(keyword "src" (str "x" %)) (range 10))]
               (task-node (mapv (fn [id i] [id (cursor-cell-body :s i)]) ids (range)) (v ids)))]]]
     (is (= pin (root-of task)))
@@ -688,8 +689,8 @@
     ;; Frames: the free environment (slot 5) is met before the parked table
     ;; (slot 8) and the waits (slot 13).
     (doseq [[task pin] (map vector (frame-fixtures)
-                            [:segment/blake3-e209ab0e6539b30cbfedca526693c7591cb6e96a243252b54a112717a7b0061b
-                             :segment/blake3-137d7203380b85bc7d555951225f653c6bcbc577900fffbd32ac6983f1fae456])]
+                            [:segment/blake3-b207b6ca57d4c86d8339b928835705ce48d431f290cd89be0b58b99e42ddf3a8
+                             :segment/blake3-adf890a16ff593fcabeb4e1975e72c3da273c7f25d903ab1b5e4c98be833022f])]
       (is (= (n :y 1 :x 2 :test/cursor 3) (rows/canonical-numbering task)))
       (let [wire (rows/emit task)]
         (is (= pin (:yin.k/root wire)))
@@ -699,22 +700,22 @@
 
 (deftest occurrence-count-separates-members
   (doseq [[pin task]
-          [[:segment/blake3-8d0639824c8f9cb6dc5ba6a6b7f15e3ab840d15ac003ddd97ad3f4e06814081a (review-counterexample)]
-           [:segment/blake3-2dfc65d2d06637ce2a99732aeefc6634c8831e39a993e98eeb75f3015ae3f444 (path-abc)]
-           [:segment/blake3-6dc110420a7be0afe3d725f4fa879465321114a7be4777c19cfd6225ac84969b (two-sets-shared)]]]
+          [[:segment/blake3-61024cde77f2389aa6370d6670946c60fc1522e7dfdc733cc96408ce216af212 (review-counterexample)]
+           [:segment/blake3-b555ed7457948f31e85f4ad3f81c8841a1a0ea4daba2d17c9386403a30a9a8ca (path-abc)]
+           [:segment/blake3-da24572e8c15555492dc9b3f90eccdfd6fe8ed249abe083d91bf95cbe11ff8d1 (two-sets-shared)]]]
     (is (= pin (root-of task)))
     (is (= pin (root-of (renamed-reversed task))))))
 
 
 (deftest interchangeable-ties
   (doseq [[pin task]
-          [[:segment/blake3-6eff99968d148843d4354e207cb25d302e175654ddc57c1b6d4ebed0aef544de
+          [[:segment/blake3-0d0537a83ae43d2e02cb36156fad003de8ee798b405efb11210b51544171d14b
             (equal-bodies [:x :y] (s [(c :x) (c :y)]))]
-           [:segment/blake3-284223c34bef7b455856c0f946dbbac2671e859dafbd210089ab04dbbd0134a2
+           [:segment/blake3-abff8842293d0b2eeaf477f41eea597508bffc2166acb431bbecee841d0db7d9
             (equal-bodies [:x :y] (s [(v [:x :x]) (v [:y :y])]))]
-           [:segment/blake3-67dfa215ee3c1cbc0c9a14cf1dc82a82e4aae2f672950d70d83b52c239f520b5
+           [:segment/blake3-873cbfc37b5477b3b82691ce1a57ce6e96db237ee8d2ff09eafd2a47a799b7b0
             (equal-bodies [:x :y] [:row (rows/node :map [(c :x) [:lit 1] (c :y) [:lit 1]])])]
-           [:segment/blake3-ff4ab85017768eb2b7bf6347d03e1bb4aeb0d167ff716adcadf1b43cb54b31ae
+           [:segment/blake3-5442aaa24909987fb3be0246afd7de32982c7790172b972258392abc12c908e1
             (equal-bodies [:x :y :z :w] (s [(s [(c :x) (c :y)]) (s [(c :z) (c :w)])]))]]]
     (is (= pin (root-of task)))
     (is (= pin (root-of (renamed-reversed task))))))
@@ -722,15 +723,15 @@
 
 (deftest alias-pattern-is-part-of-the-key
   (doseq [[pin a b]
-          [[:segment/blake3-8cc2defe531a8581d4b15f7fabb28aeb9bbacaa16a15bb5f6cba13cdd9643fea
+          [[:segment/blake3-534bdd2899fce1c460b8342cfacba81eb25845507c3d2340aaff39912e951dc3
             (equal-bodies [:x :y :z] (s [(v [:x :x]) (v [:y :z])]))
             (equal-bodies [:x :y :z] (s [(v [:y :z]) (v [:x :x])]))]
-           [:segment/blake3-10d92587620fd86b56ccbfd10348c69ebc06903f00afb87772b28d2ce180f42a
+           [:segment/blake3-a829b11288ebe9b3d904383b74449c6d6a662bc934ec9743e4a178dcecb80b86
             (equal-bodies [:x :y :z] [:row (rows/node :map [(c :x) (c :x) (c :y) (c :z)])])
             (equal-bodies [:x :y :z] [:row (rows/node :map [(c :y) (c :z) (c :x) (c :x)])])]
            ;; Balanced aliases: four cursor cells of one body, every count 2;
            ;; only the alias pattern and the local index separate the members.
-           [:segment/blake3-b20e118772567652309a63ace21fb24ea76dd089e389a844d78bb840728eee51
+           [:segment/blake3-b0c732f3c305f0242bb7608d88010e9259d199ff127b70fe5bb0f1180e7bbf73
             (equal-bodies [:x :y :z :w] (s [(v [:x :x :y :y]) (v [:z :w :z :w])]))
             (equal-bodies [:x :y :z :w] (s [(v [:z :w :z :w]) (v [:x :x :y :y])]))]]]
     (is (= pin (root-of a)))
@@ -739,7 +740,7 @@
   (let [witness (equal-bodies [:a :b] [:row (rows/node :vec [(s [(s [(v [:a :b]) (v [:b :a])])]) (c :a)])])
         wire (rows/emit witness)]
     (is (= {:b :yin.k/cc-1 :a :yin.k/cc-2} (rows/canonical-numbering witness)))
-    (is (= :segment/blake3-415b8a3bebf6b0b21bb054f31c4f6a1bc5e0fc1613605b77addd00f6fd935aef (:yin.k/root wire)))
+    (is (= :segment/blake3-0758f5c284ae3f3a9b2b2540a37fb89c797c134497b26428ab31b4016be84c21 (:yin.k/root wire)))
     (is (= (:yin.k/root wire) (root-of (rows/decode wire))))))
 
 
@@ -1558,3 +1559,55 @@
     (is (= :host-export-mismatch
            (:yin.k/kind (pin-lower-refusal
                           (pin-registry (vm/primitive-profile 'f :pure [1] #{} :none)) wire))))))
+
+
+(deftest running-task-round-trip-and-fencing
+  (let [m (support/load-ast (support/new-machine) (support/app (support/lam ['x] (support/v 'x)) (support/lit nil)))
+        wire (support/lift m nil)
+        task (rows/decode wire)
+        {:keys [attach!] n :count} (support/attacher)
+        recv (rows/lower-task (support/receiver) wire attach!)
+        again (support/lift recv nil)]
+    (is (= :running (nth (:slots task) 2)))
+    (is (= 1 (count (nth (:slots task) 17))))
+    (is (zero? @n))
+    (is (= (:yin.k/root wire) (:yin.k/root again)))
+    (is (nil? (vm/value (vm/run recv))))
+    (let [run (first (nth (:slots task) 17))
+          f (rows/rows->frame (rows/emit-numbered run {}))]
+      (is (= :run (:yin.k/state f)))
+      (is (= (rows/emit-numbered run {}) (rows/frame->rows f))))
+    (doseq [mutate [#(assoc-in % [:slots 17] [])
+                    #(update-in % [:slots 17] into (nth (:slots %) 17))
+                    #(assoc-in % [:slots 14] :parked-9)
+                    #(assoc-in % [:slots 15] [:lit nil])]]
+      (let [{:keys [attach!] n :count} (support/attacher)
+            d (error #(rows/lower-task (support/receiver) (rows/emit (mutate task)) attach!))]
+        (is (= :kind (:yin.k/kind d)))
+        (is (zero? @n))))
+    (let [fenced (rows/lower-task (support/receiver) wire attach! {:fenced true})]
+      (is (= wire (support/lift fenced nil)))
+      (doseq [mode [:exporting :ended]
+              run [#(sr/vm-hot % 1) vm/step vm/run #(sr/run-fuel % 1)]]
+        (let [closed (assoc fenced :yin.k/gate mode)]
+          (is (= :gate-closed (:rule (error #(run closed)))))
+          (is (= wire (support/lift closed nil))))))))
+
+
+(deftest run-row-slot-and-reference-kinds
+  (let [m (support/load-ast (support/new-machine) (support/lit 7))
+        wire (support/lift m nil)
+        task (rows/decode wire)
+        run (first (nth (:slots task) 17))
+        frame-wire (rows/emit-numbered run {})
+        root (:yin.k/root frame-wire)
+        row (first (filter #(= root (first %)) (:yin.k/rows frame-wire)))
+        bad (replace-row frame-wire root (conj (subvec row 1) 0))]
+    (is (= :row-shape (:yin.k/kind (error #(rows/rows->frame bad)))))
+    (doseq [bad-task [(assoc-in task [:slots 13] [(rows/node :wait [run (rows/node :pending [:install 'm false])])])
+                      (assoc-in task [:slots 18] [(rows/node :ready [run (rows/node :completion [:install 'm false])
+                                                                     [:lit nil] nil (rows/node :cursor-cells []) nil])])]]
+      (let [{:keys [attach!] n :count} (support/attacher)
+            d (error #(rows/lower-task (support/receiver) (rows/emit bad-task) attach!))]
+        (is (= :reference-kind (:yin.k/kind d)))
+        (is (zero? @n))))))

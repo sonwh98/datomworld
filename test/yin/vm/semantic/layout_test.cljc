@@ -8,6 +8,7 @@
    the dynamic items run the harness's worlds on the de Bruijn lanes."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.walk :as walk]
+            [clojure.set :as set]
             [dao.stream :as stream]
             [yin.vm :as vm]
             [yin.vm.debruijn-code :as dcode]
@@ -732,3 +733,81 @@
                     (is (zero? @n) "no stream was served"))))
               (is (= (h/normalize expected) (:value (h/crossed lane :semantic build)))
                   "admitted, and used through the collection"))))))))
+
+
+(def dead-ambient-pcs
+  #{[:resume-operand 1] [:resume-operand 2]
+    [:tail-operand 1] [:tail-operand 2]})
+
+
+(deftest static-layouts-at-every-pc
+  (let [excluded (atom #{})]
+    (doseq [[label ast] C]
+      (let [v (projected ast) sg (layout/segment v) a (:analysis sg)]
+        (doseq [p (sort (reachable-pcs v))]
+          (testing (str label " pc " p)
+            (let [t (nth v p)
+                  ordered (layout/stack-layout sg p)
+                  live (analysis/live a p)
+                  named (cond-> live (some? (code/rd t)) (conj (code/rd t)))
+                  uses (set (code/uses t))
+                  region (into (set ordered) uses)]
+              (is (vector? ordered))
+              (is (= (count named) (count (set (map #(layout/phys sg p %) named))))
+                  "physical registers are injective on live registers and the definition")
+              (if (code/tail-call? t)
+                (is (= uses live))
+                (do
+                  (is (set/subset? uses live))
+                  (is (set/subset? live region))
+                  (if (contains? dead-ambient-pcs [label p])
+                    (do
+                      (swap! excluded conj [label p])
+                      (is (= #{1} (set/difference (set ordered) live))
+                          "exactly the enclosing application's abandoned operator")
+                      (is (= :var (first (nth v 0))))
+                      (is (some #(or (= :resume (first %)) (code/tail-call? %))
+                                (subvec v p))
+                          "the pending application is abandoned by an operand transfer"))
+                    (is (= live region))))))))))
+    (is (= dead-ambient-pcs @excluded))))
+
+
+(deftest executed-ordered-regions
+  (doseq [ast [(corpus/app (corpus/v '+) (corpus/lit 1) (corpus/lit 2))
+               (corpus/app (corpus/lam ['x] (corpus/app (corpus/v '+) (corpus/v 'x) (corpus/v 'x))) (corpus/lit 7))
+               (corpus/app (corpus/v '+) (corpus/lit 10)
+                           (corpus/if-node (corpus/lit true) (corpus/lit 2) (corpus/lit 3)))
+               (corpus/app (corpus/v '+) (corpus/lit 10)
+                           (corpus/if-node (corpus/lit false) (corpus/lit 2) (corpus/lit 3)))]]
+    (h/scoped
+      (fn []
+        (let [sg (layout/segment (projected ast))
+              semantic (h/load-program (h/on-lane :semantic h/machine) ast)
+              stack (h/on-lane :stack #(h/load-program (h/machine) ast))
+              sem (loop [m semantic out []]
+                    (if-let [{:keys [pc]} (:control m)]
+                      (recur (vm/step m) (conj out [pc (:window m)])) out))
+              stk (loop [k stack out [] n 0]
+                    (when (> n 1000) (throw (ex-info "Pure stack path did not halt" {})))
+                    (if (vm/halted? k) out
+                        (let [[_ hp] (dvm/image-pc k (:pc k))
+                              pc (get (:h->a sg) hp)
+                              base (or (:stack-base (peek (:continuation k))) 0)]
+                          (recur (vm/step k)
+                                 (cond-> out (some? pc) (conj [pc (subvec (vec (:stack k)) base)]))
+                                 (inc n)))))
+              repeated (atom 0)]
+          (is (= (mapv first sem) (mapv first stk)))
+          (doseq [[[pc w] [_ region]] (map vector sem stk)]
+            (let [sequence (into (layout/stack-layout sg pc) (code/uses (nth (:vector sg) pc)))
+                  expected (mapv #(get w %) sequence)]
+              (is (= (count sequence) (count region)) (str "pc " pc))
+              (is (= (h/normalize expected) (h/normalize region)))
+              (doseq [[_ entries] (group-by first (map vector sequence region)) :when (< 1 (count entries))]
+                (swap! repeated inc)
+                (is (apply = (map second entries))))))
+          ;; Pinned as measured: linearize gives every operand a fresh
+          ;; register ((+ x x) is [:var 2 x] [:var 3 x] [:call 0 1 [2 3]]), so
+          ;; no projected program repeats one; a repeat would fail here loudly.
+          (is (zero? @repeated)))))))

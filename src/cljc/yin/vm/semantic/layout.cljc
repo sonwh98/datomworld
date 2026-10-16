@@ -119,16 +119,21 @@
   "§4.3 static item 2 for every pc of every body: `{pc [virtual …]}`,
    bottom to top, over the parse tree's ancestors outermost first."
   [v bodies]
-  (letfn [(walk
+  (letfn [(result-rd
+            [node]
+            (if (= :if (:op node)) (result-rd (second (:children node)))
+                (code/rd (nth v (:pc node)))))
+          (walk
             [out node pending]
-            (let [out (assoc out (:pc node) pending)
+            (let [out (cond-> (assoc out (:pc node) pending)
+                        (= :if (:op node)) (assoc (:jump node) (conj pending (result-rd node))))
                   pushes? (contains? pushing-ops (:op node))
                   uses (when pushes? (code/uses (nth v (:pc node))))]
               (reduce (fn [out [i child]]
                         (walk out child (if pushes? (into pending (take i uses)) pending)))
                       out
                       (map-indexed vector (:children node)))))]
-    (reduce (fn [out body] (walk out (:expr body) [])) {} bodies)))
+    (reduce (fn [out body] (walk (assoc out (dec (:end body)) []) (:expr body) [])) {} bodies)))
 
 
 (defn segment
@@ -869,7 +874,7 @@
                         (map-indexed vector (:slots k))))
         [a pc e w k] (:slots n)]
     (case (:kind n)
-      :act (or (frame-prim code a pc e w path) (kframes k))
+      (:act :run) (or (frame-prim code a pc e w path) (kframes k))
       :tail (kframes e)
       nil)))
 
@@ -944,7 +949,17 @@
       (assoc {} :yin.k/status :yin.k/unsupported :yin.k/kind :retained-ffi)
 
       (= :register kind)
-      (when-let [path (or (some (fn [[i w]] (state-prim code (first (:slots w)) [:frames i]))
+      (when-let [path (or (some (fn [[i r]] (state-prim code r [:run i])) (map-indexed vector (nth slots 17)))
+                          (some (fn [[i r]]
+                                  (let [[st c v _ _ refusal] (:slots r)]
+                                    (or (state-prim code st [:ready i :state])
+                                        (value-prim code v [:ready i :value])
+                                        (when refusal (value-prim code refusal [:ready i :refusal]))
+                                        (some (fn [[j d x]]
+                                                (when (= :V d) (value-prim code x [:ready i :completion j])))
+                                              (map vector (range) (into [:D] (get rows/completion-table (first (:slots c)))) (:slots c))))))
+                                (map-indexed vector (nth slots 18)))
+                          (some (fn [[i w]] (state-prim code (first (:slots w)) [:frames i]))
                                 (map-indexed vector (nth slots 13)))
                           (some (fn [[p st]] (state-prim code st [:parked p]))
                                 (partition 2 (:slots (nth slots 8)))))]

@@ -19,6 +19,7 @@
    lowering pairs, each continuing to the reference result) and the
    layout refusals close the file."
   (:require [clojure.test :refer [deftest is testing]]
+            [clojure.set :as set]
             [dao.jing :as jing]
             [dao.stream :as stream]
             [dao.stream.apply :as apply2]
@@ -103,11 +104,21 @@
 (def lanes [:semantic :stack :register])
 
 
+(def portable-stream-primitives
+  "Name the corpus's effect constructors in the composition so intermediate
+   operator values have the existing :prim wire form."
+  (merge vm/primitives
+         (into {} (map (fn [[n f]]
+                         [(symbol "stream" (name n))
+                          (assoc (get module/stream-profiles n) :yin.k/function f)]))
+               module/stream-module)))
+
+
 (defn- composition
   [opts]
   (merge {:make-stream tu/make-stream :capability-secret tu/secret
           :secret-source (fn [origin] (str tu/secret "/" (name origin)))
-          :modules stream-modules}
+          :modules stream-modules :primitives portable-stream-primitives}
          opts))
 
 
@@ -390,9 +401,13 @@
         id (:link-id (first (:wait-set m0)))
         _ (stream/append! response (assoc (module-response blocking-body #{'f}) :yin.link/id id))
         m1 (vm/run m0)
-        m (if phase (assoc-in m1 [:installs 'host.mod :phase] phase) m1)
-        child (get-in m [:installs 'host.mod :vm])
-        child-stream (s/stream-of child)]
+        m (if (= :running phase)
+            (let [child (get-in m1 [:installs 'host.mod :vm])
+                  _ (stream/append! (s/stream-of child) :fed)
+                  active (sr/run-fuel child 1)]
+              (assoc-in m1 [:installs 'host.mod] (assoc (get-in m1 [:installs 'host.mod]) :phase :running :vm active)))
+            m1)
+        child-stream (s/stream-of (get-in m1 [:installs 'host.mod :vm]))]
     {:machine m :kind :blocked :reason :install :trace trace
      :steps [#(stream/append! child-stream :fed)]
      :finish #(swap! trace into (tu/drain request))
@@ -419,7 +434,7 @@
 
 (defn run-beside
   [m ast]
-  (vm/run (load-program m ast)))
+  (vm/run (load-program (if (= :semantic (lane-of m)) (assoc m :env (:free-env m)) m) ast)))
 
 
 (defn parking
@@ -746,13 +761,14 @@
         (is (= (count (stream-identities wire)) @n) "one attach per distinct stream identity of the tree")
         (is (= 'host.mod mn))
         (is (= phase carried-phase) "the child's phase as the source held it")
-        (is (= :blocked (slot child 2)) "the child's kind")
+        (is (= (if (= :running phase) :running :blocked) (slot child 2)) "the child's kind")
         (is (= :child (slot child 3)))
         (is (= [:install 'host.mod false] (:slots (first-pending (root-task wire)))))
         (is (= phase (:phase inst)))
-        (is (nil? (:control lowered)) "no initialization on lower: nothing runs")
-        (is (= [:next] (mapv :reason (:wait-set lowered))) "the child waits where it was lifted")
-        (is (vm/blocked? lowered))
+        (is (= (some? (:control (:vm (get-in (:machine world) [:installs 'host.mod]))))
+               (some? (:control lowered))) "lower preserves control without running")
+        (is (= (if (= :running phase) [] [:next]) (mapv :reason (:wait-set lowered))) "the child waits where it was lifted")
+        (is (= (not= :running phase) (vm/blocked? lowered)))
         (is (= (count (slot child 11)) (count (:code-aliases lowered))) "the child's code by A")))))
 
 
@@ -1009,14 +1025,12 @@
     (let [counting (fn []
                      (let [n (atom 0) {:keys [serve!]} (served #{:reader})]
                        [(fn [h] (swap! n inc) (serve! h)) n]))
-          stepped (vm/step (load-program (machine) (s/lit 42)))
           m0 (load-program (machine) (s/app (s/v 'stream/poll!) (s/v 'c)))
           [sref m1] (engine/attach-resource m0 (s/ring 8))
           [cref m2] (engine/handle-cursor m1 {:stream sref} :k1)
           held (vm/run (assoc m2 :store {'c cref} :yin.k/gate :running))]
       (is (= [:observe] (mapv :reason (:wait-set held))))
-      (doseq [[label m status kind] [["not at a safepoint" stepped :yin.k/not-at-safepoint nil]
-                                     ["a held :observe" held :yin.k/non-portable :reason-mismatch]]]
+      (doseq [[label m status kind] [["a held :observe" held :yin.k/non-portable :reason-mismatch]]]
         (testing label
           (let [[serve! n] (counting)
                 d (error #(rows/lift-task m serve! (lift-opts)))]
@@ -1054,16 +1068,17 @@
     [(vm/run m0) src]))
 
 
-(deftest a-nonempty-ready-queue-is-not-quiescent
+(deftest a-nonempty-ready-queue-is-carried
   (let [[parked src] (parked-reader)
         _ (stream/append! src "B")
         woken (engine/check-wait-set parked)
-        n (atom 0)
-        {:keys [serve!]} (served #{:reader})
-        d (error #(rows/lift-task woken (fn [h] (swap! n inc) (serve! h)) (lift-opts)))]
-    (is (seq (:ready-queue woken)) "the sweep queued the woken reader")
-    (is (= :yin.k/not-quiescent (:yin.k/status d)) (pr-str d))
-    (is (zero? @n) "no stream was served")))
+        world {:machine woken :steps [(fn [] nil)] :trace (atom [])}
+        got (handed-off world)]
+    (is (= 1 (count (:ready-queue woken))))
+    (is (= 1 (count (slot (root-task (:wire got)) 18))))
+    (is (= "B" (:value got)))
+    (is (= (rows/canonical-under (:wire got) (:corr got))
+           (rows/canonical-under (:relift got) (:corr2 got))))))
 
 
 (defn two-callers
@@ -2062,3 +2077,911 @@
         (is (vm/halted? done))
         (is (= "echo!" (vm/value done)))
         (is (empty? (tu/drain own-in)) "the carried request is not sent again")))))
+
+
+(defn receiver-admission
+  [m]
+  {:yin.k/admitted-modules
+   (into {} (mapcat (fn collect
+                      [m]
+                      (mapcat (fn [[n inst]]
+                                (cons [n (jing/segment-key (get-in inst [:response :manifest]))]
+                                      (collect (:vm inst)))) (:installs m)))) [m])})
+
+
+(defn check-window-tampers
+  "Law 6: independently corrupt a carried window, then require refusal
+   before any stream attachment. Empty windows have no removable live key."
+  [task m]
+  (let [states (atom [])]
+    (letfn [(visit
+              [x code-map]
+              (let [code-map (if (= :task (:kind x)) (slot x 11) code-map)]
+                (when (contains? #{:run :act :kframe} (:kind x))
+                  (swap! states conj [x code-map]))
+                (cond
+                  (:slots x) (doseq [y (:slots x)] (visit y code-map))
+                  (vector? x) (doseq [y x] (visit y code-map)))))]
+      (visit task nil))
+    (doseq [[state code-map] @states
+            :let [[a pc _ w] (:slots state)
+                  v (get code-map a)
+                  body (nth (code/parse v) (code/body-index (code/body-ranges v) pc))
+                  prefix (if (= :kframe (:kind state)) "return-" "")]
+            [tamper expected]
+            (cond-> [[#(update % :slots into [(:registers body) [:lit :extra]])
+                      (keyword (str prefix "window-scope"))]]
+              (seq (:slots w))
+              (conj [#(update % :slots (fn [xs] (subvec xs 2)))
+                     (keyword (str prefix "window-missing"))]))]
+      (let [changed (replace-nodes task #(identical? % state)
+                                   #(update-in % [:slots 3] tamper))
+            attaches (atom 0)
+            d (rows/validate-frames changed)
+            lower-refusal (error #(rows/lower-task (machine {:modules (:modules m)}) (rows/emit changed)
+                                                   (fn [_] (swap! attaches inc)) (receiver-admission m)))]
+        (is (= expected (:yin.k/kind d)) (pr-str d))
+        (is (some? lower-refusal) "frame corruption cannot attach, even if census validation wins")
+        (is (zero? @attaches))))))
+
+
+(defn boundary-round-trip
+  "Snapshot without execution, retaining the peer for later continuation."
+  [m]
+  (let [{:keys [toy peer serve!]} (served #{:reader :writer})
+        wire (rows/lift-task m serve! (lift-opts))
+        {:keys [attach! origin] n :count} (recording-attacher toy)
+        recv (rows/lower-task (machine {:attach-stream attach! :modules (:modules m) :primitives (:primitives m)})
+                              wire attach! (receiver-admission m))
+        again (served #{:reader :writer})
+        relift (rows/lift-task recv (:serve! again) (lift-opts))
+        corr (into {} (map (fn [[id _]] [id id])) @(:table peer))
+        corr2 (into {} (map (fn [[id e]] [id (get @origin (:handle e))])) @(:table (:peer again)))]
+    (is (= (rows/canonical-under wire corr) (rows/canonical-under relift corr2)))
+    (is (nil? (rows/validate-frames (root-task wire))))
+    {:wire wire :recv recv :peer peer :origin @origin :attaches @n}))
+
+
+(deftest completed-link-and-install-outcomes
+  (doseq [install? [false true] try? [false true] success? [false true]]
+    (testing (pr-str [install? try? success?])
+      (let [world (if install? (installing (try-wrapper try?) false nil)
+                      (linking (try-wrapper try?) false false))
+            m (:machine world)
+            completed (if install?
+                        (if success?
+                          (do ((first (:steps world))) (engine/check-wait-set m))
+                          (engine/abandon-installs m :test-abandoned))
+                        (let [entry (first (:wait-set m))
+                              resp (get (:resources m) module/link-response-resource)]
+                          (if success?
+                            ((first (:steps world)))
+                            (stream/append! resp {:yin.link/id (:link-id entry) :status :refused :reason :absent}))
+                          (engine/check-wait-set m)))
+            {:keys [recv peer wire]} (boundary-round-trip completed)
+            source-outcome (try {:value (normalize (vm/value (drive-local completed)))}
+                                (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                                  {:error (ex-data e)}))
+            received-outcome (try {:value (normalize (vm/value (drive-peers recv [peer])))}
+                                  (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                                    {:error (ex-data e)}))]
+        (is (empty? (:installs completed)))
+        (is (seq (:ready-queue completed)))
+        (is (= source-outcome received-outcome))
+        (is (= 1 (count (slot (root-task wire) 18))))))))
+
+
+(deftest task-products-and-ready-validation
+  (doseq [both? [false true] active? [false true]]
+    (let [[m call-out id] (two-callers)
+          _ (if both? (answer-both! call-out id)
+                (stream/append! call-out (apply2/success-response id "first")))
+          swept (engine/check-wait-set m)
+          m (if active? (sr/run-fuel swept 1) swept)
+          {:keys [wire]} (boundary-round-trip m)
+          t (root-task wire)]
+      (is (= (if active? :running :blocked) (slot t 2)))
+      (is (= (if both? 0 1) (count (slot t 13))))
+      (is (= (if active? 1 0) (count (slot t 17))))
+      (is (= (- (if both? 2 1) (if active? 1 0)) (count (slot t 18))))))
+  (let [[m call-out id] (two-callers)
+        _ (answer-both! call-out id)
+        completed (engine/check-wait-set m)
+        {:keys [wire]} (boundary-round-trip completed)
+        t (root-task wire)]
+    (is (= 1 (quot (count (:slots (slot t 9))) 2)) "one shared cursor identity")
+    (is (= ["second" "first"] (mapv #(apply2/response-ok (:value %)) (:ready-queue completed))))
+    (doseq [[mutate kind]
+            [[#(assoc-in % [:slots 18 0 :slots 3] "invalid") :ready-outcome]
+             [#(assoc-in % [:slots 18 0 :slots 5] [:lit :unexpected]) :ready-outcome]
+             [#(assoc-in % [:slots 18 0 :slots 1 :slots 0] :unknown) :row-shape]
+             [#(assoc-in % [:slots 18 0 :slots 4] (rows/node :cursor-cells [:missing (second (:slots (slot t 9)))])) :slot-kind]]]
+      (let [n (atom 0)
+            d (error #(rows/lower-task (machine) (rows/emit-numbered (mutate t) {}) (fn [_] (swap! n inc))))]
+        (is (= kind (:yin.k/kind d)) (pr-str d))
+        (is (zero? @n))))))
+
+
+(defn active-tree?
+  [m]
+  (or (:control m) (seq (:ready-queue m))
+      (some (fn [[_ inst]] (or (= :running (:phase inst)) (active-tree? (:vm inst)))) (:installs m))))
+
+
+(defn fuel-drive
+  "Drive to the next guest stop, observing and optionally replacing each boundary."
+  [m observe]
+  (loop [m (observe m) n 0]
+    (when (> n 20000) (throw (ex-info "Boundary driver failed to stop" {:steps n})))
+    (let [next (observe (sr/run-fuel m 1))]
+      (if (active-tree? next)
+        (recur next (inc n)) next))))
+
+
+(defn direct-transfer
+  "Transfer within one fresh replay world. Its handles are never used by
+   another reference or replay world; only the abandoned source shares them."
+  [m]
+  (let [handles (atom {})
+        base (s/serve-table)
+        serve! (fn [h]
+                 (let [d (base h)]
+                   (swap! handles assoc (:dao.stream/identity d) h) d))
+        wire (rows/lift-task m serve! (lift-opts))
+        attach! (fn [d]
+                  {:dao.stream/outcome :dao.stream/ok
+                   :dao.stream/handle (get @handles (:dao.stream/identity d))})
+        opts (merge (select-keys m [:modules :primitives :primitive-profiles :primitive-canonical-names
+                                    :make-stream :capability-secret :secret-source])
+                    {:call-in (get (:resources m) vm/call-in-stream-key)
+                     :call-out (get (:resources m) vm/call-out-stream-key)
+                     :call-out-cursor (:cursor (get (:resources m) vm/call-out-cursor-key))
+                     :link-request (get (:resources m) module/link-request-resource)
+                     :link-response (get (:resources m) module/link-response-resource)})
+        recv (rows/lower-task (machine opts) wire attach! (receiver-admission m))
+        relift (rows/lift-task recv serve! (lift-opts))]
+    (is (= wire relift) "law 2: immediate relift, before any receiver execution")
+    (is (nil? (rows/validate-frames (root-task wire))) "law 6")
+    recv))
+
+
+(defn boundary-description
+  [m]
+  (let [{seg :segment pc :pc} (:control m)]
+    {:pc pc :body-start (when seg (let [v (get-in m [:code seg :vector])]
+                                    (:start (nth (code/body-ranges v) (code/body-index (code/body-ranges v) pc)))))
+     :instruction (when seg (nth (get-in m [:code seg :vector]) pc))
+     ;; a linked module's store is keyed by its manifest address, the registry
+     ;; entry's :address (engine/lift-slice, receive-module); an installing
+     ;; module's exports answer discharge as well (rows/discharge!)
+     :store-keys (into (into (set (keys (:store m)))
+                             (mapcat (fn [[mn entry]]
+                                       (map #(symbol (str mn) (str %))
+                                            (keys (get (:module-stores m) (:address entry))))))
+                             (module/module-entries (:modules m)))
+                       (mapcat (fn [[mn inst]]
+                                 (map #(symbol (name mn) (name %))
+                                      (get-in inst [:response :manifest :yin.module/exports]))))
+                       (:installs m))
+     :active-plus-waits (and (:control m) (seq (:wait-set m)))
+     :active-plus-ready (and (:control m) (seq (:ready-queue m)))
+     :running-install-child (some :control (map :vm (vals (:installs m))))
+     :stop (cond (:control m) :running
+                 (seq (:parked m)) :parked
+                 (seq (:wait-set m)) :waiting
+                 (vm/halted? m) :halted :else :inactive)}))
+
+
+(defn boundary-coverage
+  [points]
+  (into #{}
+        (mapcat (fn [[p next]]
+                  (let [t (:instruction p) op (first t)]
+                    (cond-> []
+                      (and (:pc p) (= (:pc p) (:body-start p))) (conj :body-entry)
+                      (= op :branch-false) (conj (if (= (:pc next) (nth t 2)) :taken-branch :untaken-branch))
+                      (= op :jump) (conj :jump)
+                      (and (= op :call) (not (code/tail-call? t))) (conj :non-tail-call)
+                      (= op :return) (conj :return)
+                      (code/tail-call? t) (conj :tail-transition)
+                      (= op :current-continuation) (conj :capture)
+                      (= op :resume) (conj :resume)
+                      (= op :park) (conj :park)
+                      (= op :ffi-call) (conj :ffi-park)
+                      (:active-plus-waits p) (conj :active-plus-waits)
+                      (:active-plus-ready p) (conj :active-plus-ready)
+                      (:running-install-child p) (conj :running-install-child)))))
+        (map vector points (concat (rest points) [nil]))))
+
+
+(defn structural-sample
+  [points]
+  (let [first-at (fn [p] (first (keep-indexed #(when (and (not (:excluded? %2)) (p %2)) %1) points)))]
+    {:body-entry (first-at #(= (:pc %) (:body-start %)))
+     :after-primitive (first (keep-indexed
+                               (fn [i _p]
+                                 (when (and (pos? i)
+                                            (= :var (first (:instruction (nth points (dec i)))))
+                                            (contains? portable-stream-primitives
+                                                       (nth (:instruction (nth points (dec i))) 2))) i)) points))
+     :before-park (first-at #(parking-site? (:instruction %)))
+     :branch (first-at #(contains? #{:jump :branch-false} (first (:instruction %))))
+     :last-return (last (keep-indexed #(when (= :return (first (:instruction %2))) %1) points))}))
+
+
+;; :cljd first — cljd compiler NPE on multi-arity + destructuring; stub — JVM/cljs
+;; use the real body; no cljd caller (gated)
+#?(:cljd (defn check-returned-boundaries
+           [& _]
+           nil)
+   :default
+   (defn check-returned-boundaries
+     ([cases] (check-returned-boundaries cases :all))
+     ([cases execution]
+      (mapv
+        (fn [[row segment _ build]]
+          (let [points (atom []) successful? (atom false)
+                observe (fn [m]
+                          (let [serves (atom 0)
+                                d (error #(rows/lift-task m (fn [_] (swap! serves inc) nil) (lift-opts)))
+                                ;; Use a working server to distinguish discharge refusals
+                                ;; from the deliberately unavailable server above.
+                                result (try {:snapshot (boundary-round-trip m)}
+                                            (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                                              {:refusal (ex-data e)}))
+                                refusal (:refusal result)
+                                excluded? (= [:yin.k/unsatisfied :incomplete]
+                                             [(:yin.k/status refusal) (:yin.k/discovery refusal)])]
+                            (when refusal
+                              (is (and (not @successful?) excluded?) (pr-str refusal))
+                              (when-not (and (not @successful?) excluded?)
+                                (throw (ex-info "Refusal after first successful lift" refusal)))
+                              (is (zero? @serves) "leading refusal serves nothing")
+                              (is (= refusal d)))
+                            (when-not refusal
+                              (reset! successful? true)
+                              (check-window-tampers (root-task (get-in result [:snapshot :wire])) m))
+                            (swap! points conj (assoc (boundary-description m)
+                                                      :excluded? (boolean refusal)
+                                                      :obligations (get-in refusal [:yin.k/missing :obligations])))
+                            m))
+                expected (reference (build))
+                result (with-redefs [vm/run #(fuel-drive % observe)] (reference (build)))
+                excluded (filterv :excluded? @points)
+                measured (keep-indexed #(when-not (:excluded? %2) %1) @points)]
+            (is (= expected result) (str row " " segment))
+            (doseq [[i p] (map-indexed vector @points) :when (:excluded? p)]
+              (is (every? :excluded? (take (inc i) @points)))
+              (is (seq (:obligations p)))
+              (is (every? (apply set/union #{} (map :store-keys (drop (inc i) @points)))
+                          (:obligations p)) "obligations are definitions later in this case"))
+            (when (seq excluded)
+              (let [first-measured (first (remove :excluded? @points))]
+                (is (every? (:store-keys first-measured) (apply set/union (map :obligations excluded)))
+                    "lifts from the first boundary at which its definitions are answered")
+                (doseq [p excluded]
+                  (is (not-any? (:store-keys p) (:obligations p)) "unanswered at the excluded boundary"))))
+            (if (= row 20)
+              ;; The ruling predicted [S0]; measured, the setup batch's first
+              ;; s/def! stores s only after pcs 0-2 (conservative-prefixes-
+              ;; refuse-before-serving pins the same three prefixes).
+              (is (= [{:pc 0 :obligations #{'s}} {:pc 1 :obligations #{'s}} {:pc 2 :obligations #{'s}}]
+                     (mapv #(select-keys % [:pc :obligations]) excluded)))
+              (if (= row 17)
+                (is (every? #(= #{'host.mod/f} (:obligations %)) excluded))
+                (is (empty? excluded))))
+            (when execution
+              (doseq [target (if (and (= :sample execution) (not (contains? #{1 20} row)))
+                               (sort (set (remove nil? (vals (structural-sample @points))))) measured)
+                      :when (not (:excluded? (nth @points target)))]
+                (let [i (atom -1)
+                      replay (with-redefs [vm/run #(fuel-drive % (fn [m]
+                                                                   (if (= target (swap! i inc))
+                                                                     (direct-transfer m) m)))]
+                               (reference (build)))]
+                  (is (= expected replay) (str "isolated law 1 " [row segment target])))))
+            (let [measurement {:row row :segment segment :measured (count measured)
+                               :samples (structural-sample @points)
+                               :coverage (boundary-coverage @points)
+                               :excluded-leading (mapv #(select-keys % [:pc :obligations]) excluded)
+                               :to-first-park (first (keep-indexed #(when (contains? #{:parked :waiting} (:stop %2)) (inc %1)) @points))
+                               :to-final-halt (last (keep-indexed #(when (= :halted (:stop %2)) (inc %1)) @points))
+                               :park (count (filter #(= :parked (:stop %)) @points))
+                               :halt (count (filter #(= :halted (:stop %)) @points))}]
+              (println "6d-a measured case:" (pr-str measurement))
+              measurement))) cases))))
+
+
+(def quick-boundary-pins
+  "[row segment] -> [measured excluded-leading park halt], measured on JVM
+   2026-10-16 (6d-a); coverage is pinned beside it."
+  {[1 :bare] [42 0 0 1] [2 :bare] [11 0 0 1] [3 :bare] [10 0 2 1] [4 :bare] [36 0 28 1]
+   [5 :bare] [28 0 0 1] [6 :bare] [23 0 0 1] [7 :bare] [39 0 0 1] [8 :bare] [13 0 0 1]
+   [9 :bare] [16 0 0 1] [10 :bare] [21 0 0 1] [11 :bare] [20 0 0 1] [12 :bare] [24 0 0 1]
+   [13 :bare] [10 0 1 1] [14 :bare] [39 0 0 1] [15 :bare] [41 0 0 1] [16 :bare] [51 0 0 1]
+   [17 :bare] [18 16 0 1] [18 :bare] [14 0 1 1] [19 :bare] [7 0 0 1] [21 :bare] [31 0 0 1]
+   [22 :bare] [44 0 0 1] [24 :bare] [10 0 2 1] [20 :unwrapped] [13 3 0 2]})
+
+
+(def quick-boundary-coverage
+  #{:body-entry :taken-branch :untaken-branch :jump :non-tail-call :return :tail-transition
+    :capture :resume :park :ffi-park :running-install-child})
+
+
+(defn running-beside-a-reader
+  "Active control beside an outstanding reader wait. The beside activation
+   blocks on its own stream before either answer arrives, so both waits
+   wake in one sweep and no boundary halts beside an outstanding wait (that
+   normalization is pinned separately)."
+  []
+  (let [src (s/ring 4) other (s/ring 4)
+        [sref m] (engine/attach-resource (machine) src)
+        [cref m] (engine/handle-cursor m {:stream sref} :reader-cursor)
+        [oref m] (engine/attach-resource m other)
+        [dref m] (engine/handle-cursor m {:stream oref} :beside-cursor)
+        reader (vm/run (load-program (assoc m :store {'c cref 'd dref}) (s/then read-op read-op)))
+        _ (stream/append! src "A")
+        reader (vm/run reader)]
+    {:machine (load-program (assoc reader :env (:free-env reader))
+                            (s/then (s/app (s/v '+) (s/lit 1) (s/lit 2)) (s/next-of (s/v 'd))))
+     :steps [(fn [] nil) #(do (stream/append! src "B") (stream/append! other "C"))] :trace (atom [])}))
+
+
+(defn two-woken-callers
+  "Two waits on one continuation, both answered: the first resume runs
+   beside the second's queued outcome."
+  []
+  (let [call-in (s/ring 8) call-out (s/ring 8)
+        m (vm/run (load-program (machine {:call-in call-in :call-out call-out
+                                          :call-out-cursor (vm/mint-oldest call-out :test)})
+                                (s/call-node :op/echo "hello")))
+        e1 (first (:wait-set m))]
+    {:machine (assoc m :wait-set [e1 (assoc e1 :call-id :parked-9)])
+     :steps [#(answer-both! call-out (:call-id e1))] :trace (atom [])}))
+
+
+(def product-driver-cases
+  "Constructed starts the stepping driver runs from, for the §3.6 classes
+   no corpus row reaches: [id segment expected build]."
+  [[:active-plus-waits :product nil running-beside-a-reader]
+   [:active-plus-ready :product nil two-woken-callers]])
+
+
+(deftest product-returned-boundaries
+  ;; :cljd first — the driver observes vm/run through with-redefs, which
+  ;; ClojureDart lacks; cljd keeps the constructed products
+  ;; (task-products-and-ready-validation, running-plus-ready-fenced-recovery)
+  #?(:cljd nil
+     :default
+     (let [counts (check-returned-boundaries product-driver-cases :all)]
+       (is (= {:active-plus-waits [49 0 0 1] :active-plus-ready [8 0 3 1]}
+              (into {} (map (fn [c] [(:row c) [(:measured c) (count (:excluded-leading c)) (:park c) (:halt c)]]))
+                    counts)))
+       (doseq [c counts]
+         (is (contains? (:coverage c) (:row c)) (pr-str c))))))
+
+
+(deftest sampled-returned-boundaries
+  ;; :cljd first — the driver needs with-redefs; cljd keeps the park-boundary
+  ;; laws (bare-rows-match-the-reference) and conservative-prefixes-refuse-before-serving
+  #?(:cljd nil
+     :default
+     (let [cases (filterv #(or (= :bare (second %)) (= 20 (first %))) (matrix-cases))
+           counts (check-returned-boundaries cases :sample)]
+       (is (= 23 (count counts)))
+       (is (= quick-boundary-pins
+              (into {} (map (fn [c]
+                              [[(:row c) (:segment c)]
+                               [(:measured c) (count (:excluded-leading c)) (:park c) (:halt c)]]))
+                    counts)))
+       (is (= quick-boundary-coverage (apply set/union (map :coverage counts)))
+           "driver coverage; active-plus-waits/-ready are constructed products (§3.6)")
+       (is (every? pos? (map :measured counts)))
+       (is (every? #(= #{:body-entry :after-primitive :before-park :branch :last-return}
+                       (set (keys (:samples %)))) counts))
+       (println "6d-a quick boundary counts JVM:" (pr-str counts)))))
+
+
+(deftest ^:slow every-returned-boundary
+  ;; :cljd first — the driver needs with-redefs; cljd keeps the slow
+  ;; every-row-every-segment-matches-the-reference park-boundary laws
+  (slow/guard "every-returned-boundary"
+              (fn []
+                #?(:cljd nil
+                   :default
+                   (let [counts (check-returned-boundaries (matrix-cases))
+                         got (into {} (map (fn [c]
+                                             [[(:row c) (:segment c)]
+                                              [(:measured c) (count (:excluded-leading c)) (:park c) (:halt c)]]))
+                                   counts)]
+                     (is (= 89 (count counts)))
+                     ;; Measured on JVM 2026-10-16 (6d-a): every wrapper adds a fixed
+                     ;; prefix to the bare row; only row 17 (host.mod/f before the
+                     ;; link) and row 20 (s before the setup batch) exclude.
+                     (is (= quick-boundary-pins (select-keys got (keys quick-boundary-pins))))
+                     (is (= {[1 :operand] [50 0 0 1] [1 :depth-3] [78 0 0 1] [1 :captured] [78 0 0 1]
+                             [2 :operand] [19 0 0 1] [2 :depth-3] [47 0 0 1] [2 :captured] [47 0 0 1]
+                             [3 :operand] [18 0 2 1] [3 :depth-3] [46 0 2 1] [3 :captured] [46 0 2 1]
+                             [4 :operand] [44 0 28 1] [4 :depth-3] [72 0 28 1] [4 :captured] [72 0 28 1]
+                             [5 :operand] [36 0 0 1] [5 :depth-3] [64 0 0 1] [5 :captured] [64 0 0 1]
+                             [6 :operand] [31 0 0 1] [6 :depth-3] [59 0 0 1] [6 :captured] [59 0 0 1]
+                             [7 :operand] [47 0 0 1] [7 :depth-3] [75 0 0 1] [7 :captured] [75 0 0 1]
+                             [8 :operand] [21 0 0 1] [8 :depth-3] [49 0 0 1] [8 :captured] [49 0 0 1]
+                             [9 :operand] [24 0 0 1] [9 :depth-3] [52 0 0 1] [9 :captured] [52 0 0 1]
+                             [10 :operand] [29 0 0 1] [10 :depth-3] [57 0 0 1] [10 :captured] [57 0 0 1]
+                             [11 :operand] [28 0 0 1] [11 :depth-3] [56 0 0 1] [11 :captured] [56 0 0 1]
+                             [12 :operand] [32 0 0 1] [12 :depth-3] [60 0 0 1] [12 :captured] [60 0 0 1]
+                             [13 :operand] [18 0 1 1] [13 :depth-3] [46 0 1 1] [13 :captured] [46 0 1 1]
+                             [14 :operand] [47 0 0 1] [14 :depth-3] [75 0 0 1] [14 :captured] [75 0 0 1]
+                             [15 :operand] [49 0 0 1] [15 :depth-3] [77 0 0 1] [15 :captured] [77 0 0 1]
+                             [16 :operand] [59 0 0 1] [16 :depth-3] [87 0 0 1] [16 :captured] [87 0 0 1]
+                             [17 :operand] [24 18 0 1] [17 :depth-3] [39 31 0 1] [17 :captured] [27 43 0 1]
+                             [18 :operand] [22 0 1 1] [18 :depth-3] [50 0 1 1] [18 :captured] [50 0 1 1]
+                             [19 :operand] [15 0 0 1] [19 :depth-3] [43 0 0 1] [19 :captured] [43 0 0 1]
+                             [21 :operand] [39 0 0 1] [21 :depth-3] [67 0 0 1] [21 :captured] [67 0 0 1]
+                             [22 :operand] [52 0 0 1] [22 :depth-3] [80 0 0 1] [22 :captured] [80 0 0 1]
+                             [24 :operand] [18 0 2 1] [24 :depth-3] [46 0 2 1] [24 :captured] [46 0 2 1]}
+                            (apply dissoc got (keys quick-boundary-pins))))
+                     (is (= quick-boundary-coverage (apply set/union (map :coverage counts))))
+                     (println "6d-a returned-boundary counts JVM:" (pr-str counts)))))))
+
+
+(deftest completed-put-history-and-shape-only-ids
+  (doseq [op-id [nil (s/op-id 0)]]
+    (let [world (writer identity)
+          _ ((first (:steps world)))
+          m (engine/check-wait-set (:machine world))
+          m (cond-> m op-id (assoc-in [:ready-queue 0 :op-id] op-id))
+          {:keys [wire recv peer]} (boundary-round-trip m)
+          t (root-task wire)]
+      (is (= {} (:yin.k/ops (rows/custody-baseline t))))
+      (is (= "v" (vm/value (drive-peers recv [peer]))))
+      (doseq [bad-id [{} (assoc (s/op-id 0) :yin.k/seq -1)]]
+        (let [bad (assoc-in t [:slots 18 0 :slots 1 :slots 3] bad-id)
+              {:keys [attach!] n :count} (s/attacher)
+              d (error #(rows/lower-task (machine) (rows/emit bad) attach!))]
+          (is (= (if (empty? bad-id) :malformed-op-id :inexact) (:yin.k/kind d)))
+          (is (= [:ready 0 :op-id] (take 3 (:yin.k/path d))))
+          (is (zero? @n)))))))
+
+
+(deftest ready-value-portability-and-independent-update-body
+  (let [[m out id] (two-callers)
+        _ (answer-both! out id)
+        swept (engine/check-wait-set m)
+        plus (vm/primitive-function (get (:primitives swept) '+))
+        nonportable (assoc-in swept [:ready-queue 0 :value] {:box [plus]})
+        {:keys [wire]} (boundary-round-trip nonportable)
+        task (root-task wire)
+        {:keys [attach!] n :count} (s/attacher)
+        d (error #(layout/lower-task (machine) (rvm/create-vm {:bodies [] :instructions []}) wire attach!))]
+    (is (= :continuation-registers (:yin.k/kind d)))
+    (is (= [:ready 0 :value] (take 3 (:yin.k/path d))))
+    (is (zero? @n))
+    (let [portable (assoc-in task [:slots 18 0 :slots 2] [:lit {:box [:portable]}])]
+      (is (nil? (layout/lower-defect portable :register))))
+    (let [original (first (:slots (slot task 9)))
+          body (second (:slots (slot task 9)))
+          distinct-body (assoc-in body [:slots 1] 0)
+          changed (assoc-in task [:slots 18 0 :slots 4] (rows/node :cursor-cells [original distinct-body]))
+          decoded (rows/decode (rows/emit changed))
+          update-row (nth (:slots (first (slot decoded 18))) 4)]
+      (is (= (first (:slots (slot decoded 9))) (first (:slots update-row))))
+      (is (not= (second (:slots (slot decoded 9))) (second (:slots update-row)))))))
+
+
+(deftest halted-with-outstanding-waits-is-normalized-separately
+  (let [[m _] (parked-reader)
+        source (assoc m :halted? true :blocked? false :value 42)
+        {:keys [recv wire]} (boundary-round-trip source)]
+    (is (= 42 (vm/value source)))
+    (is (= :blocked (slot (root-task wire) 2)))
+    (is (nil? (slot (root-task wire) 15)))
+    (is (:blocked? recv))
+    (is (false? (:halted? recv)))
+    (is (= :yin/blocked (:value recv)))))
+
+
+(deftest completion-try-and-update-refusals
+  (let [world (installing identity false nil)
+        m (engine/abandon-installs (:machine world) :abandoned)
+        {:keys [wire]} (boundary-round-trip m)
+        t (root-task wire)]
+    (doseq [flag [nil :true 1 "true"]]
+      (let [bad (assoc-in t [:slots 18 0 :slots 1 :slots 2] flag)
+            {:keys [attach!] n :count} (s/attacher)
+            d (error #(rows/lower-task (machine) (rows/emit bad) attach!))]
+        (is (= :pending-try (:yin.k/kind d)))
+        (is (zero? @n)))))
+  (let [[m out id] (two-callers)
+        _ (answer-both! out id)
+        {:keys [wire]} (boundary-round-trip (engine/check-wait-set m))
+        t (root-task wire)
+        c (first (:slots (slot t 9)))
+        body (second (:slots (slot t 9)))
+        numbering (assoc (rows/canonical-numbering t) :missing :yin.k/cc-999)]
+    (doseq [[updates kind] [[[:missing body] :missing-cursor-cell]
+                            [[c body c body] :duplicate-key]]]
+      (let [bad (assoc-in t [:slots 18 0 :slots 4] (rows/node :cursor-cells updates))
+            {:keys [attach!] n :count} (s/attacher)
+            d (error #(rows/lower-task (machine) (rows/emit-numbered bad numbering) attach!))]
+        (is (= kind (:yin.k/kind d)) (pr-str d))
+        (is (zero? @n))))))
+
+
+(deftest completed-ffi-append-becomes-a-response-wait
+  (let [world (retained-ffi identity)
+        source (:machine world)
+        _ ((first (:steps world)))
+        completed (engine/check-wait-set source)
+        request (get (:resources completed) vm/call-in-stream-key)
+        {:keys [wire recv peer]} (boundary-round-trip completed)
+        sent (stream/next request 0)
+        waiting (drive-peers recv [peer])]
+    (is (= :ffi-request (first (:slots (second (:slots (first (slot (root-task wire) 18))))))))
+    (is (= :dao.stream/ok (:dao.stream/outcome sent)))
+    (is (= 1 (count (:wait-set waiting))))
+    (is (= :next (:reason (first (:wait-set waiting)))))
+    (is (= (:call-id (first (:wait-set source))) (:call-id (first (:wait-set waiting)))))
+    (is (= :dao.stream/blocked (:dao.stream/outcome (stream/next request 0))) "the request was not appended again")))
+
+
+(deftest terminal-completed-write-raises-the-same-outcome
+  (doseq [status [:dao.stream/closed :dao.stream/invalid-value :dao.stream/transport-error]]
+    (let [world (writer identity)
+          source (:machine world)
+          completed (engine/apply-put (assoc source :yin.k/gate :running)
+                                      (first (:wait-set source)) {:dao.stream/outcome status})
+          {:keys [recv peer origin]} (boundary-round-trip completed)
+          a (error #(vm/run completed))
+          b (error #(vm/run recv))
+          source-identities (into {} (map (fn [[id e]] [(:handle e) id])) @(:table peer))
+          source-id (get source-identities (get (:resources completed) (:stream-id a)))
+          receiver-id (get origin (get (:resources recv) (:stream-id b)))]
+      (is (= status (:outcome a)))
+      (is (= (:outcome a) (:outcome b)))
+      (is (some? source-id))
+      (is (= source-id receiver-id))
+      (is (= (assoc a :stream-id source-id) (assoc b :stream-id receiver-id))))))
+
+
+(deftest ready-site-mismatch-and-halted-product
+  (let [[m src] (parked-reader)
+        _ (stream/append! src "B")
+        completed (engine/check-wait-set m)
+        {:keys [wire]} (boundary-round-trip (assoc completed :halted? true :blocked? false :value 42))
+        t (root-task wire)
+        bad (assoc-in t [:slots 18 0 :slots 1] (rows/node :completion [:install 'retired false]))
+        {:keys [attach!] n :count} (s/attacher)
+        d (error #(rows/lower-task (machine) (rows/emit bad) attach!))]
+    (is (= :blocked (slot t 2)))
+    (is (nil? (slot t 15)))
+    (is (= :reason-mismatch (:yin.k/kind d)))
+    (is (zero? @n))))
+
+
+(deftest pre-branch-ghost-is-conservatively-unsatisfied
+  (let [ast (corpus/if-node (s/lit true) (s/lit 1) (s/v 'ghost))
+        m (sr/run-fuel (load-program (machine) ast) 1)
+        served (atom 0)
+        d (error #(rows/lift-task m (fn [_] (swap! served inc)) (lift-opts)))]
+    (is (= :branch-false (first (nth (get-in m [:code (get-in m [:control :segment]) :vector]) (get-in m [:control :pc])))))
+    (is (= :yin.k/unsatisfied (:yin.k/status d)))
+    (is (= #{'ghost} (get-in d [:yin.k/missing :obligations])))
+    (is (zero? @served))))
+
+
+(deftest running-plus-ready-fenced-recovery
+  (let [[m out id] (two-callers)
+        _ (answer-both! out id)
+        active (sr/run-fuel (engine/check-wait-set m) 1)
+        handles (atom {})
+        base (s/serve-table)
+        serve! (fn [h] (let [d (base h)] (swap! handles assoc (:dao.stream/identity d) h) d))
+        wire (rows/lift-task active serve! (lift-opts))
+        attach! (fn [d]
+                  {:dao.stream/outcome :dao.stream/ok
+                   :dao.stream/handle (get @handles (:dao.stream/identity d))})
+        fenced (rows/lower-task (machine) wire attach! {:fenced true})]
+    (is (some? (:control active)))
+    (is (= 1 (count (:ready-queue active))))
+    (is (empty? (:ready-queue fenced)))
+    (is (= 1 (count (:yin.k/recovery-ready fenced))))
+    (doseq [gate [:exporting :ended]
+            entry [#(sr/vm-hot % 1) vm/step vm/run #(sr/run-fuel % 1)]]
+      (let [closed (assoc fenced :yin.k/gate gate)
+            counters (atom {:guest 0 :scheduler 0 :bridge 0})
+            ;; :cljd first — no with-redefs or private var-quote there: the
+            ;; refusal and unchanged state are checked, the work counters are not
+            result #?(:cljd (error #(entry closed))
+                      :default
+                      (let [hot @#'sr/vm-hot*
+                            round engine/scheduler-round-fuel
+                            bridge ffi/bridge-step]
+                        (with-redefs [sr/vm-hot* (fn [& args] (swap! counters update :guest inc) (apply hot args))
+                                      engine/scheduler-round-fuel (fn [& args] (swap! counters update :scheduler inc) (apply round args))
+                                      ffi/bridge-step (fn [& args] (swap! counters update :bridge inc) (apply bridge args))]
+                          (error #(entry closed)))))]
+        (is (= :gate-closed (:rule result)))
+        #?(:cljd nil :default (is (= {:guest 0 :scheduler 0 :bridge 0} @counters)))
+        (is (= (select-keys active [:control :window :env :k])
+               (select-keys closed [:control :window :env :k])))
+        (is (= wire (rows/lift-task closed serve! (lift-opts))))))))
+
+
+(deftest illegal-task-product-matrix
+  (let [running (load-program (machine) (s/lit 42))
+        blocked (:machine (reader identity read-op))
+        parked (vm/run (load-program (machine) {:type :vm/park}))
+        halted (vm/run running)]
+    (doseq [m [running blocked parked halted]]
+      (let [{:keys [serve!]} (served #{:reader :writer})
+            t (root-task (rows/lift-task m serve! (lift-opts)))
+            kind (slot t 2)]
+        (doseq [[label mutate]
+                (concat
+                  [[:unknown #(assoc-in % [:slots 2] :alien)]]
+                  (when (not= kind :halted) [[:result #(assoc-in % [:slots 15] [:lit :illegal])]])
+                  (when (not= kind :parked) [[:parked-id #(assoc-in % [:slots 14] :alien)]])
+                  (when (= kind :running) [[:no-run #(assoc-in % [:slots 17] [])]
+                                           [:two-runs #(update-in % [:slots 17] into (slot t 17))]])
+                  (when (= kind :blocked) [[:empty-blocked #(-> % (assoc-in [:slots 13] [])
+                                                                (assoc-in [:slots 9] (rows/node :cursor-cells [])))]])
+                  (when (= kind :halted) [[:no-result #(assoc-in % [:slots 15] nil)]])
+                  (when (= kind :parked) [[:absent-id #(assoc-in % [:slots 14] :alien)]]))]
+          (let [n (atom 0)
+                d (error #(rows/lower-task (machine) (rows/emit (mutate t)) (fn [_] (swap! n inc))))]
+            (is (contains? #{:kind :slot-kind :parked-id} (:yin.k/kind d)) (pr-str [kind label d]))
+            (is (zero? @n))))))))
+
+
+(deftest shared-cursor-independent-continuations
+  (let [prepare (fn []
+                  (let [[m out id] (two-callers)]
+                    (answer-both! out id)
+                    (engine/check-wait-set m)))
+        finish (fn [m]
+                 (loop [m (vm/run m) n 0]
+                   (when (> n 100) (throw (ex-info "Shared-cursor continuation did not halt" {})))
+                   (if (vm/halted? m)
+                     {:halted true :value (normalize (vm/value m))
+                      :trace (tu/drain (get (:resources m) vm/call-in-stream-key))}
+                     (do
+                       (doseq [e (:wait-set m)]
+                         (stream/append! (get (:resources m) (:stream-id e))
+                                         (apply2/success-response (:call-id e) :answered)))
+                       (recur (vm/run m) (inc n))))))
+        source (prepare)
+        receiver-source (prepare)
+        receiver (direct-transfer receiver-source)
+        serves (s/serve-table)
+        t (root-task (rows/lift-task receiver-source serves (lift-opts)))
+        census (slot t 9)
+        ready (slot t 18)
+        source-updates (mapv #(mapv :cursor (vals (:resource-updates %))) (:ready-queue receiver-source))
+        wire-updates (mapv #(mapv (comp second :slots second) (partition 2 (:slots (slot % 4)))) ready)]
+    (is (= 1 (quot (count (:slots census)) 2)))
+    (is (= source-updates wire-updates))
+    (is (= (mapv :cursor (filter #(and (map? %) (contains? % :stream-id)) (vals (:resources receiver-source))))
+           [(slot (second (:slots census)) 1)]))
+    (is (= ["second" "first"] (mapv #(apply2/response-ok (:value %)) (:ready-queue receiver))))
+    (let [a (finish source) b (finish receiver)]
+      (is (:halted a))
+      (is (:halted b))
+      (is (= a b)))))
+
+
+(deftest completed-link-request-and-active-completions
+  (doseq [try? [false true] active? [false true]]
+    (let [prepare (fn []
+                    (let [world (linking (try-wrapper try?) false true)
+                          m (:machine world)
+                          done (engine/abandon-link m (:link-id (first (:wait-set m))) :gone)]
+                      (if active? (load-program (assoc done :env (:free-env done)) (s/lit :beside)) done)))
+          source (prepare)
+          recv (direct-transfer (prepare))
+          appends (atom 0)
+          outcome (fn [m]
+                    (try {:value (normalize (vm/value (drive-local m)))}
+                         (catch #?(:cljd Object :clj Throwable :cljs :default) e {:error (ex-data e)})))
+          a (outcome source)
+          ;; :cljd first — no with-redefs there: outcome equality only, no append counter
+          b #?(:cljd (outcome recv)
+               :default (let [append stream/append!]
+                          (with-redefs [stream/append! (fn [h v] (swap! appends inc) (append h v))] (outcome recv))))]
+      (is (= :link-request (:reason (first (:ready-queue recv)))))
+      (is (= (boolean active?) (boolean (:control recv))))
+      (is (empty? (:wait-set recv)))
+      (is (empty? (:installs recv)))
+      (is (= a b))
+      #?(:cljd nil :default (is (zero? @appends) "retired envelope is never reconstructed or appended")))))
+
+
+(deftest completion-outcome-slot-matrix
+  (doseq [prepare [#(let [[m src] (parked-reader)]
+                      (stream/append! src "B") (engine/check-wait-set m))
+                   #(let [[m out id] (two-callers)] (answer-both! out id) (engine/check-wait-set m))
+                   #(let [world (writer identity)] ((first (:steps world))) (engine/check-wait-set (:machine world)))
+                   #(let [world (retained-ffi identity)] ((first (:steps world))) (engine/check-wait-set (:machine world)))
+                   #(let [m (:machine (linking identity false true))]
+                      (engine/abandon-link m (:link-id (first (:wait-set m))) :gone))
+                   #(let [m (:machine (linking identity false false))]
+                      (engine/abandon-link m (:link-id (first (:wait-set m))) :gone))
+                   #(engine/abandon-installs (:machine (installing identity false nil)) :gone)]]
+    (let [m (prepare)
+          wire (rows/lift-task m (s/serve-table) (lift-opts))
+          t (root-task wire)
+          tag (slot (slot (first (slot t 18)) 1) 0)]
+      (doseq [[status refusal] [[false nil] [1 nil] ["ok" nil]
+                                [nil [:lit :unexpected]] [:dao.stream/ok [:lit :unexpected]]
+                                [:link-refused nil]]]
+        (let [bad (-> t (assoc-in [:slots 18 0 :slots 3] status)
+                      (assoc-in [:slots 18 0 :slots 5] refusal))
+              n (atom 0)
+              d (error #(rows/lower-task (machine {:modules (:modules m)}) (rows/emit bad)
+                                         (fn [_] (swap! n inc)) (receiver-admission m)))]
+          (is (= :ready-outcome (:yin.k/kind d)) (pr-str [tag status refusal d]))
+          (is (zero? @n)))))))
+
+
+(deftest ready-portability-root-oracle
+  (doseq [root [:state :outcome :descriptor] unsupported? [false true]]
+    (let [world (if (= root :descriptor) (writer identity)
+                    (reader #(cat-of (s/lit [:ambient]) %) read-op))
+          _ ((first (:steps world)))
+          swept (engine/check-wait-set (:machine world))
+          plus (vm/primitive-function (get (:primitives swept) '+))
+          leaf (if unsupported? {:nested [[plus]]} {:nested [[:portable]]})
+          wkeys (keys (get-in swept [:ready-queue 0 :window]))
+          ;; trailing nil: cljd compiles a value-position `is` to a void expect
+          _ (when (= root :state) (is (seq wkeys)) nil)
+          m (case root
+              :state (assoc-in swept [:ready-queue 0 :window (first wkeys)] leaf)
+              :outcome (assoc-in swept [:ready-queue 0 :value] leaf)
+              :descriptor (assoc-in swept [:ready-queue 0 :datom] leaf))
+          wire (rows/lift-task m (s/serve-table) (lift-opts))
+          task (root-task wire)
+          ;; Independent oracle: inspect the constructed guest root, never
+          ;; state-prim/value-prim or a result returned by lower-defect.
+          guest-root (case root :state (get-in m [:ready-queue 0 :window (first wkeys)])
+                           :outcome (get-in m [:ready-queue 0 :value])
+                           :descriptor (get-in m [:ready-queue 0 :datom]))
+          oracle (boolean (some fn? (tree-seq coll? seq guest-root)))
+          d (layout/lower-defect task :register)
+          attaches (atom 0)
+          refused (when oracle
+                    (error #(layout/lower-task (machine) (rvm/create-vm {:bodies [] :instructions []}) wire
+                                               (fn [_] (swap! attaches inc)))))]
+      (is (= unsupported? oracle))
+      (is (= oracle (some? d)))
+      (when oracle
+        (is (= :continuation-registers (:yin.k/kind refused)))
+        (is (= [:ready 0 (case root :state :state :outcome :value :descriptor :completion)]
+               (take 3 (:yin.k/path d))))
+        (is (zero? @attaches))))))
+
+
+(defn task-machines
+  [m]
+  (cons m (mapcat #(task-machines (:vm %)) (vals (:installs m)))))
+
+
+(deftest long-and-nested-initializer-transfers
+  (doseq [nested? [false true]]
+    (let [long-body (s/then (apply s/app (s/v '+) (map s/lit (range 1100))) plain-body)
+          outer (if nested? (s/then (s/app (s/v 'require) (s/lit 'child.mod)) plain-body) long-body)
+          prepare (fn []
+                    (let [w (linking identity false false)
+                          m (:machine w)
+                          response (get (:resources m) module/link-response-resource)
+                          id (:link-id (first (:wait-set m)))]
+                      (stream/append! response (assoc (module-response outer #{'f}) :yin.link/id id))
+                      (let [started (sr/run-fuel m 5)
+                            answered (atom #{})
+                            started (if-not nested? started
+                                            (loop [m started n 0]
+                                              (when (> n 100) (throw (ex-info "Nested require not reached" {})))
+                                              (if-let [e (first (for [t (task-machines m) e (:wait-set t)
+                                                                      :when (= 'child.mod (:name e))] e))]
+                                                (do
+                                                  (swap! answered conj (:link-id e))
+                                                  (stream/append! response
+                                                                  (-> (module-response long-body #{'f})
+                                                                      (assoc-in [:manifest :yin.module/name] 'child.mod)
+                                                                      (assoc :yin.link/id (:link-id e))))
+                                                  (sr/run-fuel m 5))
+                                                (recur (sr/run-fuel m 5) (inc n)))))]
+                        {:vm started :response response :answered answered})))
+          finish (fn [{:keys [vm response answered]}]
+                   (loop [m vm rounds 0]
+                     (when (> rounds 1000) (throw (ex-info "Initializer did not finish" {:nested nested?})))
+                     (doseq [t (task-machines m) e (:wait-set t)
+                             :when (and (= 'child.mod (:name e)) (not (contains? @answered (:link-id e))))]
+                       (swap! answered conj (:link-id e))
+                       (stream/append! response (-> (module-response long-body #{'f})
+                                                    (assoc-in [:manifest :yin.module/name] 'child.mod)
+                                                    (assoc :yin.link/id (:link-id e)))))
+                     (if (vm/halted? m) m
+                         (let [counts (atom {})
+                               ;; :cljd first — no with-redefs or private var-quote
+                               ;; there: cljd drives to the result, the per-task
+                               ;; instruction bound is counted on JVM/JS only
+                               next #?(:cljd (sr/run-fuel m 5)
+                                       :default
+                                       (let [raw @#'sr/vm-hot*]
+                                         (with-redefs [sr/vm-hot*
+                                                       (fn [t n]
+                                                         (loop [t t i 0]
+                                                           (if (or (= i n) (nil? (:control t))) t
+                                                               (do (swap! counts update (:owner t) (fnil inc 0))
+                                                                   (recur (raw t 1) (inc i))))))]
+                                           (sr/run-fuel m 5))))]
+                           #?(:cljd nil
+                              :default
+                              (let [tree-size (count (set (map :owner (concat (task-machines m) (task-machines next)))))]
+                                (is (every? #(<= % 5) (vals @counts)) "at most one budget per visited task")
+                                (is (<= (reduce + 0 (vals @counts)) (* 5 tree-size)))))
+                           (recur next (inc rounds))))))
+          source (prepare)
+          receiver-source (prepare)
+          _ (is (= (if nested? 3 2) (count (task-machines (:vm source)))))
+          _ (is (some :control (rest (task-machines (:vm source)))))
+          recv (direct-transfer (:vm receiver-source))
+          a (finish source)
+          b (finish (assoc receiver-source :vm recv))]
+      (is (vm/halted? a))
+      (is (vm/halted? b))
+      (is (empty? (:installs b)))
+      (is (= 'host.mod (vm/value a) (vm/value b)))
+      (is (some? (module/resolve-module (:modules b) 'host.mod)))
+      (when nested?
+        (is (some? (module/resolve-module (:modules b) 'child.mod)))))))
+
+
+(deftest install-child-phase-kind-matrix
+  (doseq [phase [:parked :running]]
+    (let [m (:machine (installing identity false (when (= phase :running) phase)))
+          t (root-task (rows/lift-task m (s/serve-table) (lift-opts)))
+          wanted (if (= phase :running) :running :blocked)]
+      (doseq [wrong (disj #{:running :blocked :parked :halted} wanted)]
+        (let [bad (assoc-in t [:slots 12 0 :slots 4 :slots 2] wrong)
+              attaches (atom 0)
+              d (error #(rows/lower-task (machine) (rows/emit bad) (fn [_] (swap! attaches inc))
+                                         (receiver-admission m)))]
+          (is (= :install-child (:yin.k/kind d)) (pr-str [phase wrong d]))
+          (is (zero? @attaches)))))))
+
+
+(deftest conservative-prefixes-refuse-before-serving
+  (let [setup (load-program (machine) (s/then (s/def! 's {:type :stream/make :buffer 4})
+                                              (s/def! 'c (s/cursor-of (s/v 's)))))]
+    (doseq [n [0 1 2]]
+      (let [m (if (zero? n) setup (sr/run-fuel setup n))
+            serves (atom 0)
+            d (error #(rows/lift-task m (fn [_] (swap! serves inc) nil) (lift-opts)))]
+        (is (= n (get-in m [:control :pc])))
+        (is (= [:yin.k/unsatisfied :incomplete #{'s}]
+               [(:yin.k/status d) (:yin.k/discovery d) (get-in d [:yin.k/missing :obligations])]))
+        (is (zero? @serves))))))
+
+
+(deftest completed-poll-observation-is-an-ordinary-read-outcome
+  (let [m (machine)
+        [sref m] (engine/attach-resource m (s/ring 4))
+        [cref m] (engine/handle-cursor m {:stream sref} :poll-cursor)
+        m (vm/run (load-program (assoc m :store {'c cref} :yin.k/gate :running)
+                                (s/app (s/v 'stream/poll!) (s/v 'c))))
+        e (first (:wait-set m))
+        completed (engine/apply-observation m e {:dao.stream/outcome :dao.stream/blocked})
+        recv (direct-transfer completed)
+        reads (atom 0)
+        ;; :cljd first — no with-redefs there: the delivered outcome is checked,
+        ;; the read counter is not
+        got #?(:cljd (vm/run recv)
+               :default (let [next stream/next]
+                          (with-redefs [stream/next (fn [h c] (swap! reads inc) (next h c))] (vm/run recv))))]
+    (is (= :observe (:reason e)))
+    (is (nil? (:reason (first (:ready-queue completed)))))
+    (is (= :dao.stream/blocked (vm/value (vm/run completed)) (vm/value got)))
+    (is (empty? (:wait-set got)))
+    #?(:cljd nil :default (is (zero? @reads) "completed observation is delivered without another read"))))

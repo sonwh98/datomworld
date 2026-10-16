@@ -656,8 +656,7 @@ of a vector→datoms projection is retired, not deferred.
 
 ### 4.1 The safepoint table (UCF §7.4.1, rewritten)
 
-A safepoint is a transition at which the machine parks. The semantic
-kinds are unchanged; the state columns are new.
+**Amended 2026-10-16 (any-pc).** The machine's task state between any two instructions, `⟨seg, pc, W↾L(pc), E, K⟩` beside its ordered waits and completed wakes, is canonical and lifts (continuation design §1.3): preemptive migration at any pc is a primary invariant of `yin.vm` (owner, 2026-10-17). A **safepoint** is a boundary at which the program stops by itself: a park with a pending wait, an explicit park with none, or a halt with a result. The table below enumerates those parking transitions; it is not the set of liftable pcs, which is every pc of every body. The semantic kinds are unchanged; the state columns are new.
 
 Every wait is one of the two closed states of §2.4 (`act` with
 `{:deliver :rd}` or `tail` with `{:deliver :return}`); an effectful
@@ -684,9 +683,7 @@ parked record and a body of kind `:parked` names it by id (UCF §7.4.3
 r5, "explicit park is the no-wait shape"). A **reified continuation**
 (`:current-continuation`) is the one thing here that is *not* a
 safepoint: it is a captured value, never a task state.
-Whole-task quiescence (empty ready queue, UCF §7.4.1) and the existing
-refusal conditions (unsupported observation states, pending close) are
-unchanged.
+A non-empty ready queue is carried as ordered completed wakes (continuation design §2.3); the holds (observation in flight, pending close) remain refusals of the lift as driver seams mid-step.
 
 The "effectful call, tail" row is the one place the rewrite is more
 than notation: in the stack machine a tail effect's resume value landed
@@ -760,6 +757,19 @@ the task's initial free environment (continuation design §2, §6.3).
 That amendment is applied to the carrier draft with this design's
 phase 6 (§10; `yin.vm.semantic.continuation.md` §10.3).
 
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17)**
+
+```clojure
+;; run state (6d)
+{:yin.k/state :run
+ :yin.k/segment A :yin.k/pc n
+ :yin.k/env {:yin.k/bindings {sym V …} :yin.k/store-of M?}
+ :yin.k/window {r V …} ; exactly L(n), retaining nil-valued keys
+ :yin.k/k […]}        ; no deliver, no pending
+```
+
+The running row is `:run [segment-A pc env-cref window-cref k-cref]`. A completed outcome is `:ready [state-cref completion-cref value optional-status updates-cref optional-refusal]`; its act/tail delivery state has no outstanding pending. Completion descriptors and cursor updates follow the continuation design’s row grammar.
+
 ### 4.3 Foreign engines (UCF §7.4.2)
 
 A foreign engine's static safepoint map keeps `:yin.safepoint/segment`,
@@ -788,6 +798,12 @@ needs a tail-completion seam to deliver a tail state through `K`
 frames become `E` through the owner chain and `bind-params`, with the
 task's free environment carried explicitly. The AST walker is not a
 frame reconstructor.
+
+**Amended 2026-10-16 (any-pc, owner invariant 2026-10-17)**
+
+and for a `run` state at pc `p`, produce the segment `A`, `p`, every register of `L(p)`, `E`, `K` with each frame's validated window and `rd`, and no delivery record or pending; a physical location outside `L(p)`'s image is never read, and an engine that cannot hold a value of `L(p)`, or of any carried frame's window or binding, refuses before attachment (the register kernel's `:continuation-registers`). `lift(lower(frame)) = frame` holds for admitted canonical frames of all three states; a stack image's `:push` pc relabels to its successor.
+
+Receiver refusal checks include values waiting in completed outcomes, including nested values that become live only on resume.
 
 ## 5. Scheduler, park, resume, FFI, modules
 

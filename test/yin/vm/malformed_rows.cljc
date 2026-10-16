@@ -61,7 +61,7 @@
                          (rows/node :cursor-cells [])
                          {:yin.k/modules {} :yin.k/host-exports {}} {} [] [] nil
                          [:row (rows/node :map [[:lit 1] [:lit :a]
-                                                [:lit (cbor/float64 1.0)] [:lit :b]])] nil])
+                                                [:lit (cbor/float64 1.0)] [:lit :b]])] nil [] []])
         wire (rows/emit-numbered task {})
         id (first (first (filter #(= :map (second %)) (:yin.k/rows wire))))]
     (into {:equality-collapse [{:yin.k/status :yin.k/undecodable
