@@ -2,7 +2,8 @@
        :date #inst "2026-10-16T00:00:00.000-00:00"
        :abstract
        [:p
-        "The Python module system is nearly complete in datom.world. What comes next is everything a program touches outside itself: files, sockets, and C libraries. There will be no FFI. Each surface becomes a lowering to stream effects plus a host-side interpreter, bound one slice at a time."],
+        "There will be no FFI: Python's module system is nearly complete, and each remaining surface (files, sockets, C libraries) lowers to stream effects plus a host-side interpreter."],
+        "There will be no FFI: Python's module system is nearly complete, and each remaining surface (files, sockets, C libraries) lowers to stream effects plus a host-side interpreter."],
        :content
        [:section.blog-article
         [:div.section-inner
