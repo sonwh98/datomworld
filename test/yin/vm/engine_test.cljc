@@ -877,3 +877,18 @@
                                  resume-fn)]
         (is (:halted? out))
         (is (= [:halt] (phase-seq sink)))))))
+
+
+(deftest unresolved-qualified-name-still-fails-without-fetch-or-park
+  (let [request (tu/new-stream 8)
+        response (tu/new-stream 8)
+        m (state {:link-request request :link-response response})
+        message (try
+                  (engine/resolve-var (:env m) (:store m) (:primitives m)
+                                      (:modules m) 'absent.mod/f)
+                  nil
+                  (catch #?(:clj Exception :cljs js/Error :cljd Object) e
+                    (ex-message e)))]
+    (is (= "Unable to resolve symbol: absent.mod/f in this context" message))
+    (is (empty? (tu/drain request)))
+    (is (empty? (tu/drain response)))))
