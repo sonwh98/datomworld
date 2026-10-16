@@ -242,9 +242,11 @@
    py's own manifest address, which each slice's prelude change moved,
    and the BLAKE3 profile digest of 492ff50b moved again. Phase 8ab
    regenerates H/R and the pinned py requirement. The I4-a rebase moves
-   the pinned py requirement again for statement-time import delivery."
+   the pinned py requirement again for statement-time import delivery.
+   I6's reload runtime moves it once more (the hook prelude joins the
+   move; both hosts mint fbd90016)."
   (keyword (str "segment/blake3-"
-                "76892b7085ecd325c28eaa9e07706b768998f739be06aa96cb4901002a9ca6a0")))
+                "fbd90016c267ff000f2c7e940ffa850fae3c6392c59ccfcbb92869e8fc2b29b8")))
 
 
 (defn- pysp-manifest-address
