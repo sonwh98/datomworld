@@ -810,4 +810,6 @@
           ;; Pinned as measured: linearize gives every operand a fresh
           ;; register ((+ x x) is [:var 2 x] [:var 3 x] [:call 0 1 [2 3]]), so
           ;; no projected program repeats one; a repeat would fail here loudly.
+          ;; Per-group agreement is live only for non-projected vectors
+          ;; (6e's hand-built cases).
           (is (zero? @repeated)))))))

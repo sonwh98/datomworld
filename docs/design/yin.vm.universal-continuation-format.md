@@ -3419,3 +3419,5 @@ exclusive custody itself, atomic admission, crash recovery, input
 replay, and the `yin.repl.core` handoff composition. Governance
 recovery, after quarantine, exhaustion, or lost authority state,
 stays outside the automatic protocol.
+
+<!-- 6d-a follow-up: :yin.k/not-quiescent remains holder-only until 6d-b replaces the export Quiesce step; the row carrier already retains completed outcomes. -->
