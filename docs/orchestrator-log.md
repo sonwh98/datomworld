@@ -11636,3 +11636,30 @@ Decisions: dispatching the confirm via claude-cloud was an application of the ow
 Verification: merge delta vs signed head verified 0 lines excluding the log file; all gate results as logged in the previous entry (1d7a85a7). The 6d-b/6e implementers run their own JVM lanes; the orchestrator runs Node/Dart/three-host at their landings.
 Delegates: claude-fable-5-1 (merge sign-off, claude-cloud), codex gpt-6.1-sol (6d-b, in flight), glm-5.3 (6e, in flight).
 Next: poll both implementations (do not kill for quietness; a quota/usage cut leaves a partial diff — audit before redispatch); on completion audit, verify locally, route reviews (6d-b → glm-5.3; 6e → opus/muse/cmd), landing lanes, then each slice merges on its own Fable-gated confirm. Owner yes still pending: srvm-pins worktree/branch removal. Tuesday: Fable's subscription resets (claude-cloud reservation ends).
+---
+
+## 2026-10-16 13:54:29 EDT — claude-cloud delegate route and toolchain docs committed
+Completed-GMT: 2026-10-16 17:54:29 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@73fdfda9, committed
+Done: Committed staged documentation updates across four agent-governing files.
+  Added `claude-cloud` to `docs/agents/delegate-invocation-reference.md`,
+  `docs/agents/team.md`, and `docs/agents/roles/orchestrator.md` for isolated
+  Anthropic Cloud API dispatch on metered credits ($242 balance). Clarified
+  `docs/agents/build-n-test.md` server snapshot and mise beta toolchain notes.
+Decisions: (1) Added isolated launcher `claude-cloud` to scrub `ANTHROPIC_BASE_URL`
+  and `ANTHROPIC_AUTH_TOKEN` overrides, preventing interference with `glm`,
+  `muse`, and `deepseek` wrappers. (2) Maintained API keys in git-ignored
+  `env.sh` and user `~/.local/bin/claude-cloud` rather than staging secrets in
+  tracked paths. (3) Per owner relay, reserved `claude-cloud` strictly for
+  Fable-mandated situations (Architect rulings, security capability sign-offs,
+  and critical review gates) until Tuesday's Pro subscription reset to preserve
+  the credit balance.
+Verification: Staged diff inspected prior to commit; subject syntax verified
+  against `format.md#git-commit-messages` (`docs(agents): ...`, lowercase
+  imperative, no trailing period, no `Co-Authored-By`); commit verified via
+  `git show 73fdfda9` (4 files changed, 108 insertions, 86 deletions).
+Delegates: none
+Next: Ready for orchestrator seats on active tracks (SRVM 6d-a, C4 I6) to
+  route Fable-gated tasks to `claude-cloud`.
