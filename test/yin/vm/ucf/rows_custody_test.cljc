@@ -113,7 +113,7 @@
   "[machine-or-refusal attaches] of wire lowered into a fresh receiver."
   [wire opts]
   (let [{:keys [attach! count]} (s/attacher)
-        r (try (rows/lower-task (s/receiver) wire attach! opts)
+        r (try (rows/lower-task (s/receiver) wire attach! (merge s/installer-lower-opts opts))
                (catch #?(:cljd Object :clj Throwable :cljs :default) e
                  (or (ex-data e) (throw e))))]
     [r @count]))
@@ -319,7 +319,7 @@
                        (assoc :derivation record)
                        (assoc-in [:manifest :yin.module/derivations :yin.semantic/code] record-address))
           wire (s/lift (assoc-in m [:installs 'host.mod :response] response) nil)
-          [back n] (lowered wire {})]
+          [back n] (lowered wire {:yin.k/admitted-modules {'host.mod (jing/segment-key (:manifest response))}})]
       (is (pos? n))
       (is (vm/blocked? back))
       (is (= response (get-in back [:installs 'host.mod :response])))

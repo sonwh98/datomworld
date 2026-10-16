@@ -2864,6 +2864,22 @@ the review's named architectural obligations; they are blockers to
   first composition to ship UCF is `yin.repl.core`'s handoff demo, and
   its wiring becomes the worked example. A composition without a
   transactable space offers `:yin.k/fork` only.
+- **Receiver module satisfaction and install admission (2026-10-16).**
+  Architect verdict C requires registry bindings pinned by manifest address
+  (§7.6.4/§7.6.5) and receiver re-discharge before attachment. The module-pin
+  carrier work is blocked pending the host-export-profile slot/schema
+  decision; do not treat name presence as equal-address satisfaction.
+  Carried install admission (R4) is implemented by the lower's explicit
+  `:yin.k/admitted-modules {name manifest-address}` option, default empty, and
+  the lift never carries sender admission evidence; a carried admission field
+  is refused as `:yin.k/undecodable :install-response`. The fetch loop remains
+  composition work: fetch before the grant proposal (14.2.3 step 2), retry
+  the same pack bytes, at most one require per missing module and two
+  lowers per attempt, under a per-run lease. The loop is **forbidden** to
+  seed `:name-env` from the carrier, switch derivation to `:trusted`, pass
+  carrier-named `:fallback` formats, or require names outside the reported
+  `:yin.k/modules`. No fetch, clock, lease or admission policy belongs in
+  the VM, `resolve-var` or the pure lower.
 - **Execution identity.** Occurrence minting, the `:yin.k/origin` chain,
   retry idempotence (one occurrence per park), and successor completion as
   a grantor ledger transition need conformance tests, including the crash

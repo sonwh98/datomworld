@@ -710,3 +710,13 @@ Code: `src/cljc/yin/vm/ucf.cljc` (38-47, 265-273, 339-351);
 `src/cljc/yin/vm/semantic.cljc` (113, 167, 171, 450, 605-616, 713);
 `src/cljc/yin/vm/engine.cljc` (375-395);
 `src/cljc/dao/space/query.cljc` (153-158, cited by UCF 7.3.2).
+
+**2026-10-16, I-8 (module-pins slice, partial; R4 only).** Lower now
+requires composition-supplied `:yin.k/admitted-modules {name manifest-address}`
+for every carried install child, default empty, before attaching streams;
+the lift never carries the sender's admission decision fields; a carried
+admission field is refused as `:yin.k/undecodable :install-response`. No row shape or
+fixture address changes in this partial slice. The module-pin carrier,
+host-profile schema and their fixture re-mint are blocked pending the
+Architect's decision on where host-module export profiles are recorded.
+No compatibility promise is added.

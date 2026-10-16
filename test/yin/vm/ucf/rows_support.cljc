@@ -295,6 +295,12 @@
                    'host.mod #{'f}))
 
 
+(def installer-lower-opts
+  "Receiver admission for the composition's fixed module-response fixture;
+   never derived from a received pack."
+  {:yin.k/admitted-modules {'host.mod (jing/segment-key (:manifest (module-response)))}})
+
+
 (defn parked-installer
   "Parked at :install with a live child blocked on its own read."
   []

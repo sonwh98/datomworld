@@ -1143,8 +1143,8 @@
                              :wait-set [{:reason :next :receiver-only true}]
                              :ready-queue [{:receiver-only true}]
                              :resources (assoc {} resource-key receiver-stream))
-            clean (rows/lower-task fresh pack attach!)
-            restored (rows/lower-task populated pack attach!)
+            clean (rows/lower-task fresh pack attach! support/installer-lower-opts)
+            restored (rows/lower-task populated pack attach! support/installer-lower-opts)
             fields [:code :store :module-stores :parked :installs :wait-set :ready-queue]
             clean-task (get-in clean path)
             restored-task (get-in restored path)
@@ -1155,7 +1155,7 @@
             ;; or reuse the receiver's stream (including its cursor key).
             collision-receiver (assoc populated :resources (assoc {} stream-key receiver-stream))
             collision (when (= :reader label)
-                        (rows/lower-task collision-receiver pack attach!))
+                        (rows/lower-task collision-receiver pack attach! support/installer-lower-opts))
             collision-task (get-in collision path)
             collision-stream-key (:stream-id (first (:wait-set collision-task)))
             collision-cursor-key (get-in collision-task [:wait-set 0 :cursor-ref :id])]
@@ -1245,8 +1245,8 @@
                             h (or (get @handles id) (support/one-slot-stream id))]
                         (swap! handles assoc id h)
                         {:dao.stream/outcome :dao.stream/ok :dao.stream/handle h}))
-            clean (rows/lower-task fresh pack attach! {:fenced true})
-            restored (rows/lower-task populated pack attach! {:fenced true})]
+            clean (rows/lower-task fresh pack attach! (assoc support/installer-lower-opts :fenced true))
+            restored (rows/lower-task populated pack attach! (assoc support/installer-lower-opts :fenced true))]
         (doseq [path [[] [:installs 'host.mod :vm]]]
           (let [task (get-in restored path)]
             (is (= (select-keys (get-in clean path) receiver-custody-keys)
@@ -1365,3 +1365,49 @@
                 (verdict (error #(rows/lower-task (support/new-machine) wire attach!)))))))
      :clj (println "SKIP host-collapse: slash-crossed identifiers remain distinct on JVM")
      :cljd (println "SKIP host-collapse: slash-crossed identifiers remain distinct on Dart")))
+
+
+(deftest carried-install-requires-receiver-admission
+  (let [sender-record {:yin.admit/id "sender-only"
+                       :yin.admit/decision :allow
+                       :yin.admit/asserters #{'sender}
+                       :yin.admit/address :sender-only}
+        source (update-in (support/parked-installer)
+                          [:installs 'host.mod :response] merge sender-record)
+        wire (support/lift source nil)
+        address (jing/segment-key (:manifest (support/module-response)))
+        recv (support/new-machine)
+        task (rows/decode wire)
+        install (first (nth (:slots task) 12))]
+    (is (not-any? #(contains? (nth (:slots install) 3) %) (keys sender-record)))
+    (let [carried (update-in task [:slots 12 0 :slots 3] merge sender-record)
+          {:keys [attach! count]} (support/attacher)
+          refusal (error #(rows/lower-task recv (rows/emit carried) attach!
+                                           support/installer-lower-opts))]
+      (is (= [:yin.k/undecodable :install-response]
+             ((juxt :yin.k/status :yin.k/kind) refusal)))
+      (is (zero? @count)))
+    (doseq [opts [{} {:yin.k/admitted-modules {'other.mod address}}
+                  {:yin.k/admitted-modules {'host.mod :wrong-address}}
+                  {:yin.k/admitted-modules {'host.mod nil}}]]
+      (let [{:keys [attach! count]} (support/attacher)
+            refusal (error #(rows/lower-task recv wire attach! opts))]
+        (is (= :yin.k/unsatisfied (:yin.k/status refusal)))
+        (is (= {:yin.k/modules {'host.mod address}} (:yin.k/missing refusal)))
+        (is (zero? @count))
+        (is (empty? (:installs recv)))))
+    (let [{:keys [attach! count]} (support/attacher)
+          restored (rows/lower-task (assoc recv :attach-stream attach!) wire attach! {:yin.k/admitted-modules {'host.mod address}})
+          response (get-in restored [:installs 'host.mod :response])
+          child (get-in restored [:installs 'host.mod :vm])
+          wait (first (:wait-set child))]
+      (is (pos? @count))
+      (is (= install (first (nth (:slots (rows/decode (support/lift restored nil))) 12)))
+          "relift reproduces the carried install row")
+      (is (not-any? #(contains? response %) (keys sender-record)))
+      (stream/append! (get (:resources child) (:stream-id wait)) :resume)
+      (let [done (vm/run restored)
+            installed (module/module-entry (:modules (:modules done)) 'host.mod)]
+        (is (= 42 (:value done)))
+        (is (= address (:address installed)))
+        (is (not (contains? installed :admission)))))))
