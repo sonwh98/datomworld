@@ -3,6 +3,8 @@
             [dao.jing :as jing]
             [dao.stream :as stream]
             [yin.vm :as vm]
+            [yin.vm.semantic :as sr]
+            [yin.vm.semantic.code :as code]
             [yin.vm.engine :as engine]
             [yin.vm.ffi :as ffi]
             [yin.vm.module :as module]
@@ -892,3 +894,23 @@
     (is (= "Unable to resolve symbol: absent.mod/f in this context" message))
     (is (empty? (tu/drain request)))
     (is (empty? (tu/drain response)))))
+
+
+(deftest budgeted-install-children
+  (let [v (into [[:var 1 '+]]
+                (concat (mapv (fn [i] [:const (+ i 2) i]) (range 100))
+                        [[:call 0 1 (vec (range 2 102)) false] [:halt 0]]))
+        child (sr/load-vector (sr/create-vm) v code/contract)
+        parent (assoc (sr/create-vm) :blocked? true :halted? false
+                      :installs {'long {:phase :running :vm child}})]
+    (doseq [n [1 3 7]]
+      (let [stepped (sr/run-fuel parent n)
+            c (get-in stepped [:installs 'long :vm])]
+        (is (= n (get-in c [:control :pc])) "exactly n actual straight-line instruction transitions")
+        (is (= :running (get-in stepped [:installs 'long :phase])))
+        (is (nil? (:control stepped)))))
+    (let [nested (assoc parent :installs {'middle {:phase :parked :vm parent}})
+          stepped (sr/run-fuel nested 3)
+          leaf (get-in stepped [:installs 'middle :vm :installs 'long :vm])]
+      (is (= 3 (get-in leaf [:control :pc])) "the leaf is visited once with the same budget")
+      (is (= :parked (get-in stepped [:installs 'middle :phase]))))))

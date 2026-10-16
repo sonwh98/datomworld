@@ -349,3 +349,61 @@
       (is (= :pending-try
              (:yin.k/kind (frame/defect (update f :yin.k/pending dissoc :yin.k/try?)
                                         worked-code :wait task)))))))
+
+
+(deftest run-state-rules
+  (let [v [[:const 0 7] [:halt 0]] a (jing/segment-key v)
+        f {:yin.k/state :run :yin.k/segment a :yin.k/pc 0
+           :yin.k/env {:yin.k/bindings {}} :yin.k/window {} :yin.k/k []}
+        defect #(some-> (frame/defect % {a v} %2 task) :yin.k/kind)]
+    (is (nil? (defect f :running)))
+    (is (nil? (defect (assoc f :yin.k/pc 1 :yin.k/window {0 nil}) :running)))
+    (doseq [[mutant kind] [[(assoc f :yin.k/pc 0.5) :pc-kind]
+                           [(assoc f :yin.k/pc 2) :pc-bounds]
+                           [(assoc f :yin.k/window {1 1}) :window-scope]
+                           [(assoc f :yin.k/window {0 1}) :window-extra]
+                           [(assoc f :yin.k/pc 1) :window-missing]
+                           [(assoc f :yin.k/deliver {}) :frame-shape]
+                           [(assoc f :yin.k/pending {}) :frame-shape]]]
+      (is (= kind (defect mutant :running))))
+    (doseq [context [:wait :ready :captured :parked]]
+      (is (= :pending-presence (defect f context))))))
+
+
+(deftest worked-example-running-inventory
+  (let [inventory (mapv (fn [pc]
+                          [pc (first (nth worked-vector pc))
+                           (vec (sort (analysis/live (analysis/analyze worked-vector) pc)))])
+                        (range (count worked-vector)))]
+    (is (= [[0 :var []] [1 :var [1]] [2 :var [1 3]] [3 :call [1 3 4]]
+            [4 :var [1 2]] [5 :call [1 2 5]] [6 :halt [0]]] inventory))
+    (is (= [[:var] [:var] [:var] [:call] [:var] [:call] [:halt]]
+           (mapv #(vector (second %)) inventory)))
+    (doseq [[pc _ live] inventory]
+      (let [f {:yin.k/state :run :yin.k/segment worked-address :yin.k/pc pc
+               :yin.k/env {:yin.k/bindings {}} :yin.k/window (zipmap live (repeat nil)) :yin.k/k []}]
+        (is (nil? (frame/defect f worked-code :running task)) (pr-str [pc live]))
+        (doseq [ctx [:wait :ready :parked :captured]]
+          (is (= :pending-presence (:yin.k/kind (frame/defect f worked-code ctx task)))))
+        (when (seq live)
+          (is (= :window-missing (:yin.k/kind (frame/defect (update f :yin.k/window dissoc (first live))
+                                                            worked-code :running task)))))))
+    (doseq [context [:wait :ready :parked :captured]]
+      (is (= :pending-presence
+             (:yin.k/kind (frame/defect worked-frame worked-code :running task))))
+      (when (= context :wait)
+        (is (nil? (frame/defect worked-frame worked-code context task)))))))
+
+
+(deftest delivery-and-running-windows-are-distinct
+  (let [run (-> worked-frame
+                (dissoc :yin.k/deliver :yin.k/pending)
+                (assoc :yin.k/state :run :yin.k/window {1 :f 2 nil}))
+        delivery (-> run (assoc :yin.k/state :act :yin.k/deliver (:yin.k/deliver worked-frame)
+                                :yin.k/pending (:yin.k/pending worked-frame)))
+        from-delivery (-> worked-frame (dissoc :yin.k/deliver :yin.k/pending) (assoc :yin.k/state :run))]
+    (is (= #{1} (analysis/saved (analysis/analyze worked-vector) 4 2)))
+    (is (= #{1 2} (analysis/live (analysis/analyze worked-vector) 4)))
+    (is (nil? (frame/defect run worked-code :running task)))
+    (is (= :window-self (:yin.k/kind (frame/defect delivery worked-code :wait task))))
+    (is (= :window-missing (:yin.k/kind (frame/defect from-delivery worked-code :running task))))))

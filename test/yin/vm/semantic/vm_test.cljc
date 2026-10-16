@@ -1,5 +1,6 @@
 (ns yin.vm.semantic.vm-test
   (:require [clojure.test :refer [deftest is testing]]
+            [dao.stream :as stream]
             [yin.vm :as vm]
             [yin.vm.test-utils :as tu]
             [yin.vm.engine :as engine]
@@ -8,6 +9,7 @@
             [yin.vm.semantic :as sr]
             [yin.vm.semantic.analysis :as analysis]
             [yin.vm.semantic.code :as code]
+            [yin.vm.semantic.linearize :as linearize]
             [yin.vm.semantic.code-test :as code-test]
             [yin.vm.semantic.corpus :as corpus]
             [yin.vm.semantic.parity-test :as parity]))
@@ -388,3 +390,89 @@
         (is (= expected (vm/value done)))
         (is (vm/halted? done))
         (is (empty? (:parked done)))))))
+
+
+(deftest fuel-and-closed-gates
+  (let [m (load-golden :worked-example {:env {'f vector 'g inc 'x 1 'y 2}})]
+    (doseq [n [1 2 3 5]]
+      (is (= (nth (iterate #(sr/vm-hot % 1) m) n) (sr/run-fuel m n))))
+    (doseq [mode [:exporting :ended]
+            run [#(sr/vm-hot % 1) vm/step vm/run #(sr/run-fuel % 1)]]
+      (let [closed (assoc m :yin.k/gate mode)]
+        (is (= :gate-closed (:rule (error-data #(run closed))))))))
+  (doseq [n [nil 0 -1 1.5]]
+    (is (= :fuel (:rule (error-data #(sr/run-fuel (sr/create-vm) n)))))))
+
+
+(deftest bounded-bridge-calls-return
+  (let [seen (atom [])
+        call {:type :dao.stream.apply/call :op :op/echo :operands [(corpus/lit 42)]}
+        program (reduce (fn [body _]
+                          (corpus/app (corpus/lam ['_] body) call)) call (range 3))
+        m (sr/load-ast (sr/create-vm {:make-stream tu/make-stream
+                                      :bridge {:op/echo (fn [x] (swap! seen conj x) x)}})
+                       (vm/ast->datoms program) vm/ast-contract)]
+    (loop [m m rounds 0]
+      (is (< rounds 100))
+      (when (< rounds 100)
+        (if (vm/halted? m)
+          (do (is (= 42 (vm/value m))) (is (= [42 42 42 42] @seen)))
+          (let [before (count @seen) next (sr/run-fuel m 1)]
+            (is (<= (- (count @seen) before) 1))
+            (recur next (inc rounds))))))))
+
+
+(deftest fuel-dispatch-and-diagnostic-bridge-are-bounded
+  ;; :cljd first — the dispatch spy needs with-redefs, which ClojureDart lacks;
+  ;; cljd keeps the diagnostic-bridge bound below and fuel-and-closed-gates
+  #?(:cljd nil
+     :default
+     (let [rounds (atom 0)
+           m (assoc (sr/create-vm) :halted? false :blocked? false)]
+       (with-redefs [engine/scheduler-round-fuel (fn [m _ _] (swap! rounds inc) m)
+                     engine/scheduler-round (fn [& _] (throw (ex-info "Unbudgeted fallback" {})))]
+         (is (= m (sr/run-fuel m 1)))
+         (is (= 1 @rounds)))))
+  (let [m (assoc (sr/create-vm {:make-stream tu/make-stream :bridge {:op/echo identity}})
+                 :blocked? true :halted? false)
+        request (get (:resources m) vm/call-in-stream-key)
+        _ (stream/append! request :malformed-1)
+        _ (stream/append! request :malformed-2)
+        first-step (sr/run-fuel m 1)
+        second-step (sr/run-fuel first-step 1)]
+    (is (not= (get-in m [:bridge :cursor]) (get-in first-step [:bridge :cursor])))
+    (is (not= (get-in first-step [:bridge :cursor]) (get-in second-step [:bridge :cursor])))))
+
+
+(deftest fuel-counts-instruction-transitions
+  (doseq [ast [(corpus/app (corpus/v '+) (corpus/lit 1) (corpus/lit 2))
+               (corpus/if-node (corpus/lit true) (corpus/lit :yes) (corpus/lit :no))
+               (corpus/if-node (corpus/lit false) (corpus/lit :yes) (corpus/lit :no))
+               (corpus/app (corpus/lam ['x] (assoc (corpus/app (corpus/v '+) (corpus/v 'x) (corpus/lit 1)) :tail? true))
+                           (corpus/lit 7))
+               (corpus/app (corpus/lam ['x] (corpus/app (corpus/lam ['y] (corpus/v 'y)) (corpus/v 'x))) (corpus/lit nil))]
+          n [1 2 5 20]]
+    (let [m (sr/load-vector (sr/create-vm) (:vector (linearize/project ast)) code/contract)
+          transitions (atom []) raw-calls (atom 0)
+          expected (loop [m m i 0]
+                     (if (or (= i n) (nil? (:control m))) [m i]
+                         (recur (vm/step m) (inc i))))
+          ;; :cljd first — no with-redefs or private var-quote there: the
+          ;; state equality with n single steps is checked, the counters are not
+          got #?(:cljd (sr/run-fuel m n)
+                 :default
+                 (let [raw @#'sr/vm-hot*]
+                   (with-redefs [sr/vm-hot* (fn [m fuel]
+                                              (swap! raw-calls inc)
+                                              (loop [m m i 0]
+                                                (if (or (= i fuel) (nil? (:control m))) m
+                                                    (do (swap! transitions conj (:control m))
+                                                        (recur (raw m 1) (inc i))))))]
+                     (sr/run-fuel m n))))]
+      #?@(:cljd []
+          :default
+          [(is (= 1 @raw-calls))
+           (is (= (second expected) (count @transitions)))
+           (is (<= (count @transitions) n))])
+      (is (= (select-keys (first expected) [:control :window :env :k :value])
+             (select-keys got [:control :window :env :k :value]))))))

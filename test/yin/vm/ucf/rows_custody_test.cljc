@@ -12,6 +12,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [yin.vm :as vm]
+            [yin.vm.engine :as engine]
             [yin.vm.ucf.rows :as rows]
             [yin.vm.ucf.rows-checkpoint-fixtures :as f]
             [yin.vm.ucf.rows-support :as s]))
@@ -342,3 +343,25 @@
     (is (= :running (:yin.k/gate child)))
     (is (nil? (:yin.k/custody child)) "the child holds no custody of its own")
     (is (= [(s/op-id 4)] (keep :op-id (:wait-set child))))))
+
+
+(deftest exclusive-completed-write-is-history
+  (let [waiting (s/with-op-id (s/parked-writer) :put (s/op-id 0))
+        completed (engine/apply-put (assoc waiting :yin.k/gate :running)
+                                    (first (:wait-set waiting)) {:dao.stream/outcome :dao.stream/ok})
+        header (s/header 3 s/origin #{})
+        wire (s/lift completed header)
+        calls (atom [])
+        opts (assoc (exclusive-opts wire #{}) :protect! #(swap! calls conj %))
+        [recv attaches] (lowered wire opts)
+        done (vm/run recv)]
+    (is (= {} (:yin.k/ops (rows/custody-baseline (rows/decode wire)))))
+    (is (empty? @calls) "completed writes are outside protection and enrollment")
+    (is (pos? attaches))
+    (is (empty? (:wait-set recv)))
+    (is (= (s/op-id 0) (:op-id (first (:ready-queue recv)))))
+    (is (= 0 (:yin.k/issued recv)))
+    (is (vm/halted? done))
+    (is (= "v" (vm/value done)))
+    (is (= "v" (vm/value (vm/run done))))
+    (is (= (:yin.k/root wire) (:yin.k/root (s/lift completed header))))))
