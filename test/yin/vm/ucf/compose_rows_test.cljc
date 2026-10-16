@@ -2637,10 +2637,13 @@
               c (compose/source (:c w) "compute" config)
               c (step-until c #(= :running (get-in % [:holders "compute" :phase])) 60)
               m (get-in c [:holders "compute" :machine])
-              _ (if child?
-                  (do (is (= :running (get-in m [:installs 'host.mod :phase])))
-                      (is (some? (get-in m [:installs 'host.mod :vm :control]))))
-                  (is (some? (:control m))))
+              ;; cljd's is/expect returns void; the binding must finish with nil.
+              _ (do
+                  (if child?
+                    (do (is (= :running (get-in m [:installs 'host.mod :phase])))
+                        (is (some? (get-in m [:installs 'host.mod :vm :control]))))
+                    (is (some? (:control m))))
+                  nil)
               c (compose/hand-off c "compute")
               stale (get-in c [:holders "compute" :machine])
               c (step-until c #(= :exited (get-in % [:holders "compute" :phase])) 90)

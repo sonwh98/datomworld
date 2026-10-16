@@ -4355,19 +4355,25 @@
                                          (let [m (run m n)]
                                            (reset! expected m)
                                            (when (= :after-slice cut) (expire!)) m))
-                           reader/replay (fn [& args]
-                                           (when (= :replay cut) (expire!))
-                                           ;; A failure within a stage retains its input.
-                                           (if (= :replay cut)
-                                             (throw (ex-info "cut" {::driver/cause :lease-bound}))
-                                             (let [r (mark (apply replay args) :replay)]
-                                               (when (= :after-replay cut) (expire!)) r)))
-                           writer/emit (fn [& args]
-                                         (when (= :emit cut) (expire!))
-                                         (if (= :emit cut)
-                                           (throw (ex-info "cut" {::driver/cause :lease-bound}))
-                                           (let [r (mark (apply emit args) :emit)]
-                                             (when (= :after-emit cut) (expire!)) r)))
+                           ;; CLJS callers use replay's arity entry points; retain both on the replacement.
+                           reader/replay (fn replay-cut
+                                           ([m] (replay-cut m nil))
+                                           ([m opts]
+                                            (when (= :replay cut) (expire!))
+                                            ;; A failure within a stage retains its input.
+                                            (if (= :replay cut)
+                                              (throw (ex-info "cut" {::driver/cause :lease-bound}))
+                                              (let [r (mark (replay m opts) :replay)]
+                                                (when (= :after-replay cut) (expire!)) r))))
+                           ;; Emit also has multiple arities: preserve its compiled CLJS entry points.
+                           writer/emit (fn emit-cut
+                                         ([m request!] (emit-cut m request! (fn [_] nil)))
+                                         ([m request! diagnostic!]
+                                          (when (= :emit cut) (expire!))
+                                          (if (= :emit cut)
+                                            (throw (ex-info "cut" {::driver/cause :lease-bound}))
+                                            (let [r (mark (emit m request! diagnostic!) :emit)]
+                                              (when (= :after-emit cut) (expire!)) r))))
                            reader/step (fn [& args]
                                          (when (= :read cut) (expire!))
                                          (if (= :read cut)
