@@ -11862,3 +11862,56 @@ Decisions: the epic's implementation routing evolved with the owner's relays (co
 Verification: all counts in this entry and the collab reports; slow-tier failure identities verified byte-level against the ledger's foreign known reds; the merge combination verified by this seat's own quick-tier run.
 Delegates: glm-5.3 (6e first pass), claude-opus-5-5 (6e takeover + nits), muse-wonder-1.0 (6e review), agy gemini-4-argon (6e gate).
 Next: the any-pc epic is CLOSED — preemptive migration at any pc is implemented end to end (carrier 6d-a, holder 6d-b, backends 6e) with every slice gates-signed and merged. Remaining track items are owner-scheduled product work (REPL export command; composition-level fetch loop) with no dispatch authority requested. Three items queued for Fable's next gate (argon's 6d-b list + the 6e list in its findings). Process: agy quirks documented in the delegate-invocation-reference; master-moves-mid-merge will be stated in merge messages going forward.
+
+## 2026-10-17 06:05:00 +07 — C3-S2 closure: already landed on master (be1f8d06); the stale c3key1 worktree removed
+Completed-GMT: 2026-10-16 23:05:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@origin-tip; the c3key1 worktree removed (--force; the branch held nothing unique)
+Done: The C3-S2 thread CLOSES with a correction: the keys/hash/is surface was ALREADY LANDED on master
+  as be1f8d06 (2026-10-04) + 33419c2e by an interim seat — recovered and landed during the interim era
+  after the original c3key1 round. My "C3-S2 landing queued" item was stale: the c3key1 worktree's
+  uncommitted diff was the OLD pre-landing state, and the deepseek gate correctly refused to gate it
+  ("the older C3-S2 surface is on master; signing it off would certify a different, already-landed
+  change"). The gate's verdict (REQUEST CHANGES) is recorded as the stale-diff finding; the C3-S2
+  surface on master is the landed be1f8d06 state (verified: be1f8d06 and 33419c2e are ancestors of
+  origin/master; the prelude carries the py/key, py/hash P=2^61-1, and py/is surface).
+Also confirmed: the c3key1 worktree's git registration was already broken (status exit 128 — pruned
+  metadata, the same class as the c2gen3 loss) — removed with --force. The round's artifacts were
+  already safe in collab/ and the gate findings file (1792315000000-reviewer-c3s2-gate.deepseek-flash.findings.md
+  records the full ruling-by-ruling status for provenance).
+Remaining C3 work: the completion gate (ruling 14: the twelve-lane matrix, cross-host goldens, mutation
+  evidence) and the remaining slices (conversions/pow, big literals) — dispatched after the antlr
+  multi-target and the value-display rounds land.
+Next: the antlr M0-M2 (sonnet, running) -> gates -> land; the value-display r3-restricted (sonnet,
+  running) -> gates -> land; the C3-S2 gate for the safe... no — C3-S2 is closed. The safepoint s3
+  (tracing) continues; C4 I7 after C3-S2's surface settles.
+
+## 2026-10-18 00:4x +07 — the scanner-golden `:pysp` regen landed (37db44da); fable's provenance correction
+The r3 regen (sonnet, scangold worktree) moved the `:c4 :pysp` pins 76→77 applications, 33→34 free
+  names. Dispatched the fable (claude-cloud) review per the known-gaps rule. Her READY carried a
+  correction: the movement is NOT the safepoint s1/s2 hooks (both ancestors of the I6 regen) — it is
+  C4 I1 aad451c5e (the hook prelude's appended require of py), exactly one application + one free
+  name; the landing commit cites aad451c5e. Her landing steps applied: the two stale docstrings fixed
+  (goldens ns + generator header), the deferred ratchet narrowed to #{:pysp} (a group left in the set
+  has its movement absorbed silently), the strict-gate rerun byte-identical, the scan-test namespace
+  green (12 tests / 716 assertions), kondo 0/0, cljstyle clean. Standing rule added to the generator
+  header and the goldens docstring: any slice touching the prelude, safepoint, lowering or import
+  programs runs the generator in the same slice. Landed scangold-regen:master = 37db44da; the
+  known-gaps row notes the recurrence.
+Validated within hours: the deepseek value-display gate v3 returned REQUEST CHANGES with a P1 that is
+  exactly this failure mode — the value-display prelude change (py/result! + py.rt/value) moves the py
+  manifest and leaves float_address_test, linked_safepoint_test's pysp golden and the scanner `:py`
+  entry stale. Value-display r4 dispatched to sonnet (c4fix) with the v3 findings; sequencing: land
+  r4, then the safepoint s3 surface reconciles on top.
+
+## 2026-10-18 00:12:16 +0700 — semantic-register-vm seat: any-pc epic review loop CLOSED — argon ratified all five accumulated judgment calls post-merge
+Completed-GMT: 2026-10-17 17:12:16 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: sess_607c1129-1dcd-49ba-9b34-58565f4f42e4 (interactive seat)
+Tree: origin/master @ a53762b2d (the other seat's C3-S2 closure landed on top of 3552a224; no yin.vm changes).
+Done: argy Gemini-4-argon (same conversation as its 6d-b/6e gates, 6ca9e8c6-86b3-420e-8420-08f3c610a69d) ratified the five accumulated judgment calls/deviations post-merge, file:line-verified against the merged master: GATE-FOLLOWUP: RATIFIED — (1) steps-since-checkpoint = holder slices; (2) the strengthened bare-effect tenure test; (3) the hand-built-vector deviation (item 6's single-consumption discipline makes the literal vector unimplementable; hand-built layout + executed multiplicity pinning is exact and complete); (4) row 4's state-based backend obstruction; (5) region-window's live-only canonicalization. Combined-merge consistency confirmed; residual for Fable: none. Promoted to collab/1792240000000-architect-gate-followup.agy-argon.findings.md. First followup dispatch failed on a removed-worktree cd (the cleanup had deleted srvm-6d-b minutes earlier) — redispatched from a fresh scratch at master; scratch removed after.
+Decisions: per the owner's challenge ("argon queued? why? its available"), confirmations no longer queue for a specific reviewer — the available architectural destination ratifies immediately.
+Verification: argon's file:line checks in its findings; master's tip carries all merged slice content.
+Delegates: agy gemini-4-argon.
+Next: the yin.vm.semantic track has NO open engineering work — the any-pc epic is landed and its review loop closed. Remaining items are owner-scheduled product work (REPL export command, composition-level fetch loop) and Fable's claude-cloud reservation (until Tuesday) for any future security-capable sign-off. The other seat's C3/TS/PHP work continues independently on master.

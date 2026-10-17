@@ -1,9 +1,7 @@
 # yang.antlr: compiling languages with ANTLR and Yang into the Universal AST
 
 Status: Architecture and implementation roadmap, implementation under way
-(the Python line; see "Implementation status" below). Drafted
-2026-09-24 from the Lead System Architect's plan of 2026-09-23
-(`collab/1790185837428-architect-yang-antlr-plan.gpt-6-astra.plan.md`)
+(the Python line; see "Implementation status" below). Drafted 2026-09-24 from the Lead System Architect's plan of 2026-09-23
 and the orchestrator's standard-library discussion.
 
 Implementation status, 2026-10-04 (commits on master). Landed: the Python
@@ -28,15 +26,8 @@ Updated 2026-10-01 with the Architect rulings of 2026-09-30 and
 2026-10-01, each accepted by the owner. Later sections cite them by the
 short names given here:
 
-- the cell ruling:
-  `collab/1790773810605-architect-cell-primitive.claude-fable-5-1.findings.md`;
-- mob D1 to D10 (round 2):
-  `collab/1790776815400-architect-mob-outstanding-decisions.claude-fable-5-1.findings-r2.md`
-  and `collab/1790776815400-architect-mob-outstanding-decisions.gpt-6-astra.findings-r2.md`;
-- the mutable-objects ruling:
-  `collab/1790778866412-architect-mutable-objects.claude-fable-5-1.findings.md`;
-- the Python mappability ruling:
-  `collab/1790797984227-architect-python3-mappability.claude-fable-5-1.findings.md`.
+- the cell ruling; mob D1 to D10 (round 2); the mutable-objects ruling;
+  the Python mappability ruling.
 
 They amend sections 8.1, 8.5, 9.3, 9.4, and 9.5, add sections 8.5.1 and
 8.11, and add cross-references from sections 8.6 and 8.9. Landed on
@@ -50,16 +41,9 @@ Updated 2026-10-02 with three further ruling sets, cited by these short
 names:
 
 - the safepoint design, whose seven owner decisions the owner accepted
-  on 2026-10-01 ("accept all recommendations"):
-  `collab/1790849347715-architect-safepoint-interpreter.claude-fable-5-1.findings.md`;
-- the C2 generator design and the C2 cross-ruling:
-  `collab/1790874900000-architect-python-c2-generators-design.claude-fable-5-1.findings.md`
-  and
-  `collab/1790875890000-architect-c2-generators-crossruling.gpt-6-astra.findings.md`;
-- the C3 integer design and the C3 cross-ruling:
-  `collab/1790874940000-architect-python-c3-bignum-design.gpt-6-astra.findings.md`
-  and
-  `collab/1790875860000-architect-c3-bignum-crossruling.claude-fable-5-1.findings.md`.
+  on 2026-10-01 ("accept all recommendations");
+- the C2 generator design and the C2 cross-ruling;
+- the C3 integer design and the C3 cross-ruling.
 
 The two cross-rulings are the converged rulings of the architect pair
 (gpt-6-astra and fable-5.1), to which the owner delegated decision
@@ -73,20 +57,14 @@ status above gives what has landed since.
 
 Updated 2026-10-03 with the float-address ruling, the converged ruling
 of the same architect pair: gpt-6-astra's ruling with fable-5.1's
-concurrence, whose three corrections bind:
-`collab/1790968830636-architect-float-address-mob.gpt-6-astra.findings.md`
-and
-`collab/1790968830647-architect-float-address-mob.claude-fable-5-1.findings.md`.
+concurrence, whose three corrections bind.
 It amends sections 8.5 and 8.5.1 and adds section 8.5.5. Its
 implementation is pending in one preparatory slice; none of it has
 landed.
 
 Updated 2026-10-03 with the C4 design (fable-5.1) and gpt-6-astra's C4
 cross-ruling, whose nineteen converged rulings govern where they differ
-from the design:
-`collab/1790974400000-architect-python-c4-design.claude-fable-5-1.findings.md`
-and
-`collab/1790975400000-architect-c4-crossruling.gpt-6-astra.findings.md`.
+from the design.
 They amend section 8.5.1 and add section 8.5.6. None of them has landed:
 each is recorded with its implementation pending in the slices it names.
 
@@ -639,6 +617,48 @@ and fixture independently. Retain source and binary notices, record SPDX
 identifiers where known, and block redistribution when licensing is
 missing or incompatible. ANTLR's own license does not license every
 community grammar.
+
+### 4.6 The multi-target pipeline and the parse-tree IR
+
+The multi-target design (2026-10-17; approved by a codex adversarial
+review after two revision rounds) makes the per-host generation of
+section 4.2 concrete for the Python frontend and generalizes the
+recipe to every future ANTLR-supported language.
+
+The manifest gains a `:targets` map: one entry per host target (Java,
+JavaScript, Dart), each carrying its generation flags, helper bases and
+patches, digests, and output directory. The generator loops the map;
+the Java digests stay byte-identical to today. The runtimes pin per
+target (the Maven runtime, the antlr4 npm package, the antlr4 pub
+package, all at the tool version).
+
+The target-neutral parse-tree IR is the existing CST packet v1,
+formalized. ANTLR has no target-neutral tree, and the per-target parse
+trees differ in their objects, but for the same grammar their structure
+is equivalent. The design names the CST packet the IR: each host's
+exporter translates its target's parse tree into the same packet
+values, the packet's `validate!` enforces the seven invariants with a
+one-pass recursive preorder walk and outcome-specific contracts
+(duplicate edges, DFS preorder, real-token text against source bytes,
+UTF-8 boundary alignment, terminal ordering, rule extents over real
+descendants, grammar-metadata name checks, and error packets as their
+own outcome), and a portable `conform` is the per-target oracle. A
+`:synthetic-policy` map keys synthetic justification on grammar role
+(DEDENT always, NEWLINE at end, EOF always, other types never), and
+error packets carry two independent coordinate systems: the byte span
+computed from token indexes, and ANTLR's line and column captured
+verbatim, which are not required to agree.
+
+The lowering stays per language by design and consumes the IR
+host-neutrally; it never sees a target runtime. Per language, the whole
+per-host surface is one small parser adapter with three
+reader-conditional constructor profiles.
+
+Adding a new ANTLR-supported language becomes a bounded recipe: vendor
+the grammars, add the manifest's target entries, generate, write the
+small parser adapter and the language's lowering and prelude, add the
+conformance goldens. The Python multi-host work is the first instance of
+this recipe, not a special case.
 
 ---
 
@@ -2436,8 +2456,7 @@ programs, which are labelled hand pins. `c3_gate_test` runs every packet
 on the four VMs on every host; `c3_gate_parser_test` binds each packet
 to the parser and its docstring to the corpus source, and runs every
 source naive and under no-op hooks. The mutation evidence is in the S7
-engineer's sign-off pack (`collab/1791379500000-engineer-s7-signoff-pack.md`,
-archived with the slice); S6's report holds the scalar-gate and decoder
+engineer's sign-off pack (archived with the slice); S6's report holds the scalar-gate and decoder
 mutations (with codec-level tag-3 detection verified by S6 T4 `scalar-round-trip-test`
 and the int-contract recompute and round-trip tests).
 
