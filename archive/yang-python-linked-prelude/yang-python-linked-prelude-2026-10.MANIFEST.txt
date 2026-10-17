@@ -1,0 +1,17 @@
+# Archived 2026-10-17 (owner-requested sweep of landed-track collab artifacts)
+# Criterion: C4 slices I4/I5/I6 landed (I5 51117e93, I6 19e7e879 per orchestrator log 2026-10-17).
+# Files NOT moved when cited by living docs (docs/src/test) — those stay in collab/.
+# Manifest may lag the log: docs/orchestrator-log.md citations of collab/ paths are historical.
+1791950277753-architect-i4-mob-questions.claude-fable-5-1.findings.md
+1791950277753-architect-i4-mob-questions.claude-fable-5-1.prompt.md
+1791950277753-architect-i4-mob-questions.claude-fable-5-1.stdout.log
+1791950277753-architect-i4-mob-questions.gpt-6.1-sol.findings.md
+1791950277753-architect-i4-mob-questions.gpt-6.1-sol.prompt.md
+1791950277753-architect-i4-mob-questions.gpt-6.1-sol.stdout.log
+1791966252213-engineer-i4a-statement-import.findings.md
+1791966252213-engineer-i4a-statement-import.gpt-6.1-sol.stdout.log
+1791966252213-engineer-i4a-statement-import.prompt.md
+1791967936514-reviewer-i4a-statement-import.claude-fable-5-1.stdout.log
+1791967936514-reviewer-i4a-statement-import.prompt.md
+1792341000000-architect-i4-scoping.claude-fable-5-1.stdout.log
+1792341000000-architect-i4-scoping.prompt.md

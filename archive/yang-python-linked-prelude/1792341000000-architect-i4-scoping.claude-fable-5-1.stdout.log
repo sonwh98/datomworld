@@ -1,0 +1,106 @@
+The design is complete and saved to the plan file. Full text follows.
+
+# I4 scoping: `try-require` and deferred dependencies (the L-d remainder)
+
+Architect design, read-only. Sources read: `yin.vm.linker.dht.md` 4.1-4.2, 5.2-5.3, 7.3-7.5, 9; `yin.vm.linker.md` 4.2-4.3, 7.2, 8.1; `yang.antlr.md` 8.5.6 (resolution order, rulings 4, 8, 9, the L and I tables, acceptance); `engine.cljc` (link effect handling, `link-install`, `refuse-install`, `refused-entry`, `settle`, `discharge-defect`, `throw-terminal-resume!`, `:stream/poll`); `module.cljc`; `vm.cljc` (`require` primitive, `free-names`); `linker.cljc` (`discharge`, `declared-obligation`); `linker/{publish,dht,closure,interpreter}.cljc`; `yang/python/antlr/{lower,prelude,publication}.cljc`; `linker_require_test.cljc` (pin check); the mob findings Q4/Q5/Q6. No suites run; no source edited.
+
+## Context
+
+The engine pin check landed (d0920f2b) but L-d as the doc defines it is two more things: `try-require` (refusal as data, the `stream/poll!` precedent) and deferred dependency admission with statement-time resolution. Today a Python unit hoists one `(require 'pym.<i>)` per static import into its module-level form, so an absent or refused dependency refuses the dependent's install before any Python runs. `try: import x / except ImportError` cannot work.
+
+The finding that shapes this design: **almost everything needed already exists as data.** Refusals are already plain maps on the link response stream. The engine turns them into a raise at exactly one function, `refused-entry` (`src/cljc/yin/vm/engine.cljc:1153`). Discharge already defers every obligation qualified by a required module (`engine.cljc:1210`). Pins already live in `:yin.module/requires` for every dependency. What is missing is (a) a flag that lets a waiter receive the refusal as its value, (b) a registry-level invariant that makes "absent at install" safe, and (c) a derived eager/deferred classification for the DHT prefetch and binding check.
+
+## 1. The `try-require` surface (linker seat, language-blind)
+
+**1.1 The primitive and the effect.** A new primitive `try-require` beside `require` in `yin.vm/primitives` (`src/cljc/yin/vm.cljc:410`), minting `:module/try-require {:module m}`, profile `:effectful [1] #{:module/try-require}`. It is its own effect kind for the reason `stream/poll!` is: a callee whose profile omits it cannot observe whether linking would have refused. A module using it declares it under `:yin.module/primitives` by profile address exactly as `require` is declared today. Nothing new in the manifest. Naming: the doc says `module/try-require`; a bare primitive is the smaller change (no new host module in every composition). Owner may overrule (open question 2).
+
+**1.2 The handler and the wait entry.** `require-handler` gains a `try?` parameter; `try-require-handler` registers in `default-registry` under `:module/try-require`. The kernel registers builder is `(or (get park-entry-fns :module/try-require) (get park-entry-fns :module/require))`, the fallback `:stream/poll` uses for `:stream/next`, so no kernel edits. The wait entry carries one more plain key, `:try? true`, which survives `:link-request`, `:link-response` and `:install` (settle builds the install waiter by `dissoc` of link fields). The envelope on the link request stream is unchanged. The closed key set is not edited, so the interpreter, admission, the DHT source and the REPL never learn `try-require` exists.
+
+**1.3 The response datum.** `try-require` always answers a map, never a symbol and never a raise for a linking outcome:
+
+```clojure
+{:status :ok      :module 'pym.c}                 ; registry hit, or install linked
+{:status :refused :reason :absent :name 'pym.c :diagnostics [...]}
+{:status :refused :reason :yin.admit/untrusted-principal :asserters [...] ...}
+{:status :refused :reason :dependency-pin-mismatch :module 'pym.m :name 'pym.c :pinned a :linked b}
+{:status :refused :reason :require-cycle :module 'pym.c :chain [...]}
+{:status :lost    :reason :yin.repl/abandoned :link-id [...]}
+```
+
+The refusal is the response body or install refusal verbatim, plus the `:link-module` key the raise path adds. The guest branches on `(get r :status)`. Success is a map too, so no guest ever has to `get` on a symbol.
+
+**1.4 How refusal-as-data differs from the raised error.** Exactly one seam: `refused-entry` becomes `(if (:try? entry) (ready entry refusal) <today>)`, and the two success wakes (`wake-installed`, and settle's "linked meanwhile" case) wrap the module name as `{:status :ok :module m}` for a `:try?` entry. Every refusal path already funnels through `refused-entry`: settle (response refusal, name mismatch, discharge defect, loader defect), `link-read-step` (gap and terminal stream outcomes), `refuse-install` via `wake-installed` (export-missing, pin mismatch, foreign-image, lift refusals, install errors), `abandon-link`, `abandon-installs`. One more: the handler's `:require-cycle` throw becomes data under `try?`. The one thing that still throws is "no link pair", a host assembly defect.
+
+**`try-require` changes who learns of a refusal, never whether it happens.** A `try?` waiter and a plain `require` waiter parked on the same install each get their own delivery.
+
+**1.5 Composition.**
+- **Admission parking and abandon.** The miss is a link request from the requesting task; the DHT branch asks on that request (7.5.3), parks with no deadline (7.5.4). An allow loads the retained address; a refuse is a section 9 refusal, so data. Abandon retires the request; `abandon-link` yields `{:status :lost}` as data. Nothing in the interpreter or admission namespaces changes.
+- **`link-install` pin check.** Install refusal, same `wake-installed` path, data for `try?` waiters. Only the rule changes (section 2.2).
+- **DHT dependency-binding.** `:yin.link.dht/dependency-binding` is a response refusal, so data.
+- **L-e later.** Origin and store-ownership checks are `linked`-phase refusals beside `:foreign-image`, same path. An allow never relaxes L-e and neither does a catch: `try-require` does not change what installs, only what the continuation resumes with.
+
+## 2. Deferred dependencies: representation and validation
+
+**2.1 What "deferred" means and where it is written.** A dependency is **eager** when the module-level form requires it unconditionally (today's hoist) and **deferred** when the module pins it but requires it only at statement time. Statement-time resolution is "under the pinned resolution environment" in exactly 7.4's sense: the name resolves by the reader's fold over the reader's snapshot set and declared principals, admission asks the reader's holder, and the publisher's pin is compared, never consulted as a name claim.
+
+**The manifest is unchanged.** `:yin.module/requires {name address}` keeps one pin per dependency. Eagerness is derived from the tree, never persisted: a requirement is eager iff the tree holds an unconditional module-level `(require 'm)`, the scan `yin.vm.linker.publish/requirements` (`src/cljc/yin/vm/linker/publish.cljc:240`) already performs. Make it public and apply it where needed. A manifest key such as `:yin.module/deferred` was rejected: derivable from existing rows, and it costs a schema revision. Misclassification is safe both ways: deferred-read-as-eager costs a prefetch and an early `:missing` on an absent optional dependency; eager-read-as-deferred means the child's own require loads on demand through its own request, the existing 7.5.3 path.
+
+**2.2 The registry pin invariant.** Today `link-install` refuses when a pinned name is absent from the halted child's registry. Deferred dependencies make absence normal, so the rule must change without opening the hole the mob's Q4 named. The backstop is a registry invariant, pure and language-blind:
+
+> A registry never holds a linked module under a name at an address that differs from the address any linked manifest in that registry pins for that name.
+
+Implemented as `yin.vm.module/pin-conflict`, derived from the manifests the registry already holds. It refuses when (a) some linked manifest in the registry pins `name` at an address other than the entry's, or (b) the entry's own manifest pins a name the registry holds at another address. The engine applies it in `receive-module`, which covers the child's inheritance at spawn, the parent's receive of the installed entry (act 3) and of the child's linked entries (act 4). `link-install`'s own check becomes case (b): **present-and-unequal refuses; absent is permitted.** The throw is already caught by `advance-install` and `error-refusal` keeps the `:reason`, so the refusal shape is the one the tests pin.
+
+Why this is not a weakening: the only way a deferred name ever binds in a task is through a later require resolved by the reader's fold, admitted by the holder, and received into the registry, which is where the pin is compared. A module that pins, never requires, and reads `m/x` hits the registry fall-through: either `m` is there at the pinned address or the read fails as an unresolved symbol. The concurrent-install case (parent receives `x` at Q after spawning a child whose module pins `x` at P) is caught at the parent's receive.
+
+**2.3 Free-name validation (5a/5b) needs no rule change.** A Python import's reads of `pym.c/spec` and `pym.c/body` are qualified free names; 5a joins them into module obligations carrying the pin; `discharge-defect` already removes obligations qualified by a required module. Only the doc's justification changes, from "the child requires it, and the receiving task receives it at linked" to "the registry pin invariant guarantees that whenever the name is bound it is bound at the pinned address". Publication's self-link and footprint are unchanged (every pinned manifest is present at publication, bottom-up).
+
+**2.4 The DHT source.** The walker classifies each requirement with the derived scan and lists it as `{:module :name :manifest :eager?}`. It descends into eager pins as today (`:missing` stays fatal for them). It does not descend into deferred pins in v1: their content arrives through the importer's statement-time request (4.1 step 2, a fresh load record). `dependency-bindings` skips deferred entries entirely: an early `:absent` would break the optional-import idiom and an early `:mismatch` would refuse a module for a dependency it may never import. Fail-closed is preserved at receive.
+
+**2.5 "Absent names included": strict v1.** Two readings. **Absent at the reader** (strict, v1): the dependency was published and pinned but the reader's environment does not resolve the name; `try-require` answers `:absent` and the except branch runs; the I4 acceptance line is satisfiable this way. **Absent everywhere** (unpinnable, `try: import foo` with no `foo` at publication): `publication-order` refuses today, and the publisher has no address to pin. Representing it means a `nil` pin under `:yin.module/requires`, with `pin-conflict` ignoring nil pins and the publisher refusing a nil pin on an eager requirement. It is the one place a dependency would bind with no publisher pin. Recommendation: land I4 strict, ledger the unpinned case as owner question 1.
+
+**2.6 What yang.python's lowering emits (outside the linker).**
+- `lower-packet` (`:linked`) and `module-packet` drop the hoisted `pym.<i>` requires; `(require 'py)` stays eager. `module-spec` still pins every static import under `:requires` and covers `pym.<i>/*`; `try-require` is declared by its primitive profile through the existing `declare-free-name` path with no edit.
+- `import-chain` emits per link a delivery thunk that runs `try-require` first and reads exports only on `:ok`, lexically after the test:
+
+```clojure
+(py/import "c" (fn [] (let [r (try-require 'pym.c)]
+                        (if (= :ok (get r :status)) [pym.c/spec pym.c/body] r))))
+```
+
+- Prelude: `py/import` and `py/import-sub` take the thunk; `sys.modules` is checked first as today; on a refusal map `py/import-refused` raises **`ModuleNotFoundError`** (new builtin, subclass of `ImportError`) for `:reason :absent` and `ImportError` otherwise, the refusal carried on the exception. A caught failure leaves no `sys.modules` entry, so a retry re-imports.
+- All of this lives in `lower.cljc` and `prelude.cljc`. No linker datum carries a language, frontend or `[id revision]`.
+
+## 3. Seats and slices
+
+Linker seat owns `yin.vm`, `yin.vm.module`, `yin.vm.engine`, `yin.vm.linker.*`, their tests and the two linker docs. yang.python seat owns `yang/python/antlr/**`, its tests and fixture, `yang.antlr.md` 8.5.6. Each slice is one codex run; Fable reviews under the Q6 rule. Gates per `docs/agents/build-n-test.md`: iterate `bb test:clj`, three hosts once per slice at landing, slow tier before the I4-b merge.
+
+| Slice | Seat | Scope | Red-first tests (every backend in `linker_require_test`'s `backends`; three hosts at landing) |
+|---|---|---|---|
+| **L-d-1** `try-require` | linker | primitive; handler + registry; `refused-entry`, success wrap, cycle as data; docs `linker.md` 7.2 step 7, `dht.md` 7.5.3 and 9 | (a) stub `:absent` → value is the refusal map, no raise, program continues; (b) `:ok` → `{:status :ok :module 'foo}` and `foo/f` applies; (c) registry hit → ok map, no request appended; (d) a `require` and a `try-require` on one install refusing `:export-missing`: first raises, second gets data; (e) `abandon-link` → `{:status :lost}` value; (f) child's `try-require` of an ancestor → `:require-cycle` data; (g) existing `require` tests unchanged |
+| **L-d-2** pin invariant | linker | `module/pin-conflict`; `receive-module` refuses; `link-install` present-and-unequal only; docs `dht.md` 7.4, `linker.md` 4.3 row | flip the `:absent` mode of `dependency-pins-are-checked-without-module-obligations-test` to link ok; deferred pin then a `try-require` resolved at another address → `:dependency-pin-mismatch` as data, registry and stores unchanged; concurrent-install refused at the parent's receive; `:matching`, `:inherited`, `:fresh` unchanged |
+| **L-d-3** deferred pins in the DHT source | linker | `publish/requirements` public; walker `:eager?`, no descent into deferred; `dependency-bindings` skips deferred; docs `dht.md` 4.2, 7.4 | `closure_test`: a module pinning a dependency it only try-requires walks `:complete` with it absent, `:missing` when an eager pin is absent; `dht_test`: binding check lists and skips it; `dht_end_to_end_test`: deferred dependency absent in the reader's set → dependent links, statement-time `try-require` answers `:absent` with the fold's diagnostics |
+| **I4-a** statement-time import | yang.python | wrappers and `import-chain`; `py/import`, `py/import-sub`, `ModuleNotFoundError`, `py/import-refused`; `yang.antlr.md` ruling 8 landed, acceptance line, profile row | `import_test` on every VM: `except ModuleNotFoundError` runs on stub `:absent`; `except ImportError` also catches; stub `:ambiguous-name` → `ImportError` carrying `:reason :ambiguous-name`; retry after a caught failure re-imports; I1/I2 programs unchanged; import-free root golden unchanged; importing goldens move once |
+| **I4-b** DHT end to end | yang.python | `dht_import_test` + regenerated artifact; I3 acceptance text amended | optional import absent at the reader → except branch on every host; republished dependency → `ImportError` carrying `:dependency-pin-mismatch` at the statement, nothing published at the wrong address; untrusted principal → `ImportError` carrying `:yin.admit/untrusted-principal`, imports after `(trust p)`; slow tier green |
+
+Order: L-d-1 → L-d-2 → {L-d-3 ∥ I4-a} → I4-b. I4-a depends only on L-d-1 and L-d-2. Collab note to the yang.python orchestrator before L-d-2 lands.
+
+Portability: the new keys are plain data in wait entries and ready-queue values and ride lift/lower unchanged; refusal `:diagnostics` are plain vectors of maps; use `=` on keywords (cljs); start multi-key `assoc` from `{}` on Dart; no `for` over long seqs; `rm -rf test/cljd-out` before a Dart lane after a rename; `npm ci` and `mise trust` in a fresh worktree.
+
+## 4. Risks, open questions, invariant check
+
+**Risks.**
+1. **Late errors for buggy modules.** A module that pins, never requires, and reads `m/x` fails at run time where today it refuses at install. Accepted: that is what deferred admission means; the pin invariant keeps it safe.
+2. **I3 acceptance renegotiated.** "Refused as a dependency binding with no install" becomes "raises `ImportError` carrying `:dependency-pin-mismatch` at the statement; nothing installs at the wrong address". The install child runs the republished module's module-level form before the refusal; its store is discarded, as today's `:fresh` mode does.
+3. **Latency.** Each import statement is a link round trip, and without prefetch a DHT load at statement time. Follow-up: descend into deferred pins when local.
+4. **Golden move.** Every importing Python golden and the committed DHT artifact move once; the import-free root does not.
+5. **Review scope.** Round 1 may demand early refusal of deferred `:mismatch`; answer with 2.4 and the Q6 rule.
+
+**Open questions for the owner.**
+1. Unpinned optional imports (2.5): land strict and ledger it, or authorize the `nil` pin now?
+2. Bare `try-require` primitive (recommended) or a `module` host module as the doc's wording suggests?
+3. `ModuleNotFoundError` for `:absent` only (recommended), or also for admission refusals? The module exists in the admission case; the holder declined it.
+
+**Invariant check.** Linker language-blind: new words are `try-require`, `:module/try-require`, `:try?`, `:eager?`; `ModuleNotFoundError` and the thunk shape live in the prelude and lowering; the link request key set is untouched. Admission is the linker's: asked on the requesting task's own request, unchanged. A is the only code identity: pins compare manifest addresses; the classification persists nothing. REPL only configures: nothing changes there. Derive, don't persist: eagerness from the tree, pin conflicts from manifests already in the registry. A pinned address is never a name claim: statement-time resolution is the reader's fold; the pin is compared at receive. L-e is relaxed by neither an allow nor a catch.
+
+**Contradiction to amend:** `yin.vm.linker.dht.md` 7.4's "An absent or unequal entry refuses `:dependency-pin-mismatch`" and the landed test's `:absent` mode contradict ruling 8's deferred admission; L-d-2 amends both. 7.5.3's "An install child's transitive requirement is asked on its own request" gains "a deferred requirement is asked on the importing task's own request at statement time".

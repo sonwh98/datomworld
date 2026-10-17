@@ -1,0 +1,42 @@
+Completed-GMT: 2026-10-14 08:58:01 GMT
+Completed-Local: 2026-10-14 15:58:01 +07
+Coding-Agent: claude
+Session-ID: 05011d89-5196-43c1-b4b4-bcda974ad2b5
+
+# Review of slice I4-a (worktree `datomworld-i4a`, uncommitted diff vs `master@ca13f667`)
+
+**Verdict: APPROVE-WITH-NITS.** No P0/P1/P2 findings. The lowering, prelude and tests match the binding brief and the mob ruling on question 3. Lint, format and whitespace checks on the changed files are clean.
+
+## What I verified
+
+**Lowering.** Both `lower-packet` (`:linked`) and `module-packet` now emit only the eager `(require 'py)`. The dead `import-requires` helper is removed. `delivered` returns `none` for `sys`, `builtins` and the unit itself, else a zero-arg lambda whose body is `(let [r (try-require 'pym.x)] (if (= :ok (get r :status)) (conj [] pym.x/spec pym.x/body) r))`. The export reads live only in the `if` consequent, so they are never evaluated on refusal. `import-chain` passes the thunk to both `py/import` and `py/import-sub`. `module-spec` still pins every dep in `:requires`, and the publish-side `requirements/eager` walker ignores try-require and lambda bodies, so publication no longer treats guest imports as eager. The primitive profile for `try-require` reaches the manifest through the unchanged `declare-free-name` path.
+
+**Prelude.** `ModuleNotFoundError` is a subclass of `ImportError` in `builtin-classes` and therefore seeded into `builtins` by the same table. `py/import` and `py/import-sub` check `sys.modules` first and only call the thunk on a miss. `(get r :status :ok)` is correct for both shapes: a vector answers the default `:ok`, a refusal map answers `:refused` or `:lost`. `py/import-refused` implements the ruling exactly: `:absent` with `:name` raises `ModuleNotFoundError`, `:absent` with `:address` and everything else raise `ImportError`, and the full map is attached as `e.refusal`. The raise happens before `py/module-run`, so no `sys.modules` entry is ever created on failure. `data/contains?` is a real host function in `yin.vm.data` with arity 2.
+
+**Engine contract.** `try-require` resumes with `{:status :ok :module ...}`, a `:refused` map (with `:module` added), or `{:status :lost ... :link-id}`. The tests' `dissoc` of `:yin.link/id :module :link-id` matches that enrichment.
+
+**Tests.** The slow matrix runs six refusal kinds across semantic, stack and register backends, with retry proven by two link requests per run. `refusal-details-test` covers the negative case (address miss and policy refusals are not `ModuleNotFoundError`), diagnostic retention, the `No module named 'w'` text, and the empty cache after failure. `cached-import-skips-delivery-test` uses a thunk that raises if called. `optional-dependency-does-not-abort-install-test` publishes a module with a concrete pin whose dep is absent from the reader and shows installation survives. The AST walker exclusion is the pre-existing L-b gate, untouched. Golden moves are all consistent with a prelude change (prelude root, A/A', record, prelude-id, `py` and `pysp` manifests, runtime-key count 65 to 66); the import-free linked program root did not move.
+
+**Portability.** No `with-redefs`, no host reflection, maps start from `{}`, `and` is avoided in favour of nested `if` in prelude notation.
+
+## Findings
+
+P3 | `src/cljc/yang/python/antlr/lower.cljc:35-38` | Namespace docstring still says `import m` lowers to `(py/import m pym.m/spec pym.m/body)` with `(require 'pym.m)` hoisted per import. | Reword to the thunk form and "only `py` is eagerly required".
+
+P3 | `src/cljc/yang/python/antlr/lower.cljc:521` and `:608` | `preseeded-modules` says "hoists no require"; `packet-imports` says "delivery is hoisted for each". Both describe the removed behaviour. | Say "needs no delivery" and "delivery runs at the statement".
+
+P3 | `test/yang/python/antlr/import_test.cljc:63`, `:100`, `:358` | Helper docstrings still say "hoisted requires", and `module-packet-of-a-unit-with-imports-requires-them-test` now asserts the opposite of its name. | Rename to `...-requires-only-py-test` and fix the two docstrings.
+
+P3 | `src/cljc/yang/python/antlr/prelude.cljc:3015-3024` | `e.refusal` is a raw host map with keyword values. Python code that does `str(e.refusal)` or `print(e.refusal)` hits a non-Python value. The brief asked for the structured map, so this is per spec, but the doc should state the attribute is opaque to Python code. | One sentence in 8.5.6 ruling 8 noting `refusal` is host data for the embedding, not a Python object.
+
+P3 | `src/cljc/yang/python/antlr/prelude.cljc:3447-3470` | The `do` grouping of `init-form` is outside the brief's listed edits. It is semantically neutral (same evaluation order, ready flag still last) and was needed because the one added class pushed the left-nested `seq-nodes` chain past the depth headroom test. The report discloses it. | No code change. Mention in the commit message that the prelude tree was regrouped for depth headroom, since it is part of why the `py` manifest moved.
+
+P3 | `src/cljc/yang/python/antlr/lower.cljc:683` | The thunk's temporary is the plain symbol `r`. It is harmless (the body references nothing else from the guest), but every other lowering temporary uses a `%`-prefixed name that cannot collide with a Python identifier. | Use a `%`-prefixed temporary for consistency.
+
+## Scope check
+
+Nothing was written that the slice should not have written. The `no-module` change from `ImportError` to `ModuleNotFoundError` for a pre-seeded miss is in scope and matches CPython. The `host-names` addition of `data/contains?` is the minimum needed for the ruling's `:name` vs `:address` distinction.
+
+## Gates I could not run here
+
+Cross-host (Node, Dart) lanes and the full slow tier were not run in this read-only review. The engineer report claims a green JVM subsystem run and green slow manifest tests. The orchestrator's landing gate should run the quick tier on all three hosts, since the prelude now uses `data/contains?` for the first time and the thunk shape is new to the ClojureDart build.
