@@ -2929,6 +2929,9 @@ an ambient signal stream, so the wrapper passes the stream to
 `(pysp/attach! signals)`. Landed (P3): the module emitter, exports and
 publication spec live beside the bundled emitter in
 `yang.python.antlr.safepoint`, one definition list feeding both; the
+linked hook install eagerly requires its pinned `py` code image after
+defining hooks (definitions precede every call for sibling-read discharge),
+without calling `py/init!` or allocating hook state; the
 hooks reach the cells the base prelude owns through the exports
 `py/rt-ctx` and `py/rt-limit` and the builtin classes through the
 builtins dict (`py.sp/class`), because `py.rt/*` and `py.b/*` are

@@ -417,6 +417,39 @@
               exception-class-is-shared-across-units))
 
 
+(defn- runtime-belongs-to-consuming-task
+  []
+  (let [initialize (u/mark-tails
+                     (u/sexp->uast '(do (require (quote py)) (py/init!))))
+        mutate (u/mark-tails
+                 (u/sexp->uast
+                   '(py/modules-put! {:py/str "task-marker"} :first-task)))
+        probe (u/mark-tails
+                (u/sexp->uast '(py/modules-ref {:py/str "task-marker"})))]
+    (doseq [k (keys h/backends)]
+      (testing (name k)
+        (let [pair (link/make-pair)
+              src (h/source)
+              [fresh pair] (h/drive ((get h/backends k)
+                                     initialize
+                                     (h/composition (h/registry) pair)) pair src)
+              [again pair] (h/drive ((get h/continues k) fresh initialize) pair src)
+              [changed pair] (h/drive ((get h/continues k) again mutate) pair src)
+              [observed _] (h/drive ((get h/continues k) changed probe) pair src)
+              other (h/run-linked k (u/then initialize probe))]
+          (is (vm/halted? fresh))
+          (testing "repeated initialization preserves every allocated cell"
+            (is (= (:heap fresh) (:heap again))))
+          (testing "module namespace writes belong to the consuming task"
+            (is (= :first-task (vm/value observed)))
+            (is (= :py/missing (vm/value other)))))))))
+
+
+(deftest ^:slow runtime-belongs-to-consuming-task-test
+  (slow/guard "runtime-belongs-to-consuming-task-test"
+              runtime-belongs-to-consuming-task))
+
+
 ;; =============================================================================
 ;; A5. An install child at `validated` has an empty heap and no lift refusal
 ;; =============================================================================

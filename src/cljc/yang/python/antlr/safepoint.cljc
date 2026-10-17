@@ -247,14 +247,15 @@
 
 
 (def module-uast
-  "The module tree: one application whose operands are the definitions,
-   in order, applied to a lambda that returns nil. Every definition runs
-   on the main sequence, unconditionally and before the one call, so the
-   linker's scanners discharge every body read of a sibling or a runtime
-   key; a `then` chain would leave every definition but the first inside
-   a closure body. Defining runs nothing."
-  (let [nodes (mapv (fn [[k form]] (u/def! k (u/sexp->uast form)))
-                    module-definitions)
+  "The module tree: one application whose operands define hooks, then
+   deliver the pinned base prelude, applied to a lambda returning nil.
+   Every definition precedes every call, including require, so the
+   linker's scanners discharge sibling and runtime-key reads. A `then`
+   chain would nest definitions in closure bodies. Defining runs nothing;
+   delivery never initializes either runtime."
+  (let [nodes (conj (mapv (fn [[k form]] (u/def! k (u/sexp->uast form)))
+                          module-definitions)
+                    (u/sexp->uast '(require (quote py))))
         params (mapv (fn [i] (symbol (str "%d" i))) (range (count nodes)))]
     (u/mark-tails (apply u/app (u/lam params (u/lit nil)) nodes))))
 

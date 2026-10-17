@@ -149,6 +149,7 @@
 (deftest pysp-module-uast-is-one-wide-application-test
   (let [ast hooks/module-uast
         operands (:operands ast)
+        definitions (butlast operands)
         op (:operator ast)]
     (testing "one application of a lambda returning nil to every definition"
       (is (= :application (:type ast)))
@@ -156,11 +157,13 @@
       (is (= (count operands) (count (:params op))))
       (is (= :literal (get-in op [:body :type])))
       (is (nil? (get-in op [:body :value])))
-      (is (every? some? (map def-key operands))))
+      (is (= (u/sexp->uast '(require (quote py)))
+             (dissoc (last operands) :tail?)))
+      (is (every? some? (map def-key definitions))))
     (testing "the placeholders come first, sorted, each the literal
               :py/uninit"
       (let [n (count hooks/runtime-keys)
-            placeholders (take n operands)]
+            placeholders (take n definitions)]
         (is (= (mapv hooks/strip hooks/runtime-keys)
                (mapv def-key placeholders)))
         (is (every? #(= {:type :literal, :value :py/uninit}
@@ -168,7 +171,7 @@
                     placeholders))))
     (testing "then every definition, stripped, in definition order"
       (is (= (mapv (comp hooks/strip first) hooks/function-definitions)
-             (mapv def-key (drop (count hooks/runtime-keys) operands)))))
+             (mapv def-key (drop (count hooks/runtime-keys) definitions)))))
     (testing "no symbol of the module's own namespace survives stripping"
       (is (not-any? (fn [x]
                       (and (symbol? x) (= "py.sp" (namespace x))))
@@ -244,9 +247,10 @@
    regenerates H/R and the pinned py requirement. The I4-a rebase moves
    the pinned py requirement again for statement-time import delivery.
    I6's reload runtime moves it once more (the hook prelude joins the
-   move; both hosts mint fbd90016)."
+   move; both hosts mint fbd90016). The standalone hook install now
+   delivers its pinned base prelude after defining hooks."
   (keyword (str "segment/blake3-"
-                "fbd90016c267ff000f2c7e940ffa850fae3c6392c59ccfcbb92869e8fc2b29b8")))
+                "cf017bd4063d8888c12ad6f967d49534c464d6bdcce453cb2f0a4139ea377184")))
 
 
 (defn- pysp-manifest-address
@@ -268,6 +272,46 @@
 
 (deftest ^:slow pysp-manifest-address-test
   (slow/guard "pysp-manifest-address-test" pysp-manifest-address))
+
+
+(defn- hook-install-does-not-initialize-runtime
+  []
+  (let [ast (u/sexp->uast '(require (quote pysp)))
+        py (:address @h/published)
+        pysp (:address @h/published-pysp)]
+    (doseq [k (keys h/backends)]
+      (testing (name k)
+        (let [task (h/run-linked k ast {:link-source (h/safepoint-source)})]
+          (is (vm/halted? task))
+          (is (not (vm/blocked? task)))
+          (testing "the pinned base requirement installs code without cells"
+            (is (empty? (:heap task)))
+            (is (= :py/uninit
+                   (get-in task [:module-stores py 'py.rt/state])))
+            (is (every? #(= :py/uninit
+                            (get-in task [:module-stores py %]))
+                        prelude/runtime-keys)))
+          (testing "hook installation needs no signal stream or cursor"
+            (is (every? #(= :py/uninit
+                            (get-in task [:module-stores pysp (hooks/strip %)]))
+                        hooks/runtime-keys))))
+        (testing "installing hooks preserves the consumer's initialized base store"
+          (let [ast (u/mark-tails
+                      (u/sexp->uast
+                        '(do (require (quote py))
+                             (py/init!)
+                             (py/modules-put! {:py/str "task-marker"} :consumer)
+                             (let [cls (py/object-class)]
+                               (do (require (quote pysp))
+                                   (conj (conj [] (= cls (py/object-class)))
+                                         (py/modules-ref {:py/str "task-marker"})))))))
+                task (h/run-linked k ast {:link-source (h/safepoint-source)})]
+            (is (= [true :consumer] (vm/value task)))))))))
+
+
+(deftest ^:slow hook-install-does-not-initialize-runtime-test
+  (slow/guard "hook-install-does-not-initialize-runtime-test"
+              hook-install-does-not-initialize-runtime))
 
 
 ;; =============================================================================
