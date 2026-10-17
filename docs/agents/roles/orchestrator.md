@@ -107,9 +107,15 @@ Every report starts with the same header fields. Use actual timestamps; never fa
 See [Session continuity](../delegate-invocation-reference.md#session-continuity) for strict rules on
 generating, capturing, and resuming Session-IDs.
 
-`collab/` is append-only and never staged or committed, and must never be added to `.gitignore` or
+`collab/` is append-only and never staged or committed while its artifacts
+are in flight, and must never be added to `.gitignore` or
 `.git/info/exclude` so its files stay visible and chronologically sorted in the user's Magit untracked
-view. Never delete or truncate prompts or findings. Promote final responses to `.findings.md`; `.stdout.log`
+view. ("Append-only" governs the in-flight workspace: an artifact's exit
+from `collab/` is the archive step — Workflow step 11, which moves retired
+artifacts to the git-tracked top-level `archive/` and commits them. It is
+not a license to delete, and never a destination like `collab/archive/`.)
+Never delete or truncate prompts or findings. Promote final responses to
+`.findings.md`; `.stdout.log`
 is only an intermediate capture.
 
 On reassignment, append history inside `Implementers:`; never rewrite an earlier `Status:` line:
@@ -262,16 +268,28 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
     review). If hooks or formatters changed what landed, review that delta and
     rerun its affected checks. A failure means the work is not ready; do not
     amend, revert, or otherwise rewrite history without user authorization.
-11. **Archive completed-task artifacts.** After their work is committed, move
-    prompts, findings, and logs from `collab/` into git-tracked, subsystem-organized
-    subfolders under `archive/` (e.g. `archive/yang-python/`,
-    `archive/dao-stream/`, `archive/yin-ucf/`, `archive/yin-linker/`) under their exact
-    filenames. Do not dump them flat into root `archive/`, and organize them by design
-    subsystem rather than generic slice codes or temporary folder names. Never delete, truncate,
-    rename, or overwrite an artifact; use `mv -n` and leave collisions in `collab/` until the reused
-    task name is resolved. Archive only committed work and only when no uncommitted
-    tracked changes could make task ownership ambiguous. Commit and push the archived
-    subsystem directory to `master`.
+11. **Archive completed-task artifacts.** When collaboration artifacts are no
+    longer needed for active collaboration (their task is committed or its
+    track is otherwise closed), move prompts, findings, and logs from
+    `collab/` into git-tracked, subsystem-organized subfolders under the
+    top-level `archive/` (e.g. `archive/yang-python/`, `archive/dao-stream/`,
+    `archive/yin-ucf/`, `archive/yin-linker/`) under their exact filenames.
+    Top-level `archive/` is the only archive destination, and it is under
+    version control deliberately: the git history is the historical record of
+    the collaboration, so every archive batch is committed (and pushed) as
+    `docs(archive):` — an archive that is not committed is not an archive.
+    Do not park retired artifacts in untracked intermediate locations such as
+    a `collab/archive/` folder, and do not leave archived files untracked
+    (2026-10-17 owner ruling, closing the recorded tension between this step
+    and the never-commit-collab rule: moving a retired artifact out of
+    `collab/` into `archive/` and committing it is exactly how an artifact
+    leaves that rule's scope — the rule governs the in-flight workspace, not
+    the archive). Do not dump them flat into root `archive/`, and organize
+    them by design subsystem rather than generic slice codes or temporary
+    folder names. Never delete, truncate, rename, or overwrite an artifact;
+    use `mv -n` and leave collisions in `collab/` until the reused task name
+    is resolved. Archive only committed work and only when no uncommitted
+    tracked changes could make task ownership ambiguous.
 
 If the remaining budget cannot finish the next coherent unit, leave the tree
 readable and record incomplete work in the findings rather than leaving a
