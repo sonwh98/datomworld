@@ -1,0 +1,10 @@
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+PROGRESS 1000 {:install-child-states 50, :numbered 814, [:decode-first-100 :ok] 60, :refused 186, [:decode-first-100 :resource-limit] 14}
+PROGRESS 2000 {:install-child-states 100, :numbered 1643, [:decode-first-100 :ok] 60, :refused 357, [:decode-first-100 :resource-limit] 14}
+PROGRESS 3000 {:install-child-states 150, :numbered 2464, [:decode-first-100 :ok] 60, :refused 536, [:decode-first-100 :resource-limit] 14}
+PROGRESS 4000 {:install-child-states 200, :numbered 3283, [:decode-first-100 :ok] 60, :refused 717, [:decode-first-100 :resource-limit] 14}
+PROGRESS 5000 {:install-child-states 250, :numbered 4110, [:decode-first-100 :ok] 60, :refused 890, [:decode-first-100 :resource-limit] 14}
+COUNTS {:install-child-states 250, :numbered 4110, [:decode-first-100 :ok] 60, :refused 890, [:decode-first-100 :resource-limit] 14}
+classifying 890 refused states (exhaustive when <= 720 listed orders, else 48 samples)
+REFUSED-CLASSES {:undecided 320, :non-interchangeable 100, :interchangeable 470}

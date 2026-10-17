@@ -1,0 +1,2 @@
+{:deps {datomworld/root {:local/root "../.."}}
+ :paths ["src" "../../test"]}

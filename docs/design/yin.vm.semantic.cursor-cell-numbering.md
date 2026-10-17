@@ -417,7 +417,7 @@ and `:search`.
   occurrence counts; then the root walk of §1.2 with its queue, the tie
   test, the refusal and the totality assertion, as in the prototype's
   sections "budgets", "cell scans", "runs", "spelling" and "procedure"
-  (`collab/numbering-probe/src/probe/discovery.clj:84-520`), charging as
+  (`archive/yin-vm/numbering-probe/src/probe/discovery.clj:84-520`), charging as
   §1.5 says. The depth scan and the estimator are the only traversals
   that may meet unbounded nesting; both use an explicit stack of lazy
   element sequences, never the host stack, and charge each position
@@ -676,8 +676,8 @@ host enumeration order". (iii) "never derived from traversal order" →
 
 ## A. Prototype and measurements (round 4)
 
-`collab/numbering-probe/src/probe/discovery.clj` (scratch project under
-`collab/`, never committed) implements §1 exactly: one walk procedure
+`archive/yin-vm/numbering-probe/src/probe/discovery.clj` (scratch project,
+archived with this design) implements §1 exactly: one walk procedure
 used for the root walk and for key walks, memoized on (member, numbering
 restricted to the member's cells, local counter); the gates and the
 charging of §1.5 (the census pair count, then the iterative depth scan,

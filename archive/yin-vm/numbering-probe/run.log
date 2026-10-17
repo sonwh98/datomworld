@@ -1,0 +1,198 @@
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+== fixtures (base design)
+fixture :s1 :s2 :x :y (6a pin fab223...)
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2} | work 37328 | encoded bytes 3574
+  DO root: :segment/blake3-fab223d9b3540fdce0ccf2132f8a4041917a158a32295470a4936754742d3ac4 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-fab223d9b3540fdce0ccf2132f8a4041917a158a32295470a4936754742d3ac4
+review counterexample 'a #{X Y}, 'b X
+  DO : {:x :yin.k/cc-2, :y :yin.k/cc-1} | work 3524 | encoded bytes 307
+  DO root: :segment/blake3-2d9873a8f860440d056768d02172a59f28856f804677a5ac0eaba8a8b6edbcf7 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-2d9873a8f860440d056768d02172a59f28856f804677a5ac0eaba8a8b6edbcf7
+symmetric pair #{X Y}
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2} | work 3251 | encoded bytes 261
+  DO root: :segment/blake3-07eda35d34844aa8e1ce89f07395bd877a49e7a69bdabea55bcf22e600671494 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-07eda35d34844aa8e1ce89f07395bd877a49e7a69bdabea55bcf22e600671494
+alias a: [x x y]
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2} | work 1338 | encoded bytes 135
+  DO root: :segment/blake3-4993b5b192de7d903a90f7bc87dde8c7d5ac007c2b013ef62b998dc988282576 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-71543fe26f6936c98c6769818e0d0b3666d50f1a38a8c9cff6cc65c69587794f
+alias b: [x y y]
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2} | work 1338 | encoded bytes 135
+  DO root: :segment/blake3-536c810b07c7cab1dd812fcb1bbf0c7433dc41af4e39037c5f278e82abf1e032 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-536c810b07c7cab1dd812fcb1bbf0c7433dc41af4e39037c5f278e82abf1e032
+#{[X X] [Y Y]}
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2} | work 6269 | encoded bytes 495
+  DO root: :segment/blake3-da69c679d10e5356b17cdb24909a43d7475df9114bba9c09a8f98ac1a35b971e | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-da69c679d10e5356b17cdb24909a43d7475df9114bba9c09a8f98ac1a35b971e
+{X 1, Y 1}
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2} | work 5177 | encoded bytes 429
+  DO root: :segment/blake3-49d4478ce74e89a973c9640498342dfea85867eff1662b9656f7e6b9bcd44e93 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-49d4478ce74e89a973c9640498342dfea85867eff1662b9656f7e6b9bcd44e93
+codex A: #{[X X] [Y Z]}
+  DO : {:x :yin.k/cc-3, :y :yin.k/cc-1, :z :yin.k/cc-2} | work 6281 | encoded bytes 495
+  DO root: :segment/blake3-387f294a2f1963f2f2241e8527d8698dedff5d50de4f46bb762b456a01375090 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-387f294a2f1963f2f2241e8527d8698dedff5d50de4f46bb762b456a01375090
+codex A reversed
+  DO : {:x :yin.k/cc-3, :y :yin.k/cc-1, :z :yin.k/cc-2} | work 6281 | encoded bytes 495
+  DO root: :segment/blake3-387f294a2f1963f2f2241e8527d8698dedff5d50de4f46bb762b456a01375090 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-387f294a2f1963f2f2241e8527d8698dedff5d50de4f46bb762b456a01375090
+codex B: {X X, Y Z}
+  DO : {:x :yin.k/cc-3, :y :yin.k/cc-1, :z :yin.k/cc-2} | work 6291 | encoded bytes 499
+  DO root: :segment/blake3-be62ba43d9d07dc7b5e29375e195ab839ab37b721074af816e540615f6167ee9 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-be62ba43d9d07dc7b5e29375e195ab839ab37b721074af816e540615f6167ee9
+codex C: #{#{X Y} #{Z W}}
+  DO : {:w :yin.k/cc-4, :x :yin.k/cc-1, :y :yin.k/cc-2, :z :yin.k/cc-3} | work 13945 | encoded bytes 999
+  DO root: :segment/blake3-18b70de6d4533d5ca797464568b5dd7812ca4b2f36a1e8fb64ef823a2eb3da45 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-18b70de6d4533d5ca797464568b5dd7812ca4b2f36a1e8fb64ef823a2eb3da45
+codex C renamed
+  DO : {:q :yin.k/cc-3, :r :yin.k/cc-4, :s :yin.k/cc-1, :t :yin.k/cc-2} | work 13945 | encoded bytes 999
+  DO root: :segment/blake3-18b70de6d4533d5ca797464568b5dd7812ca4b2f36a1e8fb64ef823a2eb3da45 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-18b70de6d4533d5ca797464568b5dd7812ca4b2f36a1e8fb64ef823a2eb3da45
+[#{X Y} X]
+  DO : {:x :yin.k/cc-2, :y :yin.k/cc-1} | work 3256 | encoded bytes 261
+  DO root: :segment/blake3-a850fce6317b426090fa65758805c26b3628efe75d16d507095563c1608ab533 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-a850fce6317b426090fa65758805c26b3628efe75d16d507095563c1608ab533
+[#{#{X Y} #{Z W}} X]
+  DO : {:w :yin.k/cc-4, :x :yin.k/cc-2, :y :yin.k/cc-1, :z :yin.k/cc-3} | work 13946 | encoded bytes 999
+  DO root: :segment/blake3-e67405ecd326c239a84e29a50ca53dfe503fa6baf20c5b79e685c878a40257d7 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-e61d370970ab7ce43f9d0674a2d6f9c3178fd7a8ef331b16a3617764e994be04
+#{[#{X Y} #{X Y}] [#{P Q} #{R S}]}
+  DO : {:kind :unresolved-cursor-cells, :path [15 :member 0], :why [:shared-across-groups :shared-across-groups], :cursor-cells [:x :y]} | work 26815 | encoded bytes 1953
+  DO root: {:refused {:yin.k/status :yin.k/non-portable, :yin.k/kind :unresolved-cursor-cells, :yin.k/path [15 :member 0], :yin.k/cursor-cells [:x :y], :probe/why [:shared-across-groups :shared-across-groups]}} | roots over 24 renamings+shuffles: 1
+  interchangeable? (exhaustive/sampled permissive): :interchangeable
+  6a root: {:refused #:yin.k{:kind :resource-limit, :path [:label-bytes]}}
+codex r2 witness [#{#{[A B] [B A]}} A]
+  DO : {:a :yin.k/cc-2, :b :yin.k/cc-1} | work 16642 | encoded bytes 1269
+  DO root: :segment/blake3-0193312113d9c4928b148f220ef82a623c397e1b98cd67fac8712d1fc286a032 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-0193312113d9c4928b148f220ef82a623c397e1b98cd67fac8712d1fc286a032
+codex r4 balanced-alias witness #{[X X Y Y] [Z W Z W]}
+  DO : {:w :yin.k/cc-4, :x :yin.k/cc-1, :y :yin.k/cc-2, :z :yin.k/cc-3} | work 10127 | encoded bytes 747
+  DO root: :segment/blake3-5376f133e83957e727611ee977a7b565e8e3c6b41a916f7a1857ecaf84f83907 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-1503811481f045e8a5e22ef2b6edc122a38250cb027aa36332d7cf28d933bf07
+balanced-alias witness reversed
+  DO : {:w :yin.k/cc-4, :x :yin.k/cc-1, :y :yin.k/cc-2, :z :yin.k/cc-3} | work 10127 | encoded bytes 747
+  DO root: :segment/blake3-5376f133e83957e727611ee977a7b565e8e3c6b41a916f7a1857ecaf84f83907 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-1503811481f045e8a5e22ef2b6edc122a38250cb027aa36332d7cf28d933bf07
+[#{X Y} #{Y Z}] (occurrence count separates Y)
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2, :z :yin.k/cc-3} | work 4933 | encoded bytes 385
+  DO root: :segment/blake3-d84480d4d7e186937a9165be103f7cfaf0d3f4ced83ff65f5be3e906a48107a2 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-7fc66b76b90488a05aa93a7de751bbf012016a3dc440db225c75e9b85ec21f3c
+path #{[A B] [B C]} (occurrence count separates B)
+  DO : {:a :yin.k/cc-1, :b :yin.k/cc-2, :c :yin.k/cc-3} | work 6282 | encoded bytes 495
+  DO root: :segment/blake3-726a9fbb35cfe76b6d3caf63c5f7e4ce61d4e73d34efda9c3674eb73db830da1 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-76117652aec973ee0500cfadecdf542375855129124e1c8c880a2c1831672ff6
+ten cells in a vec
+  DO : #:src{:x0 :yin.k/cc-1, :x1 :yin.k/cc-2, :x2 :yin.k/cc-3, :x3 :yin.k/cc-4, :x4 :yin.k/cc-5, :x5 :yin.k/cc-6, :x6 :yin.k/cc-7, :x7 :yin.k/cc-8, :x8 :yin.k/cc-9, :x9 :yin.k/cc-10} | work 12587 | encoded bytes 1350
+  DO root: :segment/blake3-6e7c7a6b0674c41c21e33d9630d4aaf7fc92e4b30234a9c2a1b8c7bae7792f88 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-6e7c7a6b0674c41c21e33d9630d4aaf7fc92e4b30234a9c2a1b8c7bae7792f88
+
+== refused fixtures (tie test fails), with the exact interchangeability verdict
+2-cycle #{[A B] [B A]}
+  DO : {:kind :unresolved-cursor-cells, :path [15], :why [:shared-within-group], :cursor-cells [:a :b]} | work 6265 | encoded bytes 495
+  DO root: {:refused {:yin.k/status :yin.k/non-portable, :yin.k/kind :unresolved-cursor-cells, :yin.k/path [15], :yin.k/cursor-cells [:a :b], :probe/why [:shared-within-group]}} | roots over 24 renamings+shuffles: 1
+  interchangeable? (exhaustive/sampled permissive): :interchangeable
+  6a root: :segment/blake3-0fe898ccdde2628591a9dc4e928d4f3d3f59e95746c44b8e9cfe353600d16567
+3-cycle #{[A B] [B C] [C A]}
+  DO : {:kind :unresolved-cursor-cells, :path [15], :why [:shared-within-group], :cursor-cells [:a :b :c]} | work 8746 | encoded bytes 675
+  DO root: {:refused {:yin.k/status :yin.k/non-portable, :yin.k/kind :unresolved-cursor-cells, :yin.k/path [15], :yin.k/cursor-cells [:a :b :c], :probe/why [:shared-within-group]}} | roots over 24 renamings+shuffles: 1
+  interchangeable? (exhaustive/sampled permissive): :interchangeable
+  6a root: :segment/blake3-0b181cd4b4e1c54bfb465f3da5900886b76c5a312fed9270c0288c783d09e71c
+loop + 2-cycle #{[L L] [A B] [B A]} (6a pinned 55ff16...)
+  DO : {:kind :unresolved-cursor-cells, :path [15], :why [:shared-within-group], :cursor-cells [:a :b]} | work 8747 | encoded bytes 675
+  DO root: {:refused {:yin.k/status :yin.k/non-portable, :yin.k/kind :unresolved-cursor-cells, :yin.k/path [15], :yin.k/cursor-cells [:a :b], :probe/why [:shared-within-group]}} | roots over 24 renamings+shuffles: 1
+  interchangeable? (exhaustive/sampled permissive): :interchangeable
+  6a root: :segment/blake3-55ff168e6b5a37028fb5ecd99ab21dc58f6a4e2b9c95dbe570ccec65b15a63c0
+seven-cell triangle+square
+  DO : {:kind :unresolved-cursor-cells, :path [15], :why [:shared-within-group], :cursor-cells [:a :b :c :d :e :f :g]} | work 18670 | encoded bytes 1395
+  DO root: {:refused {:yin.k/status :yin.k/non-portable, :yin.k/kind :unresolved-cursor-cells, :yin.k/path [15], :yin.k/cursor-cells [:a :b :c :d :e :f :g], :probe/why [:shared-within-group]}} | roots over 24 renamings+shuffles: 1
+  interchangeable? (exhaustive/sampled permissive): :non-interchangeable
+  6a root: {:refused #:yin.k{:kind :resource-limit, :path [:label-bytes]}}
+[#{X Y} #{X Y}] (shared across groups)
+  DO : {:kind :unresolved-cursor-cells, :path [15 0], :why [:shared-across-groups :shared-across-groups], :cursor-cells [:x :y]} | work 3265 | encoded bytes 261
+  DO root: {:refused {:yin.k/status :yin.k/non-portable, :yin.k/kind :unresolved-cursor-cells, :yin.k/path [15 0], :yin.k/cursor-cells [:x :y], :probe/why [:shared-across-groups :shared-across-groups]}} | roots over 24 renamings+shuffles: 1
+  interchangeable? (exhaustive/sampled permissive): :interchangeable
+  6a root: :segment/blake3-92747c0f27e9c64876267b19dafa34edd359822341eca32d6067e199a926f116
+codex r3 ex.1 mixed bodies #{[A B] [A C]}, A body 0, B C body 1
+  DO : {:kind :unresolved-cursor-cells, :path [15], :why [:shared-within-group], :cursor-cells [:a :b :c]} | work 7514 | encoded bytes 630
+  DO root: {:refused {:yin.k/status :yin.k/non-portable, :yin.k/kind :unresolved-cursor-cells, :yin.k/path [15], :yin.k/cursor-cells [:a :b :c], :probe/why [:shared-within-group]}} | roots over 24 renamings+shuffles: 1
+  interchangeable? (exhaustive/sampled permissive): :interchangeable
+  6a root: :segment/blake3-eedc2884c65361bacd245017ecb7c08871249a0bd25124cd022aff15a607719e
+codex r3 ex.2 anchored [#{[A B] [A C] [B D] [C E] [D B] [E C]} A]
+  DO : {:kind :unresolved-cursor-cells, :path [15 0], :why [:shared-across-groups :shared-across-groups :shared-across-groups], :cursor-cells [:b :c :d :e]} | work 20583 | encoded bytes 1571
+  DO root: {:refused {:yin.k/status :yin.k/non-portable, :yin.k/kind :unresolved-cursor-cells, :yin.k/path [15 0], :yin.k/cursor-cells [:b :c :d :e], :probe/why [:shared-across-groups :shared-across-groups :shared-across-groups]}} | roots over 24 renamings+shuffles: 1
+  interchangeable? (exhaustive/sampled permissive): :interchangeable
+  6a root: :segment/blake3-08d2c7b1b5013bcd74aa5624bc1381539a17e5904ea21faf6d7f292c6e00b5c9
+#{#{[A B] [B A]} #{[C D] [D C]}} (incomplete keys)
+  DO : {:kind :unresolved-cursor-cells, :path [15], :why [:incomplete-key], :cursor-cells [:a :b :c :d]} | work 33019 | encoded bytes 2511
+  DO root: {:refused {:yin.k/status :yin.k/non-portable, :yin.k/kind :unresolved-cursor-cells, :yin.k/path [15], :yin.k/cursor-cells [:a :b :c :d], :probe/why [:incomplete-key]}} | roots over 24 renamings+shuffles: 1
+  interchangeable? (exhaustive/sampled permissive): :interchangeable
+  6a root: {:refused #:yin.k{:kind :resource-limit, :path [:label-bytes]}}
+#{#{[A B] [B C] [C A]} #{[D E] [F E] [D F]}} (equal incomplete keys, non-isomorphic members)
+  DO : {:kind :unresolved-cursor-cells, :path [15], :why [:incomplete-key], :cursor-cells [:a :b :c :d :e :f]} | work 47781 | encoded bytes 3591
+  DO root: {:refused {:yin.k/status :yin.k/non-portable, :yin.k/kind :unresolved-cursor-cells, :yin.k/path [15], :yin.k/cursor-cells [:a :b :c :d :e :f], :probe/why [:incomplete-key]}} | roots over 24 renamings+shuffles: 1
+  interchangeable? (exhaustive/sampled permissive): :non-interchangeable
+  6a root: {:refused #:yin.k{:kind :resource-limit, :path [:label-bytes]}}
+[#{#{X Y}} #{[X Z] [Y W]}] (key walk accepts inside, root refuses)
+  DO : {:kind :unresolved-cursor-cells, :path [15 0 :member], :why [:shared-across-groups :shared-across-groups], :cursor-cells [:w :x :y :z]} | work 12591 | encoded bytes 927
+  DO root: {:refused {:yin.k/status :yin.k/non-portable, :yin.k/kind :unresolved-cursor-cells, :yin.k/path [15 0 :member], :yin.k/cursor-cells [:w :x :y :z], :probe/why [:shared-across-groups :shared-across-groups]}} | roots over 24 renamings+shuffles: 1
+  interchangeable? (exhaustive/sampled permissive): :interchangeable
+  6a root: :segment/blake3-2acd2d48f174daba5f630189d4741bc713a0b345dad16ffe0517c5ca844fe1da
+
+== install child refusal translates in decode (path prefixed by the root id, then [12 name ...])
+  lift: {:yin.k/status :yin.k/non-portable, :yin.k/kind :unresolved-cursor-cells, :yin.k/path [12 a 15], :yin.k/cursor-cells [:a :b], :probe/why [:shared-within-group]}
+  decode of a carrier built with emit-numbered: {:yin.k/status :yin.k/undecodable, :yin.k/kind :unresolved-cursor-cells, :yin.k/path [:segment/blake3-734c33f3780f0e314c356d9eb1df6e9e70799d147def9c03d552f7278ac8130e 12 a 15], :yin.k/cursor-cells [:yin.k/cc-1 :yin.k/cc-2], :probe/why [:shared-within-group]}
+
+== decoder order: discovery recomputation before frame validation (rows.cljc:570-578)
+  wrong numbering + reserved-name frame defect: :noncanonical-cursor-cells (expect :noncanonical-cursor-cells)
+  right numbering + the same defect: :reserved-name (expect :reserved-name)
+  2-cycle + the same defect: :unresolved-cursor-cells (expect :unresolved-cursor-cells)
+  a valid carrier: :ok
+
+== gates and budgets (resource refusals, never canonicality verdicts)
+  loop+2-cycle {:work 1}: #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:work]}
+  decode of a valid carrier under {:work 1}: #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:work]}
+  two cells under {:cursor-cells 1}: #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:cursor-cells]}
+  65 cells under the default budget: #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:cursor-cells]}
+
+== depth gate before any recursive scan (codex r4 HIGH)
+  [[[[X]]]] under {:depth 3}: #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:depth]}
+  one cell inside 3000 nested vectors under {:depth 3}: #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:depth]}
+  one cell inside 10000 nested vectors under {:depth 3}: #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:depth]}
+  a literal nested 3000 deep beside a cell under {:depth 3}: #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:depth]}
+  3000 nested vectors under the default budget (depth 256): #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:depth]}
+  200 nested vectors under the default budget: root :segment/blake3-f39ae0428ff46815f106dfafae3accc4a5cf8d93e01acc22c957c756a7c18a75
+  a literal nested 3000 deep inside a set, default budget: #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:depth]}
+
+== large literals: never spelled in an ordered position; charged before encoding in an unordered one
+  ordered: root :segment/blake3-be7fc44e86de4445bb3bf09773f78a516be62b85ea577a99b42ac7455abf41e9 | work 401323
+  unordered, default budget: {:resource-limit [:work]} | {:work 801355, :estimator-steps 26516}
+  unordered under {:work 2000} (the depth scan refuses at position 2001, the estimator is never entered): #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:work]} | {:work 2001, :estimator-steps 0}
+  unordered under {:work 900000} (the scan's 800k positions pass, the estimator aborts within remaining/128 steps): #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:work]} | {:work 801355, :estimator-steps 779}
+  unreachable census cell (totality defect, not a refusal): {:missing [:x], :extra []}
+
+== key bytes versus stream descriptor size (rank spelling)
+  descriptor 128 chars: work 21395 | encoded bytes 1718 | local runs 9 | root :segment/blake3-ee6f58d46e0ec25875e40ae2e38822d4e4a7e0a39c004ac2c9558b874c27dba4
+  descriptor 65536 chars: work 544659 | encoded bytes 132540 | local runs 9 | root :segment/blake3-535cb2531dd657aebd57f436d6c84e2b9d3abc427986590d0acaacb25decaaf4
+
+== frame-bearing fixtures (act window, K frame window, environments, parked state)
+wait window x, K window y, env y, parked K window #{x y}
+  DO : {:x :yin.k/cc-2, :y :yin.k/cc-1, :test/cursor :yin.k/cc-3} | work 4058 | encoded bytes 380
+  DO root: :segment/blake3-0b9ef61ebd08535b10e136a6452d942fb0598ad2dd5a13665d7756fac69702b5 | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-fd3513dd3f0395f50dc4dcf2f67fed45b7f80f91a20b73a013eb7249a6596ce7
+  decode: :ok
+wait window #{x y}, parked K window y
+  DO : {:x :yin.k/cc-2, :y :yin.k/cc-1, :test/cursor :yin.k/cc-3} | work 3316 | encoded bytes 260
+  DO root: :segment/blake3-ff124bfc1fd2e6c2b8ce29487204b442b8c1143f71339ccab5efd6e48ccc142f | roots over 24 renamings+shuffles: 1
+  6a root: :segment/blake3-e155841068d17087673526c1f6913855e87068e686556ac8c062ed1b35c61544
+  decode: :ok
+
+== install children numbered by discovery order
+  parent root: :segment/blake3-09124ab9fb7fe108b86896922635c8f34095d7cd64323585953ff1e43a49f2f0 | task rows: 2 | child numbering: {:x :yin.k/cc-2, :y :yin.k/cc-1} | decode: :ok
+
+== random search (refused states classified by exhaustive permissive entry when <= 720 orders, else 48 samples)
+random values 2000 states: {:refused-non-interchangeable 3, :decode-ok 1789, :refused-only-across-groups 7, :max-local-runs 110, :refused-interchangeable 16, :count-spelling-gain 20, :max-encoded-bytes 52942, :decode-6a-limit 192, :refused-undecided 0, :invariance-fail 0, :numbered 1981, :max-work 625518, :decode-fail 0, :refused-reasons {:shared-within-group 12, :shared-across-groups 15}, :count-spelling-loss 0, :refused 19, :resource-limit 0}
+frame-bearing 200 states: {:refused-non-interchangeable 1, :decode-ok 179, :refused-only-across-groups 0, :max-local-runs 47, :refused-interchangeable 3, :count-spelling-gain 4, :max-encoded-bytes 15807, :decode-6a-limit 17, :refused-undecided 0, :invariance-fail 0, :numbered 196, :max-work 203320, :decode-fail 0, :refused-reasons {:shared-within-group 5, :shared-across-groups 2}, :count-spelling-loss 0, :refused 4, :resource-limit 0}
+with children 100 states: {:refused-non-interchangeable 0, :decode-ok 75, :refused-only-across-groups 1, :max-local-runs 82, :refused-interchangeable 1, :count-spelling-gain 0, :max-encoded-bytes 33922, :decode-6a-limit 23, :refused-undecided 1, :invariance-fail 0, :numbered 98, :max-work 434483, :decode-fail 0, :refused-reasons {:shared-within-group 1, :shared-across-groups 2}, :count-spelling-loss 0, :refused 2, :resource-limit 0}
+incidence families (reviewer's generator) 1000 states: {:refused-non-interchangeable 17, :decode-ok 667, :refused-only-across-groups 74, :max-local-runs 82, :refused-interchangeable 92, :count-spelling-gain 295, :max-encoded-bytes 35508, :decode-6a-limit 165, :refused-undecided 59, :invariance-fail 0, :numbered 832, :max-work 453499, :decode-fail 0, :refused-reasons {:shared-across-groups 287, :shared-within-group 144}, :count-spelling-loss 0, :refused 168, :resource-limit 0}
+{:refused-non-interchangeable 17, :decode-ok 667, :refused-only-across-groups 74, :max-local-runs 82, :refused-interchangeable 92, :count-spelling-gain 295, :max-encoded-bytes 35508, :decode-6a-limit 165, :refused-undecided 59, :invariance-fail 0, :numbered 832, :max-work 453499, :decode-fail 0, :refused-reasons {:shared-across-groups 287, :shared-within-group 144}, :count-spelling-loss 0, :refused 168, :resource-limit 0}

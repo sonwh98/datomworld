@@ -1,0 +1,177 @@
+Run of 2026-10-12 (round 3), from the probe directory:
+  java @java.args clojure.main -e "(require 'probe.discovery) (probe.discovery/-main)"
+6a's own tests in the same project: Ran 21 tests containing 324 assertions. 0 failures, 0 errors.
+
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+== fixtures (D5 mode: no residue search)
+fixture :s1 :s2 :x :y (pinned fab223...)
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2} | work 701 | search 0
+  DO root: :segment/blake3-fab223d9b3540fdce0ccf2132f8a4041917a158a32295470a4936754742d3ac4
+  6a root: :segment/blake3-fab223d9b3540fdce0ccf2132f8a4041917a158a32295470a4936754742d3ac4
+review counterexample 'a #{X Y}, 'b X
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2} | work 25 | search 0
+  DO root: :segment/blake3-a3713a5e1d1a051d1c0aab255bdc48349993fbf21d68ba947e74fc4408c68c28
+  6a root: :segment/blake3-2d9873a8f860440d056768d02172a59f28856f804677a5ac0eaba8a8b6edbcf7
+symmetric pair #{X Y}
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2} | work 33 | search 0
+  DO root: :segment/blake3-07eda35d34844aa8e1ce89f07395bd877a49e7a69bdabea55bcf22e600671494
+  6a root: :segment/blake3-07eda35d34844aa8e1ce89f07395bd877a49e7a69bdabea55bcf22e600671494
+alias a: [x x y]
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2} | work 18 | search 0
+  DO root: :segment/blake3-4993b5b192de7d903a90f7bc87dde8c7d5ac007c2b013ef62b998dc988282576
+  6a root: :segment/blake3-71543fe26f6936c98c6769818e0d0b3666d50f1a38a8c9cff6cc65c69587794f
+alias b: [x y y]
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2} | work 18 | search 0
+  DO root: :segment/blake3-536c810b07c7cab1dd812fcb1bbf0c7433dc41af4e39037c5f278e82abf1e032
+  6a root: :segment/blake3-536c810b07c7cab1dd812fcb1bbf0c7433dc41af4e39037c5f278e82abf1e032
+#{[X X] [Y Y]}
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2} | work 49 | search 0
+  DO root: :segment/blake3-da69c679d10e5356b17cdb24909a43d7475df9114bba9c09a8f98ac1a35b971e
+  6a root: :segment/blake3-da69c679d10e5356b17cdb24909a43d7475df9114bba9c09a8f98ac1a35b971e
+{X 1, Y 1}
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2} | work 53 | search 0
+  DO root: :segment/blake3-49d4478ce74e89a973c9640498342dfea85867eff1662b9656f7e6b9bcd44e93
+  6a root: :segment/blake3-49d4478ce74e89a973c9640498342dfea85867eff1662b9656f7e6b9bcd44e93
+codex A: #{[X X] [Y Z]}
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2, :z :yin.k/cc-3} | work 33 | search 0
+  DO root: :segment/blake3-65ba4530bd8908e734a8be4fcc594d2989c5a8a7d1017779ef8f62991df38dab
+  6a root: :segment/blake3-387f294a2f1963f2f2241e8527d8698dedff5d50de4f46bb762b456a01375090
+codex A reversed
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2, :z :yin.k/cc-3} | work 33 | search 0
+  DO root: :segment/blake3-65ba4530bd8908e734a8be4fcc594d2989c5a8a7d1017779ef8f62991df38dab
+  6a root: :segment/blake3-387f294a2f1963f2f2241e8527d8698dedff5d50de4f46bb762b456a01375090
+codex B: {X X, Y Z}
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2, :z :yin.k/cc-3} | work 33 | search 0
+  DO root: :segment/blake3-409548a71f080cae6f3f66911409370d83a5df9e928135d95c497e9b770d9328
+  6a root: :segment/blake3-be62ba43d9d07dc7b5e29375e195ab839ab37b721074af816e540615f6167ee9
+codex B reversed
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2, :z :yin.k/cc-3} | work 33 | search 0
+  DO root: :segment/blake3-409548a71f080cae6f3f66911409370d83a5df9e928135d95c497e9b770d9328
+  6a root: :segment/blake3-be62ba43d9d07dc7b5e29375e195ab839ab37b721074af816e540615f6167ee9
+codex C: #{#{X Y} #{Z W}}
+  DO : {:w :yin.k/cc-4, :x :yin.k/cc-1, :y :yin.k/cc-2, :z :yin.k/cc-3} | work 77 | search 0
+  DO root: :segment/blake3-18b70de6d4533d5ca797464568b5dd7812ca4b2f36a1e8fb64ef823a2eb3da45
+  6a root: :segment/blake3-18b70de6d4533d5ca797464568b5dd7812ca4b2f36a1e8fb64ef823a2eb3da45
+codex C renamed
+  DO : {:q :yin.k/cc-3, :r :yin.k/cc-4, :s :yin.k/cc-1, :t :yin.k/cc-2} | work 77 | search 0
+  DO root: :segment/blake3-18b70de6d4533d5ca797464568b5dd7812ca4b2f36a1e8fb64ef823a2eb3da45
+  6a root: :segment/blake3-18b70de6d4533d5ca797464568b5dd7812ca4b2f36a1e8fb64ef823a2eb3da45
+[#{X Y} #{X Y}]
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2} | work 45 | search 0
+  DO root: :segment/blake3-92747c0f27e9c64876267b19dafa34edd359822341eca32d6067e199a926f116
+  6a root: :segment/blake3-92747c0f27e9c64876267b19dafa34edd359822341eca32d6067e199a926f116
+[#{X Y} X]
+  DO : {:x :yin.k/cc-1, :y :yin.k/cc-2} | work 25 | search 0
+  DO root: :segment/blake3-7dc3d5c4ddc6118f9b6ba7b5d99cb8676d50a5fb61ed5f5cb41da4bfb23b60ad
+  6a root: :segment/blake3-a850fce6317b426090fa65758805c26b3628efe75d16d507095563c1608ab533
+[#{#{X Y} #{Z W}} X]
+  DO : {:w :yin.k/cc-4, :x :yin.k/cc-1, :y :yin.k/cc-2, :z :yin.k/cc-3} | work 87 | search 0
+  DO root: :segment/blake3-6ea03f9b450ee5e6f09d6bdca357bf7d83a084e33362668d817a32052de222c7
+  6a root: :segment/blake3-e61d370970ab7ce43f9d0674a2d6f9c3178fd7a8ef331b16a3617764e994be04
+#{[#{X Y} #{X Y}] [#{P Q} #{R S}]} (equal keys would be unsound; keys differ)
+  DO : {:p :yin.k/cc-1, :q :yin.k/cc-2, :r :yin.k/cc-3, :s :yin.k/cc-4, :x :yin.k/cc-5, :y :yin.k/cc-6} | work 237 | search 0
+  DO root: :segment/blake3-b35b8e1272a4cd7a4e41cf56608a6ae91ed8114f2b003e46598057684140e696
+  6a root: {:refused #:yin.k{:kind :resource-limit, :path [:label-bytes]}}
+codex r2 witness [#{#{[A B] [B A]}} A] (speculative key conflict; root run numbers)
+  DO : {:a :yin.k/cc-1, :b :yin.k/cc-2} | work 50 | search 0
+  DO root: :segment/blake3-9600fe01f89d891085e7352c81da45d022e9088b0b897cce46dad755848485b5
+  6a root: :segment/blake3-0193312113d9c4928b148f220ef82a623c397e1b98cd67fac8712d1fc286a032
+  invariant roots over 24 renamings+shuffles: 1 | decode: :ok
+loop + 2-cycle #{[L L] [A B] [B A]} (6a pinned 55ff16...)
+  DO : {:kind :unresolved-cursor-cells, :path [15], :cursor-cells [:a :b]} | work 36 | search 0
+  DO root: {:refused #:yin.k{:status :yin.k/non-portable, :kind :unresolved-cursor-cells, :path [15], :cursor-cells [:a :b]}}
+  6a root: :segment/blake3-55ff168e6b5a37028fb5ecd99ab21dc58f6a4e2b9c95dbe570ccec65b15a63c0
+2-cycle #{[A B] [B A]}
+  DO : {:kind :unresolved-cursor-cells, :path [15], :cursor-cells [:a :b]} | work 27 | search 0
+  DO root: {:refused #:yin.k{:status :yin.k/non-portable, :kind :unresolved-cursor-cells, :path [15], :cursor-cells [:a :b]}}
+  6a root: :segment/blake3-0fe898ccdde2628591a9dc4e928d4f3d3f59e95746c44b8e9cfe353600d16567
+3-cycle #{[A B] [B C] [C A]}
+  DO : {:kind :unresolved-cursor-cells, :path [15], :cursor-cells [:a :b :c]} | work 33 | search 0
+  DO root: {:refused #:yin.k{:status :yin.k/non-portable, :kind :unresolved-cursor-cells, :path [15], :cursor-cells [:a :b :c]}}
+  6a root: :segment/blake3-0b181cd4b4e1c54bfb465f3da5900886b76c5a312fed9270c0288c783d09e71c
+path #{[A B] [B C]}
+  DO : {:kind :unresolved-cursor-cells, :path [15], :cursor-cells [:a :b :c]} | work 27 | search 0
+  DO root: {:refused #:yin.k{:status :yin.k/non-portable, :kind :unresolved-cursor-cells, :path [15], :cursor-cells [:a :b :c]}}
+  6a root: :segment/blake3-76117652aec973ee0500cfadecdf542375855129124e1c8c880a2c1831672ff6
+seven-cell triangle+square
+  DO : {:kind :unresolved-cursor-cells, :path [15], :cursor-cells [:a :b :c :d :e :f :g]} | work 57 | search 0
+  DO root: {:refused #:yin.k{:status :yin.k/non-portable, :kind :unresolved-cursor-cells, :path [15], :cursor-cells [:a :b :c :d :e :f :g]}}
+  6a root: {:refused #:yin.k{:kind :resource-limit, :path [:label-bytes]}}
+ten cells in a vec
+  DO : #:src{:x0 :yin.k/cc-1, :x1 :yin.k/cc-2, :x2 :yin.k/cc-3, :x3 :yin.k/cc-4, :x4 :yin.k/cc-5, :x5 :yin.k/cc-6, :x6 :yin.k/cc-7, :x7 :yin.k/cc-8, :x8 :yin.k/cc-9, :x9 :yin.k/cc-10} | work 25 | search 0
+  DO root: :segment/blake3-6e7c7a6b0674c41c21e33d9630d4aaf7fc92e4b30234a9c2a1b8c7bae7792f88
+  6a root: :segment/blake3-6e7c7a6b0674c41c21e33d9630d4aaf7fc92e4b30234a9c2a1b8c7bae7792f88
+
+== refused states: permissive roots over 24 shuffles (>1 = witnessed non-interchangeable)
+  loop + 2-cycle : 1 distinct root(s)
+  2-cycle : 1 distinct root(s)
+  3-cycle : 1 distinct root(s)
+  seven-cell : 1 distinct root(s)
+  path #{[A B] [B C]} : 2 distinct root(s)
+
+== D6 residue search on the refused states: root, invariance over 24 renamings+shuffles, trials, decode
+  loop + 2-cycle : :segment/blake3-858a891e60b80a1858d27dc99a3f26948612cf8ef848d9a8a018a9ed4b712a4a | numbering {:a :yin.k/cc-2, :b :yin.k/cc-3, :l :yin.k/cc-1} | trials 2 | work 86 | distinct roots 1 | decode: :ok | 6a: :segment/blake3-55ff168e6b5a37028fb5ecd99ab21dc58f6a4e2b9c95dbe570ccec65b15a63c0
+  2-cycle : :segment/blake3-0fe898ccdde2628591a9dc4e928d4f3d3f59e95746c44b8e9cfe353600d16567 | numbering {:a :yin.k/cc-1, :b :yin.k/cc-2} | trials 2 | work 77 | distinct roots 1 | decode: :ok | 6a: :segment/blake3-0fe898ccdde2628591a9dc4e928d4f3d3f59e95746c44b8e9cfe353600d16567
+  3-cycle : :segment/blake3-0b181cd4b4e1c54bfb465f3da5900886b76c5a312fed9270c0288c783d09e71c | numbering {:a :yin.k/cc-1, :b :yin.k/cc-2, :c :yin.k/cc-3} | trials 3 | work 144 | distinct roots 1 | decode: :ok | 6a: :segment/blake3-0b181cd4b4e1c54bfb465f3da5900886b76c5a312fed9270c0288c783d09e71c
+  seven-cell : :segment/blake3-d76d787a41b7d517ba5aaac4102bf55590dd377c04efb78682f9e67cbb8b80d3 | numbering {:a :yin.k/cc-1, :b :yin.k/cc-2, :c :yin.k/cc-3, :d :yin.k/cc-4, :e :yin.k/cc-5, :f :yin.k/cc-6, :g :yin.k/cc-7} | trials 11 | work 488 | distinct roots 1 | decode: #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:label-bytes]} | 6a: {:refused #:yin.k{:kind :resource-limit, :path [:label-bytes]}}
+  path #{[A B] [B C]} : :segment/blake3-726a9fbb35cfe76b6d3caf63c5f7e4ce61d4e73d34efda9c3674eb73db830da1 | numbering {:a :yin.k/cc-1, :b :yin.k/cc-2, :c :yin.k/cc-3} | trials 2 | work 77 | distinct roots 1 | decode: :ok | 6a: :segment/blake3-76117652aec973ee0500cfadecdf542375855129124e1c8c880a2c1831672ff6
+
+== D6 does not move a D1-D4 pin (same roots with residue search on)
+  fixture : :segment/blake3-fab223d9b3540fdce0ccf2132f8a4041917a158a32295470a4936754742d3ac4
+  review : :segment/blake3-a3713a5e1d1a051d1c0aab255bdc48349993fbf21d68ba947e74fc4408c68c28
+  codex A : :segment/blake3-65ba4530bd8908e734a8be4fcc594d2989c5a8a7d1017779ef8f62991df38dab
+  codex C : :segment/blake3-18b70de6d4533d5ca797464568b5dd7812ca4b2f36a1e8fb64ef823a2eb3da45
+  [#{X Y} #{X Y}] : :segment/blake3-92747c0f27e9c64876267b19dafa34edd359822341eca32d6067e199a926f116
+  witness : :segment/blake3-9600fe01f89d891085e7352c81da45d022e9088b0b897cce46dad755848485b5
+
+== install child refusal translates in decode (path prefixed by the root id, then [12 name ...])
+  lift: #:yin.k{:status :yin.k/non-portable, :kind :unresolved-cursor-cells, :path [12 a 15], :cursor-cells [:a :b]}
+  decode of a carrier built with emit-numbered: #:yin.k{:status :yin.k/undecodable, :kind :unresolved-cursor-cells, :path [:segment/blake3-734c33f3780f0e314c356d9eb1df6e9e70799d147def9c03d552f7278ac8130e 12 a 15], :cursor-cells [:yin.k/cc-1 :yin.k/cc-2]}
+  with D6, lift root: :segment/blake3-734c33f3780f0e314c356d9eb1df6e9e70799d147def9c03d552f7278ac8130e | decode: :ok
+
+== budgets: {:work 1} and {:search 0} are resource refusals, never canonicality verdicts
+  loop+2-cycle {:work 1}: #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:work]}
+  3-cycle D6 {:search 1}: #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:search]}
+  decode of a valid carrier under {:work 1} propagates the resource refusal: #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:work]}
+
+== key bytes versus stream descriptor size (codex r2: 128 -> 65536 chars grew key bytes 3509 -> 592208)
+  descriptor 128 chars, body spelled by :label : key bytes 4364 | work 78 | local runs 13 | root :segment/blake3-644554c3fcbcbbdf712117a7b5b9d770497e18eb51a7f5f7b2602c01e3fa5c08
+  descriptor 128 chars, body spelled by :rank : key bytes 1396 | work 78 | local runs 13 | root :segment/blake3-644554c3fcbcbbdf712117a7b5b9d770497e18eb51a7f5f7b2602c01e3fa5c08
+  descriptor 65536 chars, body spelled by :label : key bytes 920118 | work 78 | local runs 13 | root :segment/blake3-1b8100852bcc9076883ba6cc282f1bde2b777271ec7cdbe82e21797c33ef964d
+  descriptor 65536 chars, body spelled by :rank : key bytes 1396 | work 78 | local runs 13 | root :segment/blake3-1b8100852bcc9076883ba6cc282f1bde2b777271ec7cdbe82e21797c33ef964d
+
+== invariance under element reversal + renaming/shuffling
+#{[X X] [Y Y]} DO: :segment/blake3-da69c679d10e5356b17cdb24909a43d7475df9114bba9c09a8f98ac1a35b971e | reversed equal: true | renamed+shuffled equal: true | decode: :ok
+{X 1, Y 1} DO: :segment/blake3-49d4478ce74e89a973c9640498342dfea85867eff1662b9656f7e6b9bcd44e93 | reversed equal: true | renamed+shuffled equal: true | decode: :ok
+#{X Y} DO: :segment/blake3-07eda35d34844aa8e1ce89f07395bd877a49e7a69bdabea55bcf22e600671494 | reversed equal: true | renamed+shuffled equal: true | decode: :ok
+review counterexample DO: :segment/blake3-a3713a5e1d1a051d1c0aab255bdc48349993fbf21d68ba947e74fc4408c68c28 | reversed equal: true | renamed+shuffled equal: true | decode: :ok
+codex A DO: :segment/blake3-65ba4530bd8908e734a8be4fcc594d2989c5a8a7d1017779ef8f62991df38dab | reversed equal: true | renamed+shuffled equal: true | decode: :ok
+codex B DO: :segment/blake3-409548a71f080cae6f3f66911409370d83a5df9e928135d95c497e9b770d9328 | reversed equal: true | renamed+shuffled equal: true | decode: :ok
+codex C DO: :segment/blake3-18b70de6d4533d5ca797464568b5dd7812ca4b2f36a1e8fb64ef823a2eb3da45 | reversed equal: true | renamed+shuffled equal: true | decode: :ok
+[#{X Y} #{X Y}] DO: :segment/blake3-92747c0f27e9c64876267b19dafa34edd359822341eca32d6067e199a926f116 | reversed equal: true | renamed+shuffled equal: true | decode: :ok
+
+== frame-bearing fixtures (act window, K frame window, environments, parked state)
+wait window x, K window y, env y, parked K window #{x y}
+  DO : {:x :yin.k/cc-2, :y :yin.k/cc-1, :test/cursor :yin.k/cc-3} | work 66 | search 0
+  DO root: :segment/blake3-0b9ef61ebd08535b10e136a6452d942fb0598ad2dd5a13665d7756fac69702b5
+  6a root: :segment/blake3-fd3513dd3f0395f50dc4dcf2f67fed45b7f80f91a20b73a013eb7249a6596ce7
+  decode: :ok
+wait window #{x y}, parked K window y (parked table, slot 8, precedes frames, slot 13)
+  DO : {:x :yin.k/cc-2, :y :yin.k/cc-1, :test/cursor :yin.k/cc-3} | work 52 | search 0
+  DO root: :segment/blake3-ff124bfc1fd2e6c2b8ce29487204b442b8c1143f71339ccab5efd6e48ccc142f
+  6a root: :segment/blake3-e155841068d17087673526c1f6913855e87068e686556ac8c062ed1b35c61544
+  decode: :ok
+
+== install children numbered by discovery order
+  parent root: :segment/blake3-9544fcd745812c04a7f6d6e3d9437501f986a206fcb69882ea0139fa51f340fd | task rows: 2 | child numbering: {:x :yin.k/cc-1, :y :yin.k/cc-2} | decode: :ok
+
+== counterexample search, D5 mode (refuse the residue)
+random values 2000 states: {:decode-ok 1783, :max-search 0, :max-local-runs 123, :decode-6a-limit 192, :refused-not-distinguished 11, :invariance-fail 0, :numbered 1975, :max-work 1254, :decode-fail 0, :refused-witnessed-noninterchangeable 14, :refused 25, :resource-limit 0}
+frame-bearing 200 states: {:decode-ok 175, :max-search 0, :max-local-runs 54, :decode-6a-limit 17, :refused-not-distinguished 3, :invariance-fail 0, :numbered 192, :max-work 767, :decode-fail 0, :refused-witnessed-noninterchangeable 5, :refused 8, :resource-limit 0}
+with children 100 states: {:decode-ok 75, :max-search 0, :max-local-runs 90, :decode-6a-limit 23, :refused-not-distinguished 2, :invariance-fail 0, :numbered 98, :max-work 916, :decode-fail 0, :refused-witnessed-noninterchangeable 0, :refused 2, :resource-limit 0}
+
+== counterexample search, D6 mode (residue search)
+random values 2000 states: {:decode-ok 1808, :max-search 13, :max-local-runs 151, :decode-6a-limit 192, :refused-not-distinguished 0, :invariance-fail 0, :numbered 2000, :max-work 1470, :decode-fail 0, :refused-witnessed-noninterchangeable 0, :refused 0, :resource-limit 0}
+frame-bearing 200 states: {:decode-ok 183, :max-search 5, :max-local-runs 54, :decode-6a-limit 17, :refused-not-distinguished 0, :invariance-fail 0, :numbered 200, :max-work 767, :decode-fail 0, :refused-witnessed-noninterchangeable 0, :refused 0, :resource-limit 0}
+with children 100 states: {:decode-ok 76, :max-search 4, :max-local-runs 90, :decode-6a-limit 24, :refused-not-distinguished 0, :invariance-fail 0, :numbered 100, :max-work 916, :decode-fail 0, :refused-witnessed-noninterchangeable 0, :refused 0, :resource-limit 0}
