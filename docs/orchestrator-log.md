@@ -11915,3 +11915,21 @@ Decisions: per the owner's challenge ("argon queued? why? its available"), confi
 Verification: argon's file:line checks in its findings; master's tip carries all merged slice content.
 Delegates: agy gemini-4-argon.
 Next: the yin.vm.semantic track has NO open engineering work — the any-pc epic is landed and its review loop closed. Remaining items are owner-scheduled product work (REPL export command, composition-level fetch loop) and Fable's claude-cloud reservation (until Tuesday) for any future security-capable sign-off. The other seat's C3/TS/PHP work continues independently on master.
+
+## 2026-10-18 11:2x +07 — the loop-level value display LANDED (06065e42); the four-round arc closed
+The owner ruled the semantics ("match Clojure's — print the last expression evaluated", REPL-loop
+  level, not frontend-level). Rounds: the sonnet draft (killed mid-level; preserved as prior art), r2
+  (sonnet, the loop print), the deepseek gate v2 (P2: last-statement is not CPython's — the owner
+  ratified last-only anyway), r3-restricted (sonnet), the gate v3 (REQUEST CHANGES: the P1 stale
+  dependents — exactly the in-slice-generator failure mode fable's rule now prevents), r4 (sonnet:
+  every dependent re-pinned mechanically, the acceptance rows incl. the owner's even_squares in the
+  shared packets, the edges documented), the gate v4 (deepseek: READY, its own evidence run green).
+  Lanes: JVM 10 namespaces green, Node 4061/149759/0, Dart 4009 all passed (orchestrator-run),
+  cljstyle rc=0, kondo 0/0. Landed value-display-r2:master = 06065e42 (the docs-only master merge
+  folded in). The gate's non-blocking notes ride the safepoint-s3 round: the float_address/
+  linked_prelude/scanner_goldens provenance docstrings (which s3's own pin moves will re-date), the
+  py/run-session comment, the yang.typescript.md line width. The C1-control edge gets its known-gaps
+  row with this commit.
+Next: the safepoint-s3 finish round (unblocked by this landing; its pins re-stale against the new py
+  manifest), then the antlr M0-M2 (m012d implementing the codex gate's three P1s), then the C3
+  completion gate over the final head.
