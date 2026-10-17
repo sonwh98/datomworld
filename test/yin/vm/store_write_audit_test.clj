@@ -372,7 +372,7 @@
     ["restore-task" "assoc"] 1}
    ;; the de Bruijn layouts' task presentations (continuation design
    ;; §7.1, §7.2): state construction over keys that already passed the
-   ;; one program-write gate. canonical-task copies a quiescent kernel's
+   ;; one program-write gate. canonical-task copies a kernel's (any boundary)
    ;; store, whose every program write went through engine/put-active and
    ;; so store-put; kernel-task copies the scratch machine's store that
    ;; rows/restore-task built key by key through store-put. The layout

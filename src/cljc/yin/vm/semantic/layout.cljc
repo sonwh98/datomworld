@@ -24,13 +24,18 @@
    merged under the chain's positional frames (§4.4); the inverse reads
    each frame back from `E` by the chain, never the free environment.
 
-   Task level: `canonical-task` presents a quiescent kernel as a
-   semantic machine for `yin.vm.ucf.rows/lift-task`;
-   `kernel-task` restores a machine `rows/lower-task` produced into a
-   fresh kernel; `lift-task` and `lower-task` compose them with the row
+   Task level: `canonical-task` presents a kernel at any boundary —
+   running (`lift-running` over the live fields, its `:push` stutters
+   relabelled and its dead prefixes dropped and recorded as
+   diagnostics) or quiescent — as a semantic machine for
+   `yin.vm.ucf.rows/lift-task`; `kernel-task` restores a machine
+   `rows/lower-task` produced into a fresh kernel, a `:running` machine
+   into a running kernel (`lower-running`: nil register fill outside
+   `L(p)`, no dead prefix, bases recomputed cumulatively);
+   `lift-task` and `lower-task` compose them with the row
    carrier, the lower refusing what a kernel cannot hold before any
    stream is attached. A layout never runs code, never fills a binding
-   from the receiver and never invents a safepoint (§4.5)."
+   from the receiver and never invents a state (§4.5)."
   (:require [dao.jing :as jing]
             [yin.vm.debruijn-code :as dcode]
             [yin.vm.debruijn-register-code :as rcode]
@@ -226,20 +231,29 @@
   (vec (sort (map #(phys seg p %) (disj (live-out seg p) (code/rd (inst seg p)))))))
 
 
+(defn- virt*
+  [seg p s virtuals named-fallback?]
+  (let [m (nth (:phys seg) (body-of seg p))
+        live (filterv #(= s (get m %)) (sort virtuals))
+        named (when named-fallback? (filterv #(= s (get m %)) (sort (keys m))))]
+    (cond
+      (= 1 (count live)) (first live)
+      (and named-fallback? (empty? live) (= 1 (count named))) (first named)
+      (and (not named-fallback?) (empty? live)) nil
+      :else (refuse! :yin.k/non-portable :register-layout {:yin.k/pc p :yin.k/register s}))))
+
+
 (defn virt
   "The restricted inverse of `phys` at boundary `p`: the virtual of
    `live-out*(p)` held in physical `s`. A slot outside that image (only a
    tampered entry names one) reads as the one virtual of the body R maps
    there, so the frame validator judges the window; an ambiguous slot is
-   refused."
-  [seg p s]
-  (let [m (nth (:phys seg) (body-of seg p))
-        live (filterv #(= s (get m %)) (sort (live-out seg p)))
-        named (filterv #(= s (get m %)) (sort (keys m)))]
-    (cond
-      (= 1 (count live)) (first live)
-      (and (empty? live) (= 1 (count named))) (first named)
-      :else (refuse! :yin.k/non-portable :register-layout {:yin.k/pc p :yin.k/register s}))))
+   refused. The explicit-set arity names the virtuals instead — `L(p)`
+   for a run state — and reads nothing outside their image: a running
+   kernel's register file holds dead slots as a matter of course, and a
+   slot no named virtual holds is simply absent from the window."
+  ([seg p s] (virt* seg p s (live-out seg p) true))
+  ([seg p s virtuals] (virt* seg p s virtuals false)))
 
 
 (defn stack-layout
@@ -316,29 +330,47 @@
 
 
 (def ^:private parking-ops
-  "A1: the instructions a resume pc may follow, besides a non-tail call."
+  "A1: the instructions a delivery state's resume pc may follow, besides
+   a non-tail call."
   #{:stream-next :stream-put :ffi-call :park :current-continuation})
 
 
 (defn- safepoint!
-  "Refuse `:yin.k/not-at-safepoint` unless the A instruction before `pc`
-   parks (a tail call for a tail state): a layout never invents a
-   safepoint (§4.5)."
-  [seg pc tail?]
-  (let [t (when (and (integer? pc) (< 0 pc) (<= pc (count (:vector seg)))) (inst seg (dec pc)))
-        op (when t (nth t 0))]
-    (when-not (and t
-                   (= (body-of seg (dec pc)) (body-of seg (min pc (dec (count (:vector seg))))))
-                   (if tail?
-                     (code/tail-call? t)
-                     (or (contains? parking-ops op) (and (= :call op) (not (code/tail-call? t))))))
-      (refuse! :yin.k/not-at-safepoint nil {:yin.k/pc pc}))))
+  "Refuse `:yin.k/not-at-safepoint` unless `pc` is a pc of one of A's
+   bodies: in the run mode (tail? = :run, any pc inside a body — the
+   bodies partition the vector), or else a delivery state's pc, the A
+   instruction before which parks (a tail call for a tail state). A
+   layout never invents a state (§4.5); the refusal's name is
+   historical."
+  ([seg pc] (safepoint! seg pc :run))
+  ([seg pc tail?]
+   (if (= :run tail?)
+     (when-not (and (integer? pc) (<= 0 pc) (< pc (count (:vector seg))))
+       (refuse! :yin.k/not-at-safepoint nil {:yin.k/pc pc}))
+     (let [t (when (and (integer? pc) (< 0 pc) (<= pc (count (:vector seg)))) (inst seg (dec pc)))
+           op (when t (nth t 0))]
+       (when-not (and t
+                      (= (body-of seg (dec pc)) (body-of seg (min pc (dec (count (:vector seg))))))
+                      (if tail?
+                        (code/tail-call? t)
+                        (or (contains? parking-ops op) (and (= :call op) (not (code/tail-call? t))))))
+         (refuse! :yin.k/not-at-safepoint nil {:yin.k/pc pc}))))))
 
 
 (defn- h->a
-  "The A pc of H pc `hpc`; a `:push` has none and is no safepoint."
-  [seg hpc]
-  (or (get (:h->a seg) hpc) (refuse! :yin.k/not-at-safepoint nil {:yin.k/pc hpc})))
+  "The A pc of H pc `hpc`. In the run mode a `:push` stutters — its
+   state equals its successor's but for pc (`stack.cljc`'s `:push` only
+   advances pc) — so it relabels to `h->a(hpc+1)` without running
+   anything; no two pushes are adjacent (`correspondence`). Elsewhere (a
+   delivery state's parking instruction, a closure's entry) a `:push` has
+   no A pc: relabelling there would invent a state."
+  ([seg hpc] (h->a seg hpc false))
+  ([seg hpc run?]
+   (or (get (:h->a seg) hpc)
+       (when (and run? (integer? hpc) (<= 0 hpc) (< (inc hpc) (count (:stack seg)))
+                  (= :push (nth (nth (:stack seg) hpc) 0)))
+         (get (:h->a seg) (inc hpc)))
+       (refuse! :yin.k/not-at-safepoint nil {:yin.k/pc hpc}))))
 
 
 (defn- a->h
@@ -466,6 +498,17 @@
   (into {} (map (fn [[s x]] [(virt seg site s) (canonical-value cx x)])) regs))
 
 
+;; single-arity beside register-window: cljd's compiler NPEs on a
+;; multi-arity defn holding destructuring fns
+(defn- register-run-window
+  "A run state's window: `{virt(p, s, virtuals) V}` over the register
+   file read as `[s V]` pairs, the virtuals named (`L(p)`); a slot no
+   named virtual holds is absent."
+  [cx seg p regs virtuals]
+  (into {} (remove (fn [[x _]] (nil? x)))
+        (map (fn [[s x]] [(virt seg p s virtuals) (canonical-value cx x)]) regs)))
+
+
 (defn- register-kframe
   "§4.2 step 6, one frame independently: its own image row and A, `rd`
    from A, never the physical `:dest`."
@@ -503,13 +546,32 @@
           (subvec st (peek bounds) (count st)))))
 
 
+(defn- dead-prefix!
+  "Record a dead prefix of `n` values below `pc`'s region in the lift's
+   diagnostics (§4.3: never in the frame). The sink is the caller's
+   (`:diagnostics` of the lift opts); with none, the count is dropped."
+  [cx pc n]
+  (when (and (pos? n) (:diagnostics cx))
+    (swap! (:diagnostics cx) conj {:yin.k/dead-prefix n :yin.k/pc pc})))
+
+
+(defn- take-top
+  "The top `n` of slice."
+  [slice n]
+  (subvec (vec slice) (- (count slice) n)))
+
+
 (defn- slice-window
-  "`(zipmap (stack-layout (dec pc)) slice)`; the two have equal length."
+  "`(zipmap (stack-layout (dec pc)) slice)`. The slice may be longer: a
+   tail call keeps the values below the layout without pushing a frame,
+   so the lift takes the top `|layout|` and drops the dead prefix,
+   recording it in the lift's diagnostics, never in the frame."
   [cx seg pc slice]
   (let [layout (stack-layout seg (dec pc))]
-    (when-not (= (count layout) (count slice))
+    (when-not (>= (count slice) (count layout))
       (refuse! :yin.k/non-portable :stack-layout {:yin.k/pc pc :yin.k/layout layout :yin.k/slice (count slice)}))
-    (zipmap layout (map #(canonical-value cx %) slice))))
+    (dead-prefix! cx pc (- (count slice) (count layout)))
+    (zipmap layout (map #(canonical-value cx %) (take-top slice (count layout))))))
 
 
 (defn- stack-site
@@ -518,6 +580,21 @@
   [cx abs]
   (let [[seg rel] (image-pc :stack (:kernel cx) (:space cx) abs)]
     [seg (h->a seg (dec rel))]))
+
+
+(defn- stack-k-frames
+  "The canonical K of stack return frames over their slices (§4.2 step 6
+   for H): each frame's own image row, A site and rd."
+  [cx frames parts]
+  (mapv (fn [f slice]
+          (let [[fseg fsite] (stack-site cx (:return-pc f))
+                pc (inc fsite)]
+            (safepoint! fseg pc false)
+            {:type :return :segment (:address fseg) :pc pc
+             :env (canonical-env cx fseg pc (:frames f) (:store-of f))
+             :window (slice-window cx fseg pc slice)
+             :rd (code/rd (inst fseg fsite))}))
+        frames parts))
 
 
 (defn- lift-stack
@@ -531,15 +608,7 @@
         [seg site] (stack-site cx (:pc entry))
         tail? (code/tail-call? (inst seg site))
         _ (safepoint! seg (inc site) tail?)
-        k (mapv (fn [f slice]
-                  (let [[fseg fsite] (stack-site cx (:return-pc f))
-                        pc (inc fsite)]
-                    (safepoint! fseg pc false)
-                    {:type :return :segment (:address fseg) :pc pc
-                     :env (canonical-env cx fseg pc (:frames f) (:store-of f))
-                     :window (slice-window cx fseg pc slice)
-                     :rd (code/rd (inst fseg fsite))}))
-                frames parts)]
+        k (stack-k-frames cx frames parts)]
     (if tail?
       ;; frozen §2.4: the current frames, store-of and slice are dead
       {:segment (:address seg) :site site :k k :deliver {:deliver :return}}
@@ -549,6 +618,64 @@
          :window (slice-window cx seg pc (peek parts))
          :k k
          :deliver {:deliver :rd :rd (code/rd (inst seg site))}}))))
+
+
+(defn- region-window
+  "The run window at A pc `p` from the current activation's region: the
+   top `|layout(p)| + |uses(p)|` values zipped in emitter order and
+   filtered to `L(p)` (a dead-ambient layout entry is not live and never
+   travels); the excess below is a dead prefix, dropped and recorded;
+   repeated positions of one register must decode to agreeing values.
+   Positions are paired with their registers before the filter, so only
+   live values are canonicalized: a dead-ambient value is never walked,
+   as the reference lane's `L(p)` window never walks it."
+  [cx seg p region]
+  (let [live (analysis/live (:analysis seg) p)
+        sequence (into (stack-layout seg p) (code/uses (inst seg p)))
+        excess (- (count region) (count sequence))]
+    (when-not (>= excess 0)
+      (refuse! :yin.k/non-portable :stack-layout {:yin.k/pc p :yin.k/layout sequence :yin.k/slice (count region)}))
+    (dead-prefix! cx p excess)
+    (let [pairs (into []
+                      (keep (fn [[x v]] (when (contains? live x) [x (canonical-value cx v)])))
+                      (map vector sequence (take-top region (count sequence))))]
+      (doseq [[x entries] (group-by first pairs)
+              :when (< 1 (count entries))]
+        (when-not (apply = (map second entries))
+          (refuse! :yin.k/non-portable :stack-layout {:yin.k/pc p :yin.k/register x})))
+      (into {} pairs))))
+
+
+(defn lift-running
+  "A running kernel's live fields as the canonical run payload (§4.2,
+   §4.3): `{:segment A :pc p :env E :window W :k K}`, no delivery record,
+   no pending. Register: the window is `L(p)` read off the register
+   file. Stack: the pc relabels a `:push` stutter to its successor, and
+   the window is the current region's per `region-window`. Any pc
+   inside a body lifts; a pc outside every body refuses
+   `:yin.k/not-at-safepoint`."
+  [cx fields]
+  (if (= :stack (:kind cx))
+    (let [st (vec (:stack fields))
+          frames (vec (:continuation fields))
+          bases (mapv :stack-base frames)
+          _ (when-not (and (every? integer? bases) (apply <= 0 (conj bases (count st))))
+              (refuse! :yin.k/non-portable :stack-base {:yin.k/bases bases}))
+          parts (slices st bases)
+          [seg hpc] (image-pc :stack (:kernel cx) (:space cx) (:pc fields))
+          pc (h->a seg hpc true)
+          _ (safepoint! seg pc)]
+      {:segment (:address seg) :pc pc
+       :env (canonical-env cx seg pc (:frames fields) (:store-of fields))
+       :window (region-window cx seg pc (peek parts))
+       :k (stack-k-frames cx frames parts)})
+    (let [[seg pc] (image-pc :register (:kernel cx) (:space cx) (:pc fields))
+          _ (safepoint! seg pc)]
+      {:segment (:address seg) :pc pc
+       :env (canonical-env cx seg pc (:frames fields) (:store-of fields))
+       :window (register-run-window cx seg pc (map-indexed vector (vec (:registers fields)))
+                                    (analysis/live (:analysis seg) pc))
+       :k (mapv #(register-kframe cx %) (:continuation fields))})))
 
 
 (defn lift-state
@@ -603,6 +730,9 @@
         k))
 
 
+(declare run-fields)
+
+
 (defn- lower-register
   [lx p fill]
   (let [k (:kernel lx)
@@ -611,11 +741,14 @@
         common (cond-> {:segment (:segment k) :format register/format-tag :hash (:hash k)
                         :image (:register-id seg) :continuation (register-k lx (:k p))}
                  (< 1 (count (:images k))) (assoc :images (:images k)))]
-    (if (contains? p :site)
+    (cond
+      (contains? p :site)
       (cond-> (merge common {:site-pc (+ off (:site p)) :pc (+ off (:site p) 1)
                              :frames (get fill :frames []) :regs [] :live [] :dest nil
                              :resume-mode :return-result})
         (some? (:store-of fill)) (assoc :store-of (:store-of fill)))
+
+      (contains? p :deliver)
       (let [pc (:pc p)
             regs (lower-regs lx seg (dec pc) (:window p))
             store-of (engine/env-store-of (:env p))]
@@ -624,7 +757,9 @@
                                :regs regs :live (mapv first regs)
                                :dest (phys seg (dec pc) (get-in p [:deliver :rd]))
                                :resume-mode :write-result})
-          (some? store-of) (assoc :store-of store-of))))))
+          (some? store-of) (assoc :store-of store-of)))
+
+      :else (merge common (run-fields lx p seg)))))
 
 
 (defn- layout-slice
@@ -656,6 +791,52 @@
           k))
 
 
+(defn- region-slice
+  "The lowered current region at run pc `p`: `layout(p) ++ uses(p)` in
+   emitter order, write-back-style nil for a dead-ambient layout entry
+   outside `L(p)` — never read again, so its value is the window's
+   absence — and no dead prefix (§4.3: the lower produces none)."
+  [lx seg p w]
+  (mapv (fn [x] (if (contains? w x) (positional-value lx (get w x)) nil))
+        (into (stack-layout seg p) (code/uses (inst seg p)))))
+
+
+(defn- run-fields
+  "The live fields of the receiving kernel for run payload `p` of `seg`:
+   no `:resume-mode`, no delivery — the kernel is between instructions.
+   Nothing runs, nothing is delivered."
+  [lx p seg]
+  (let [store-of (engine/env-store-of (:env p))]
+    (cond-> (if (= :stack (:kind lx))
+              (let [k (:kernel lx)
+                    [frames st] (stack-k lx (:k p))
+                    pc (:pc p)]
+                {:pc (+ (offset :stack k seg) (a->h seg pc))
+                 :frames (lower-frames lx seg pc (:env p))
+                 :stack (into st (region-slice lx seg pc (:window p)))
+                 :continuation frames})
+              (let [k (:kernel lx)
+                    pc (:pc p)
+                    body (nth (get-in seg [:register :bodies]) (body-of seg pc))]
+                {:pc (+ (offset :register k seg) pc)
+                 :registers (reduce (fn [rs [s v]] (assoc rs s v))
+                                    (vec (repeat (:registers body) nil))
+                                    (lower-regs lx seg pc (:window p)))
+                 :frames (lower-frames lx seg pc (:env p))
+                 :continuation (register-k lx (:k p))}))
+      (some? store-of) (assoc :store-of store-of))))
+
+
+(defn lower-running
+  "The inverse of `lift-running`: canonical run payload `p` as the
+   receiving kernel's live fields. The register kernel's file is nil
+   outside `L(p)`'s image (write-back's discipline); the stack kernel's
+   region carries `region-slice`, its bases recomputed cumulatively by
+   `stack-k`."
+  [lx p]
+  (run-fields lx p (payload-segment lx p)))
+
+
 (defn- lower-stack
   [lx p fill]
   (let [k (:kernel lx)
@@ -664,16 +845,21 @@
         [frames st] (stack-k lx (:k p))
         common {:segment (:segment k) :format stack/format-tag :hash (:hash k) :image (:stack-id seg)
                 :continuation frames}]
-    (if (contains? p :site)
+    (cond
+      (contains? p :site)
       (cond-> (merge common {:pc (+ off (a->h seg (:site p)) 1) :resume-mode :return-result
                              :stack st :frames (get fill :frames [])})
         (some? (:store-of fill)) (assoc :store-of (:store-of fill)))
+
+      (contains? p :deliver)
       (let [pc (:pc p)
             store-of (engine/env-store-of (:env p))]
         (cond-> (merge common {:pc (+ off (a->h seg (dec pc)) 1)
                                :frames (lower-frames lx seg pc (:env p))
                                :stack (into st (layout-slice lx seg pc (:window p)))})
-          (some? store-of) (assoc :store-of store-of))))))
+          (some? store-of) (assoc :store-of store-of)))
+
+      :else (merge common (run-fields lx p seg)))))
 
 
 (def ^:private canonical-keys
@@ -717,43 +903,67 @@
     :else false))
 
 
+(def ^:private live-fields
+  "The kernel fields a running activation holds: register
+   `{:pc :registers :frames :continuation :store-of}`, stack
+   `{:pc :stack :frames :continuation :store-of}`."
+  {:register [:pc :registers :frames :continuation :store-of]
+   :stack [:pc :stack :frames :continuation :store-of]})
+
+
 (defn canonical-task
-  "Quiescent kernel `k` presented as semantic machine `template`
-   (a fresh machine of the same composition) for `rows/lift-task`: code
-   by A from `space`, every wait, parked record and value reconstructed
-   through the layout; resources, stores and counters carried. A running
-   kernel is `:yin.k/not-at-safepoint`; install children are not carried
-   by this phase's layouts; a closure or continuation in the free
-   environment has no finite canonical form (§6.3)."
-  [k space template]
-  (when (engine/active-continuation? k)
-    (refuse! :yin.k/not-at-safepoint nil {:yin.k/pc (:pc k)}))
+  "Kernel `k` presented as semantic machine `template` (a fresh machine
+   of the same composition) for `rows/lift-task`: code by A from
+   `space`, every wait, parked record and value reconstructed through
+   the layout; resources, stores and counters carried. A running kernel
+   lifts as `:running`: `lift-running` over its live fields presents the
+   control, window, env and K, with waits and ready lifted as the
+   semantic lift does; install children are not carried by this phase's
+   layouts (refused `:yin.k/unsupported :installs`); a closure or
+   continuation in the free environment has no finite canonical form
+   (§6.3). opts as `lift-task`'s (its `:diagnostics` sink receives the
+   dead-prefix counts). Single-arity: cljd's compiler NPEs on a
+   multi-arity defn holding destructuring fns."
+  [k space template opts]
   (when (seq (:installs k))
     (refuse! :yin.k/unsupported :installs {:yin.k/names (vec (keys (:installs k)))}))
   (when-let [sym (some (fn [[sym x]] (when (holds-procedure? x) sym)) (sort-by (comp str key) (:free-env k)))]
     (refuse! :yin.k/non-portable :free-env-value {:yin.k/key sym}))
-  (let [cx (lift-context k space (:owner template))
+  (let [cx (assoc (lift-context k space (:owner template)) :diagnostics (:diagnostics opts))
         conv #(canonical-value cx %)
+        running (when (engine/active-continuation? k)
+                  (lift-running cx (select-keys k (get live-fields (kernel-kind k)))))
         parked (into {} (map (fn [[id rec]] [id (assoc (lift-state cx rec) :type :parked-continuation :id id)]))
                      (:parked k))
         value (:value k)
-        parked-value? (and (map? value) (= :parked-continuation (:type value)) (contains? parked (:id value)))
+        parked-value? (and (not running) (map? value) (= :parked-continuation (:type value))
+                           (contains? parked (:id value)))
         code (into {} (map (fn [[a s]] [a (assoc {} :vector (:vector s) :address a :analysis (:analysis s))]))
                    (:segments space))]
     (assoc template
            :code code
            :code-aliases (into {} (map (fn [a] [a a])) (keys code))
-           :program nil :control nil :window {} :k nil
+           :program nil
+           :control (when running (select-keys running [:segment :pc]))
+           :window (if running (:window running) {})
+           :env (if running (:env running) (or (:free-env k) {}))
+           :k (when running (:k running))
            :resources (:resources k)
            :capability-secret (:capability-secret k)
            :free-env (:free-env k)
-           :env (or (:free-env k) {})
            :store (conv (:store k))
            :module-stores (conv (or (:module-stores k) {}))
            :parked parked
            :wait-set (mapv #(lift-state cx %) (:wait-set k))
-           :ready-queue (:ready-queue k)
-           :value (if parked-value? (get parked (:id value)) (conv value))
+           :ready-queue (mapv (fn [e]
+                                (let [state (lift-state cx (dissoc e :value :status :resource-updates :refusal))
+                                      state (assoc state :value (conv (:value e)) :status (:status e)
+                                                   :resource-updates (:resource-updates e))]
+                                  (if (contains? e :refusal)
+                                    (assoc state :refusal (conv (:refusal e)))
+                                    state)))
+                              (:ready-queue k))
+           :value (if running nil (if parked-value? (get parked (:id value)) (conv value)))
            :id-counter (:id-counter k)
            :installs {}
            :halted? (:halted? k)
@@ -763,9 +973,10 @@
 (defn lift-task
   "§7.1 for a de Bruijn kernel: `rows/lift-task` over its canonical
    presentation. `template` is a fresh semantic machine of the
-   kernel's composition; opts as rows/lift-task's."
+   kernel's composition; opts as rows/lift-task's, plus `:diagnostics`,
+   an atom receiving the lift's dead-prefix records (never the frame)."
   [k space template serve! opts]
-  (rows/lift-task (canonical-task k space template) serve! opts))
+  (rows/lift-task (canonical-task k space template opts) serve! opts))
 
 
 (defn attach-space
@@ -794,8 +1005,10 @@
   "Step 12 for a de Bruijn receiver: semantic machine `m` (what
    `rows/lower-task` restored) as fresh kernel `k` of the same
    composition: every image derived and attached, the free environment
-   set, every wait, parked record and value lowered through the layout.
-   Delivers nothing, runs nothing."
+   set, every wait, parked record, ready entry and value lowered through
+   the layout; a `:running` machine lowers into a running kernel
+   (`lower-running` over its control, window, env and K). Delivers
+   nothing, runs nothing."
   [m k]
   (let [[sp address] (machine-space m)
         k (attach-space k sp)
@@ -804,7 +1017,9 @@
         parked (into {} (map (fn [[id rec]] [id (assoc (lower-state lx rec) :type :parked-continuation :id id)]))
                      (:parked m))
         value (:value m)
-        parked-value? (and (map? value) (= :parked-continuation (:type value)) (contains? parked (:id value)))]
+        parked-value? (and (map? value) (= :parked-continuation (:type value)) (contains? parked (:id value)))
+        running (when-let [{:keys [segment pc]} (:control m)]
+                  (lower-running lx {:segment segment :pc pc :env (:env m) :window (:window m) :k (:k m)}))]
     (assoc k
            :resources (:resources m)
            :free-env (:free-env m)
@@ -812,11 +1027,28 @@
            :module-stores (conv (or (:module-stores m) {}))
            :parked parked
            :wait-set (mapv #(lower-state lx %) (:wait-set m))
-           :ready-queue []
-           :value (if parked-value? (get parked (:id value)) (conv value))
+           :ready-queue (mapv (fn [e]
+                                (let [entry (lower-state lx (dissoc e :value :status :resource-updates :refusal))
+                                      entry (assoc entry :value (conv (:value e)) :status (:status e)
+                                                   :resource-updates (:resource-updates e))]
+                                  (if (contains? e :refusal)
+                                    (assoc entry :refusal (conv (:refusal e)))
+                                    entry)))
+                              (:ready-queue m))
+           :value (if running nil (if parked-value? (get parked (:id value)) (conv value)))
            :id-counter (:id-counter m)
-           :halted? (:halted? m)
-           :blocked? (:blocked? m))))
+           :halted? (if running false (:halted? m))
+           :blocked? (if running false (:blocked? m))
+           :pc (or (:pc running) (:pc k))
+           :frames (or (:frames running) (:frames k))
+           :continuation (or (:continuation running) (:continuation k))
+           :store-of (if running (get running :store-of) (:store-of k))
+           :registers (if (= :register (:kind lx))
+                        (get running :registers (:registers k))
+                        (:registers k))
+           :stack (if (= :stack (:kind lx))
+                    (get running :stack (:stack k))
+                    (:stack k)))))
 
 
 (defn- lexical-names
@@ -924,8 +1156,10 @@
    children (not carried by this phase's layouts), a closure or
    continuation in the free environment (§6.3), a retained FFI request
    whose response pair the backend's re-park cannot preserve, and for the register
-   kernel a primitive function in the payload data of a wait or parked
-   state (a window, a lexical binding, or reached through them), which
+   kernel a primitive function in the payload data of the run, a wait, a
+   ready entry (its state, value, refusal or value-bearing completion
+   field) or a parked state (a window, a lexical binding, or reached
+   through them), which
    its restore refuses as `:continuation-registers` (`vm/machine-data?`).
    nil when it can."
   [task kind]
