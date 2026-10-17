@@ -11741,3 +11741,28 @@ Decisions: the moved-master merge was executed on the standing rule (sign-off of
 Verification: per-gate counts above; argon's independent file:line-level verification in its findings; the merge-commit combination verified 4,094/269,336/0. Node/Dart/slow landing claims for 6e remain unrun (in flight).
 Delegates: codex gpt-6.1-sol (6d-b implementation + nits + lane fix), glm-5.3 (6d-b review), agy gemini-4-argon (architectural gate), claude-opus-5-5 (6e takeover, in flight).
 Next: 6e nit round in flight (collab/1792227000000-engineer-6e-nits.prompt.md: muse's three P3s + the ready-root coverage check); on READY → commit, lanes, argon gate, merge. Then the any-pc epic (6d-a/b/e) is fully landed and the track's remaining items are the owner-scheduled ones (REPL export command, fetch loop — composition work with no owner request). Owner yes still pending: srvm-pins worktree/branch removal.
+
+## 2026-10-17 03:10:00 +07 — C4 I1 LANDED aad451c5 (standalone pysp installation delivers pinned py code) + archive 820105ca
+Completed-GMT: 2026-10-16 20:10:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@820105ca == origin/master (I1 code at aad451c5)
+Done: C4 slice I1 (the linked-prelude install, 8.5.6) landed: standalone pysp installation delivers the
+  pinned py code; runtime initialization stays with the consuming task via py/init! (consuming-task-owns-state);
+  the bundled profile remains selectable. The diff (4 files, +94/-13): safepoint.cljc (the install path),
+  linked_prelude_test (+33: the runtime-belongs-to-consuming-task test pinning py/init! idempotence and
+  per-task module writes), linked_safepoint_test (+54), design doc (+3).
+Verification: engineer lanes (codex gpt-6.1-sol, thread 01a143df-84bf-74d1-ae5e-9a703a57ea36... no — I1's
+  own session) JVM focused slow 51/703, JVM linked hook 15/110, JVM quick 4,083/269,051/0, Node quick
+  4,038/133,405/0, Node Python slow 283/42,052/0, Dart Python slow 237 pass; MY verification
+  linked-prelude 8/82/0 + linked-safepoint 9/50/0; gate sonnet-5.5 READY (session in the prompt artifact):
+  delivery-without-initialization asserted, the preservation check real, scope tight. One Low deferred
+  (delivery-then-init regression — covered indirectly by the linked hook suites), one nit honored (the
+  commit body names the new test's purpose).
+Decisions: landed as reviewed (no post-review additions); the archive batch also swept ~530 earlier
+  untracked files the srvm seat had left in archive/yang-python/ (its own step-11 archiving, now committed
+  per the new rule) — flagged in the log for the srvm seat.
+Note: my first dht-pin-style verification attempt used the comma-form `-n ns1,ns2` which selects nothing
+  (the recorded trap) — reran per namespace.
+In flight elsewhere: opus S3v2 lanes; codex comprehension-hang fix (datomworld-c4fix).
+Next: on S3v2 and the c4fix returns -> gates -> land; then C3-S2 landing; safepoint s3 dispatch.
