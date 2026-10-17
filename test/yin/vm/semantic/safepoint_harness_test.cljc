@@ -1826,6 +1826,813 @@
         (is (= 350 @ran) "61 cases x 6 pairs, less row 4's 4 per segment")))))
 
 
+;; =============================================================================
+;; 6e: laws 4 and 5 at every aligned boundary (plan v2.1 §3.9 6e, the
+;; any-pc extension of §5.3; §5.7's driver on all three lanes)
+;; =============================================================================
+
+(declare fuel-drive active-tree?)
+
+
+(defn kernel-active?
+  "A de Bruijn kernel's activation is live: not blocked, not halted —
+   its pc is the instruction about to execute (a run state)."
+  [k]
+  (engine/active-continuation? k))
+
+
+(defn stack-push-at?
+  "Whether stack kernel k's pc is at a `:push` stutter."
+  [k]
+  (and (= :stack (lane-of k))
+       (kernel-active? k)
+       (= :push (first (try (nth (:segment k) (:pc k))
+                            (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil))))))
+
+
+(def ^:dynamic *on-push*
+  "When bound, called with a stack kernel stopped at a `:push` stutter
+   before `kernel-tick` steps past it: law 4 lifts the stutter and
+   compares it with its successor."
+  nil)
+
+
+(defn kernel-tick
+  "One A-boundary of kernel k: `vm/step` once — an instruction, or a
+   scheduler round that sweeps and resumes one entry — stepping once
+   more past a `:push` stutter, whose state is its successor's but for
+   pc (`stack.cljc`: a `:push` only advances pc)."
+  [k]
+  (let [k1 (vm/step k)]
+    (if (and (kernel-active? k1) (stack-push-at? k1))
+      (do (when *on-push* (*on-push* k1))
+          (vm/step k1))
+      k1)))
+
+
+(defn lane-drive
+  "The stepping driver of §5.7 on any lane: `run-fuel 1` boundaries on
+   the reference lane, one A-boundary per tick on the kernels —
+   re-dispatched on the machine it is handed, so an observer that
+   replaces the machine with another lane's receiver (the isolated
+   law-1 replays) keeps driving on the receiver's own runner."
+  [m observe]
+  (loop [m (observe m) n 0]
+    (when (> n 20000) (throw (ex-info "Lane boundary driver failed to stop" {:steps n})))
+    (let [next (observe (if (= :semantic (lane-of m)) (sr/run-fuel m 1) (kernel-tick m)))]
+      (if (if (= :semantic (lane-of next))
+            (active-tree? next)
+            (or (kernel-active? next) (seq (:ready-queue next))))
+        (recur next (inc n))
+        next))))
+
+
+(defn running-boundary?
+  "Whether m is at a running boundary: control on the reference lane, a
+   live activation on a kernel."
+  [m]
+  (if (= :semantic (lane-of m)) (some? (:control m)) (kernel-active? m)))
+
+
+(defn boundary-site
+  "`[A pc]` a running boundary stops at: the control's on the reference
+   lane, the running lift's on a kernel (a `:push` stutter relabelled by
+   `h->a`)."
+  [m]
+  (if (= :semantic (lane-of m))
+    (when-let [{:keys [segment pc]} (:control m)]
+      (let [v (get-in m [:code segment :vector])]
+        (when (and v (< pc (count v))) [(jing/segment-key v) pc])))
+    (let [run (layout/lift-running
+                (layout/lift-context m (kernel-space m) (:owner m))
+                (select-keys m (if (= :stack (lane-of m))
+                                 [:pc :stack :frames :continuation :store-of]
+                                 [:pc :registers :frames :continuation :store-of])))]
+      [(:segment run) (:pc run)])))
+
+
+(defn boundary-pc
+  "The A pc of `boundary-site`."
+  [m]
+  (second (boundary-site m)))
+
+
+(defn boundary-marker
+  "The alignment marker of a stopped boundary."
+  [m]
+  (cond (vm/halted? m) :halt (seq (:wait-set m)) :park :else :inactive))
+
+
+(defn boundary-record
+  "One returned boundary of m, lifted: `{:tag :root :root id :serves n
+   :site [A p]}` or `{:tag :refusal :refusal {status kind} :serves n
+   :site [A p]}` at a running boundary, else a park/halt marker
+   `{:tag :park}`. A running lift that refuses before naming its site
+   records the refusal with `:site nil`: the lanes' alignment then fails
+   loudly, rather than the driver throwing."
+  [m]
+  (if (running-boundary? m)
+    (let [{:keys [serve! peer]} (served #{:reader :writer})
+          n (atom 0)
+          [site w d] (try (let [site (boundary-site m)]
+                            (try [site (lane-lift m (fn [x] (swap! n inc) (serve! x))) nil]
+                                 (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                                   [site nil (ex-data e)])))
+                          (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                            [nil nil (ex-data e)]))]
+      (if (some? d)
+        {:tag :refusal :refusal (select-keys d [:yin.k/status :yin.k/kind]) :serves @n :site site}
+        {:tag :root :root (task-root (rows/decode w) m peer) :serves @n :site site}))
+    {:tag (boundary-marker m)}))
+
+
+;; :cljd first — cljd lacks with-redefs; the aligned-boundaries deftests
+;; are cljd-gated, so no cljd caller reaches the real body
+#?(:cljd (defn lane-root-records
+           [& _]
+           nil)
+   :default
+   (defn lane-root-records
+     "Law 4's input: one lane's world driven under the stepping driver,
+     every returned boundary lifted (`boundary-record`). On the stack
+     lane each `:push` stutter the driver steps past is lifted as well
+     and compared with the boundary that follows it, its successor: the
+     relabel must give the same site and the same root. Answers
+     [reference-run records relabels], each relabel `{:site same? :root
+     same?}`."
+     [lane build]
+     (scoped
+       (fn []
+         (let [records (atom [])
+               pending (atom nil)
+               relabels (atom [])
+               observe (fn [m]
+                         (let [r (boundary-record m)]
+                           (when-let [p @pending]
+                             (swap! relabels conj {:site (= (:site p) (:site r)) :root (= (:root p) (:root r))})
+                             (reset! pending nil))
+                           (swap! records conj r))
+                         m)
+               ref (binding [*on-push* #(reset! pending (boundary-record %))]
+                     (with-redefs [vm/run #(lane-drive % observe)]
+                       (reference (on-lane lane build))))]
+           (is (nil? @pending) "every stutter was followed by its successor")
+           [ref @records @relabels])))))
+
+
+(defn alignment-sequence
+  "The comparable form of one lane's records: the `[A pc]` at each
+   running boundary, the marker at each stopped one."
+  [records]
+  (mapv (fn [r] (if (contains? r :site) (:site r) (:tag r))) records))
+
+
+(defn branch-coverage
+  "`{:taken n :untaken n}` over one lane's records: a running boundary
+   at a `:branch-false` whose next boundary is its fall-through
+   successor is untaken (the test held), any other next site is taken."
+  [records]
+  (reduce (fn [acc [r r']]
+            (let [[a pc] (:site r)
+                  t (when a (get-in @code-index [a pc]))]
+              (if (and t (= :branch-false (nth t 0)) (:site r'))
+                (update acc (if (= [a (inc pc)] (:site r')) :untaken :taken) inc)
+                acc)))
+          {:taken 0 :untaken 0}
+          (partition 2 1 records)))
+
+
+(defn lane-transfer-opts
+  "`direct-transfer`'s receiver opts off boundary machine m, lane-aware:
+   a kernel source's plain primitive table would not name the carrier's
+   :prim rows in the semantic scratch, so the portable table does (a
+   kernel receiver takes `vm/primitives` by `kernel-opts` regardless)."
+  [m]
+  (merge (select-keys m [:modules :primitive-profiles :primitive-canonical-names
+                         :make-stream :capability-secret :secret-source])
+         {:primitives (if (= :semantic (lane-of m)) (:primitives m) portable-stream-primitives)
+          :call-in (get (:resources m) vm/call-in-stream-key)
+          :call-out (get (:resources m) vm/call-out-stream-key)
+          :call-out-cursor (:cursor (get (:resources m) vm/call-out-cursor-key))
+          :link-request (get (:resources m) module/link-request-resource)
+          :link-response (get (:resources m) module/link-response-resource)}))
+
+
+(defn lane-direct-transfer
+  "`direct-transfer`, lane-generic: lift m on its own lane over a fresh
+   serve-table whose handles the receiver re-attaches, lower into a
+   fresh receiver of lane `to`, relift at once (law 2, byte equality).
+   Answers {:keys [recv wire relift defect attaches]}; `defect` is the
+   lift's or the lower's refusal ex-data, with zero attaches."
+  [m to]
+  (let [handles (atom {})
+        base (s/serve-table)
+        serve! (fn [h]
+                 (let [d (base h)]
+                   (swap! handles assoc (:dao.stream/identity d) h) d))
+        n (atom 0)
+        attach! (fn [d]
+                  (swap! n inc)
+                  {:dao.stream/outcome :dao.stream/ok
+                   :dao.stream/handle (get @handles (:dao.stream/identity d))})
+        [wire lift-defect] (try [(lane-lift m serve!)]
+                                (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                                  [nil (ex-data e)]))]
+    (if (some? lift-defect)
+      {:defect lift-defect :attaches @n}
+      (try (let [recv (lane-lower to (lane-transfer-opts m) wire attach!)
+                 relift (lane-lift recv serve!)]
+             {:recv recv :wire wire :relift relift :attaches @n})
+           (catch #?(:cljd Object :clj Throwable :cljs :default) e
+             {:defect (ex-data e) :wire wire :attaches @n})))))
+
+
+;; — §3.6's refusal oracle: an independent traversal over the decoded
+;; task, written here rather than shared with layout/lower-defect —
+
+(defn- oracle-lexical-names
+  "The names the chain of the body holding pc binds (a test-local copy
+   of the static rule; the free part of an env is the free environment,
+   never payload data)."
+  [v pc]
+  (let [bodies (code/body-ranges v)]
+    (loop [b (code/body-index bodies pc) out #{}]
+      (if-let [owner (:owner (nth bodies b))]
+        (recur (code/body-index bodies owner) (into out (nth (nth v owner) 2)))
+        out))))
+
+
+(declare oracle-state-prim)
+
+
+(defn- oracle-value-prim
+  "The path to the first :prim row value x reaches through guest
+   collections, a closure's lexical bindings or a reified state; or nil."
+  [code x path]
+  (when (and (vector? x) (= :row (first x)))
+    (let [n (second x) ss (:slots n)]
+      (case (:kind n)
+        :prim path
+        (:vec :list :set :map) (some (fn [[i y]] (oracle-value-prim code y (conj path i)))
+                                     (map-indexed vector ss))
+        :closure (let [[a entry _ bindings] ss
+                       v (get code a)
+                       owner (when v (some (fn [p]
+                                             (let [t (nth v p)]
+                                               (when (and (= :closure (first t)) (= entry (nth t 3))) p)))
+                                           (range (count v))))
+                       names (if owner (oracle-lexical-names v owner) #{})]
+                   (some (fn [[s y]] (when (contains? names s) (oracle-value-prim code y (conj path s))))
+                         (partition 2 (:slots bindings))))
+        :reified (oracle-state-prim code (first ss) (conj path 0))
+        nil))))
+
+
+(defn- oracle-frame-prim
+  [code a pc e w path]
+  (let [names (oracle-lexical-names (get code a) pc)]
+    (or (some (fn [[r y]] (oracle-value-prim code y (conj path :window r))) (partition 2 (:slots w)))
+        (some (fn [[sym y]] (when (contains? names sym) (oracle-value-prim code y (conj path :env sym))))
+              (partition 2 (:slots (first (:slots e))))))))
+
+
+(defn- oracle-state-prim
+  [code n path]
+  (let [kframes (fn [k]
+                  (some (fn [[i f]]
+                          (let [[a pc e w] (:slots f)]
+                            (oracle-frame-prim code a pc e w (conj path :k i))))
+                        (map-indexed vector (:slots k))))
+        [a pc e w k] (:slots n)]
+    (case (:kind n)
+      (:act :run) (or (oracle-frame-prim code a pc e w path) (kframes k))
+      :tail (kframes e)
+      nil)))
+
+
+(defn oracle-refusal
+  "§3.6's oracle: the `[:yin.k/unsupported :kind]` a receiver on lane
+   `to` owes for decoded task `task`, or nil when it transfers. A de
+   Bruijn receiver refuses an outstanding retained FFI request (the
+   documented limit); a register receiver also refuses a primitive
+   function reachable from the run row's window or lexical bindings, any
+   K frame's, any wait's or ready's state, a ready outcome or refusal
+   value, a value-bearing completion field, or a parked state. The
+   reference lane refuses none of these."
+  [task to]
+  (let [slots (:slots task)
+        code (nth slots 11)
+        prim-path (fn []
+                    (or (some (fn [[i r]] (oracle-state-prim code r [:run i]))
+                              (map-indexed vector (nth slots 17)))
+                        (some (fn [[i w]] (oracle-state-prim code (first (:slots w)) [:frames i]))
+                              (map-indexed vector (nth slots 13)))
+                        (some (fn [[i r]]
+                                (let [[st c v _ _ refusal] (:slots r)]
+                                  (or (oracle-state-prim code st [:ready i :state])
+                                      (oracle-value-prim code v [:ready i :value])
+                                      (when refusal (oracle-value-prim code refusal [:ready i :refusal]))
+                                      (some (fn [[j d x]]
+                                              (when (= :V d) (oracle-value-prim code x [:ready i :completion j])))
+                                            (map vector (range) (into [:D] (get rows/completion-table (first (:slots c))))
+                                                 (:slots c))))))
+                              (map-indexed vector (nth slots 18)))
+                        (some (fn [[p st]] (oracle-state-prim code st [:parked p]))
+                              (partition 2 (:slots (nth slots 8))))))]
+    (cond
+      (= :semantic to) nil
+
+      (some (fn [w] (= :ffi-request (first (:slots (second (:slots w))))))
+            (nth slots 13))
+      [:yin.k/unsupported :retained-ffi]
+
+      (and (= :register to) (prim-path)) [:yin.k/unsupported :continuation-registers]
+
+      :else nil)))
+
+
+(defn aligned-law-4
+  "Law 4 at every aligned boundary of one case: the three lanes'
+   boundary sequences align (the stack lane's `:push` stutters
+   relabelled by the lift), one root id at every measured boundary,
+   every refusal a leading discharge refusal shared by all three lanes
+   with zero serves, each lane's own run answering the reference, and
+   every stack `:push` stutter lifting to its successor's site and root.
+   Answers `{:boundaries n :refusals n :relabels n :branches {:taken n
+   :untaken n}}`, the reference lane's counts (the stack lane's for the
+   relabels)."
+  [build expected]
+  (let [runs (mapv #(lane-root-records % build) lanes)
+        recs (mapv second runs)
+        seqs (mapv alignment-sequence recs)
+        relabels (nth (nth runs 1) 2)]
+    (doseq [[lane ref] (map vector lanes (mapv first runs))]
+      (is (:halted ref) (str (name lane) " completes"))
+      (when (some? expected) (is (= expected (:value ref)) (str (name lane) " answers the reference"))))
+    (is (pos? (count (first seqs))) "the driver observed boundaries")
+    (is (apply = seqs)
+        "the three lanes' boundaries align, the stack lane's :push stutters relabelled")
+    (is (every? #(= {:site true :root true} %) relabels)
+        "every :push stutter lifts to its successor's site and root")
+    (is (= (mapv branch-coverage recs) (repeat 3 (branch-coverage (first recs))))
+        "the lanes take and leave the same branches")
+    (dotimes [i (count (first seqs))]
+      (let [rs (mapv #(nth % i) recs)
+            tags (mapv :tag rs)]
+        (cond
+          (every? #(= :refusal %) tags)
+          (do (is (apply = (mapv :refusal rs)) "the three lanes refuse together")
+              (is (every? #(zero? (:serves %)) rs) "a leading refusal serves nothing")
+              (is (every? #(= :refusal (:tag %)) (map #(nth (first recs) %) (range i)))
+                  "the refusals form a contiguous leading run"))
+
+          (every? #(= :root %) tags)
+          (is (apply = (mapv :root rs))
+              (str "law 4: one root id on every lane at boundary " i))
+
+          (apply = tags) nil ; a shared park/halt/inactive marker: aligned
+
+          :else (is false (str "boundary " i " disagrees in kind across lanes: "
+                               (pr-str tags))))))
+    {:boundaries (count (first recs))
+     :refusals (count (filter #(= :refusal (:tag %)) (first recs)))
+     :relabels (count relabels)
+     :branches (branch-coverage (first recs))}))
+
+
+(defn aligned-transfer-observer
+  "The boundary observer of the law-5 replay: at boundary index `target`
+   it transfers the machine into lane `to`, judged against §3.6's
+   oracle — the exact refusal with zero attaches, or a byte-equal
+   relift, one attach per distinct stream identity — records the
+   outcome in `outcome` (`:transfer` or the refusal's kind) and the
+   drive continues on the receiver (its world feeds it through the
+   re-attached handles), or on the source after a refusal."
+  [target to outcome]
+  (let [i (atom -1)]
+    (fn [m]
+      (if (not= target (swap! i inc))
+        m
+        (let [{:keys [recv wire relift defect attaches]} (lane-direct-transfer m to)
+              expected (when wire (oracle-refusal (rows/decode wire) to))]
+          (is (some? wire) "the source lifts at every measured boundary")
+          (cond
+            (some? defect)
+            (do (is (= expected [(:yin.k/status defect) (:yin.k/kind defect)])
+                    (pr-str {:defect defect :expected expected :to to}))
+                (is (zero? attaches) "the refusal attached nothing")
+                (reset! outcome (:yin.k/kind defect))
+                m)
+
+            (some? expected)
+            (do (is false (str "the oracle expected " (pr-str expected)
+                               " but the " (name to) " receiver transferred"))
+                (reset! outcome :unexpected-transfer)
+                m)
+
+            :else
+            (do (is (= wire relift) (str "law 2: immediate relift, " (name to) " receiver"))
+                (is (= (count (stream-identities wire)) attaches)
+                    "one attach per distinct stream identity")
+                (reset! outcome :transfer)
+                recv)))))))
+
+
+;; :cljd first — cljd lacks with-redefs; the aligned-boundaries deftests
+;; are cljd-gated, so no cljd caller reaches the real body
+#?(:cljd (defn aligned-transfer-run
+           [& _]
+           nil)
+   :default
+   (defn aligned-transfer-run
+     "One replay of the case built on `from` (its reference outcome `ref`
+     computed once per lane), transferring boundary `target` into lane
+     `to` and continuing to the reference outcome in the same world.
+     Answers the transfer's outcome (`:transfer` or the refusal's kind)."
+     [from to build target ref]
+     (scoped
+       (fn []
+         (let [outcome (atom nil)
+               observe (aligned-transfer-observer target to outcome)
+               got (with-redefs [vm/run #(lane-drive % observe)]
+                     (reference (on-lane from build)))]
+           (is (some? @outcome) (str "boundary " target " was reached on " (name from)))
+           (is (= (select-keys ref [:halted :value :trace]) (select-keys got [:halted :value :trace]))
+               (str "law 5: the transferred run continues to the reference, "
+                    (name from) " boundary " target))
+           @outcome)))))
+
+
+(defn aligned-law-5
+  "Law 5 at every boundary of one case: every measured boundary index
+   runs one replay per ordered pair — the six pairs of §5.3 — under the
+   full-payload oracle. Answers `{[from to] {outcome n}}`, the outcomes
+   counted per direction."
+  [build]
+  (let [recs (second (lane-root-records :semantic build))
+        measured (keep-indexed (fn [i r] (when (not= :refusal (:tag r)) i)) recs)]
+    (into {}
+          (map (fn [[from to]]
+                 (let [ref (scoped (fn [] (reference (on-lane from build))))]
+                   [[from to] (frequencies (mapv #(aligned-transfer-run from to build % ref) measured))])))
+          ordered-pairs)))
+
+
+(defn law-5-pin
+  "The `{[from to] {outcome n}}` a case's pin implies: `measured`
+   boundaries per direction, `refused` `{to {kind n}}` of them refused
+   into `to` whichever lane they leave, every other one a transfer."
+  [measured refused]
+  (into {}
+        (map (fn [[from to]]
+               (let [r (get refused to {})]
+                 [[from to] (cond-> r
+                              (< (reduce + (vals r)) measured)
+                              (assoc :transfer (- measured (reduce + (vals r)))))])))
+        ordered-pairs))
+
+
+(defn push-relabel-root
+  "The root of stack kernel k's lift, stopped wherever it is (a `:push`
+   stutter included), under the logical names of its own served toy."
+  [k]
+  (let [{:keys [serve! peer]} (served #{:reader :writer})]
+    (task-root (rows/decode (lane-lift k serve!)) k peer)))
+
+
+(deftest a-push-stutter-relabels-to-its-successor
+  ;; the one-row pin of §4.3's relabel: a stack kernel stopped at a
+  ;; `:push` (its state its successor's but for pc) lifts to the same
+  ;; root as after executing the push, and its boundary pc is the
+  ;; successor's A pc — no guest semantics run
+  (scoped
+    (fn []
+      (let [k (loop [k (on-lane :stack #(load-program (machine) (s/app (s/lam ['p] (s/lit 42)) (s/lit 1))))
+                     n 0]
+                (cond (> n 1000) (throw (ex-info "no :push reached" {}))
+                      (stack-push-at? k) k
+                      :else (recur (vm/step k) (inc n))))
+            pc-at-stop (boundary-pc k)
+            k' (vm/step k)
+            pc-after (boundary-pc k')]
+        (is (stack-push-at? k) "the kernel is stopped at a :push")
+        (is (= pc-at-stop pc-after) "the stutter's A pc is its successor's")
+        (is (not= (:pc k) (:pc k')) "the raw kernel pcs differ (nothing ran but the pc)")
+        (is (= (push-relabel-root k) (push-relabel-root k'))
+            "the lift relabels the stutter without running anything")))))
+
+
+(defn aligned-case
+  "Laws 4 and 5 at every aligned boundary of one case. The law-5 outcomes
+   are judged exactly: per direction, every measured boundary transfers
+   or refuses as the oracle says, and a boundary's outcome into `to` is
+   the same whichever lane it leaves. Answers the case's measured pin
+   `{:boundaries :refusals :relabels :branches :refused {to {kind n}}}`
+   (`refusals` the leading discharge refusals, never transferred)."
+  [build expected]
+  (let [law-4 (aligned-law-4 build expected)
+        law-5 (aligned-law-5 build)
+        refused (into {}
+                      (keep (fn [to]
+                              (let [r (dissoc (get law-5 [:semantic to] (get law-5 [:stack to])) :transfer)]
+                                (when (seq r) [to r]))))
+                      lanes)
+        measured (- (:boundaries law-4) (:refusals law-4))]
+    (is (= (law-5-pin measured refused) law-5)
+        "law 5: exact refusals and exact transfers per direction")
+    (assoc law-4 :refused refused)))
+
+
+(defn check-aligned-cases
+  "Every case through `aligned-case`, each measured pin equal to `pins`'
+   entry for `[row label]`. Answers the measured pins."
+  [cases pins]
+  (reduce (fn [acc [row label expected build]]
+            (testing (str "row " row " " (name label))
+              (let [got (aligned-case build expected)]
+                (is (= (get pins [row label]) got) (pr-str [[row label] got]))
+                (assoc acc [row label] got))))
+          {}
+          cases))
+
+
+(defn- pin
+  [boundaries refusals relabels [taken untaken] refused]
+  {:boundaries boundaries :refusals refusals :relabels relabels
+   :branches {:taken taken :untaken untaken} :refused refused})
+
+
+(def aligned-quick-pins
+  "The quick tier's measured pins (JVM): `[row label]` → `aligned-case`:
+   boundaries, leading discharge refusals, `:push` relabels, [taken
+   untaken] branches, and the exact refusals per receiving lane (every
+   other measured boundary transfers, in all six directions)."
+  {[1 :bare] (pin 42 0 20 [0 0] {:register {:continuation-registers 6}})
+   [2 :bare] (pin 11 0 3 [0 0] {})
+   [3 :bare] (pin 10 0 3 [0 0] {})
+   [4 :bare] (pin 36 0 3 [0 0] {:stack {:retained-ffi 2} :register {:retained-ffi 2}})
+   [5 :bare] (pin 28 0 14 [0 0] {:register {:continuation-registers 5}})
+   [6 :bare] (pin 23 0 10 [0 0] {:register {:continuation-registers 2}})
+   [13 :bare] (pin 10 0 2 [0 0] {})
+   [14 :bare] (pin 39 0 20 [0 0] {:register {:continuation-registers 6}})
+   [15 :bare] (pin 41 0 19 [1 1] {:register {:continuation-registers 6}})
+   [16 :bare] (pin 51 0 28 [0 0] {:register {:continuation-registers 9}})
+   [18 :bare] (pin 14 0 4 [0 0] {})
+   [19 :bare] (pin 7 0 2 [0 0] {})
+   [21 :bare] (pin 31 0 12 [0 0] {})
+   [22 :bare] (pin 44 0 23 [0 0] {:register {:continuation-registers 6}})
+   [24 :bare] (pin 10 0 3 [0 0] {})
+   [20 :unwrapped] (pin 16 3 4 [0 0] {:register {:continuation-registers 2}})})
+
+
+;; :cljd first — the aligned driver needs with-redefs, which ClojureDart
+;; lacks; cljd keeps the park-boundary laws (bare-rows, cross-engine-*)
+;; and the layout refusals
+#?(:cljd nil
+   :default
+   (deftest aligned-boundaries-canonical-equality-bare
+     ;; the quick-tier slice: every lane row once, bare, laws 4 and 5 at
+     ;; every aligned boundary; row 20 included
+     (let [cases (into (mapv (fn [[row r build]] [row :bare r #(build identity)]) lane-rows)
+                       [[20 :unwrapped "B" tail-effect-halt]])
+           got (check-aligned-cases cases aligned-quick-pins)
+           total #(reduce + (map % (vals got)))]
+       (is (= 16 (count cases)))
+       (is (pos? (total (comp :taken :branches))) "a branch is taken")
+       (is (pos? (total (comp :untaken :branches))) "a branch is left untaken")
+       (is (pos? (total :relabels)) "the stack lane's stutters are relabelled")
+       (is (pos? (total #(get-in % [:refused :register :continuation-registers] 0)))
+           "the oracle's register refusals occur"))))
+
+
+(def repeated-operand-ast
+  "((fn [g] ((fn [x] (g x x)) 7)) (fn [a b] b)): one value in two
+   operand positions of one call (two registers: linearize loads x
+   twice)."
+  (s/app (s/lam ['g] (s/app (s/lam ['x] (s/app (s/v 'g) (s/v 'x) (s/v 'x))) (s/lit 7)))
+         (s/lam ['a 'b] (s/v 'b))))
+
+
+(def operand-tail-ast
+  "An operand-position tail call whose enclosing application it abandons:
+   ((fn [f] (f (tail (f 1)) 2)) (fn [z] z)) — the operator value pushed
+   for the abandoned application is a dead prefix below the callee's
+   region."
+  (s/app (s/lam ['f]
+                (s/app (s/v 'f) (tail (s/app (s/v 'f) (s/lit 1))) (s/lit 2)))
+         (s/lam ['z] (s/v 'z))))
+
+
+(def operand-tail-frame-ast
+  "operand-tail-ast with a callee that makes a non-tail call:
+   ((fn [f] (f (tail (f 1)) 2)) (fn [z] ((fn [w] w) z))) — the dead
+   prefix lies in the return frame's slice while the inner call runs."
+  (s/app (s/lam ['f]
+                (s/app (s/v 'f) (tail (s/app (s/v 'f) (s/lit 1))) (s/lit 2)))
+         (s/lam ['z] (s/app (s/lam ['w] (s/v 'w)) (s/v 'z)))))
+
+
+(defn halting-world
+  "A world that runs ast to its halt."
+  [ast]
+  (let [m (vm/run (load-program (machine) ast))]
+    {:machine m :kind :halted :trace (atom [])}))
+
+
+(def aligned-special-pins
+  "The measured pins of the hand-built aligned cases (JVM)."
+  {[:repeated-operand :hand-built] (pin 16 0 7 [0 0] {})
+   [:operand-tail :hand-built] (pin 11 0 5 [0 0] {})
+   [:operand-tail-frame :hand-built] (pin 15 0 7 [0 0] {})})
+
+
+#?(:cljd nil
+   :default
+   (deftest aligned-hand-built-cases
+     ;; laws 4 and 5 at every aligned boundary of the hand-built programs:
+     ;; ordered operand multiplicity, and the dead-prefix rule end to end
+     ;; (the stack lift drops the prefix, the lower produces none, the
+     ;; three lanes agree at every boundary inside the callee, every pair
+     ;; continues to the reference)
+     (check-aligned-cases [[:repeated-operand :hand-built 7 #(halting-world repeated-operand-ast)]
+                           [:operand-tail :hand-built 1 #(halting-world operand-tail-ast)]
+                           [:operand-tail-frame :hand-built 1 #(halting-world operand-tail-frame-ast)]]
+                          aligned-special-pins)))
+
+
+(defn running-site-where
+  "The first running boundary of lane's run of ast whose A instruction
+   satisfies pred, or nil."
+  [lane ast pred]
+  (loop [m (on-lane lane #(load-program (machine) ast)) n 0]
+    (let [[a pc] (when (running-boundary? m) (boundary-site m))]
+      (cond (> n 1000) nil
+            (and a (pred (get-in @code-index [a pc]))) m
+            (running-boundary? m) (recur (if (= :semantic lane) (sr/run-fuel m 1) (kernel-tick m)) (inc n))
+            :else nil))))
+
+
+(deftest ordered-operand-multiplicity
+  ;; law 4's ordered-multiplicity pin: at the call reading one value from
+  ;; two operand registers, every lane's run window holds both registers
+  ;; with agreeing values, the stack region holds the value twice, and
+  ;; the three lanes lift to one root
+  (scoped
+    (fn []
+      (let [three-operand-call? #(and (= :call (nth % 0)) (= 3 (count (code/uses %))))
+            ms (mapv #(running-site-where % repeated-operand-ast three-operand-call?) lanes)
+            roots (mapv push-relabel-root ms)]
+        (is (every? some? ms) "every lane reaches the call")
+        (doseq [[lane m] (map vector lanes ms)]
+          (testing (name lane)
+            (let [[a pc] (boundary-site m)
+                  [_ r1 r2] (code/uses (get-in @code-index [a pc]))
+                  {:keys [serve!]} (served #{:reader})
+                  run (first (slot (root-task (lane-lift m serve!)) 17))
+                  w (apply hash-map (:slots (nth (:slots run) 3)))]
+              (is (not= r1 r2) "two operand registers")
+              (is (contains? w r1))
+              (is (contains? w r2))
+              (is (= (get w r1) (get w r2)) "both positions hold the one value")
+              (when (= :stack lane)
+                (is (= [7 7] (vec (take-last 2 (:stack m)))) "the region holds the value twice")))))
+        (is (apply = roots) "law 4: one root id on every lane")))))
+
+
+(defn- crr
+  "`{:register {:continuation-registers n}}`, the register receiver's
+   primitive refusals, beside any other per-lane refusals."
+  ([n] (crr n {}))
+  ([n other] (assoc-in other [:register :continuation-registers] n)))
+
+
+(def ^:private rffi
+  {:stack {:retained-ffi 2} :register {:retained-ffi 2}})
+
+
+(deftest backend-ready-root-refusal
+  ;; §3.6's queued-outcome case on the backend lanes: no aligned corpus
+  ;; boundary carries a ready entry (the driver resumes the queue in the
+  ;; round that fills it), so a de Bruijn source is swept post-put, before
+  ;; resume, and its completed :put's datom — the completion descriptor's
+  ;; :V slot — holds the only unsupported primitive. Into the register
+  ;; lane it refuses through the ready root with zero attaches; into the
+  ;; other two lanes it transfers, byte-equal on relift; the oracle
+  ;; predicts each outcome
+  (doseq [from [:stack :register]]
+    (testing (name from)
+      (scoped
+        (fn []
+          (let [world (on-lane from #(writer identity))
+                _ ((first (:steps world)))
+                swept (engine/check-wait-set (:machine world))
+                plus (vm/primitive-function (get vm/primitives '+))
+                m (assoc-in swept [:ready-queue 0 :datom] {:nested [[plus]]})
+                outcomes (into {}
+                               (map (fn [to]
+                                      (let [{:keys [wire relift defect attaches]} (lane-direct-transfer m to)
+                                            task (rows/decode (or wire (lane-lift m (s/serve-table))))]
+                                        [to {:expected (oracle-refusal task to)
+                                             :refused (when defect [(:yin.k/status defect) (:yin.k/kind defect)])
+                                             :path (:yin.k/path defect)
+                                             :attaches attaches
+                                             :relift-equal (when-not defect (= wire relift))
+                                             :ready (count (slot task 18))}])))
+                               lanes)]
+            (is (= from (lane-of m)) "a de Bruijn source")
+            (is (= 1 (count (:ready-queue m))) "one queued outcome, before resume")
+            (is (empty? (:wait-set m)) "the put's wait completed into the queue")
+            (doseq [[to o] outcomes]
+              (testing (str "-> " (name to))
+                (is (= 1 (:ready o)) "the queued outcome travels in slot 18")
+                (is (= (:expected o) (:refused o)) "the oracle predicts the outcome")))
+            (is (= [:yin.k/unsupported :continuation-registers] (get-in outcomes [:register :refused])))
+            (is (= [:ready 0 :completion] (take 3 (get-in outcomes [:register :path])))
+                "refused through the ready root's completion field")
+            (is (zero? (get-in outcomes [:register :attaches])) "refused before any attach")
+            (is (= [true true] (mapv #(get-in outcomes [% :relift-equal]) [:semantic :stack]))
+                "the other lanes transfer, byte-equal on relift")))))))
+
+
+(def aligned-slow-pins
+  "The slow tier's measured pins (JVM): `[row label]` → `aligned-case`,
+   as `aligned-quick-pins`."
+  {[1 :bare] (pin 42 0 20 [0 0] (crr 6))
+   [1 :operand] (pin 50 0 26 [0 0] (crr 9))
+   [1 :depth-3] (pin 78 0 44 [0 0] (crr 15))
+   [1 :captured] (pin 78 0 44 [0 0] (crr 15))
+   [2 :bare] (pin 11 0 3 [0 0] {})
+   [2 :operand] (pin 19 0 9 [0 0] (crr 3))
+   [2 :depth-3] (pin 47 0 27 [0 0] (crr 9))
+   [2 :captured] (pin 47 0 27 [0 0] (crr 9))
+   [3 :bare] (pin 10 0 3 [0 0] {})
+   [3 :operand] (pin 18 0 9 [0 0] (crr 3))
+   [3 :depth-3] (pin 46 0 27 [0 0] (crr 9))
+   [3 :captured] (pin 46 0 27 [0 0] (crr 9))
+   [4 :bare] (pin 36 0 3 [0 0] rffi)
+   [4 :operand] (pin 44 0 9 [0 0] (crr 3 rffi))
+   [4 :depth-3] (pin 72 0 27 [0 0] (crr 9 rffi))
+   [4 :captured] (pin 72 0 27 [0 0] (crr 9 rffi))
+   [5 :bare] (pin 28 0 14 [0 0] (crr 5))
+   [5 :operand] (pin 36 0 20 [0 0] (crr 8))
+   [5 :depth-3] (pin 64 0 38 [0 0] (crr 14))
+   [5 :captured] (pin 64 0 38 [0 0] (crr 14))
+   [6 :bare] (pin 23 0 10 [0 0] (crr 2))
+   [6 :operand] (pin 31 0 16 [0 0] (crr 5))
+   [6 :depth-3] (pin 59 0 34 [0 0] (crr 11))
+   [6 :captured] (pin 59 0 34 [0 0] (crr 11))
+   [13 :bare] (pin 10 0 2 [0 0] {})
+   [13 :operand] (pin 18 0 8 [0 0] (crr 3))
+   [13 :depth-3] (pin 46 0 26 [0 0] (crr 9))
+   [13 :captured] (pin 46 0 26 [0 0] (crr 9))
+   [14 :bare] (pin 39 0 20 [0 0] (crr 6))
+   [14 :operand] (pin 47 0 26 [0 0] (crr 9))
+   [14 :depth-3] (pin 75 0 44 [0 0] (crr 15))
+   [14 :captured] (pin 75 0 44 [0 0] (crr 15))
+   [15 :bare] (pin 41 0 19 [1 1] (crr 6))
+   [15 :operand] (pin 49 0 25 [1 1] (crr 9))
+   [15 :depth-3] (pin 77 0 43 [1 1] (crr 15))
+   [15 :captured] (pin 77 0 43 [1 1] (crr 15))
+   [16 :bare] (pin 51 0 28 [0 0] (crr 9))
+   [16 :operand] (pin 59 0 34 [0 0] (crr 12))
+   [16 :depth-3] (pin 87 0 52 [0 0] (crr 18))
+   [16 :captured] (pin 87 0 52 [0 0] (crr 18))
+   [18 :bare] (pin 14 0 4 [0 0] {})
+   [18 :operand] (pin 22 0 10 [0 0] (crr 3))
+   [18 :depth-3] (pin 50 0 28 [0 0] (crr 9))
+   [18 :captured] (pin 50 0 28 [0 0] (crr 9))
+   [19 :bare] (pin 7 0 2 [0 0] {})
+   [19 :operand] (pin 15 0 8 [0 0] (crr 3))
+   [19 :depth-3] (pin 43 0 26 [0 0] (crr 9))
+   [19 :captured] (pin 43 0 26 [0 0] (crr 9))
+   [21 :bare] (pin 31 0 12 [0 0] {})
+   [21 :operand] (pin 39 0 18 [0 0] (crr 3))
+   [21 :depth-3] (pin 67 0 36 [0 0] (crr 9))
+   [21 :captured] (pin 67 0 36 [0 0] (crr 9))
+   [22 :bare] (pin 44 0 23 [0 0] (crr 6))
+   [22 :operand] (pin 52 0 29 [0 0] (crr 9))
+   [22 :depth-3] (pin 80 0 47 [0 0] (crr 15))
+   [22 :captured] (pin 80 0 47 [0 0] (crr 15))
+   [24 :bare] (pin 10 0 3 [0 0] {})
+   [24 :operand] (pin 18 0 9 [0 0] (crr 3))
+   [24 :depth-3] (pin 46 0 27 [0 0] (crr 9))
+   [24 :captured] (pin 46 0 27 [0 0] (crr 9))
+   [20 :unwrapped] (pin 16 3 4 [0 0] (crr 2))})
+
+
+#?(:cljd nil
+   :default
+   (deftest ^:slow aligned-boundaries-canonical-equality
+     ;; acceptance: laws 4 and 5 at every aligned boundary of §5.3's shared
+     ;; fragment, 61 cases (15 lane rows x 4 segments + row 20)
+     (slow/guard
+       "aligned-boundaries-canonical-equality"
+       (fn []
+         (let [cases (lane-cases)]
+           (is (= 61 (count cases)))
+           (is (= 61 (count (check-aligned-cases cases aligned-slow-pins)))))))))
+
+
 (defn register-judge
   "The frame validator's verdict on register entry `entry` of m,
    reconstructed through the layout."
@@ -1899,7 +2706,7 @@
 
 
 (deftest layout-refusals
-  (testing "a kernel stepped to a non-safepoint pc"
+  (testing "a kernel stepped to a non-parking pc lifts as :running on both lanes"
     (doseq [lane [:stack :register]]
       (testing (name lane)
         (scoped
@@ -1907,16 +2714,74 @@
             (let [m (on-lane lane #(vm/step (load-program (machine) (s/app (s/lam ['p] (s/lit 42)) (s/lit 1)))))
                   n (atom 0)
                   {:keys [serve!]} (served #{:reader})
-                  d (error #(lane-lift m (fn [h] (swap! n inc) (serve! h))))]
+                  w (lane-lift m (fn [h] (swap! n inc) (serve! h)))
+                  t (root-task w)
+                  run (first (slot t 17))]
               (is (not (vm/halted? m)))
+              (is (not (vm/blocked? m)) "the kernel is between instructions")
+              (is (zero? @n) "the program holds no stream: nothing was served")
+              (is (= :running (slot t 2)) "kind :running")
+              (is (= 1 (count (slot t 17))) "exactly one run row")
+              (is (nil? (rows/validate-frames t)) "law 6 on the reconstructed run")
+              (is (pos? (nth (:slots run) 1)) "the run row's pc is past the body's entry")
+              (is (= (boundary-pc m) (nth (:slots run) 1))
+                  "the row's pc is the A pc the kernel stopped at (a :push relabelled)")))))))
+  (testing "a hand-built entry at a pc no delivery state of A occupies refuses :yin.k/not-at-safepoint"
+    (scoped
+      (fn []
+        (let [m (on-lane :stack #(load-program (machine) (s/app (s/lam ['p] (s/lit 42)) (s/lit 1))))
+              sp (kernel-space m)
+              [[_a seg]] (sort-by (comp str key) (:segments sp))
+              v (:vector seg)
+              body-starts (mapv :start (code/body-ranges v))
+              edge (second body-starts)
+              off (layout/offset :stack m seg)
+              cx (layout/lift-context m sp (:owner m))
+              entry (assoc (select-keys m [:pc :frames :stack :continuation])
+                           :pc (+ off (nth (:a->h seg) edge))
+                           :frames [[nil]]
+                           :stack (vec (repeat (count (layout/stack-layout seg edge)) nil)))
+              d (error #(layout/lift-state cx entry))
+              run (layout/lift-running cx entry)]
+          (is (< 1 (count body-starts)) "the fixture has a closure body")
+          (is (pos? edge))
+          (is (= :yin.k/not-at-safepoint (:yin.k/status d)) (pr-str d))
+          (is (= edge (:yin.k/pc d)) "the refusing pc, named")
+          (testing ", the same pc lifts as a run state (any pc inside a body)"
+            (is (= edge (:pc run)))
+            (is (map? (:window run)))
+            (is (= (count (layout/stack-layout seg edge)) (count (:window run)))
+                "the run window over the edge pc's live set"))))))
+  (testing "a running kernel at a pc outside every body refuses :yin.k/not-at-safepoint, serving nothing"
+    (doseq [lane [:stack :register]]
+      (testing (name lane)
+        (scoped
+          (fn []
+            (let [m0 (on-lane lane #(load-program (machine) (s/app (s/lam ['p] (s/lit 42)) (s/lit 1))))
+                  [[_a seg]] (seq (:segments (kernel-space m0)))
+                  end (+ (layout/offset lane m0 seg)
+                         (count (if (= :stack lane) (:stack seg) (:instructions (:register seg)))))
+                  m (assoc m0 :pc end)
+                  n (atom 0)
+                  {:keys [serve!]} (served #{:reader})
+                  d (error #(lane-lift m (fn [h] (swap! n inc) (serve! h))))]
+              (is (kernel-active? m) "the hand-built kernel is between instructions")
               (is (= :yin.k/not-at-safepoint (:yin.k/status d)) (pr-str d))
-              (is (zero? @n) "no stream was served")
-              (testing ", its registers read as a payload"
-                (let [entry (if (= :stack lane)
-                              (select-keys m [:pc :frames :stack :continuation])
-                              (assoc (select-keys m [:pc :frames :continuation]) :regs [] :resume-mode :write-result))
-                      cx (layout/lift-context m (kernel-space m) (:owner m))]
-                  (is (= :yin.k/not-at-safepoint (:yin.k/status (error #(layout/lift-state cx entry)))))))))))))
+              (is (zero? @n) "nothing was served")))))))
+  (testing "a delivery entry whose parking instruction would be a :push refuses: the relabel is the run mode's only"
+    (scoped
+      (fn []
+        (let [m (on-lane :stack #(load-program (machine) (s/app (s/lam ['p] (s/lit 42)) (s/lit 1))))
+              sp (kernel-space m)
+              [[_a seg]] (seq (:segments sp))
+              push (first (filter #(= :push (nth (nth (:stack seg) %) 0)) (range (count (:stack seg)))))
+              cx (layout/lift-context m sp (:owner m))
+              entry (assoc (select-keys m [:frames :stack :continuation])
+                           :pc (+ (layout/offset :stack m seg) push 1))
+              d (error #(layout/lift-state cx entry))]
+          (is (some? push) "the image holds a :push")
+          (is (= :yin.k/not-at-safepoint (:yin.k/status d)) (pr-str d))
+          (is (= push (:yin.k/pc d)) "the :push's own pc, named")))))
   (testing "a register entry whose live was tampered"
     (scoped
       (fn []

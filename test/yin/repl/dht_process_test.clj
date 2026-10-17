@@ -1180,3 +1180,55 @@
           ((:stop! anchor))
           (io/delete-file key-file true)
           (run! delete-dir! dirs))))))
+
+
+(defn- run-submissions
+  "Type `submissions` into the spawned REPL `s`, close stdin, and wait up
+   to `ms` for exit. Returns {:exited bool, :lines [output lines],
+   :exit-code}. The child's stdout is block-buffered on a pipe, so output
+   lines appear in bulk at exit; under the regression the process never
+   exits and is destroyed at the deadline."
+  [s submissions ms]
+  (doseq [line submissions] (type! s line))
+  (.close ^java.io.Writer (:stdin s))
+  (let [process ^java.lang.Process (:process s)
+        done   (.waitFor process ms java.util.concurrent.TimeUnit/MILLISECONDS)]
+    (when-not done (.destroy process))
+    (when-let [reader ^java.lang.Thread (:reader s)]
+      (.join reader 5000))
+    {:exited done
+     :lines @(:lines s)
+     :exit-code (when done (.exitValue process))}))
+
+
+(deftest ^{:slow true :prompt-hang true} prompt-returns-after-filtered-comprehension-assignment-test
+  "Regression for the owner's live-session hang: at the JVM prompt, after
+   `(lang :yang.python/antlr)`, a filtered comprehension assignment
+   never came back. With stdin closed after the lines, `-main` halted
+   the process `stop-join-millis` after end-of-input, while the lines
+   were still evaluating, so nothing they printed ever appeared.
+
+   Both sessions must evaluate every line before their end-of-input
+   `(quit)` and exit: the control (a lang switch plus a trivial print)
+   and the owner's filtered comprehension, read back by a print."
+  (let [control (run-submissions
+                  (spawn! "prompt-hang-control"
+                          ["--name" "prompt-hang-control"
+                           "--dir" "target/prompt-hang-control"])
+                  ["(lang :yang.python/antlr)" "print(1+2)"] 90000)
+        bug     (run-submissions
+                  (spawn! "prompt-hang-bug"
+                          ["--name" "prompt-hang-bug"
+                           "--dir" "target/prompt-hang-bug"])
+                  ["(lang :yang.python/antlr)"
+                   "even_squares = [x**2 for x in range(1, 11) if x % 2 == 0]"
+                   "print(even_squares)"]
+                  90000)]
+    (is (:exited control) "the control session exited promptly")
+    (is (some #(re-find #"Switched to" %) (:lines control))
+        "the control lang switch was processed")
+    (is (:exited bug)
+        "THE BUG: the comprehension session never exited; it hung on the
+         filtered comprehension submission")
+    (is (some #(re-find #"\[4, 16, 36, 64, 100\]" %) (:lines bug))
+        "the comprehension session stored and printed the even squares")))
