@@ -3620,7 +3620,7 @@
               [:block ["NEWLINE" "\n"] ["INDENT" "    "]
                [:stmt [:simple_stmts [:simple_stmt [:pass_stmt ["PASS" "pass"]]]
                        ["NEWLINE" "\n"]]]
-               ["DEDENT" "<EOF>"]]]]]
+               ["DEDENT" ""]]]]]
      ["EOF" "<EOF>"]]))
 
 
@@ -3648,7 +3648,7 @@
                                             (call-t "print"
                                                     (tc (at ["STRING" "'caught'"])))]]]
                  ["NEWLINE" "\n"]]]
-         ["DEDENT" "<EOF>"]]]]]
+         ["DEDENT" ""]]]]]
      ["EOF" "<EOF>"]]))
 
 

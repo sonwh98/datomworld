@@ -377,7 +377,7 @@
                              [:expr [:atom_expr [:atom ["STRING" "\"from-e\""]]]]]]]]]]]
                       ["CLOSE_PAREN" ")"]]]]]]]]]]]]
            ["NEWLINE" "\n"]]]
-         ["DEDENT" "<EOF>"]]]]]
+         ["DEDENT" ""]]]]]
      ["EOF" "<EOF>"]]))
 
 
@@ -812,7 +812,7 @@
                              [:expr [:atom_expr [:atom ["STRING" "\"again\""]]]]]]]]]]]
                       ["CLOSE_PAREN" ")"]]]]]]]]]]]]
            ["NEWLINE" "\n"]]]
-         ["DEDENT" "<EOF>"]]]]]
+         ["DEDENT" ""]]]]]
      ["EOF" "<EOF>"]]))
 
 
@@ -889,7 +889,7 @@
                              [:expr [:atom_expr [:atom ["STRING" "\"caught-e\""]]]]]]]]]]]
                       ["CLOSE_PAREN" ")"]]]]]]]]]]]]
            ["NEWLINE" "\n"]]]
-         ["DEDENT" "<EOF>"]]]]]
+         ["DEDENT" ""]]]]]
      ["EOF" "<EOF>"]]))
 
 
@@ -1475,7 +1475,7 @@
                                 ["CLOSE_BRACK" "]"]]]]]]]]]]]
                       ["CLOSE_PAREN" ")"]]]]]]]]]]]]
            ["NEWLINE" "\n"]]]
-         ["DEDENT" "<EOF>"]]]]]
+         ["DEDENT" ""]]]]]
      ["EOF" "<EOF>"]]))
 
 
@@ -2473,7 +2473,7 @@
                                 ["CLOSE_BRACK" "]"]]]]]]]]]]]
                       ["CLOSE_PAREN" ")"]]]]]]]]]]]]
            ["NEWLINE" "\n"]]]
-         ["DEDENT" "<EOF>"]]]]]
+         ["DEDENT" ""]]]]]
      ["EOF" "<EOF>"]]))
 
 
@@ -2974,7 +2974,7 @@
                                 ["CLOSE_BRACK" "]"]]]]]]]]]]]
                       ["CLOSE_PAREN" ")"]]]]]]]]]]]]
            ["NEWLINE" "\n"]]]
-         ["DEDENT" "<EOF>"]]]]]
+         ["DEDENT" ""]]]]]
      ["EOF" "<EOF>"]]))
 
 
@@ -3002,7 +3002,7 @@
               ["IMPORT" "import"]
               ["STAR" "*"]]]]
            ["NEWLINE" "\n"]]]
-         ["DEDENT" "<EOF>"]]]]]
+         ["DEDENT" ""]]]]]
      ["EOF" "<EOF>"]]))
 
 
@@ -4392,5 +4392,5 @@
                                 ["CLOSE_BRACK" "]"]]]]]]]]]]]
                       ["CLOSE_PAREN" ")"]]]]]]]]]]]]
            ["NEWLINE" "\n"]]]
-         ["DEDENT" "<EOF>"]]]]]
+         ["DEDENT" ""]]]]]
      ["EOF" "<EOF>"]]))
