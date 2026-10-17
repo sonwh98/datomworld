@@ -1,0 +1,51 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Completed-GMT: 2026-10-16 19:09:29 GMT
+Completed-Local: 2026-10-17 02:09:29 +0700
+
+# Scanner-golden regeneration for `[:c4 :py]` / `[:c4 :t]` — done
+
+Nothing staged or committed; all changes are in the worktree only.
+
+## 1. The failures (before)
+
+`DATOM_SLOW_TESTS=1 clojure -M:test -i :slow -n yin.vm.semantic.scan-test` → **3 tests, 208 assertions, 8 failures, 0 errors** (log: `target/scan-regen/step1-failures.log`):
+
+| test | line | groups |
+|---|---|---|
+| `scanners-agree-on-the-c4-modules` | 138 (`(= old new)`) and 152 (`(= golden old new)`) | `:py`, `:t` ×2 each |
+| `goldens-match` | 261 | `:py`, `:t` |
+| `verify-outcomes-agree` | 270 | `:py`, `:t` |
+
+All 8 confined to the two deferred groups; nothing else red.
+
+## 2. The generator (new, checked in)
+
+`test/resources/yin/vm/semantic/scanner-golden-c4.generate.clj` — same discipline as `dht-import-v1.generate.clj`: rebuilds the specs via `yin.vm.semantic.scan-test/c4-specs` itself, prints the live `new-answer` of the deferred groups, and rewrites the pins through the file's own generation pipeline (plain `(pprint scanner-goldens)` +3-indented under `(def scanner-goldens '`) — I first proved byte-identity of that pipeline against the committed file before using it. It carries a built-in STOP gate: the six untouched `:c4` groups plus all of `:b0` (27) and `:register` (32) are recomputed live and must equal the committed pins or it aborts before writing. Run:
+
+```
+clojure -Sdeps '{:aliases {:t {:extra-paths ["test"]}}}' -M:t \
+  test/resources/yin/vm/semantic/scanner-golden-c4.generate.clj
+```
+
+Output captured in `target/scan-regen/generator-output.log`; a second run rewrote identical bytes (idempotent).
+
+## 3. Old → new values per group
+
+| group | `:application-count` | `:free-names` | added / removed free names | other |
+|---|---|---|---|---|
+| `:c4 :py` | 3831 → **3957** | 372 → **381** | +9 / 0: `py.b/reload`, `py.b/import-module`, `py.b/ModuleNotFoundError`, `py.rt/importlib`, `import-hooks-fail`, `import-namespace-check`, `import-refused`, `reload`, `data/contains?` | occurrences/obligations grew accordingly |
+| `:c4 :t` | 14 → **18** | 9 → **13** | +4 / 0: `try-require`, `=`, `get`, `conj` | occurrences 13 → 15 (tail gains the try-require fallback arm); definitions/store-keys unchanged |
+
+Both deltas are exactly the I5/I6 import–reload machinery. The other six groups (`:pysp :k :m :w :e :n`) printed `76→76, 33→33, 0 added 0 removed` etc. — unchanged.
+
+## 4. Only the two groups moved — confirmed three ways
+
+1. Generator gate: live answers of the 6 other `:c4` groups + `:b0` + `:register` all equal the committed pins (it would have thrown otherwise).
+2. `git diff -U0` hunk analysis: **105 hunks, all inside the `:py` entry (old lines 568–7032), the `:t` entry (7322–7366), and the ns docstring** which now records this regen and points at the generator. Net: `585 insertions(+) / 384 deletions(-)` in `scanner_goldens.cljc`.
+3. Rerun of the full slow scan-test: **3 tests, 208 assertions, 0 failures, 0 errors** (`target/scan-regen/step4-green.log`), all 8 C4 oracle passes complete.
+
+## 5. Lint/format
+
+`clj-kondo` 0 errors / 0 warnings; `cljstyle check` clean on both touched files (`scanner_goldens.cljc`, the generator — `cljstyle fix` applied the two-blank-line convention to the generator, whitespace only).
+
+Awaiting Architect review before landing, per the standing rule; the `known-gaps.md` row is left as-is for that review.

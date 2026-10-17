@@ -1,0 +1,37 @@
+Waiting on the quick JVM tier now. Everything else I need is already in hand: the diff, the design rulings, the test helpers, the fixture failures, and the slow I6 runs.
+
+Completed-GMT: 2026-10-14 18:01:32 GMT
+Completed-Local: 2026-10-15 01:01:32 +07
+Coding-Agent: claude
+Session-ID: pending (provider-generated)
+
+**Verdict: implementation is sound against Rulings 10 and 11; the branch is red in two fixture namespaces that the report only partly disclosed.** The core mechanisms hold up: literal recognition is identity-guarded at runtime, the runtime `import_module` always refuses, reload reuses the retained body and the original dict, and the hook refusals live on the dict so `__dict__` aliases cannot bypass them. Verification I ran myself on JVM:
+
+| Check | Result |
+|---|---|
+| `import-test` fast (`-e :slow`) | 20 tests, 105 assertions, green |
+| `import-test` two slow I6 vars | 2 tests, 7 assertions, green |
+| `linked-prelude-test` | 2 failures (manifest golden, runtime-key count 66 vs 69) |
+| `bb test:clj` quick tier | 4272 tests, 6 failures, all golden pins |
+| kondo on the three files, cljstyle, `git diff --check` | clean |
+
+**Findings**
+
+P1 | test/yang/python/antlr/float_address_test.cljc:227,252,257,262,269 and test/yang/python/antlr/linked_prelude_test.cljc:184,248 | Every prelude revision moves these goldens, as the tests' own comments say, and prior slices refreshed them in the same landing. The quick tier shows 6 failures across both namespaces. Codex's report discloses only the manifest golden in linked_prelude_test, not the hard-coded runtime-key count or any of the five float_address pins. | Integrator refreshes the five float address goldens, the manifest golden, and bumps the runtime-key count to 69 before merge, since three new runtime keys were added (`py.rt/importlib`, `py.b/import-module`, `py.b/reload`). Do not merge with the quick tier red.
+
+P2 | src/cljc/yang/python/antlr/prelude.cljc:1916,1938,2089,1891,3119 | Every dict read, write, delete, membership test and subscript now issues an extra VM application plus a second `cell/get` heap effect through `py/import-namespace-check`, for all dicts in all programs, although the policy key exists only on module dicts. Dict ops are the globals write path and the dict-literal fill path. | Fold the check into the single existing `cell/get`: read `c`, and only when `(get c :import-policy)` is non-nil call the check with `c` (the content map) rather than the ref. The refusal semantics are unchanged and the hot path regains one effect per op.
+
+P3 | src/cljc/yang/python/antlr/lower.cljc:664 | A literal name is only screened for emptiness and dot placement. `importlib.import_module("a b")` or `"a/b"` reaches `name-chain` and `module-symbol`, producing a manifest `:requires` symbol with whitespace that static imports can never produce. The runtime outcome is an ImportError from delivery, but the manifest round-trips through EDN on three hosts first. | Also require each dotted component to be an identifier (reuse the scope namespace's identifier predicate if one exists, else `^[A-Za-z_][A-Za-z0-9_]*$`); non-matching literals fall through to the existing runtime refusal.
+
+P3 | src/cljc/yang/python/antlr/lower.cljc:605 | `importlib-bindings` is scope-blind: a `from importlib import import_module as im` inside one function makes every `im("x")` at any scope a recognized site, so an unrelated global `im` pins `x` into the manifest even though the runtime guard then takes the ordinary call. Codex discloses the conservative pin. Harmless under the L-d-3 "absent is permitted" rule, but worth a ledger row so I7 site sets do not count the phantom dependency. | Add a known-gaps row; a scope-aware refinement can use `scope/analyze` later.
+
+**Key questions, with evidence**
+
+1. Manifest bypass: closed. The only path that imports a guest name is the recognized branch in `lower-atom-expr` (lower.cljc:1125), which reuses `import-chain` with a compile-time literal. The runtime `py.b/import-module` body unconditionally raises (prelude.cljc:3434). Two-argument and relative-name calls are not recognized and so hit that refusal.
+2. Rebinding: correct. The callee is bound once to `import_callable`, then `py/import-module?` compares it to the canonical function by ref identity (prelude.cljc:3035). The slow test rebinding `importlib.import_module` to a function returning 73 passes on all three backends, and renaming the `importlib` tokens removes recognition entirely.
+3. Reload: correct. `py/module-run` stores `:body` on the cell (prelude.cljc:3028); `py/reload` checks `sys.modules` identity, runs the body against the original dict, and has no cleanup handler, so a raising body leaves the entry in place (prelude.cljc:3036). The test checks the same ref, the same `:id`, the surviving dynamic attribute, re-evaluated `x`, and the retained cache entry.
+4. Hooks: refused with the specified message. All dict writes go through `py/dict-set` or `py/dict-del-quiet`, which both call the check, and `py/setattr` and `py/delattr` on modules route through them. Reads cover attribute access, subscript, `dict-ref`, and membership. One omission: `from sys import meta_path` raises NotImplementedError rather than ImportError. Acceptable under "explicit unsupported error".
+5. Mutations: the three probes were in-memory and leave no artifact, so I cannot re-run them. Each one is plausibly killed by an existing slow assertion (the 73 return, the `extra` attribute lookup, and the eight-entry refusal vector), so I rate them credible but unverified.
+6. Invariants: linker and engine untouched, no per-language admission, no reader conditionals, no new code identity. One nit: `py/global-set`'s `__import__` refusal duplicates the policy check `py/dict-set` already performs for module dicts.
+
+No actionable P0 findings. Node and Dart lanes were not run here, consistent with the JVM-only constraint, so the portability claim remains untested on those hosts.

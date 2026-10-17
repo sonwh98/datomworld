@@ -1,0 +1,44 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Run B is still executing. I'll wait for its completion notification and resume then — next steps queued: verify scan-test shows exactly the 8 deferred failures, then the generator double-rerun with byte-comparison, then cljstyle + kondo on the touched files.
+
+Run B restarted (ID `bq7sl0nrh`, 2h budget). Waiting for its completion notification — the generator double-rerun, byte-comparison, and cljstyle/kondo stay queued so nothing touches the tree while the lane is live.
+
+Completed-GMT: 2026-10-16 12:06:36 GMT
+Completed-Local: 2026-10-16 19:06:36 +07 (+0700)
+
+# C4 I6 pins round (r4) — verification report
+
+Codex's partial report file was **empty** (cut off before writing it), so this verification starts from the raw diff. Everything below was checked firsthand in this session. Nothing was edited — every check came back green. Nothing staged or committed.
+
+## 1. Per-file provenance judgment (git diff vs HEAD 41b95071)
+
+**`test/resources/yang/python/dht-import-v1.edn`** — mechanical artifact regen via the checked-in generator. 10 lines replaced: the `{:py …}` manifest ref, the `{:units … :republished …}` segment refs, the 3 signed index envelopes (`:own`/`:foreign`/`:republish` — content-derived hashes plus the signatures over them), and the 5 segment payloads. Extra insert-here/delete-there churn is just the hash-sorted dump reordering after hashes changed; both versions are 193 lines. `{:principals …}` (signing identities) untouched — the signing seeds didn't move, only content. **Provenance is proven, not inferred**: generator rerun twice reproduced blob `1ccf00e4…` byte-identically (see §3), so no hand-editing occurred.
+
+**`test/yang/python/antlr/float_address_test.cljc`** — 5 blake3 goldens re-minted from source (bundled prelude `2bc76b3c…`, program A `e0a762bf…`, A' `2de8098a…`, derive record `8728d356…`, prelude-id `231cbc80…`) plus two provenance docstring notes ("re-minted from source on I6 over landed I5"). The **hook-prelude golden `2d387d0d…` is unchanged**, matching the brief's "the hook prelude did not move" — a targeted re-mint, not a blanket hash bump. Correctness is test-verified: `prelude-addresses-test`/`program-addresses-test` compare these constants against live `vm/ast->semantic-bytecode` output.
+
+**`test/yang/python/antlr/linked_prelude_test.cljc`** — manifest pin `4aaaa09b…` → `1fa7f8fc…` (structurally cross-consistent: the same `1fa7f8fc…` is the new `{:py :segment/blake3-…}` row in the .edn, and the old value matched the old row), runtime-keys count pin `66 → 69` (the I6 prelude rows), provenance note. No logic edits anywhere in the round.
+
+**Nothing behavioral** rides this diff: only hashes, one count constant, generated payload lines, and docstrings. The I6 code diff (41b95071) is untouched.
+
+## 2. Test results (JVM, `DATOM_SLOW_TESTS=1`, slow-included)
+
+Run A (`bb test:changed:clj --slow` over the 3 regenerated files): **4 namespaces, 10 tests, 0 failures, 537 s, exit 0** — dht-import-test, float-address-test, linked-prelude-test, dao.jing.cbor-conformance-test.
+
+Run B (same lane over c3-gate/import/scan): **5 namespaces, 35 tests, 8 failures, 2327 s, exit 1** — c3-gate-parser-test, **c3-gate-test** (incl. linked-equals-bundled), **import-test** (incl. the brief's named aliased-and-from / cached-import / catchable-delivery / an-import-free-program-tree-is-unchanged — all green with **no** modification needed; their JVM pins didn't move), cbor-conformance-test green. The 8 failures are **exactly the deferred scan-test goldens**: `[:c4 :py]` ×4 and `[:c4 :t]` ×4 assertion sites (138, 152, 261, 270 in scan_test.cljc), left alone per the standing ruling. Nothing more, nothing else.
+
+Operational note: the first Run B attempt was killed by the harness at its background time cap while mid-import-test (progressing, not hung); the result of record is the full rerun above. Also, direct `clojure -M:test` invocations are approval-gated in this environment, so both lanes ran through the sanctioned `bb test:changed:clj` task, which executes the identical command shape (`clojure -M:test -i :slow -n <nses>` with `DATOM_SLOW_TESTS=1`).
+
+## 3. Generator determinism
+
+`dht-import-v1.generate.clj` invoked exactly per its header, twice: `wrote test/resources/yang/python/dht-import-v1.edn` both times. Blob hash before, after run 1, after run 2: `1ccf00e4eece6f097535935315054937b7051e6f` — **byte-identical all three times**. The file necessarily differs from git HEAD (that delta *is* the prelude-bump regen); the binding acceptance — rerun stays byte-identical after the regen — holds.
+
+## 4. Lint / style
+
+`clj -M:kondo --lint` on both touched .cljc files: **0 errors, 0 warnings**. `cljstyle check` on both: **exit 0** (the .edn is data, not a lint target).
+
+## 5. Incomplete work / notes for the orchestrator
+
+- The 8 deferred scan-test golden failures (`[:c4 :py]`/`[:c4 :t]`) remain open **by design**, awaiting the post-I5/I6 Architect-reviewed regen round.
+- Node/Dart lanes were not rerun this round (the brief's acceptance is the JVM focused run; the Dart lane already ran this tree pre-regen and its 9 reds were the moved pins addressed here).
+- Codex's findings file `1792152000000-engineer-c4-i6-r4-pins.gpt-6.1-sol.findings.md` is empty — this report supersedes it as the round's record.
+- Tree state unchanged from handoff: the same 3 modified files, 5 untracked collab prompts; nothing staged, nothing committed.

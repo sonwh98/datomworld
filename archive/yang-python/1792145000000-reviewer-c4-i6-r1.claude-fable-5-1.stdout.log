@@ -1,0 +1,29 @@
+Status: the review is complete except for the JVM lane. My `-n` run includes the slow I6 runtime tests (no `-e :slow`), so it exercises the linked harness and will take several minutes. I'll finalize the verdict when the background run reports.
+
+Completed-GMT: 2026-10-16 07:43:43 GMT
+Completed-Local: 2026-10-16 14:43:43 +0700
+
+Review of commit 41b95071 (C4 slice I6) against master 7c4dff32, read-only. The JVM import lane run with the slow tests included passes.
+
+| Lane | Result |
+|---|---|
+| `clojure -M:test -n yang.python.antlr.import-test` (slow included) | 50 tests, 436 assertions, 0 failures, 0 errors |
+
+**Ruling conformance (8.5.6, rulings 10 and 11).** Reload re-runs the retained image against the same dict and module object, keeps names the body does not overwrite, leaves external bindings alone, and propagates failure without the failed-first-import cleanup (prelude.cljc:3036-3050). The retained body is the original image, so there is no live code replacement. Hook refusals cover meta_path, path_hooks and sys.path through attribute access, `__dict__`, subscript, `in` and `del`, and refuse writes to `__import__` on builtins. Literal recognition is guarded at execution by callable identity (lower.cljc:1126-1135), so rebinding or aliasing cannot make the compiler pick the wrong callable.
+
+**Rebased union with I5.** The import_module arm emits the same statement-time thunks the SCC rewrite folds into `{:status :ok}`. Temporaries use distinct prefixes on distinct node ids, so no name capture. The callee is evaluated once and the arguments lowered once. Reloading an SCC member re-runs its wrapped body against the same sys.modules entry. The bindings walk with a nil unit resolves relative imports to packageless and never to importlib.
+
+**Test honesty.** The fast tests pin names, call order, single guard site and the requires list. The boundaries test genuinely renames the token. The slow runtime test asserts the failed reload kept its mutation and the module, retained an unrelated name, kept the external binding, caught the ValueError, kept identity, and hit all eight refusals. The callable test executes the lowered guard and flips the callable. Nothing is weakened or vacuous after the rebase.
+
+**Cross-host and prelude scope.** No reader conditionals, no floats in goldens, portable string and sequence functions only. The per-key `get` in the new namespace check returns nil on numeric keys on all three hosts, including the ClojureDart fallback lookup. Prelude edits stay on the module, import and dict surface.
+
+Findings, all P3:
+
+1. **Reload ImportError text drifts** from CPython at prelude.cljc:3049. CPython says `module <name> not in sys.modules`.
+2. **Reloading sys, builtins or importlib raises** at prelude.cljc:3046. CPython treats a built-in module reload as a no-op and returns it.
+3. **No re-entrancy guard** at prelude.cljc:3048. A body reloading its own module recurses, where CPython returns the in-progress module.
+4. **Over-refusal of `__import__`** at prelude.cljc:835-844. Any module-level binding of that name is refused, not just the builtins override. CPython allows the binding. A conservative reading of ruling 11, but it should be documented.
+5. **Extra cell read on every dict operation** from the policy check at prelude.cljc:827-838. The global read path is untouched, so the hottest path is unaffected.
+6. **Reloading `__main__` re-runs the main body**, since run-main retains the body. CPython raises for a spec-less main module.
+
+Verdict: READY (sign-off granted)

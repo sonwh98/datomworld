@@ -1,0 +1,47 @@
+Waiting on the JVM test run (publication, import and dht-import namespaces, slow tests included). Static review findings are complete; I'll compile the final report once the test summary arrives.
+
+Waiting for the publication and dht-import JVM run to report. Nothing else is outstanding; the final report follows once the summary lands.
+
+Waiting for the I5 import runtime tests (mutual import, partial initialization, three-member cycle) to finish on the JVM. The final report follows when they report.
+
+Re-running the five I5 runtime tests with namespace loading restricted to import-test, since the bare var selector loaded every test namespace and tripped on the JVM-only generated ANTLR lexer. Report follows when it completes.
+
+Completed-GMT: 2026-10-14 18:27:02 GMT
+Completed-Local: 2026-10-15 01:27:02 +07
+Coding-Agent: claude
+Session-ID: pending (provider-generated)
+
+**Verdict: not mergeable.** The structural half of I5 (SCC detection, bundle and alias shape, pins, determinism) is sound and its quick tests are green. The runtime half fails: every linked SCC execution test fails on all three VMs. Codex's report was explicit that the slow tier was never run, and that unverified gate is exactly where it breaks. Acceptance criteria 4 and 5 are not met.
+
+**What I ran on the JVM** (slow tests included):
+
+| Run | Result |
+|---|---|
+| `publication-test` (11 tests, incl. slow manifest determinism) | green |
+| `dht-import-test` | 2 failures, the obsolete cycle-refusal test, as Codex predicted |
+| import-test I5 vars (5 tests, 29 assertions) | 18 failures: all 4 runtime tests on semantic, stack and register |
+| kondo on the 4 changed files | 0 errors, 0 warnings |
+| cljstyle check on the 4 changed files | pass |
+
+Findings:
+
+**P0 | src/cljc/yang/python/antlr/lower.cljc:2144 | evidence: every I5 runtime test ends in `ModuleNotFoundError: No module named 'a'` (or `'b'`) at the first `import` in `__main__`, on all three VMs. `py/no-module` is raised by `py/import` (prelude.cljc:3031) only when the delivered body is `:py/None`. The bundle pre-defines each export with `(u/def! % none)` where `none` is `(u/lit :py/None)` (lower.cljc:237), then defines it again in `definitions`. The alias's `(def body pyscc.a$$b/m0-body)` evidently observes the placeholder, so the alias hands `py/import` a `:py/None` body. The prelude's placeholder convention (prelude.cljc:166, 3565) is for internal runtime keys only, never for export keys. | fix: do not redefine export keys. Define each `mN-spec` once (literals carry no forward references), then each `mN-body` once; route the forward sibling reads inside the delivery thunks through one internal module-level cell (for example `(def %members (cell/new {}))` before the bodies, `cell/set!` after each body def, thunk reads `(get (cell/get %members) k)`), which discharges the scanners without a second `yin/def` of an export. Then rerun the five I5 import tests on the JVM before any further review.**
+
+**P1 | test/yang/python/antlr/publication_test.cljc:96, collab findings "Verification" | evidence: no quick test executes an SCC member body; the code-root fixtures and manifest tests pass while linked execution is wholly broken, and the report's mutation table (M1 to M3) only kills structural assertions. The runtime gate was declared "awaits shiva" rather than run. | fix: landing gate must include the JVM slow run of `import-test` I5 vars; add one quick-tier assertion that resolves the alias export values through a linked source rather than only inspecting manifests.**
+
+**P1 | test/yang/python/antlr/dht_import_test.cljc:91 | evidence: `a-cyclic-pair-is-refused-at-publication-by-name-test` now fails (refusal is `:yin.link.publish/invalid-requirement` with `:unit ["ca" "cb"]` because the stand-in `py` address is published against). Also docs/design/yang.antlr.md:3230 still says the publisher refuses cycles. | fix: replace the test with Codex's proposed `cyclic-components-are-ordered-as-one-publication-step-test` and amend the doc line at landing (both outside the engineer's edit boundary, orchestrator call).**
+
+**P2 | src/cljc/yang/python/antlr/publication.cljc:127 | evidence: on a refused bundle publication the result carries `:unit ["ca" "cb"]`, a vector, where every other refusal carries a string unit name; callers matching on `:unit` get a new shape with no doc. | fix: document the vector shape in `publish-units!`'s docstring, or report `:unit (:name bundle)`.**
+
+**P3 | src/cljc/yang/python/antlr/lower.cljc:2099 | evidence: `scc-module-specs` lowers via `lower-module-body` and bypasses `module-packet`'s module-name validation (lower.cljc:1991), so a member named with `$` or `..` is accepted only when it sits in a cycle; `$` collides with the `$$` bundle separator. | fix: run the same name check on each member before building `bundle-name`.**
+
+**P3 | src/cljc/yang/python/antlr/lower.cljc:2080 | evidence: the raised text is `cannot import name 'x' from partially initialized module 'b'`; CPython 3.9's text appends `(most likely due to a circular import)` and a location, and for a `__file__`-less module falls to `(unknown location)` without the hint. The brief's literal string is what the code emits, so this is a spec-fidelity note, not a defect against the brief. | fix: none required; record the chosen text in 8.5.6.**
+
+**P3 | test/yang/python/antlr/publication_test.cljc | evidence: the file is untracked (`??` in git status). | fix: `git add` it at commit.**
+
+Verified sound, with evidence:
+- Kosaraju condensation (publication.cljc:30) is correct: forward post-order, then transposed-graph collection in reverse finish order; members sorted, so the partition and bundle name are input-order independent. The slow determinism test confirmed equal manifests for reversed input. Acyclic order matches I3 (`["k" "t" "m"]`).
+- Pin direction holds: bundle requires drop every member via `dissoc` (lower.cljc:2100), aliases require only the bundle (publication.cljc:129). The with-redefs sequencing test confirms bundle before aliases.
+- Insert-before-execute is untouched (`py/module-run`, prelude.cljc:2991); the initializing flag is set after insertion and cleared in a finally thunk, outside the guest dict.
+- Internal `try-require` edges are replaced by a literal `{:status :ok}` and sibling reads by bare bundle exports, so the bundle has no `pym.<member>` free names.
+- Invariants: no linker or VM edits; identity stays the manifest address; `clojure.walk` and `with-redefs` both have existing cljc precedent, and `data/str-concat` is variadic (data.cljc:495).

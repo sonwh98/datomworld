@@ -1,0 +1,51 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+ExitPlanMode isn't available in this session's tool set, and the review required no edits — it was completed in full under the read-only constraint. Delivering the final report now.
+
+---
+
+Completed-GMT: 2026-10-15 20:06:26 GMT
+Completed-Local: 2026-10-16 03:06:26 Asia/Ho_Chi_Minh
+Coding-Agent: glm
+Session-ID: 6076c0ab-8e67-436c-87c5-68dc73cb7a65
+
+# C4 Slice I5 round 5 — consensus review after rebase onto master (glm, read-only)
+
+Scope reviewed: `git -C /Users/sto/workspace/datomworld-c4-i5 diff origin/master` (committed slice b4f4ab9a + uncommitted round-2/3/4 reconciliation + regenerated fixture), the round-3 review log and round-4 report (both treated as untrusted and re-verified against the code), plus the master range 9fab76c6→9631e6e7. No suites rerun by me (plan-mode read-only); the orchestrator's local run is corroborated independently below. No files edited.
+
+## Check 1 — round-4 fixes complete and correct on the rebased code: **confirmed**
+
+- **P2 (owner option a).** `cyclic-import-from` now ends the concatenation with `"' (most likely due to a circular import)"` (`src/cljc/yang/python/antlr/lower.cljc:2098`), producing exactly `cannot import name 'x' from partially initialized module 'b' (most likely due to a circular import)`. The slow pin (`test/yang/python/antlr/import_test.cljc:1204`) and the amended I5 acceptance bullet (`docs/design/yang.antlr.md:3266`) carry the identical string; a grep for `partially initialized` finds no remaining hybrid pin anywhere in src/test/docs. `data/str-concat` is variadic (`src/cljc/yin/vm/data.cljc:305-310`, registered `[0 :variadic]` at :495), so the 5-operand application is sound; `py/import-fail` exists (`prelude.cljc:3181`).
+- **`:bundles` docstring.** `publish-units!` now documents `:bundles {bundle-symbol address}` and states every bundle name must be asserted/bound alongside member names for aliases to deliver (`publication.cljc:94-101`) — exactly the round-3 ask.
+- **I3 text.** `yang.antlr.md:3229-3231` now records the supersession; `import-cycle` survives only in that note (nothing in `src/` or tests references it).
+- **Two disjoint cycles.** The case is pinned in `components-and-dependency-order-test` expecting `[["a" "b"] ["c" "d"]]`. I hand-traced the Kosaraju implementation (`finish`/`collect`/`order-group`) on that input: finish order `[b a d c]`, groups `{c,d}` then `{a,b}`, group order dependency-first → `[["a" "b"] ["c" "d"]]`. Matches.
+- **Flag-reset regression.** `cyclic-from-import-after-initialization-test` (`import_test.cljc:1258`) is present, guarded slow, and puts the missing-name check inside a bundled body (member `a` importing `b`), so the `cyclic-import-from` wrapper — not just the prelude path — is on the execution path; expected text `cannot import name 'missing' from 'b' (unknown location)` matches the prelude's no-`__file__` branch verbatim (`prelude.cljc:3095-3108`). The r4 mutant evidence (3 VM failures when the two `finally` resets are dropped) is consistent with this construction.
+
+## Check 2 — regenerated `dht-import-v1.edn` consistent with the generator: **confirmed**
+
+- The fixture's guest units m/k/t/e/k2 are acyclic (t imports k only; the I3-era generator succeeded, and under I3 any cycle would have been refused), so the artifact correctly contains **no `pyscc` bundle** — grep count 0.
+- Shape is unchanged: 193 lines, 185 blob lines (old file: 185), blob addresses sorted ascending and unique, same 8 header lines; old and new each reference exactly 7 addresses in the headers with the same 2 non-blob exceptions (`:py`, which never travels, and the retract `:of` envelope key).
+- The new `:py` = `blake3-4aaaa09b…` **equals master's post-phase-8 prelude golden** (`test/yang/python/antlr/linked_prelude_test.cljc:236`) — the regeneration was produced by this branch's publication, not hand-assembled.
+- Internal cross-references check out programmatically: the `:own` envelopes assert `py`/`pym.m`/`pym.k`/`pym.t` at exactly the `:py` header and `:units` addresses; `:republish` asserts `pym.k` at the `:republished` address; `:foreign` asserts `pym.e` at its `:units` address. All unit addresses moved, as they must (each manifest pins `py`'s new address in `:requires`).
+- The three fast dht tests (publication-order pins, including `["k" "t" "m"]` proving I5's `components` preserves I3's acyclic ordering) passed in the orchestrator's rebased-branch run. The full determinism proof (each host regenerates and must equal the artifact) is the slow leg on shiva — scheduled after this review.
+
+## Check 3 — phase-8 cutover breaks nothing I5 assumes: **confirmed**
+
+- Master (9fab76c6→9631e6e7) modified none of the files the I5 commit or working tree touch (empty intersection); under `test/yang` only `prelude_parity_test.cljc` changed (float64 rows). The linked harness was already ported before the old base; `h/backends` still defines `:semantic`, `:stack`, `:register` (`linked_harness.cljc:103-115`), so `on-every-vm`/`every=` `[halted? blocked? output]` contracts hold unchanged.
+- Every post-cutover API the diff uses is exercised by **fast** tests that ran green on the rebased branch: `vm/ast->semantic-bytecode` including the three pinned blake3 roots and `[103 13 13]` row counts (`canonical-code-address-fixtures-test`), and the real-linker bundle lift on every backend (`bundle-closures-lift-without-cells-test`). The orchestrator's 30/188 reconciles exactly with `-e :slow` as cognitect *exclude*: publication 10 + import 17 + dht 3 fast tests — so those runs genuinely covered the new code against the renamed kernel, not just namespace loading.
+- Rebase integrity: the uncommitted 5-file diff is hunk-for-hunk identical to the saved pre-rebase patch `collab/1793411000000-i5-pre-rebase-uncommitted.patch`.
+- The `-13` lines on `docs/orchestrator-log.md` in `diff origin/master` are pure base skew: master's 6b001f87 (docs-only, the phase-8 landing entry) postdates the branch base 9631e6e7; neither the I5 commit nor the working tree edits that file. Land by merge/rebase onto current master and the entry survives. Do not commit any explicit deletion.
+
+## Findings
+
+**P4 | test/yang/python/antlr/dht_import_test.cljc:4-5 | stale ns docstring** | The docstring still says the fast tests pin that "a cyclic pair is refused by name before anything is written" — the test doing exactly that was replaced by this diff with `cyclic-components-are-ordered-as-one-publication-step-test`; the header also still reads "C4 slice I3" while the file now pins I5 behavior. | Fix: one line updating the docstring to the SCC-bundling behavior (or a known-gaps ledger row, Q6-style). Non-blocking.
+
+No other findings. Round 3's checks-that-passed (CPython insert-before-execute semantics, mangling injectivity, canonical shape, purity, alias construction, refusal layers) are unaffected by the rebase: those code paths are byte-identical, and nothing phase-8 changed touches them. Security-wise the slice adds no new surface: no network/exec/crypto, fixture seeds are the long-checked-in public test seeds, refusals stop before aliases (pinned by `alias-refusal-stops-publication-test`/`bundle-refusal-stops-publication-test`), and `with-redefs` appears only in fast tests.
+
+## Ready to commit?
+
+**Yes.** No P0–P2; all five round-3/round-4 reconciliation items verified complete and correct on the rebased code; the regenerated fixture is internally consistent, bundle-free as the acyclic guest set requires, and anchored to master's own prelude golden; the phase-8 cutover breaks no assumption the diff makes. I recommend taking the one-line `dht_import_test.cljc` docstring fix in the same commit, or ledgering it.
+
+**Remaining action** (already scheduled, not blockers): the shiva slow legs — the seven guarded I5 slow tests plus the DHT mesh acceptance against the regenerated fixture (each host's own `generate` must reproduce the artifact byte for byte); the Node and Dart lanes for `publication-test` and `import-test` (round-3's last P3, still owed); and landing by merge/rebase onto current master so the phase-8 orchestrator-log entry is preserved.
+exit=0
