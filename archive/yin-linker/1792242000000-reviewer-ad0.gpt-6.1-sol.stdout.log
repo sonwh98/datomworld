@@ -1,0 +1,2432 @@
+Reading additional input from stdin...
+OpenAI Codex v0.159.3
+--------
+workdir: /Users/sto/workspace/datomworld-ad0
+model: gpt-6.1-sol
+provider: openai
+approval: on-request
+sandbox: read-only
+reasoning effort: low
+reasoning summaries: none
+session id: 01a12edb-22ea-7ad1-98b2-25fa352061d4
+--------
+user
+Created-GMT: 2026-10-12 10:00:00 GMT
+Coding-Agent: codex (gpt-6.1-sol)
+# Task: review AD-0, the admission stream spec (docs only) (read-only)
+Author: claude opus-5-5. Review the UNCOMMITTED docs diff in /Users/sto/workspace/datomworld-ad0 (`git diff HEAD -- docs`: new section 7.5 in docs/design/yin.vm.linker.dht.md plus a bullet in 8.2, the ruling 19 / L-e row / I3 note edits in docs/design/yang.antlr.md 8.5.6, and a paragraph in docs/design/dao.shibi.md). Binding sources: the approved design collab/1792234000000-architect-admission-stream-r3.claude-fable-5-1.findings.md and your round-3 review collab/1792235000000-reviewer-admission-stream-r3.findings.md; the engineer's report collab/1792240000000-writer-ad0.findings.md. Check: (1) the section 7.5 states the design faithfully: datum shapes and closed key sets, ask-after-resolve-before-load, retained-entry binding, parking with no deadline, the retirement interval `base <= k < parked-counter` and exact-origin or `origin + "."` matching, the bounded consuming drain with persisted cursor and gap recovery, `(verify decision context question)` with the composition-bounded synchronous contract and absent/ended snapshot behavior, default interpreter, trust vs safety (an allow never relaxes L-e), conditions reserved empty, fail-closed rules, the exposure statement, the three nits folded in, acceptance lines for AD-1/AD-2/AD-3, the lost-tests statement; (2) no contradiction with the rest of the docs: yin.vm.linker.dht.md 7.4 untouched; the constants quoted (serve-budget 64, pair-capacity 1024) match src/cljc/yin/repl/link.cljc; the 8.2 bullet marks the hook as not yet built; (3) yang.antlr.md: ruling 19 keeps its safety text; the L-e row; the I3 slice row and note now neutral; no leftover "refused until L-e" about principals; tables well-formed; (4) dao.shibi.md: the cross-reference does not weaken its non-goal; (5) nothing in the docs claims behavior the code does not yet have, without a "not yet built" marker; the test-name inconsistency the author flags (`admission-spec-test` vs the design's file `admission_doc_test.cljc`): say which is right. Scope contract: block only on a factual contradiction with the approved design or with the source, or a claim of unbuilt behavior as built; everything else non-blocking with owner. Do not edit; do not run suites. Output: verdict (APPROVE / APPROVE-WITH-NITS / REJECT) first; if none write "No open in-scope P0/P1"; numbered findings with file:line, severity, exact fix. FINAL MESSAGE must contain the complete review beginning with Completed-GMT / Completed-Local lines.
+codex
+I’ll read the docs diff against the approved design, round-3 review, writer report, and source constants. I’ll keep this read-only and won’t run suites.
+exec
+/bin/zsh -lc 'cat docs/design/datom.world.md' in /Users/sto/workspace/datomworld-ad0
+ succeeded in 0ms:
+---
+description: Core philosophy, foundational axioms, invariants, primitives (tuples, streams, host boundaries), architectural commitments, design principles, code style, and development workflow for datom.world
+---
+
+# DATOM.WORLD ARCHITECTURAL FOUNDATIONS & DEVELOPMENT RULES
+
+## Core Philosophy
+
+Everything is data.
+Interpretation > abstraction.
+Explicit causality > implicit assumptions.
+Restrictions are a feature.
+
+### Foundational Axioms
+
+1. **Everything is a Stream**: All IO and data flow through append-only streams.
+2. **Interpretation Creates Semantics**: Data is syntax; semantics only emerge through interpretation (one truth, many perspectives).
+   At system scale, a "system" is an emergent property of interpreters of
+   pure data, not an object, service, or stored artifact. Find the
+   interpreters and the data they share to find the system.
+3. **Code and State are Datoms**: Code (Universal AST) and runtime execution state are structured datoms, enabling syntax independence and structural reflection.
+4. **Everything is a Continuation**: Computation is modeled as serializable, portable continuations that can pause, travel across streams, and resume anywhere.
+
+## Non-Negotiable Invariants
+
+- Do not introduce hidden global state.
+- Do not introduce implicit control flow.
+- Do not introduce callbacks; every callback is an event on a stream.
+- Do not introduce shared mutable state.
+- Do not collapse interpretation and execution into the same layer.
+- Do not assume graphs: graphs must be constructed explicitly from tuples.
+- Do not lose information (unitarity): streams are append-only and no datom is destroyed, only reinterpreted. The Universal AST is never lost: it is always retrievable wherever code is lowered, by address or by a query over its datoms. Every derived form (semantic vector, native images, indexes) is an interpretation of it and may drop facts only because the AST remains.
+
+## Tuples and Datoms
+
+Tuples are elements in an open moduli space, graded by dimension $n$. A tuple can be any dimension/size.
+A datom is the canonical persistent tuple `[e a v t m]` (entity, attribute, value, transaction, metadata). Persistent facts are immutable datoms.
+Source scope belongs to the interpreter, never to an appended tuple slot. Queries keep physical sources as separate db-values and express union or joins explicitly.
+
+See [`docs/design/datom.md`](./datom.md) for full specification.
+
+## Streams
+
+All IO is modeled as a stream. Functions consume streams and produce streams.
+No direct function-to-function coupling without a stream boundary.
+Side effects must appear as stream emissions.
+Streams are values that can be sent through streams.
+Streams carry whatever values the consumer needs: no datom requirement, no privileged payload shape.
+
+A stream has no privileged reader, and its meaning is not in it. Any number
+of interpreters may observe the same medium, and each constructs its own
+semantics from the same batches: a `yin.vm` evaluator observing a program
+stream constructs CESK state and executes it; `dao.space.index` observing
+the very same stream materializes covered indexes, so `dao.space.query/q`
+answers Datalog over the program as it grows. Neither knows the other
+exists. The medium is their only coupling, and each observer's ignorance of
+the other is load-bearing: the evaluator never consults an index to run,
+and the index never evaluates a form to index it. This is how axiom 2
+becomes architecture: one stream, many interpretations, none of them
+the stream's own.
+
+Functions can take anything and return anything.
+Agents are functions, closures, or continuations in `yin.vm` that communicate with the outside world through `dao.stream`. Agent behavior is specified entirely through stream effects.
+
+See [`docs/design/dao.stream.md`](./dao.stream.md) for full stream specification.
+See [`docs/design/yin.vm.streams-all-the-way-down.md`](./yin.vm.streams-all-the-way-down.md) for VM architecture.
+
+### Host Boundaries
+
+A host boundary is a stream boundary, never a function call. The one
+sanctioned function-shaped contact is a `dao.stream` handle operation, whose
+exhaustive outcome map is stream protocol, not an application callback.
+
+**Effects out.** Portable code appends an effect value describing what must
+happen. A host interpreter consumes that stream, performs the operation, and
+appends the outcome. Portable code reads the outcome. Correlation is by
+identity in the data; neither side holds a reference to the other. A host with
+no implementation for an effect emits a qualified unsupported result. That is a
+correct outcome, not a gap to be filled.
+
+**Events in.** When the host initiates (a socket receives, a connection drops,
+a timer fires) the adapter appends one plain-data event and returns. It invokes
+nothing. An interpreter reads that stream and decides what the event means.
+Constructively: **a callback is replaced by a function that transforms an event
+to data on a stream.** The host's demand for a callback stops at that function.
+
+**Adapters.** An adapter is a map of those transform functions. That is all an
+adapter is. It is a value, not a namespace, and it is general: sockets, files,
+timers and windows all deliver events by calling something, and an adapter is
+what they call. Each entry takes the host's arguments and returns one value;
+the append is the adapter's, not the entry's, so an entry cannot return a value
+to the host and cannot invoke application code. The adapter is handed only the
+deposit operation and its own host resource. If its deposit channel fails, it
+may close that resource to make the boundary observably gone; this is teardown,
+not an upward callback.
+
+Host types are classified into plain data in the transform: it is the last
+place holding a host error object, and no host type crosses onto the stream. A
+transport may use a qualified envelope to preserve correlation, lifecycle, and
+additive evolution; that envelope remains plain data and creates no separate
+event mechanism. A composition may likewise define its own qualified vocabulary
+for facts it owns.
+
+Which stream an adapter writes to is the caller's composition, never the
+adapter's knowledge. An adapter cannot tell whether it deposits into one
+transport's private stream or into a medium many interpreters read. This keeps
+the layering one-way: a boundary depends on nothing above it, because whoever
+constructs the adapter supplies the stream.
+
+A transform deposits every event admitted by the boundary protocol and judges
+none of them semantically. Wire framing, decoding, and protocol validation
+happen below the transform: malformed wire input is transport machinery, not an
+event. Once the transport has produced a valid host event, data is syntax
+(axiom 2): an event that is noise to one interpreter is signal to another that
+does not exist yet, and filtering at the depositing layer destroys perspectives
+not yet taken. Retention is the medium's operational policy; meaning is
+interpretation. Neither is the depositor's decision.
+
+Two things are not adapters. One that exposes a function for portable code to
+call isolates the host library but keeps the coupling, and the effect never
+appears as an emission. One that takes a function to invoke has relocated the
+callback, not removed it, even when every value it passes is plain data; if
+that callback has a meaningful return value, it is a synchronous call in both
+directions wearing the shape of an event.
+
+## Architectural Commitments
+
+- **`dao.jing` is syntax, agents are semantics**: the content-addressed encoding stays passive and payload-agnostic.
+- **Macros are stream topology**: an evaluator knows nothing about macro expansion; expansion happens on the syntax side of a medium boundary, upstream of any evaluator.
+- **Peer observers, one stream**: a generic evaluator and `dao.space` independently observe the same stream topic, as described under Streams. This is not a claim about any two consumers regardless of what they consume.
+- **Observers are independent and optional**: nothing requires a medium to have any particular set of consumers. Which observers exist for a stream is a per-composition choice, not a design-time commitment.
+
+## Design Principles
+
+Code quality is measured by malleability: how cheaply can changes adapt without breaking promises?
+Stigmergic coordination emerges from sharing data across streams.
+
+**Systems emerge from interpreters of pure data.** Streams are the
+composition medium; each interpreter gives the same data a perspective
+without collapsing interpretation into execution or owning the truth.
+
+- `dao.space` emerges from `dao.space.index` and `dao.space.query` over
+  ordinary streams.
+- ShiBi capability, metering, and budget emerge from different
+  interpreters over the same tuples; no token object is stored.
+- The four VMs interpret one Universal AST; many syntaxes feed that AST.
+- The semantic AST in `dao.space` is queryable facts projected by the
+  auto-index observer.
+- Client and server are roles in one stigmergic behavior implemented by
+  interpreters, not distinct kinds of nodes.
+
+**Derive, don't persist.** Before adding a tag, slot, or field to any
+canonical content-hashed structure (an AST grammar, a datom schema, a row
+shape), check whether a correctly scoped Datalog query over
+`dao.space.query/q` can already compute the fact. If it can, it belongs as a
+query or projection: new persisted structure migrates every downstream
+consumer and duplicates authority over a fact a query derives fresh. The
+retired `:global` tag in
+[`docs/design/yin.vm.code-as-tuples.md`](./yin.vm.code-as-tuples.md) is the
+case study, including the scoping bug that a naive query introduced.
+
+See [`docs/agents/malleability.md`](../agents/malleability.md) for complete design guidance (cohesion, coupling, bounded complexity, evolution, testing strategy).
+See [`docs/agents/vocabulary.md`](../agents/vocabulary.md) for domain vocabulary reference (biology, economics, physics, philosophy).
+
+## Code Style
+
+- Prefer simple data over rich types.
+- Prefer total functions over partial ones.
+- Prefer declarative pipelines over imperative logic.
+- Avoid cleverness.
+- Name things after what they do to streams.
+
+## Development Workflow
+
+- Do not invent abstractions that hide streams.
+- Do not suggest mainstream frameworks unless explicitly asked.
+- Do not optimize prematurely.
+- When uncertain, ask at the architectural level, not the implementation level.
+- Explanations should align with Plan 9 / Datomic / Lisp lineage.
+- Program store writes go through `engine/store-put`; any other store write
+  the store-write audit (`test/yin/vm/store_write_audit_test.clj`)
+  detects must be on its allowlist; its docstring states the residual it
+  leaves to review.
+
+### Problem Decomposition
+
+If a problem appears complex:
+1. Decompose it into streams.
+2. Identify invariants.
+3. Restrict degrees of freedom.
+4. Make causality explicit.
+5. Let structure emerge from constraints.
+
+## Operational & Specialized Guides
+
+- **Advanced Concepts**: See [`docs/agents/advanced-concepts.md`](../agents/advanced-concepts.md) for parallel transport, capability tokens, and entanglement.
+- **Build & Test**: See [`docs/agents/build-n-test.md`](../agents/build-n-test.md) for build, lint, and test commands and TDD guidelines.
+- **Engineering Team Roster**: See [`docs/agents/team.md`](../agents/team.md) for engineering team roles and LLM model assignments.
+- **Agent Delegation**: See [`docs/agents/roles/orchestrator.md`](../agents/roles/orchestrator.md) for collaboration protocols and delegating tasks or reviews through `agy`, `cmd`, `glm`, `deepseek`, and `codex`; the orchestrator's append-only work log is [`docs/orchestrator-log.md`](../orchestrator-log.md).
+- **Website & Content**: See [`docs/agents/format.md`](../agents/format.md) for `.chp` and `.blog` EDN/Hiccup file specifications.
+
+exec
+/bin/zsh -lc 'git diff HEAD -- docs' in /Users/sto/workspace/datomworld-ad0
+ succeeded in 3262ms:
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-RV3XdoHd' (errno=Operation not permitted)
+2026-10-12 13:44:53.132 xcodebuild[5213:58057923]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-12 13:44:53.482 xcodebuild[5213:58057922] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-xyoI89gV' (errno=Operation not permitted)
+2026-10-12 13:44:54.138 xcodebuild[5218:58057968]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-12 13:44:54.322 xcodebuild[5218:58057967] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+diff --git a/docs/design/dao.shibi.md b/docs/design/dao.shibi.md
+index 4357a10b..3d360f98 100644
+--- a/docs/design/dao.shibi.md
++++ b/docs/design/dao.shibi.md
+@@ -69,6 +69,15 @@ specified: a gate awaiting a per-request answer would wait, and no
+ operation waits. If a later ShiBi needs that path it is an addition beside
+ `verify`, not a change to it.
+ 
++**First consumer shape.** `yin.vm.linker.dht.md` section 7.5, admission,
++is that addition, and the first shape a ShiBi interpreter can take: the
++linker appends a trust question per resolved module onto an admission
++request medium, and one interpreter answers each with
++`(verify decision context question)` over a snapshot, appending the
++answer to a response medium the linker drains. It is an attachment beside
++the gate, not a change to it: the gate still never waits, so the non-goal
++above stands for the gate, and the waiting is the parked link's.
++
+ The contract's refusal outcome is `:dao.stream/refused` and is
+ capability-free (`dao.stream.md`, Result Convention). Lease attribution
+ rests on per-author media and does not depend on ShiBi
+diff --git a/docs/design/yang.antlr.md b/docs/design/yang.antlr.md
+index 26066262..aaf67ec0 100644
+--- a/docs/design/yang.antlr.md
++++ b/docs/design/yang.antlr.md
+@@ -3040,7 +3040,10 @@ dependency-pin checks, primitive and effect admission, and working
+ store-context transitions on all four VMs. Until B lands, a forged
+ `:store-of` could reach the prelude's state. Corrected float publication
+ rebuilds affected derivations, manifests, and dependency pins before any
+-cross-principal address is accepted.
++cross-principal address is accepted. Trust is a separate question:
++which principals' modules a session admits is the admission
++interpreter's answer (`yin.vm.linker.dht.md` section 7.5), and an allow
++never relaxes this check.
+ 
+ Linker prerequisites, the linker seat's to build:
+ 
+@@ -3068,9 +3071,9 @@ Linker prerequisites, the linker seat's to build:
+ | L-d  | `module/try-require` plus deferred dependency       | I4              |
+ |      | admission (ruling 8)                                |                 |
+ +------+-----------------------------------------------------+-----------------+
+-| L-e  | D7 slice B, the origin and store check (ruling 19)  | Foreign-        |
+-|      |                                                     | principal       |
+-|      |                                                     | imports         |
++| L-e  | D7 slice B, the origin and store check (ruling 19)  | Exposure of     |
++|      |                                                     | untrusted-      |
++|      |                                                     | origin closures |
+ +------+-----------------------------------------------------+-----------------+
+ | L-f  | Large-module linking: default bounds, derivation    | P2              |
+ |      | fetch at steps 2 to 4, linear free-name scan        |                 |
+@@ -3102,7 +3105,7 @@ Linker prerequisites, the linker seat's to build:
+ +-------+----------------------------------------------------------------------+
+ | I2    | Packages, mangling, relative imports, `as`, `*`, `__package__`       |
+ +-------+----------------------------------------------------------------------+
+-| I3    | Publication and DHT import; needs L-e for foreign principals         |
++| I3    | Publication and DHT import; admission per `yin.vm.linker.dht.md` 7.5 |
+ +-------+----------------------------------------------------------------------+
+ | I4    | Catchable `ImportError`; needs L-d                                   |
+ +-------+----------------------------------------------------------------------+
+@@ -3218,23 +3221,18 @@ precompiled CST packets or rows, since the parser is JVM-only):
+   message bound, which a `dao.space.dht` node does not let a composition
+   raise, so `py` is the reader's installed runtime (its pinned manifest
+   address, one golden on every host) and the guest modules travel.
+-  Foreign principals are refused, not claimed (ruling 19): a Python link
+-  source passes `principal-admission` as `yin.repl.link/composition`'s
+-  `:admit`, and a name no own principal asserts is refused
+-  `:yang.python.antlr/foreign-principal` naming `:requires :L-e`. The
++  Which principals' modules an import admits is the admission stream's
++  question (`yin.vm.linker.dht.md` section 7.5). The
+   `__all__` of `from m import *` is read by index (CPython's
+   `PySequence_GetItem`), so a generator, set or dict `__all__` raises
+   CPython's `TypeError`, and a range is a sequence; the prelude goldens
+   moved once.
+   I3 gap (REPL): no REPL frontend runs Python under the linked profile.
+-  `principal-admission` is enforced wherever a composition passes
+-  `:admit` to `yin.repl.link/composition`; the DHT import tests do, the
+-  REPL does not. The linked REPL profile is its own slice after F2: a
+-  frontend session keyed by [id revision], one Python task and module
+-  view per profile, and foreign-principal admission applied where a
+-  module is exposed into a session that holds `py`, not only at link
+-  time. Until then ruling 19's interim refusal is not a boundary at the
+-  REPL. Also: `py` is an installed pin on each reader until large blobs
++  The linked REPL profile is its own slice after F2: a frontend session
++  keyed by [id revision] and one Python task and module view per
++  profile. Admission, its REPL wiring and the session's exposure rule
++  are `yin.vm.linker.dht.md` section 7.5 (slices AD-1 to AD-3). Also:
++  `py` is an installed pin on each reader until large blobs
+   travel over the DHT (64 KiB blob cap), and the linker's
+   dependency-binding check is today the only guard over a pinned
+   dependency (discharge does not independently refuse a republished
+diff --git a/docs/design/yin.vm.linker.dht.md b/docs/design/yin.vm.linker.dht.md
+index c910c0cc..81e8216c 100644
+--- a/docs/design/yin.vm.linker.dht.md
++++ b/docs/design/yin.vm.linker.dht.md
+@@ -1857,6 +1857,438 @@ answers one entry per requirement, in walk order:
+ - The check is the early, named form of what discharge would refuse later
+   as `:unresolved-free`; it adds no rule the linker lacks.
+ 
++### 7.5 Admission: the trust question
++
++Status: designed, not implemented. Slices AD-1 (the seam), AD-2 (the
++Python policy) and AD-3 (the REPL) build it; the binding design is
++`collab/1792234000000-architect-admission-stream-r3.claude-fable-5-1.findings.md`
++(approved with nits by
++`collab/1792235000000-reviewer-admission-stream-r3.findings.md`, whose
++three nits are folded in below). It replaces the `:admit` function of
++`yin.repl.link/composition`.
++
++**Pinned by test.** The reason vocabulary of this section and the values
++of `serve-budget` and `pair-capacity` it names are pinned by
++`admission-spec-test` (`test/yin/repl/admission_doc_test.cljc`, landing
++with AD-1): the test reads this section and fails when it and the code
++diverge.
++
++Owner direction (2026-10-12): a module published by another principal is
++not refused automatically. Which principals a session trusts is a
++configurable policy, and the user of a module may choose to trust its
++principal. The policy is an interpreter of a stream, the shape ShiBi
++already has (`dao.shibi.md`).
++
++#### 7.5.1 The datums
++
++When the DHT link source resolves a name, it appends an admission
++question to an **admission request medium**. One interpreter reads the
++questions and appends answers to an **admission response medium**. The
++two ring media sit beside the link pair. The admission id is
++`[link-id serial]`. `serial` is a per-composition counter, never reused,
++so a retired question and a later question for the same link id never
++share an id.
++
++```clojure
++;; question, appended to the admission request medium at resolution
++{:yin.admit/id         [[:t0 7] 3]
++ :yin.link/id          [:t0 7]
++ :yin.admit/name       'pym.m
++ :yin.admit/address    :segment/blake3-...   ; the resolved manifest address, retained
++ :yin.admit/asserters  ["ed25519:<hex>" ...] ; every asserter of that entry (R8)
++ :yin.admit/provenance {...}                 ; the entry's :yin.link/provenance verbatim
++ :yin.link/format      f                     ; the request's own words, no subject
++ :yin.link/contract    "b2"}
++
++;; answers, appended to the admission response medium
++{:yin.admit/id [[:t0 7] 3] :yin.admit/decision :allow  :yin.admit/conditions {}}
++{:yin.admit/id [[:t0 7] 3] :yin.admit/decision :refuse
++ :yin.admit/reason :yin.admit/untrusted-principal :yin.admit/asserters [...]}
++```
++
++- The question's key set is closed: exactly the keys above. No session
++  and no subject travels in it; the subject is the interpreter's context
++  (7.5.6). No key of the question or of the link request is
++  `:yin.admit/subject`, `:yin.admit/session`, or in the `dao.shibi`
++  namespace.
++- The allow answer's key set is closed: `:yin.admit/id`,
++  `:yin.admit/decision :allow` and `:yin.admit/conditions`. A refuse
++  answer carries `:yin.admit/id`, `:yin.admit/decision :refuse` and
++  `:yin.admit/reason`, and may carry further keys, which are copied into
++  the link refusal.
++- A direct `:name-env` entry (provenance `:composition`) is not asked.
++  A non-DHT link source has no admission pair.
++- The link response on allow gains `:yin.admit/id`,
++  `:yin.admit/decision :allow`, `:yin.admit/asserters` and
++  `:yin.admit/address`. A refusal copies into the link refusal shape with
++  the answer's reason and its open keys.
++
++#### 7.5.2 Ask after resolve, before load: the retained entry (F1)
++
++`link/serve` takes `{:pair :source :dht :admission}` and returns
++`{:pair :pending :progress? :dht :admission}`. The admission state is a
++value:
++
++```clojure
++{:pair    {:questions q-medium :answers a-medium :cursor c}  ; c: the composition's answer cursor
++ :asked   {[:t0 7] question}        ; the retained question, at most one per pair in v1
++ :answers {[[:t0 7] 3] answer}      ; drained, keyed by admission id, first answer wins
++ :serial  4}
++```
++
++The question is asked after the name resolves and before any load
++starts. The DHT branch of the link answer takes three cases, in this
++order:
++
++1. **Asked and unanswered.** `:asked` holds an entry for the link id and
++   `:answers` holds nothing under that entry's admission id: the link is
++   pending, and the pending entry carries `:admission <id>` beside
++   `:name` and `:yin.link/id`. The name is not resolved again.
++2. **Asked and answered.** An allow loads the **retained** address, the
++   `:yin.admit/address` of the asked question, never a fresh
++   `resolve-name`. A refuse is the link refusal. When the link response
++   lands, the asked entry and its answer are dropped.
++3. **Not asked.** The name resolves as before. An `:ok` resolution mints
++   the question with the next serial, appends it to the request medium,
++   records it under `:asked`, and reports the link pending with
++   `:admission`. A question append counts as progress. A refused append
++   leaves nothing asked and reports no progress.
++
++**A question-bound link is never refreshed.** Serve stops at the first
++pending request, so at most one question is open per pair, bound to the
++entry it was minted from until an answer lands or the request is retired.
++A head change after the question is asked does not move the address the
++allow loads. If the retained address fails to load after an allow, the
++link is refused as any failed load is, and the asked entry goes with it.
++The user requires again; the new link id gets a new question over the
++head as it then is.
++
++**The registry record.** `engine/link-install` assocs onto the installed
++registry entry, after the module entry is built and before the module is
++received, an `:admission` map `{:yin.admit/id :yin.admit/decision
++:yin.admit/asserters :yin.admit/address}` copied from a response that
++carries `:yin.admit/decision :allow`. Install children inherit entries
++whole and parents receive transferred entries whole, so the record is
++inherited and transferred with them. A direct `:name-env` entry carries
++no `:admission` key.
++
++#### 7.5.3 Parking, with no deadline
++
++A link whose question is unanswered parks. Nothing times it out: there is
++no clock in admission, and liveness belongs to `dao.lease` and to the
++`:link-policy` (8.3). An unanswered question ends only when an answer
++lands or its request is retired by abandonment.
++
++**Abandonment retires the run.** `mint-link-id` emits the current
++counter and then increments it, and child origins are minted the same way
++(origin `:t0.<n>` with `n` the current `:origins`). Both ranges are
++therefore half-open. `(abandon)` computes a run descriptor
++`{:origin :t0 :ids [from until] :children [from until]}` from `base`, the
++parked run's `(:base parked)`, and `parked`, the VM after the abandoned
++installs and links are folded out, with every counter normalized by
++`(or counter 0)`:
++
++- `:ids` is `[(:id-counter base) (:id-counter parked)]`.
++- `:children` is `[(:origins base) (:origins parked)]`.
++
++`(link/retire {:pair :admission} run)` returns
++`{:pair :admission :retired [ids]}`. Walking the link pair's requests with
++`stream/next` from the pair's request cursor, a request with id `[o k]` is
++retired iff:
++
++- `o` is the run's origin and `base <= k < parked-counter`, that is
++  `from <= k < until` of `:ids`; or
++- for some `m` with `from <= m < until` of `:children`, with
++  `child = (str (name origin) "." m)`, `(name o)` equals `child` or starts
++  with `child + "."`, the exact origin or `origin + "."` of that child.
++
++A raw prefix never matches: `"t0.10"` does not start with `"t0.1."`, so
++`:t0.10` is never a descendant of `:t0.1`. Nested install children
++(`:t0.4.0`, `:t0.4.0.2`) match through the `"t0.4."` prefix. Each retired
++request advances the cursor. The first request that is not retired stops
++the walk, keeping serve's stop-at-first-unanswered rule, so a request
++outside the run is never skipped. Retire removes every `:asked` entry
++whose link id was retired and every `:answers` entry under those ids. No
++link response is appended for a retired request: the engine has already
++retired the id, and a response would be `:late`. An answer arriving later
++for a retired id correlates to nothing and the drain drops it.
++
++`:retired` names the run-owned requests the walk still encounters from the
++current cursor, before the first unrelated request. A root request that
++was already answered and spawned an install child is behind the cursor and
++is not in `:retired`; its child's requests are.
++
++#### 7.5.4 The drain: bounded, consuming, with a persisted cursor
++
++One public `(admission/drain admission budget)` returns the successor
++admission state. It reads the response medium with `stream/next` from
++`:pair :cursor`, at most `budget` elements, and persists the cursor past
++everything it read. Every read consumes; nothing peeks.
++
++- **Admission id comparison is keyed by `[link-id serial]`.** `:asked` is
++  keyed by link id, and an answer by its full admission id. An answer `a`
++  is kept only when its id equals the retained question's id for the
++  answer's link id:
++
++  ```clojure
++  (= (:yin.admit/id a)
++     (:yin.admit/id (get asked (first (:yin.admit/id a)))))
++  ```
++
++  and `:answers` holds nothing under that id yet. An answer with a stale
++  serial for a live link id, a duplicate (the first answer wins), and an
++  answer for an unknown or retired id are consumed and dropped.
++- On `:dao.stream/gap` the drain adopts the recovery cursor the transport
++  returns (the earliest retained position, never an evicted one) and
++  continues within the budget. On `:dao.stream/blocked` or
++  `:dao.stream/end` it stops.
++- Serve calls `drain` with `serve-budget` (64) at the start of each round.
++  The host hook (7.5.5) calls the same function.
++- The media have capacity `pair-capacity` (1024) and evict the oldest
++  element. An answer is lost when the unread backlog on the response
++  medium exceeds that capacity; host composition must bound the
++  accumulated backlog through its production rate and its drain cadence.
++  A lost answer leaves its question pending until retirement. There is no
++  re-answer protocol.
++
++#### 7.5.5 Late answers and host driving
++
++All without a clock.
++
++- **In the drive.** `drive-links` runs `admission/serve` right after
++  `link/serve` and assocs its admission successor on the state before the
++  VM runs, so a raising run carries it (below). A round continues while
++  the link serve, the admission serve or the answer drain made progress.
++  With the in-process interpreter one require costs two extra rounds.
++  With none, the drive ends with the link pending, bounded by
++  `link-round-budget` as before.
++- **The host hook.** `(yin.repl/recheck-on-answers state)` is a sibling of
++  `recheck-on-load-events`, called beside it by `yin.repl.main/step-all`
++  (8.2). It drains with `serve-budget`, persists the successor on the
++  state whether or not anything matched, and calls `recheck-pending` once
++  iff a full key of the retained `:answers` map equals the `:admission` id
++  of a pending entry of the pending run. Otherwise it answers
++  `[state' nil]` with no `:checks` change. Irrelevant answers advance the
++  cursor and are gone; a valid answer behind `serve-budget` irrelevant
++  ones is drained on the next tick. With no pending run the hook still
++  drains.
++- **The command path.** `(trust p)` rebuilds the session decision and,
++  when a run is pending, calls `recheck-pending` once.
++- **Error rollback.** The link raise carries the admission successor beside
++  the link pair, and `carry-served` restores it, so after an install that
++  raises the asked entry is dropped, the answer consumed, and the cursor
++  and serial advanced. `(abandon)` uses `retire` on the live state instead.
++
++#### 7.5.6 The interpreter contract
++
++`yin.repl.admission` is composed from
++`{:trusted #{...} :verify f :decision d :decision-medium m}` and answers
++each question with `(verify decision context question)`: nil allows, a
++reason map refuses. The context is composition-owned, built by
++`admission/context` from the session:
++`{:yin.admit/subject "ed25519:<hex>" | nil, :yin.admit/session <token>}`,
++the session token being the shell token now and `[id revision]` once the
++REPL F2 slice lands. Authorization vocabulary stays in the context and the
++policy; the question and the linker carry none.
++
++- **Composition-bounded synchronous verification.** `verify` runs
++  synchronously inside one serve round on one snapshot. Its cost per
++  question is bounded by the composition, and the interpreter answers at
++  most `serve-budget` questions per round. `verify` opens, fetches and
++  waits for nothing; a rule that would need a remote read is a rule the
++  decision snapshot must already hold (`dao.shibi.md`, limits of the
++  adapter contract).
++- **The snapshot.** The decision snapshot is the static `:decision`
++  value, or the newest value on a capacity-1 `:decision-medium`, read once
++  per round. An **absent** snapshot gives no answer: the question stays
++  pending and the round reports no progress. An **ended** snapshot
++  refuses `:yin.admit/decision-ended`, with no load started.
++- **The default interpreter.** The decision is the session's own
++  principal together with the `:trusted` set. It allows when some
++  asserter of the question is in that set, and otherwise refuses
++  `:yin.admit/untrusted-principal` naming the asserters.
++- **Composition.** Policies compose as verify functions; the first reason
++  wins. One interpreter writes the response medium.
++- **At the REPL.** `(trust p)` adds principal `p` to the session's trusted
++  set, `(untrust p)` removes it, and `(trusted)` prints the own principal
++  and the trusted set. `create-state` takes `:admission` beside
++  `:link-policy`, defaulting to the own key from `:dht-key`. `(reset)`
++  drops the trusted set unless it was given in `create-state`.
++
++This is not the gate seam of `dao.shibi.md`. It reuses the `verify`
++signature and the snapshot, but a request read off a stream and answered
++with one decision per request is the path `dao.shibi.md` names as a
++non-goal for the gate, to be added beside `verify`. This section is that
++addition. A ShiBi interpreter later replaces or composes with the default
++one as another verify function over its own published snapshot, with no
++edit to the linker.
++
++#### 7.5.7 Exposure: the session's registry
++
++Admission governs entry into a session's module registry, and
++authorization follows the session and the registry it inherits. A cache
++hit answers a require from the registry without a question; install
++children inherit registry entries; parents receive what children
++installed; `(lang ...)` preserves the registry. One allow therefore
++authorizes every later require of that module in that session.
++
++- `(untrust p)` is not retroactive: it changes only later answers, and a
++  module already in the registry stays usable.
++- `(reset)` and `(vm ...)` start a fresh registry and a fresh admission
++  state.
++
++#### 7.5.8 Trust versus safety
++
++Trust is which principals a session accepts, and it is the admission
++interpreter's answer. Safety is the linker's and L-e's, enforced whatever
++the answer says: closure origin, store ownership, dependency pins and the
++primitives profile (`yang.antlr.md` 8.5.6, ruling 19). **An allow never
++relaxes L-e.** The interpreter sees names, addresses, asserters and
++provenance, never bytes.
++
++**Conditions are reserved empty in v1.** `:yin.admit/conditions` must be
++`{}`. A primitive or effect bound on a trusted module is future work and
++does not land before L-e.
++
++#### 7.5.9 Fail closed
++
++Every reason below is final for that link:
++
++- A DHT link source with a nil `:admission` refuses
++  `:yin.admit/unconfigured`.
++- A malformed answer refuses `:yin.admit/malformed-answer`.
++- An answer with non-empty conditions refuses
++  `:yin.admit/unsupported-condition`.
++- An ended decision snapshot refuses `:yin.admit/decision-ended`.
++- The default interpreter refuses an untrusted asserter set
++  `:yin.admit/untrusted-principal`.
++
++An absent snapshot and an unanswered question never allow; they leave the
++link pending until an answer or retirement.
++
++**Must not land before L-e:** anything that claims untrusted-origin
++imports are safe; a default decision other than own principals; honoring
++any non-empty condition; a weakening of profile or dependency-pin
++discharge or of export-origin validation; admission on the content pair
++or in any frontend. Everything here is AST-level data on streams, so the
++register-VM cutover does not affect it.
++
++#### 7.5.10 Slices and acceptance
++
++**The parked linked-REPL tests are lost.**
++`collab/1792201000000-parked-linked-repl-tests.cljc.txt` is not on disk
++and was never committed. AD-3 and F2 rewrite them from the acceptance
++lines below (F2, F3, P1-1, P1-2, P2-3 of the design), not from memory of
++the parked file.
++
++Order: AD-1 (with AD-0's `admission-spec-test`), then AD-2 and AD-3 in
++either order.
++
++- **AD-0, docs.** This section, the cross-references in `yang.antlr.md`
++  8.5.6 and `dao.shibi.md`, and the 8.2 hook. Its executable check lands
++  with AD-1: a portable test reads this section and asserts that every
++  keyword in `admission/reasons` appears in it, that it names
++  `serve-budget` and `pair-capacity` with the values the vars hold, and
++  that the retire rule contains the literal `origin + "."`.
++- **AD-1, the seam** (linker engineer). `yin.repl.admission` with
++  `make-state`, `context`, `serve`, `drain`, `reasons`; the admission
++  state through `link/serve`; `link/retire`; `:admit` removed; the
++  `link-install` admission record; the `make-session` default state; a
++  nil `:admission` refuses `:yin.admit/unconfigured`. Portable tests in
++  `admission_test.cljc` on hand-made questions and media. Acceptance:
++  - a trusted asserter's module imports on every VM with the admission
++    record and address in the installed and inherited registry entries;
++  - an untrusted one is refused with no load started;
++  - a question append reports progress;
++  - an unanswered question survives sixty-four rounds unchanged;
++  - a duplicate allow is dropped and the first stands;
++  - an answer for an unknown id is consumed and dropped, and an answer
++    with a stale serial for the same link id is dropped;
++  - non-empty conditions refuse `:yin.admit/unsupported-condition`;
++  - a malformed answer refuses `:yin.admit/malformed-answer`;
++  - `retire` passes P1-1 (i) to (iii) below;
++  - `drain` passes P1-2 (ii) gap recovery at the seam;
++  - F4: a recording `verify` receives exactly the snapshot, the context
++    and the question; an absent snapshot leaves the question unanswered
++    after a round and reports no progress; an ended snapshot refuses
++    `:yin.admit/decision-ended` with no load started; no key of the
++    question or the link request is `:yin.admit/subject`,
++    `:yin.admit/session` or namespaced `dao.shibi`;
++  - F1, the head change: publish M1 for `pym.m` under principal B; import
++    on a reader that declares B but trusts nobody in process, so the
++    question stays open; publish a new head of B moving `pym.m` to M2 and
++    step until the follower installs it; append an allow for the open
++    admission id; drive. The response's `:yin.admit/address` is M1's
++    content address, its `:manifest` value equals M1's manifest value,
++    the node holds a module record for M1 and none for M2, the installed
++    registry entry and an install child's inherited entry both carry
++    `:admission` with that id and address, and the pending entry's
++    `:admission` id never changed.
++- **AD-2, Python** (compiler engineer, coordinated with the yang.python
++  orchestrator). `principal-admission` and its ruling 19 docstring
++  paragraph leave `yang.python.antlr.publication`; the DHT import tests
++  move to the default interpreter. Acceptance: no
++  `:yang.python.antlr/foreign-principal` remains; `run-over-dht` runs both
++  interpreters; the published DHT artifact is unchanged; the F1 test
++  lives here because it needs a second head.
++- **AD-3, the REPL** (VM engineer). The session wiring, the host hook,
++  the trust commands, and the rewritten linked-REPL tests in
++  `test/yin/repl/admission_repl_test.cljc`. Acceptance:
++  - `(trust p)` then an import of p's module completes in the same
++    session;
++  - `(untrust p)` refuses the next question of a new session and leaves
++    the cached module usable;
++  - F2, abandon: an open question for `pym.e`, the drive stops;
++    `(abandon)`; require `pym.m`, trusted, on the same session: it
++    completes, and the response medium holds no response for the retired
++    id; append a late allow for the retired id and drive again: nothing is
++    loaded, nothing printed, the pending set stays empty;
++  - P1-1 (i) and (ii) through `(abandon)`;
++  - F3, the late answer: a session composed with an external admission
++    interpreter (none in process); require `pym.m`; the initial drive
++    ends pending with `:admission` on the pending entry;
++    `recheck-on-load-events` with unrelated events answers `[state nil]`;
++    append an allow; `recheck-on-answers` returns text, the next drive
++    loads and links, with no input line and no load event;
++  - P1-2 (i) and (iii) through the host hook;
++  - P2-3, the rollback: allow, then an install that raises, then a
++    require of another module: the new question's serial is greater than
++    the failed one's, `:asked` holds no entry for the failed link id, the
++    answer map holds nothing under the failed admission id, and the next
++    drive reports progress only for the new question;
++  - `(trusted)` prints own plus trusted;
++  - `(reset)` drops the trusted set unless given in `create-state`.
++
++P1-1, retirement:
++
++- (i) A session with absent or zero counters: the first require mints
++  `[:t0 0]` and opens an unanswered admission; `(abandon)`; an unrelated
++  trusted require completes on the same pair.
++- (ii) A nonzero base: two trusted requires first, then a run whose
++  module installs a child that requires another untrusted module
++  (origins `:t0.<n>` and `:t0.<n>.0`); abandon. `:retired` holds exactly
++  the run-owned requests still encountered from the current cursor
++  before the first unrelated request; no run-owned admission remains in
++  `:asked` or `:answers`; an unrelated trusted require completes. Root
++  retirement is exercised separately in the unanswered-root case (i).
++- (iii) `retire` over a pair holding requests from `:t0.1`, `:t0.1.0` and
++  `:t0.10` with `:children [1 2]` retires the first two and stops at the
++  `:t0.10` request.
++
++P1-2, the drain:
++
++- (i) After the initial drive stops, append `serve-budget` answers for
++  unknown ids and then the valid allow; call `recheck-on-answers` alone,
++  at most twice: the require completes, and `:checks` is 0 after the
++  first call.
++- (ii) Gap recovery: a pair built with capacity 4 (`make-pair` gains an
++  optional capacity, default `pair-capacity`); mint the cursor at the
++  oldest end, append six answers for unknown ids and then the valid
++  allow; the drain adopts the recovery cursor on the gap outcome and the
++  require completes within two calls.
++- (iii) `serve-budget` irrelevant answers and no allow, three hook calls:
++  `:checks` stays 0 and the cursor has advanced past all of them.
++
+ ## 8. Evaluation
+ 
+ ### 8.1 Entry
+@@ -1883,6 +2315,10 @@ contract through `IModuleKernel/link-format`, and the `:fallback` policy of
+   cannot happen without a new load.
+ - One re-check serves every pending request in order, so several pending
+   module loads completing in one tick need one re-check.
++- Beside it, `step-all` calls `yin.repl/recheck-on-answers` (7.5.5, not
++  yet built), which drains the admission response medium and re-checks
++  once if and only if a drained answer's admission id is one a pending
++  link waits on. An irrelevant answer changes no `:checks`.
+ - A typed line still re-checks, as today. `(abandon)`, the retained lines,
+   the identity carry and the late-answer skip of M5 are unchanged.
+ - `:link-policy` is consulted exactly as `yin.repl.link-policy.md` 3.2
+
+exec
+/bin/zsh -lc 'cat collab/1792234000000-architect-admission-stream-r3.claude-fable-5-1.findings.md collab/1792235000000-reviewer-admission-stream-r3.findings.md collab/1792240000000-writer-ad0.findings.md' in /Users/sto/workspace/datomworld-ad0
+ succeeded in 0ms:
+ExitPlanMode is not available in this session, so the design below is the deliverable. It is also saved at `/Users/sto/.claude/plans/created-gmt-2026-10-12-08-00-00-gmt-humming-pelican.md`.
+
+Completed-GMT: 2026-10-12 05:58:41 GMT
+Completed-Local: 2026-10-12 12:58:41 +07 (Asia/Bangkok)
+
+**Verdict.** The admission pair stands as accepted in round 2: two ring media beside the link pair, a question as plain data bound to the resolution it was asked about, one interpreter answering, neutral vocabulary, reserved-empty conditions, trust separate from safety, session-wide exposure. F1 and F5 are kept verbatim. Four things change against round 2. Retirement is the half-open interval `base <= k < parked` with absent counters as zero, and descendant origins match on exact origin or `origin + "."`. The host hook is a consuming bounded drain through one shared `admission/drain` with gap recovery, and it rechecks only on a retained pending id. The admission successor rides the link raise and is restored by `carry-served`. The ShiBi contract states the composition-owned cost bound, and AD-0 gets an executable doc-versus-code check. This replaces the round-2 design in full.
+
+## 1. The datums
+
+The admission id is `[link-id serial]`; `serial` is a per-composition counter never reused, so a retired question and a later question for the same link id never share an id.
+
+```clojure
+;; question, appended to the admission request medium at resolution
+{:yin.admit/id         [[:t0 7] 3]
+ :yin.link/id          [:t0 7]
+ :yin.admit/name       'pym.m
+ :yin.admit/address    :segment/blake3-...   ; the resolved manifest address, retained
+ :yin.admit/asserters  ["ed25519:<hex>" ...] ; every asserter of that entry (R8)
+ :yin.admit/provenance {...}                 ; the entry's :yin.link/provenance verbatim
+ :yin.link/format      f                     ; the request's own words, no subject
+ :yin.link/contract    "b2"}
+
+;; answers, appended to the admission response medium
+{:yin.admit/id [[:t0 7] 3] :yin.admit/decision :allow  :yin.admit/conditions {}}
+{:yin.admit/id [[:t0 7] 3] :yin.admit/decision :refuse
+ :yin.admit/reason :yin.admit/untrusted-principal :yin.admit/asserters [...]}
+```
+
+No session or subject travels in the question; the subject is the interpreter's context (section 6). Direct `:name-env` entries, provenance `:composition`, are not asked. Non-DHT sources have no pair. The link response on allow gains `:yin.admit/id`, `:yin.admit/decision :allow`, `:yin.admit/asserters` and `:yin.admit/address`. A refusal copies into the link refusal shape with the answer's reason and open keys. A malformed answer refuses `:yin.admit/malformed-answer`; non-empty conditions refuse `:yin.admit/unsupported-condition`; both are final for that link. A nil `:admission` on a DHT source refuses `:yin.admit/unconfigured`.
+
+## 2. The admission state and the serve round (F1 FIXED, kept)
+
+`link/serve` takes `{:pair :source :dht :admission}` and returns `{:pair :pending :progress? :dht :admission}`.
+
+```clojure
+{:pair    {:questions q-medium :answers a-medium :cursor c}  ; c: the composition's answer cursor
+ :asked   {[:t0 7] question}        ; the retained question, at most one per pair in v1
+ :answers {[[:t0 7] 3] answer}      ; drained, keyed by admission id, first answer wins
+ :serial  4}
+```
+
+The dht branch of `answer` (link.cljc 392-405) becomes three cases, in this order, replacing the `:admit` call at 397-399:
+
+1. **Asked and unanswered.** `(get-in admission [:asked link-id])` exists and `:answers` has nothing under its id: `::pending`, reported with `:admission <id>` in the pending entry beside `:name` and `:yin.link/id`. No re-resolution.
+2. **Asked and answered.** An allow runs `(dht-attempt node declared request (:yin.admit/address asked))` with the retained address (`dht-attempt` already takes an explicit address, link.cljc 330), never a fresh `resolve-name`. A refuse is the body. When the response lands, serve drops the asked entry and its answer.
+3. **Not asked.** `resolve-name` as today. `:ok` mints the question with the next serial, appends it to the question medium, records it under `:asked`, and reports `::pending` with `:admission`. A question append counts as `:progress? true` (F3 depends on this). A refused append leaves nothing asked and reports no progress.
+
+**Draining.** One public `(admission/drain admission budget)` returns the successor admission state. It reads the answer medium with `stream/next` from `:pair :cursor`, at most `budget` elements, keeps an answer only if its id is under `:asked` and not already under `:answers`, consumes and drops duplicates and answers for unknown or retired ids, and persists the cursor past everything read. On `:dao.stream/gap` it adopts the recovery cursor the transport returns (ringbuffer.cljc 91-99: the earliest retained position, never an evicted one) and continues within the budget. On `:dao.stream/blocked` or `:dao.stream/end` it stops. Serve calls `drain` with `serve-budget` at the start of each round; the host hook (section 4) calls the same function. An answer evicted before any drain read it is lost and its question stays open until retire; with capacity 1024 and 64 drained per tick this needs 1024 answers between two ticks, a host assembly defect, not an operating condition, as the pair-capacity docstring (link.cljc 43-49) already says.
+
+**Ruling: a question-bound link is never refreshed.** Serve stops at the first pending request (link.cljc 451-472), so at most one question is open per pair, bound to the entry it was minted from until an answer lands or the request is retired. If the retained address fails to load after an allow, the link is refused as today and the asked entry goes with it. The user re-requires; the new link id gets a new question over the head as it then is.
+
+**Registry record (P2-4).** `engine/link-install` (engine.cljc 1390) rebuilds the entry through `module/link-module` (module.cljc 88-98), whose fixed map drops the response's admission keys. The edit: after `module-entry` and before `receive-module`, assoc onto the entry an `:admission` map `{:yin.admit/id :yin.admit/decision :yin.admit/asserters :yin.admit/address}` copied from the response when it carries `:yin.admit/decision :allow`. `spawn-module` inheritance (engine.cljc 1289-1307) and dependency transfer (1396-1403) copy entries whole minus `:bindings`, so the record is inherited and transferred without further edits. Direct `:name-env` entries carry no `:admission` key.
+
+**F1 test.** Publish M1 for `pym.m` under principal B. Import on a reader that declares B but trusts nobody in process, so the question stays open. Publish a new head of B moving `pym.m` to M2 and step the world until the follower installs it. Append an allow for the open admission id. Drive. Assert the response's `:yin.admit/address` is M1's content address, the response's `:manifest` value equals M1's manifest value, the node holds a module record for M1 and none for M2, the installed registry entry and an install child's inherited entry both carry `:admission` with that id and address, and the pending entry's `:admission` id never changed.
+
+## 3. Retirement (F2, fixed: P1-1)
+
+`mint-link-id` (module.cljc 492-498) emits the **current** counter then increments: base counter 0 mints `[:t0 0]`. Child origins are minted the same way (engine.cljc 1287-1288: origin `:t0.<n>` with `n` the current `:origins`, then `(inc n)`). Both are half-open intervals.
+
+**Run descriptor.** `{:origin :t0 :ids [from until] :children [from until]}` with every counter normalized by `(or counter 0)`:
+
+- `:ids` is `[(:id-counter base) (:id-counter parked)]`.
+- `:children` is `[(:origins base) (:origins parked)]`.
+
+`base` is `(:base parked)`; `parked` is the VM after `engine/abandon-installs` and the `abandon-link` fold, the `vm` already bound in `abandon-pending` (repl.cljc 1391-1432). `carry-link-identity` (1217-1229) takes the max of the same two counters, so the upper bound is what the base inherits.
+
+**Retire predicate.** `(retire {:pair :admission} run)` returns `{:pair :admission :retired [ids]}`. Walking with `stream/next` from the pair's request cursor, a request with id `[o k]` is retired iff:
+
+- `o = (:origin run)` and `from <= k < until` of `:ids`; or
+- for some `m` with `from <= m < until` of `:children`, with `child = (str (name origin) "." m)`, `(name o)` equals `child` or starts with `(str child ".")`.
+
+Never a raw prefix: `"t0.10"` does not start with `"t0.1."`, so `:t0.10` never matches descendant root `:t0.1`. Nested install children (`:t0.4.0`, `:t0.4.0.2`) match through the `"t0.4."` prefix. Each retired request advances the cursor. The first request that is not retired stops the walk, keeping the link.cljc 451 stop-at-first-unanswered rule, so an id outside the run is never skipped. Retire removes every `:asked` entry whose link id was retired and every `:answers` entry under those; a later answer for a retired id correlates to nothing and `drain` drops it. No response is appended for a retired request: the engine already retired the id (`engine/abandon-link`, 1668-1687) and a response would be `:late`.
+
+**Smallest REPL change.** `abandon-pending` computes the descriptor from `(:base parked)` and `vm`, calls `link/retire` on `:link-pair` and `:admission`, and assocs both results on the returned state beside the existing `query/discard-answers`. The docstring sentence "The linker side learns nothing" (1398) becomes "the linker side retires the run's requests". The link policy's abandon runs the same function.
+
+**F2 test (kept).** Open question for `pym.e`, drive stops. `(abandon)`. Require `pym.m`, trusted, on the same session: it completes, and the response medium holds no response for the retired id. Append a late allow for the retired id, drive again: nothing is loaded, nothing printed, the pending set stays empty.
+
+**P1-1 acceptance (new).** (i) Session with absent/zero counters: the first require mints `[:t0 0]`, opens an unanswered admission, `(abandon)`, an unrelated trusted require completes on the same pair. (ii) Nonzero base: two trusted requires first, then a run whose module installs a child that requires another untrusted module (origins `:t0.<n>` and `:t0.<n>.0`); abandon; an unrelated trusted require completes, and `:retired` holds exactly the run's root and child ids. (iii) `retire` over a pair holding requests from `:t0.1`, `:t0.1.0` and `:t0.10` with `:children [1 2]` retires the first two and stops at the `:t0.10` request.
+
+## 4. Late answers and host driving (F3, fixed: P1-2)
+
+All without a clock.
+
+- **In-drive.** `drive-links` (1296-1351) runs `admission/serve` right after `link/serve`, assocs its `:admission` on the state before `vm/run` (so `link-raise` sees it), and the continuation test at 1340 becomes `(or (:progress? served) (:progress? admitted) (:progress? answered))`. With the in-process interpreter one require costs two extra rounds. With none, the drive ends with the link pending, bounded by `link-round-budget` as today.
+- **Host recheck.** New public `(recheck-on-answers state)`, a sibling of `recheck-on-load-events` (1943-1964), called beside it by `yin.repl.main/step-all` (main.cljc 1016). It runs `(admission/drain (:admission state) serve-budget)`, **persists the successor** on `state` whether or not anything matched, then calls `recheck-pending` once iff the retained `:answers` map holds a key whose link id is among the pending entries' `:admission` ids, read from `(get-in state [:pending-run :links])`. Otherwise it answers `[state' nil]` with the drained state and no `:checks` change. Irrelevant answers advance the cursor and are gone; a valid answer behind `serve-budget` irrelevant ones is drained on the next tick. With no pending run the hook still drains and answers `[state' nil]`. `recheck-on-load-events` is unchanged.
+- **The command path.** `(trust p)` rebuilds the session decision and, when a run is pending, calls `recheck-pending` once.
+
+No deadline: an unanswered question ends only by retire. `:checks` counts rechecks that moved nothing (repl.cljc 1898), so the session link policy keeps its say.
+
+**F3 test (kept).** Session composed with an external admission interpreter (none in process). Require `pym.m`; the initial drive ends pending with `:admission` on the pending entry. `recheck-on-load-events` with unrelated events answers `[state nil]`. Append an allow. `recheck-on-answers` returns text, the next drive loads and links, no input line, no load event.
+
+**P1-2 acceptance (new).** (i) After the initial drive stops, append `serve-budget` answers for unknown ids and then the valid allow; call `recheck-on-answers` alone, at most twice: the require completes, and `:checks` is 0 after the first call. (ii) Gap recovery: a pair built with capacity 4 (`make-pair` gains an optional capacity, default `pair-capacity`); mint the cursor at the oldest end, append six answers for unknown ids then the valid allow; `recheck-on-answers` adopts the recovery cursor on the gap outcome and the require completes within two calls. (iii) `serve-budget` irrelevant answers and no allow, three hook calls: `:checks` stays 0 and the cursor has advanced past all of them.
+
+## 5. Error rollback carries admission (P2-3)
+
+`link-raise` (repl.cljc 1232-1245) adds `::admission (:admission state)` to the exception data beside `::link-pair`. `carry-served` (1249-1258) adds `(::admission d) (assoc :admission (::admission d))`. Because `drive-links` assocs the admission successor on `state` before the `vm/run` that may raise, the carried value is the one after the serve that answered: asked entry dropped, answer consumed, cursor and serial advanced. Both callers of `carry-served` (the eval path and the catch in `recheck-pending*`, 1905-1925) restore it with no further edit. `abandon-pending` does not use `carry-served`; it uses `retire` on the live state.
+
+**Acceptance.** Allow, then an install that raises, then a require of another module: the new question's serial is greater than the failed one's, `:asked` holds no entry for the failed link id, the answer map holds nothing under the failed admission id, and the next drive reports progress only for the new question.
+
+## 6. The ShiBi contract (F4, completed)
+
+`yin.repl.admission` is composed from `{:trusted #{...} :verify f :decision d :decision-medium m}` and answers with `(verify decision context question)`: nil allows, a reason map refuses. The context is composition-owned, built by `admission/context` from the session: `{:yin.admit/subject "ed25519:<hex>" | nil, :yin.admit/session <shell token now; [id revision] once the REPL F2 slice lands>}`. Authorization vocabulary stays in context and policy; the question and the linker carry none.
+
+**Cost bound (dao.shibi.md 53-56).** `verify` runs synchronously inside one serve round on one snapshot; its cost per question is bounded by the composition, and the interpreter answers at most `serve-budget` questions per round. `verify` opens, fetches and waits for nothing; a rule that would need a remote read is a rule the decision snapshot must already hold.
+
+The decision snapshot is the static `:decision` value, or the newest value on a capacity-1 `:decision-medium`, read once per round. Absent snapshot: no answer, the question stays pending. Ended snapshot: refuse `:yin.admit/decision-ended`. Default policy: `decision` is `#{own principal} ∪ :trusted`, allow when some asserter is in it, else `:yin.admit/untrusted-principal` naming the asserters. Policies compose as verify functions, first reason wins. One interpreter writes the answer medium.
+
+This is not the gate seam: it reuses the `verify` signature and the snapshot, but a request read off a stream and answered one decision per request is the path dao.shibi.md 65-70 names as a non-goal for the gate, to be added beside `verify`. This design is that addition.
+
+**F4 acceptance (executable, AD-1).** A recording `verify` asserts it received exactly the snapshot, the context and the question; absent snapshot leaves the question unanswered after a round and reports no progress; ended snapshot refuses `:yin.admit/decision-ended` with no load started; no key of the question or the link request is `:yin.admit/subject`, `:yin.admit/session` or namespaced `dao.shibi`.
+
+## 7. Exposure, trust versus safety (unchanged)
+
+Admission governs entry into a session's module registry; the registry follows the session. The cache hit (module.cljc 552-554) answers a require from the registry without a question; install children inherit entries (engine.cljc 1289-1307); parents receive what children installed (1396-1403); `(lang ...)` preserves the registry (repl.cljc 1799, per the review). One allow authorizes every later require of that module in that session; `(reset)` and `(vm ...)` establish a fresh registry and fresh admission state. Untrust changes only later answers. The interpreter sees names, addresses, asserters and provenance, never bytes; the linker and L-e verify closure origin, store ownership, dependency pins and the primitives profile whatever the answer says. Conditions must be empty.
+
+## 8. The edit list
+
+- **(a) Python policy.** Delete `principal-admission` from publication.cljc (130-148) with the ruling 19 paragraph of its docstring. The `:admit` option and its paragraph leave `link/composition` (link.cljc 147-153, 166). The default `yin.repl.admission` policy answers `:yin.admit/untrusted-principal`.
+- **(b) Tests.** `foreign-principals-are-refused-until-l-e-test` (dht_import_test.cljc 111-136) moves to `test/yin/repl/admission_test.cljc` as `an-untrusted-principal-is-refused-by-the-default-interpreter-test`. `foreign-principal-is-refused` (454-474) becomes `an-untrusted-principal-is-refused-on-every-vm`; an allow case trusts B. `run-over-dht` (281-311) mints `(admission/make-state)` beside `make-pair`, passes `:admission` to `link/serve`, runs `admission/serve` on the result with the source's policy, and carries both successors (F5, kept). `source` (314-320) composes `:admission {:trusted #{pa}}`.
+- **(c) Docs.** yang.antlr.md 8.5.6: ruling 19 keeps its safety text plus one sentence that trust is the admission interpreter's; the L-e row blocks "exposure of untrusted-origin closures"; the I3 landing note and gap paragraph point to section 7.5. yin.vm.linker.dht.md: 7.4 unchanged except the mob Q4 fix; 8.2 gains the `recheck-on-answers` hook beside R11.
+- **(d) REPL.** `make-session` (732-770) mints the admission state beside the link pair; `create-state` takes `:admission` beside `:link-policy`, defaulting to the own key from `:dht-key`; `drive-links`, `abandon-pending`, `link-raise`, `carry-served`, `recheck-on-answers`, `(trust p)`, `(untrust p)`, `(trusted)`; the `:admission` entry key in `link-install`; `make-pair` optional capacity.
+- **(e) Spec home.** New section 7.5 "Admission: the trust question" in yin.vm.linker.dht.md: both datums, the state value, the binding rule, the retire interval and prefix rule, the drain and gap rule, the recheck hook, the cost bound, the absent/ended rules, the fail-closed reasons. One paragraph in dao.shibi.md after line 70 naming this interpreter as the addition beside `verify`.
+
+## 9. Slices
+
+**The parked linked-REPL tests are LOST.** `collab/1792201000000-parked-linked-repl-tests.cljc.txt` is not on disk and was never committed. AD-3 rewrites them from the acceptance lines below (F2, F3, P1-1, P1-2, P2-3), not from memory of the parked file.
+
+- **AD-0 docs.** Section 7.5, edits (c) and (e). Architect or writer seat. Acceptance, executable: a portable test `test/yin/repl/admission_doc_test.cljc` (the read-text! helper pattern of dht_test.cljc 78-86) reads section 7.5 and asserts that every keyword in `admission/reasons` (a public set the code refuses from) appears in the section text, that the section names `serve-budget` and `pair-capacity` with the values the vars hold, and that the retire rule text contains the literal `origin + "."`. It fails when doc and code diverge; it lands with AD-1 since it needs `admission/reasons`.
+- **AD-1 seam.** `yin.repl.admission` with `make-state`, `context`, `serve`, `drain`, `reasons`; admission state through `link/serve`; `link/retire`; `:admit` removed; the `link-install` admission record; `make-session` default state; nil `:admission` refuses `:yin.admit/unconfigured`. Linker engineer. Portable tests in `admission_test.cljc` on hand-made questions and media. Acceptance: a trusted asserter's module imports on every VM with the admission record and address in the installed and inherited registry entries; an untrusted one is refused with no load started; a question append reports progress; an unanswered question survives sixty-four rounds unchanged; a duplicate allow is dropped and the first stands; an answer for an unknown id is consumed and dropped; non-empty conditions refuse `:yin.admit/unsupported-condition`; a malformed answer refuses `:yin.admit/malformed-answer`; `retire` passes P1-1 (i)-(iii); `drain` passes P1-2 (ii) gap recovery at the seam; the F4 executable acceptance; the F1 head-change test.
+- **AD-2 Python.** (a) and (b). Compiler engineer, coordinated with the yang.python orchestrator through collab. Acceptance: no `:yang.python.antlr/foreign-principal` remains; `run-over-dht` runs both interpreters; the published DHT artifact is unchanged; the F1 test lives here because it needs a second head.
+- **AD-3 REPL.** (d), `recheck-on-answers`, the trust commands, the rewritten linked-REPL tests in `test/yin/repl/admission_repl_test.cljc`. VM engineer. Acceptance: `(trust p)` then an import of p's module completes in the same session; `(untrust p)` refuses the next question of a new session and leaves the cached module usable; the F2 abandon test; P1-1 (i) and (ii) through `(abandon)`; the F3 late-answer test; P1-2 (i) and (iii) through the host hook; the P2-3 rollback acceptance; `(trusted)` prints own plus trusted; `(reset)` drops the trusted set unless given in `create-state`.
+
+Order: AD-1 (with AD-0's test), then AD-2 and AD-3 in either order.
+
+**Must not land before L-e.** Anything that claims untrusted-origin imports are safe; a default decision other than own principals; honoring any non-empty condition; a weakening of profile or dependency-pin discharge (linker.cljc 1020-1075) or export-origin validation (engine.cljc 1347-1383); admission on the content pair or in any frontend. The register-VM cutover is unaffected: everything here is AST-level data on streams.
+
+## 10. What I would not do
+
+No refresh of a bound question in v1. No retired-id set beyond dropping `:asked`. No timer or deadline in `recheck-on-answers`. No re-answer protocol for an evicted answer. No peeking read anywhere: every read persists its cursor.
+
+## Unverified
+
+- The parked tests file is absent; I could not read it.
+- `(lang ...)` preserving the registry (repl.cljc 1799), linker.cljc 1020-1075 and engine.cljc 1347-1383 are taken from the codex review, not re-read.
+- The provenance key set beyond `:yin.module/asserted-by`.
+- Which head event the follower emits when an installed principal's head moves; the F1 test may need `:confirmed` or `:installed` stepping.
+- That `(:installs vm)` holds no child origin the `:origins` counter misses; the rule relies on engine.cljc 1287-1288 alone.
+- Whether `medium` in link.cljc accepts a capacity other than `pair-capacity` without further plumbing (ringbuffer.cljc 24 takes one; `medium` itself was not read).
+Completed-GMT: 2026-10-12 06:02:58 GMT
+Completed-Local: 2026-10-12 13:02:58 +07 (Asia/Ho_Chi_Minh)
+
+**APPROVE-WITH-NITS**
+
+No open in-scope P0/P1.
+
+Reviewed [round-3 design](/Users/sto/workspace/datomworld/collab/1792234000000-architect-admission-stream-r3.claude-fable-5-1.findings.md) against the specified sources. This approves the architecture and acceptance requirements; implementation remains unverified.
+
+| Requirement | Disposition |
+|---|---|
+| **P1-1 — Retirement** | **FIXED.** R3:58–78 uses `base <= k < parked-counter`, normalizes absent counters to zero, includes upper bounds, and matches child origins by equality or delimiter-qualified prefix. This matches [mint-link-id](/Users/sto/workspace/datomworld/src/cljc/yin/vm/module.cljc:492) and [child-origin allocation](/Users/sto/workspace/datomworld/src/cljc/yin/vm/engine.cljc:1287). `:t0.10` cannot match `:t0.1`. Stopping at the first unrelated request preserves [serve ordering](/Users/sto/workspace/datomworld/src/cljc/yin/repl/link.cljc:451). Acceptance covers zero counters, nonzero counters, nested origins, same-pair reuse, and prefix isolation. |
+| **P1-2 — Answer-drain starvation** | **FIXED.** R3:48/85 persists the successor cursor and matching answers after a bounded consuming drain. Irrelevant traffic advances without calling `recheck-pending`, so it cannot increment `:checks`. Gap recovery adopts [the transport’s earliest-retained cursor](/Users/sto/workspace/datomworld/src/cljc/dao/stream/ringbuffer.cljc:91). R3:92 covers an allow behind one full irrelevant window, gap recovery, and unchanged checks. |
+| **P2 — Error rollback** | **FIXED in the design.** R3:96 carries the full admission successor through [link-raise](/Users/sto/workspace/datomworld/src/cljc/yin/repl.cljc:1232) and [carry-served](/Users/sto/workspace/datomworld/src/cljc/yin/repl.cljc:1249), with state updated before the raising `vm/run`. Acceptance checks serial monotonicity, cleanup, and absence of replay progress. |
+| **P2 — Registry record** | **FIXED in the design.** R3:52 identifies the exact insertion point before `receive-module`; inheritance and dependency transfer retain the entry’s admission record. The F1 acceptance now compares manifest values correctly. |
+| **P2 — ShiBi limits and executable checks** | **FIXED in the design.** R3:104 states composition-bounded synchronous verification over one snapshot, with no opening, fetching, or waiting, consistent with [ShiBi’s contract](/Users/sto/workspace/datomworld/docs/design/dao.shibi.md:53). R3:110 exercises argument identity and absent/ended behavior. AD-0 now specifies an executable comparison against reason vocabulary and actual budget/capacity values. |
+
+F1’s retained-address binding and F5’s portable two-interpreter driver remain intact. The lost-test rewrite obligation and “must not land before L-e” restrictions remain explicit.
+
+The last pass found only these **non-blocking** issues:
+
+1. **P2 — Specify admission-ID comparisons consistently. Owner: admission interpreter engineer and VM engineer.**
+
+   R3:48 says an answer’s id is “under `:asked`,” but `:asked` is keyed by **link id**, while answers use `[link-id serial]`. R3:85 similarly mixes a key’s link-id component with pending entries’ full admission ids.
+
+   **Exact fix:** Retain answer `a` only when:
+   ```clojure
+   (= (:yin.admit/id a)
+      (:yin.admit/id (get asked (:yin.link/id-component a))))
+   ```
+   Here `:yin.link/id-component` denotes the first component of the answer’s admission id, not a new datum field. Prefer spelling the actual extraction directly. Trigger the host recheck when the **full answer-map key** equals a pending entry’s `:admission` value. Add a stale-serial/same-link-id acceptance case.
+
+2. **P2 — Narrow the expected `:retired` set in the nested-install acceptance. Owner: VM engineer.**
+
+   R3:78(ii) requires exactly the run’s root and child ids in `:retired`. A root request that already received its response and spawned an install child is behind the link cursor; the proposed retirement walk cannot report it as newly retired.
+
+   **Exact fix:** Assert that `:retired` contains exactly the run-owned requests still encountered from the current cursor before the first unrelated request. Separately assert that no run-owned admission remains and that the unrelated trusted require completes. Exercise root retirement in the unanswered-root case.
+
+3. **P2 — Correct the answer-ring eviction claim. Owner: architect and host-composition engineer.**
+
+   R3:48 says eviction needs 1024 answers between two ticks. With [evict-oldest transport behavior](/Users/sto/workspace/datomworld/src/cljc/dao/stream/ringbuffer.cljc:125), backlog can accumulate across ticks whenever production exceeds draining; fewer than 1024 arrivals per tick can eventually evict an unread answer.
+
+   **Exact fix:** Replace that claim with: eviction occurs when the unread backlog exceeds capacity. State that host composition must bound accumulated backlog through its production rate and drain cadence. Keep the explicitly chosen lost-answer behavior—pending until retirement—and the gap-recovery acceptance.
+
+Read-only architectural review completed. No files edited or suites run.
+Created-GMT: 2026-10-12 09:30:00 GMT
+Coding-Agent: claude (opus-5-5)
+# AD-0 writer report: the admission stream spec (docs only)
+
+Status: DONE. Docs only, no code or tests touched, no git write commands.
+
+## Changed sections
+
+`git diff --stat`:
+
+```
+ docs/design/dao.shibi.md         |   9 +
+ docs/design/yang.antlr.md        |  32 ++-
+ docs/design/yin.vm.linker.dht.md | 436 +++++++++++++++++++++++++++++++++++++++
+ 3 files changed, 460 insertions(+), 17 deletions(-)
+```
+
+### docs/design/yin.vm.linker.dht.md
+
+- New **7.5 Admission: the trust question** (inserted after 7.4, before 8),
+  with these subsections:
+  - Status, the binding design and review paths, and the marked
+    **"Pinned by test"** sentence: the vocabulary and the
+    `serve-budget`/`pair-capacity` values are pinned by
+    `admission-spec-test` (`test/yin/repl/admission_doc_test.cljc`,
+    landing with AD-1). Then the owner direction.
+  - 7.5.1 The datums: the question and answer shapes from the design,
+    closed key sets, no subject or session in the question,
+    `:name-env`/non-DHT not asked, allow and refuse copy rules.
+  - 7.5.2 Ask after resolve, before load (F1): the state value, the
+    three-case order, the never-refreshed ruling, and the registry
+    `:admission` record (inherited and transferred).
+  - 7.5.3 Parking with no deadline, and abandonment retirement: the
+    half-open `base <= k < parked-counter` with `(or counter 0)`, exact
+    origin or `origin + "."` descendant matching (P1-1), `:t0.10` versus
+    `:t0.1`, stop at the first unrelated request, and the corrected
+    `:retired` expectation (codex nit 2).
+  - 7.5.4 The drain: bounded and consuming, with a persisted cursor and gap
+    recovery (P1-2); the admission id comparison keyed by
+    `[link-id serial]` with the exact predicate (codex nit 1), with stale
+    serials dropped; the corrected ring-eviction statement, "the unread
+    backlog exceeds capacity", with the host bounding its backlog (codex
+    nit 3).
+  - 7.5.5 Late answers and host driving: drive-links, `recheck-on-answers`
+    (recheck iff a full answer-map key equals a pending `:admission` id,
+    codex nit 1), the `(trust p)` command path, and the error rollback
+    (P2-3).
+  - 7.5.6 The interpreter contract: `(verify decision context question)`,
+    the context shape, composition-bounded synchronous verification, the
+    absent snapshot (pending, no progress) and the ended snapshot
+    (`:yin.admit/decision-ended`), the default interpreter (own principal
+    plus the trusted set), composition, `(trust)`/`(untrust)`/`(trusted)`,
+    and "not the gate seam".
+  - 7.5.7 Exposure: authorization follows the session and its inherited
+    registry; untrust is not retroactive; reset and `(vm ...)` start a
+    fresh registry.
+  - 7.5.8 Trust versus safety: an allow never relaxes L-e; conditions are
+    reserved empty in v1.
+  - 7.5.9 Fail closed: the five reasons, plus "Must not land before L-e".
+  - 7.5.10 Slices and acceptance: the statement that the parked tests are
+    LOST and AD-3 and F2 rewrite them from the acceptance lines; the order;
+    and the acceptance for AD-0, AD-1 (including F4 and F1), AD-2 and AD-3
+    (F2, F3, P2-3), with P1-1 (i)-(iii) and P1-2 (i)-(iii) written out.
+- **8.2**: one bullet for the `recheck-on-answers` hook beside R11, per
+  design edit (c), marked as not yet built.
+- **7.4 is untouched.** The diff hunks are only at 1857 (the insertion)
+  and in 8.2.
+
+### docs/design/yang.antlr.md 8.5.6
+
+- The ruling 19 paragraph ("Foreign-principal imports are not claimed
+  ...") keeps its safety text verbatim and gains one sentence saying trust
+  is the admission interpreter's answer (section 7.5) and an allow never
+  relaxes the check.
+- The L-e row's Blocks column now reads "Exposure of untrusted-origin
+  closures" (it was "Foreign-principal imports").
+- The I3 slice row "needs L-e for foreign principals" now reads
+  "admission per `yin.vm.linker.dht.md` 7.5". This is neutral wording
+  found by the grep.
+- In the I3 landing note, the `principal-admission` /
+  `:yang.python.antlr/foreign-principal` / `:requires :L-e` sentence is
+  replaced by a pointer to section 7.5.
+- In the I3 gap paragraph, the `principal-admission`/`:admit` sentences,
+  "foreign-principal admission applied where a module is exposed" and
+  "ruling 19's interim refusal" are replaced by a pointer to section 7.5
+  (AD-1 to AD-3). The `py` pin and dependency-binding gap sentences are
+  unchanged.
+
+### docs/design/dao.shibi.md
+
+- A new paragraph, **First consumer shape**, after the non-goal paragraph
+  (after line 70). It names section 7.5 as that addition beside `verify`
+  and as ShiBi's first consumer shape, an attachment beside the gate. The
+  non-goal stands for the gate.
+
+## Grep proof
+
+`grep -n -i "foreign.principal\|until L-e\|principal-admission\|refused until\|interim refusal\|:requires :L-e" docs/design/*.md`:
+
+```
+docs/design/yang.antlr.md:3034:Foreign-principal imports are not claimed until D7 slice B lands with
+docs/design/yin.repl.dao.space-index.md:277:`dao.space.dht/q`, refused until the index is loaded. The node prints
+docs/design/yin.vm.linker.dht.md:2228:  orchestrator). `principal-admission` and its ruling 19 docstring
+docs/design/yin.vm.linker.dht.md:2231:  `:yang.python.antlr/foreign-principal` remains; `run-over-dht` runs both
+docs/design/yin.vm.linker.dht.md:3458:  still have to declare the foreign principal. Not built; section 7.4
+```
+
+None of these remaining hits calls principal refusal interim until L-e:
+
+- yang.antlr.md 3034 is ruling 19's safety text: imports of other
+  principals are not *claimed safe* until D7 slice B. This is a claim, not
+  a refusal, and the brief says to keep it.
+- yin.repl.dao.space-index.md 277 is about index loading and unrelated.
+- yin.vm.linker.dht.md 2228 and 2231 are AD-2's acceptance, which removes
+  them.
+- yin.vm.linker.dht.md 3458 is the relay deferral in section 13 and
+  unrelated.
+
+No "refused until L-e" phrasing about principals remains.
+
+## Other checks
+
+- **ASCII.** Non-ASCII line counts are unchanged: yin.vm.linker.dht.md 0,
+  dao.shibi.md 0, yang.antlr.md 2 (pre-existing). The design's union sign
+  is written as "together with".
+- **Tables.** The L-e grid table and the slice grid table were re-read, and
+  every row keeps its column widths: L-e rows are 80 columns, and the I3
+  row is the full 70-character scope cell.
+- **Values.** I checked `serve-budget` (64) and `pair-capacity` (1024)
+  against src/cljc/yin/repl/link.cljc 43 and 74.
+
+## Deviations and judgement calls
+
+1. The brief names the check `admission-spec-test`, and the design names
+   the file `test/yin/repl/admission_doc_test.cljc`. The section names
+   both. AD-1 should name the deftest `admission-spec-test` in that file,
+   or the sentence should be adjusted.
+2. I added an 8.2 bullet for `recheck-on-answers`, from design edit (c),
+   which the brief's numbered list did not repeat.
+3. I reworded the I3 slice-table row too, since the grep for "foreign"
+   found it.
+4. The F1 test is listed under both AD-1 and AD-2, as the design does
+   (AD-2 "the F1 test lives here because it needs a second head"). AD-1
+   and AD-2 engineers should settle where it lives; the design is
+   ambiguous.
+5. I left docs/orchestrator-log.md, which is history, unedited even
+   though it holds "foreign-principal" text.
+6. The 7.5 subsection numbering 7.5.1 to 7.5.10 is mine. The design gave
+   only "section 7.5".
+
+exec
+/bin/zsh -lc 'nl -ba collab/1792234000000-architect-admission-stream-r3.claude-fable-5-1.findings.md' in /Users/sto/workspace/datomworld-ad0
+ succeeded in 0ms:
+     1	ExitPlanMode is not available in this session, so the design below is the deliverable. It is also saved at `/Users/sto/.claude/plans/created-gmt-2026-10-12-08-00-00-gmt-humming-pelican.md`.
+     2	
+     3	Completed-GMT: 2026-10-12 05:58:41 GMT
+     4	Completed-Local: 2026-10-12 12:58:41 +07 (Asia/Bangkok)
+     5	
+     6	**Verdict.** The admission pair stands as accepted in round 2: two ring media beside the link pair, a question as plain data bound to the resolution it was asked about, one interpreter answering, neutral vocabulary, reserved-empty conditions, trust separate from safety, session-wide exposure. F1 and F5 are kept verbatim. Four things change against round 2. Retirement is the half-open interval `base <= k < parked` with absent counters as zero, and descendant origins match on exact origin or `origin + "."`. The host hook is a consuming bounded drain through one shared `admission/drain` with gap recovery, and it rechecks only on a retained pending id. The admission successor rides the link raise and is restored by `carry-served`. The ShiBi contract states the composition-owned cost bound, and AD-0 gets an executable doc-versus-code check. This replaces the round-2 design in full.
+     7	
+     8	## 1. The datums
+     9	
+    10	The admission id is `[link-id serial]`; `serial` is a per-composition counter never reused, so a retired question and a later question for the same link id never share an id.
+    11	
+    12	```clojure
+    13	;; question, appended to the admission request medium at resolution
+    14	{:yin.admit/id         [[:t0 7] 3]
+    15	 :yin.link/id          [:t0 7]
+    16	 :yin.admit/name       'pym.m
+    17	 :yin.admit/address    :segment/blake3-...   ; the resolved manifest address, retained
+    18	 :yin.admit/asserters  ["ed25519:<hex>" ...] ; every asserter of that entry (R8)
+    19	 :yin.admit/provenance {...}                 ; the entry's :yin.link/provenance verbatim
+    20	 :yin.link/format      f                     ; the request's own words, no subject
+    21	 :yin.link/contract    "b2"}
+    22	
+    23	;; answers, appended to the admission response medium
+    24	{:yin.admit/id [[:t0 7] 3] :yin.admit/decision :allow  :yin.admit/conditions {}}
+    25	{:yin.admit/id [[:t0 7] 3] :yin.admit/decision :refuse
+    26	 :yin.admit/reason :yin.admit/untrusted-principal :yin.admit/asserters [...]}
+    27	```
+    28	
+    29	No session or subject travels in the question; the subject is the interpreter's context (section 6). Direct `:name-env` entries, provenance `:composition`, are not asked. Non-DHT sources have no pair. The link response on allow gains `:yin.admit/id`, `:yin.admit/decision :allow`, `:yin.admit/asserters` and `:yin.admit/address`. A refusal copies into the link refusal shape with the answer's reason and open keys. A malformed answer refuses `:yin.admit/malformed-answer`; non-empty conditions refuse `:yin.admit/unsupported-condition`; both are final for that link. A nil `:admission` on a DHT source refuses `:yin.admit/unconfigured`.
+    30	
+    31	## 2. The admission state and the serve round (F1 FIXED, kept)
+    32	
+    33	`link/serve` takes `{:pair :source :dht :admission}` and returns `{:pair :pending :progress? :dht :admission}`.
+    34	
+    35	```clojure
+    36	{:pair    {:questions q-medium :answers a-medium :cursor c}  ; c: the composition's answer cursor
+    37	 :asked   {[:t0 7] question}        ; the retained question, at most one per pair in v1
+    38	 :answers {[[:t0 7] 3] answer}      ; drained, keyed by admission id, first answer wins
+    39	 :serial  4}
+    40	```
+    41	
+    42	The dht branch of `answer` (link.cljc 392-405) becomes three cases, in this order, replacing the `:admit` call at 397-399:
+    43	
+    44	1. **Asked and unanswered.** `(get-in admission [:asked link-id])` exists and `:answers` has nothing under its id: `::pending`, reported with `:admission <id>` in the pending entry beside `:name` and `:yin.link/id`. No re-resolution.
+    45	2. **Asked and answered.** An allow runs `(dht-attempt node declared request (:yin.admit/address asked))` with the retained address (`dht-attempt` already takes an explicit address, link.cljc 330), never a fresh `resolve-name`. A refuse is the body. When the response lands, serve drops the asked entry and its answer.
+    46	3. **Not asked.** `resolve-name` as today. `:ok` mints the question with the next serial, appends it to the question medium, records it under `:asked`, and reports `::pending` with `:admission`. A question append counts as `:progress? true` (F3 depends on this). A refused append leaves nothing asked and reports no progress.
+    47	
+    48	**Draining.** One public `(admission/drain admission budget)` returns the successor admission state. It reads the answer medium with `stream/next` from `:pair :cursor`, at most `budget` elements, keeps an answer only if its id is under `:asked` and not already under `:answers`, consumes and drops duplicates and answers for unknown or retired ids, and persists the cursor past everything read. On `:dao.stream/gap` it adopts the recovery cursor the transport returns (ringbuffer.cljc 91-99: the earliest retained position, never an evicted one) and continues within the budget. On `:dao.stream/blocked` or `:dao.stream/end` it stops. Serve calls `drain` with `serve-budget` at the start of each round; the host hook (section 4) calls the same function. An answer evicted before any drain read it is lost and its question stays open until retire; with capacity 1024 and 64 drained per tick this needs 1024 answers between two ticks, a host assembly defect, not an operating condition, as the pair-capacity docstring (link.cljc 43-49) already says.
+    49	
+    50	**Ruling: a question-bound link is never refreshed.** Serve stops at the first pending request (link.cljc 451-472), so at most one question is open per pair, bound to the entry it was minted from until an answer lands or the request is retired. If the retained address fails to load after an allow, the link is refused as today and the asked entry goes with it. The user re-requires; the new link id gets a new question over the head as it then is.
+    51	
+    52	**Registry record (P2-4).** `engine/link-install` (engine.cljc 1390) rebuilds the entry through `module/link-module` (module.cljc 88-98), whose fixed map drops the response's admission keys. The edit: after `module-entry` and before `receive-module`, assoc onto the entry an `:admission` map `{:yin.admit/id :yin.admit/decision :yin.admit/asserters :yin.admit/address}` copied from the response when it carries `:yin.admit/decision :allow`. `spawn-module` inheritance (engine.cljc 1289-1307) and dependency transfer (1396-1403) copy entries whole minus `:bindings`, so the record is inherited and transferred without further edits. Direct `:name-env` entries carry no `:admission` key.
+    53	
+    54	**F1 test.** Publish M1 for `pym.m` under principal B. Import on a reader that declares B but trusts nobody in process, so the question stays open. Publish a new head of B moving `pym.m` to M2 and step the world until the follower installs it. Append an allow for the open admission id. Drive. Assert the response's `:yin.admit/address` is M1's content address, the response's `:manifest` value equals M1's manifest value, the node holds a module record for M1 and none for M2, the installed registry entry and an install child's inherited entry both carry `:admission` with that id and address, and the pending entry's `:admission` id never changed.
+    55	
+    56	## 3. Retirement (F2, fixed: P1-1)
+    57	
+    58	`mint-link-id` (module.cljc 492-498) emits the **current** counter then increments: base counter 0 mints `[:t0 0]`. Child origins are minted the same way (engine.cljc 1287-1288: origin `:t0.<n>` with `n` the current `:origins`, then `(inc n)`). Both are half-open intervals.
+    59	
+    60	**Run descriptor.** `{:origin :t0 :ids [from until] :children [from until]}` with every counter normalized by `(or counter 0)`:
+    61	
+    62	- `:ids` is `[(:id-counter base) (:id-counter parked)]`.
+    63	- `:children` is `[(:origins base) (:origins parked)]`.
+    64	
+    65	`base` is `(:base parked)`; `parked` is the VM after `engine/abandon-installs` and the `abandon-link` fold, the `vm` already bound in `abandon-pending` (repl.cljc 1391-1432). `carry-link-identity` (1217-1229) takes the max of the same two counters, so the upper bound is what the base inherits.
+    66	
+    67	**Retire predicate.** `(retire {:pair :admission} run)` returns `{:pair :admission :retired [ids]}`. Walking with `stream/next` from the pair's request cursor, a request with id `[o k]` is retired iff:
+    68	
+    69	- `o = (:origin run)` and `from <= k < until` of `:ids`; or
+    70	- for some `m` with `from <= m < until` of `:children`, with `child = (str (name origin) "." m)`, `(name o)` equals `child` or starts with `(str child ".")`.
+    71	
+    72	Never a raw prefix: `"t0.10"` does not start with `"t0.1."`, so `:t0.10` never matches descendant root `:t0.1`. Nested install children (`:t0.4.0`, `:t0.4.0.2`) match through the `"t0.4."` prefix. Each retired request advances the cursor. The first request that is not retired stops the walk, keeping the link.cljc 451 stop-at-first-unanswered rule, so an id outside the run is never skipped. Retire removes every `:asked` entry whose link id was retired and every `:answers` entry under those; a later answer for a retired id correlates to nothing and `drain` drops it. No response is appended for a retired request: the engine already retired the id (`engine/abandon-link`, 1668-1687) and a response would be `:late`.
+    73	
+    74	**Smallest REPL change.** `abandon-pending` computes the descriptor from `(:base parked)` and `vm`, calls `link/retire` on `:link-pair` and `:admission`, and assocs both results on the returned state beside the existing `query/discard-answers`. The docstring sentence "The linker side learns nothing" (1398) becomes "the linker side retires the run's requests". The link policy's abandon runs the same function.
+    75	
+    76	**F2 test (kept).** Open question for `pym.e`, drive stops. `(abandon)`. Require `pym.m`, trusted, on the same session: it completes, and the response medium holds no response for the retired id. Append a late allow for the retired id, drive again: nothing is loaded, nothing printed, the pending set stays empty.
+    77	
+    78	**P1-1 acceptance (new).** (i) Session with absent/zero counters: the first require mints `[:t0 0]`, opens an unanswered admission, `(abandon)`, an unrelated trusted require completes on the same pair. (ii) Nonzero base: two trusted requires first, then a run whose module installs a child that requires another untrusted module (origins `:t0.<n>` and `:t0.<n>.0`); abandon; an unrelated trusted require completes, and `:retired` holds exactly the run's root and child ids. (iii) `retire` over a pair holding requests from `:t0.1`, `:t0.1.0` and `:t0.10` with `:children [1 2]` retires the first two and stops at the `:t0.10` request.
+    79	
+    80	## 4. Late answers and host driving (F3, fixed: P1-2)
+    81	
+    82	All without a clock.
+    83	
+    84	- **In-drive.** `drive-links` (1296-1351) runs `admission/serve` right after `link/serve`, assocs its `:admission` on the state before `vm/run` (so `link-raise` sees it), and the continuation test at 1340 becomes `(or (:progress? served) (:progress? admitted) (:progress? answered))`. With the in-process interpreter one require costs two extra rounds. With none, the drive ends with the link pending, bounded by `link-round-budget` as today.
+    85	- **Host recheck.** New public `(recheck-on-answers state)`, a sibling of `recheck-on-load-events` (1943-1964), called beside it by `yin.repl.main/step-all` (main.cljc 1016). It runs `(admission/drain (:admission state) serve-budget)`, **persists the successor** on `state` whether or not anything matched, then calls `recheck-pending` once iff the retained `:answers` map holds a key whose link id is among the pending entries' `:admission` ids, read from `(get-in state [:pending-run :links])`. Otherwise it answers `[state' nil]` with the drained state and no `:checks` change. Irrelevant answers advance the cursor and are gone; a valid answer behind `serve-budget` irrelevant ones is drained on the next tick. With no pending run the hook still drains and answers `[state' nil]`. `recheck-on-load-events` is unchanged.
+    86	- **The command path.** `(trust p)` rebuilds the session decision and, when a run is pending, calls `recheck-pending` once.
+    87	
+    88	No deadline: an unanswered question ends only by retire. `:checks` counts rechecks that moved nothing (repl.cljc 1898), so the session link policy keeps its say.
+    89	
+    90	**F3 test (kept).** Session composed with an external admission interpreter (none in process). Require `pym.m`; the initial drive ends pending with `:admission` on the pending entry. `recheck-on-load-events` with unrelated events answers `[state nil]`. Append an allow. `recheck-on-answers` returns text, the next drive loads and links, no input line, no load event.
+    91	
+    92	**P1-2 acceptance (new).** (i) After the initial drive stops, append `serve-budget` answers for unknown ids and then the valid allow; call `recheck-on-answers` alone, at most twice: the require completes, and `:checks` is 0 after the first call. (ii) Gap recovery: a pair built with capacity 4 (`make-pair` gains an optional capacity, default `pair-capacity`); mint the cursor at the oldest end, append six answers for unknown ids then the valid allow; `recheck-on-answers` adopts the recovery cursor on the gap outcome and the require completes within two calls. (iii) `serve-budget` irrelevant answers and no allow, three hook calls: `:checks` stays 0 and the cursor has advanced past all of them.
+    93	
+    94	## 5. Error rollback carries admission (P2-3)
+    95	
+    96	`link-raise` (repl.cljc 1232-1245) adds `::admission (:admission state)` to the exception data beside `::link-pair`. `carry-served` (1249-1258) adds `(::admission d) (assoc :admission (::admission d))`. Because `drive-links` assocs the admission successor on `state` before the `vm/run` that may raise, the carried value is the one after the serve that answered: asked entry dropped, answer consumed, cursor and serial advanced. Both callers of `carry-served` (the eval path and the catch in `recheck-pending*`, 1905-1925) restore it with no further edit. `abandon-pending` does not use `carry-served`; it uses `retire` on the live state.
+    97	
+    98	**Acceptance.** Allow, then an install that raises, then a require of another module: the new question's serial is greater than the failed one's, `:asked` holds no entry for the failed link id, the answer map holds nothing under the failed admission id, and the next drive reports progress only for the new question.
+    99	
+   100	## 6. The ShiBi contract (F4, completed)
+   101	
+   102	`yin.repl.admission` is composed from `{:trusted #{...} :verify f :decision d :decision-medium m}` and answers with `(verify decision context question)`: nil allows, a reason map refuses. The context is composition-owned, built by `admission/context` from the session: `{:yin.admit/subject "ed25519:<hex>" | nil, :yin.admit/session <shell token now; [id revision] once the REPL F2 slice lands>}`. Authorization vocabulary stays in context and policy; the question and the linker carry none.
+   103	
+   104	**Cost bound (dao.shibi.md 53-56).** `verify` runs synchronously inside one serve round on one snapshot; its cost per question is bounded by the composition, and the interpreter answers at most `serve-budget` questions per round. `verify` opens, fetches and waits for nothing; a rule that would need a remote read is a rule the decision snapshot must already hold.
+   105	
+   106	The decision snapshot is the static `:decision` value, or the newest value on a capacity-1 `:decision-medium`, read once per round. Absent snapshot: no answer, the question stays pending. Ended snapshot: refuse `:yin.admit/decision-ended`. Default policy: `decision` is `#{own principal} ∪ :trusted`, allow when some asserter is in it, else `:yin.admit/untrusted-principal` naming the asserters. Policies compose as verify functions, first reason wins. One interpreter writes the answer medium.
+   107	
+   108	This is not the gate seam: it reuses the `verify` signature and the snapshot, but a request read off a stream and answered one decision per request is the path dao.shibi.md 65-70 names as a non-goal for the gate, to be added beside `verify`. This design is that addition.
+   109	
+   110	**F4 acceptance (executable, AD-1).** A recording `verify` asserts it received exactly the snapshot, the context and the question; absent snapshot leaves the question unanswered after a round and reports no progress; ended snapshot refuses `:yin.admit/decision-ended` with no load started; no key of the question or the link request is `:yin.admit/subject`, `:yin.admit/session` or namespaced `dao.shibi`.
+   111	
+   112	## 7. Exposure, trust versus safety (unchanged)
+   113	
+   114	Admission governs entry into a session's module registry; the registry follows the session. The cache hit (module.cljc 552-554) answers a require from the registry without a question; install children inherit entries (engine.cljc 1289-1307); parents receive what children installed (1396-1403); `(lang ...)` preserves the registry (repl.cljc 1799, per the review). One allow authorizes every later require of that module in that session; `(reset)` and `(vm ...)` establish a fresh registry and fresh admission state. Untrust changes only later answers. The interpreter sees names, addresses, asserters and provenance, never bytes; the linker and L-e verify closure origin, store ownership, dependency pins and the primitives profile whatever the answer says. Conditions must be empty.
+   115	
+   116	## 8. The edit list
+   117	
+   118	- **(a) Python policy.** Delete `principal-admission` from publication.cljc (130-148) with the ruling 19 paragraph of its docstring. The `:admit` option and its paragraph leave `link/composition` (link.cljc 147-153, 166). The default `yin.repl.admission` policy answers `:yin.admit/untrusted-principal`.
+   119	- **(b) Tests.** `foreign-principals-are-refused-until-l-e-test` (dht_import_test.cljc 111-136) moves to `test/yin/repl/admission_test.cljc` as `an-untrusted-principal-is-refused-by-the-default-interpreter-test`. `foreign-principal-is-refused` (454-474) becomes `an-untrusted-principal-is-refused-on-every-vm`; an allow case trusts B. `run-over-dht` (281-311) mints `(admission/make-state)` beside `make-pair`, passes `:admission` to `link/serve`, runs `admission/serve` on the result with the source's policy, and carries both successors (F5, kept). `source` (314-320) composes `:admission {:trusted #{pa}}`.
+   120	- **(c) Docs.** yang.antlr.md 8.5.6: ruling 19 keeps its safety text plus one sentence that trust is the admission interpreter's; the L-e row blocks "exposure of untrusted-origin closures"; the I3 landing note and gap paragraph point to section 7.5. yin.vm.linker.dht.md: 7.4 unchanged except the mob Q4 fix; 8.2 gains the `recheck-on-answers` hook beside R11.
+   121	- **(d) REPL.** `make-session` (732-770) mints the admission state beside the link pair; `create-state` takes `:admission` beside `:link-policy`, defaulting to the own key from `:dht-key`; `drive-links`, `abandon-pending`, `link-raise`, `carry-served`, `recheck-on-answers`, `(trust p)`, `(untrust p)`, `(trusted)`; the `:admission` entry key in `link-install`; `make-pair` optional capacity.
+   122	- **(e) Spec home.** New section 7.5 "Admission: the trust question" in yin.vm.linker.dht.md: both datums, the state value, the binding rule, the retire interval and prefix rule, the drain and gap rule, the recheck hook, the cost bound, the absent/ended rules, the fail-closed reasons. One paragraph in dao.shibi.md after line 70 naming this interpreter as the addition beside `verify`.
+   123	
+   124	## 9. Slices
+   125	
+   126	**The parked linked-REPL tests are LOST.** `collab/1792201000000-parked-linked-repl-tests.cljc.txt` is not on disk and was never committed. AD-3 rewrites them from the acceptance lines below (F2, F3, P1-1, P1-2, P2-3), not from memory of the parked file.
+   127	
+   128	- **AD-0 docs.** Section 7.5, edits (c) and (e). Architect or writer seat. Acceptance, executable: a portable test `test/yin/repl/admission_doc_test.cljc` (the read-text! helper pattern of dht_test.cljc 78-86) reads section 7.5 and asserts that every keyword in `admission/reasons` (a public set the code refuses from) appears in the section text, that the section names `serve-budget` and `pair-capacity` with the values the vars hold, and that the retire rule text contains the literal `origin + "."`. It fails when doc and code diverge; it lands with AD-1 since it needs `admission/reasons`.
+   129	- **AD-1 seam.** `yin.repl.admission` with `make-state`, `context`, `serve`, `drain`, `reasons`; admission state through `link/serve`; `link/retire`; `:admit` removed; the `link-install` admission record; `make-session` default state; nil `:admission` refuses `:yin.admit/unconfigured`. Linker engineer. Portable tests in `admission_test.cljc` on hand-made questions and media. Acceptance: a trusted asserter's module imports on every VM with the admission record and address in the installed and inherited registry entries; an untrusted one is refused with no load started; a question append reports progress; an unanswered question survives sixty-four rounds unchanged; a duplicate allow is dropped and the first stands; an answer for an unknown id is consumed and dropped; non-empty conditions refuse `:yin.admit/unsupported-condition`; a malformed answer refuses `:yin.admit/malformed-answer`; `retire` passes P1-1 (i)-(iii); `drain` passes P1-2 (ii) gap recovery at the seam; the F4 executable acceptance; the F1 head-change test.
+   130	- **AD-2 Python.** (a) and (b). Compiler engineer, coordinated with the yang.python orchestrator through collab. Acceptance: no `:yang.python.antlr/foreign-principal` remains; `run-over-dht` runs both interpreters; the published DHT artifact is unchanged; the F1 test lives here because it needs a second head.
+   131	- **AD-3 REPL.** (d), `recheck-on-answers`, the trust commands, the rewritten linked-REPL tests in `test/yin/repl/admission_repl_test.cljc`. VM engineer. Acceptance: `(trust p)` then an import of p's module completes in the same session; `(untrust p)` refuses the next question of a new session and leaves the cached module usable; the F2 abandon test; P1-1 (i) and (ii) through `(abandon)`; the F3 late-answer test; P1-2 (i) and (iii) through the host hook; the P2-3 rollback acceptance; `(trusted)` prints own plus trusted; `(reset)` drops the trusted set unless given in `create-state`.
+   132	
+   133	Order: AD-1 (with AD-0's test), then AD-2 and AD-3 in either order.
+   134	
+   135	**Must not land before L-e.** Anything that claims untrusted-origin imports are safe; a default decision other than own principals; honoring any non-empty condition; a weakening of profile or dependency-pin discharge (linker.cljc 1020-1075) or export-origin validation (engine.cljc 1347-1383); admission on the content pair or in any frontend. The register-VM cutover is unaffected: everything here is AST-level data on streams.
+   136	
+   137	## 10. What I would not do
+   138	
+   139	No refresh of a bound question in v1. No retired-id set beyond dropping `:asked`. No timer or deadline in `recheck-on-answers`. No re-answer protocol for an evicted answer. No peeking read anywhere: every read persists its cursor.
+   140	
+   141	## Unverified
+   142	
+   143	- The parked tests file is absent; I could not read it.
+   144	- `(lang ...)` preserving the registry (repl.cljc 1799), linker.cljc 1020-1075 and engine.cljc 1347-1383 are taken from the codex review, not re-read.
+   145	- The provenance key set beyond `:yin.module/asserted-by`.
+   146	- Which head event the follower emits when an installed principal's head moves; the F1 test may need `:confirmed` or `:installed` stepping.
+   147	- That `(:installs vm)` holds no child origin the `:origins` counter misses; the rule relies on engine.cljc 1287-1288 alone.
+   148	- Whether `medium` in link.cljc accepts a capacity other than `pair-capacity` without further plumbing (ringbuffer.cljc 24 takes one; `medium` itself was not read).
+
+exec
+/bin/zsh -lc "nl -ba docs/design/yin.vm.linker.dht.md | sed -n '1860,2310p'" in /Users/sto/workspace/datomworld-ad0
+ succeeded in 0ms:
+  1860	### 7.5 Admission: the trust question
+  1861	
+  1862	Status: designed, not implemented. Slices AD-1 (the seam), AD-2 (the
+  1863	Python policy) and AD-3 (the REPL) build it; the binding design is
+  1864	`collab/1792234000000-architect-admission-stream-r3.claude-fable-5-1.findings.md`
+  1865	(approved with nits by
+  1866	`collab/1792235000000-reviewer-admission-stream-r3.findings.md`, whose
+  1867	three nits are folded in below). It replaces the `:admit` function of
+  1868	`yin.repl.link/composition`.
+  1869	
+  1870	**Pinned by test.** The reason vocabulary of this section and the values
+  1871	of `serve-budget` and `pair-capacity` it names are pinned by
+  1872	`admission-spec-test` (`test/yin/repl/admission_doc_test.cljc`, landing
+  1873	with AD-1): the test reads this section and fails when it and the code
+  1874	diverge.
+  1875	
+  1876	Owner direction (2026-10-12): a module published by another principal is
+  1877	not refused automatically. Which principals a session trusts is a
+  1878	configurable policy, and the user of a module may choose to trust its
+  1879	principal. The policy is an interpreter of a stream, the shape ShiBi
+  1880	already has (`dao.shibi.md`).
+  1881	
+  1882	#### 7.5.1 The datums
+  1883	
+  1884	When the DHT link source resolves a name, it appends an admission
+  1885	question to an **admission request medium**. One interpreter reads the
+  1886	questions and appends answers to an **admission response medium**. The
+  1887	two ring media sit beside the link pair. The admission id is
+  1888	`[link-id serial]`. `serial` is a per-composition counter, never reused,
+  1889	so a retired question and a later question for the same link id never
+  1890	share an id.
+  1891	
+  1892	```clojure
+  1893	;; question, appended to the admission request medium at resolution
+  1894	{:yin.admit/id         [[:t0 7] 3]
+  1895	 :yin.link/id          [:t0 7]
+  1896	 :yin.admit/name       'pym.m
+  1897	 :yin.admit/address    :segment/blake3-...   ; the resolved manifest address, retained
+  1898	 :yin.admit/asserters  ["ed25519:<hex>" ...] ; every asserter of that entry (R8)
+  1899	 :yin.admit/provenance {...}                 ; the entry's :yin.link/provenance verbatim
+  1900	 :yin.link/format      f                     ; the request's own words, no subject
+  1901	 :yin.link/contract    "b2"}
+  1902	
+  1903	;; answers, appended to the admission response medium
+  1904	{:yin.admit/id [[:t0 7] 3] :yin.admit/decision :allow  :yin.admit/conditions {}}
+  1905	{:yin.admit/id [[:t0 7] 3] :yin.admit/decision :refuse
+  1906	 :yin.admit/reason :yin.admit/untrusted-principal :yin.admit/asserters [...]}
+  1907	```
+  1908	
+  1909	- The question's key set is closed: exactly the keys above. No session
+  1910	  and no subject travels in it; the subject is the interpreter's context
+  1911	  (7.5.6). No key of the question or of the link request is
+  1912	  `:yin.admit/subject`, `:yin.admit/session`, or in the `dao.shibi`
+  1913	  namespace.
+  1914	- The allow answer's key set is closed: `:yin.admit/id`,
+  1915	  `:yin.admit/decision :allow` and `:yin.admit/conditions`. A refuse
+  1916	  answer carries `:yin.admit/id`, `:yin.admit/decision :refuse` and
+  1917	  `:yin.admit/reason`, and may carry further keys, which are copied into
+  1918	  the link refusal.
+  1919	- A direct `:name-env` entry (provenance `:composition`) is not asked.
+  1920	  A non-DHT link source has no admission pair.
+  1921	- The link response on allow gains `:yin.admit/id`,
+  1922	  `:yin.admit/decision :allow`, `:yin.admit/asserters` and
+  1923	  `:yin.admit/address`. A refusal copies into the link refusal shape with
+  1924	  the answer's reason and its open keys.
+  1925	
+  1926	#### 7.5.2 Ask after resolve, before load: the retained entry (F1)
+  1927	
+  1928	`link/serve` takes `{:pair :source :dht :admission}` and returns
+  1929	`{:pair :pending :progress? :dht :admission}`. The admission state is a
+  1930	value:
+  1931	
+  1932	```clojure
+  1933	{:pair    {:questions q-medium :answers a-medium :cursor c}  ; c: the composition's answer cursor
+  1934	 :asked   {[:t0 7] question}        ; the retained question, at most one per pair in v1
+  1935	 :answers {[[:t0 7] 3] answer}      ; drained, keyed by admission id, first answer wins
+  1936	 :serial  4}
+  1937	```
+  1938	
+  1939	The question is asked after the name resolves and before any load
+  1940	starts. The DHT branch of the link answer takes three cases, in this
+  1941	order:
+  1942	
+  1943	1. **Asked and unanswered.** `:asked` holds an entry for the link id and
+  1944	   `:answers` holds nothing under that entry's admission id: the link is
+  1945	   pending, and the pending entry carries `:admission <id>` beside
+  1946	   `:name` and `:yin.link/id`. The name is not resolved again.
+  1947	2. **Asked and answered.** An allow loads the **retained** address, the
+  1948	   `:yin.admit/address` of the asked question, never a fresh
+  1949	   `resolve-name`. A refuse is the link refusal. When the link response
+  1950	   lands, the asked entry and its answer are dropped.
+  1951	3. **Not asked.** The name resolves as before. An `:ok` resolution mints
+  1952	   the question with the next serial, appends it to the request medium,
+  1953	   records it under `:asked`, and reports the link pending with
+  1954	   `:admission`. A question append counts as progress. A refused append
+  1955	   leaves nothing asked and reports no progress.
+  1956	
+  1957	**A question-bound link is never refreshed.** Serve stops at the first
+  1958	pending request, so at most one question is open per pair, bound to the
+  1959	entry it was minted from until an answer lands or the request is retired.
+  1960	A head change after the question is asked does not move the address the
+  1961	allow loads. If the retained address fails to load after an allow, the
+  1962	link is refused as any failed load is, and the asked entry goes with it.
+  1963	The user requires again; the new link id gets a new question over the
+  1964	head as it then is.
+  1965	
+  1966	**The registry record.** `engine/link-install` assocs onto the installed
+  1967	registry entry, after the module entry is built and before the module is
+  1968	received, an `:admission` map `{:yin.admit/id :yin.admit/decision
+  1969	:yin.admit/asserters :yin.admit/address}` copied from a response that
+  1970	carries `:yin.admit/decision :allow`. Install children inherit entries
+  1971	whole and parents receive transferred entries whole, so the record is
+  1972	inherited and transferred with them. A direct `:name-env` entry carries
+  1973	no `:admission` key.
+  1974	
+  1975	#### 7.5.3 Parking, with no deadline
+  1976	
+  1977	A link whose question is unanswered parks. Nothing times it out: there is
+  1978	no clock in admission, and liveness belongs to `dao.lease` and to the
+  1979	`:link-policy` (8.3). An unanswered question ends only when an answer
+  1980	lands or its request is retired by abandonment.
+  1981	
+  1982	**Abandonment retires the run.** `mint-link-id` emits the current
+  1983	counter and then increments it, and child origins are minted the same way
+  1984	(origin `:t0.<n>` with `n` the current `:origins`). Both ranges are
+  1985	therefore half-open. `(abandon)` computes a run descriptor
+  1986	`{:origin :t0 :ids [from until] :children [from until]}` from `base`, the
+  1987	parked run's `(:base parked)`, and `parked`, the VM after the abandoned
+  1988	installs and links are folded out, with every counter normalized by
+  1989	`(or counter 0)`:
+  1990	
+  1991	- `:ids` is `[(:id-counter base) (:id-counter parked)]`.
+  1992	- `:children` is `[(:origins base) (:origins parked)]`.
+  1993	
+  1994	`(link/retire {:pair :admission} run)` returns
+  1995	`{:pair :admission :retired [ids]}`. Walking the link pair's requests with
+  1996	`stream/next` from the pair's request cursor, a request with id `[o k]` is
+  1997	retired iff:
+  1998	
+  1999	- `o` is the run's origin and `base <= k < parked-counter`, that is
+  2000	  `from <= k < until` of `:ids`; or
+  2001	- for some `m` with `from <= m < until` of `:children`, with
+  2002	  `child = (str (name origin) "." m)`, `(name o)` equals `child` or starts
+  2003	  with `child + "."`, the exact origin or `origin + "."` of that child.
+  2004	
+  2005	A raw prefix never matches: `"t0.10"` does not start with `"t0.1."`, so
+  2006	`:t0.10` is never a descendant of `:t0.1`. Nested install children
+  2007	(`:t0.4.0`, `:t0.4.0.2`) match through the `"t0.4."` prefix. Each retired
+  2008	request advances the cursor. The first request that is not retired stops
+  2009	the walk, keeping serve's stop-at-first-unanswered rule, so a request
+  2010	outside the run is never skipped. Retire removes every `:asked` entry
+  2011	whose link id was retired and every `:answers` entry under those ids. No
+  2012	link response is appended for a retired request: the engine has already
+  2013	retired the id, and a response would be `:late`. An answer arriving later
+  2014	for a retired id correlates to nothing and the drain drops it.
+  2015	
+  2016	`:retired` names the run-owned requests the walk still encounters from the
+  2017	current cursor, before the first unrelated request. A root request that
+  2018	was already answered and spawned an install child is behind the cursor and
+  2019	is not in `:retired`; its child's requests are.
+  2020	
+  2021	#### 7.5.4 The drain: bounded, consuming, with a persisted cursor
+  2022	
+  2023	One public `(admission/drain admission budget)` returns the successor
+  2024	admission state. It reads the response medium with `stream/next` from
+  2025	`:pair :cursor`, at most `budget` elements, and persists the cursor past
+  2026	everything it read. Every read consumes; nothing peeks.
+  2027	
+  2028	- **Admission id comparison is keyed by `[link-id serial]`.** `:asked` is
+  2029	  keyed by link id, and an answer by its full admission id. An answer `a`
+  2030	  is kept only when its id equals the retained question's id for the
+  2031	  answer's link id:
+  2032	
+  2033	  ```clojure
+  2034	  (= (:yin.admit/id a)
+  2035	     (:yin.admit/id (get asked (first (:yin.admit/id a)))))
+  2036	  ```
+  2037	
+  2038	  and `:answers` holds nothing under that id yet. An answer with a stale
+  2039	  serial for a live link id, a duplicate (the first answer wins), and an
+  2040	  answer for an unknown or retired id are consumed and dropped.
+  2041	- On `:dao.stream/gap` the drain adopts the recovery cursor the transport
+  2042	  returns (the earliest retained position, never an evicted one) and
+  2043	  continues within the budget. On `:dao.stream/blocked` or
+  2044	  `:dao.stream/end` it stops.
+  2045	- Serve calls `drain` with `serve-budget` (64) at the start of each round.
+  2046	  The host hook (7.5.5) calls the same function.
+  2047	- The media have capacity `pair-capacity` (1024) and evict the oldest
+  2048	  element. An answer is lost when the unread backlog on the response
+  2049	  medium exceeds that capacity; host composition must bound the
+  2050	  accumulated backlog through its production rate and its drain cadence.
+  2051	  A lost answer leaves its question pending until retirement. There is no
+  2052	  re-answer protocol.
+  2053	
+  2054	#### 7.5.5 Late answers and host driving
+  2055	
+  2056	All without a clock.
+  2057	
+  2058	- **In the drive.** `drive-links` runs `admission/serve` right after
+  2059	  `link/serve` and assocs its admission successor on the state before the
+  2060	  VM runs, so a raising run carries it (below). A round continues while
+  2061	  the link serve, the admission serve or the answer drain made progress.
+  2062	  With the in-process interpreter one require costs two extra rounds.
+  2063	  With none, the drive ends with the link pending, bounded by
+  2064	  `link-round-budget` as before.
+  2065	- **The host hook.** `(yin.repl/recheck-on-answers state)` is a sibling of
+  2066	  `recheck-on-load-events`, called beside it by `yin.repl.main/step-all`
+  2067	  (8.2). It drains with `serve-budget`, persists the successor on the
+  2068	  state whether or not anything matched, and calls `recheck-pending` once
+  2069	  iff a full key of the retained `:answers` map equals the `:admission` id
+  2070	  of a pending entry of the pending run. Otherwise it answers
+  2071	  `[state' nil]` with no `:checks` change. Irrelevant answers advance the
+  2072	  cursor and are gone; a valid answer behind `serve-budget` irrelevant
+  2073	  ones is drained on the next tick. With no pending run the hook still
+  2074	  drains.
+  2075	- **The command path.** `(trust p)` rebuilds the session decision and,
+  2076	  when a run is pending, calls `recheck-pending` once.
+  2077	- **Error rollback.** The link raise carries the admission successor beside
+  2078	  the link pair, and `carry-served` restores it, so after an install that
+  2079	  raises the asked entry is dropped, the answer consumed, and the cursor
+  2080	  and serial advanced. `(abandon)` uses `retire` on the live state instead.
+  2081	
+  2082	#### 7.5.6 The interpreter contract
+  2083	
+  2084	`yin.repl.admission` is composed from
+  2085	`{:trusted #{...} :verify f :decision d :decision-medium m}` and answers
+  2086	each question with `(verify decision context question)`: nil allows, a
+  2087	reason map refuses. The context is composition-owned, built by
+  2088	`admission/context` from the session:
+  2089	`{:yin.admit/subject "ed25519:<hex>" | nil, :yin.admit/session <token>}`,
+  2090	the session token being the shell token now and `[id revision]` once the
+  2091	REPL F2 slice lands. Authorization vocabulary stays in the context and the
+  2092	policy; the question and the linker carry none.
+  2093	
+  2094	- **Composition-bounded synchronous verification.** `verify` runs
+  2095	  synchronously inside one serve round on one snapshot. Its cost per
+  2096	  question is bounded by the composition, and the interpreter answers at
+  2097	  most `serve-budget` questions per round. `verify` opens, fetches and
+  2098	  waits for nothing; a rule that would need a remote read is a rule the
+  2099	  decision snapshot must already hold (`dao.shibi.md`, limits of the
+  2100	  adapter contract).
+  2101	- **The snapshot.** The decision snapshot is the static `:decision`
+  2102	  value, or the newest value on a capacity-1 `:decision-medium`, read once
+  2103	  per round. An **absent** snapshot gives no answer: the question stays
+  2104	  pending and the round reports no progress. An **ended** snapshot
+  2105	  refuses `:yin.admit/decision-ended`, with no load started.
+  2106	- **The default interpreter.** The decision is the session's own
+  2107	  principal together with the `:trusted` set. It allows when some
+  2108	  asserter of the question is in that set, and otherwise refuses
+  2109	  `:yin.admit/untrusted-principal` naming the asserters.
+  2110	- **Composition.** Policies compose as verify functions; the first reason
+  2111	  wins. One interpreter writes the response medium.
+  2112	- **At the REPL.** `(trust p)` adds principal `p` to the session's trusted
+  2113	  set, `(untrust p)` removes it, and `(trusted)` prints the own principal
+  2114	  and the trusted set. `create-state` takes `:admission` beside
+  2115	  `:link-policy`, defaulting to the own key from `:dht-key`. `(reset)`
+  2116	  drops the trusted set unless it was given in `create-state`.
+  2117	
+  2118	This is not the gate seam of `dao.shibi.md`. It reuses the `verify`
+  2119	signature and the snapshot, but a request read off a stream and answered
+  2120	with one decision per request is the path `dao.shibi.md` names as a
+  2121	non-goal for the gate, to be added beside `verify`. This section is that
+  2122	addition. A ShiBi interpreter later replaces or composes with the default
+  2123	one as another verify function over its own published snapshot, with no
+  2124	edit to the linker.
+  2125	
+  2126	#### 7.5.7 Exposure: the session's registry
+  2127	
+  2128	Admission governs entry into a session's module registry, and
+  2129	authorization follows the session and the registry it inherits. A cache
+  2130	hit answers a require from the registry without a question; install
+  2131	children inherit registry entries; parents receive what children
+  2132	installed; `(lang ...)` preserves the registry. One allow therefore
+  2133	authorizes every later require of that module in that session.
+  2134	
+  2135	- `(untrust p)` is not retroactive: it changes only later answers, and a
+  2136	  module already in the registry stays usable.
+  2137	- `(reset)` and `(vm ...)` start a fresh registry and a fresh admission
+  2138	  state.
+  2139	
+  2140	#### 7.5.8 Trust versus safety
+  2141	
+  2142	Trust is which principals a session accepts, and it is the admission
+  2143	interpreter's answer. Safety is the linker's and L-e's, enforced whatever
+  2144	the answer says: closure origin, store ownership, dependency pins and the
+  2145	primitives profile (`yang.antlr.md` 8.5.6, ruling 19). **An allow never
+  2146	relaxes L-e.** The interpreter sees names, addresses, asserters and
+  2147	provenance, never bytes.
+  2148	
+  2149	**Conditions are reserved empty in v1.** `:yin.admit/conditions` must be
+  2150	`{}`. A primitive or effect bound on a trusted module is future work and
+  2151	does not land before L-e.
+  2152	
+  2153	#### 7.5.9 Fail closed
+  2154	
+  2155	Every reason below is final for that link:
+  2156	
+  2157	- A DHT link source with a nil `:admission` refuses
+  2158	  `:yin.admit/unconfigured`.
+  2159	- A malformed answer refuses `:yin.admit/malformed-answer`.
+  2160	- An answer with non-empty conditions refuses
+  2161	  `:yin.admit/unsupported-condition`.
+  2162	- An ended decision snapshot refuses `:yin.admit/decision-ended`.
+  2163	- The default interpreter refuses an untrusted asserter set
+  2164	  `:yin.admit/untrusted-principal`.
+  2165	
+  2166	An absent snapshot and an unanswered question never allow; they leave the
+  2167	link pending until an answer or retirement.
+  2168	
+  2169	**Must not land before L-e:** anything that claims untrusted-origin
+  2170	imports are safe; a default decision other than own principals; honoring
+  2171	any non-empty condition; a weakening of profile or dependency-pin
+  2172	discharge or of export-origin validation; admission on the content pair
+  2173	or in any frontend. Everything here is AST-level data on streams, so the
+  2174	register-VM cutover does not affect it.
+  2175	
+  2176	#### 7.5.10 Slices and acceptance
+  2177	
+  2178	**The parked linked-REPL tests are lost.**
+  2179	`collab/1792201000000-parked-linked-repl-tests.cljc.txt` is not on disk
+  2180	and was never committed. AD-3 and F2 rewrite them from the acceptance
+  2181	lines below (F2, F3, P1-1, P1-2, P2-3 of the design), not from memory of
+  2182	the parked file.
+  2183	
+  2184	Order: AD-1 (with AD-0's `admission-spec-test`), then AD-2 and AD-3 in
+  2185	either order.
+  2186	
+  2187	- **AD-0, docs.** This section, the cross-references in `yang.antlr.md`
+  2188	  8.5.6 and `dao.shibi.md`, and the 8.2 hook. Its executable check lands
+  2189	  with AD-1: a portable test reads this section and asserts that every
+  2190	  keyword in `admission/reasons` appears in it, that it names
+  2191	  `serve-budget` and `pair-capacity` with the values the vars hold, and
+  2192	  that the retire rule contains the literal `origin + "."`.
+  2193	- **AD-1, the seam** (linker engineer). `yin.repl.admission` with
+  2194	  `make-state`, `context`, `serve`, `drain`, `reasons`; the admission
+  2195	  state through `link/serve`; `link/retire`; `:admit` removed; the
+  2196	  `link-install` admission record; the `make-session` default state; a
+  2197	  nil `:admission` refuses `:yin.admit/unconfigured`. Portable tests in
+  2198	  `admission_test.cljc` on hand-made questions and media. Acceptance:
+  2199	  - a trusted asserter's module imports on every VM with the admission
+  2200	    record and address in the installed and inherited registry entries;
+  2201	  - an untrusted one is refused with no load started;
+  2202	  - a question append reports progress;
+  2203	  - an unanswered question survives sixty-four rounds unchanged;
+  2204	  - a duplicate allow is dropped and the first stands;
+  2205	  - an answer for an unknown id is consumed and dropped, and an answer
+  2206	    with a stale serial for the same link id is dropped;
+  2207	  - non-empty conditions refuse `:yin.admit/unsupported-condition`;
+  2208	  - a malformed answer refuses `:yin.admit/malformed-answer`;
+  2209	  - `retire` passes P1-1 (i) to (iii) below;
+  2210	  - `drain` passes P1-2 (ii) gap recovery at the seam;
+  2211	  - F4: a recording `verify` receives exactly the snapshot, the context
+  2212	    and the question; an absent snapshot leaves the question unanswered
+  2213	    after a round and reports no progress; an ended snapshot refuses
+  2214	    `:yin.admit/decision-ended` with no load started; no key of the
+  2215	    question or the link request is `:yin.admit/subject`,
+  2216	    `:yin.admit/session` or namespaced `dao.shibi`;
+  2217	  - F1, the head change: publish M1 for `pym.m` under principal B; import
+  2218	    on a reader that declares B but trusts nobody in process, so the
+  2219	    question stays open; publish a new head of B moving `pym.m` to M2 and
+  2220	    step until the follower installs it; append an allow for the open
+  2221	    admission id; drive. The response's `:yin.admit/address` is M1's
+  2222	    content address, its `:manifest` value equals M1's manifest value,
+  2223	    the node holds a module record for M1 and none for M2, the installed
+  2224	    registry entry and an install child's inherited entry both carry
+  2225	    `:admission` with that id and address, and the pending entry's
+  2226	    `:admission` id never changed.
+  2227	- **AD-2, Python** (compiler engineer, coordinated with the yang.python
+  2228	  orchestrator). `principal-admission` and its ruling 19 docstring
+  2229	  paragraph leave `yang.python.antlr.publication`; the DHT import tests
+  2230	  move to the default interpreter. Acceptance: no
+  2231	  `:yang.python.antlr/foreign-principal` remains; `run-over-dht` runs both
+  2232	  interpreters; the published DHT artifact is unchanged; the F1 test
+  2233	  lives here because it needs a second head.
+  2234	- **AD-3, the REPL** (VM engineer). The session wiring, the host hook,
+  2235	  the trust commands, and the rewritten linked-REPL tests in
+  2236	  `test/yin/repl/admission_repl_test.cljc`. Acceptance:
+  2237	  - `(trust p)` then an import of p's module completes in the same
+  2238	    session;
+  2239	  - `(untrust p)` refuses the next question of a new session and leaves
+  2240	    the cached module usable;
+  2241	  - F2, abandon: an open question for `pym.e`, the drive stops;
+  2242	    `(abandon)`; require `pym.m`, trusted, on the same session: it
+  2243	    completes, and the response medium holds no response for the retired
+  2244	    id; append a late allow for the retired id and drive again: nothing is
+  2245	    loaded, nothing printed, the pending set stays empty;
+  2246	  - P1-1 (i) and (ii) through `(abandon)`;
+  2247	  - F3, the late answer: a session composed with an external admission
+  2248	    interpreter (none in process); require `pym.m`; the initial drive
+  2249	    ends pending with `:admission` on the pending entry;
+  2250	    `recheck-on-load-events` with unrelated events answers `[state nil]`;
+  2251	    append an allow; `recheck-on-answers` returns text, the next drive
+  2252	    loads and links, with no input line and no load event;
+  2253	  - P1-2 (i) and (iii) through the host hook;
+  2254	  - P2-3, the rollback: allow, then an install that raises, then a
+  2255	    require of another module: the new question's serial is greater than
+  2256	    the failed one's, `:asked` holds no entry for the failed link id, the
+  2257	    answer map holds nothing under the failed admission id, and the next
+  2258	    drive reports progress only for the new question;
+  2259	  - `(trusted)` prints own plus trusted;
+  2260	  - `(reset)` drops the trusted set unless given in `create-state`.
+  2261	
+  2262	P1-1, retirement:
+  2263	
+  2264	- (i) A session with absent or zero counters: the first require mints
+  2265	  `[:t0 0]` and opens an unanswered admission; `(abandon)`; an unrelated
+  2266	  trusted require completes on the same pair.
+  2267	- (ii) A nonzero base: two trusted requires first, then a run whose
+  2268	  module installs a child that requires another untrusted module
+  2269	  (origins `:t0.<n>` and `:t0.<n>.0`); abandon. `:retired` holds exactly
+  2270	  the run-owned requests still encountered from the current cursor
+  2271	  before the first unrelated request; no run-owned admission remains in
+  2272	  `:asked` or `:answers`; an unrelated trusted require completes. Root
+  2273	  retirement is exercised separately in the unanswered-root case (i).
+  2274	- (iii) `retire` over a pair holding requests from `:t0.1`, `:t0.1.0` and
+  2275	  `:t0.10` with `:children [1 2]` retires the first two and stops at the
+  2276	  `:t0.10` request.
+  2277	
+  2278	P1-2, the drain:
+  2279	
+  2280	- (i) After the initial drive stops, append `serve-budget` answers for
+  2281	  unknown ids and then the valid allow; call `recheck-on-answers` alone,
+  2282	  at most twice: the require completes, and `:checks` is 0 after the
+  2283	  first call.
+  2284	- (ii) Gap recovery: a pair built with capacity 4 (`make-pair` gains an
+  2285	  optional capacity, default `pair-capacity`); mint the cursor at the
+  2286	  oldest end, append six answers for unknown ids and then the valid
+  2287	  allow; the drain adopts the recovery cursor on the gap outcome and the
+  2288	  require completes within two calls.
+  2289	- (iii) `serve-budget` irrelevant answers and no allow, three hook calls:
+  2290	  `:checks` stays 0 and the cursor has advanced past all of them.
+  2291	
+  2292	## 8. Evaluation
+  2293	
+  2294	### 8.1 Entry
+  2295	
+  2296	Loaded code enters a session by the flow of `yin.vm.linker.md` 7.2 and 7.3,
+  2297	unchanged: the require parks on the link pair; the interpreter answers under
+  2298	the request's id; the receiving task correlates, discharges obligations
+  2299	against its own live state (step 5b), runs the install child, and lowers its
+  2300	own bindings. This holds on all four VMs: each kernel names its format and
+  2301	contract through `IModuleKernel/link-format`, and the `:fallback` policy of
+  2302	`yin.vm.linker.md` 5.5 applies as composed.
+  2303	
+  2304	### 8.2 Pending and the re-check (R11)
+  2305	
+  2306	- A link the DHT source answers pending records, on the shell's pending
+  2307	  run, the module manifest address whose load it waits on.
+  2308	- `yin.repl.main/step-all` calls `yin.repl/recheck-pending` once in a tick
+  2309	  if and only if that tick's node events hold a `:loaded` or `:load-failed`
+  2310	  event whose `:manifest` is one a pending link waits on.
+
+exec
+/bin/zsh -lc "nl -ba docs/design/dao.shibi.md | sed -n '35,95p'; nl -ba docs/design/yang.antlr.md | sed -n '3025,3120p'; rg -n 'serve-budget|pair-capacity|:admit|admission|foreign.principal|until L-e' src/cljc/yin/repl/link.cljc docs/design/yang.antlr.md" in /Users/sto/workspace/datomworld-ad0
+ succeeded in 0ms:
+    35	  materializes them as `dao.space.index` materializes covered indexes, and
+    36	  publishes the resulting immutable query value, a relation value or an
+    37	  opened published index, as the decision onto the gate's capacity-1
+    38	  decision medium (`dao.stream.middleware.md`, gate). The value published
+    39	  is the tuple space's state at that moment.
+    40	- **Its query interpreter is `verify`**, and `verify` is the required
+    41	  adapter contract: a pure function of one immutable query value, the
+    42	  context and the request, evaluating ShiBi's authorization rules as a
+    43	  Datalog query with the request as bindings, the shape
+    44	  `dao.space.query/q` already has (a query over immutable inputs, opening
+    45	  nothing), and answering nil or a reason.
+    46	- **A `present`**, a pure function of context and request that produces
+    47	  the value carried in `:dao.stream.remote/credential`.
+    48	- **A reason vocabulary** under its own namespace for
+    49	  `:dao.stream.middleware/reason`.
+    50	- **Where use is metered**, the decision facts the gate emits, which the
+    51	  index observes like any other fact stream.
+    52	
+    53	**Limits of the adapter contract**, stated precisely. `verify` runs
+    54	synchronously inside one operation on one snapshot: its cost per operation
+    55	is bounded by the composition, and a query over an opened published index
+    56	resolves only what is already local, because `verify` opens, fetches and
+    57	waits for nothing; a rule that would need a remote read is a rule the index
+    58	must have materialized. Its input is the latest published snapshot, so a
+    59	grant or revocation is effective only once the index has observed and
+    60	published it: staleness is bounded by the index's cadence and the medium's
+    61	eviction, and a policy that must fail closed does so on the `none` marker
+    62	and the `ended` marker. A decision is per call and is not itself a fact
+    63	unless the gate emits it.
+    64	
+    65	**Non-goal in this version.** Request-specific decisions published through
+    66	ordinary streams, the query interpreter reading requests off a stream and
+    67	appending one decision per request for the gate to await, are not
+    68	specified: a gate awaiting a per-request answer would wait, and no
+    69	operation waits. If a later ShiBi needs that path it is an addition beside
+    70	`verify`, not a change to it.
+    71	
+    72	**First consumer shape.** `yin.vm.linker.dht.md` section 7.5, admission,
+    73	is that addition, and the first shape a ShiBi interpreter can take: the
+    74	linker appends a trust question per resolved module onto an admission
+    75	request medium, and one interpreter answers each with
+    76	`(verify decision context question)` over a snapshot, appending the
+    77	answer to a response medium the linker drains. It is an attachment beside
+    78	the gate, not a change to it: the gate still never waits, so the non-goal
+    79	above stands for the gate, and the waiting is the parked link's.
+    80	
+    81	The contract's refusal outcome is `:dao.stream/refused` and is
+    82	capability-free (`dao.stream.md`, Result Convention). Lease attribution
+    83	rests on per-author media and does not depend on ShiBi
+    84	(`dao.stream.remote.md`, section 6; `yin.repl.link-policy.md`).
+    85	
+    86	## What blocks it being load-bearing
+    87	
+    88	`dao.stream.discovery.md`, The ShiBi precondition: ShiBi is a capability
+    89	token in one place and a fungible currency in another, and a currency needs
+    90	double-spend resolution, which is global consensus. Until that decision is
+    91	made, no design may depend on ShiBi for anything beyond the seam above, and
+    92	gating in this repository is an allow-list or a pre-shared value.
+  3025	```
+  3026	
+  3027	The REPL `__main__` persists across submissions (ruling 18): its module
+  3028	object, globals dict, builtin namespace, and import cache. `(reset)` is a
+  3029	new Python process: fresh task-owned runtime state, handler stacks and
+  3030	hook attachments included, while immutable verified code may be reused.
+  3031	Runtime state never merges across frontend revisions, and late results
+  3032	from the old process cannot mutate the new one.
+  3033	
+  3034	Foreign-principal imports are not claimed until D7 slice B lands with
+  3035	its tests (ruling 19), verifying closure origin and store ownership
+  3036	recursively through exports, re-exports, and transitive dependency
+  3037	slices before any executable value is exposed. B is necessary, not
+  3038	sufficient: the claim also needs authenticated publication,
+  3039	dependency-pin checks, primitive and effect admission, and working
+  3040	store-context transitions on all four VMs. Until B lands, a forged
+  3041	`:store-of` could reach the prelude's state. Corrected float publication
+  3042	rebuilds affected derivations, manifests, and dependency pins before any
+  3043	cross-principal address is accepted. Trust is a separate question:
+  3044	which principals' modules a session admits is the admission
+  3045	interpreter's answer (`yin.vm.linker.dht.md` section 7.5), and an allow
+  3046	never relaxes this check.
+  3047	
+  3048	Linker prerequisites, the linker seat's to build:
+  3049	
+  3050	```text
+  3051	+------+-----------------------------------------------------+-----------------+
+  3052	| Item | Scope                                               | Blocks          |
+  3053	+======+=====================================================+=================+
+  3054	| L-a  | Host-export profile requirements in published       | P2              |
+  3055	|      | manifests, enforced end to end (ruling 7). P2       |                 |
+  3056	|      | landed the declaration and discharge half           |                 |
+  3057	|      | (qualified host exports under                       |                 |
+  3058	|      | `:yin.module/primitives`, matched by profile        |                 |
+  3059	|      | address at step 5b); limits and versions in profile |                 |
+  3060	|      | identity, and requirement discovery replacing       |                 |
+  3061	|      | `admit`, remain.                                    |                 |
+  3062	+------+-----------------------------------------------------+-----------------+
+  3063	| L-b  | Module-level sibling reads in the tree format       | The walker      |
+  3064	|      | (ruling 6)                                          | under the       |
+  3065	|      |                                                     | linked profile  |
+  3066	+------+-----------------------------------------------------+-----------------+
+  3067	| L-c  | Registry nesting fix                                | Optional;       |
+  3068	|      |                                                     | mangling covers |
+  3069	|      |                                                     | it              |
+  3070	+------+-----------------------------------------------------+-----------------+
+  3071	| L-d  | `module/try-require` plus deferred dependency       | I4              |
+  3072	|      | admission (ruling 8)                                |                 |
+  3073	+------+-----------------------------------------------------+-----------------+
+  3074	| L-e  | D7 slice B, the origin and store check (ruling 19)  | Exposure of     |
+  3075	|      |                                                     | untrusted-      |
+  3076	|      |                                                     | origin closures |
+  3077	+------+-----------------------------------------------------+-----------------+
+  3078	| L-f  | Large-module linking: default bounds, derivation    | P2              |
+  3079	|      | fetch at steps 2 to 4, linear free-name scan        |                 |
+  3080	+------+-----------------------------------------------------+-----------------+
+  3081	```
+  3082	
+  3083	```text
+  3084	+-------+----------------------------------------------------------------------+
+  3085	| Slice | Scope                                                                |
+  3086	+=======+======================================================================+
+  3087	| F1    | `yang.frontend` catalog and manifest validation; landed in           |
+  3088	|       | `src/cljc/yang/frontend.cljc`                                        |
+  3089	+-------+----------------------------------------------------------------------+
+  3090	| F2    | The REPL selects through the catalog; `yin.repl` drops its frontend  |
+  3091	|       | requires                                                             |
+  3092	+-------+----------------------------------------------------------------------+
+  3093	| P1    | Single-source prelude, `py/init!`, builtins dict; still bundled      |
+  3094	+-------+----------------------------------------------------------------------+
+  3095	| P2    | Module emitter, publication, linked profile; needs L-a, L-f and the  |
+  3096	|       | float fix                                                            |
+  3097	+-------+----------------------------------------------------------------------+
+  3098	| P3    | `pysp` linked, `attach!`                                             |
+  3099	+-------+----------------------------------------------------------------------+
+  3100	| F3    | The Python ANTLR frontend in the catalog (JVM); persistent           |
+  3101	|       | `__main__`; needs P2                                                 |
+  3102	+-------+----------------------------------------------------------------------+
+  3103	| I1    | Static absolute imports of single modules, `py/import`, module       |
+  3104	|       | objects, `sys.modules`, `__name__`                                   |
+  3105	+-------+----------------------------------------------------------------------+
+  3106	| I2    | Packages, mangling, relative imports, `as`, `*`, `__package__`       |
+  3107	+-------+----------------------------------------------------------------------+
+  3108	| I3    | Publication and DHT import; admission per `yin.vm.linker.dht.md` 7.5 |
+  3109	+-------+----------------------------------------------------------------------+
+  3110	| I4    | Catchable `ImportError`; needs L-d                                   |
+  3111	+-------+----------------------------------------------------------------------+
+  3112	| I5    | SCC units and alias modules                                          |
+  3113	+-------+----------------------------------------------------------------------+
+  3114	| I6    | Literal `import_module`, same-image `reload`; hooks refused          |
+  3115	+-------+----------------------------------------------------------------------+
+  3116	| I7    | Published site sets for imported modules                             |
+  3117	+-------+----------------------------------------------------------------------+
+  3118	```
+  3119	
+  3120	Acceptance, each on all three hosts unless stated (Node and Dart consume
+src/cljc/yin/repl/link.cljc:43:(def pair-capacity
+src/cljc/yin/repl/link.cljc:74:(def serve-budget
+src/cljc/yin/repl/link.cljc:110:  (let [requests (medium pair-capacity)
+src/cljc/yin/repl/link.cljc:111:        responses (medium pair-capacity)]
+src/cljc/yin/repl/link.cljc:147:   `admit`, optional, is a language runtime's admission of each name the
+src/cljc/yin/repl/link.cljc:150:   (a Python source's foreign-principal refusal, yang.antlr.md 8.5.6
+src/cljc/yin/repl/link.cljc:166:   :admit admit
+src/cljc/yin/repl/link.cljc:397:          (if-some [refusal (when-some [admit (:admit source)]
+src/cljc/yin/repl/link.cljc:442:  ([comp] (serve comp serve-budget))
+docs/design/yang.antlr.md:18:and 2, signals and recursion with generator admission (`cf6ed9ad`,
+docs/design/yang.antlr.md:265:- **No implicit control flow:** admission, parse completion, retries,
+docs/design/yang.antlr.md:672:- A seal fixes the source snapshot. Missing chunks prevent admission.
+docs/design/yang.antlr.md:885:7. A terminal successful admission decision.
+docs/design/yang.antlr.md:888:An admission interpreter reconstructs or resolves the complete artifact
+docs/design/yang.antlr.md:907:the boundary's admission budget. Use explicit capacity reservation or a
+docs/design/yang.antlr.md:1034:from the program admission occurrence to the source snapshot and
+docs/design/yang.antlr.md:1652:and admission at generator crossings, because the crossing is prelude
+docs/design/yang.antlr.md:1653:code that no site mark reaches, and it enforces admission in every
+docs/design/yang.antlr.md:1979:integration gate, profile admission and the sequence-size limit). C1
+docs/design/yang.antlr.md:2068:it, and a composition without it is refused at admission. Admission is
+docs/design/yang.antlr.md:2141:  left shift of a nonzero operand passes result-size admission first.
+docs/design/yang.antlr.md:2617:pin, heap and closure round trips, and continuation admission and
+docs/design/yang.antlr.md:2833:deferred dependency admission with statement-time resolution: check
+docs/design/yang.antlr.md:2838:address verification or admission. Until then an absent dependency
+docs/design/yang.antlr.md:3039:dependency-pin checks, primitive and effect admission, and working
+docs/design/yang.antlr.md:3044:which principals' modules a session admits is the admission
+docs/design/yang.antlr.md:3072:|      | admission (ruling 8)                                |                 |
+docs/design/yang.antlr.md:3108:| I3    | Publication and DHT import; admission per `yin.vm.linker.dht.md` 7.5 |
+docs/design/yang.antlr.md:3224:  Which principals' modules an import admits is the admission stream's
+docs/design/yang.antlr.md:3875:  have landed (`cf6ed9ad`, and `e2a80eef` with generator admission against
+
+exec
+/bin/zsh -lc "sed -n '1,114p' collab/1792234000000-architect-admission-stream-r3.claude-fable-5-1.findings.md" in /Users/sto/workspace/datomworld-ad0
+ succeeded in 0ms:
+ExitPlanMode is not available in this session, so the design below is the deliverable. It is also saved at `/Users/sto/.claude/plans/created-gmt-2026-10-12-08-00-00-gmt-humming-pelican.md`.
+
+Completed-GMT: 2026-10-12 05:58:41 GMT
+Completed-Local: 2026-10-12 12:58:41 +07 (Asia/Bangkok)
+
+**Verdict.** The admission pair stands as accepted in round 2: two ring media beside the link pair, a question as plain data bound to the resolution it was asked about, one interpreter answering, neutral vocabulary, reserved-empty conditions, trust separate from safety, session-wide exposure. F1 and F5 are kept verbatim. Four things change against round 2. Retirement is the half-open interval `base <= k < parked` with absent counters as zero, and descendant origins match on exact origin or `origin + "."`. The host hook is a consuming bounded drain through one shared `admission/drain` with gap recovery, and it rechecks only on a retained pending id. The admission successor rides the link raise and is restored by `carry-served`. The ShiBi contract states the composition-owned cost bound, and AD-0 gets an executable doc-versus-code check. This replaces the round-2 design in full.
+
+## 1. The datums
+
+The admission id is `[link-id serial]`; `serial` is a per-composition counter never reused, so a retired question and a later question for the same link id never share an id.
+
+```clojure
+;; question, appended to the admission request medium at resolution
+{:yin.admit/id         [[:t0 7] 3]
+ :yin.link/id          [:t0 7]
+ :yin.admit/name       'pym.m
+ :yin.admit/address    :segment/blake3-...   ; the resolved manifest address, retained
+ :yin.admit/asserters  ["ed25519:<hex>" ...] ; every asserter of that entry (R8)
+ :yin.admit/provenance {...}                 ; the entry's :yin.link/provenance verbatim
+ :yin.link/format      f                     ; the request's own words, no subject
+ :yin.link/contract    "b2"}
+
+;; answers, appended to the admission response medium
+{:yin.admit/id [[:t0 7] 3] :yin.admit/decision :allow  :yin.admit/conditions {}}
+{:yin.admit/id [[:t0 7] 3] :yin.admit/decision :refuse
+ :yin.admit/reason :yin.admit/untrusted-principal :yin.admit/asserters [...]}
+```
+
+No session or subject travels in the question; the subject is the interpreter's context (section 6). Direct `:name-env` entries, provenance `:composition`, are not asked. Non-DHT sources have no pair. The link response on allow gains `:yin.admit/id`, `:yin.admit/decision :allow`, `:yin.admit/asserters` and `:yin.admit/address`. A refusal copies into the link refusal shape with the answer's reason and open keys. A malformed answer refuses `:yin.admit/malformed-answer`; non-empty conditions refuse `:yin.admit/unsupported-condition`; both are final for that link. A nil `:admission` on a DHT source refuses `:yin.admit/unconfigured`.
+
+## 2. The admission state and the serve round (F1 FIXED, kept)
+
+`link/serve` takes `{:pair :source :dht :admission}` and returns `{:pair :pending :progress? :dht :admission}`.
+
+```clojure
+{:pair    {:questions q-medium :answers a-medium :cursor c}  ; c: the composition's answer cursor
+ :asked   {[:t0 7] question}        ; the retained question, at most one per pair in v1
+ :answers {[[:t0 7] 3] answer}      ; drained, keyed by admission id, first answer wins
+ :serial  4}
+```
+
+The dht branch of `answer` (link.cljc 392-405) becomes three cases, in this order, replacing the `:admit` call at 397-399:
+
+1. **Asked and unanswered.** `(get-in admission [:asked link-id])` exists and `:answers` has nothing under its id: `::pending`, reported with `:admission <id>` in the pending entry beside `:name` and `:yin.link/id`. No re-resolution.
+2. **Asked and answered.** An allow runs `(dht-attempt node declared request (:yin.admit/address asked))` with the retained address (`dht-attempt` already takes an explicit address, link.cljc 330), never a fresh `resolve-name`. A refuse is the body. When the response lands, serve drops the asked entry and its answer.
+3. **Not asked.** `resolve-name` as today. `:ok` mints the question with the next serial, appends it to the question medium, records it under `:asked`, and reports `::pending` with `:admission`. A question append counts as `:progress? true` (F3 depends on this). A refused append leaves nothing asked and reports no progress.
+
+**Draining.** One public `(admission/drain admission budget)` returns the successor admission state. It reads the answer medium with `stream/next` from `:pair :cursor`, at most `budget` elements, keeps an answer only if its id is under `:asked` and not already under `:answers`, consumes and drops duplicates and answers for unknown or retired ids, and persists the cursor past everything read. On `:dao.stream/gap` it adopts the recovery cursor the transport returns (ringbuffer.cljc 91-99: the earliest retained position, never an evicted one) and continues within the budget. On `:dao.stream/blocked` or `:dao.stream/end` it stops. Serve calls `drain` with `serve-budget` at the start of each round; the host hook (section 4) calls the same function. An answer evicted before any drain read it is lost and its question stays open until retire; with capacity 1024 and 64 drained per tick this needs 1024 answers between two ticks, a host assembly defect, not an operating condition, as the pair-capacity docstring (link.cljc 43-49) already says.
+
+**Ruling: a question-bound link is never refreshed.** Serve stops at the first pending request (link.cljc 451-472), so at most one question is open per pair, bound to the entry it was minted from until an answer lands or the request is retired. If the retained address fails to load after an allow, the link is refused as today and the asked entry goes with it. The user re-requires; the new link id gets a new question over the head as it then is.
+
+**Registry record (P2-4).** `engine/link-install` (engine.cljc 1390) rebuilds the entry through `module/link-module` (module.cljc 88-98), whose fixed map drops the response's admission keys. The edit: after `module-entry` and before `receive-module`, assoc onto the entry an `:admission` map `{:yin.admit/id :yin.admit/decision :yin.admit/asserters :yin.admit/address}` copied from the response when it carries `:yin.admit/decision :allow`. `spawn-module` inheritance (engine.cljc 1289-1307) and dependency transfer (1396-1403) copy entries whole minus `:bindings`, so the record is inherited and transferred without further edits. Direct `:name-env` entries carry no `:admission` key.
+
+**F1 test.** Publish M1 for `pym.m` under principal B. Import on a reader that declares B but trusts nobody in process, so the question stays open. Publish a new head of B moving `pym.m` to M2 and step the world until the follower installs it. Append an allow for the open admission id. Drive. Assert the response's `:yin.admit/address` is M1's content address, the response's `:manifest` value equals M1's manifest value, the node holds a module record for M1 and none for M2, the installed registry entry and an install child's inherited entry both carry `:admission` with that id and address, and the pending entry's `:admission` id never changed.
+
+## 3. Retirement (F2, fixed: P1-1)
+
+`mint-link-id` (module.cljc 492-498) emits the **current** counter then increments: base counter 0 mints `[:t0 0]`. Child origins are minted the same way (engine.cljc 1287-1288: origin `:t0.<n>` with `n` the current `:origins`, then `(inc n)`). Both are half-open intervals.
+
+**Run descriptor.** `{:origin :t0 :ids [from until] :children [from until]}` with every counter normalized by `(or counter 0)`:
+
+- `:ids` is `[(:id-counter base) (:id-counter parked)]`.
+- `:children` is `[(:origins base) (:origins parked)]`.
+
+`base` is `(:base parked)`; `parked` is the VM after `engine/abandon-installs` and the `abandon-link` fold, the `vm` already bound in `abandon-pending` (repl.cljc 1391-1432). `carry-link-identity` (1217-1229) takes the max of the same two counters, so the upper bound is what the base inherits.
+
+**Retire predicate.** `(retire {:pair :admission} run)` returns `{:pair :admission :retired [ids]}`. Walking with `stream/next` from the pair's request cursor, a request with id `[o k]` is retired iff:
+
+- `o = (:origin run)` and `from <= k < until` of `:ids`; or
+- for some `m` with `from <= m < until` of `:children`, with `child = (str (name origin) "." m)`, `(name o)` equals `child` or starts with `(str child ".")`.
+
+Never a raw prefix: `"t0.10"` does not start with `"t0.1."`, so `:t0.10` never matches descendant root `:t0.1`. Nested install children (`:t0.4.0`, `:t0.4.0.2`) match through the `"t0.4."` prefix. Each retired request advances the cursor. The first request that is not retired stops the walk, keeping the link.cljc 451 stop-at-first-unanswered rule, so an id outside the run is never skipped. Retire removes every `:asked` entry whose link id was retired and every `:answers` entry under those; a later answer for a retired id correlates to nothing and `drain` drops it. No response is appended for a retired request: the engine already retired the id (`engine/abandon-link`, 1668-1687) and a response would be `:late`.
+
+**Smallest REPL change.** `abandon-pending` computes the descriptor from `(:base parked)` and `vm`, calls `link/retire` on `:link-pair` and `:admission`, and assocs both results on the returned state beside the existing `query/discard-answers`. The docstring sentence "The linker side learns nothing" (1398) becomes "the linker side retires the run's requests". The link policy's abandon runs the same function.
+
+**F2 test (kept).** Open question for `pym.e`, drive stops. `(abandon)`. Require `pym.m`, trusted, on the same session: it completes, and the response medium holds no response for the retired id. Append a late allow for the retired id, drive again: nothing is loaded, nothing printed, the pending set stays empty.
+
+**P1-1 acceptance (new).** (i) Session with absent/zero counters: the first require mints `[:t0 0]`, opens an unanswered admission, `(abandon)`, an unrelated trusted require completes on the same pair. (ii) Nonzero base: two trusted requires first, then a run whose module installs a child that requires another untrusted module (origins `:t0.<n>` and `:t0.<n>.0`); abandon; an unrelated trusted require completes, and `:retired` holds exactly the run's root and child ids. (iii) `retire` over a pair holding requests from `:t0.1`, `:t0.1.0` and `:t0.10` with `:children [1 2]` retires the first two and stops at the `:t0.10` request.
+
+## 4. Late answers and host driving (F3, fixed: P1-2)
+
+All without a clock.
+
+- **In-drive.** `drive-links` (1296-1351) runs `admission/serve` right after `link/serve`, assocs its `:admission` on the state before `vm/run` (so `link-raise` sees it), and the continuation test at 1340 becomes `(or (:progress? served) (:progress? admitted) (:progress? answered))`. With the in-process interpreter one require costs two extra rounds. With none, the drive ends with the link pending, bounded by `link-round-budget` as today.
+- **Host recheck.** New public `(recheck-on-answers state)`, a sibling of `recheck-on-load-events` (1943-1964), called beside it by `yin.repl.main/step-all` (main.cljc 1016). It runs `(admission/drain (:admission state) serve-budget)`, **persists the successor** on `state` whether or not anything matched, then calls `recheck-pending` once iff the retained `:answers` map holds a key whose link id is among the pending entries' `:admission` ids, read from `(get-in state [:pending-run :links])`. Otherwise it answers `[state' nil]` with the drained state and no `:checks` change. Irrelevant answers advance the cursor and are gone; a valid answer behind `serve-budget` irrelevant ones is drained on the next tick. With no pending run the hook still drains and answers `[state' nil]`. `recheck-on-load-events` is unchanged.
+- **The command path.** `(trust p)` rebuilds the session decision and, when a run is pending, calls `recheck-pending` once.
+
+No deadline: an unanswered question ends only by retire. `:checks` counts rechecks that moved nothing (repl.cljc 1898), so the session link policy keeps its say.
+
+**F3 test (kept).** Session composed with an external admission interpreter (none in process). Require `pym.m`; the initial drive ends pending with `:admission` on the pending entry. `recheck-on-load-events` with unrelated events answers `[state nil]`. Append an allow. `recheck-on-answers` returns text, the next drive loads and links, no input line, no load event.
+
+**P1-2 acceptance (new).** (i) After the initial drive stops, append `serve-budget` answers for unknown ids and then the valid allow; call `recheck-on-answers` alone, at most twice: the require completes, and `:checks` is 0 after the first call. (ii) Gap recovery: a pair built with capacity 4 (`make-pair` gains an optional capacity, default `pair-capacity`); mint the cursor at the oldest end, append six answers for unknown ids then the valid allow; `recheck-on-answers` adopts the recovery cursor on the gap outcome and the require completes within two calls. (iii) `serve-budget` irrelevant answers and no allow, three hook calls: `:checks` stays 0 and the cursor has advanced past all of them.
+
+## 5. Error rollback carries admission (P2-3)
+
+`link-raise` (repl.cljc 1232-1245) adds `::admission (:admission state)` to the exception data beside `::link-pair`. `carry-served` (1249-1258) adds `(::admission d) (assoc :admission (::admission d))`. Because `drive-links` assocs the admission successor on `state` before the `vm/run` that may raise, the carried value is the one after the serve that answered: asked entry dropped, answer consumed, cursor and serial advanced. Both callers of `carry-served` (the eval path and the catch in `recheck-pending*`, 1905-1925) restore it with no further edit. `abandon-pending` does not use `carry-served`; it uses `retire` on the live state.
+
+**Acceptance.** Allow, then an install that raises, then a require of another module: the new question's serial is greater than the failed one's, `:asked` holds no entry for the failed link id, the answer map holds nothing under the failed admission id, and the next drive reports progress only for the new question.
+
+## 6. The ShiBi contract (F4, completed)
+
+`yin.repl.admission` is composed from `{:trusted #{...} :verify f :decision d :decision-medium m}` and answers with `(verify decision context question)`: nil allows, a reason map refuses. The context is composition-owned, built by `admission/context` from the session: `{:yin.admit/subject "ed25519:<hex>" | nil, :yin.admit/session <shell token now; [id revision] once the REPL F2 slice lands>}`. Authorization vocabulary stays in context and policy; the question and the linker carry none.
+
+**Cost bound (dao.shibi.md 53-56).** `verify` runs synchronously inside one serve round on one snapshot; its cost per question is bounded by the composition, and the interpreter answers at most `serve-budget` questions per round. `verify` opens, fetches and waits for nothing; a rule that would need a remote read is a rule the decision snapshot must already hold.
+
+The decision snapshot is the static `:decision` value, or the newest value on a capacity-1 `:decision-medium`, read once per round. Absent snapshot: no answer, the question stays pending. Ended snapshot: refuse `:yin.admit/decision-ended`. Default policy: `decision` is `#{own principal} ∪ :trusted`, allow when some asserter is in it, else `:yin.admit/untrusted-principal` naming the asserters. Policies compose as verify functions, first reason wins. One interpreter writes the answer medium.
+
+This is not the gate seam: it reuses the `verify` signature and the snapshot, but a request read off a stream and answered one decision per request is the path dao.shibi.md 65-70 names as a non-goal for the gate, to be added beside `verify`. This design is that addition.
+
+**F4 acceptance (executable, AD-1).** A recording `verify` asserts it received exactly the snapshot, the context and the question; absent snapshot leaves the question unanswered after a round and reports no progress; ended snapshot refuses `:yin.admit/decision-ended` with no load started; no key of the question or the link request is `:yin.admit/subject`, `:yin.admit/session` or namespaced `dao.shibi`.
+
+## 7. Exposure, trust versus safety (unchanged)
+
+Admission governs entry into a session's module registry; the registry follows the session. The cache hit (module.cljc 552-554) answers a require from the registry without a question; install children inherit entries (engine.cljc 1289-1307); parents receive what children installed (1396-1403); `(lang ...)` preserves the registry (repl.cljc 1799, per the review). One allow authorizes every later require of that module in that session; `(reset)` and `(vm ...)` establish a fresh registry and fresh admission state. Untrust changes only later answers. The interpreter sees names, addresses, asserters and provenance, never bytes; the linker and L-e verify closure origin, store ownership, dependency pins and the primitives profile whatever the answer says. Conditions must be empty.
+
+exec
+/bin/zsh -lc "nl -ba docs/design/yin.vm.linker.dht.md | sed -n '2184,2297p'; sed -n '39,82p' src/cljc/yin/repl/link.cljc; rg --files test/yin/repl | rg admission; git diff HEAD --unified=2 -- docs/design/yin.vm.linker.dht.md | tail -20" in /Users/sto/workspace/datomworld-ad0
+ succeeded in 2235ms:
+  2184	Order: AD-1 (with AD-0's `admission-spec-test`), then AD-2 and AD-3 in
+  2185	either order.
+  2186	
+  2187	- **AD-0, docs.** This section, the cross-references in `yang.antlr.md`
+  2188	  8.5.6 and `dao.shibi.md`, and the 8.2 hook. Its executable check lands
+  2189	  with AD-1: a portable test reads this section and asserts that every
+  2190	  keyword in `admission/reasons` appears in it, that it names
+  2191	  `serve-budget` and `pair-capacity` with the values the vars hold, and
+  2192	  that the retire rule contains the literal `origin + "."`.
+  2193	- **AD-1, the seam** (linker engineer). `yin.repl.admission` with
+  2194	  `make-state`, `context`, `serve`, `drain`, `reasons`; the admission
+  2195	  state through `link/serve`; `link/retire`; `:admit` removed; the
+  2196	  `link-install` admission record; the `make-session` default state; a
+  2197	  nil `:admission` refuses `:yin.admit/unconfigured`. Portable tests in
+  2198	  `admission_test.cljc` on hand-made questions and media. Acceptance:
+  2199	  - a trusted asserter's module imports on every VM with the admission
+  2200	    record and address in the installed and inherited registry entries;
+  2201	  - an untrusted one is refused with no load started;
+  2202	  - a question append reports progress;
+  2203	  - an unanswered question survives sixty-four rounds unchanged;
+  2204	  - a duplicate allow is dropped and the first stands;
+  2205	  - an answer for an unknown id is consumed and dropped, and an answer
+  2206	    with a stale serial for the same link id is dropped;
+  2207	  - non-empty conditions refuse `:yin.admit/unsupported-condition`;
+  2208	  - a malformed answer refuses `:yin.admit/malformed-answer`;
+  2209	  - `retire` passes P1-1 (i) to (iii) below;
+  2210	  - `drain` passes P1-2 (ii) gap recovery at the seam;
+  2211	  - F4: a recording `verify` receives exactly the snapshot, the context
+  2212	    and the question; an absent snapshot leaves the question unanswered
+  2213	    after a round and reports no progress; an ended snapshot refuses
+  2214	    `:yin.admit/decision-ended` with no load started; no key of the
+  2215	    question or the link request is `:yin.admit/subject`,
+  2216	    `:yin.admit/session` or namespaced `dao.shibi`;
+  2217	  - F1, the head change: publish M1 for `pym.m` under principal B; import
+  2218	    on a reader that declares B but trusts nobody in process, so the
+  2219	    question stays open; publish a new head of B moving `pym.m` to M2 and
+  2220	    step until the follower installs it; append an allow for the open
+  2221	    admission id; drive. The response's `:yin.admit/address` is M1's
+  2222	    content address, its `:manifest` value equals M1's manifest value,
+  2223	    the node holds a module record for M1 and none for M2, the installed
+  2224	    registry entry and an install child's inherited entry both carry
+  2225	    `:admission` with that id and address, and the pending entry's
+  2226	    `:admission` id never changed.
+  2227	- **AD-2, Python** (compiler engineer, coordinated with the yang.python
+  2228	  orchestrator). `principal-admission` and its ruling 19 docstring
+  2229	  paragraph leave `yang.python.antlr.publication`; the DHT import tests
+  2230	  move to the default interpreter. Acceptance: no
+  2231	  `:yang.python.antlr/foreign-principal` remains; `run-over-dht` runs both
+  2232	  interpreters; the published DHT artifact is unchanged; the F1 test
+  2233	  lives here because it needs a second head.
+  2234	- **AD-3, the REPL** (VM engineer). The session wiring, the host hook,
+  2235	  the trust commands, and the rewritten linked-REPL tests in
+  2236	  `test/yin/repl/admission_repl_test.cljc`. Acceptance:
+  2237	  - `(trust p)` then an import of p's module completes in the same
+  2238	    session;
+  2239	  - `(untrust p)` refuses the next question of a new session and leaves
+  2240	    the cached module usable;
+  2241	  - F2, abandon: an open question for `pym.e`, the drive stops;
+  2242	    `(abandon)`; require `pym.m`, trusted, on the same session: it
+  2243	    completes, and the response medium holds no response for the retired
+  2244	    id; append a late allow for the retired id and drive again: nothing is
+  2245	    loaded, nothing printed, the pending set stays empty;
+  2246	  - P1-1 (i) and (ii) through `(abandon)`;
+  2247	  - F3, the late answer: a session composed with an external admission
+  2248	    interpreter (none in process); require `pym.m`; the initial drive
+  2249	    ends pending with `:admission` on the pending entry;
+  2250	    `recheck-on-load-events` with unrelated events answers `[state nil]`;
+  2251	    append an allow; `recheck-on-answers` returns text, the next drive
+  2252	    loads and links, with no input line and no load event;
+  2253	  - P1-2 (i) and (iii) through the host hook;
+  2254	  - P2-3, the rollback: allow, then an install that raises, then a
+  2255	    require of another module: the new question's serial is greater than
+  2256	    the failed one's, `:asked` holds no entry for the failed link id, the
+  2257	    answer map holds nothing under the failed admission id, and the next
+  2258	    drive reports progress only for the new question;
+  2259	  - `(trusted)` prints own plus trusted;
+  2260	  - `(reset)` drops the trusted set unless given in `create-state`.
+  2261	
+  2262	P1-1, retirement:
+  2263	
+  2264	- (i) A session with absent or zero counters: the first require mints
+  2265	  `[:t0 0]` and opens an unanswered admission; `(abandon)`; an unrelated
+  2266	  trusted require completes on the same pair.
+  2267	- (ii) A nonzero base: two trusted requires first, then a run whose
+  2268	  module installs a child that requires another untrusted module
+  2269	  (origins `:t0.<n>` and `:t0.<n>.0`); abandon. `:retired` holds exactly
+  2270	  the run-owned requests still encountered from the current cursor
+  2271	  before the first unrelated request; no run-owned admission remains in
+  2272	  `:asked` or `:answers`; an unrelated trusted require completes. Root
+  2273	  retirement is exercised separately in the unanswered-root case (i).
+  2274	- (iii) `retire` over a pair holding requests from `:t0.1`, `:t0.1.0` and
+  2275	  `:t0.10` with `:children [1 2]` retires the first two and stops at the
+  2276	  `:t0.10` request.
+  2277	
+  2278	P1-2, the drain:
+  2279	
+  2280	- (i) After the initial drive stops, append `serve-budget` answers for
+  2281	  unknown ids and then the valid allow; call `recheck-on-answers` alone,
+  2282	  at most twice: the require completes, and `:checks` is 0 after the
+  2283	  first call.
+  2284	- (ii) Gap recovery: a pair built with capacity 4 (`make-pair` gains an
+  2285	  optional capacity, default `pair-capacity`); mint the cursor at the
+  2286	  oldest end, append six answers for unknown ids and then the valid
+  2287	  allow; the drain adopts the recovery cursor on the gap outcome and the
+  2288	  require completes within two calls.
+  2289	- (iii) `serve-budget` irrelevant answers and no allow, three hook calls:
+  2290	  `:checks` stays 0 and the cursor has advanced past all of them.
+  2291	
+  2292	## 8. Evaluation
+  2293	
+  2294	### 8.1 Entry
+  2295	
+  2296	Loaded code enters a session by the flow of `yin.vm.linker.md` 7.2 and 7.3,
+  2297	unchanged: the require parks on the link pair; the interpreter answers under
+            [yin.vm.linker :as linker]
+            [yin.vm.linker.dht :as linker.dht]))
+
+
+(def pair-capacity
+  "Declared capacity of each link-pair medium, in elements.  The shell
+   appends one request per require, and a response medium a receiver
+   never drains answers `gap` (an evicted request is never re-read), so
+   the bound is generous and the eviction it guards against is a host
+   assembly defect, not an operating condition."
+  1024)
+
+
+(def content-capacity
+  "Declared capacity of each content-pair medium, in elements.  One
+   attempt's traffic is a handful of requests; the media persist across
+   attempts and every attempt mints its cursors at their newest end, so
+   an old element is never read again."
+  1024)
+
+
+(def attempt-budget
+  "Drive rounds one link attempt may spend before it reports `:pending`.
+   A local pair answers within a few rounds per content request, so the
+   budget is reached only by a content source that never answers."
+  64)
+
+
+(def serve-steps
+  "Server advances one drive round performs at most.  Each answers at
+   least one waiting content request, so a local pair drains in a bound
+   number of rounds."
+  32)
+
+
+(def serve-budget
+  "Link requests one serve round answers, in request order.  It exceeds
+   what one evaluation's requires can enqueue, so a round that spends it
+   is answering a queue the shell did not write."
+  64)
+
+
+(def formats
+  "The seven format records a serving composition holds (sections 5 and
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-AAdELpLz' (errno=Operation not permitted)
+2026-10-12 13:45:19.267 xcodebuild[5332:58058838]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-12 13:45:19.515 xcodebuild[5332:58058837] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-3KFd1zkk' (errno=Operation not permitted)
+2026-10-12 13:45:20.107 xcodebuild[5338:58058891]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-12 13:45:20.299 xcodebuild[5338:58058890] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
++  first call.
++- (ii) Gap recovery: a pair built with capacity 4 (`make-pair` gains an
++  optional capacity, default `pair-capacity`); mint the cursor at the
++  oldest end, append six answers for unknown ids and then the valid
++  allow; the drain adopts the recovery cursor on the gap outcome and the
++  require completes within two calls.
++- (iii) `serve-budget` irrelevant answers and no allow, three hook calls:
++  `:checks` stays 0 and the cursor has advanced past all of them.
++
+ ## 8. Evaluation
+ 
+@@ -1884,4 +2316,8 @@ contract through `IModuleKernel/link-format`, and the `:fallback` policy of
+ - One re-check serves every pending request in order, so several pending
+   module loads completing in one tick need one re-check.
++- Beside it, `step-all` calls `yin.repl/recheck-on-answers` (7.5.5, not
++  yet built), which drains the admission response medium and re-checks
++  once if and only if a drained answer's admission id is one a pending
++  link waits on. An irrelevant answer changes no `:checks`.
+ - A typed line still re-checks, as today. `(abandon)`, the retained lines,
+   the identity carry and the late-answer skip of M5 are unchanged.
+
+codex
+The spec preserves the round-3 contract and folds in all three review nits. The constants match the source, and the diff leaves 7.4 untouched. The test names are compatible: `admission_doc_test.cljc` is the required file; `admission-spec-test` can be its `deftest` name.
+exec
+/bin/zsh -lc "sed -n '85,100p' src/cljc/yin/vm/module.cljc; sed -n '490,500p' src/cljc/yin/vm/module.cljc; sed -n '548,558p' src/cljc/yin/vm/module.cljc; sed -n '1280,1308p' src/cljc/yin/vm/engine.cljc; sed -n '1385,1405p' src/cljc/yin/vm/engine.cljc; sed -n '85,101p' src/cljc/dao/stream/ringbuffer.cljc; sed -n '3217,3244p' docs/design/yang.antlr.md; sed -n '2302,2328p' docs/design/yin.vm.linker.dht.md" in /Users/sto/workspace/datomworld-ad0
+ succeeded in 0ms:
+   references name (r9) and the images the verified origin images a
+   receiving task attaches.
+   Each receiving task lowers the entry into its own `:bindings`."
+  [registry manifest derivation lifted]
+  (assoc-module registry
+                (:yin.module/name manifest)
+                {:manifest manifest,
+                 :address (jing/segment-key manifest),
+                 :derivation derivation,
+                 :slice (:slice lifted),
+                 :stores (:stores lifted),
+                 :cells (:cells lifted),
+                 :images (:images lifted)}))
+
+
+(defn module-entries
+
+
+(defn- mint-link-id
+  "The next link id `[origin counter]` of this task (section 7.2, step 3):
+   the task's origin tag beside its own engine counter."
+  [state]
+  (let [counter (or (:id-counter state) 0)]
+    [[(or (:origin state) :t0) counter]
+     (assoc state :id-counter (inc counter))]))
+
+
+        build (get park-entry-fns :module/require)
+        registers #(if build (build state effect nil) {})
+        resources (:resources state)
+        response (get resources link-response-resource)]
+    (cond
+      (some? (resolve-module (:modules state) module-name))
+      {:value module-name, :state state, :blocked? false}
+
+      (some #{module-name} (:ancestry state))
+      (throw (ex-info "Require cycle"
+                      {:reason :require-cycle,
+   entry the parent holds is attached and lowered into the child's
+   coordinates here, never the parent's lowered values reused. The
+   child's capability secret comes from the composition's
+   `:secret-source`, a function of the child's origin tag; a composition
+   that supplies none gives the child no secret, so the child can issue
+   no resource reference (fail closed)."
+  [state module-name response]
+  (let [n (or (:origins state) 0)
+        origin (keyword (str (name (or (:origin state) :t0)) "." n))
+        registry (reduce (fn [r [m entry]]
+                           (module/assoc-module r m (dissoc entry :bindings)))
+                         (:modules state)
+                         (linked-entries (:modules state)))
+        source (:secret-source state)
+        child (module/spawn-module state
+                                   (:value (:image response))
+                                   {:modules registry,
+                                    :origin origin,
+                                    :ancestry (conj (vec (:ancestry state))
+                                                    module-name),
+                                    ;; the composition mints each task's
+                                    ;; secret (r10); without a source the
+                                    ;; child can issue no reference
+                                    :capability-secret
+                                    (when (fn? source) (source origin))})
+        child (reduce (fn [c [m entry]] (receive-module c m entry))
+                      child
+                      (linked-entries registry))]
+    [(stamp-gate child (vm/gate-mode state)) (assoc state :origins (inc n))]))
+                                 (map (fn [seg]
+                                        (let [img (origin-of seg)]
+                                          [(module/image-identity vm img)
+                                           img])))
+                                 (:origins lifted))
+                    entry (module/module-entry
+                            (:modules (module/link-module
+                                        nil manifest (:derivation response)
+                                        (assoc lifted :images images)))
+                            module-name)
+                    received (receive-module state module-name entry)
+                    received (reduce
+                               (fn [s [m dep]]
+                                 (if (some? (module/module-entry
+                                              (:modules (:modules s)) m))
+                                   s
+                                   (receive-module s m (dissoc dep :bindings))))
+                               received
+                               (linked-entries (:modules vm)))]
+                (-> received
+                    (update :installs dissoc module-name)
+              frozen (when-not owner? (get-in s [:attachments attachment-id :tail]))
+              visible-tail (if (some? frozen) frozen (:tail s))]
+          (cond
+            (< pos (:first s))
+            (assoc (result :dao.stream/gap)
+                   :dao.stream/cursor
+                   {:dao.stream.ringbuffer/identity (:identity s)
+                    ;; The contract's recovery position is the earliest retained
+                    ;; position, which equals the tail when nothing is retained.
+                    ;; It must never be an evicted position: a frozen attachment
+                    ;; whose visible history is fully evicted would otherwise be
+                    ;; handed its own tail back and re-gap forever.  Recovering
+                    ;; past that tail is correct; the next read answers `end`.
+                    :dao.stream.ringbuffer/position (:first s)})
+            (< pos visible-tail)
+            ;; `:first`, `:tail`, and `:values` are updated as one state value;
+            ;; positions in this interval are always retained by the transport.
+  cycle before anything is written (`:yang.python.antlr/import-cycle`,
+  naming its modules) and an import nothing supplies; the republished
+  dependency is the linker's `:mismatch` binding. `py` does not travel:
+  three of its code images (about 0.8 to 1 MB) exceed the DHT's 64 KiB
+  message bound, which a `dao.space.dht` node does not let a composition
+  raise, so `py` is the reader's installed runtime (its pinned manifest
+  address, one golden on every host) and the guest modules travel.
+  Which principals' modules an import admits is the admission stream's
+  question (`yin.vm.linker.dht.md` section 7.5). The
+  `__all__` of `from m import *` is read by index (CPython's
+  `PySequence_GetItem`), so a generator, set or dict `__all__` raises
+  CPython's `TypeError`, and a range is a sequence; the prelude goldens
+  moved once.
+  I3 gap (REPL): no REPL frontend runs Python under the linked profile.
+  The linked REPL profile is its own slice after F2: a frontend session
+  keyed by [id revision] and one Python task and module view per
+  profile. Admission, its REPL wiring and the session's exposure rule
+  are `yin.vm.linker.dht.md` section 7.5 (slices AD-1 to AD-3). Also:
+  `py` is an installed pin on each reader until large blobs
+  travel over the DHT (64 KiB blob cap), and the linker's
+  dependency-binding check is today the only guard over a pinned
+  dependency (discharge does not independently refuse a republished
+  dependency); both are recorded for the DHT and linker seats.
+- I4: an absent module inside `try` runs the `except
+  ModuleNotFoundError` branch; an ambiguous name raises `ImportError`
+  carrying the refusal.
+- I5: mutually importing `a` and `b` both import; `from b import x`
+  during partial initialization gives CPython's error text.
+`yin.vm.linker.md` 5.5 applies as composed.
+
+### 8.2 Pending and the re-check (R11)
+
+- A link the DHT source answers pending records, on the shell's pending
+  run, the module manifest address whose load it waits on.
+- `yin.repl.main/step-all` calls `yin.repl/recheck-pending` once in a tick
+  if and only if that tick's node events hold a `:loaded` or `:load-failed`
+  event whose `:manifest` is one a pending link waits on.
+- Any other node event (a bind, a publication settling, an index load,
+  another module's load) triggers no re-check and changes no `:checks`.
+- A terminal load event arrives once. A re-check after it finds the record
+  terminal and answers the link; a second re-check for the same address
+  cannot happen without a new load.
+- One re-check serves every pending request in order, so several pending
+  module loads completing in one tick need one re-check.
+- Beside it, `step-all` calls `yin.repl/recheck-on-answers` (7.5.5, not
+  yet built), which drains the admission response medium and re-checks
+  once if and only if a drained answer's admission id is one a pending
+  link waits on. An irrelevant answer changes no `:checks`.
+- A typed line still re-checks, as today. `(abandon)`, the retained lines,
+  the identity carry and the late-answer skip of M5 are unchanged.
+- `:link-policy` is consulted exactly as `yin.repl.link-policy.md` 3.2
+  says. `:manual` stays the default.
+
+### 8.3 A request budget is not a lease (R12)
+
+
+codex
+Completed-GMT: 2026-10-12 06:45:36 GMT
+Completed-Local: 2026-10-12 13:45:36 +07 (Asia/Ho_Chi_Minh)
+
+**APPROVE**
+
+No open in-scope P0/P1.
+
+Numbered findings: none. No fixes required.
+
+Section 7.5 faithfully carries the approved round-3 design, including datum key sets, retained-address binding, parking without a deadline, half-open retirement intervals and delimiter-qualified origin matching, bounded consuming drains, snapshot verification, default policy, exposure, fail-closed rules, reserved-empty conditions, acceptance requirements, and the lost-tests statement. All three round-3 nits are folded in.
+
+Section 7.4 is untouched. Source constants match: `serve-budget` is 64 and `pair-capacity` is 1024. The 8.2 hook explicitly says “not yet built”; section 7.5 marks the admission design as unimplemented.
+
+The Yang edits retain ruling 19’s safety text and the rule that an allow never relaxes L-e. The L-e and I3 rows match the approved wording, tables remain well-formed, and no principal “refused until L-e” wording remains. The ShiBi cross-reference preserves the gate’s non-goal.
+
+The binding test file is **`test/yin/repl/admission_doc_test.cljc`**. `admission-spec-test` can be the `deftest` name inside that file; these names are compatible. Its AD-1 landing is explicitly marked.
+
+Read-only review completed against the specified design, review, writer report, docs diff, and relevant source. No files edited or suites run.
+tokens used
+38,424
+Completed-GMT: 2026-10-12 06:45:36 GMT
+Completed-Local: 2026-10-12 13:45:36 +07 (Asia/Ho_Chi_Minh)
+
+**APPROVE**
+
+No open in-scope P0/P1.
+
+Numbered findings: none. No fixes required.
+
+Section 7.5 faithfully carries the approved round-3 design, including datum key sets, retained-address binding, parking without a deadline, half-open retirement intervals and delimiter-qualified origin matching, bounded consuming drains, snapshot verification, default policy, exposure, fail-closed rules, reserved-empty conditions, acceptance requirements, and the lost-tests statement. All three round-3 nits are folded in.
+
+Section 7.4 is untouched. Source constants match: `serve-budget` is 64 and `pair-capacity` is 1024. The 8.2 hook explicitly says “not yet built”; section 7.5 marks the admission design as unimplemented.
+
+The Yang edits retain ruling 19’s safety text and the rule that an allow never relaxes L-e. The L-e and I3 rows match the approved wording, tables remain well-formed, and no principal “refused until L-e” wording remains. The ShiBi cross-reference preserves the gate’s non-goal.
+
+The binding test file is **`test/yin/repl/admission_doc_test.cljc`**. `admission-spec-test` can be the `deftest` name inside that file; these names are compatible. Its AD-1 landing is explicitly marked.
+
+Read-only review completed against the specified design, review, writer report, docs diff, and relevant source. No files edited or suites run.

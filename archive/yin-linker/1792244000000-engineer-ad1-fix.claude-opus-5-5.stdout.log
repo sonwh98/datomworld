@@ -1,0 +1,7 @@
+The slow process, head and DHT tests are running in the background. When they finish I'll run the fix-round mutations, then kondo and the checkpoint lanes.
+
+G1 (all three lanes) is running in the background; I'll check the results when it finishes, then run G2.
+
+You've hit your session limit · resets 5:30pm (Asia/Saigon)
+
+You've hit your session limit · resets 5:30pm (Asia/Saigon)

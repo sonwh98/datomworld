@@ -1,0 +1,27 @@
+Read 581 code files under src/ and test/.
+Subsystems: dao.jing
+clj: 15 namespaces
+   dao.jing-test
+   dao.jing.cbor-conformance-test
+   dao.jing.cbor-content-equality-test
+   dao.jing.cbor-fixtures-test
+   dao.jing.cbor-test
+   dao.jing.content-test
+   dao.jing.content.step-test
+   dao.jing.dht-test
+   dao.jing.dht.facade-test
+   dao.jing.dht.kad-test
+   dao.jing.dht.socket-test
+   dao.jing.file-test
+   dao.jing.hash-registry-contract-test
+   dao.jing.mem-test
+   dao.jing.stream-test
+Selected 15 of 288 test namespaces.
+Skipping build:yin-repl-peer (no selected test reaches its output)
+Skipping build:yin-repl-node (no selected test reaches its output)
+Skipping gen:python-antlr (no selected test reaches its output)
+clj: 15 namespaces, log target/profile/sub-clj.log
+clj: done, exit 1, 6 s
+
+lane  namespaces  tests failures seconds  status
+clj           15    233        1       6  FAIL

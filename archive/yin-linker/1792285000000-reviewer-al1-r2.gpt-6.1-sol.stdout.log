@@ -1,0 +1,1420 @@
+Reading additional input from stdin...
+OpenAI Codex v0.162.1
+--------
+workdir: /Users/sto/workspace/datomworld-al1
+model: gpt-6.1-sol
+provider: openai
+approval: on-request
+sandbox: read-only
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a1349b-c724-7d40-8166-140a26f20b95
+--------
+user
+Created-GMT: 2026-10-13 06:00:00 GMT
+Coding-Agent: codex (gpt-6.1-sol)
+# Task: re-review the AL-1 layering test fix (read-only, one file)
+Your AL-1 verdict was REJECT (P2 reader conditionals around whole ns clauses bypass the gate; P3 per-root and no-ns vacuity): collab/1792283000000-reviewer-al1.findings.md. The fix is the new commit on branch admission-al1 in /Users/sto/workspace/datomworld-al1 (`git show HEAD`, one file: test/yin/vm/linker/layering_test.clj); the report's "Fix round": collab/1792281000000-engineer-al1.findings.md. Verify: (1) `#?` and `#?@` wrapping whole :require/:use/:require-macros clauses, inactive host branches (:cljd, :cljs, :default) and nested `#?@` are all traversed BEFORE clause selection; (2) the fixtures would fail on the old code and the clean fixture stays green; (3) per-root existence and nonempty inventory are asserted separately for src/cljc/yin/vm, src/cljc/yang, src/clj/dao; a file with no first `ns` form (including empty and comment-only) is an inspection failure; (4) the five mutations claimed are plausible from the code; (5) no false positives on current sources (docstrings and keywords like :yin.repl/root excluded; a require of `yin.repl*` is the only violation; check the traversal does not flag the word in a docstring or a quoted form); (6) nothing else changed. Scope contract: block only on an in-scope P0/P1 or a P2 in newly introduced behavior. Do not edit or run suites. Output: verdict first; "No open in-scope P0/P1" if none; numbered findings with file:line, severity, exact fix. FINAL MESSAGE must contain the complete review beginning with Completed-GMT / Completed-Local lines.
+codex
+I’ll review the one-file diff, the fix report, and the current sources for false positives. I won’t edit files or run suites.
+exec
+/bin/zsh -lc 'pwd && git status --short && git show --stat --oneline HEAD && cat docs/design/datom.world.md' in /Users/sto/workspace/datomworld-al1
+ succeeded in 4575ms:
+/Users/sto/workspace/datomworld-al1
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-kZNz6hqC' (errno=Operation not permitted)
+2026-10-13 16:33:18.521 xcodebuild[291:60622016]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-13 16:33:18.819 xcodebuild[291:60622015] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-xNHOaiNf' (errno=Operation not permitted)
+2026-10-13 16:33:19.412 xcodebuild[297:60622050]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-13 16:33:19.595 xcodebuild[297:60622049] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+?? collab/1791809519945-reviewer-admission-in-linker-r2-confirm.gpt-6.1-sol.findings.md
+?? collab/1792260000000-architect-admission-in-linker.prompt.md
+?? collab/1792261000000-reviewer-admission-in-linker.findings.md
+?? collab/1792262000000-architect-admission-in-linker-r2.claude-fable-5-1.findings.md
+?? collab/1792263000000-reviewer-admission-in-linker-r2.findings.md
+?? collab/1792263000000-reviewer-admission-in-linker-r2.gpt-6.1-sol.stdout.log
+?? collab/1792281000000-engineer-al1.findings.md
+?? collab/1792281000000-engineer-al1.prompt.md
+?? collab/1792283000000-reviewer-al1.findings.md
+?? collab/1792283000000-reviewer-al1.prompt.md
+?? collab/1792284000000-engineer-al1-fix.prompt.md
+?? collab/1792285000000-reviewer-al1-r2.prompt.md
+?? collab/al1-logs/dao-jing-clj.log
+?? collab/al1-logs/fix-sub-clj-yin-vm.log
+?? collab/al1-logs/g0-clj.log
+?? collab/al1-logs/g0-sub-clj.log
+?? collab/al1-logs/slow-dht-import.log
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-GaPfWBE4' (errno=Operation not permitted)
+2026-10-13 16:33:20.879 xcodebuild[305:60622106]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-13 16:33:21.061 xcodebuild[305:60622105] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-cpshxQoH' (errno=Operation not permitted)
+2026-10-13 16:33:21.637 xcodebuild[315:60622153]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-13 16:33:21.811 xcodebuild[315:60622152] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+cbb3ebf8 test(yin.vm.linker): the layering check traverses reader conditionals around whole ns clauses and fails on a missing root or a file without an ns form
+ test/yin/vm/linker/layering_test.clj | 101 +++++++++++++++++++++++++++--------
+ 1 file changed, 79 insertions(+), 22 deletions(-)
+---
+description: Core philosophy, foundational axioms, invariants, primitives (tuples, streams, host boundaries), architectural commitments, design principles, code style, and development workflow for datom.world
+---
+
+# DATOM.WORLD ARCHITECTURAL FOUNDATIONS & DEVELOPMENT RULES
+
+## Core Philosophy
+
+Everything is data.
+Interpretation > abstraction.
+Explicit causality > implicit assumptions.
+Restrictions are a feature.
+
+### Foundational Axioms
+
+1. **Everything is a Stream**: All IO and data flow through append-only streams.
+2. **Interpretation Creates Semantics**: Data is syntax; semantics only emerge through interpretation (one truth, many perspectives).
+   At system scale, a "system" is an emergent property of interpreters of
+   pure data, not an object, service, or stored artifact. Find the
+   interpreters and the data they share to find the system.
+3. **Code and State are Datoms**: Code (Universal AST) and runtime execution state are structured datoms, enabling syntax independence and structural reflection.
+4. **Everything is a Continuation**: Computation is modeled as serializable, portable continuations that can pause, travel across streams, and resume anywhere.
+
+## Non-Negotiable Invariants
+
+- Do not introduce hidden global state.
+- Do not introduce implicit control flow.
+- Do not introduce callbacks; every callback is an event on a stream.
+- Do not introduce shared mutable state.
+- Do not collapse interpretation and execution into the same layer.
+- Do not assume graphs: graphs must be constructed explicitly from tuples.
+- Do not lose information (unitarity): streams are append-only and no datom is destroyed, only reinterpreted. The Universal AST is never lost: it is always retrievable wherever code is lowered, by address or by a query over its datoms. Every derived form (semantic vector, native images, indexes) is an interpretation of it and may drop facts only because the AST remains.
+
+## Tuples and Datoms
+
+Tuples are elements in an open moduli space, graded by dimension $n$. A tuple can be any dimension/size.
+A datom is the canonical persistent tuple `[e a v t m]` (entity, attribute, value, transaction, metadata). Persistent facts are immutable datoms.
+Source scope belongs to the interpreter, never to an appended tuple slot. Queries keep physical sources as separate db-values and express union or joins explicitly.
+
+See [`docs/design/datom.md`](./datom.md) for full specification.
+
+## Streams
+
+All IO is modeled as a stream. Functions consume streams and produce streams.
+No direct function-to-function coupling without a stream boundary.
+Side effects must appear as stream emissions.
+Streams are values that can be sent through streams.
+Streams carry whatever values the consumer needs: no datom requirement, no privileged payload shape.
+
+A stream has no privileged reader, and its meaning is not in it. Any number
+of interpreters may observe the same medium, and each constructs its own
+semantics from the same batches: a `yin.vm` evaluator observing a program
+stream constructs CESK state and executes it; `dao.space.index` observing
+the very same stream materializes covered indexes, so `dao.space.query/q`
+answers Datalog over the program as it grows. Neither knows the other
+exists. The medium is their only coupling, and each observer's ignorance of
+the other is load-bearing: the evaluator never consults an index to run,
+and the index never evaluates a form to index it. This is how axiom 2
+becomes architecture: one stream, many interpretations, none of them
+the stream's own.
+
+Functions can take anything and return anything.
+Agents are functions, closures, or continuations in `yin.vm` that communicate with the outside world through `dao.stream`. Agent behavior is specified entirely through stream effects.
+
+See [`docs/design/dao.stream.md`](./dao.stream.md) for full stream specification.
+See [`docs/design/yin.vm.streams-all-the-way-down.md`](./yin.vm.streams-all-the-way-down.md) for VM architecture.
+
+### Host Boundaries
+
+A host boundary is a stream boundary, never a function call. The one
+sanctioned function-shaped contact is a `dao.stream` handle operation, whose
+exhaustive outcome map is stream protocol, not an application callback.
+
+**Effects out.** Portable code appends an effect value describing what must
+happen. A host interpreter consumes that stream, performs the operation, and
+appends the outcome. Portable code reads the outcome. Correlation is by
+identity in the data; neither side holds a reference to the other. A host with
+no implementation for an effect emits a qualified unsupported result. That is a
+correct outcome, not a gap to be filled.
+
+**Events in.** When the host initiates (a socket receives, a connection drops,
+a timer fires) the adapter appends one plain-data event and returns. It invokes
+nothing. An interpreter reads that stream and decides what the event means.
+Constructively: **a callback is replaced by a function that transforms an event
+to data on a stream.** The host's demand for a callback stops at that function.
+
+**Adapters.** An adapter is a map of those transform functions. That is all an
+adapter is. It is a value, not a namespace, and it is general: sockets, files,
+timers and windows all deliver events by calling something, and an adapter is
+what they call. Each entry takes the host's arguments and returns one value;
+the append is the adapter's, not the entry's, so an entry cannot return a value
+to the host and cannot invoke application code. The adapter is handed only the
+deposit operation and its own host resource. If its deposit channel fails, it
+may close that resource to make the boundary observably gone; this is teardown,
+not an upward callback.
+
+Host types are classified into plain data in the transform: it is the last
+place holding a host error object, and no host type crosses onto the stream. A
+transport may use a qualified envelope to preserve correlation, lifecycle, and
+additive evolution; that envelope remains plain data and creates no separate
+event mechanism. A composition may likewise define its own qualified vocabulary
+for facts it owns.
+
+Which stream an adapter writes to is the caller's composition, never the
+adapter's knowledge. An adapter cannot tell whether it deposits into one
+transport's private stream or into a medium many interpreters read. This keeps
+the layering one-way: a boundary depends on nothing above it, because whoever
+constructs the adapter supplies the stream.
+
+A transform deposits every event admitted by the boundary protocol and judges
+none of them semantically. Wire framing, decoding, and protocol validation
+happen below the transform: malformed wire input is transport machinery, not an
+event. Once the transport has produced a valid host event, data is syntax
+(axiom 2): an event that is noise to one interpreter is signal to another that
+does not exist yet, and filtering at the depositing layer destroys perspectives
+not yet taken. Retention is the medium's operational policy; meaning is
+interpretation. Neither is the depositor's decision.
+
+Two things are not adapters. One that exposes a function for portable code to
+call isolates the host library but keeps the coupling, and the effect never
+appears as an emission. One that takes a function to invoke has relocated the
+callback, not removed it, even when every value it passes is plain data; if
+that callback has a meaningful return value, it is a synchronous call in both
+directions wearing the shape of an event.
+
+## Architectural Commitments
+
+- **`dao.jing` is syntax, agents are semantics**: the content-addressed encoding stays passive and payload-agnostic.
+- **Macros are stream topology**: an evaluator knows nothing about macro expansion; expansion happens on the syntax side of a medium boundary, upstream of any evaluator.
+- **Peer observers, one stream**: a generic evaluator and `dao.space` independently observe the same stream topic, as described under Streams. This is not a claim about any two consumers regardless of what they consume.
+- **Observers are independent and optional**: nothing requires a medium to have any particular set of consumers. Which observers exist for a stream is a per-composition choice, not a design-time commitment.
+
+## Design Principles
+
+Code quality is measured by malleability: how cheaply can changes adapt without breaking promises?
+Stigmergic coordination emerges from sharing data across streams.
+
+**Systems emerge from interpreters of pure data.** Streams are the
+composition medium; each interpreter gives the same data a perspective
+without collapsing interpretation into execution or owning the truth.
+
+- `dao.space` emerges from `dao.space.index` and `dao.space.query` over
+  ordinary streams.
+- ShiBi capability, metering, and budget emerge from different
+  interpreters over the same tuples; no token object is stored.
+- The four VMs interpret one Universal AST; many syntaxes feed that AST.
+- The semantic AST in `dao.space` is queryable facts projected by the
+  auto-index observer.
+- Client and server are roles in one stigmergic behavior implemented by
+  interpreters, not distinct kinds of nodes.
+
+**Derive, don't persist.** Before adding a tag, slot, or field to any
+canonical content-hashed structure (an AST grammar, a datom schema, a row
+shape), check whether a correctly scoped Datalog query over
+`dao.space.query/q` can already compute the fact. If it can, it belongs as a
+query or projection: new persisted structure migrates every downstream
+consumer and duplicates authority over a fact a query derives fresh. The
+retired `:global` tag in
+[`docs/design/yin.vm.code-as-tuples.md`](./yin.vm.code-as-tuples.md) is the
+case study, including the scoping bug that a naive query introduced.
+
+See [`docs/agents/malleability.md`](../agents/malleability.md) for complete design guidance (cohesion, coupling, bounded complexity, evolution, testing strategy).
+See [`docs/agents/vocabulary.md`](../agents/vocabulary.md) for domain vocabulary reference (biology, economics, physics, philosophy).
+
+## Code Style
+
+- Prefer simple data over rich types.
+- Prefer total functions over partial ones.
+- Prefer declarative pipelines over imperative logic.
+- Avoid cleverness.
+- Name things after what they do to streams.
+
+## Development Workflow
+
+- Do not invent abstractions that hide streams.
+- Do not suggest mainstream frameworks unless explicitly asked.
+- Do not optimize prematurely.
+- When uncertain, ask at the architectural level, not the implementation level.
+- Explanations should align with Plan 9 / Datomic / Lisp lineage.
+- Program store writes go through `engine/store-put`; any other store write
+  the store-write audit (`test/yin/vm/store_write_audit_test.clj`)
+  detects must be on its allowlist; its docstring states the residual it
+  leaves to review.
+
+### Problem Decomposition
+
+If a problem appears complex:
+1. Decompose it into streams.
+2. Identify invariants.
+3. Restrict degrees of freedom.
+4. Make causality explicit.
+5. Let structure emerge from constraints.
+
+## Operational & Specialized Guides
+
+- **Advanced Concepts**: See [`docs/agents/advanced-concepts.md`](../agents/advanced-concepts.md) for parallel transport, capability tokens, and entanglement.
+- **Build & Test**: See [`docs/agents/build-n-test.md`](../agents/build-n-test.md) for build, lint, and test commands and TDD guidelines.
+- **Engineering Team Roster**: See [`docs/agents/team.md`](../agents/team.md) for engineering team roles and LLM model assignments.
+- **Agent Delegation**: See [`docs/agents/roles/orchestrator.md`](../agents/roles/orchestrator.md) for collaboration protocols and delegating tasks or reviews through `agy`, `cmd`, `glm`, `deepseek`, and `codex`; the orchestrator's append-only work log is [`docs/orchestrator-log.md`](../orchestrator-log.md).
+- **Website & Content**: See [`docs/agents/format.md`](../agents/format.md) for `.chp` and `.blog` EDN/Hiccup file specifications.
+
+exec
+/bin/zsh -lc 'git show HEAD -- test/yin/vm/linker/layering_test.clj && nl -ba test/yin/vm/linker/layering_test.clj && cat collab/1792283000000-reviewer-al1.findings.md && cat collab/1792281000000-engineer-al1.findings.md' in /Users/sto/workspace/datomworld-al1
+ succeeded in 2014ms:
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-v96Wy75n' (errno=Operation not permitted)
+2026-10-13 16:33:27.822 xcodebuild[340:60622307]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-13 16:33:27.992 xcodebuild[340:60622306] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-5xKtMHgn' (errno=Operation not permitted)
+2026-10-13 16:33:28.542 xcodebuild[343:60622327]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-13 16:33:28.718 xcodebuild[343:60622326] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+commit cbb3ebf8c49d46e35973c57fa86bee39da53f029
+Author: Sonny To <son.c.to@gmail.com>
+Date:   Tue Oct 13 16:33:05 2026 +0700
+
+    test(yin.vm.linker): the layering check traverses reader conditionals around whole ns clauses and fails on a missing root or a file without an ns form
+
+diff --git a/test/yin/vm/linker/layering_test.clj b/test/yin/vm/linker/layering_test.clj
+index e99004bc..ecc7b4c0 100644
+--- a/test/yin/vm/linker/layering_test.clj
++++ b/test/yin/vm/linker/layering_test.clj
+@@ -5,10 +5,13 @@
+    under src/cljc/yin/vm, src/cljc/yang or src/clj/dao requires a
+    `yin.repl` namespace.  This gate reads the `ns` form of every source
+    file there (tools.reader, reader conditionals preserved, so every
+-   branch is read) and fails on any `yin.repl` or `yin.repl.*` symbol in
+-   a `:require`, `:require-macros` or `:use` clause, and on any file it
+-   cannot read.  Docstrings and datum vocabulary such as `:yin.repl/root`
+-   are not requires and do not count.  JVM only: it reads source files."
++   branch is read, whether inside a clause or around whole clauses) and
++   fails on any `yin.repl` or `yin.repl.*` symbol in a `:require`,
++   `:require-macros` or `:use` clause, on any file it cannot read, on
++   any file whose first form is not `ns` (empty files included), and on
++   a root that is missing or holds no source file.  Docstrings and datum
++   vocabulary such as `:yin.repl/root` are not requires and do not
++   count.  JVM only: it reads source files."
+   (:require [clojure.java.io :as io]
+             [clojure.test :refer [deftest is testing]]
+             [clojure.tools.reader :as reader]
+@@ -39,35 +42,53 @@
+     :else nil))
+ 
+ 
++(defn- clauses
++  "The `ns` body elements with every reader conditional opened: each
++   branch of a `#?` is one element, each branch of a `#?@` a sequence
++   of elements, recursively, whatever the host."
++  [body]
++  (mapcat (fn [x]
++            (if (reader-conditional? x)
++              (let [branches (take-nth 2 (rest (:form x)))]
++                (clauses (if (:splicing? x) (apply concat branches) branches)))
++              [x]))
++          body))
++
++
+ (defn repl-requires
+   "The `yin.repl` namespaces the `ns` form of `text` requires, as a
+-   sorted vector, or `[:unreadable message]` when its first form cannot
+-   be read."
++   sorted vector; `[:unreadable message]` when its first form cannot be
++   read; `[:no-ns-form]` when its first form is not an `ns` form, which
++   includes an empty file (every source file under `roots` is a
++   namespace)."
+   [text]
+   (try
+     (binding [reader/*default-data-reader-fn* (fn [_ v] v)
+               *ns* (create-ns 'yin.vm.linker.layering-reader)]
+-      (let [form (reader/read {:read-cond :preserve, :eof nil}
++      (let [eof (Object.)
++            form (reader/read {:read-cond :preserve, :eof eof}
+                               (rt/indexing-push-back-reader text))]
+-        (->> (when (and (seq? form) (= 'ns (first form))) form)
+-             (filter #(and (seq? %) (contains? require-clauses (first %))))
+-             (mapcat symbols-in)
+-             (filter repl-ns?)
+-             distinct
+-             sort
+-             vec)))
++        (if (and (seq? form) (= 'ns (first form)))
++          (->> (clauses (rest form))
++               (filter #(and (seq? %) (contains? require-clauses (first %))))
++               (mapcat symbols-in)
++               (filter repl-ns?)
++               distinct
++               sort
++               vec)
++          [:no-ns-form])))
+     (catch Exception e
+       [:unreadable (ex-message e)])))
+ 
+ 
+ (defn- source-files
+-  []
+-  (->> roots
+-       (mapcat #(file-seq (io/file %)))
+-       (filter #(.isFile ^java.io.File %))
+-       (map #(.getPath ^java.io.File %))
+-       (filter #(re-find #"\.clj[csd]?$" %))
+-       sort))
++  ([] (mapcat source-files roots))
++  ([root]
++   (->> (file-seq (io/file root))
++        (filter #(.isFile ^java.io.File %))
++        (map #(.getPath ^java.io.File %))
++        (filter #(re-find #"\.clj[csd]?$" %))
++        sort)))
+ 
+ 
+ (defn violations
+@@ -88,6 +109,36 @@
+              (str "(ns a.b (:require [dao.stream :as s]"
+                   " #?(:cljd [yin.repl.link :as l] :clj [x.y :as y])"
+                   " #?@(:cljs [[yin.repl :as r]])))")))))
++  (testing "#? wrapping a whole clause is read"
++    (is (= '[yin.repl.store]
++           (repl-requires
++             "(ns a.b #?(:clj (:require [yin.repl.store :as store])))"))))
++  (testing "#?@ wrapping whole clauses is read"
++    (is (= '[yin.repl yin.repl.link]
++           (repl-requires
++             (str "(ns a.b #?@(:clj [(:require [dao.stream :as s])"
++                  " (:use [yin.repl.link])]"
++                  " :cljs [(:require-macros [yin.repl :as r])]))")))))
++  (testing "a violation only in an inactive host branch is found"
++    (is (= '[yin.repl.store]
++           (repl-requires
++             (str "(ns a.b #?(:clj (:require [dao.stream :as s])"
++                  " :cljd (:require [yin.repl.store :as store])))"))))
++    (is (= '[yin.repl]
++           (repl-requires
++             (str "(ns a.b #?(:cljs (:require [dao.stream :as s])"
++                  " :default #?@(:clj [] :cljd [(:require [yin.repl])])))")))))
++  (testing "a clean namespace with whole-clause conditionals stays clean"
++    (is (= []
++           (repl-requires
++             (str "(ns a.b #?(:clj (:require [dao.stream :as s])"
++                  " :cljd (:require [yin.vm.linker :as l]))"
++                  " #?@(:clj [(:import (java.io File))]"
++                  " :cljs [(:require [yin.repl-like :as x])]))")))))
++  (testing "a file whose first form is not ns is an inspection failure"
++    (is (= :no-ns-form (first (repl-requires "(def x 1) (ns a.b)"))))
++    (is (= :no-ns-form (first (repl-requires ""))))
++    (is (= :no-ns-form (first (repl-requires ";; only a comment\n")))))
+   (testing "datum vocabulary and docstrings are not requires"
+     (is (= []
+            (repl-requires
+@@ -95,7 +146,13 @@
+                   " (def k :yin.repl/root)"))))))
+ 
+ 
++(deftest every-root-is-inspected-test
++  (doseq [root roots]
++    (testing (str root " exists and holds source files")
++      (is (.isDirectory (io/file root)))
++      (is (seq (source-files root))))))
++
++
+ (deftest linker-requires-no-repl-test
+   (testing (str "no namespace under " roots " requires yin.repl")
+-    (is (seq (source-files)))
+     (is (= {} (violations)))))
+     1	(ns yin.vm.linker.layering-test
+     2	  "The linker's layering rule (collab design admission-in-linker r2,
+     3	   section 1): linker semantics is what a plain Clojure consumer needs,
+     4	   and the REPL is a consumer of it, never the reverse.  No namespace
+     5	   under src/cljc/yin/vm, src/cljc/yang or src/clj/dao requires a
+     6	   `yin.repl` namespace.  This gate reads the `ns` form of every source
+     7	   file there (tools.reader, reader conditionals preserved, so every
+     8	   branch is read, whether inside a clause or around whole clauses) and
+     9	   fails on any `yin.repl` or `yin.repl.*` symbol in a `:require`,
+    10	   `:require-macros` or `:use` clause, on any file it cannot read, on
+    11	   any file whose first form is not `ns` (empty files included), and on
+    12	   a root that is missing or holds no source file.  Docstrings and datum
+    13	   vocabulary such as `:yin.repl/root` are not requires and do not
+    14	   count.  JVM only: it reads source files."
+    15	  (:require [clojure.java.io :as io]
+    16	            [clojure.test :refer [deftest is testing]]
+    17	            [clojure.tools.reader :as reader]
+    18	            [clojure.tools.reader.reader-types :as rt]))
+    19	
+    20	
+    21	(def ^:private roots
+    22	  ["src/cljc/yin/vm" "src/cljc/yang" "src/clj/dao"])
+    23	
+    24	
+    25	(def ^:private require-clauses
+    26	  #{:require :require-macros :use})
+    27	
+    28	
+    29	(defn- repl-ns?
+    30	  [x]
+    31	  (and (symbol? x)
+    32	       (let [s (str x)]
+    33	         (or (= "yin.repl" s) (.startsWith s "yin.repl.")))))
+    34	
+    35	
+    36	(defn- symbols-in
+    37	  [form]
+    38	  (cond
+    39	    (reader-conditional? form) (symbols-in (:form form))
+    40	    (symbol? form) [form]
+    41	    (coll? form) (mapcat symbols-in form)
+    42	    :else nil))
+    43	
+    44	
+    45	(defn- clauses
+    46	  "The `ns` body elements with every reader conditional opened: each
+    47	   branch of a `#?` is one element, each branch of a `#?@` a sequence
+    48	   of elements, recursively, whatever the host."
+    49	  [body]
+    50	  (mapcat (fn [x]
+    51	            (if (reader-conditional? x)
+    52	              (let [branches (take-nth 2 (rest (:form x)))]
+    53	                (clauses (if (:splicing? x) (apply concat branches) branches)))
+    54	              [x]))
+    55	          body))
+    56	
+    57	
+    58	(defn repl-requires
+    59	  "The `yin.repl` namespaces the `ns` form of `text` requires, as a
+    60	   sorted vector; `[:unreadable message]` when its first form cannot be
+    61	   read; `[:no-ns-form]` when its first form is not an `ns` form, which
+    62	   includes an empty file (every source file under `roots` is a
+    63	   namespace)."
+    64	  [text]
+    65	  (try
+    66	    (binding [reader/*default-data-reader-fn* (fn [_ v] v)
+    67	              *ns* (create-ns 'yin.vm.linker.layering-reader)]
+    68	      (let [eof (Object.)
+    69	            form (reader/read {:read-cond :preserve, :eof eof}
+    70	                              (rt/indexing-push-back-reader text))]
+    71	        (if (and (seq? form) (= 'ns (first form)))
+    72	          (->> (clauses (rest form))
+    73	               (filter #(and (seq? %) (contains? require-clauses (first %))))
+    74	               (mapcat symbols-in)
+    75	               (filter repl-ns?)
+    76	               distinct
+    77	               sort
+    78	               vec)
+    79	          [:no-ns-form])))
+    80	    (catch Exception e
+    81	      [:unreadable (ex-message e)])))
+    82	
+    83	
+    84	(defn- source-files
+    85	  ([] (mapcat source-files roots))
+    86	  ([root]
+    87	   (->> (file-seq (io/file root))
+    88	        (filter #(.isFile ^java.io.File %))
+    89	        (map #(.getPath ^java.io.File %))
+    90	        (filter #(re-find #"\.clj[csd]?$" %))
+    91	        sort)))
+    92	
+    93	
+    94	(defn violations
+    95	  "file -> the `yin.repl` namespaces it requires, for every file under
+    96	   `roots` that requires one."
+    97	  []
+    98	  (into (sorted-map)
+    99	        (keep (fn [path]
+   100	                (let [found (repl-requires (slurp path))]
+   101	                  (when (seq found) [path found]))))
+   102	        (source-files)))
+   103	
+   104	
+   105	(deftest detector-sees-every-branch-test
+   106	  (testing "a require in any reader-conditional branch is found"
+   107	    (is (= '[yin.repl yin.repl.link]
+   108	           (repl-requires
+   109	             (str "(ns a.b (:require [dao.stream :as s]"
+   110	                  " #?(:cljd [yin.repl.link :as l] :clj [x.y :as y])"
+   111	                  " #?@(:cljs [[yin.repl :as r]])))")))))
+   112	  (testing "#? wrapping a whole clause is read"
+   113	    (is (= '[yin.repl.store]
+   114	           (repl-requires
+   115	             "(ns a.b #?(:clj (:require [yin.repl.store :as store])))"))))
+   116	  (testing "#?@ wrapping whole clauses is read"
+   117	    (is (= '[yin.repl yin.repl.link]
+   118	           (repl-requires
+   119	             (str "(ns a.b #?@(:clj [(:require [dao.stream :as s])"
+   120	                  " (:use [yin.repl.link])]"
+   121	                  " :cljs [(:require-macros [yin.repl :as r])]))")))))
+   122	  (testing "a violation only in an inactive host branch is found"
+   123	    (is (= '[yin.repl.store]
+   124	           (repl-requires
+   125	             (str "(ns a.b #?(:clj (:require [dao.stream :as s])"
+   126	                  " :cljd (:require [yin.repl.store :as store])))"))))
+   127	    (is (= '[yin.repl]
+   128	           (repl-requires
+   129	             (str "(ns a.b #?(:cljs (:require [dao.stream :as s])"
+   130	                  " :default #?@(:clj [] :cljd [(:require [yin.repl])])))")))))
+   131	  (testing "a clean namespace with whole-clause conditionals stays clean"
+   132	    (is (= []
+   133	           (repl-requires
+   134	             (str "(ns a.b #?(:clj (:require [dao.stream :as s])"
+   135	                  " :cljd (:require [yin.vm.linker :as l]))"
+   136	                  " #?@(:clj [(:import (java.io File))]"
+   137	                  " :cljs [(:require [yin.repl-like :as x])]))")))))
+   138	  (testing "a file whose first form is not ns is an inspection failure"
+   139	    (is (= :no-ns-form (first (repl-requires "(def x 1) (ns a.b)"))))
+   140	    (is (= :no-ns-form (first (repl-requires ""))))
+   141	    (is (= :no-ns-form (first (repl-requires ";; only a comment\n")))))
+   142	  (testing "datum vocabulary and docstrings are not requires"
+   143	    (is (= []
+   144	           (repl-requires
+   145	             (str "(ns a.b \"yin.repl.link\" (:require [dao.stream :as s]))"
+   146	                  " (def k :yin.repl/root)"))))))
+   147	
+   148	
+   149	(deftest every-root-is-inspected-test
+   150	  (doseq [root roots]
+   151	    (testing (str root " exists and holds source files")
+   152	      (is (.isDirectory (io/file root)))
+   153	      (is (seq (source-files root))))))
+   154	
+   155	
+   156	(deftest linker-requires-no-repl-test
+   157	  (testing (str "no namespace under " roots " requires yin.repl")
+   158	    (is (= {} (violations)))))
+Completed-GMT: 2026-10-13 09:28:01 GMT  
+Completed-Local: 2026-10-13 16:28:01 +07 (Asia/Ho_Chi_Minh)
+
+**REJECT**
+
+No open in-scope P0/P1. One blocking P2 in newly introduced behavior.
+
+Reviewed committed `admission-al1`, HEAD `7a855d70`, using `git diff -M origin/master...HEAD`, against section 7.5, the approved R2 design, both earlier reviews, and the engineer’s report.
+
+1. **P2 — Reader conditionals around namespace clauses bypass the new layering gate.**  
+   **Location:** [test/yin/vm/linker/layering_test.clj:52](/Users/sto/workspace/datomworld-al1/test/yin/vm/linker/layering_test.clj:52). **Owner:** AL-1 engineer.
+
+   The filter accepts only immediate sequential `:require`, `:require-macros`, or `:use` clauses. With `:read-cond :preserve`, a conditional wrapping a whole clause remains a `ReaderConditional`; the filter discards it before `symbols-in` can traverse its branches. This valid namespace form therefore produces no detected dependency by inspection:
+
+   ```clojure
+   (ns example
+     #?(:clj (:require [yin.repl.store :as store])))
+   ```
+
+   The same gap applies to `#?@` around whole clauses. The reported mutation and fixture cover conditionals **inside** `:require`, so they do not establish the claimed coverage of every branch.
+
+   **Exact fix:** Recursively traverse preserved reader conditionals in the namespace body before selecting dependency clauses. Add fixtures for both `#?` and `#?@` wrapping whole clauses, including violations in inactive host branches.
+
+2. **P3, non-blocking — Coverage guards permit partial vacuity.**  
+   **Location:** [test/yin/vm/linker/layering_test.clj:63](/Users/sto/workspace/datomworld-al1/test/yin/vm/linker/layering_test.clj:63), also lines 52 and 100. **Owner:** AL-1 engineer.
+
+   The aggregate nonempty assertion prevents a completely empty scan, but a missing root silently contributes no files while another root keeps the test green. Empty files or files whose first form is not `ns` also return `[]`. All three roots currently exist; this does not invalidate the present relocation.
+
+   **Exact fix:** Assert existence and nonempty source inventory separately for each root. Report a missing namespace form as an inspection failure instead of returning no violations.
+
+The remaining requested checks pass by static inspection:
+
+- **Pure relocation:** Both implementation renames have 99% similarity. Changes are limited to namespace forms, requires, and docstrings. Before/after public-var lists match: 14 admission vars and 12 interpreter vars. Definition-body code tokens and signatures are preserved.
+- **Session topology:** `yin/repl.cljc` changes only requires and docstrings. Session construction, keys, admission hooks, and runtime logic remain unchanged.
+- **Layering and cycles:** Neither moved namespace requires `yin.repl*`, including conditional branches. Source dependency traversal found no transitive REPL dependency or cycle involving either namespace.
+- **Consumers:** The complete 13-file require inventory is updated, with aliases preserved and no stale active `:refer` or qualified uses. Remaining old-name matches are document pointers and synthetic detector fixtures. Generated linker Dart files use the relocated imports; test discovery derives the moved test namespaces from source. Node/Dart execution remains unverified.
+- **Audit and driver:** The store-write allowlist uses the new interpreter path with the unchanged `{["composition" :map] 1}` entry. The driver change is docstring-only.
+- **Documentation pin:** `admission_doc_test` checks both new namespace names within section 7.5. AL-0 contains them, along with the existing constants and retirement literal. The engineer’s earlier missing-name failure describes the pre-AL-0 state.
+- **Pre-existing hash-audit issue:** `rows.cljc` and `hash_registry_contract_test.cljc` have identical blobs on `origin/master`, AL-0, and HEAD. The equality checks in `decode*` at rows lines 899 and 903 trace to `4b0e735e`, phase 6a. AL-1 does not touch them; this is outside the blocking scope.
+- **Language blindness:** No language, frontend, importer, or `[id revision]` discriminator is introduced into linker/admission data or behavior.
+- **Python tests:** `dht_import_test`, `linked_harness`, and `linked_prelude_test` change only requires/docstrings; their executable bodies are unchanged.
+
+No files edited or suites run.
+Created-GMT: 2026-10-13 02:00:00 GMT
+Coding-Agent: claude (opus-5-5)
+# AL-1 findings: pure relocation (DONE, JVM; awaiting AL-0 for the doc pin)
+
+## Files moved (git mv, staged renames)
+- src/cljc/yin/repl/link.cljc -> src/cljc/yin/vm/linker/interpreter.cljc
+- src/cljc/yin/repl/admission.cljc -> src/cljc/yin/vm/linker/admission.cljc
+- test/yin/repl/admission_test.cljc -> test/yin/vm/linker/admission_test.cljc
+- test/yin/repl/admission_doc_test.cljc ->
+  test/yin/vm/linker/admission_doc_test.cljc
+
+Neither moved namespace requires any yin.repl* namespace (checked before
+the move: admission requires dao.stream, dao.stream.ringbuffer,
+yin.vm.linker.sign; link requires clojure.string, dao.jing.content,
+dao.space.dht, dao.stream, dao.stream.ringbuffer, yin.repl.admission,
+yin.vm.linker, yin.vm.linker.dht, yin.vm.linker.sign). No STOP.
+
+No public var renamed, no code changed: the diff outside the ns forms is
+require vectors and docstring/comment text only.  The moved interpreter
+keeps the datum keyword `:yin.repl/name-required` (vocabulary, not a
+require) and its docstring's mention of `yin.repl/make-session` and
+"The REPL's linker-side composition" opening (wording is AL-0/AL-2's).
+
+## Consumers edited (grep over src, test, *.edn, docs/agents; excluding
+test/cljd-out and archive/)
+Require forms (old require removed, new one placed in sorted position):
+- src/cljc/yin/repl.cljc (both requires)
+- src/cljc/yin/vm/linker/interpreter.cljc (its own admission require)
+- src/cljc/yin/repl/dht.cljc
+- test/yang/python/antlr/dht_import_test.cljc (both)
+- test/yang/python/antlr/linked_harness.cljc
+- test/yang/python/antlr/linked_prelude_test.cljc
+- test/yin/vm/linker/admission_test.cljc (both; ns renamed
+  yin.vm.linker.admission-test)
+- test/yin/vm/linker/admission_doc_test.cljc (both; ns renamed
+  yin.vm.linker.admission-doc-test)
+- test/yin/repl/serve_test.cljc
+- test/yin/repl/python_antlr_test.cljc
+- test/yin/repl/require_test.cljc
+- test/yin/vm/linker_require_test.cljc
+- test/yin/vm/semantic_register/derive_test.cljc
+That is the design's 13-file inventory exactly; grep found no others.
+main.cljc and state.cljc do not require either namespace.
+
+Docstring / comment / allowlist text:
+- src/cljc/yin/repl.cljc: 6 docstring mentions (make-session,
+  create-state x2, admission-context, abandon-pending)
+- src/cljc/yin/vm/linker/interpreter.cljc: 2 (composition, serve)
+- src/clj/dao/jing/content/driver.clj:7 (name only, reflowed)
+- test/yin/vm/store_write_audit_test.clj:331 allowlist key ->
+  "src/cljc/yin/vm/linker/interpreter.cljc", same {["composition" :map] 1};
+  :368 comment
+- test/yin/vm/linker_require_test.cljc:1323 docstring
+- test/yang/python/antlr/linked_harness.cljc:6 docstring
+- test/yin/vm/linker/admission_test.cljc:10 docstring
+- publication.cljc: no mention left (AD-2 removed it), nothing to edit.
+docs/ untouched (AL-0's).
+
+## admission-spec-test pins the new names
+admission_doc_test `divergences` now also reports `{:missing ns}` for
+each of "yin.vm.linker.admission" and "yin.vm.linker.interpreter" absent
+from section 7.5.  Until AL-0's 7.5 rewrite merges it FAILS, as expected:
+  actual: [{:missing "yin.vm.linker.admission"}
+           {:missing "yin.vm.linker.interpreter"}]
+(only those two; reasons, serve-budget, pair-capacity, origin + "."
+still agree).
+
+## Namespace-dependency check
+New JVM test test/yin/vm/linker/layering_test.clj
+(yin.vm.linker.layering-test, quick tier, no ^:slow).  It reads the ns
+form of every .clj/.cljc/.cljs/.cljd file under src/cljc/yin/vm,
+src/cljc/yang, src/clj/dao with tools.reader, reader conditionals
+preserved (every branch read, as store_write_audit_test does), and fails
+on any yin.repl / yin.repl.* symbol inside :require, :require-macros or
+:use, and on an unreadable file.  Docstrings and keywords like
+:yin.repl/root are not symbols in a require clause, so they never count.
+A fixture test pins that requires inside #?(...) and #?@(...) branches
+are seen and that docstring/keyword mentions are not.
+The design's grep
+  grep -rn -E '^\s*\[yin\.repl(\.[a-z-]+)? ' src/cljc/yin/vm \
+    src/cljc/yang src/clj/dao --include='*.clj*'
+is also empty.  (The grep misses a require that shares a line with
+`(:require` or a reader conditional; the test does not.)
+
+Mutation: added `#?(:cljd nil :clj [yin.repl.store :as mutation-store])`
+to interpreter.cljc's require; the test went red:
+  actual: {"src/cljc/yin/vm/linker/interpreter.cljc" [yin.repl.store]}
+Reverted (the grep above would not have caught this form).
+
+## Lint
+- clj -M:kondo --lint <17 edited files>: errors 0, warnings 0
+- mise exec -- cljstyle check <same>: clean
+- added lines: ASCII, <= 80 columns
+
+## Tests (JVM only, this laptop)
+- bb gen:python-antlr first (fresh worktree had no generated parser).
+- focused: layering-test, admission-test, admission-doc-test,
+  store-write-audit-test: 31 tests, 389 assertions, 1 failure =
+  the expected admission-spec-test doc pin above.
+- G0 bb test:sub:clj yin.repl yin.vm yang.python: 128 namespaces,
+  1871 tests, 1 failure (exit 1, 312 s) = the expected
+  admission-spec-test doc pin, nothing else.  Ran, among others:
+  yin.vm.linker.admission-test, layering-test, store-write-audit-test,
+  yin.repl.require-test, yin.vm.linker.dht-test, yin.repl.dht-test,
+  yin.vm.linker-require-test, yin.vm.semantic-register.derive-test,
+  yin.repl.serve-test, yin.repl.python-antlr-test (quick part),
+  yang.python.antlr.dht-import-test (quick part), linked-prelude-test.
+  Logs: collab/al1-logs/g0-clj.log, g0-sub-clj.log.
+- bb test:sub:list yin.vm lists yin.vm.linker.admission-test,
+  admission-doc-test and layering-test.  admission-test also shows as a
+  Class B seam into yin.repl (its shell tests drive a REPL): test-only,
+  as before the move.
+- slow dht_import_test (JVM, clojure -M:test -i :slow -n
+  yang.python.antlr.dht-import-test): 1 test, 92 assertions, 0 failures
+  (collab/al1-logs/slow-dht-import.log).
+- bb test:sub:clj dao.jing (driver.clj docstring edit): 15 namespaces,
+  233 tests, 1 failure, NOT AL-1's: dao.jing.hash-registry-contract-test
+  architectural-lint-sweeps-production-sources flags an equality check in
+  `decode*` of src/cljc/yin/vm/ucf/rows.cljc, a file this slice does not
+  touch (the sweep is per source form; the driver.clj change is docstring
+  text).  Pre-existing by inspection; not verified against a master
+  checkout (no git write commands here).  Log: collab/al1-logs/
+  dao-jing-clj.log.
+
+Not run here (orchestrator, shiva): Node, Dart, slow lanes beyond
+dht_import_test.  Before Dart: rm -rf test/cljd-out.
+
+## For the orchestrator
+- The design asks for a collab note to the yang.python orchestrator
+  before touching its tests.  I edited only require forms and one
+  docstring in test/yang/python/antlr/{dht_import_test,linked_harness,
+  linked_prelude_test}.cljc; I cannot write main collab/ from this
+  worktree, so that note is yours to relay.
+- G1 should add dao.jing (driver.clj docstring edit).
+
+## Deviations
+- The rename was done with Edit (a sed/perl script needed approval in
+  this session); git mv worked.
+- Test logs under collab/al1-logs/ (untracked, collab is never
+  committed).
+
+## Fix round (codex REJECT 1792283000000: P2 + P3), DONE (JVM)
+Only test/yin/vm/linker/layering_test.clj changed (uncommitted).
+- P2: new `clauses` opens every preserved reader conditional in the ns
+  body BEFORE dependency clauses are selected: each `#?` branch value is
+  an element, each `#?@` branch value a sequence of elements, recursively,
+  all hosts (:clj :cljs :cljd :default ...).
+- P3: `source-files` takes a root; new every-root-is-inspected-test
+  asserts per root that it is a directory and holds >= 1 source file.
+  `repl-requires` returns `[:no-ns-form]` when the first form is not `ns`;
+  decision: an EMPTY file (or comment-only) is also `[:no-ns-form]` (eof
+  sentinel), i.e. an inspection failure: every file under the roots is a
+  namespace.  Both are reported by `violations`.
+- Red first: new fixtures gave 7 failures + 3 errors (arity) on the old
+  code; green after: 3 tests, 17 assertions, 0 failures.
+- New fixtures (detector-sees-every-branch-test), all must detect:
+  `#?(:clj (:require [yin.repl.store ...]))` whole clause;
+  `#?@(:clj [(:require ..) (:use [yin.repl.link])] :cljs
+  [(:require-macros [yin.repl ..])])` whole clauses;
+  violation only in an inactive :cljd branch of a whole-clause `#?`;
+  violation only under `:default #?@(... :cljd [(:require [yin.repl])])`
+  (nested); plus the existing inside-:require case.  Clean fixture with
+  whole-clause `#?`/`#?@` (incl. `yin.repl-like`, :import) stays `[]`.
+  `:no-ns-form` for "(def x 1) (ns a.b)", "" and a comment-only file.
+- Mutations on real sources (one run, each reported naming its file):
+  interpreter.cljc + `#?(:clj (:require [yin.repl.store]))` ->
+    [yin.repl.store];
+  admission.cljc + `#?@(:clj [] :cljd [(:require [yin.repl :as m])])`
+    (inactive branch only) -> [yin.repl];
+  new src/clj/dao/zz_mutation_no_ns.clj "(def x 1)" -> [:no-ns-form];
+  new empty src/cljc/yang/zz_mutation_empty.cljc -> [:no-ns-form].
+  Then roots "src/cljc/yang" -> "src/cljc/yang-missing" in the test:
+    every-root-is-inspected-test red (isDirectory false, no files).
+  All reverted / deleted; `git status --short src test` shows only
+  layering_test.clj modified.
+- Lint: kondo 0/0, cljstyle check clean, ASCII, <= 80 columns.
+- clojure -M:test -n yin.vm.linker.layering-test: 3 tests, 17 assertions,
+  0 failures.
+- bb test:sub:clj yin.vm: 82 namespaces, 1291 tests, 0 failures, exit 0,
+  76 s (log collab/al1-logs/fix-sub-clj-yin-vm.log).  The admission doc
+  pin now passes (AL-0 is in this branch).
+
+exec
+/bin/zsh -lc "rg -n 'yin\\.repl|#\\?@?|\\(:require-macros|\\(:use' src/cljc/yin/vm src/cljc/yang src/clj/dao" in /Users/sto/workspace/datomworld-al1
+ succeeded in 0ms:
+src/cljc/yang/clojure.cljc:375:                           :type #?(:cljd (clojure.core/str (.-runtimeType form))
+src/cljc/yang/php.cljc:95:                      #?(:cljd (double/parse val)
+src/cljc/yang/php.cljc:98:                      #?(:cljd (int/parse val)
+src/cljc/yin/vm/semantic.cljc:677:                                              (catch #?(:cljd Object
+src/clj/dao/stream/ws/jvm.clj:383:                      {:code :yin.repl.endpoint/upgrade-threw
+src/clj/dao/stream/ws/jvm.clj:401:                    {:code :yin.repl.endpoint/socket-error
+src/clj/dao/stream/ws/jvm.clj:435:                                  {:code :yin.repl.endpoint/subprotocol-required
+src/clj/dao/stream/ws/jvm.clj:451:                                                     {:code :yin.repl.endpoint/listener-error
+src/cljc/yang/python.cljc:110:                      #?(:cljd (double/parse val)
+src/cljc/yang/python.cljc:113:                      #?(:cljd (int/parse val)
+src/cljc/yin/vm/ffi/remote_serve/caller.cljc:52:               (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil))]
+src/cljc/yin/vm/ffi/remote_serve/caller.cljc:62:       (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))
+src/cljc/yin/vm/ffi/remote_serve/caller.cljc:87:             (catch #?(:cljd Object :clj Throwable :cljs :default) _ false)))))
+src/cljc/yin/vm/data.cljc:44:  #?(:cljd (:import ["dart:core" BigInt])))
+src/cljc/yin/vm/data.cljc:85:             #?(:cljd (.-isFinite ^num x)
+src/cljc/yin/vm/data.cljc:90:    #?(:cljd (when (== x (.round ^num x)) (.toInt ^num x))
+src/cljc/yin/vm/data.cljc:121:  #?(:cljd (.-length ^String s)
+src/cljc/yin/vm/data.cljc:128:  #?(:cljd (.codeUnitAt ^String s i)
+src/cljc/yin/vm/data.cljc:165:  #?(:cljd (let [sb (StringBuffer)]
+src/cljc/yin/vm/data.cljc:436:  #?(:cljd (if (dart/is? x BigInt) (.toDouble ^BigInt x) (.toDouble ^num x))
+src/cljc/yang/python/antlr/render.cljc:71:      #?(:cljd (.-isNaN ^num x)
+src/cljc/yang/python/antlr/render.cljc:87:  #?(:cljd (.codeUnitAt ^String s i)
+src/cljc/yin/vm/pipeline.cljc:87:    (catch #?(:cljd Object :clj Throwable :cljs :default) t
+src/cljc/yin/vm/pipeline.cljc:106:                     (catch #?(:cljd Object :clj Throwable :cljs :default) t
+src/cljc/yin/vm/pipeline.cljc:116:        (catch #?(:cljd Object :clj Throwable :cljs :default) t
+src/cljc/yin/vm/debruijn_code.cljc:48:  #?(:cljd (:import ["dart:typed_data" ByteData])))
+src/cljc/yin/vm/debruijn_code.cljc:182:  #?(:clj (int (.charAt ^String s i))
+src/cljc/yin/vm/debruijn_code.cljc:226:  #?(:cljs (let [lo (mod v 4294967296)
+src/cljc/yin/vm/debruijn_code.cljc:246:  (let [v #?(:cljs (if (number? x) x (.-v ^not-native x)) :default x)]
+src/cljc/yin/vm/debruijn_code.cljc:250:      #?(:cljd (let [bd (ByteData. 8)]
+src/cljc/yin/vm/debruijn_code.cljc:300:  #?(:cljd false :cljs false :clj (char? v)))
+src/cljc/yin/vm/debruijn_code.cljc:312:  #?(:cljd false :cljs false :clj (ratio? v)))
+src/cljc/yin/vm/debruijn_code.cljc:329:  #?(:cljd false
+src/cljc/yin/vm/debruijn_code.cljc:339:  #?(:cljd (int? v)
+src/cljc/yin/vm/debruijn_code.cljc:357:  #?(:cljd (and (number? v) (not (host-long? v)))
+src/cljc/yin/vm/debruijn_code.cljc:407:        (remove #?(:cljs #{:char :ratio :bigint} :cljd #{:char :ratio :bigint} :clj #{}))
+src/cljc/yin/vm/debruijn_code.cljc:446:    :ratio #?(:cljs (framed :ratio "")
+src/cljc/yin/vm/debruijn_code.cljc:654:       #?(:cljs (js/Number.isSafeInteger x) :default true)))
+src/cljc/yin/vm/completion.cljc:318:               (catch #?(:cljd Object :clj Throwable :cljs :default) e
+src/cljc/yin/vm/ffi/remote_serve/holder.cljc:78:       (catch #?(:cljd Object :clj Exception :cljs :default) e
+src/cljc/yin/vm/values.cljc:41:  #?@(:cljd [cljd.core/IEquiv
+src/cljc/yin/vm/values.cljc:77:  #?@(:cljd [cljd.core/IEquiv
+src/cljc/yin/vm/values.cljc:111:#?(:cljd nil
+src/cljc/yin/vm/values.cljc:117:#?(:cljd nil
+src/cljc/yin/vm/ucf/checkpoint.cljc:104:       (catch #?(:cljd Object :clj Throwable :cljs :default) e
+src/cljc/yin/vm/ucf/checkpoint.cljc:527:                        (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/ucf/checkpoint.cljc:538:                      (catch #?(:cljd Object :clj Throwable :cljs :default) e
+src/cljc/yin/vm/ledger.cljc:210:                                   (catch #?(:cljd Object
+src/cljc/yang/python/antlr/lower.cljc:339:                            #?(:cljd (double/parse t)
+src/cljc/yang/python/antlr/lower.cljc:347:  #?(:cljd (let [sb (StringBuffer)] (.writeCharCode sb cp) (.toString sb))
+src/cljc/yang/python/antlr/lower.cljc:2111:        (catch #?(:cljd Object
+src/cljc/yin/vm/ffi/remote_serve.cljc:224:       (catch #?(:cljd Object :clj Throwable :cljs :default) _ false)))
+src/cljc/yin/vm/ffi/remote_serve.cljc:312:    (catch #?(:cljd Object :clj Exception :cljs :default) e
+src/cljc/yin/vm/linker/dht.cljc:16:   index as authority, and nothing depends on `yin.repl`."
+src/cljc/yin/vm/ucf/authority/grant.cljc:101:    (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/effect.cljc:22:  #?@(:cljd [cljd.core/ILookup
+src/cljc/yin/vm/macro.cljc:756:      (catch #?(:cljd Object :clj Throwable :cljs :default) e
+src/cljc/yin/vm/debruijn.cljc:50:            #?(:cljd ["package:unorm_dart/unorm_dart.dart" :as unorm]))
+src/cljc/yin/vm/debruijn.cljc:51:  #?(:cljd (:import ["dart:typed_data" ByteData Uint8List])))
+src/cljc/yin/vm/debruijn.cljc:167:  #?(:clj (bytes? v)
+src/cljc/yin/vm/debruijn.cljc:172:#?(:cljs
+src/cljc/yin/vm/debruijn.cljc:189:#?(:cljs
+src/cljc/yin/vm/debruijn.cljc:205:#?(:cljs
+src/cljc/yin/vm/debruijn.cljc:231:    #?(:cljd (if (int? v) :int64 :double)
+src/cljc/yin/vm/debruijn.cljc:241:  #?(:clj (int (.charAt ^String s i))
+src/cljc/yin/vm/debruijn.cljc:319:  #?(:clj (java.text.Normalizer/normalize s java.text.Normalizer$Form/NFC)
+src/cljc/yin/vm/debruijn.cljc:855:  #?(:cljs (let [lo (mod v 4294967296)
+src/cljc/yin/vm/debruijn.cljc:877:  (let [v #?(:cljs (if (number? x) x (.-v ^not-native x)) :default x)]
+src/cljc/yin/vm/debruijn.cljc:881:      #?(:cljd (let [bd (ByteData. 8)]
+src/cljc/yin/vm/debruijn.cljc:1255:    :int64 #?(:cljs true :default (int? v))
+src/cljc/yin/vm/debruijn.cljc:1257:    :double #?(:cljd true :clj (instance? Double v) :cljs true)
+src/cljc/yin/vm/debruijn.cljc:1386:                                       #?(:cljs
+src/cljc/yin/vm/debruijn.cljc:1603:                                  (catch #?(:cljd Object :clj Throwable :cljs :default) t
+src/cljc/yin/vm/semantic_register/layout.cljc:911:                  (catch #?(:cljd Object :clj Throwable :cljs :default) _ [::underivable a])))
+src/cljc/yin/vm/ucf/authority/input.cljc:94:       (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/linker/head.cljc:113:    (catch #?(:cljd Object :clj Exception :cljs :default) _ false)))
+src/cljc/yin/vm/linker/head.cljc:147:    (catch #?(:cljd Object :clj Exception :cljs :default) _ false)))
+src/cljc/yin/vm/linker/head.cljc:303:    (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/linker/head.cljc:513:       (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/linker.cljc:38:  (:require #?@(:cljd [["dart:typed_data" :as typed]])
+src/cljc/yin/vm/linker.cljc:179:       (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))
+src/cljc/yin/vm/linker.cljc:263:    (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/linker.cljc:1104:       (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))
+src/cljc/yin/vm/linker.cljc:1189:  #?(:cljd (Object.)
+src/cljc/yin/vm/linker.cljc:1233:    (catch #?(:cljd Object :clj Throwable :cljs :default) e
+src/cljc/yin/vm/linker.cljc:1246:       (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/linker.cljc:1253:  #?(:clj (alength ^bytes bs)
+src/cljc/yin/vm/linker.cljc:1266:       (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/linker.cljc:1276:       (catch #?(:cljd Object :clj Throwable :cljs :default) _ false)))
+src/cljc/yin/vm/linker.cljc:1284:       (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/linker.cljc:1291:       (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/linker.cljc:2177:    (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))
+src/cljc/yin/vm/linker.cljc:2465:    (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/linker/publish.cljc:121:                    (catch #?(:cljd Object :clj Exception :cljs :default) _
+src/cljc/yin/vm/linker/publish.cljc:225:   datoms, as `yin.repl.index` publishes them -- in ascending `t`, each
+src/cljc/yin/vm/linker/publish.cljc:236:                     (query/q '[:find ?m ?t :where [?m :yin.repl/root _ ?t _]]
+src/cljc/yin/vm/ucf/authority/front.cljc:180:    (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/ucf/authority/front.cljc:202:    (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/ucf/authority/front.cljc:215:            (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/ucf/authority/front.cljc:268:                (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/ucf/authority/front.cljc:300:                (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/linker/sign.cljc:8:            #?@(:cljd [["dart:convert" :as convert]
+src/cljc/yin/vm/linker/sign.cljc:10:            #?@(:cljs [[goog.crypt :as crypt]]))
+src/cljc/yin/vm/linker/sign.cljc:11:  #?@(:cljd [(:import ["dart:typed_data" Uint8List])])
+src/cljc/yin/vm/linker/sign.cljc:12:  #?@(:cljd []
+src/cljc/yin/vm/linker/sign.cljc:57:  #?(:cljd (Uint8List.fromList (vec xs))
+src/cljc/yin/vm/linker/sign.cljc:64:  #?(:cljd (convert/utf8.encode s)
+src/cljc/yin/vm/linker/sign.cljc:75:#?(:cljd nil :clj
+src/cljc/yin/vm/linker/sign.cljc:94:  #?(:cljd (to-hex (.-bytes (ed/public
+src/cljc/yin/vm/linker/sign.cljc:116:  #?(:cljd (let [pair (ed/generateKey)]
+src/cljc/yin/vm/linker/sign.cljc:129:  #?(:cljd (ed/sign (ed/newKeyFromSeed (host-bytes (from-hex seed)))
+src/cljc/yin/vm/linker/sign.cljc:158:  #?(:cljs (when-not (exists? js/require)
+src/cljc/yin/vm/linker/sign.cljc:176:    #?(:cljd (ed/verify (ed/PublicKey. (host-bytes (from-hex public)))
+src/cljc/yin/vm/linker/sign.cljc:205:    (catch #?(:cljd Object :clj Exception :cljs :default) _ false)))
+src/cljc/yin/vm/linker/sign.cljc:214:  #?(:cljs (when-not (exists? js/require)
+src/cljc/yin/vm/linker/sign.cljc:238:    (catch #?(:cljd Object :clj Exception :cljs :default) _ false)))
+src/cljc/yin/vm/linker/sign.cljc:273:    (catch #?(:cljd Object :clj Exception :cljs :default) _
+src/cljc/yin/vm/linker/interpreter.cljc:5:   The shell composes the link pair per VM (`yin.repl/make-session`) and
+src/cljc/yin/vm/linker/interpreter.cljc:293:    (catch #?(:cljd Object :clj Throwable :cljs :default) e
+src/cljc/yin/vm/linker/interpreter.cljc:481:              :defect :yin.repl/name-required}}
+src/cljc/yin/vm/linker/closure.cljc:15:  (:require #?@(:cljd [["dart:typed_data" :as typed]])
+src/cljc/yin/vm/linker/closure.cljc:30:  #?(:cljd (.-length ^typed/Uint8List bs)
+src/cljc/yin/vm/linker/closure.cljc:87:                         (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/linker/closure.cljc:176:                                (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/linker/closure.cljc:261:                          :sentinel #?(:cljd (Object.) :clj (Object.) :cljs (js-obj))
+src/cljc/yin/vm/docs/bytecode-vm-optimization.md:33:  #?(:clj  (object-array v)
+src/cljc/yin/vm/docs/bytecode-vm-optimization.md:37:  #?(:clj  (aget ^objects arr idx)
+src/cljc/yin/vm/docs/bytecode-vm-optimization.md:41:  #?(:clj  (aset ^objects arr (int idx) val)
+src/cljc/yin/vm/docs/bytecode-vm-optimization.md:45:  #?(:clj  (aclone ^objects arr)
+src/cljc/yin/vm/docs/bytecode-vm-optimization.md:49:  #?(:clj  (object-array size)
+src/cljc/yin/vm/debruijn_register_effects.cljc:130:       #?(:cljs (js/Number.isSafeInteger x) :default true)))
+src/cljc/yin/vm/ucf/compose.cljc:5:   authority namespaces, loadable and drivable with no yin.repl
+src/cljc/yin/vm/ucf/compose.cljc:214:        (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))))
+src/cljc/yin/vm/ucf/compose.cljc:226:      (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil))))
+src/cljc/yin/vm/ucf/compose.cljc:595:      (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))
+src/cljc/yin/vm/ucf/compose.cljc:635:                      (catch #?(:cljd Object :clj Throwable :cljs :default) e
+src/cljc/yin/vm/ucf.cljc:273:    (catch #?(:cljd Object :clj Throwable :cljs :default) e
+src/cljc/yin/vm/ucf/authority/admission.cljc:127:    (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/ucf/authority/admission.cljc:147:            (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/ucf/authority/admission.cljc:205:                 (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/integer/host.cljc:27:  #?@(:cljd [(:import ["dart:core" BigInt])]
+src/cljc/yin/vm/integer/host.cljc:35:#?(:cljs
+src/cljc/yin/vm/integer/host.cljc:46:  #?(:cljd (dart/is? x BigInt)
+src/cljc/yin/vm/integer/host.cljc:58:  #?(:cljd (or (dart/is? x int) (dart/is? x BigInt))
+src/cljc/yin/vm/integer/host.cljc:75:  #?(:cljd (and (dart/is? x int)
+src/cljc/yin/vm/integer/host.cljc:90:  #?(:cljd (dart/is? x double)
+src/cljc/yin/vm/integer/host.cljc:98:  #?(:cljd (.-isNaN ^double x)
+src/cljc/yin/vm/integer/host.cljc:106:  #?(:cljd (.-isInfinite ^double x)
+src/cljc/yin/vm/integer/host.cljc:119:  #?(:cljd (if (dart/is? x BigInt) x (BigInt.from x))
+src/cljc/yin/vm/integer/host.cljc:131:  #?(:cljd (BigInt.from n)
+src/cljc/yin/vm/integer/host.cljc:136:#?(:cljs
+src/cljc/yin/vm/integer/host.cljc:140:#?(:cljs
+src/cljc/yin/vm/integer/host.cljc:144:#?(:cljs
+src/cljc/yin/vm/integer/host.cljc:152:  #?(:cljd (if (.-isValidInt ^BigInt b) (.toInt ^BigInt b) b)
+src/cljc/yin/vm/integer/host.cljc:165:  #?(:cljd (.toInt ^BigInt b)
+src/cljc/yin/vm/integer/host.cljc:173:  #?(:cljd (.toDouble ^int n)
+src/cljc/yin/vm/integer/host.cljc:182:  #?(:cljd (.truncate ^double x)
+src/cljc/yin/vm/integer/host.cljc:193:  #?(:cljd (. ^BigInt a "+" b)
+src/cljc/yin/vm/integer/host.cljc:200:  #?(:cljd (. ^BigInt a "-" b)
+src/cljc/yin/vm/integer/host.cljc:207:  #?(:cljd (. ^BigInt a "*" b)
+src/cljc/yin/vm/integer/host.cljc:215:  #?(:cljd (. ^BigInt a "~/" b)
+src/cljc/yin/vm/integer/host.cljc:223:  #?(:cljd (.remainder ^BigInt a b)
+src/cljc/yin/vm/integer/host.cljc:232:  #?(:cljd (let [c (.compareTo ^BigInt a b)]
+src/cljc/yin/vm/integer/host.cljc:243:  #?(:cljd (. ^BigInt a "&" b)
+src/cljc/yin/vm/integer/host.cljc:251:  #?(:cljd (. ^BigInt a "|" b)
+src/cljc/yin/vm/integer/host.cljc:259:  #?(:cljd (. ^BigInt a "^" b)
+src/cljc/yin/vm/integer/host.cljc:267:  #?(:cljd (. ^BigInt a "<<" k)
+src/cljc/yin/vm/integer/host.cljc:276:  #?(:cljd (. ^BigInt a ">>" k)
+src/cljc/yin/vm/integer/host.cljc:285:  #?(:cljd (.-bitLength (.abs ^BigInt a))
+src/cljc/yin/vm/integer/host.cljc:297:  #?(:cljd (.toRadixString ^BigInt a radix)
+src/cljc/yin/vm/ucf/ledger.cljc:759:    (catch #?(:cljd Object :clj Throwable :cljs :default) e
+src/cljc/yin/vm/ucf/rows.cljc:267:                                   (cbor/byte-payload? x) (+ 16 #?(:cljd (.-length x) :default (alength x)))
+src/cljc/yin/vm/ucf/rows.cljc:758:                (catch #?(:cljd Object :clj Throwable :cljs :default) _e false)))))
+src/cljc/yin/vm/ucf/rows.cljc:933:                                (catch #?(:cljd Object :clj Throwable :cljs :default) e
+src/cljc/yin/vm/ucf/rows.cljc:1448:                   (catch #?(:cljd Object :clj Throwable :cljs :default) _e false))
+src/cljc/yin/vm/ucf/rows.cljc:1570:       (catch #?(:cljd Object :clj Throwable :cljs :default) _e false)))
+src/cljc/yin/vm/debruijn_register_code.cljc:443:       #?(:cljs (js/Number.isSafeInteger x) :default true)))
+src/cljc/yin/vm/ucf/authority.cljc:54:  #?(:cljd (f)
+src/cljc/yin/vm/ucf/authority.cljc:123:                (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/ucf/authority.cljc:232:            (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/ucf/authority.cljc:239:                (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/docs/yin.repl.md:1:# yin.repl: the Interface to datom.world
+src/cljc/yin/vm/docs/yin.repl.md:3:`yin.repl` is the primary user interface into datom.world. It started as a
+src/cljc/yin/vm/docs/yin.repl.md:202:(`yin.repl.main/expand-args`); **The flags** below are the full surface
+src/cljc/yin/vm/docs/yin.repl.md:510:- [`yin.repl.dao.space-index.md`](../../../../../docs/design/yin.repl.dao.space-index.md):
+src/cljc/yin/vm/docs/yin.repl.md:512:- [`yin.repl.link-policy.md`](../../../../../docs/design/yin.repl.link-policy.md):
+src/cljc/yin/vm/ucf/remote.cljc:141:       (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))
+src/cljc/yin/vm/ucf/holder/export.cljc:497:    (catch #?(:cljd Object :clj Throwable :cljs :default) failure
+src/cljc/yin/vm/engine.cljc:929:                                    #?(:cljd (str (.-runtimeType x))
+src/cljc/yin/vm/engine.cljc:1370:                        (catch #?(:cljd Object :clj Throwable :cljs :default) e
+src/cljc/yin/vm/engine.cljc:1439:               (catch #?(:cljd Object :clj Throwable :cljs :default) e
+src/cljc/yin/vm/engine.cljc:1449:           (catch #?(:cljd Object :clj Throwable :cljs :default) e
+src/cljc/yin/vm/engine.cljc:1472:    (catch #?(:cljd Object :clj Throwable :cljs :default) e
+src/cljc/yin/vm/engine.cljc:1790:    (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/ucf/handoff.cljc:142:       (catch #?(:cljd Object :clj Throwable :cljs :default) e
+src/cljc/yin/vm/ucf/handoff.cljc:206:       (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))
+src/cljc/yin/vm/ucf/handoff.cljc:341:                                #?(:cljd (str (.-runtimeType x))
+src/cljc/yin/vm/ucf/handoff.cljc:402:                                    #?(:cljd (str (.-runtimeType x))
+src/cljc/yin/vm/ucf/handoff.cljc:799:         (catch #?(:cljd Object :clj Throwable :cljs :default) _ false))
+src/cljc/yin/vm/ucf/handoff.cljc:990:             (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/ucf/handoff.cljc:1190:                    (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/ucf/handoff.cljc:1633:                            (catch #?(:cljd Object
+src/cljc/yin/vm/ucf/handoff.cljc:2088:                      (catch #?(:cljd Object :clj Throwable :cljs :default) e
+src/cljc/yin/vm/ucf/handoff.cljc:2113:                      (catch #?(:cljd Object :clj Throwable :cljs :default) e
+src/cljc/yin/vm/ucf/handoff.cljc:2415:       (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))
+src/cljc/yin/vm/ucf/handoff.cljc:2473:                            (catch #?(:cljd Object :clj Throwable :cljs :default) e
+src/cljc/yin/vm/ucf/handoff.cljc:3272:                 (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/ucf/holder/driver.cljc:600:    (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/ucf/holder/driver.cljc:611:    (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/ucf/holder/driver.cljc:1825:      (catch #?(:cljd Object :clj Throwable :cljs :default) failure
+src/cljc/yin/vm/ucf/holder/driver.cljc:1852:                            (catch #?(:cljd Object :clj Throwable :cljs :default) failure
+src/cljc/yin/vm/ucf/holder/driver.cljc:2220:       (catch #?(:cljd Object :clj Throwable :cljs :default) failure
+src/cljc/yin/vm/ucf/holder/driver.cljc:2337:      (catch #?(:cljd Object :clj Throwable :cljs :default) failure
+src/cljc/yin/vm/ucf/holder/driver.cljc:2506:               (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/ucf/holder/driver.cljc:2666:                           (catch #?(:cljd Object :clj Throwable :cljs :default) failure
+src/cljc/yin/vm/ucf/holder/driver.cljc:2740:                     (catch #?(:cljd Object :clj Throwable :cljs :default) _
+src/cljc/yin/vm/ucf/holder/driver.cljc:2902:         (catch #?(:cljd Object :clj Throwable :cljs :default) failure
+
+exec
+/bin/zsh -lc 'git diff --name-only HEAD && git show HEAD''^:test/yin/vm/linker/layering_test.clj && git branch --show-current && rg --files src/cljc/yin/vm src/cljc/yang src/clj/dao | wc -l' in /Users/sto/workspace/datomworld-al1
+ succeeded in 6509ms:
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-GSiUFtU4' (errno=Operation not permitted)
+2026-10-13 16:33:42.113 xcodebuild[398:60622741]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-13 16:33:42.363 xcodebuild[398:60622740] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-1GYqZfKO' (errno=Operation not permitted)
+2026-10-13 16:33:42.925 xcodebuild[402:60622765]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-13 16:33:43.121 xcodebuild[402:60622764] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-sCmFNqij' (errno=Operation not permitted)
+2026-10-13 16:33:44.350 xcodebuild[412:60622823]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-13 16:33:44.556 xcodebuild[412:60622822] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-L1AE8zBp' (errno=Operation not permitted)
+2026-10-13 16:33:45.097 xcodebuild[415:60622843]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-13 16:33:45.302 xcodebuild[415:60622842] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+(ns yin.vm.linker.layering-test
+  "The linker's layering rule (collab design admission-in-linker r2,
+   section 1): linker semantics is what a plain Clojure consumer needs,
+   and the REPL is a consumer of it, never the reverse.  No namespace
+   under src/cljc/yin/vm, src/cljc/yang or src/clj/dao requires a
+   `yin.repl` namespace.  This gate reads the `ns` form of every source
+   file there (tools.reader, reader conditionals preserved, so every
+   branch is read) and fails on any `yin.repl` or `yin.repl.*` symbol in
+   a `:require`, `:require-macros` or `:use` clause, and on any file it
+   cannot read.  Docstrings and datum vocabulary such as `:yin.repl/root`
+   are not requires and do not count.  JVM only: it reads source files."
+  (:require [clojure.java.io :as io]
+            [clojure.test :refer [deftest is testing]]
+            [clojure.tools.reader :as reader]
+            [clojure.tools.reader.reader-types :as rt]))
+
+
+(def ^:private roots
+  ["src/cljc/yin/vm" "src/cljc/yang" "src/clj/dao"])
+
+
+(def ^:private require-clauses
+  #{:require :require-macros :use})
+
+
+(defn- repl-ns?
+  [x]
+  (and (symbol? x)
+       (let [s (str x)]
+         (or (= "yin.repl" s) (.startsWith s "yin.repl.")))))
+
+
+(defn- symbols-in
+  [form]
+  (cond
+    (reader-conditional? form) (symbols-in (:form form))
+    (symbol? form) [form]
+    (coll? form) (mapcat symbols-in form)
+    :else nil))
+
+
+(defn repl-requires
+  "The `yin.repl` namespaces the `ns` form of `text` requires, as a
+   sorted vector, or `[:unreadable message]` when its first form cannot
+   be read."
+  [text]
+  (try
+    (binding [reader/*default-data-reader-fn* (fn [_ v] v)
+              *ns* (create-ns 'yin.vm.linker.layering-reader)]
+      (let [form (reader/read {:read-cond :preserve, :eof nil}
+                              (rt/indexing-push-back-reader text))]
+        (->> (when (and (seq? form) (= 'ns (first form))) form)
+             (filter #(and (seq? %) (contains? require-clauses (first %))))
+             (mapcat symbols-in)
+             (filter repl-ns?)
+             distinct
+             sort
+             vec)))
+    (catch Exception e
+      [:unreadable (ex-message e)])))
+
+
+(defn- source-files
+  []
+  (->> roots
+       (mapcat #(file-seq (io/file %)))
+       (filter #(.isFile ^java.io.File %))
+       (map #(.getPath ^java.io.File %))
+       (filter #(re-find #"\.clj[csd]?$" %))
+       sort))
+
+
+(defn violations
+  "file -> the `yin.repl` namespaces it requires, for every file under
+   `roots` that requires one."
+  []
+  (into (sorted-map)
+        (keep (fn [path]
+                (let [found (repl-requires (slurp path))]
+                  (when (seq found) [path found]))))
+        (source-files)))
+
+
+(deftest detector-sees-every-branch-test
+  (testing "a require in any reader-conditional branch is found"
+    (is (= '[yin.repl yin.repl.link]
+           (repl-requires
+             (str "(ns a.b (:require [dao.stream :as s]"
+                  " #?(:cljd [yin.repl.link :as l] :clj [x.y :as y])"
+                  " #?@(:cljs [[yin.repl :as r]])))")))))
+  (testing "datum vocabulary and docstrings are not requires"
+    (is (= []
+           (repl-requires
+             (str "(ns a.b \"yin.repl.link\" (:require [dao.stream :as s]))"
+                  " (def k :yin.repl/root)"))))))
+
+
+(deftest linker-requires-no-repl-test
+  (testing (str "no namespace under " roots " requires yin.repl")
+    (is (seq (source-files)))
+    (is (= {} (violations)))))
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-djFx2lrP' (errno=Operation not permitted)
+2026-10-13 16:33:46.558 xcodebuild[428:60622905]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-13 16:33:46.766 xcodebuild[428:60622903] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-QFXITExC' (errno=Operation not permitted)
+2026-10-13 16:33:47.287 xcodebuild[432:60622925]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-13 16:33:47.492 xcodebuild[432:60622924] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+admission-al1
+     111
+
+codex
+The clause traversal now runs before clause selection, and the new fixtures cover the bypasses from the prior review. The per-root checks and no-`ns` failures are also explicit. I’m finishing the source inventory and quote/docstring checks by inspection.
+exec
+/bin/zsh -lc "python3 -c 'from pathlib import Path
+import re
+for root in [\"src/cljc/yin/vm\",\"src/cljc/yang\",\"src/clj/dao\"]:
+    files=sorted(p for p in Path(root).rglob(\"*\") if p.is_file() and re.search(r\"\\.clj[csd]?"'$",str(p)))
+    print(root,"directory=",Path(root).is_dir(),"source-files=",len(files))
+    for p in files:
+        s=p.read_text()
+        prefix=re.sub(r"'"\\A(?:\\s|;["'^'"\\n]*(?:\\n|"'$))*","",s)
+        if not re.match(r"'"\\(ns\\s\",prefix): print(\"FIRST-FORM CHECK:\",p,repr(prefix[:100]))
+for f in [\"src/cljc/yin/vm/linker/sign.cljc\",\"src/cljc/yin/vm/linker/interpreter.cljc\",\"src/cljc/yin/vm/linker/dht.cljc\",\"src/cljc/yin/vm/linker/publish.cljc\",\"src/cljc/yin/vm/ucf/compose.cljc\"]:
+    print(f)
+    print(\"\\n\".join(Path(f).read_text().splitlines()[:35]))'" in /Users/sto/workspace/datomworld-al1
+ succeeded in 2186ms:
+python3: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+python3: error: couldn't create cache file '/tmp/xcrun_db-fz6ZwQze' (errno=Operation not permitted)
+2026-10-13 16:34:17.820 xcodebuild[591:60623844]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-13 16:34:18.073 xcodebuild[591:60623843] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+python3: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+python3: error: couldn't create cache file '/tmp/xcrun_db-pug02ZIo' (errno=Operation not permitted)
+2026-10-13 16:34:18.626 xcodebuild[599:60623867]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-13 16:34:18.818 xcodebuild[599:60623866] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+src/cljc/yin/vm directory= True source-files= 70
+src/cljc/yang directory= True source-files= 16
+src/clj/dao directory= True source-files= 5
+src/cljc/yin/vm/linker/sign.cljc
+(ns yin.vm.linker.sign
+  "Ed25519 proofs for canonical module envelopes and published head
+   traces, each under its own domain-separation prefix."
+  (:require [clojure.edn :as edn]
+            [clojure.string :as str]
+            [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]
+            #?@(:cljd [["dart:convert" :as convert]
+                       ["package:ed25519_edwards/ed25519_edwards.dart" :as ed]])
+            #?@(:cljs [[goog.crypt :as crypt]]))
+  #?@(:cljd [(:import ["dart:typed_data" Uint8List])])
+  #?@(:cljd []
+      :clj [(:import [java.security KeyFactory KeyPairGenerator
+                      SecureRandom Signature]
+                     [java.security.spec NamedParameterSpec
+                      PKCS8EncodedKeySpec X509EncodedKeySpec])]))
+
+
+(def ^:private domain "yin.module/envelope:v1\n")
+
+
+;; A published head trace's prefix (yin.vm.linker.dht.head.md 5.2): domain
+;; separation, so a name envelope's signature is never a head proof and a
+;; head proof never a name envelope's.
+(def ^:private head-domain "yin.head/trace:v1\n")
+(def ^:private private-prefix "302e020100300506032b657004220420")
+(def ^:private public-prefix "302a300506032b6570032100")
+(def ^:private digits "0123456789abcdef")
+
+
+(defn- hex?
+  [n s]
+  (and (string? s)
+       (= n (count s))
+       (every? #(some? (str/index-of digits (str %))) s)))
+src/cljc/yin/vm/linker/interpreter.cljc
+(ns yin.vm.linker.interpreter
+  "The REPL's linker-side composition (yin.vm.linker.md sections 6.1 and 9,
+   M5): the interpreter box of the four-stream topology.
+
+   The shell composes the link pair per VM (`yin.repl/make-session`) and
+   the content pair per content source; this namespace owns the second
+   and answers what the first receives.  One serve round reads every link
+   request the interpreter has not yet seen, resolves each by name
+   through the composition's name environment -- the snapshot the host
+   supplies, an authority fold (`yin.vm.linker.authority/name-environment`)
+   reduced to `name -> manifest address` -- and links the manifest's
+   image over the content pair, appending the response the requesting
+   task correlates on (section 7.2, steps 5 to 6).
+
+   Step 5b is deferred: the obligations travel on the response and the
+   receiving task's engine discharges them against its live state
+   (section 7.2, step 7), so the interpreter passes
+   `:defer-discharge` to `link-manifest` and discharges nothing here.
+
+   Liveness is the composition's (section 6.3, D6): an attempt serves the
+   content pair for at most `attempt-budget` drive rounds and then
+   reports the link `:pending` -- nothing is appended, the request is
+   re-read and re-attempted on a later round, and `abandon` is the
+   shell's.  No clock, no atom, no global: every input is an argument or
+   a composition value, and every outcome is plain data.
+
+   A DHT link source (docs/design/yin.vm.linker.dht.md 4.1) holds no
+   handle: each serve round receives the shell's `dao.space.dht` node
+   and answers the node after it.  A resolved name whose closure is not
+   loaded starts its load (`yin.vm.linker.dht/load-module`) and reports
+   the link `:pending`, naming the manifest it waits on; the node's own
+   step fetches.  A failed load is refused in its section 9 shape and
+   forgotten; a loaded one has its dependency bindings checked, then
+   links over a local runtime on the node's store, asking no peer."
+  (:require [clojure.string :as str]
+src/cljc/yin/vm/linker/dht.cljc
+(ns yin.vm.linker.dht
+  "The linker over `dao.jing.dht`, as plain Clojure (docs/design/
+   yin.vm.linker.dht.md sections 4, 5.4, 7 and 10; slice L2): publish a
+   module through a `dao.space.dht` node, load its closure onto another
+   node by manifest address, check its dependency names against the
+   reader's own name environment, and link it over the node's local store.
+
+   The load is `dao.space.dht/load` with the closure walker of
+   `yin.vm.linker.closure` as its walk: the node stays the only step
+   owner and fetches each blob the walk answers missing.  A link runs
+   only after the whole closure is `:loaded`, over a local runtime on the
+   node's own store, so it asks no peer for anything.
+
+   Names come from the reader's composition: the principals it declares
+   and the index snapshots it chose to load.  Nothing here is read from an
+   index as authority, and nothing depends on `yin.repl`."
+  (:require [clojure.edn :as edn]
+            [clojure.string :as str]
+            [dao.space.dht :as dht]
+            [dao.space.index :as index]
+            [dao.space.store :as durable]
+            [dao.space.store.fs :as fs]
+            [yin.vm.linker :as linker]
+            [yin.vm.linker.authority :as authority]
+            [yin.vm.linker.closure :as closure]
+            [yin.vm.linker.publish :as publish]
+            [yin.vm.linker.sign :as sign]))
+
+
+(def module-kind
+  "The `:kind` of a module closure load."
+  :yin.module/manifest)
+
+
+(defn- refused
+src/cljc/yin/vm/linker/publish.cljc
+(ns yin.vm.linker.publish
+  "Publish a complete four-format module closure into a DaoJing handle,
+   derive a module from indexed code (docs/design/yin.vm.linker.dht.md
+   5.3), and sign the name envelopes that bind it (6.1, 6.5, 6.6)."
+  (:require [dao.jing :as jing]
+            [dao.space.query :as query]
+            [yin.vm :as vm]
+            [yin.vm.code :as code]
+            [yin.vm.debruijn-code :as dcode]
+            [yin.vm.debruijn-linearize :as dl]
+            [yin.vm.debruijn-register-code :as rcode]
+            [yin.vm.debruijn-register-compile :as rc]
+            [yin.vm.ledger :as ledger]
+            [yin.vm.linearize :as linearize]
+            [yin.vm.linker :as linker]
+            [yin.vm.linker.closure :as closure]
+            [yin.vm.linker.sign :as sign]))
+
+
+(defn- refusal
+  [reason data]
+  (merge {:status :refused :reason reason} data))
+
+
+(defn- definitions
+  [ast]
+  (letfn [(scan
+            [node]
+            (when (map? node)
+              (case (:type node)
+                :lambda #{}
+                :application
+                (let [xs (:operands node)
+                      own (when (and (vm/definition-operator? (:operator node))
+                                     (= 2 (count xs))
+src/cljc/yin/vm/ucf/compose.cljc
+(ns yin.vm.ucf.compose
+  "The composition of M-next D slice D15 (r3 1.5, 1.11 and 1.12; UCF
+   7.11's wiring; linker-dht 14.2.1's exclusivity gate): the one entry
+   point stage E drives -- plain functions over the landed holder and
+   authority namespaces, loadable and drivable with no yin.repl
+   namespace anywhere below it.
+
+   The authority side.  `open!` opens the arbitration authority over
+   the caller's journal backend and applies the exclusivity gate: an
+   exclusive handoff is offered only when `authority/exclusive-capable?`
+   holds for the composition's required failure model, and an authority
+   that cannot carry it -- a memory backend, a weaker failure model, no
+   lock -- answers :yin.k/unsatisfied, never a silent downgrade to
+   fork.  Fork is offered only when the caller selects fork, and every
+   composition is labelled with the policy it runs (:yin.k/exclusive,
+   :yin.k/fork).  Beside the authority the composition owns the judge
+   (dao.lease over the authority, wired to its tick log and every
+   holder's lease-fact medium), one front per holder, the target and
+   outcome readers, and the diagnostic stream.
+
+   The holder side.  `holder` and `source` assemble the landed driver
+   (D13/D14/D15a's phases) over the composition-supplied seams -- the
+   inbound appender, the durable positional reply and outcome inboxes
+   (dao.stream.journal, the complete-retention substrate the D15a
+   assembly contract requires; never an evicting ring), the
+   authenticated ledger reader, the lease clock, the progress journal
+   and the protection declarations -- beside the caller's receiver,
+   attach, observe and serve seams.  The carrier for bodies and code is
+   the node's existing content store (:store); no second loader, no
+   second DHT step owner, lives here.
+
+   The journals.  Every holder's progress journal and every reply
+   journal comes from the composition's substrate (:journals at open!):
+   `file-journals` over one directory is the production substrate, and
+   `memory-journals` over one kept atom the test one.  An exclusive
+
+codex
+Completed-GMT: 2026-10-13 09:34:24 GMT  
+Completed-Local: 2026-10-13 16:34:24 +07 (Asia/Ho_Chi_Minh)
+
+**ACCEPT**
+
+No open in-scope P0/P1. No blocking P2 in newly introduced behavior.
+
+Reviewed `admission-al1`, commit `cbb3ebf8`, against its parent and the engineer’s “Fix round” report. All conclusions below are by static inspection; no files edited or suites run.
+
+1. **Prior P2 resolved — whole-clause reader conditionals.**  
+   `test/yin/vm/linker/layering_test.clj:45–75`: `clauses` recursively opens preserved conditionals before dependency-clause selection. `#?` exposes every branch value; `#?@` exposes every branch’s elements. Feature names never select a host branch, so `:cljd`, `:cljs`, `:default`, and nested `#?@` are traversed. **Exact fix:** implemented; none further required.
+
+2. **Regression fixtures distinguish old and fixed behavior.**  
+   `test/yin/vm/linker/layering_test.clj:112–141`: the four new positive assertions would return `[]` on the old clause filter; the three no-`ns` assertions would likewise fail against the old result. This supports the reported seven failures. The three per-root calls would produce old-code arity errors. The clean fixture remains `[]`: imports are excluded and `yin.repl-like` does not match. **Severity:** none. **Exact fix:** none required.
+
+3. **Prior P3 resolved — inventory and inspection vacuity.**  
+   `test/yin/vm/linker/layering_test.clj:68–79,99–102,149–153`: each root has separate directory-existence and nonempty-source assertions. A non-`ns` first form, empty file, or comment-only file returns `[:no-ns-form]`, which `violations` retains. Current source inventories are 70, 16, and 5 files respectively; all begin with `ns` after whitespace/comments. **Exact fix:** implemented; none further required.
+
+4. **All five claimed mutations are plausible.**  
+   `test/yin/vm/linker/layering_test.clj:45–79,99–102,149–153`: the two conditional dependency mutations produce the named symbols; the non-`ns` and empty-file mutations produce inspection failures; the missing-root mutation fails both root assertions. **Severity:** none. **Exact fix:** none required. The reported executions were not independently rerun.
+
+5. **No false positives identified on current sources.**  
+   `test/yin/vm/linker/layering_test.clj:29–42,72–75`: only selected dependency clauses reach symbol traversal. Docstrings and keywords are excluded; later quoted forms are never read. A quoted namespace-body form starts with `quote`, so clause selection excludes it. The recognized namespace names are exactly `yin.repl` and `yin.repl.*`; current source matches are documentation or datum vocabulary, not dependencies. **Severity:** none. **Exact fix:** none required.
+
+6. **One-file scope confirmed.**  
+   `test/yin/vm/linker/layering_test.clj:1`: HEAD changes only this file, with 79 insertions and 22 deletions. No tracked working-tree diff remains. **Severity:** none. **Exact fix:** none required.
+tokens used
+32,034
+Completed-GMT: 2026-10-13 09:34:24 GMT  
+Completed-Local: 2026-10-13 16:34:24 +07 (Asia/Ho_Chi_Minh)
+
+**ACCEPT**
+
+No open in-scope P0/P1. No blocking P2 in newly introduced behavior.
+
+Reviewed `admission-al1`, commit `cbb3ebf8`, against its parent and the engineer’s “Fix round” report. All conclusions below are by static inspection; no files edited or suites run.
+
+1. **Prior P2 resolved — whole-clause reader conditionals.**  
+   `test/yin/vm/linker/layering_test.clj:45–75`: `clauses` recursively opens preserved conditionals before dependency-clause selection. `#?` exposes every branch value; `#?@` exposes every branch’s elements. Feature names never select a host branch, so `:cljd`, `:cljs`, `:default`, and nested `#?@` are traversed. **Exact fix:** implemented; none further required.
+
+2. **Regression fixtures distinguish old and fixed behavior.**  
+   `test/yin/vm/linker/layering_test.clj:112–141`: the four new positive assertions would return `[]` on the old clause filter; the three no-`ns` assertions would likewise fail against the old result. This supports the reported seven failures. The three per-root calls would produce old-code arity errors. The clean fixture remains `[]`: imports are excluded and `yin.repl-like` does not match. **Severity:** none. **Exact fix:** none required.
+
+3. **Prior P3 resolved — inventory and inspection vacuity.**  
+   `test/yin/vm/linker/layering_test.clj:68–79,99–102,149–153`: each root has separate directory-existence and nonempty-source assertions. A non-`ns` first form, empty file, or comment-only file returns `[:no-ns-form]`, which `violations` retains. Current source inventories are 70, 16, and 5 files respectively; all begin with `ns` after whitespace/comments. **Exact fix:** implemented; none further required.
+
+4. **All five claimed mutations are plausible.**  
+   `test/yin/vm/linker/layering_test.clj:45–79,99–102,149–153`: the two conditional dependency mutations produce the named symbols; the non-`ns` and empty-file mutations produce inspection failures; the missing-root mutation fails both root assertions. **Severity:** none. **Exact fix:** none required. The reported executions were not independently rerun.
+
+5. **No false positives identified on current sources.**  
+   `test/yin/vm/linker/layering_test.clj:29–42,72–75`: only selected dependency clauses reach symbol traversal. Docstrings and keywords are excluded; later quoted forms are never read. A quoted namespace-body form starts with `quote`, so clause selection excludes it. The recognized namespace names are exactly `yin.repl` and `yin.repl.*`; current source matches are documentation or datum vocabulary, not dependencies. **Severity:** none. **Exact fix:** none required.
+
+6. **One-file scope confirmed.**  
+   `test/yin/vm/linker/layering_test.clj:1`: HEAD changes only this file, with 79 insertions and 22 deletions. No tracked working-tree diff remains. **Severity:** none. **Exact fix:** none required.

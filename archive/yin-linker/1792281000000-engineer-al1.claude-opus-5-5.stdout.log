@@ -1,0 +1,41 @@
+The relocation is in place; the G0 JVM lane (`yin.repl yin.vm yang.python`) is still running, logging to `collab/al1-logs/g0-clj.log`. I'll pick it up when it finishes, then run the slow `dht_import_test` and finish the report.
+
+API Error: Can't reach the API server — check your internet or DNS (ENOTFOUND)
+
+The G0 JVM lane passed apart from the one expected failure: the doc pin that waits on AL-0. The slow `dht_import_test` is still running.
+
+AL-1 is done and green on the JVM except for two failures. One is the expected doc pin, which goes green once AL-0's section 7.5 rewrite merges. The other is a `dao.jing` failure in a file this slice doesn't touch. Nothing is committed; the four renames are staged and the other edits are unstaged. The report is at `collab/1792281000000-engineer-al1.findings.md` in this worktree.
+
+**What moved**
+- `yin.repl.link` is now `yin.vm.linker.interpreter`, and `yin.repl.admission` is now `yin.vm.linker.admission`.
+- Their two tests moved to `test/yin/vm/linker/`.
+- Neither moved namespace requires anything from `yin.repl`, so there was no reason to stop. No var or code changed: the diff is `ns` forms, require lines and docstring text.
+
+**Consumers updated**
+- My grep found exactly the design's 13 files and no others. `main.cljc` and `state.cljc` don't require either namespace.
+- Docstring mentions changed in `repl.cljc`, `driver.clj:7`, `linker_require_test.cljc:1323` and a few test files.
+- The store-write allowlist key in `store_write_audit_test.clj` now points at `src/cljc/yin/vm/linker/interpreter.cljc`, with the same `composition` entry.
+- `publication.cljc` no longer mentions either name (AD-2 removed it), so it needed no edit.
+
+**Dependency check**
+- New quick-tier test `yin.vm.linker.layering-test`. It reads the `ns` form of every source file under `src/cljc/yin/vm`, `src/cljc/yang` and `src/clj/dao`, including every reader-conditional branch. It fails on any `yin.repl` namespace in a require. Docstrings and keywords like `:yin.repl/root` don't count.
+- Mutation check: I added `#?(:cljd nil :clj [yin.repl.store ...])` to `interpreter.cljc`. The test went red naming that file, and I reverted it. The design's line grep returns nothing, but it would have missed that mutation, because the grep only sees requires at the start of a line.
+
+**Tests (JVM only)**
+
+| Run | Result |
+|---|---|
+| G0 `bb test:sub:clj yin.repl yin.vm yang.python` | 1871 tests, 1 failure: the expected doc pin. All the named acceptance namespaces ran. |
+| Slow `dht_import_test` | 92 assertions, 0 failures |
+| `bb test:sub:clj dao.jing` (for the driver docstring edit) | 233 tests, 1 failure, in `hash_registry_contract_test` |
+| kondo, cljstyle | clean |
+
+- **Doc pin:** `admission-spec-test` now requires section 7.5 to name both new namespaces, and both are reported missing until AL-0 lands.
+- **`dao.jing` failure:** `hash_registry_contract_test` flags `decode*` in `src/cljc/yin/vm/ucf/rows.cljc`. I believe it predates this branch, but I didn't confirm that against master.
+- **Not run here:** Node, Dart and the rest of the slow tier are for shiva. Run `rm -rf test/cljd-out` before the Dart lane.
+
+**For you**
+- **yang.python note:** the design asks for a collab note to the yang.python orchestrator, because I edited require lines (and one docstring) in three of its tests. I can't write to the main `collab/` from this worktree, so please relay it.
+- **G1:** add `dao.jing` because of the driver docstring edit.
+- **Edit tool:** I made the renames with the Edit tool because running a rename script needed approval.
+- **Untracked additions:** `bb gen:python-antlr` had to run first, because the fresh worktree had no generated parser. Test logs are in `collab/al1-logs/`, untracked.

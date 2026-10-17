@@ -1,0 +1,65 @@
+Status: the code and the JVM tests for AD-1 are done. Two background jobs are running: the mutation pass (20 mechanisms) and the slow I3 import test on a temporarily regenerated artifact. One finding for the orchestrator so far: the committed I3 artifact `dht-import-v1.edn` is stale at the base commit (its `py` address predates the BLAKE3 rebase), so that slow test is red even without AD-1. It's written up in the report.
+
+The F5 driver checks out: with a temporarily regenerated artifact, the slow I3 import test passes (61 assertions). The committed artifact is restored byte-for-byte. Mutations: 12 of 20 done, all red and restored cleanly.
+
+All 20 mutations turned red and every restore was byte-identical. The report is updated. G1 (`bb test:sub yin.repl yang.python`, all three lanes) is running in the background. `npm ci` needed an approval this session can't give, so the Node lane may fail on missing modules.
+
+G1 results: on all three lanes, the only failure in my scope is the doc test, and that one is expected because this worktree doesn't have master's section 7.5. Node also had a worker-thread timing failure in `store_test`, which I'm re-running on Node alone to confirm it was contention. All admission tests stay under 3 s, so none needs `^:slow`.
+
+The Node rerun passes on its own; only the expected doc test fails. G2 (`bb test:changed`) is now running in the background. Because `engine.cljc` changed, it reaches most of the suite.
+
+AD-1 is implemented and ready for review. Every new test passes on JVM, Node and Dart except the doc check `admission-spec-test`. That one fails in this worktree because the branch was cut before AD-0 put section 7.5 on master. Against master's 7.5 text it passes. I made no git writes, so the rebase onto master is your step.
+
+**What's in the change**
+- **New `yin.repl.admission`:** the admission state and pair, the answer drain (gap recovery, persisted cursor), answer validation that refuses malformed answers and non-empty conditions, and the in-process interpreter with the default policy (own principal plus a trusted set).
+- **`link.cljc`:**
+  - The DHT link source asks its question after resolving the name and before any load, and an allow loads the address the question was bound to.
+  - `serve` threads the admission state through each round.
+  - `retire` matches exact origin or `origin + "."`.
+- **REPL:**
+  - The session mints the pair; `create-state` takes `:admission`.
+  - The drive continues on the interpreter's progress.
+  - `(abandon)` retires the run's requests.
+  - The admission state survives an error rollback.
+  - New `recheck-on-answers` hook, wired into `main/step-all`.
+- **Engine:** the installed registry entry records the `:admission` it was linked under.
+- **Tests:**
+  - `admission_test.cljc` (21 tests) and `admission_doc_test.cljc`.
+  - The I3 DHT import driver in `dht_import_test.cljc` now creates, drives and retains both interpreters.
+  - Every admission test runs in under 3 s, so none is `^:slow`.
+
+**Verification**
+- **Mutations:** 20 of 20 turned their tests red, and every restore was byte-identical.
+- **Subsystem run** (`bb test:sub yin.repl yang.python`, three lanes): the doc test was the only failure in scope. Node also failed a worker-thread timing test in `store_test` while the three lanes competed for CPU; a Node-only rerun passes it.
+- **Changed-files run** (`bb test:changed`): reaches 144 namespaces because the engine changed. Besides the doc test, one JVM failure, which is pre-existing (below).
+
+**Problems that were already on master**
+- **Stale I3 artifact:** the slow DHT import test fails at the base commit. `dht-import-v1.edn` still names the old `py` address, from before the BLAKE3 rebase. With a temporarily regenerated artifact it passes (61 assertions), which also confirms the new driver. I restored the committed file byte-for-byte. The fix is to rerun its generator on master and commit the result; I didn't, because the brief says the artifact stays unchanged. I ran this slow test on the JVM only.
+- **CBOR conformance scan:** `cbor_conformance_test` flags a `spit` call in `dht_import_fixture.cljc`, a file I didn't touch.
+
+**Existing behavior changed, as the design requires**
+- **Late responses after `(abandon)`:** three tests in `require_test` and one in `dht_test` expected the abandoned request's late response to be skipped. Abandon now retires the request, so no response is ever sent; I updated their assertions.
+- **`dht_test` shell helper:** it builds the REPL directly and declares another shell's key, so it now also trusts that key.
+
+**Decisions for the Architect (details in the report)**
+1. **`:admit` is kept** for AD-2 to remove, even though 7.5 says AD-1 removes it. Removing it would break the I3 foreign-principal test, which the brief requires to keep passing.
+2. **`main/boot` trusts the `--dht-principal` keys.** Without that, the L5 process gate and the head tests, which import another declared principal's module, would be refused. `create-state` and `link/composition` still default to own principal only. It's a one-line mapping; reverse it when AD-3 adds a trust flag.
+3. **`:admission :external`** runs no interpreter in process, and `recheck-on-answers` also runs the in-process interpreter once per call. Both are my additions to support the late-answer tests.
+4. **Minor deviation:** the session mints the admission pair for every link source, though 7.5 says non-DHT sources have none. A non-DHT source never reads it.
+
+Report: `collab/1792241000000-engineer-ad1.findings.md`. It lists every acceptance line against its test, all files changed, and the mutation table.
+
+The report was already finished when this check ran; `target/ad1/g2.log` matches what it records, so nothing changed.
+
+The G2 run (`bb test:changed`) failed on all three lanes:
+
+| Lane | Namespaces | Tests | Failures |
+|---|---|---|---|
+| JVM | 144 | 2346 | 2 |
+| Node | 128 | 2415 | 1 |
+| Dart | 128 | 2321 | 1 |
+
+- **`admission-spec-test`, all three lanes:** this branch was cut before AD-0 put section 7.5 on master, so the check can't find the section. Against master's 7.5 text it passes; it goes green once the branch is rebased onto master.
+- **`cbor_conformance_test`, JVM only:** it flags a `spit` call in `dht_import_fixture.cljc`, which AD-1 doesn't touch. It ran only because the `engine.cljc` change widened the test selection.
+
+The report is marked DONE and ready for review at `collab/1792241000000-engineer-ad1.findings.md`. Besides these results it records the stale I3 artifact, the 20 mutations, the four Architect decisions, the files changed, and each acceptance line with its test.

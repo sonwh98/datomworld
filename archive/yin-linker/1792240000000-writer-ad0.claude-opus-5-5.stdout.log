@@ -1,0 +1,27 @@
+The AD-0 docs are written. Only three files under `docs/design/` changed (460 insertions, 17 deletions), with no code, tests or git writes.
+
+- **`yin.vm.linker.dht.md`**:
+  - **Section 7.5 "Admission: the trust question"** covers everything the design rules on: the datum shapes, asking before load, parking and retirement, the drain, the interpreter contract, exposure, trust vs safety, fail-closed rules, and the acceptance lines for AD-0 to AD-3. All three codex nits are folded in.
+  - **The test pin and the lost tests:** near the top of 7.5, a clearly marked sentence says the vocabulary and the `serve-budget` (64) / `pair-capacity` (1024) values are pinned by `admission-spec-test`. I checked both values against `link.cljc`. 7.5.10 states that the parked linked-REPL tests are lost and that AD-3 and F2 rewrite them from the acceptance lines.
+  - **Section 8.2** gets one bullet for the `recheck-on-answers` hook, marked as not yet built. The design's edit list asks for this, though your brief didn't repeat it.
+  - **Section 7.4** is untouched.
+- **`yang.antlr.md` 8.5.6**:
+  - **Ruling 19 paragraph:** keeps its safety text and gains one sentence saying trust is the admission interpreter's.
+  - **L-e row:** now reads "Exposure of untrusted-origin closures".
+  - **I3 landing note and gap paragraph:** both now point to 7.5.
+  - **I3 slice-table row:** the grep also found "needs L-e for foreign principals" here, and I reworded it.
+  - **Tables:** both still line up.
+- **`dao.shibi.md`**: a new paragraph after the non-goal names 7.5 as ShiBi's first consumer shape and an attachment beside the gate. The non-goal stands.
+
+**Checks:**
+- **Grep:** no "refused until L-e" phrasing about principals remains. The remaining hits are:
+  - Ruling 19's own sentence that such imports are "not claimed until D7 slice B", which is the safety text you said to keep.
+  - AD-2's acceptance lines in the new section.
+  - Two unrelated passages.
+- **ASCII:** non-ASCII counts didn't change; the design's ∪ sign is written as "together with".
+
+**Decisions for you:**
+1. **Test name:** your brief calls the check `admission-spec-test`, but the design names the file `admission_doc_test.cljc`. The section names both, so AD-1 should define a test called `admission-spec-test` in that file, or the sentence needs changing.
+2. **Where the F1 test lives:** the design lists it under both AD-1 and AD-2, and I kept it that way. The AD-1 and AD-2 engineers need to settle which slice owns it.
+
+I also left `docs/orchestrator-log.md` alone, since it's history even though it still contains "foreign-principal" text. The report is at `collab/1792240000000-writer-ad0.findings.md` in this worktree.

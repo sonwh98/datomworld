@@ -1,0 +1,1 @@
+AD-1 NOTE (orchestrator, after codex approved AD-0): the binding test is test/yin/repl/admission_doc_test.cljc; the deftest inside it is named admission-spec-test. Section 7.5 of docs/design/yin.vm.linker.dht.md is now on master (AD-0 landed): rebase onto master to enable the check.

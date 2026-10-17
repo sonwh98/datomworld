@@ -1,0 +1,30 @@
+I'll wait for the Node run's completion notice.
+
+The G2 background task will notify when it finishes, so I'll wait for that.
+
+The AD-1 fix round is finished and ready for codex to re-review. G2 (`bb test:changed`) is green on all three lanes. G1 has two Node failures, from a test that only fails when all three lanes run together and passes when Node runs alone. Everything is still uncommitted for you to commit, and I made no git writes.
+
+**All four fixes are in, checked against `git diff`:**
+- **P1, `boot` trust:** `boot` no longer builds trust from `:principals`. It passes `(:admission opts {})` through, and the default means only the node's own principal is trusted. The new `--dht-trust ed25519:<hex>` flag can be repeated. It is documented in the help text and the `parse-args` docstring, and saved in `state.edn` like `--dht-principal`. The head tests and process tests now pass trust explicitly.
+- **P2, closed allow answers:** `judge` only accepts an allow whose keys are exactly id, decision and conditions. An allow with no conditions, or with an extra key, is refused as malformed.
+- **P3, inheritance:** there is a new assertion, run on all four VMs, that an install child's inherited entry keeps the parent's admission id and address.
+- **P3, legacy `:admit` hook:** it is now called once and its result reused.
+
+**Mutations:** I re-ran all six, this time also comparing `git diff` after each revert. They match the previous run's results, and every restore was byte-identical with `git diff` unchanged. Five turn their tests red. The sixth (giving missing conditions a default of `{}`) can't fail anything, because the closed key-set check already refuses that answer.
+
+**Lint and format:** kondo shows 0 errors and 0 warnings on the 8 touched files, and `mise exec -- cljstyle check` is clean.
+
+**Test runs:**
+
+| Run | clj | cljs | cljd |
+|---|---|---|---|
+| G1 `bb test:sub yin.repl yang.python` (previous session, finished before its limit hit) | 607 tests, 0 failures | 731 tests, 2 failures | 592 tests, 0 failures |
+| Node lane alone, `bb test:sub:cljs yin.repl` | — | 528 tests, 0 failures | — |
+| G2 `bb test:changed` | 2351 tests, 0 failures | 2420 tests, 0 failures | 2326 tests, 0 failures |
+
+- **The two G1 Node failures** are both in `store-test/two-worker-threads-of-one-process-never-both-own-the-directory`: the worker threads returned nothing within the wait. This happened in round one too. The test and the store code are not in the diff, and the test passes when Node runs alone, so I judge it a timing problem under load rather than something AD-1 caused. Codex also assigned it to a separate store-test slice.
+- **The round-one G2 failures are gone.** The admission spec test passes now that the branch has section 7.5, and bdaed7ff fixed the cbor `spit` failure on master.
+
+**Deviation to flag:** `--dht-trust` was pulled forward from AD-3 by your decision, and it is recorded as a deviation in the report. One open question for the Architect: `dht join` does not automatically trust the principal named in its token, so a reader that joins must also pass `--dht-trust`.
+
+The report's "Fix round" section is updated in `collab/1792241000000-engineer-ad1.findings.md`, with logs in `target/ad1/` (`mutate_fix2.log`, `fix-node-repl.log`, `fix-g2.log`, `fix-g1.log`).

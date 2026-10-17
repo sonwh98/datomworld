@@ -1,0 +1,2417 @@
+Reading additional input from stdin...
+OpenAI Codex v0.159.3
+--------
+workdir: /Users/sto/workspace/datomworld-ad1
+model: gpt-6.1-sol
+provider: openai
+approval: on-request
+sandbox: read-only
+reasoning effort: low
+reasoning summaries: none
+session id: 01a12fd1-cf26-7560-9735-349be572973d
+--------
+user
+Created-GMT: 2026-10-12 12:00:00 GMT
+Coding-Agent: codex (gpt-6.1-sol)
+# Task: re-review AD-1 after the fix round (read-only)
+Your round 1 verdict was REJECT (P1 boot derives trust from :principals; P2 malformed allow authorizes): collab/1792243000000-reviewer-ad1.findings.md. The fixes are the new commit on branch admission-ad1 in /Users/sto/workspace/datomworld-ad1 (`git diff 438531ec..HEAD`); the engineer's report with a "Fix round" section: collab/1792241000000-engineer-ad1.findings.md. Binding: section 7.5 of docs/design/yin.vm.linker.dht.md. SCOPE CONTRACT: block only on an in-scope P0/P1 or a P2 in newly introduced behavior; everything else non-blocking with owner. For each of P1, P2, P3-inheritance, P3-hook-once state FIXED / NOT FIXED / PARTIAL with file:line evidence and whether the test would fail on regression. JUDGE THE DEVIATION: the orchestrator pulled a minimal piece of AD-3 forward so the process gate and head tests keep working without auto-trust: an explicit `:admission` option on `boot` (default `{}` = own principal only) and a repeatable `--dht-trust ed25519:<hex>` startup flag (help text, saved in state.edn like --dht-principal). Is that surface minimal, consistent with 7.5 and the owner's direction (trust is a configurable policy; declared authority is not trust), free of a back door (e.g. does `dht join` or a token imply trust; the engineer reports it does NOT, so a reader must also pass --dht-trust: is that right or a usability defect to ledger), and compatible with AD-3 later adding `(trust)` commands? Then one last pass for NEW defects from the fix diff only (the process/head test rewrites: do they now test the policy or merely weaken it; the Node-only `store-test` timing failure under three-lane load is not in the diff and passes alone: confirm it is unrelated). Do not edit or run suites. Output: verdict (APPROVE / APPROVE-WITH-NITS / REJECT) first; if none write "No open in-scope P0/P1"; numbered findings with file:line, severity, exact fix. FINAL MESSAGE must contain the complete review beginning with Completed-GMT / Completed-Local lines.
+codex
+I’ll read the binding spec, prior findings, and fix diff, then check the four reported issues and startup trust surface without editing files or running suites.
+exec
+/bin/zsh -lc 'cat docs/design/datom.world.md' in /Users/sto/workspace/datomworld-ad1
+ succeeded in 0ms:
+---
+description: Core philosophy, foundational axioms, invariants, primitives (tuples, streams, host boundaries), architectural commitments, design principles, code style, and development workflow for datom.world
+---
+
+# DATOM.WORLD ARCHITECTURAL FOUNDATIONS & DEVELOPMENT RULES
+
+## Core Philosophy
+
+Everything is data.
+Interpretation > abstraction.
+Explicit causality > implicit assumptions.
+Restrictions are a feature.
+
+### Foundational Axioms
+
+1. **Everything is a Stream**: All IO and data flow through append-only streams.
+2. **Interpretation Creates Semantics**: Data is syntax; semantics only emerge through interpretation (one truth, many perspectives).
+   At system scale, a "system" is an emergent property of interpreters of
+   pure data, not an object, service, or stored artifact. Find the
+   interpreters and the data they share to find the system.
+3. **Code and State are Datoms**: Code (Universal AST) and runtime execution state are structured datoms, enabling syntax independence and structural reflection.
+4. **Everything is a Continuation**: Computation is modeled as serializable, portable continuations that can pause, travel across streams, and resume anywhere.
+
+## Non-Negotiable Invariants
+
+- Do not introduce hidden global state.
+- Do not introduce implicit control flow.
+- Do not introduce callbacks; every callback is an event on a stream.
+- Do not introduce shared mutable state.
+- Do not collapse interpretation and execution into the same layer.
+- Do not assume graphs: graphs must be constructed explicitly from tuples.
+- Do not lose information (unitarity): streams are append-only and no datom is destroyed, only reinterpreted. The Universal AST is never lost: it is always retrievable wherever code is lowered, by address or by a query over its datoms. Every derived form (semantic vector, native images, indexes) is an interpretation of it and may drop facts only because the AST remains.
+
+## Tuples and Datoms
+
+Tuples are elements in an open moduli space, graded by dimension $n$. A tuple can be any dimension/size.
+A datom is the canonical persistent tuple `[e a v t m]` (entity, attribute, value, transaction, metadata). Persistent facts are immutable datoms.
+Source scope belongs to the interpreter, never to an appended tuple slot. Queries keep physical sources as separate db-values and express union or joins explicitly.
+
+See [`docs/design/datom.md`](./datom.md) for full specification.
+
+## Streams
+
+All IO is modeled as a stream. Functions consume streams and produce streams.
+No direct function-to-function coupling without a stream boundary.
+Side effects must appear as stream emissions.
+Streams are values that can be sent through streams.
+Streams carry whatever values the consumer needs: no datom requirement, no privileged payload shape.
+
+A stream has no privileged reader, and its meaning is not in it. Any number
+of interpreters may observe the same medium, and each constructs its own
+semantics from the same batches: a `yin.vm` evaluator observing a program
+stream constructs CESK state and executes it; `dao.space.index` observing
+the very same stream materializes covered indexes, so `dao.space.query/q`
+answers Datalog over the program as it grows. Neither knows the other
+exists. The medium is their only coupling, and each observer's ignorance of
+the other is load-bearing: the evaluator never consults an index to run,
+and the index never evaluates a form to index it. This is how axiom 2
+becomes architecture: one stream, many interpretations, none of them
+the stream's own.
+
+Functions can take anything and return anything.
+Agents are functions, closures, or continuations in `yin.vm` that communicate with the outside world through `dao.stream`. Agent behavior is specified entirely through stream effects.
+
+See [`docs/design/dao.stream.md`](./dao.stream.md) for full stream specification.
+See [`docs/design/yin.vm.streams-all-the-way-down.md`](./yin.vm.streams-all-the-way-down.md) for VM architecture.
+
+### Host Boundaries
+
+A host boundary is a stream boundary, never a function call. The one
+sanctioned function-shaped contact is a `dao.stream` handle operation, whose
+exhaustive outcome map is stream protocol, not an application callback.
+
+**Effects out.** Portable code appends an effect value describing what must
+happen. A host interpreter consumes that stream, performs the operation, and
+appends the outcome. Portable code reads the outcome. Correlation is by
+identity in the data; neither side holds a reference to the other. A host with
+no implementation for an effect emits a qualified unsupported result. That is a
+correct outcome, not a gap to be filled.
+
+**Events in.** When the host initiates (a socket receives, a connection drops,
+a timer fires) the adapter appends one plain-data event and returns. It invokes
+nothing. An interpreter reads that stream and decides what the event means.
+Constructively: **a callback is replaced by a function that transforms an event
+to data on a stream.** The host's demand for a callback stops at that function.
+
+**Adapters.** An adapter is a map of those transform functions. That is all an
+adapter is. It is a value, not a namespace, and it is general: sockets, files,
+timers and windows all deliver events by calling something, and an adapter is
+what they call. Each entry takes the host's arguments and returns one value;
+the append is the adapter's, not the entry's, so an entry cannot return a value
+to the host and cannot invoke application code. The adapter is handed only the
+deposit operation and its own host resource. If its deposit channel fails, it
+may close that resource to make the boundary observably gone; this is teardown,
+not an upward callback.
+
+Host types are classified into plain data in the transform: it is the last
+place holding a host error object, and no host type crosses onto the stream. A
+transport may use a qualified envelope to preserve correlation, lifecycle, and
+additive evolution; that envelope remains plain data and creates no separate
+event mechanism. A composition may likewise define its own qualified vocabulary
+for facts it owns.
+
+Which stream an adapter writes to is the caller's composition, never the
+adapter's knowledge. An adapter cannot tell whether it deposits into one
+transport's private stream or into a medium many interpreters read. This keeps
+the layering one-way: a boundary depends on nothing above it, because whoever
+constructs the adapter supplies the stream.
+
+A transform deposits every event admitted by the boundary protocol and judges
+none of them semantically. Wire framing, decoding, and protocol validation
+happen below the transform: malformed wire input is transport machinery, not an
+event. Once the transport has produced a valid host event, data is syntax
+(axiom 2): an event that is noise to one interpreter is signal to another that
+does not exist yet, and filtering at the depositing layer destroys perspectives
+not yet taken. Retention is the medium's operational policy; meaning is
+interpretation. Neither is the depositor's decision.
+
+Two things are not adapters. One that exposes a function for portable code to
+call isolates the host library but keeps the coupling, and the effect never
+appears as an emission. One that takes a function to invoke has relocated the
+callback, not removed it, even when every value it passes is plain data; if
+that callback has a meaningful return value, it is a synchronous call in both
+directions wearing the shape of an event.
+
+## Architectural Commitments
+
+- **`dao.jing` is syntax, agents are semantics**: the content-addressed encoding stays passive and payload-agnostic.
+- **Macros are stream topology**: an evaluator knows nothing about macro expansion; expansion happens on the syntax side of a medium boundary, upstream of any evaluator.
+- **Peer observers, one stream**: a generic evaluator and `dao.space` independently observe the same stream topic, as described under Streams. This is not a claim about any two consumers regardless of what they consume.
+- **Observers are independent and optional**: nothing requires a medium to have any particular set of consumers. Which observers exist for a stream is a per-composition choice, not a design-time commitment.
+
+## Design Principles
+
+Code quality is measured by malleability: how cheaply can changes adapt without breaking promises?
+Stigmergic coordination emerges from sharing data across streams.
+
+**Systems emerge from interpreters of pure data.** Streams are the
+composition medium; each interpreter gives the same data a perspective
+without collapsing interpretation into execution or owning the truth.
+
+- `dao.space` emerges from `dao.space.index` and `dao.space.query` over
+  ordinary streams.
+- ShiBi capability, metering, and budget emerge from different
+  interpreters over the same tuples; no token object is stored.
+- The four VMs interpret one Universal AST; many syntaxes feed that AST.
+- The semantic AST in `dao.space` is queryable facts projected by the
+  auto-index observer.
+- Client and server are roles in one stigmergic behavior implemented by
+  interpreters, not distinct kinds of nodes.
+
+**Derive, don't persist.** Before adding a tag, slot, or field to any
+canonical content-hashed structure (an AST grammar, a datom schema, a row
+shape), check whether a correctly scoped Datalog query over
+`dao.space.query/q` can already compute the fact. If it can, it belongs as a
+query or projection: new persisted structure migrates every downstream
+consumer and duplicates authority over a fact a query derives fresh. The
+retired `:global` tag in
+[`docs/design/yin.vm.code-as-tuples.md`](./yin.vm.code-as-tuples.md) is the
+case study, including the scoping bug that a naive query introduced.
+
+See [`docs/agents/malleability.md`](../agents/malleability.md) for complete design guidance (cohesion, coupling, bounded complexity, evolution, testing strategy).
+See [`docs/agents/vocabulary.md`](../agents/vocabulary.md) for domain vocabulary reference (biology, economics, physics, philosophy).
+
+## Code Style
+
+- Prefer simple data over rich types.
+- Prefer total functions over partial ones.
+- Prefer declarative pipelines over imperative logic.
+- Avoid cleverness.
+- Name things after what they do to streams.
+
+## Development Workflow
+
+- Do not invent abstractions that hide streams.
+- Do not suggest mainstream frameworks unless explicitly asked.
+- Do not optimize prematurely.
+- When uncertain, ask at the architectural level, not the implementation level.
+- Explanations should align with Plan 9 / Datomic / Lisp lineage.
+- Program store writes go through `engine/store-put`; any other store write
+  the store-write audit (`test/yin/vm/store_write_audit_test.clj`)
+  detects must be on its allowlist; its docstring states the residual it
+  leaves to review.
+
+### Problem Decomposition
+
+If a problem appears complex:
+1. Decompose it into streams.
+2. Identify invariants.
+3. Restrict degrees of freedom.
+4. Make causality explicit.
+5. Let structure emerge from constraints.
+
+## Operational & Specialized Guides
+
+- **Advanced Concepts**: See [`docs/agents/advanced-concepts.md`](../agents/advanced-concepts.md) for parallel transport, capability tokens, and entanglement.
+- **Build & Test**: See [`docs/agents/build-n-test.md`](../agents/build-n-test.md) for build, lint, and test commands and TDD guidelines.
+- **Engineering Team Roster**: See [`docs/agents/team.md`](../agents/team.md) for engineering team roles and LLM model assignments.
+- **Agent Delegation**: See [`docs/agents/roles/orchestrator.md`](../agents/roles/orchestrator.md) for collaboration protocols and delegating tasks or reviews through `agy`, `cmd`, `glm`, `deepseek`, and `codex`; the orchestrator's append-only work log is [`docs/orchestrator-log.md`](../orchestrator-log.md).
+- **Website & Content**: See [`docs/agents/format.md`](../agents/format.md) for `.chp` and `.blog` EDN/Hiccup file specifications.
+
+exec
+/bin/zsh -lc 'git status --short; git diff --stat 438531ec..HEAD; cat collab/1792243000000-reviewer-ad1.findings.md; cat collab/1792241000000-engineer-ad1.findings.md' in /Users/sto/workspace/datomworld-ad1
+ succeeded in 5960ms:
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-hvgv0lHv' (errno=Operation not permitted)
+2026-10-12 18:14:16.405 xcodebuild[61821:58533967]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-12 18:14:16.792 xcodebuild[61821:58533966] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-RMUo4wlG' (errno=Operation not permitted)
+2026-10-12 18:14:17.626 xcodebuild[61845:58534172]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-12 18:14:17.873 xcodebuild[61845:58534170] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+?? collab/1792230000000-architect-admission-stream.prompt.md
+?? collab/1792233000000-reviewer-admission-stream-r2.findings.md
+?? collab/1792234000000-architect-admission-stream-r3.claude-fable-5-1.findings.md
+?? collab/1792235000000-reviewer-admission-stream-r3.findings.md
+?? collab/1792235000000-reviewer-admission-stream-r3.gpt-6.1-sol.stdout.log
+?? collab/1792241000000-engineer-ad1.findings.md
+?? collab/1792241000000-engineer-ad1.prompt.md
+?? collab/1792242500000-note-ad1-test-name.txt
+?? collab/1792243000000-reviewer-ad1.findings.md
+?? collab/1792243000000-reviewer-ad1.prompt.md
+?? collab/1792244000000-engineer-ad1-fix.prompt.md
+?? collab/1792245000000-engineer-ad1-fix-cont.prompt.md
+?? collab/1792246000000-reviewer-ad1-r2.prompt.md
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-tEIOo4ZD' (errno=Operation not permitted)
+2026-10-12 18:14:19.589 xcodebuild[61867:58534365]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-12 18:14:19.787 xcodebuild[61867:58534364] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-skdIF8QZ' (errno=Operation not permitted)
+2026-10-12 18:14:20.324 xcodebuild[61871:58534392]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-12 18:14:20.517 xcodebuild[61871:58534390] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+ src/cljc/yin/repl/admission.cljc   | 20 +++++++---
+ src/cljc/yin/repl/link.cljc        |  8 ++--
+ src/cljc/yin/repl/main.cljc        | 49 +++++++++++++++++------
+ src/cljc/yin/repl/state.cljc       |  1 +
+ test/yin/repl/admission_test.cljc  | 81 +++++++++++++++++++++++++++++++++++++-
+ test/yin/repl/dht_head_test.cljc   |  7 +++-
+ test/yin/repl/dht_process_test.clj |  7 ++--
+ test/yin/repl/main_test.cljc       | 36 ++++++++++++++++-
+ 8 files changed, 181 insertions(+), 28 deletions(-)
+Completed-GMT: 2026-10-12 08:43:13 GMT  
+Completed-Local: 2026-10-12 15:43:13 +07 (Asia/Ho_Chi_Minh)
+
+**REJECT**
+
+Reviewed committed `admission-ad1` at `438531ec85f2fe65dd9368b6608b1109d13cf124` using `git diff master...HEAD`, §7.5, the approved round-3 design/review, and the engineer’s report and mutation artifacts. No files edited or suites run.
+
+Two blocking findings remain under the scope contract.
+
+1. **P1 — `boot` turns declared name authorities into admission trust.**  
+   [main.cljc:614](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl/main.cljc:614)
+
+   `boot` unconditionally constructs `:admission {:trusted …}` from `:principals`. Declaring B so its signed names can resolve therefore also authorizes B’s modules to enter the session registry. Even an explicit `:admission` supplied to `boot` is ignored.
+
+   This collapses the distinct declared-authority and trusted sets established by §7.5. The owner’s configurable-policy direction permits explicit additional trust; it does not authorize deriving that trust automatically from name declarations. §7.5.9 also explicitly excludes a default decision other than own principals. Keeping existing process/head tests green does not justify widening the guard.
+
+   **Exact fix:** Forward an explicit `:admission` option through `boot`, defaulting to `{}`, independently of `:principals`. Give programmatic test compositions explicit trusted sets where required. Add a boot-level test showing that declaring B alone refuses B before loading, while explicitly trusting B allows it. CLI trust commands/flags remain AD-3.
+
+   **Owner / closing slice:** linker/host engineer, AD-1.
+
+2. **P2 — malformed allow answers can authorize loading.**  
+   [admission.cljc:184](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl/admission.cljc:184)
+
+   `judge` defaults missing `:yin.admit/conditions` to `{}` and never validates the allow answer’s closed key set. Consequently, both of these matching answers allow:
+
+   ```clojure
+   {:yin.admit/id id :yin.admit/decision :allow}
+   {:yin.admit/id id :yin.admit/decision :allow
+    :yin.admit/conditions {} :unexpected true}
+   ```
+
+   §7.5.1 requires exactly id, decision, and conditions; §7.5.9 requires malformed answers to refuse. This is a defect in newly introduced behavior. The malformed-answer test and mutation do not cover either case.
+
+   **Exact fix:** Validate the required, closed allow key set before accepting `{}` conditions. Missing conditions or extra keys must refuse `:yin.admit/malformed-answer`; otherwise-valid non-empty condition maps must continue refusing `:yin.admit/unsupported-condition`. Add both malformed shapes to the seam test and assert refusal with no load started.
+
+   **Owner / closing slice:** linker engineer, AD-1.
+
+The following findings are non-blocking:
+
+3. **P3 — parent-to-child admission inheritance lacks a regression assertion.**  
+   [admission_test.cljc:639](/Users/sto/workspace/datomworld-ad1/test/yin/repl/admission_test.cljc:639), [engine.cljc:1289](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/vm/engine.cljc:1289)
+
+   The every-VM test proves installation and child-to-parent dependency transfer. It does not inspect an inherited entry inside an install child. Removing `:admission` specifically during `spawn-child` inheritance would escape that test and the registry-record mutation.
+
+   The implementation currently preserves the record: inheritance removes only `:bindings`.
+
+   **Exact fix:** Preinstall an admitted dependency, park a later install child, and inspect that child’s inherited dependency entry for the original admission id/address.
+
+   **Owner / closing slice:** VM test engineer, AD-1 acceptance follow-up. The actual second-publisher HEAD/follower version of F1 remains with the coordinated AD-2 integration coverage.
+
+4. **P3 — non-DHT sessions allocate admission media despite §7.5.1.**  
+   [repl.cljc:774](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl.cljc:774)
+
+   Every session receives an admission pair, including local/remote content compositions. Ordinary non-DHT links do not ask admission questions, so this is a topology/documentation mismatch without an observed functional defect.
+
+   **Exact fix:** Pass source-kind information into session construction and allocate the admission state/interpreter only for DHT sources; preserve the pair for external DHT admission.
+
+   **Owner / closing slice:** REPL engineer, AD-3.
+
+5. **P3 — the retained legacy `:admit` hook is invoked twice on refusal.**  
+   [link.cljc:449](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl/link.cljc:449)
+
+   The old implementation retained one invocation’s result. The new branch calls the hook once in the condition and again to produce the body. The current Python hook is deterministic, but another existing composition can observe duplicate work or inconsistent results.
+
+   **Exact fix:** Bind the hook result once and reuse it until the hook is removed.
+
+   **Owner / closing slice:** linker engineer, AD-1 cleanup; final removal belongs to AD-2.
+
+**Rulings on the four decisions**
+
+- **(i) Retaining `:admit`: accept as a temporary, non-blocking scope exception.** The explicit prohibition on deleting `principal-admission` takes precedence over the slice text. Retaining its integration avoids silently disconnecting that existing policy. AD-2 must remove the hook, option, documentation, and Python-specific refusal assertions together. Correct the duplicate invocation meanwhile.
+- **(ii) Trusting `--dht-principal` declarations in `boot`: reject.** Finding 1 applies. Declared authority and admission trust must remain independently configurable.
+- **(iii) `:admission :external` and serving the interpreter in the answer hook: accept.** External mode correctly retains the pair while disabling the in-process interpreter. A bounded interpreter round before draining lets a newly available decision snapshot answer a parked question without typed input. Rechecks still require an exact pending admission id; irrelevant answers do not increment `:checks`.
+- **(iv) Minting the pair for every source: tolerate temporarily, with finding 4 assigned to AD-3.** It violates the specified topology but does not introduce admission into ordinary content-link execution.
+
+The remaining seam mechanics are sound on inspection: asking follows resolution and precedes load; an unanswered question never re-resolves; allow loads the retained address; parking has no deadline; retirement uses normalized half-open counters, delimiter-qualified descendants, and stops at the first unrelated request. Draining persists cursors and matching answers, consumes irrelevant/duplicate/stale answers, recovers gaps within budget, and correlates by full `[link-id serial]`. Drive continuation and rollback carry both composition and interpreter successors.
+
+The **engine change is necessary and minimal**. `module/link-module` rebuilds an entry and would otherwise discard response admission metadata. The conditional association before `receive-module` preserves it for all four VMs and existing inheritance/transfer paths. Responses without `:yin.admit/decision :allow` retain their prior behavior. The 144-namespace selection is a dependency-selection consequence of touching shared engine code, not evidence of broader runtime changes.
+
+The **three require-test and one DHT-test expectation changes are correct** under §7.5.3. Abandon retires unread requests without appending responses; already emitted responses still have the engine’s late-response handling. I found no production consumer relying on a response for every abandoned unread request. The DHT `shell-at` helper’s explicit trust is appropriate test composition because that helper intentionally imports another shell’s publication.
+
+The **20 mutation results support their named mechanisms**, and the test assertions generally exercise observable outcomes. They do not establish complete acceptance coverage: missing/extra allow keys and parent-to-child record inheritance escape them. The reduced F1 test genuinely detects fresh resolution, but does not exercise a second publisher’s HEAD follower. Portable reader conditionals put `:cljd` first; introduced numeric counters are integers; the large irrelevant-answer batches use `dotimes`/`reduce`, avoiding the noted large `for`/`doseq` issue. Dart and Node share the same ring outcome/cursor path.
+
+Finally, the **Node store timing failure is not shown to be an AD-1 semantic regression**. The unchanged test waits approximately 60 seconds for worker namespace loading; the reported isolated rerun passes that test. AD-1 can contribute workload to a contended run, so strict non-attribution is unproven. Assign timeout/worker diagnostics to the store-test owner’s separate reliability slice. The engineer’s stale-artifact and missing-§7.5 observations are historical: this checkout contains §7.5 and the `b9dbaeff…` Python artifact. No current suite result is claimed.
+Started-GMT: 2026-10-12 09:30 GMT
+Completed-GMT: 2026-10-12 (session end)
+Coding-Agent: claude (opus-5-5)
+# AD-1 engineer report: the admission seam in yin.repl (DONE, ready for review)
+
+**Verdict.** AD-1 is implemented test-first and green on JVM, Node and
+Dart, except `admission-spec-test`, which is red BY DESIGN in this
+worktree: the branch does not yet contain AD-0's section 7.5 (master
+01d004b5). Rebase onto master (orchestrator's git step) and it passes:
+verified against master's text. Two pre-existing failures outside AD-1
+are reported below: the stale I3 artifact (slow tier), and the
+cbor-conformance `spit` scan of `dht_import_fixture.cljc`.
+
+Worktree /Users/sto/workspace/datomworld-ad1, branch admission-ad1 (from
+ce1c0ae9). No git writes. No docs touched.
+
+## Status
+
+- [x] Read design r3, reviews r2/r3, brief, build-n-test.md, and master's
+      section 7.5 (01d004b5, read with `git show`, not checked out)
+- [x] admission_test.cljc: 21 tests, green on the JVM
+- [x] admission_doc_test.cljc (`admission-spec-test`): passes against
+      master's 7.5 text; RED in this worktree until it takes master (see
+      "The doc test" below)
+- [x] yin.repl.admission, link.cljc, repl.cljc, main.cljc, engine.cljc
+- [x] F5 driver in dht_import_test.cljc
+- [x] yin.repl.require-test and yin.repl.dht-test green after updating
+      the abandon expectations (see "Existing tests changed")
+- [x] slow dht_import_test: PRE-EXISTING RED at base (stale artifact, see
+      below). On a temporarily regenerated artifact, with the F5 driver,
+      the JVM run is GREEN: 1 test, 61 assertions, 0 failures. The
+      committed artifact was then restored (cmp identical, git clean).
+- [x] mutations: 20 of 20 red, each restored and cmp-identical (below)
+- [x] G1 `bb test:sub yin.repl yang.python` (three lanes): clj 603
+      tests, cljs 727, cljd 588; the only failure in scope is
+      `admission-spec-test` (no 7.5 here). Node also failed
+      `store_test/two-worker-threads-...` under three-lane contention
+      (workers load the test bundle within a 60 s wait); a Node-only rerun
+      of `yin.repl` (524 tests) passes it, `admission-spec-test` aside.
+- [x] G2 `bb test:changed` (engine.cljc in the diff, so it reaches 144
+      namespaces): clj 2346 tests, 2 failures; cljs 2415, 1; cljd 2321, 1.
+      The failures: `admission-spec-test` on each lane (as above) and, on
+      the JVM, `dao.jing` `cbor_conformance_test/no-source-file-that-
+      names-the-resource-writes-files`, which flags the `spit` in
+      `test/yang/python/antlr/dht_import_fixture.cljc` (I3's generator,
+      not modified by AD-1): pre-existing, reached here only because the
+      engine change widens the selection.
+- [x] No slow test added: every admission test runs alone in < 3 s on the
+      JVM (slowest: the every-VM import, 2.93 s). The touched slow test
+      (dht_import, F5) was run with `-i :slow` on the JVM (above); its
+      Node/Dart slow runs were not done (the artifact is stale at base,
+      so they would fail before the driver matters).
+- [x] kondo clean; cljstyle clean on every file I wrote; the remaining
+      cljstyle hunks in require_test.cljc are pre-existing
+      `repl.frontends/create-state` indentation outside my edits.
+
+## Mutations (target/ad1/mutate.py; log target/ad1/mutate.log)
+
+Each mutation edits one mechanism, runs its test var(s) on the JVM, and
+restores the file; `filecmp` confirmed every restore byte-identical.
+Failures+errors per mutation in parentheses.
+
+| Mechanism | File | Test | Result |
+|---|---|---|---|
+| F1 retained address (fresh resolve instead) | link | an-allow-binds-the-address-... | RED (4) |
+| retire delimited prefix (raw prefix) | link | retire-matches-... | RED (2) |
+| retire half-open lower bound (`<` for `<=`) | link | retire-matches-... | RED (2) |
+| question append is progress | link | a-trusted-asserter-... | RED (1) |
+| unconfigured refusal (pending instead) | link | a-dht-source-with-no-admission-state-... | RED (1) |
+| drain persists its cursor (peek) | admission | the-drain-recovers-... | RED (5) |
+| exact admission id (stale serial kept) | admission | answers-correlate-... | RED (1) |
+| first answer wins (overwrite) | admission | answers-correlate-... | RED (1) |
+| non-empty conditions refuse | admission | an-answer-the-composition-cannot-honor-... | RED (2) |
+| malformed answer refuses | admission | same | RED (6) |
+| verify receives the context | admission | verify-receives-... | RED (2) |
+| ended snapshot refuses | admission | an-ended-decision-medium-... | RED (1) |
+| absent snapshot answers nothing | admission | an-unanswered-question-survives-... | RED (7) |
+| default verify: trusted asserter | admission | an-untrusted-principal-... | RED (2) |
+| registry admission record | engine | a-trusted-import-records-...-every-vm | RED (12) |
+| abandon retires the run | repl | abandon-retires-the-run-... | RED (10) |
+| carry-served restores admission | repl | an-install-error-keeps-... | RED (1) |
+| drive continues on an answer alone | repl | an-answer-alone-is-progress-... | RED (2) |
+| hook re-checks only on a pending id | repl | the-host-hook-drains-... | RED (4) |
+| hook persists the drained state | repl | the-host-hook-drains-... | RED (5) |
+
+## Blocker for the orchestrator: the I3 artifact is stale at ce1c0ae9
+
+`yang.python.antlr.dht-import-test/dht-import-test-test` (^:slow) fails at
+the base commit, independently of AD-1. Its first failures are
+"this host's own publication ... is the JVM's artifact" and "every
+node's installed py is the artifact's": `test/resources/yang/python/
+dht-import-v1.edn` names py `:segment/blake3-032f9b43...`, while py as
+published today (and `linked-prelude-test/manifest-golden`, moved in the
+same I3 commit "with the rebase onto master 4529b5bd") is
+`:segment/blake3-b9dbaeff...`. The artifact was not regenerated after
+that rebase. Every later import failure follows from it (the reader's
+installed py is not the importer's). py is pure publication
+(`publish-module!` of the prelude spec): no AD-1 code runs there.
+
+Fix (outside AD-1, the brief says the artifact stays unchanged): rerun
+`clojure -A:test -M test/resources/yang/python/dht-import-v1.generate.clj`
+on master and commit the artifact. I regenerated it only temporarily to
+validate F5 and restored the committed bytes (cmp-confirmed).
+
+## The doc test (`admission-spec-test`)
+
+Per the orchestrator note collab/1792242500000-note-ad1-test-name.txt it
+lives in `test/yin/repl/admission_doc_test.cljc`. It is enabled (no
+flag). It reads section 7.5 from `### 7.5` to the next heading of level
+three or higher (the `####` subsections are included) and returns its
+divergences as data: every keyword of `admission/reasons` must appear;
+`serve-budget` and `pair-capacity` must be followed by `(64)` and
+`(1024)` in parentheses, the form 7.5.4 uses; the literal
+`origin + "."` must appear. Verified against master's 7.5 text (a copy
+from `git show master:...`): no divergence; and three mutated texts
+(a reason renamed, `(64)` to `(65)`, the prefix literal dropped) are each
+reported. In this worktree the file has no 7.5, so the test reports
+`{:missing :section-7.5}` and FAILS until the branch is rebased onto
+master: that is the orchestrator's git step (I make no git writes).
+
+## Decisions made where design/brief were silent (flag for Architect)
+
+1. `:admit` (the function hook) is KEPT in `link/composition` for AD-2 to
+   remove, although 7.5 says AD-1 removes it: the brief forbids touching
+   `principal-admission`, and the I3 foreign-principal test asserts its
+   exact refusal. Order in the DHT branch: resolve-name, then `:admit` if
+   given, then the admission question.
+2. CLI host (`yin.repl.main/boot`): the default decision is own principal
+   plus an explicit trusted set. The CLI has no trust flag yet (AD-3), and
+   the L5 process gate (dht_process_test), the head tests and the L4 keyed
+   tests import another declared principal's module through `main/boot`.
+   `boot` therefore composes `:admission {:trusted <the --dht-principal
+   declarations>}`: a command-line declaration is the user's explicit
+   trust choice at this host. `create-state` and `link/composition`
+   themselves default to own principal only. One line in `main/boot`;
+   reverse it when AD-3 adds a separate trust flag or command.
+3. "A nil `:admission` on a DHT source refuses `:yin.admit/unconfigured`"
+   is read as: `link/serve` handed no admission STATE. The source's
+   `:admission` POLICY may be nil, which means no in-process interpreter
+   (an external one answers). Direct `:name-env` entries are never asked,
+   so they need no state.
+4. `create-state` accepts `:admission :external`: no in-process
+   interpreter, questions wait for an answer appended to the session's
+   answer medium. The F3 and P1-2 acceptance needs it ("a session composed
+   with an external admission interpreter").
+5. `recheck-on-answers` also runs one round of the in-process interpreter
+   before it drains, so a question parked on an absent decision snapshot
+   is answered on a host tick once the snapshot arrives. Without it only a
+   typed line would re-run the interpreter.
+6. The session mints the admission state (`:admission`) for every link
+   source; a non-DHT source never reads it (7.5.1 says a non-DHT source
+   "has no admission pair"). `make-session` does not know the source
+   kind; minting is two empty rings. Say if this must change.
+7. The interpreter's own state (question cursor, decision cursor and
+   snapshot) is a separate session value, `:admitter`, carried beside
+   `:admission` through `link-raise`/`carry-served`.
+8. The `:ok` response carries the admission keys; refusals after an allow
+   (a failed load, a dependency binding) do not.
+9. The REPL's first require mints link id `[:t0 1]`, not `[:t0 0]`: the
+   shell's VM spends counter 0 before the request reaches the pair
+   (existing behavior, not AD-1). The run interval `[base, parked)`
+   covers it; the shell tests assert the base counter is 0 and read ids
+   from the state rather than pinning `[:t0 0]`. The pinned `[:t0 0]`
+   cases are at the seam (`retire` unit tests).
+
+## Existing tests changed
+
+- `yin.repl.require-test`: three tests asserted that the abandoned
+  request's late response is skipped as `:unknown`. Under 7.5.3 abandon
+  retires the request on the pair and no response is ever appended. The
+  assertions now say that: no response for the retired id, no link
+  diagnostic, the later require links. (`a-late-response-after-abandon-
+  ...`, `an-install-wait-abandons-explicitly-test`, `a-late-response-
+  after-a-policy-abandon-is-skipped-test`.)
+- `yin.repl.dht-test/abandon-during-a-load-then-a-new-require-finds-it-
+  loaded`: same change.
+- `yin.repl.dht-test/shell-at` (create-state directly, declaring another
+  shell's key): now also trusts its declared principals, so
+  `a-module-published-in-a-partial-round-is-absent-until-repaired` keeps
+  testing what it tests.
+- `yang.python.antlr.dht-import-test`: F5, `run-over-dht` drives and
+  retains both interpreters; `source` composes `:admission {:trusted
+  <own>}`.
+
+## Files changed
+
+- NEW `src/cljc/yin/repl/admission.cljc`: `reasons`, `make-state`,
+  `drain`, `ask`, `asked`, `answer-to`, `judge`, `settle`, `forget`
+  (composition half); `context`, `trusted-asserter`, `policy`,
+  `interpreter`, `serve` (interpreter half).
+- `src/cljc/yin/repl/link.cljc`: `make-pair` optional capacity;
+  `composition` `:admission` policy option (own principal from `:key`);
+  the DHT answer's three cases (`dht-answer`, `admitted`,
+  `admission-refusal`); `serve` threads `:admission` (drain at round
+  start, settle on landing, question append is progress, pending
+  `:admission` id); `run-descriptor`, `retire`.
+- `src/cljc/yin/repl.cljc`: `make-session` mints `:admission` and
+  `:admitter`; `create-state` `:admission` option (default `{}`,
+  `:external`); `rebuild-session` passes the policy; `link-raise` /
+  `carry-served` carry both; `drive-links` runs the interpreter after
+  `link/serve` and continues on its progress; `abandon-pending` retires
+  the run; `recheck-on-answers` (public); pending text says "awaiting
+  admission".
+- `src/cljc/yin/repl/main.cljc`: `step-all` calls `recheck-on-answers`
+  beside `recheck-on-load-events`; `boot` trusts the `--dht-principal`
+  declarations (decision 2).
+- `src/cljc/yin/vm/engine.cljc`: `link-install` records `:admission` on
+  the entry before `receive-module`.
+- NEW `test/yin/repl/admission_test.cljc` (21 deftests),
+  NEW `test/yin/repl/admission_doc_test.cljc` (`admission-spec-test`).
+- `test/yin/repl/require_test.cljc`, `test/yin/repl/dht_test.cljc`,
+  `test/yang/python/antlr/dht_import_test.cljc` (see "Existing tests
+  changed").
+- Not touched: docs, `publication.cljc`, the frontend catalog, the
+  committed I3 artifact (regenerated temporarily, restored, git clean).
+
+## Acceptance lines and their tests (all in yin.repl.admission-test
+unless noted)
+
+- Trusted import completes with the admission record, every VM
+  (installed entry, and the dependency the install child imported,
+  transferred whole): `a-trusted-import-records-its-admission-on-every-vm-test`.
+  The child-inherits direction (parent to child) is not observed
+  directly: the child is transient; spawn-child copies entries whole
+  (`(dissoc entry :bindings)`), which the transfer case exercises.
+- Untrusted refused with no load started: `an-untrusted-principal-is-
+  refused-with-no-load-started-test` (seam),
+  `an-untrusted-import-is-refused-at-the-shell-with-no-load-test` (REPL).
+- Question append reports progress; question shape and closed key set;
+  allow response keys; settle on landing: `a-trusted-asserter-is-allowed-
+  over-the-question-it-was-asked-test`.
+- Unanswered question survives 64 rounds, ends only by retire; absent
+  snapshot answers nothing, no progress:
+  `an-unanswered-question-survives-sixty-four-rounds-test`.
+- Duplicate dropped (first stands), unknown id consumed and dropped, stale
+  serial for the same link id dropped (nit 1):
+  `answers-correlate-by-exact-admission-id-and-the-first-stands-test`.
+- Malformed answer and non-empty conditions refuse, no load; refusal keeps
+  reason and open keys: `an-answer-the-composition-cannot-honor-refuses-test`.
+- Nil admission state refuses `:yin.admit/unconfigured`; direct name-env
+  entry not asked: `a-dht-source-with-no-admission-state-refuses-unconfigured-test`.
+- F4: recording verify receives exactly snapshot (identical?), context
+  and question; verifies compose, first reason wins; no subject/session/
+  dao.shibi key in question or request:
+  `verify-receives-the-snapshot-the-context-and-the-question-test`. Ended
+  snapshot refuses `decision-ended` with no load; newest medium value
+  read: `an-ended-decision-medium-refuses-with-no-load-started-test`.
+- F1 head change between question and answer: response address M1,
+  manifest value M1's, module record for M1 and none for M2, registry
+  `:admission` id and address, pending `:admission` id unchanged, no
+  re-ask: `an-allow-binds-the-address-the-question-was-asked-about-test`.
+  (On one principal A with a retract+assert index rather than B's head
+  follower; 7.5.10 puts the follower form in AD-2.)
+- P1-1 (i) zero base, abandon, unrelated trusted require on the same pair,
+  no response for the retired id, late allow loads/prints/parks nothing:
+  `abandon-retires-the-run-and-the-pair-serves-on-test`.
+  (ii) nonzero base, nested origins `:t0.2` / `:t0.2.0`, `:retired`
+  exactly the unread run-owned request (nit 2), nothing asked/answered
+  left, unrelated require completes:
+  `abandon-retires-nested-install-requests-from-a-nonzero-base-test`.
+  (iii) `:t0.1`/`:t0.1.0`/`:t0.10`, half-open `[:t0 0]`, stop at first
+  unrelated: `retire-matches-the-run-s-interval-and-delimited-descendants-test`;
+  questions and answers dropped, late answer correlates to nothing:
+  `retire-drops-the-run-s-questions-and-answers-test`.
+- P1-2 (i) 64 irrelevant then the allow, two hook calls, `:checks` 0 after
+  the first; (iii) 64 irrelevant, three calls, `:checks` 0, cursor past
+  all; (ii) gap at capacity 4 through the hook; hook drains with nothing
+  pending: `the-host-hook-drains-irrelevant-answers-without-a-re-check-test`.
+  (ii) at the seam, and the budget bound and persisted cursor:
+  `the-drain-recovers-from-a-gap-at-the-earliest-retained-answer-test`.
+- F3 late answer, unrelated load event re-checks nothing, no typed line:
+  `a-late-answer-completes-the-require-with-no-typed-line-test`. Drive
+  continuation on an interpreter answer alone:
+  `an-answer-alone-is-progress-and-the-drive-continues-test`.
+- P2 error rollback (serials 0 then 1, nothing asked/answered for the
+  failed link, two questions and two answers only, no replay):
+  `an-install-error-keeps-the-admission-it-settled-test`.
+- create-state `:admission` option, `:external`, `(reset)` fresh state and
+  kept policy: `create-state-composes-the-admission-policy-test`.
+- Nit 3 (eviction claim): stated in `admission/make-state`'s docstring
+  (eviction when the unread backlog exceeds capacity; host bounds it).
+- Spec check: `yin.repl.admission-doc-test/admission-spec-test`.
+- F5: `yang.python.antlr.dht-import-test` (^:slow) green on the JVM with
+  a regenerated artifact.
+
+## Not done / out of scope
+
+- `:admit` not removed (decision 1, AD-2).
+- REPL trust commands, session key (AD-3).
+- Node and Dart runs of the slow dht_import test (stale artifact).
+
+# Fix round (codex REJECT collab/1792243000000-reviewer-ad1.findings.md)
+
+Started-GMT: 2026-10-12 11:00. Brief: collab/1792244000000-engineer-ad1-fix.prompt.md.
+Fixes UNCOMMITTED on top of 438531ec (orchestrator commits).
+
+## Status (kept current)
+
+- [x] F1 (P1) boot: explicit `:admission`, `--dht-trust` flag (DEVIATION)
+- [x] F2 (P2) judge: closed allow key set (red 4 -> green)
+- [x] F3 (P3) parent-to-child inheritance assertion (green; mutation pending)
+- [x] F5 (P3) legacy `:admit` hook bound once (red: 2 calls -> green)
+- [x] F1: boot + `--dht-trust` done; head/process compositions trust
+      explicitly; slow JVM process/head/dht tests green (11 tests, 222
+      assertions, Node reader rebuilt first)
+- [x] mutations: 5 red + 1 equivalent (below)
+- [x] kondo clean (0/0), cljstyle clean on every touched file
+- [x] G1 `bb test:sub yin.repl yang.python` (predecessor run, 16:00-16:09,
+      target/ad1/fix-g1.log): clj 48 ns 607 tests 0 failures; cljd 35 ns
+      592 tests 0; cljs 36 ns 731 tests 2 failures, both
+      `yin.repl.store-test/two-worker-threads-of-one-process-never-both-own-the-directory`
+      (workers returned nil within the wait: `[nil nil]`), the
+      round-one three-lane contention timing failure; store_test and the
+      store are not in the diff. Node-only rerun: see continuation below.
+- [ ] continuation (second opus run, after the first hit the session limit):
+  - [x] confirmed from `git diff` that all four fixes are in (list under
+        "Per finding")
+  - [x] fix-round mutations re-run (target/ad1/mutate_fix2.log), now with
+        a `git diff` comparison after each revert: same results as the
+        table below, every restore cmp-identical AND `git diff` unchanged
+  - [x] kondo on the 8 touched files: 0 errors, 0 warnings; `mise exec --
+        cljstyle check` on the same files: clean (no output)
+  - [x] Node-only `bb test:sub:cljs yin.repl`, run alone
+        (target/ad1/fix-node-repl.log): 21 ns, 528 tests, 0 failures,
+        store-test included. The G1 cljs failure therefore occurs only under
+        three-lane load (workers miss the wait), as in round one; it is not
+        an AD-1 regression
+  - [x] G2 `bb test:changed` (target/ad1/fix-g2.log, 144/128/128 ns,
+        engine.cljc in the branch diff widens it as in round one): clj
+        2351 tests 0 failures (410 s); cljs 2420, 0 (356 s); cljd 2326, 0
+        (216 s). ALL GREEN. Round one's G2 failures are gone: this branch
+        now has 7.5 (`admission-spec-test` passes), and the master
+        cbor-conformance `spit` failure is fixed by bdaed7ff.
+
+**Fix-round verdict: DONE, ready for re-review.** All four fixes are in,
+each proven by a mutation that turns its test red (one F2 mutation is
+equivalent, explained below). kondo and cljstyle are clean. G1 is green
+except the Node store-test timing failure, which happens only under
+three-lane load and passes when Node runs alone. G2 is green on all
+three lanes.
+
+## Per finding
+
+**F1 (P1) `boot` no longer derives trust from `:principals`.** `boot`
+forwards `(:admission opts {})` to `repl.frontends/create-state`; `{}`
+is own principal only. `:principals` reaches the link source as before
+(declared authority) and nothing else.
+- Test (red first: decision was `#{pa pb}`, B's module loaded):
+  `yin.repl.admission-test/boot-keeps-declared-authority-apart-from-admission-trust-test`:
+  declaring B through `boot` alone refuses `their.m` with
+  `untrusted-principal`, nothing pending, NO load started (module status
+  nil); `:admission {:trusted #{pb}}` passed to `boot` imports it;
+  `:admission :external` passed to `boot` reaches the session (no
+  in-process interpreter).
+- CLI test (red first: unknown flag ignored, no trust):
+  `yin.repl.main-test/trusted-principals-are-strict-and-apart-from-declared-ones`:
+  `--dht-principal` alone gives decision `#{}` (no key); `--dht-trust`,
+  repeated, with and without the `ed25519:` tag, gives exactly those
+  ids and declares nothing; malformed values refused naming the flag;
+  `--dht-trust` without `dht:<dir>` refused. `help-documents-every-flag-
+  and-subcommand` now also requires `--dht-trust`.
+- Compositions given explicit trust: `yin.repl.dht-head-test/shell`
+  (`:admission {:trusted <its declared principals>}`, commented);
+  `yin.repl.dht-process-test`: the S5 readers pass `--dht-trust k` beside
+  each `--dht-principal k`; the head-follow `dht join` readers pass
+  `--dht-trust <the token's principal>` (their bare restart resumes it
+  from state.edn). `yin.repl.dht-test/keyed-state` (L4) needed nothing:
+  its quick tests stay green without trust. (`dht-test/shell-at` and the
+  I3 driver already trusted explicitly in AD-1.)
+
+**DEVIATION (orchestrator decision, pulled forward from AD-3):
+`--dht-trust ed25519:<hex>`**, repeatable startup flag of the REPL CLI.
+`main/parse-trust` accepts `ed25519:<64 lowercase hex>` or bare 64 hex
+and normalizes to the principal id; `parse-args` collects them into
+`:admission {:trusted #{...}}`. It is a DHT flag (refused without
+`--index-store dht:<dir>`) and a saved `:many` flag in `yin.repl.state`
+(like `--dht-principal`, so a bare restart keeps both). Documented in
+`help-lines` (the `--dht-principal` line now says "signed names to
+honor" and the new line says trust is not implied by it) and in the
+`parse-args` docstring. `dht join` does NOT add `--dht-trust` for the
+token's principal: joining declares and follows, trust stays an
+explicit flag (flag for Architect if `join` should imply it). The REPL
+`(trust)`/`(untrust)`/`(trusted)` commands and the session key stay AD-3.
+
+**F2 (P2) closed allow key set.** `admission/judge`: an allow is accepted
+only when its key set is exactly `#{:yin.admit/id :yin.admit/decision
+:yin.admit/conditions}` and conditions is a map; missing conditions or
+any extra key is `:yin.admit/malformed-answer`; a well-formed allow with
+non-empty conditions still refuses `:yin.admit/unsupported-condition`.
+- Test (red first, 4 failures: both shapes loaded and answered `:ok`):
+  `an-answer-the-composition-cannot-honor-refuses-test` now includes
+  `{:yin.admit/id id :yin.admit/decision :allow}` and
+  `(assoc (allow id) :unexpected true)`, each refused malformed with no
+  load started.
+
+**F3 (P3) parent-to-child inheritance.**
+`an-install-child-inherits-the-admission-of-a-preinstalled-entry-test`
+(all four VMs, external interpreter): require `own.m`, allow; require
+`mid.m`, allow; mid.m's install child parks on `inner.m`'s question; the
+child's registry entry for `own.m` carries the parent's admission record
+(same id, address `own.m`'s). Green on the current code (the
+implementation already preserved it), proven by its mutation.
+
+**F5 (P3) legacy `:admit` bound once.** `link/dht-answer` binds the hook
+result once (`refused`, only for an `:ok` resolution) and reuses it.
+- Test (red first: 2 calls, response carried `:call 2`):
+  `the-legacy-admit-hook-is-called-once-per-refusal-test`: a counting
+  refusing hook is called once, the response is that call's value, no
+  question asked, no load.
+
+## Fix-round mutations (target/ad1/mutate_fix.py, log mutate_fix.log)
+
+| Mechanism | File | Test | Result |
+|---|---|---|---|
+| F2 allow key set closed (check -> true) | admission | an-answer-the-composition-cannot-honor-refuses | RED (2) |
+| F2 missing conditions defaulted to `{}` | admission | same | NOT RED: equivalent, the closed key set already refuses a missing `:conditions` |
+| F3 spawn-child drops `:admission` | engine | an-install-child-inherits-... | RED (4) |
+| F5 hook called again for the body | link | the-legacy-admit-hook-is-called-once-... | RED (2) |
+| F1 boot derives trust from `:principals` | main | boot-keeps-... + trusted-principals-... | RED (7) |
+| F1 boot ignores an explicit `:admission` | main | same | RED (4) |
+
+Each restored and cmp-identical. A second run (continuation,
+target/ad1/mutate_fix2.log) reproduced every result above. It also
+compared `git diff` after each revert: unchanged every time.
+
+exec
+/bin/zsh -lc 'git diff 438531ec..HEAD' in /Users/sto/workspace/datomworld-ad1
+ succeeded in 2741ms:
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-w9TX9DXu' (errno=Operation not permitted)
+2026-10-12 18:14:27.446 xcodebuild[61900:58534682]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-12 18:14:27.775 xcodebuild[61900:58534676] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-o8T2t2JF' (errno=Operation not permitted)
+2026-10-12 18:14:28.484 xcodebuild[61907:58534737]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-12 18:14:28.709 xcodebuild[61907:58534736] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+diff --git a/src/cljc/yin/repl/admission.cljc b/src/cljc/yin/repl/admission.cljc
+index 22708e85..47556ecd 100644
+--- a/src/cljc/yin/repl/admission.cljc
++++ b/src/cljc/yin/repl/admission.cljc
+@@ -173,20 +173,28 @@
+   (get-in admission [:answers (:yin.admit/id question)]))
+ 
+ 
++(def ^:private allow-keys
++  #{:yin.admit/id :yin.admit/decision :yin.admit/conditions})
++
++
+ (defn judge
+   "nil when `answer` allows with empty conditions; otherwise the refusal
+    it amounts to, as `{:yin.admit/reason r ...}`.  A refusal keeps the
+-   answer's reason and open keys.  Non-empty conditions refuse
+-   `:yin.admit/unsupported-condition` and anything else that is not an
+-   allow or a refusal with a keyword reason refuses
++   answer's reason and open keys.  An allow's key set is closed: exactly
++   id, decision and conditions.  Non-empty conditions refuse
++   `:yin.admit/unsupported-condition` and anything else that is not such
++   an allow or a refusal with a keyword reason refuses
+    `:yin.admit/malformed-answer`: both fail closed."
+   [answer]
+   (let [decision (:yin.admit/decision answer)
+-        conditions (get answer :yin.admit/conditions {})]
++        conditions (:yin.admit/conditions answer)
++        allow? (and (= :allow decision)
++                    (= allow-keys (set (keys answer)))
++                    (map? conditions))]
+     (cond
+-      (and (= :allow decision) (map? conditions) (empty? conditions)) nil
++      (and allow? (empty? conditions)) nil
+ 
+-      (and (= :allow decision) (map? conditions))
++      allow?
+       {:yin.admit/reason :yin.admit/unsupported-condition
+        :yin.admit/conditions conditions}
+ 
+diff --git a/src/cljc/yin/repl/link.cljc b/src/cljc/yin/repl/link.cljc
+index cd2fccc7..c999714c 100644
+--- a/src/cljc/yin/repl/link.cljc
++++ b/src/cljc/yin/repl/link.cljc
+@@ -438,7 +438,9 @@
+         q (some-> admission (admission/asked (:yin.link/id request)))]
+     (if q
+       (admitted node declared request q (admission/answer-to admission q))
+-      (let [entry (linker.dht/resolve-name node declared name)]
++      (let [entry (linker.dht/resolve-name node declared name)
++            refused (when (= :ok (:status entry))
++                      (when-some [admit (:admit source)] (admit name entry)))]
+         (cond
+           (not= :ok (:status entry))
+           (if (and (= :absent (:reason entry))
+@@ -446,8 +448,8 @@
+             {:node node, :body ::pending, :heads (awaited-heads source node)}
+             {:node node, :body entry})
+ 
+-          (some? (when-some [admit (:admit source)] (admit name entry)))
+-          {:node node, :body ((:admit source) name entry)}
++          (some? refused)
++          {:node node, :body refused}
+ 
+           (= :composition (:yin.link/provenance entry))
+           (dht-attempt node declared request (:address entry))
+diff --git a/src/cljc/yin/repl/main.cljc b/src/cljc/yin/repl/main.cljc
+index 209e6c40..2c67aa84 100644
+--- a/src/cljc/yin/repl/main.cljc
++++ b/src/cljc/yin/repl/main.cljc
+@@ -104,7 +104,7 @@
+ (def ^:private dht-flags
+   #{"--dht-peer" "--dht-publish" "--dht-bind" "--dht-port"
+     "--dht-max-inbound-bytes" "--dht-manifest" "--dht-key" "--dht-principal"
+-    "--dht-follow"})
++    "--dht-trust" "--dht-follow"})
+ 
+ 
+ (def max-follow
+@@ -154,6 +154,21 @@
+                     {:value text}))))
+ 
+ 
++(defn parse-trust
++  "A `--dht-trust` value: a principal whose modules this node admits,
++   `ed25519:<64 lowercase hex>` (the tag optional), as the principal id
++   (yin.vm.linker.dht.md 7.5).  Trust is apart from `--dht-principal`:
++   declaring a publisher honors its signed names, it does not admit its
++   modules."
++  [text]
++  (if-some [[_ hex] (and (string? text)
++                         (re-matches #"^(?:ed25519:)?([0-9a-f]{64})$" text))]
++    (sign/principal hex)
++    (throw (ex-info (str "--dht-trust takes ed25519:<64 lowercase "
++                         "hexadecimal characters>, not " (pr-str text))
++                    {:value text}))))
++
++
+ ;; =============================================================================
+ ;; The publisher's key file (yin.vm.linker.dht.md 6.5)
+ ;; =============================================================================
+@@ -512,7 +527,10 @@
+    `--dht-manifest address`, a remote index to hydrate before the first
+    evaluation; `--dht-key file`, the publisher's stable key file
+    (yin.vm.linker.dht.md 6.5); `--dht-principal hex`, repeatable, a
+-   publisher whose signed names this node honors (7.1); and
++   publisher whose signed names this node honors (7.1);
++   `--dht-trust ed25519:hex`, repeatable, a principal whose modules the
++   session's admission interpreter admits (7.5), apart from the
++   declarations; and
+    `--dht-follow hex@host:port`, repeatable, a declared publisher whose
+    published head this node follows at that loopback address
+    (yin.vm.linker.dht.head.md 5.5, 5.8).  Any of them
+@@ -575,6 +593,10 @@
+                                    (update opts :principals (fnil conj [])
+                                            (parse-principal value))
+                                    dht)
++          "--dht-trust" (recur (nnext args)
++                               (update-in opts [:admission :trusted]
++                                          (fnil conj #{}) (parse-trust value))
++                               dht)
+           "--dht-follow" (recur (nnext args) opts
+                                 (update dht :follow (fnil conj [])
+                                         (parse-follow value)))
+@@ -601,9 +623,10 @@
+    composition (:custody, yin.vm.ucf.compose) rides the shell as data; the
+    step owner below is the only thing that steps it.
+ 
+-   The `--dht-principal` declarations are the user's explicit trust at
+-   this host: the session's admission interpreter (yin.vm.linker.dht.md
+-   7.5) trusts them beside the key's own principal."
++   `:admission` is the session's admission policy (yin.vm.linker.dht.md
++   7.5; `--dht-trust` sets its `:trusted`), by default `{}`: the key's
++   own principal only.  It is apart from `:principals`: a declared
++   publisher is not a trusted one."
+   ([] (boot {}))
+   ([opts] (driver/create-state
+             {:host (or (:adapter opts) (host/websocket))
+@@ -611,9 +634,7 @@
+                      (cond-> {:index-store-spec (:index-store-spec opts)
+                               :dht-key (:dht-key opts)
+                               :principals (:principals opts)
+-                              :admission {:trusted (set
+-                                                     (map sign/principal
+-                                                          (:principals opts)))}
++                              :admission (:admission opts {})
+                               :ws-host (:ws-host opts)
+                               :write-heads! (:write-heads! opts)
+                               :custody (:custody opts)}
+@@ -716,9 +737,10 @@
+    ""
+    "saved state: the flags a node starts with are kept in <node dir>/state.edn,"
+    "and a bare `yin-repl` starts that node again. Flags change it: a repeated"
+-   "flag (--dht-peer, --dht-principal, --dht-follow) replaces its saved"
+-   "values, and the result is saved. --dht-manifest and --dht-keygen are"
+-   "never saved. A followed head is kept in <dht dir>/heads.edn."
++   "flag (--dht-peer, --dht-principal, --dht-trust, --dht-follow) replaces"
++   "its saved values, and the result is saved. --dht-manifest and"
++   "--dht-keygen are never saved. A followed head is kept in"
++   "<dht dir>/heads.edn."
+    ""
+    "dht flags (need --index-store dht:<dir>, except --dht-keygen):"
+    "  --dht-peer host:port        bootstrap contact (IP literal); repeatable"
+@@ -729,7 +751,10 @@
+    "  --dht-manifest :segment/... remote index to hydrate first; needs a peer;"
+    "                              a pin: this run follows nothing"
+    "  --dht-key file              the publisher's key file"
+-   "  --dht-principal hex         a publisher to trust; repeatable"
++   "  --dht-principal hex         a publisher whose signed names to honor;"
++   "                              repeatable"
++   "  --dht-trust ed25519:hex     a principal whose modules to admit (not"
++   "                              implied by --dht-principal); repeatable"
+    "  --dht-follow hex@host:port  follow a declared publisher's head at its"
+    "                              loopback address; repeatable"
+    "  --dht-keygen file           write a new key file and exit"
+diff --git a/src/cljc/yin/repl/state.cljc b/src/cljc/yin/repl/state.cljc
+index a3bf5825..efff99b8 100644
+--- a/src/cljc/yin/repl/state.cljc
++++ b/src/cljc/yin/repl/state.cljc
+@@ -38,6 +38,7 @@
+    ["--dht-max-inbound-bytes" :value]
+    ["--dht-key" :value]
+    ["--dht-principal" :many]
++   ["--dht-trust" :many]
+    ["--dht-follow" :many]])
+ 
+ 
+diff --git a/test/yin/repl/admission_test.cljc b/test/yin/repl/admission_test.cljc
+index a339a7b2..79f2fad5 100644
+--- a/test/yin/repl/admission_test.cljc
++++ b/test/yin/repl/admission_test.cljc
+@@ -25,6 +25,7 @@
+             [yin.repl.admission :as admission]
+             [yin.repl.frontends :as repl.frontends]
+             [yin.repl.link :as link]
++            [yin.repl.main :as main]
+             [yin.vm :as vm]
+             [yin.vm.linker.closure-test :as ct]
+             [yin.vm.linker.dht :as ld]
+@@ -401,10 +402,13 @@
+               :yin.admit/conditions {:names ['f]}}
+              (refused (assoc (allow id) :yin.admit/conditions {:names ['f]})))))
+     (testing "malformed: an unknown decision, a refusal with no reason,
+-              conditions that are not a map"
++              conditions that are not a map, an allow with no conditions,
++              an allow with a key beyond its closed set"
+       (doseq [answer [{:yin.admit/id id :yin.admit/decision :maybe}
+                       {:yin.admit/id id :yin.admit/decision :refuse}
+-                      (assoc (allow id) :yin.admit/conditions [:x])]]
++                      (assoc (allow id) :yin.admit/conditions [:x])
++                      {:yin.admit/id id :yin.admit/decision :allow}
++                      (assoc (allow id) :unexpected true)]]
+         (is (= {:status :refused :reason :yin.admit/malformed-answer}
+                (refused answer))
+             (pr-str answer))))
+@@ -438,6 +442,21 @@
+       (is (empty? (questions-of (:adm s)))))))
+ 
+ 
++(deftest the-legacy-admit-hook-is-called-once-per-refusal-test
++  (let [w (world)
++        calls (atom 0)
++        hook (fn [n _]
++               {:status :refused :reason :test/hook :name n
++                :call (swap! calls inc)})
++        s (until-response (ask! (assoc-in (seam w) [:src :admit] hook)
++                                [:t0 0] 'own.m))]
++    (is (= 1 @calls))
++    (is (= {:status :refused :reason :test/hook :call 1}
++           (select-keys (first (responses s)) [:status :reason :call])))
++    (is (empty? (questions-of (:adm s))) "refused before it is asked")
++    (is (nil? (status (:node s) w 'own.m)))))
++
++
+ (deftest verify-receives-the-snapshot-the-context-and-the-question-test
+   (let [w (world)
+         seen (atom [])
+@@ -661,6 +680,33 @@
+         (is (= "43" (second (type! state "app.m/f"))))))))
+ 
+ 
++(deftest an-install-child-inherits-the-admission-of-a-preinstalled-entry-test
++  (doseq [vm-type [:ast-walker :semantic :stack :register]]
++    (testing (str vm-type)
++      (let [w (world)
++            allow! (fn [state]
++                     (let [id (pending-admission state)]
++                       (first (settle (first (repl/recheck-on-answers
++                                               (answer-at! state (allow id))))
++                                      #(or (nil? (:pending-run %))
++                                           (not= id (pending-admission %)))))))
++            [state _] (require! (shell w vm-type {:admission :external})
++                                'own.m)
++            state (allow! state)
++            recorded (:admission (entry state 'own.m))
++            [state _] (require! state 'mid.m)
++            state (allow! state)
++            child (get-in state [:vm :installs 'mid.m :vm])]
++        (is (= (address w 'own.m) (:yin.admit/address recorded)))
++        (is (some? (:yin.admit/id recorded)))
++        (is (some? child) "mid.m's install child is parked on inner.m")
++        (is (some? (pending-admission state)))
++        (testing "the child's inherited entry carries the original admission"
++          (is (= recorded
++                 (:admission (module/module-entry (:modules (:modules child))
++                                                  'own.m)))))))))
++
++
+ (deftest an-untrusted-import-is-refused-at-the-shell-with-no-load-test
+   (let [w (world)
+         [state text] (require! (shell w :semantic) 'their.m)]
+@@ -675,6 +721,37 @@
+         (is (= 'their.m (:last-value state)) (str text text'))))))
+ 
+ 
++(defn- booted
++  "The shell `yin.repl.main/boot` composes from `opts`, holding A's key
++   and declaring B, over `w`'s node."
++  [w opts]
++  (-> (main/boot (merge {:dht-key a :principals [(:public b)]} opts))
++      :repl
++      (assoc :dht (:node w))
++      (assoc-in [:link-source :content] {:kind :dht})))
++
++
++(deftest boot-keeps-declared-authority-apart-from-admission-trust-test
++  (let [w (world)]
++    (testing "declaring B alone refuses B's module before any load"
++      (let [state (booted w {})
++            [state text] (require! state 'their.m)]
++        (is (= #{pa} (get-in state [:link-source :admission :decision])))
++        (is (nil? (:pending-run state)) text)
++        (is (str/includes? text "untrusted-principal") text)
++        (is (nil? (status (:dht state) w 'their.m)))))
++    (testing "an explicit admission passed to boot is honored: trusting B
++              imports B's module"
++      (let [state (booted w {:admission {:trusted #{pb}}})
++            [state text] (require! state 'their.m)
++            [state text'] (settle state)]
++        (is (= #{pa pb} (get-in state [:link-source :admission :decision])))
++        (is (= 'their.m (:last-value state)) (str text text'))))
++    (testing "and an external admission reaches the session"
++      (is (nil? (get-in (booted w {:admission :external})
++                        [:link-source :admission]))))))
++
++
+ (deftest create-state-composes-the-admission-policy-test
+   (let [w (world)]
+     (is (= #{pa} (get-in (shell w :semantic) [:link-source :admission
+diff --git a/test/yin/repl/dht_head_test.cljc b/test/yin/repl/dht_head_test.cljc
+index 75959177..ac977863 100644
+--- a/test/yin/repl/dht_head_test.cljc
++++ b/test/yin/repl/dht_head_test.cljc
+@@ -77,7 +77,8 @@
+ 
+ 
+ (defn- shell
+-  "The step owner's state of a shell over `dir` at mesh `port`."
++  "The step owner's state of a shell over `dir` at mesh `port`, trusting
++   the principals it declares."
+   [{:keys [mesh ws dir port peers key principals follow write! bind-host
+            bind!]}]
+   (quick
+@@ -92,6 +93,10 @@
+                           (seq follow) (assoc :follow follow))
+                         :dht-key key
+                         :principals principals
++                        ;; the shells import their declared publishers'
++                        ;; modules: trusted explicitly (7.5)
++                        :admission {:trusted (set (map sign/principal
++                                                       principals))}
+                         :ws-host (when ws (ws-host ws))}
+                  write! (assoc :write-heads! write!)))))
+ 
+diff --git a/test/yin/repl/dht_process_test.clj b/test/yin/repl/dht_process_test.clj
+index f8fc4a31..c2bc3014 100644
+--- a/test/yin/repl/dht_process_test.clj
++++ b/test/yin/repl/dht_process_test.clj
+@@ -920,8 +920,8 @@
+                                            "--dht-manifest" (str ":"
+                                                                  manifest)]
+                                           (mapcat (fn [k]
+-                                                    ["--dht-principal"
+-                                                     k]))
++                                                    ["--dht-principal" k
++                                                     "--dht-trust" k]))
+                                           principals))]
+                       (swap! procs conj p)
+                       p))]
+@@ -1128,7 +1128,8 @@
+               [join (fn [label command dir]
+                       (let [p (spawn-stateful! label command
+                                                ["dht" "join" token "--dir" dir
+-                                                "--peer" (peer x)])]
++                                                "--peer" (peer x)
++                                                "--dht-trust" principal])]
+                         (swap! procs conj p)
+                         p))
+                b (join "reader-b-jvm" (jvm-command) (dirs 1))
+diff --git a/test/yin/repl/main_test.cljc b/test/yin/repl/main_test.cljc
+index f44651bf..72d2dbd7 100644
+--- a/test/yin/repl/main_test.cljc
++++ b/test/yin/repl/main_test.cljc
+@@ -396,6 +396,40 @@
+         (cleanup-dir! dir)))))
+ 
+ 
++(deftest trusted-principals-are-strict-and-apart-from-declared-ones
++  (let [public (:public (sign/generate))
++        trusted (str "ed25519:" public)
++        dir (temp-dir)
++        decision #(get-in % [:state :repl :link-source :admission :decision])]
++    (try
++      (testing "a declaration alone trusts nothing"
++        (let [started (repl/startup ["--index-store" (str "dht:" dir)
++                                     "--dht-principal" public])]
++          (is (= #{} (decision started)))
++          (repl/close-index-store! (:state started))))
++      (testing "--dht-trust, repeatable, with or without its ed25519: tag"
++        (let [other (:public (sign/generate))
++              started (repl/startup ["--index-store" (str "dht:" dir)
++                                     "--dht-trust" trusted
++                                     "--dht-trust" other])]
++          (is (= #{trusted (str "ed25519:" other)} (decision started)))
++          (is (empty? (get-in started [:state :repl :link-source
++                                       :principals])))
++          (repl/close-index-store! (:state started))))
++      (doseq [bad [(str/upper-case public) (subs public 1) "ed25519:xyz"]]
++        (is (str/includes? (str (:refusal (repl/startup
++                                            ["--index-store" (str "dht:" dir)
++                                             "--dht-trust" bad])))
++                           "--dht-trust")
++            bad))
++      (is (str/includes? (str (:refusal (repl/startup ["--dht-trust"
++                                                       trusted])))
++                         "dht:")
++          "--dht-trust needs the DHT store")
++      (finally
++        (cleanup-dir! dir)))))
++
++
+ (deftest an-ephemeral-bind-serves-and-the-serving-line-names-the-port
+   (let [server (serve/serve! {:bind-port 0 :host (host-adapter)})
+         [_ server' lines] (repl/step-all (repl/boot {}) server 0)
+@@ -1470,7 +1504,7 @@
+                   "--headless" "--index-store" "--help"
+                   "--dht-peer" "--dht-publish" "--dht-bind" "--dht-port"
+                   "--dht-max-inbound-bytes" "--dht-manifest" "--dht-key"
+-                  "--dht-principal" "--dht-follow" "heads.edn"
++                  "--dht-principal" "--dht-trust" "--dht-follow" "heads.edn"
+                   "--dht-keygen" "--name" "--dir" "--key"
+                   "--listen" "--peer" "--telemetry" "dht init" "dht serve"
+                   "dht join" "keygen"]]
+
+exec
+/bin/zsh -lc "rg -n '7.5|trust|AD-3' docs/design/yin.vm.linker.dht.md; cat collab/1792243000000-reviewer-ad1.findings.md" in /Users/sto/workspace/datomworld-ad1
+ succeeded in 0ms:
+56:DHT, load a module by name and evaluate it, with every trusted claim stated?
+68:  Publishing and trusting are per-node composition, never network roles.
+111:<code>src/cljc/dao/space/dht.cljc:457-597</code>; <code>dao.jing.dht.md</code>
+1860:### 7.5 Admission: the trust question
+1863:Python policy) and AD-3 (the REPL) build it; the binding design is
+1877:not refused automatically. Which principals a session trusts is a
+1878:configurable policy, and the user of a module may choose to trust its
+1882:#### 7.5.1 The datums
+1906: :yin.admit/reason :yin.admit/untrusted-principal :yin.admit/asserters [...]}
+1911:  (7.5.6). No key of the question or of the link request is
+1926:#### 7.5.2 Ask after resolve, before load: the retained entry (F1)
+1975:#### 7.5.3 Parking, with no deadline
+2021:#### 7.5.4 The drain: bounded, consuming, with a persisted cursor
+2046:  The host hook (7.5.5) calls the same function.
+2054:#### 7.5.5 Late answers and host driving
+2075:- **The command path.** `(trust p)` rebuilds the session decision and,
+2082:#### 7.5.6 The interpreter contract
+2085:`{:trusted #{...} :verify f :decision d :decision-medium m}` and answers
+2107:  principal together with the `:trusted` set. It allows when some
+2109:  `:yin.admit/untrusted-principal` naming the asserters.
+2112:- **At the REPL.** `(trust p)` adds principal `p` to the session's trusted
+2113:  set, `(untrust p)` removes it, and `(trusted)` prints the own principal
+2114:  and the trusted set. `create-state` takes `:admission` beside
+2116:  drops the trusted set unless it was given in `create-state`.
+2126:#### 7.5.7 Exposure: the session's registry
+2135:- `(untrust p)` is not retroactive: it changes only later answers, and a
+2140:#### 7.5.8 Trust versus safety
+2150:`{}`. A primitive or effect bound on a trusted module is future work and
+2153:#### 7.5.9 Fail closed
+2163:- The default interpreter refuses an untrusted asserter set
+2164:  `:yin.admit/untrusted-principal`.
+2169:**Must not land before L-e:** anything that claims untrusted-origin
+2176:#### 7.5.10 Slices and acceptance
+2180:and was never committed. AD-3 and F2 rewrite them from the acceptance
+2184:Order: AD-1 (with AD-0's `admission-spec-test`), then AD-2 and AD-3 in
+2199:  - a trusted asserter's module imports on every VM with the admission
+2201:  - an untrusted one is refused with no load started;
+2218:    on a reader that declares B but trusts nobody in process, so the
+2234:- **AD-3, the REPL** (VM engineer). The session wiring, the host hook,
+2235:  the trust commands, and the rewritten linked-REPL tests in
+2237:  - `(trust p)` then an import of p's module completes in the same
+2239:  - `(untrust p)` refuses the next question of a new session and leaves
+2242:    `(abandon)`; require `pym.m`, trusted, on the same session: it
+2259:  - `(trusted)` prints own plus trusted;
+2260:  - `(reset)` drops the trusted set unless given in `create-state`.
+2266:  trusted require completes on the same pair.
+2267:- (ii) A nonzero base: two trusted requires first, then a run whose
+2268:  module installs a child that requires another untrusted module
+2272:  `:asked` or `:answers`; an unrelated trusted require completes. Root
+2318:- Beside it, `step-all` calls `yin.repl/recheck-on-answers` (7.5.5, not
+3561:No cursor wire field is added. UCF 7.5.3 already carries
+Completed-GMT: 2026-10-12 08:43:13 GMT  
+Completed-Local: 2026-10-12 15:43:13 +07 (Asia/Ho_Chi_Minh)
+
+**REJECT**
+
+Reviewed committed `admission-ad1` at `438531ec85f2fe65dd9368b6608b1109d13cf124` using `git diff master...HEAD`, §7.5, the approved round-3 design/review, and the engineer’s report and mutation artifacts. No files edited or suites run.
+
+Two blocking findings remain under the scope contract.
+
+1. **P1 — `boot` turns declared name authorities into admission trust.**  
+   [main.cljc:614](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl/main.cljc:614)
+
+   `boot` unconditionally constructs `:admission {:trusted …}` from `:principals`. Declaring B so its signed names can resolve therefore also authorizes B’s modules to enter the session registry. Even an explicit `:admission` supplied to `boot` is ignored.
+
+   This collapses the distinct declared-authority and trusted sets established by §7.5. The owner’s configurable-policy direction permits explicit additional trust; it does not authorize deriving that trust automatically from name declarations. §7.5.9 also explicitly excludes a default decision other than own principals. Keeping existing process/head tests green does not justify widening the guard.
+
+   **Exact fix:** Forward an explicit `:admission` option through `boot`, defaulting to `{}`, independently of `:principals`. Give programmatic test compositions explicit trusted sets where required. Add a boot-level test showing that declaring B alone refuses B before loading, while explicitly trusting B allows it. CLI trust commands/flags remain AD-3.
+
+   **Owner / closing slice:** linker/host engineer, AD-1.
+
+2. **P2 — malformed allow answers can authorize loading.**  
+   [admission.cljc:184](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl/admission.cljc:184)
+
+   `judge` defaults missing `:yin.admit/conditions` to `{}` and never validates the allow answer’s closed key set. Consequently, both of these matching answers allow:
+
+   ```clojure
+   {:yin.admit/id id :yin.admit/decision :allow}
+   {:yin.admit/id id :yin.admit/decision :allow
+    :yin.admit/conditions {} :unexpected true}
+   ```
+
+   §7.5.1 requires exactly id, decision, and conditions; §7.5.9 requires malformed answers to refuse. This is a defect in newly introduced behavior. The malformed-answer test and mutation do not cover either case.
+
+   **Exact fix:** Validate the required, closed allow key set before accepting `{}` conditions. Missing conditions or extra keys must refuse `:yin.admit/malformed-answer`; otherwise-valid non-empty condition maps must continue refusing `:yin.admit/unsupported-condition`. Add both malformed shapes to the seam test and assert refusal with no load started.
+
+   **Owner / closing slice:** linker engineer, AD-1.
+
+The following findings are non-blocking:
+
+3. **P3 — parent-to-child admission inheritance lacks a regression assertion.**  
+   [admission_test.cljc:639](/Users/sto/workspace/datomworld-ad1/test/yin/repl/admission_test.cljc:639), [engine.cljc:1289](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/vm/engine.cljc:1289)
+
+   The every-VM test proves installation and child-to-parent dependency transfer. It does not inspect an inherited entry inside an install child. Removing `:admission` specifically during `spawn-child` inheritance would escape that test and the registry-record mutation.
+
+   The implementation currently preserves the record: inheritance removes only `:bindings`.
+
+   **Exact fix:** Preinstall an admitted dependency, park a later install child, and inspect that child’s inherited dependency entry for the original admission id/address.
+
+   **Owner / closing slice:** VM test engineer, AD-1 acceptance follow-up. The actual second-publisher HEAD/follower version of F1 remains with the coordinated AD-2 integration coverage.
+
+4. **P3 — non-DHT sessions allocate admission media despite §7.5.1.**  
+   [repl.cljc:774](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl.cljc:774)
+
+   Every session receives an admission pair, including local/remote content compositions. Ordinary non-DHT links do not ask admission questions, so this is a topology/documentation mismatch without an observed functional defect.
+
+   **Exact fix:** Pass source-kind information into session construction and allocate the admission state/interpreter only for DHT sources; preserve the pair for external DHT admission.
+
+   **Owner / closing slice:** REPL engineer, AD-3.
+
+5. **P3 — the retained legacy `:admit` hook is invoked twice on refusal.**  
+   [link.cljc:449](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl/link.cljc:449)
+
+   The old implementation retained one invocation’s result. The new branch calls the hook once in the condition and again to produce the body. The current Python hook is deterministic, but another existing composition can observe duplicate work or inconsistent results.
+
+   **Exact fix:** Bind the hook result once and reuse it until the hook is removed.
+
+   **Owner / closing slice:** linker engineer, AD-1 cleanup; final removal belongs to AD-2.
+
+**Rulings on the four decisions**
+
+- **(i) Retaining `:admit`: accept as a temporary, non-blocking scope exception.** The explicit prohibition on deleting `principal-admission` takes precedence over the slice text. Retaining its integration avoids silently disconnecting that existing policy. AD-2 must remove the hook, option, documentation, and Python-specific refusal assertions together. Correct the duplicate invocation meanwhile.
+- **(ii) Trusting `--dht-principal` declarations in `boot`: reject.** Finding 1 applies. Declared authority and admission trust must remain independently configurable.
+- **(iii) `:admission :external` and serving the interpreter in the answer hook: accept.** External mode correctly retains the pair while disabling the in-process interpreter. A bounded interpreter round before draining lets a newly available decision snapshot answer a parked question without typed input. Rechecks still require an exact pending admission id; irrelevant answers do not increment `:checks`.
+- **(iv) Minting the pair for every source: tolerate temporarily, with finding 4 assigned to AD-3.** It violates the specified topology but does not introduce admission into ordinary content-link execution.
+
+The remaining seam mechanics are sound on inspection: asking follows resolution and precedes load; an unanswered question never re-resolves; allow loads the retained address; parking has no deadline; retirement uses normalized half-open counters, delimiter-qualified descendants, and stops at the first unrelated request. Draining persists cursors and matching answers, consumes irrelevant/duplicate/stale answers, recovers gaps within budget, and correlates by full `[link-id serial]`. Drive continuation and rollback carry both composition and interpreter successors.
+
+The **engine change is necessary and minimal**. `module/link-module` rebuilds an entry and would otherwise discard response admission metadata. The conditional association before `receive-module` preserves it for all four VMs and existing inheritance/transfer paths. Responses without `:yin.admit/decision :allow` retain their prior behavior. The 144-namespace selection is a dependency-selection consequence of touching shared engine code, not evidence of broader runtime changes.
+
+The **three require-test and one DHT-test expectation changes are correct** under §7.5.3. Abandon retires unread requests without appending responses; already emitted responses still have the engine’s late-response handling. I found no production consumer relying on a response for every abandoned unread request. The DHT `shell-at` helper’s explicit trust is appropriate test composition because that helper intentionally imports another shell’s publication.
+
+The **20 mutation results support their named mechanisms**, and the test assertions generally exercise observable outcomes. They do not establish complete acceptance coverage: missing/extra allow keys and parent-to-child record inheritance escape them. The reduced F1 test genuinely detects fresh resolution, but does not exercise a second publisher’s HEAD follower. Portable reader conditionals put `:cljd` first; introduced numeric counters are integers; the large irrelevant-answer batches use `dotimes`/`reduce`, avoiding the noted large `for`/`doseq` issue. Dart and Node share the same ring outcome/cursor path.
+
+Finally, the **Node store timing failure is not shown to be an AD-1 semantic regression**. The unchanged test waits approximately 60 seconds for worker namespace loading; the reported isolated rerun passes that test. AD-1 can contribute workload to a contended run, so strict non-attribution is unproven. Assign timeout/worker diagnostics to the store-test owner’s separate reliability slice. The engineer’s stale-artifact and missing-§7.5 observations are historical: this checkout contains §7.5 and the `b9dbaeff…` Python artifact. No current suite result is claimed.
+
+exec
+/bin/zsh -lc "sed -n '1860,1930p' docs/design/yin.vm.linker.dht.md; sed -n '2082,2186p' docs/design/yin.vm.linker.dht.md; nl -ba src/cljc/yin/repl/state.cljc | sed -n '1,230p'; rg -n 'join|trust|principal|token' src/cljc/yin/repl/main.cljc" in /Users/sto/workspace/datomworld-ad1
+ succeeded in 0ms:
+### 7.5 Admission: the trust question
+
+Status: designed, not implemented. Slices AD-1 (the seam), AD-2 (the
+Python policy) and AD-3 (the REPL) build it; the binding design is
+`collab/1792234000000-architect-admission-stream-r3.claude-fable-5-1.findings.md`
+(approved with nits by
+`collab/1792235000000-reviewer-admission-stream-r3.findings.md`, whose
+three nits are folded in below). It replaces the `:admit` function of
+`yin.repl.link/composition`.
+
+**Pinned by test.** The reason vocabulary of this section and the values
+of `serve-budget` and `pair-capacity` it names are pinned by
+`admission-spec-test` (`test/yin/repl/admission_doc_test.cljc`, landing
+with AD-1): the test reads this section and fails when it and the code
+diverge.
+
+Owner direction (2026-10-12): a module published by another principal is
+not refused automatically. Which principals a session trusts is a
+configurable policy, and the user of a module may choose to trust its
+principal. The policy is an interpreter of a stream, the shape ShiBi
+already has (`dao.shibi.md`).
+
+#### 7.5.1 The datums
+
+When the DHT link source resolves a name, it appends an admission
+question to an **admission request medium**. One interpreter reads the
+questions and appends answers to an **admission response medium**. The
+two ring media sit beside the link pair. The admission id is
+`[link-id serial]`. `serial` is a per-composition counter, never reused,
+so a retired question and a later question for the same link id never
+share an id.
+
+```clojure
+;; question, appended to the admission request medium at resolution
+{:yin.admit/id         [[:t0 7] 3]
+ :yin.link/id          [:t0 7]
+ :yin.admit/name       'pym.m
+ :yin.admit/address    :segment/blake3-...   ; the resolved manifest address, retained
+ :yin.admit/asserters  ["ed25519:<hex>" ...] ; every asserter of that entry (R8)
+ :yin.admit/provenance {...}                 ; the entry's :yin.link/provenance verbatim
+ :yin.link/format      f                     ; the request's own words, no subject
+ :yin.link/contract    "b2"}
+
+;; answers, appended to the admission response medium
+{:yin.admit/id [[:t0 7] 3] :yin.admit/decision :allow  :yin.admit/conditions {}}
+{:yin.admit/id [[:t0 7] 3] :yin.admit/decision :refuse
+ :yin.admit/reason :yin.admit/untrusted-principal :yin.admit/asserters [...]}
+```
+
+- The question's key set is closed: exactly the keys above. No session
+  and no subject travels in it; the subject is the interpreter's context
+  (7.5.6). No key of the question or of the link request is
+  `:yin.admit/subject`, `:yin.admit/session`, or in the `dao.shibi`
+  namespace.
+- The allow answer's key set is closed: `:yin.admit/id`,
+  `:yin.admit/decision :allow` and `:yin.admit/conditions`. A refuse
+  answer carries `:yin.admit/id`, `:yin.admit/decision :refuse` and
+  `:yin.admit/reason`, and may carry further keys, which are copied into
+  the link refusal.
+- A direct `:name-env` entry (provenance `:composition`) is not asked.
+  A non-DHT link source has no admission pair.
+- The link response on allow gains `:yin.admit/id`,
+  `:yin.admit/decision :allow`, `:yin.admit/asserters` and
+  `:yin.admit/address`. A refusal copies into the link refusal shape with
+  the answer's reason and its open keys.
+
+#### 7.5.2 Ask after resolve, before load: the retained entry (F1)
+
+`link/serve` takes `{:pair :source :dht :admission}` and returns
+`{:pair :pending :progress? :dht :admission}`. The admission state is a
+value:
+#### 7.5.6 The interpreter contract
+
+`yin.repl.admission` is composed from
+`{:trusted #{...} :verify f :decision d :decision-medium m}` and answers
+each question with `(verify decision context question)`: nil allows, a
+reason map refuses. The context is composition-owned, built by
+`admission/context` from the session:
+`{:yin.admit/subject "ed25519:<hex>" | nil, :yin.admit/session <token>}`,
+the session token being the shell token now and `[id revision]` once the
+REPL F2 slice lands. Authorization vocabulary stays in the context and the
+policy; the question and the linker carry none.
+
+- **Composition-bounded synchronous verification.** `verify` runs
+  synchronously inside one serve round on one snapshot. Its cost per
+  question is bounded by the composition, and the interpreter answers at
+  most `serve-budget` questions per round. `verify` opens, fetches and
+  waits for nothing; a rule that would need a remote read is a rule the
+  decision snapshot must already hold (`dao.shibi.md`, limits of the
+  adapter contract).
+- **The snapshot.** The decision snapshot is the static `:decision`
+  value, or the newest value on a capacity-1 `:decision-medium`, read once
+  per round. An **absent** snapshot gives no answer: the question stays
+  pending and the round reports no progress. An **ended** snapshot
+  refuses `:yin.admit/decision-ended`, with no load started.
+- **The default interpreter.** The decision is the session's own
+  principal together with the `:trusted` set. It allows when some
+  asserter of the question is in that set, and otherwise refuses
+  `:yin.admit/untrusted-principal` naming the asserters.
+- **Composition.** Policies compose as verify functions; the first reason
+  wins. One interpreter writes the response medium.
+- **At the REPL.** `(trust p)` adds principal `p` to the session's trusted
+  set, `(untrust p)` removes it, and `(trusted)` prints the own principal
+  and the trusted set. `create-state` takes `:admission` beside
+  `:link-policy`, defaulting to the own key from `:dht-key`. `(reset)`
+  drops the trusted set unless it was given in `create-state`.
+
+This is not the gate seam of `dao.shibi.md`. It reuses the `verify`
+signature and the snapshot, but a request read off a stream and answered
+with one decision per request is the path `dao.shibi.md` names as a
+non-goal for the gate, to be added beside `verify`. This section is that
+addition. A ShiBi interpreter later replaces or composes with the default
+one as another verify function over its own published snapshot, with no
+edit to the linker.
+
+#### 7.5.7 Exposure: the session's registry
+
+Admission governs entry into a session's module registry, and
+authorization follows the session and the registry it inherits. A cache
+hit answers a require from the registry without a question; install
+children inherit registry entries; parents receive what children
+installed; `(lang ...)` preserves the registry. One allow therefore
+authorizes every later require of that module in that session.
+
+- `(untrust p)` is not retroactive: it changes only later answers, and a
+  module already in the registry stays usable.
+- `(reset)` and `(vm ...)` start a fresh registry and a fresh admission
+  state.
+
+#### 7.5.8 Trust versus safety
+
+Trust is which principals a session accepts, and it is the admission
+interpreter's answer. Safety is the linker's and L-e's, enforced whatever
+the answer says: closure origin, store ownership, dependency pins and the
+primitives profile (`yang.antlr.md` 8.5.6, ruling 19). **An allow never
+relaxes L-e.** The interpreter sees names, addresses, asserters and
+provenance, never bytes.
+
+**Conditions are reserved empty in v1.** `:yin.admit/conditions` must be
+`{}`. A primitive or effect bound on a trusted module is future work and
+does not land before L-e.
+
+#### 7.5.9 Fail closed
+
+Every reason below is final for that link:
+
+- A DHT link source with a nil `:admission` refuses
+  `:yin.admit/unconfigured`.
+- A malformed answer refuses `:yin.admit/malformed-answer`.
+- An answer with non-empty conditions refuses
+  `:yin.admit/unsupported-condition`.
+- An ended decision snapshot refuses `:yin.admit/decision-ended`.
+- The default interpreter refuses an untrusted asserter set
+  `:yin.admit/untrusted-principal`.
+
+An absent snapshot and an unanswered question never allow; they leave the
+link pending until an answer or retirement.
+
+**Must not land before L-e:** anything that claims untrusted-origin
+imports are safe; a default decision other than own principals; honoring
+any non-empty condition; a weakening of profile or dependency-pin
+discharge or of export-origin validation; admission on the content pair
+or in any frontend. Everything here is AST-level data on streams, so the
+register-VM cutover does not affect it.
+
+#### 7.5.10 Slices and acceptance
+
+**The parked linked-REPL tests are lost.**
+`collab/1792201000000-parked-linked-repl-tests.cljc.txt` is not on disk
+and was never committed. AD-3 and F2 rewrite them from the acceptance
+lines below (F2, F3, P1-1, P1-2, P2-3 of the design), not from memory of
+the parked file.
+
+Order: AD-1 (with AD-0's `admission-spec-test`), then AD-2 and AD-3 in
+either order.
+
+     1	(ns yin.repl.state
+     2	  "The node's saved configuration: the command line a node was last started
+     3	   with, kept as EDN in `<node dir>/state.edn` so a bare `yin-repl` starts
+     4	   the same node again.
+     5	
+     6	   The file holds flags, not evaluation state: the index store's durable
+     7	   directory already recovers what was evaluated.  A run resolves
+     8	   `saved flags < command-line flags` (a repeated flag's values replace the
+     9	   saved ones whole), starts from the result, and saves it.  One-shot flags
+    10	   (`--dht-manifest`, `--dht-keygen`) are never saved.  `--dht-follow` is
+    11	   saved; the head it installed never is: that is `heads.edn`'s, in the
+    12	   store directory (yin.vm.linker.dht.head.md 5.8)."
+    13	  (:require #?(:cljd [clojure.edn :as edn]
+    14	               :clj [clojure.edn :as edn]
+    15	               :cljs [cljs.reader :as reader])
+    16	            #?@(:cljd [["dart:io" :as dart-io]])
+    17	            [clojure.string :as str]
+    18	            [dao.space.store.fs :as fs]))
+    19	
+    20	
+    21	(def file-name "state.edn")
+    22	
+    23	
+    24	(def version 1)
+    25	
+    26	
+    27	(def ^:private saved-flags
+    28	  "The flags a state file keeps, in the order they are re-emitted, and how
+    29	   each takes its value: one value, a repeated value, or a bare switch."
+    30	  [["--index-store" :value]
+    31	   ["--vm" :value]
+    32	   ["--port" :value]
+    33	   ["--headless" :switch]
+    34	   ["--dht-peer" :many]
+    35	   ["--dht-publish" :switch]
+    36	   ["--dht-bind" :value]
+    37	   ["--dht-port" :value]
+    38	   ["--dht-max-inbound-bytes" :value]
+    39	   ["--dht-key" :value]
+    40	   ["--dht-principal" :many]
+    41	   ["--dht-trust" :many]
+    42	   ["--dht-follow" :many]])
+    43	
+    44	
+    45	(def ^:private kinds (into {} saved-flags))
+    46	
+    47	
+    48	(def ^:private one-shot-flags
+    49	  "Flags that take a value but are never saved."
+    50	  #{"--dht-manifest" "--dht-keygen"})
+    51	
+    52	
+    53	(defn- value-of
+    54	  "The value after `flag`, or a refusal: a missing value (or another flag
+    55	   in its place) must never fall back to the saved one."
+    56	  [flag more]
+    57	  (let [value (first more)]
+    58	    (if (and (some? value) (not (str/starts-with? value "--")))
+    59	      value
+    60	      (throw (ex-info (str flag " needs a value") {:flag flag})))))
+    61	
+    62	
+    63	(defn split-args
+    64	  "Split `args` into `{:flags {flag value} :rest [arg ...]}`: the flags a
+    65	   state file keeps (a switch is `true`, a repeated flag a vector) and
+    66	   everything else, in order, for the arguments parser.  A saved flag or a
+    67	   one-shot flag with no value is refused here, before it can be resolved
+    68	   against the saved value."
+    69	  [args]
+    70	  (loop [args (seq args) flags {} rest []]
+    71	    (if-let [arg (first args)]
+    72	      (let [kind (kinds arg)
+    73	            more (next args)]
+    74	        (cond
+    75	          (= :switch kind) (recur more (assoc flags arg true) rest)
+    76	
+    77	          (#{:value :many} kind)
+    78	          (let [value (value-of arg more)]
+    79	            (recur (next more)
+    80	                   (if (= :many kind)
+    81	                     (update flags arg (fnil conj []) value)
+    82	                     (assoc flags arg value))
+    83	                   rest))
+    84	
+    85	          (one-shot-flags arg)
+    86	          (recur (next more) flags (conj rest arg (value-of arg more)))
+    87	
+    88	          :else (recur more flags (conj rest arg))))
+    89	      {:flags flags :rest rest})))
+    90	
+    91	
+    92	(defn flags->args
+    93	  "The argument vector that says `flags`, in a fixed order."
+    94	  [flags]
+    95	  (into []
+    96	        (mapcat (fn [[flag kind]]
+    97	                  (when-some [v (get flags flag)]
+    98	                    (case kind
+    99	                      :switch (when (true? v) [flag])
+   100	                      :value [flag v]
+   101	                      :many (mapcat (fn [x] [flag x]) v)))))
+   102	        saved-flags))
+   103	
+   104	
+   105	(defn resolve-flags
+   106	  "The flags this run starts with: `saved` overridden by `explicit`.  The
+   107	   `unset` flags a subcommand clears (by default `dht serve` clears saved
+   108	   publishing and key state) are dropped from `saved` only, so a flag the
+   109	   command line names explicitly always stands."
+   110	  [saved explicit unset]
+   111	  (merge (apply dissoc saved unset) explicit))
+   112	
+   113	
+   114	(defn changed
+   115	  "The flags, sorted, whose value in `resolved` differs from `saved`."
+   116	  [saved resolved]
+   117	  (->> (concat (keys saved) (keys resolved))
+   118	       distinct
+   119	       (remove #(= (get saved %) (get resolved %)))
+   120	       sort
+   121	       vec))
+   122	
+   123	
+   124	(defn describe
+   125	  "`flags` as one line of `--flag value` text."
+   126	  [flags]
+   127	  (str/join ", "
+   128	            (for [[flag _] saved-flags
+   129	                  :let [v (get flags flag)]
+   130	                  :when (some? v)]
+   131	              (cond
+   132	                (true? v) flag
+   133	                (vector? v) (str/join ", " (map #(str flag " " %) v))
+   134	                :else (str flag " " v)))))
+   135	
+   136	
+   137	(defn- config-key
+   138	  [flag]
+   139	  (keyword (subs flag 2)))
+   140	
+   141	
+   142	(defn- refuse
+   143	  [path why]
+   144	  (ex-info (str "state file " path ": " why "; --reset replaces it")
+   145	           {:path path}))
+   146	
+   147	
+   148	(defn- text->config
+   149	  "The flags a state file's text holds, or a refusal naming `path`."
+   150	  [path text]
+   151	  (let [data (try #?(:cljd (edn/read-string text)
+   152	                     :clj (edn/read-string text)
+   153	                     :cljs (reader/read-string text))
+   154	                  (catch #?(:cljd Object
+   155	                            :clj Throwable
+   156	                            :cljs :default)
+   157	                         _
+   158	                    (throw (refuse path "it is not readable EDN"))))
+   159	        config (when (map? data) (:config data))]
+   160	    (cond
+   161	      (not (and (map? data) (= version (:version data))))
+   162	      (throw (refuse path (str "it is not a version-" version " state file")))
+   163	
+   164	      (not (map? config))
+   165	      (throw (refuse path "it has no :config map"))
+   166	
+   167	      :else
+   168	      (reduce (fn [flags [k v]]
+   169	                (let [kind (when (keyword? k) (kinds (str "--" (name k))))
+   170	                      flag (when kind (str "--" (name k)))]
+   171	                  (cond
+   172	                    (nil? kind)
+   173	                    (throw (refuse path (str "unknown setting " (pr-str k))))
+   174	
+   175	                    (and (= :switch kind) (not (true? v)))
+   176	                    (throw (refuse path (str (pr-str k) " must be true")))
+   177	
+   178	                    (and (= :value kind) (not (string? v)))
+   179	                    (throw (refuse path (str (pr-str k) " must be a string")))
+   180	
+   181	                    (and (= :many kind)
+   182	                         (not (and (vector? v) (every? string? v))))
+   183	                    (throw (refuse path (str (pr-str k) " must be a vector of"
+   184	                                             " strings")))
+   185	
+   186	                    :else (assoc flags flag v))))
+   187	              {}
+   188	              config))))
+   189	
+   190	
+   191	(defn path
+   192	  "The state file's path in the node directory `dir`."
+   193	  [dir]
+   194	  (str dir "/" file-name))
+   195	
+   196	
+   197	(defn- read-text
+   198	  "The file at `path` as text, or nil only when no directory entry exists
+   199	   there.  Unlike `fs/read-file-text`, which answers nil for anything it
+   200	   cannot stat, a directory, an unreadable file and a dangling symlink all
+   201	   throw here, so a state file is never skipped for being unreadable.  Each
+   202	   host tells absence from an access failure by the error it gets on a
+   203	   direct read, not by an existence test."
+   204	  [path]
+   205	  #?(:cljd (try (.readAsStringSync (dart-io/File. path))
+   206	                (catch dart-io/PathNotFoundException e
+   207	                  ;; Dart also raises this class for Windows errors that are
+   208	                  ;; not absence (bad drive, bad name, name too long): only
+   209	                  ;; OS error 2 (ENOENT, file not found) and 3 (path not
+   210	                  ;; found) are.  A link whose target is missing is an entry,
+   211	                  ;; not absence.
+   212	                  (let [code (some-> (.-osError e) .-errorCode)]
+   213	                    (when (or (not (contains? #{2 3} code))
+   214	                              (.existsSync (dart-io/Link. path)))
+   215	                      (throw e)))))
+   216	     :clj (when-not (java.nio.file.Files/notExists
+   217	                      (java.nio.file.Paths/get path (make-array String 0))
+   218	                      (into-array java.nio.file.LinkOption
+   219	                                  [java.nio.file.LinkOption/NOFOLLOW_LINKS]))
+   220	            (slurp path))
+   221	     :cljs (let [fs (js/require "fs")
+   222	                 entry? (fn []
+   223	                          (try (.lstatSync ^js fs path) true
+   224	                               (catch :default e
+   225	                                 ;; only "no such entry" means no entry; an
+   226	                                 ;; access or I/O failure must not read as one
+   227	                                 (if (= "ENOENT" (.-code e)) false (throw e)))))]
+   228	             (try (.readFileSync ^js fs path "utf8")
+   229	                  (catch :default e
+   230	                    (when-not (and (= "ENOENT" (.-code e)) (not (entry?)))
+106:    "--dht-max-inbound-bytes" "--dht-manifest" "--dht-key" "--dht-principal"
+107:    "--dht-trust" "--dht-follow"})
+111:  "The most principals one node follows (yin.vm.linker.dht.head.md 7)."
+116:  "A `--dht-follow` value, `<64 hex>@<host:port>`, as `{:principal hex
+117:   :host h :port p}`: the principal whose published head is followed, at
+122:  (let [[_ principal v6 v4 port]
+128:      (nil? principal)
+143:      :else {:principal principal :host host :port port})))
+146:(defn parse-principal
+147:  "A `--dht-principal` value: a declared publisher's public key, exactly
+152:    (throw (ex-info (str "--dht-principal takes a public key of 64 lowercase "
+157:(defn parse-trust
+158:  "A `--dht-trust` value: a principal whose modules this node admits,
+159:   `ed25519:<64 lowercase hex>` (the tag optional), as the principal id
+160:   (yin.vm.linker.dht.md 7.5).  Trust is apart from `--dht-principal`:
+166:    (sign/principal hex)
+167:    (throw (ex-info (str "--dht-trust takes ed25519:<64 lowercase "
+267:                          "; its principal is "
+268:                          (sign/principal (:public key))
+271:                          "principal.")]
+288:                manifest follow principals]}]
+291:    (throw (ex-info (str (str/join ", " (sort flags))
+313:    (some #(not (contains? (set principals) (:principal %))) follow)
+314:    (let [p (:principal (first (remove #(contains? (set principals)
+315:                                                   (:principal %))
+317:      (throw (ex-info (str "--dht-follow " p " follows a principal that is not"
+318:                           " declared: add --dht-principal " p)
+319:                      {:principal p})))
+321:    (not= (count follow) (count (distinct (map :principal follow))))
+322:    (throw (ex-info "--dht-follow names each principal once: one source each"
+326:    (throw (ex-info (str "at most " max-follow " principals may be followed")
+350:;; The subcommands: `keygen` and `dht init|serve|join`
+381:(defn parse-token
+382:  "A join token `yin:<host:port>/<principal>` as `[peer principal]` flag
+383:   values; the principal accepts an `ed25519:` prefix.  A token with a
+387:  (let [[_ peer principal more]
+391:      (throw (ex-info (str "a join token has two parts, yin:<host:port>/"
+392:                           "<principal>; " (pr-str text) " has a third: a "
+397:      (throw (ex-info (str "a join token looks like yin:<host:port>/"
+398:                           "<principal>, as `dht: join token:` prints it, "
+402:      :else [peer principal])))
+416:  "The legacy flags of `dht init|serve|join`.  `init` publishes (its key is
+417:   made on first use); `serve` stores for others; `join <token>` reads,
+418:   declaring and following the token's principal at its address.
+423:  (when-not (#{"init" "serve" "join"} verb)
+424:    (throw (ex-info "usage: yin-repl dht init|serve|join [token] [options]"
+436:          (if (and (= "join" verb) (not (:token o))
+438:            (recur (next args) (assoc o :token arg))
+440:      (let [{:keys [name dir key peers listen token rest]} o
+441:            [tpeer principal] (when (= "join" verb)
+442:                                (parse-token token))
+453:           ;; join follows the principal's head at the token's address and
+456:           principal (into ["--dht-principal" principal
+457:                            "--dht-follow" (str principal "@" tpeer)])
+464:          ;; or --dht-key must not survive `serve` or `join` (explicit flags
+489:   `keygen [--name n | file]` and `dht init|serve|join`.  Anything else
+508:                           (str/join ", " (map name (sort (keys shell/vm-labels))))
+529:   (yin.vm.linker.dht.md 6.5); `--dht-principal hex`, repeatable, a
+531:   `--dht-trust ed25519:hex`, repeatable, a principal whose modules the
+592:          "--dht-principal" (recur (nnext args)
+593:                                   (update opts :principals (fnil conj [])
+594:                                           (parse-principal value))
+596:          "--dht-trust" (recur (nnext args)
+597:                               (update-in opts [:admission :trusted]
+598:                                          (fnil conj #{}) (parse-trust value))
+615:              (assoc dht :principals (:principals opts))))))
+627:   7.5; `--dht-trust` sets its `:trusted`), by default `{}`: the key's
+628:   own principal only.  It is apart from `:principals`: a declared
+629:   publisher is not a trusted one."
+636:                              :principals (:principals opts)
+709:   "       yin-repl dht init|serve|join [token] [options]"
+715:   "  dht join <token>  reader: follow the head of the token's principal;"
+716:   "                    the token is yin:<host:port>/<principal>"
+740:   "flag (--dht-peer, --dht-principal, --dht-trust, --dht-follow) replaces"
+754:   "  --dht-principal hex         a publisher whose signed names to honor;"
+756:   "  --dht-trust ed25519:hex     a principal whose modules to admit (not"
+757:   "                              implied by --dht-principal); repeatable"
+788:                  "); the command line changed " (str/join ", " changed)
+815:   shell, and only its principal reaches the options the banner reads."
+855:                        key (assoc :publisher (sign/principal (:public key))))
+951:      (conj (str "dht: names published here are signed by principal "
+1112:(def stop-join-millis
+1116:   needs strictly more than `tick-millis x stop-ticks`; a join of exactly that
+1334:               ;; step owner is joined until it stops, and the explicit stop
+1346:                                            (.join poller ^long
+1347:                                                   stop-join-millis))))
+1348:                     (.join poller))
+1353:                     ;; the time this join is reached in that case.
+1355:                     (.join poller ^long stop-join-millis))))
+
+exec
+/bin/zsh -lc "rg -n 'FAIL|failures|two-worker|nil nil|tests' target/ad1/fix-g1.log target/ad1/fix-node-repl.log target/ad1/fix-g2.log target/ad1/mutate_fix2.log; nl -ba test/yin/repl/admission_test.cljc | sed -n '375,424p'; rg -n 'two-worker|60000|wait|timeout' test/yin/repl/store_test.cljc" in /Users/sto/workspace/datomworld-ad1
+ succeeded in 0ms:
+target/ad1/fix-node-repl.log:86:lane  namespaces  tests failures seconds  status
+target/ad1/fix-g1.log:215:lane  namespaces  tests failures seconds  status
+target/ad1/fix-g1.log:217:cljs          36    731        2     512  FAIL
+target/ad1/fix-g2.log:3:  collab/1792230000000-architect-admission-stream.prompt.md: ignored -> 0 tests
+target/ad1/fix-g2.log:4:  collab/1792233000000-reviewer-admission-stream-r2.findings.md: ignored -> 0 tests
+target/ad1/fix-g2.log:5:  collab/1792234000000-architect-admission-stream-r3.claude-fable-5-1.findings.md: ignored -> 0 tests
+target/ad1/fix-g2.log:6:  collab/1792235000000-reviewer-admission-stream-r3.findings.md: ignored -> 0 tests
+target/ad1/fix-g2.log:7:  collab/1792235000000-reviewer-admission-stream-r3.gpt-6.1-sol.stdout.log: ignored -> 0 tests
+target/ad1/fix-g2.log:8:  collab/1792241000000-engineer-ad1.findings.md: ignored -> 0 tests
+target/ad1/fix-g2.log:9:  collab/1792241000000-engineer-ad1.prompt.md: ignored -> 0 tests
+target/ad1/fix-g2.log:10:  collab/1792242500000-note-ad1-test-name.txt: ignored -> 0 tests
+target/ad1/fix-g2.log:11:  collab/1792243000000-reviewer-ad1.findings.md: ignored -> 0 tests
+target/ad1/fix-g2.log:12:  collab/1792243000000-reviewer-ad1.prompt.md: ignored -> 0 tests
+target/ad1/fix-g2.log:13:  collab/1792244000000-engineer-ad1-fix.prompt.md: ignored -> 0 tests
+target/ad1/fix-g2.log:14:  collab/1792245000000-engineer-ad1-fix-cont.prompt.md: ignored -> 0 tests
+target/ad1/fix-g2.log:15:  src/cljc/yin/repl.cljc: ns yin.repl; convention test yin.repl-test; tree walked by affected, dao.jing.hash-registry-contract-test, yin.vm.store-write-audit-test -> 28 tests
+target/ad1/fix-g2.log:16:  src/cljc/yin/repl/admission.cljc: ns yin.repl.admission; convention test yin.repl.admission-test; tree walked by affected, dao.jing.hash-registry-contract-test, yin.vm.store-write-audit-test -> 41 tests
+target/ad1/fix-g2.log:17:  src/cljc/yin/repl/link.cljc: ns yin.repl.link; tree walked by affected, dao.jing.hash-registry-contract-test, yin.vm.store-write-audit-test -> 41 tests
+target/ad1/fix-g2.log:18:  src/cljc/yin/repl/main.cljc: ns yin.repl.main; convention test yin.repl.main-test; tree walked by affected, dao.jing.hash-registry-contract-test, yin.vm.store-write-audit-test -> 8 tests
+target/ad1/fix-g2.log:19:  src/cljc/yin/repl/state.cljc: ns yin.repl.state; convention test yin.repl.state-test; tree walked by affected, dao.jing.hash-registry-contract-test, yin.vm.store-write-audit-test -> 8 tests
+target/ad1/fix-g2.log:20:  src/cljc/yin/vm/engine.cljc: ns yin.vm.engine; convention test yin.vm.engine-test; tree walked by affected, dao.jing.hash-registry-contract-test, yin.vm.store-write-audit-test -> 142 tests
+target/ad1/fix-g2.log:21:  test/yang/python/antlr/dht_import_test.cljc: ns yang.python.antlr.dht-import-test; tree walked by affected, dao.jing.cbor-conformance-test -> 2 tests
+target/ad1/fix-g2.log:22:  test/yin/repl/admission_doc_test.cljc: ns yin.repl.admission-doc-test; tree walked by affected, dao.jing.cbor-conformance-test -> 2 tests
+target/ad1/fix-g2.log:23:  test/yin/repl/admission_test.cljc: ns yin.repl.admission-test; tree walked by affected, dao.jing.cbor-conformance-test -> 2 tests
+target/ad1/fix-g2.log:24:  test/yin/repl/dht_head_test.cljc: ns yin.repl.dht-head-test; tree walked by affected, dao.jing.cbor-conformance-test -> 2 tests
+target/ad1/fix-g2.log:25:  test/yin/repl/dht_process_test.clj: ns yin.repl.dht-process-test; tree walked by affected, dao.jing.cbor-conformance-test -> 2 tests
+target/ad1/fix-g2.log:26:  test/yin/repl/dht_test.cljc: ns yin.repl.dht-test; tree walked by affected, dao.jing.cbor-conformance-test -> 2 tests
+target/ad1/fix-g2.log:27:  test/yin/repl/main_test.cljc: ns yin.repl.main-test; tree walked by affected, dao.jing.cbor-conformance-test -> 2 tests
+target/ad1/fix-g2.log:28:  test/yin/repl/require_test.cljc: ns yin.repl.require-test; tree walked by affected, dao.jing.cbor-conformance-test -> 5 tests
+target/ad1/fix-g2.log:523:lane  namespaces  tests failures seconds  status
+   375	        (is (= [id] (keep :admission (get-in s [:served :pending]))))
+   376	        (testing "the first answer for the id stands, a duplicate is dropped"
+   377	          (let [s (-> s
+   378	                      (answer! (allow id))
+   379	                      (answer! {:yin.admit/id id
+   380	                                :yin.admit/decision :refuse
+   381	                                :yin.admit/reason :test/second})
+   382	                      until-response)]
+   383	            (is (= :ok (:status (first (responses s)))))
+   384	            (is (= 1 (count (responses s))))))))))
+   385	
+   386	
+   387	(deftest an-answer-the-composition-cannot-honor-refuses-test
+   388	  (let [w (world)
+   389	        id [[:t0 0] 0]
+   390	        refused (fn [answer]
+   391	                  (let [s (-> (ask! (seam w nil) [:t0 0] 'own.m)
+   392	                              round
+   393	                              (answer! answer)
+   394	                              until-response)]
+   395	                    (is (nil? (status (:node s) w 'own.m))
+   396	                        "refused before any load")
+   397	                    (select-keys (first (responses s))
+   398	                                 [:status :reason :yin.admit/conditions])))]
+   399	    (testing "non-empty conditions: unsupported, final for the link"
+   400	      (is (= {:status :refused
+   401	              :reason :yin.admit/unsupported-condition
+   402	              :yin.admit/conditions {:names ['f]}}
+   403	             (refused (assoc (allow id) :yin.admit/conditions {:names ['f]})))))
+   404	    (testing "malformed: an unknown decision, a refusal with no reason,
+   405	              conditions that are not a map, an allow with no conditions,
+   406	              an allow with a key beyond its closed set"
+   407	      (doseq [answer [{:yin.admit/id id :yin.admit/decision :maybe}
+   408	                      {:yin.admit/id id :yin.admit/decision :refuse}
+   409	                      (assoc (allow id) :yin.admit/conditions [:x])
+   410	                      {:yin.admit/id id :yin.admit/decision :allow}
+   411	                      (assoc (allow id) :unexpected true)]]
+   412	        (is (= {:status :refused :reason :yin.admit/malformed-answer}
+   413	               (refused answer))
+   414	            (pr-str answer))))
+   415	    (testing "a refusal keeps its reason and open keys"
+   416	      (is (= {:status :refused :reason :test/policy}
+   417	             (refused {:yin.admit/id id
+   418	                       :yin.admit/decision :refuse
+   419	                       :yin.admit/reason :test/policy}))))))
+   420	
+   421	
+   422	(deftest a-dht-source-with-no-admission-state-refuses-unconfigured-test
+   423	  (let [w (world)
+   424	        s (seam w)
+508:               deadline (+ (System/currentTimeMillis) 60000)]
+518:           (.waitFor ^Process child)
+666:       "while (Atomics.load(flags, 0) === 0) Atomics.wait(flags, 0, 0, 100);\n"
+670:       "  catch (e) { Atomics.wait(pause, 0, 0, Math.floor(Math.random() * 20)); }\n"
+674:       "  while (Atomics.load(flags, 5) === 0) Atomics.wait(flags, 5, 0, 100);\n"
+682:   (deftest two-worker-threads-of-one-process-never-both-own-the-directory
+687:           await! (fn [i]
+691:                        (< n 600) (do (js/Atomics.wait flags i 0 100)
+705:         (is (= [1 1] [(await! 1) (await! 2)])
+709:         (let [outcomes [(await! 3) (await! 4)]]
+718:               (is (= 1 (await! owner-flag)) "the owner released"))))
+
+codex
+The four fixes now have direct regression assertions. Startup trust is separate from declared authority, and `dht join` adds only declaration and following. I’m checking the saved-state path and existing logs to finish the deviation ruling and assess the store timing failure.
+exec
+/bin/zsh -lc "sed -n '415,478p' src/cljc/yin/repl/main.cljc; sed -n '540,620p' src/cljc/yin/repl/main.cljc; sed -n '800,910p' src/cljc/yin/repl/main.cljc; cat target/ad1/mutate_fix2.log; tail -n 9 target/ad1/fix-node-repl.log; tail -n 9 target/ad1/fix-g1.log; tail -n 9 target/ad1/fix-g2.log; rg --files target/ad1 | rg 'store|cljs|fix'" in /Users/sto/workspace/datomworld-ad1
+ succeeded in 0ms:
+(defn- dht-args
+  "The legacy flags of `dht init|serve|join`.  `init` publishes (its key is
+   made on first use); `serve` stores for others; `join <token>` reads,
+   declaring and following the token's principal at its address.
+   Every node needs a `--peer` to open a socket (the two-node start in
+   yin.repl.md); `--listen [ip:]port` is the node's own address.  Returns
+   `[args {:new-key path}]`."
+  [[verb & args]]
+  (when-not (#{"init" "serve" "join"} verb)
+    (throw (ex-info "usage: yin-repl dht init|serve|join [token] [options]"
+                    {})))
+  (loop [args (seq args)
+         o {:name "node" :peers [] :rest []}]
+    (if-let [arg (first args)]
+      (let [v (second args)]
+        (case arg
+          "--name" (recur (nnext args) (assoc o :name v))
+          "--dir" (recur (nnext args) (assoc o :dir v))
+          "--key" (recur (nnext args) (assoc o :key v))
+          "--peer" (recur (nnext args) (update o :peers conj (peer-text v)))
+          "--listen" (recur (nnext args) (assoc o :listen v))
+          (if (and (= "join" verb) (not (:token o))
+                   (not (str/starts-with? arg "-")))
+            (recur (next args) (assoc o :token arg))
+            (recur (next args) (update o :rest conj arg)))))
+      (let [{:keys [name dir key peers listen token rest]} o
+            [tpeer principal] (when (= "join" verb)
+                                (parse-token token))
+            tpeer (some-> tpeer peer-text)
+            peers (cond-> peers tpeer (conj tpeer))
+            [_ lhost lport] (when listen
+                              (re-matches #"(?:(.+):)?(\d+)" listen))
+            key (or key (when (= "init" verb) (state-path name ".key")))]
+        [(cond-> ["--index-store" (str "dht:" (or dir (state-path name "")))]
+           (= "init" verb) (conj "--dht-publish")
+           key (into ["--dht-key" key])
+           lhost (into ["--dht-bind" lhost])
+           lport (into ["--dht-port" lport])
+           ;; join follows the principal's head at the token's address and
+           ;; passes no manifest: its first manifest is the first head it
+           ;; installs (yin.vm.linker.dht.head.md 5.8)
+           principal (into ["--dht-principal" principal
+                            "--dht-follow" (str principal "@" tpeer)])
+           true (into (mapcat #(vector "--dht-peer" %)) peers)
+           true (into rest))
+         {:new-key (when (= "init" verb) key)
+          :name name
+          :dir (or dir (state-path name ""))
+          ;; only `init` publishes and signs by default: a saved --dht-publish
+          ;; or --dht-key must not survive `serve` or `join` (explicit flags
+          ;; named on that command line still stand)
+          :unset (when-not (= "init" verb) #{"--dht-publish" "--dht-key"})}]))))
+
+
+(defn- plain-args
+  "The plain form's `--name n` and `--dir d`, which name the node directory
+   its state file lives in (default `~/.yin/node`), removed from `args`.
+   Answers `[args extra]`."
+  [args]
+  (loop [args (seq args) rest [] node-name "node" dir nil]
+    (if-let [arg (first args)]
+      (case arg
+        "--name" (if (next args)
+                   (recur (nnext args) rest (second args) dir)
+  (loop [args (seq args)
+         opts {:headless? false :host nil :port nil :rejected []
+               :index-store-spec :mem}
+         dht {:flags #{} :peers []}]
+    (if-let [arg (first args)]
+      (let [dht (cond-> dht (dht-flags arg) (update :flags conj arg))
+            value (second args)]
+        (case arg
+          "--port" (recur (nnext args)
+                          (assoc opts :port (when-some [p (second args)]
+                                              (let [n (parse-int p)]
+                                                (if (and n (<= 0 n 65535))
+                                                  n
+                                                  (throw (ex-info
+                                                           (str "--port takes a "
+                                                                "port from 0 to "
+                                                                "65535, not "
+                                                                (pr-str p))
+                                                           {:value p}))))))
+                          dht)
+          "--host" (throw (ex-info (str "--host is gone: --port serves on all "
+                                        "interfaces, so it answers on "
+                                        "localhost and on this machine's IP")
+                                   {}))
+          "--headless" (recur (next args) (assoc opts :headless? true) dht)
+          "--vm" (recur (nnext args)
+                        (assoc opts :vm-type (parse-vm (second args)))
+                        dht)
+          "--index-store" (recur (nnext args)
+                                 (assoc opts
+                                        :index-store-spec
+                                        (store/parse-arg (second args)))
+                                 dht)
+          "--dht-peer" (recur (nnext args) opts
+                              (update dht :peers conj (parse-peer value)))
+          "--dht-publish" (recur (next args) opts (assoc dht :publish? true))
+          "--dht-bind" (recur (nnext args) opts
+                              (assoc dht :bind-host (str value)))
+          "--dht-port" (recur (nnext args) opts
+                              (assoc dht :bind-port (dht-number arg value)))
+          "--dht-max-inbound-bytes" (recur (nnext args) opts
+                                           (assoc dht :max-inbound-bytes
+                                                  (dht-number arg value)))
+          "--dht-manifest" (recur (nnext args) opts
+                                  (assoc dht :manifest (parse-manifest value)))
+          "--dht-key" (recur (nnext args)
+                             (assoc opts :dht-key-file
+                                    (or value
+                                        (throw (ex-info
+                                                 "--dht-key needs a key file"
+                                                 {}))))
+                             dht)
+          "--dht-principal" (recur (nnext args)
+                                   (update opts :principals (fnil conj [])
+                                           (parse-principal value))
+                                   dht)
+          "--dht-trust" (recur (nnext args)
+                               (update-in opts [:admission :trusted]
+                                          (fnil conj #{}) (parse-trust value))
+                               dht)
+          "--dht-follow" (recur (nnext args) opts
+                                (update dht :follow (fnil conj [])
+                                        (parse-follow value)))
+          "--dht-keygen" (recur (nnext args)
+                                (assoc opts :dht-keygen
+                                       (or value
+                                           (throw (ex-info
+                                                    "--dht-keygen needs a file"
+                                                    {}))))
+                                dht)
+          "--telemetry" (recur (next args) (update opts :rejected conj arg) dht)
+          "--telemetry-stream" (recur (nnext args)
+                                      (update opts :rejected conj arg) dht)
+          (recur (next args) (update opts :extra (fnil conj []) arg) dht)))
+      (update opts :index-store-spec dht-spec
+              (assoc dht :principals (:principals opts))))))
+
+
+(defn boot
+  "Create the composition: one shell, one input medium, one cursor held only by
+   the step owner, and the host WebSocket adapter `(connect ...)` attaches
+
+(defn startup
+  "Parse the arguments and compose the whole shell (the store the parsed
+   `:index-store-spec` names included), or answer the refusal text.  This
+   is the one gate every host's `-main` passes through before it prints a
+   banner or starts a loop, so an invalid `--index-store`, an unsupported
+   host for it, or a directory that cannot be opened refuses startup with
+   its reason rather than composing a shell around a fallback store.
+
+   Only a designed refusal is answered: an error carrying no ex-info
+   keeps its stack trace, because it is a defect, not an operator error.
+
+   `--dht-keygen` composes nothing: it writes the key file and answers
+   `{:lines [...] :exit 0}` for the host to print and exit with.  A
+   `--dht-key` file is loaded here (`load-key`); the key reaches the
+   shell, and only its principal reaches the options the banner reads."
+  ([args] (startup args nil))
+  ([args {:keys [persist? home]}]
+   (try
+     (if (some #{"--help" "-h"} args)
+       {:lines help-lines :exit 0}
+       (let [reset? (boolean (some #{"--reset"} args))
+             no-state? (boolean (some #{"--no-state"} args))
+             [args {:keys [new-key unset] node-name :name dir :dir}]
+             (expand-args (remove #{"--reset" "--no-state"} args))
+             node-dir (when (and persist? (not no-state?)
+                                 (not (some #{"--dht-keygen"} args)))
+                        (or dir
+                            (some-> (or home (home-dir*))
+                                    (str "/.yin/" node-name))))
+             saved (when (and node-dir (not reset?)) (state/load-flags node-dir))
+             {:keys [flags rest]} (state/split-args args)
+             resolved (state/resolve-flags saved flags unset)
+             args (into (state/flags->args resolved) rest)
+             made (when (and new-key (nil? (fs/read-file-text
+                                             (first (split-path new-key))
+                                             (second (split-path new-key)))))
+                    (:lines (keygen! new-key)))
+             opts (cond-> (try (parse-args args)
+                               (catch #?(:cljd Object
+                                         :clj Throwable
+                                         :cljs :default)
+                                      e
+                                 (throw (if (and saved (ex-data e))
+                                          (ex-info (str (ex-message e)
+                                                        " (with the saved state in "
+                                                        (state/path node-dir)
+                                                        "; --reset forgets it)")
+                                                   (ex-data e))
+                                          e))))
+                    made (assoc :startup-lines made))]
+         (if-some [path (:dht-keygen opts)]
+           (keygen! path)
+           (let [key (some-> (:dht-key-file opts) load-key)
+                 opts (cond-> opts
+                        key (assoc :publisher (sign/principal (:public key))))
+                 ;; the head board is served and dialed over the host's
+                 ;; WebSocket seam (yin.vm.linker.dht.head.md 5.1)
+                 state' (boot (assoc opts
+                                     :dht-key key
+                                     :ws-host (or (:adapter opts)
+                                                  (host/websocket))))
+                 server (boot-server opts)
+                 lines (into (vec (repl.dht/follow-lines (:repl state')))
+                             (when node-dir
+                               (save-state! node-dir saved resolved reset?)))]
+             {:opts (cond-> opts
+                      (seq lines) (update :startup-lines
+                                          #(into (vec %) lines)))
+              :state state'
+              :server server}))))
+     (catch #?(:cljd Object
+               :clj Throwable
+               :cljs :default)
+            e
+       (if (ex-data e)
+         {:refusal (or (ex-message e) (str e))}
+         (throw e))))))
+
+
+(defn- refuse!
+  "Print why the composition refused to start and end the process with a
+   failing status, so a refused startup never looks like a working shell."
+  [refusal]
+  (println refusal)
+  #?(:cljd (io/exit 1)
+     :clj (.halt (Runtime/getRuntime) 1)
+     :cljs (.exit js/process 1)))
+
+
+(defn- custody-of
+  [state]
+  (get-in state [:repl :custody]))
+
+
+(defn close-index-store!
+  "Release the composition's lifecycle resources before the host exits:
+   the custody composition's journals first (compose/close! -- the
+   authority and every journal backend the composition opened; it never
+   throws, so a failed close never blocks the exit), then the index
+   store's own resources (in durable mode, the exclusive directory
+   lock).  The shell has already stopped when a host calls this; the
+   memory store has nothing to release.  A DHT store's head board and
+   dials have been asked to stop and drained by then (`stop-tick`);
+   `yin.repl.dht/close!` is the last resort for whatever the budget
+   left."
+  [state]
+  (when-some [c (custody-of state)]
+    (compose/close! c))
+  (repl.dht/close! (:repl state))
+  (store/close! (get-in state [:repl :index-store])))
+F2 allow key set closed: RED (2); restored, cmp identical, git diff unchanged
+F2 missing conditions default: NOT RED: 0; restored, cmp identical, git diff unchanged
+F3 spawn-child keeps admission: RED (4); restored, cmp identical, git diff unchanged
+F5 hook bound once: RED (2); restored, cmp identical, git diff unchanged
+F1 boot derives trust from principals: RED (7); restored, cmp identical, git diff unchanged
+F1 boot ignores explicit admission: RED (4); restored, cmp identical, git diff unchanged
+DONE
+Compilation succeeded - I like when a plan comes together! 👨‍🦳 @17:59:49
+Generated: /Users/sto/workspace/datomworld-ad1/build/yin-repl-peer
+Skipping build:yin-repl-node (no selected test reaches its output)
+Skipping gen:python-antlr (no selected test reaches its output)
+cljs: 21 namespaces, log target/profile/sub-cljs.log
+cljs: done, exit 0, 85 s
+
+lane  namespaces  tests failures seconds  status
+cljs          21    528        0      85  pass
+cljd: 35 namespaces, log target/profile/sub-cljd.log
+cljd: done, exit 0, 149 s
+clj: done, exit 0, 268 s
+cljs: done, exit 0, 512 s
+
+lane  namespaces  tests failures seconds  status
+clj           48    607        0     268  pass
+cljs          36    731        2     512  FAIL
+cljd          35    592        0     149  pass
+cljs: done, exit 0, 356 s
+clj: done, exit 0, 410 s
+cljd: 128 namespaces, log target/profile/changed-cljd.log
+cljd: done, exit 0, 216 s
+
+lane  namespaces  tests failures seconds  status
+clj          144   2351        0     410  pass
+cljs         128   2420        0     356  pass
+cljd         128   2326        0     216  pass
+target/ad1/mutate_fix.py
+target/ad1/g1-cljs.log
+target/ad1/mutate_fix.log
+target/ad1/mutate_fix2.log
+target/ad1/fix-sub-clj.log
+target/ad1/fix-node-repl.log
+target/ad1/mutfix.bak
+target/ad1/fix-slow-repl.log
+target/ad1/fix-g1.log
+target/ad1/fix-g2.log
+
+exec
+/bin/zsh -lc "nl -ba src/cljc/yin/repl/admission.cljc | sed -n '175,211p'; nl -ba src/cljc/yin/repl/link.cljc | sed -n '432,463p'; nl -ba src/cljc/yin/repl.cljc | sed -n '763,794p'; git log -1 --format='%H %s'; date -u '+%Y-%m-%d %H:%M:%S GMT'; date '+%Y-%m-%d %H:%M:%S %z (%Z)'" in /Users/sto/workspace/datomworld-ad1
+ succeeded in 2240ms:
+   175	
+   176	(def ^:private allow-keys
+   177	  #{:yin.admit/id :yin.admit/decision :yin.admit/conditions})
+   178	
+   179	
+   180	(defn judge
+   181	  "nil when `answer` allows with empty conditions; otherwise the refusal
+   182	   it amounts to, as `{:yin.admit/reason r ...}`.  A refusal keeps the
+   183	   answer's reason and open keys.  An allow's key set is closed: exactly
+   184	   id, decision and conditions.  Non-empty conditions refuse
+   185	   `:yin.admit/unsupported-condition` and anything else that is not such
+   186	   an allow or a refusal with a keyword reason refuses
+   187	   `:yin.admit/malformed-answer`: both fail closed."
+   188	  [answer]
+   189	  (let [decision (:yin.admit/decision answer)
+   190	        conditions (:yin.admit/conditions answer)
+   191	        allow? (and (= :allow decision)
+   192	                    (= allow-keys (set (keys answer)))
+   193	                    (map? conditions))]
+   194	    (cond
+   195	      (and allow? (empty? conditions)) nil
+   196	
+   197	      allow?
+   198	      {:yin.admit/reason :yin.admit/unsupported-condition
+   199	       :yin.admit/conditions conditions}
+   200	
+   201	      (and (= :refuse decision) (keyword? (:yin.admit/reason answer)))
+   202	      (dissoc answer :yin.admit/id :yin.admit/decision)
+   203	
+   204	      :else {:yin.admit/reason :yin.admit/malformed-answer})))
+   205	
+   206	
+   207	(defn settle
+   208	  "`admission` with the question for `link-id` and its answer dropped:
+   209	   the link's response has landed."
+   210	  [admission link-id]
+   211	  (let [q (asked admission link-id)]
+   432	   `:admit`, when there is one, and is then asked: the question is
+   433	   appended and the link parks on it.  With no admission state the
+   434	   question cannot be asked, `:yin.admit/unconfigured`."
+   435	  [source node admission request]
+   436	  (let [declared (authority source)
+   437	        name (:yin.link/name request)
+   438	        q (some-> admission (admission/asked (:yin.link/id request)))]
+   439	    (if q
+   440	      (admitted node declared request q (admission/answer-to admission q))
+   441	      (let [entry (linker.dht/resolve-name node declared name)
+   442	            refused (when (= :ok (:status entry))
+   443	                      (when-some [admit (:admit source)] (admit name entry)))]
+   444	        (cond
+   445	          (not= :ok (:status entry))
+   446	          (if (and (= :absent (:reason entry))
+   447	                   (seq (awaited-heads source node)))
+   448	            {:node node, :body ::pending, :heads (awaited-heads source node)}
+   449	            {:node node, :body entry})
+   450	
+   451	          (some? refused)
+   452	          {:node node, :body refused}
+   453	
+   454	          (= :composition (:yin.link/provenance entry))
+   455	          (dht-attempt node declared request (:address entry))
+   456	
+   457	          (nil? admission)
+   458	          {:node node
+   459	           :body {:status :refused
+   460	                  :reason :yin.admit/unconfigured
+   461	                  :name name}}
+   462	
+   463	          :else
+   763	   The query call pair is the session's too (`yin.repl.query/make-pair`):
+   764	   the VM's half is its FFI pair, the interpreter's half with its request
+   765	   cursor sits under `:query-pair`, and the interpreter answers from the
+   766	   session's `:indexer`, and `:ast-indexer` for `$ast` and `$occ`, as they
+   767	   stand when it serves.
+   768	
+   769	   A durable store's HEAD write travels with the store handle
+   770	   (`:head-fn`, yin.repl.store): every session the store outlives
+   771	   publishes through the same one."
+   772	  [vm-type output-stream extra-primitives shell-token index-store policy]
+   773	  (let [pair (link/make-pair)
+   774	        admission (admission/make-state link/pair-capacity)
+   775	        query-pair (query/make-pair query-pair-capacity)
+   776	        vm (make-vm vm-type output-stream extra-primitives pair query-pair)
+   777	        program-in (make-attachment ingress-capacity)
+   778	        program-out (make-attachment ingress-capacity)]
+   779	    {:vm vm
+   780	     :load-program (get program-loaders vm-type)
+   781	     :program-stream (:stream program-in)
+   782	     :program-identity (:identity program-in)
+   783	     :observer (:observer program-in)
+   784	     :expander (make-expander (:identity program-in) (:stream program-out))
+   785	     :row-stream (:stream program-out)
+   786	     :row-observer (:observer program-out)
+   787	     :indexer (index/make-indexer {:observer ((:attach program-out))
+   788	                                   :session-token shell-token
+   789	                                   :content-store index-store
+   790	                                   :after-publish (:head-fn index-store)})
+   791	     :ast-indexer (ast-index/make-indexer {:observer ((:attach program-out))})
+   792	     :link-pair pair
+   793	     :admission admission
+   794	     :admitter (when policy (admission/interpreter admission policy))
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-fpnBWLyl' (errno=Operation not permitted)
+2026-10-12 18:14:51.190 xcodebuild[61996:58535453]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-12 18:14:51.443 xcodebuild[61996:58535451] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-qFaYjgVm' (errno=Operation not permitted)
+2026-10-12 18:14:52.045 xcodebuild[62000:58535481]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-12 18:14:52.231 xcodebuild[62000:58535480] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+0e549b721f4776d514ea0b41e927e6bdd31d2a5c fix(yin.repl): admission trust is explicit, never derived from declared principals; closed allow answers; --dht-trust startup flag (AD-1 review round)
+2026-10-12 11:14:53 GMT
+2026-10-12 18:14:53 +0700 (+07)
+
+codex
+Completed-GMT: 2026-10-12 11:14:53 GMT  
+Completed-Local: 2026-10-12 18:14:53 +07 (Asia/Ho_Chi_Minh)
+
+**APPROVE-WITH-NITS**
+
+No open in-scope P0/P1. No new blocking P2 found.
+
+Reviewed `438531ec..0e549b721f4776d514ea0b41e927e6bdd31d2a5c` against §7.5, the prior review, engineer’s fix report, and existing test/mutation logs. No files edited or suites run.
+
+1. **P1 boot trust — FIXED.**  
+   [main.cljc:637](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl/main.cljc:637) forwards explicit `:admission`, defaulting to `{}`, independently of `:principals`. [admission_test.cljc:734](/Users/sto/workspace/datomworld-ad1/test/yin/repl/admission_test.cljc:734) asserts declared B is refused before loading, explicitly trusted B imports, and external admission reaches the session. **Regression detection: yes.** Existing mutation logs show deriving trust from declarations and ignoring explicit admission both turn tests red. Exact fix is complete.
+
+2. **P2 malformed allow — FIXED.**  
+   [admission.cljc:191](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl/admission.cljc:191) requires the exact allow key set and map conditions. Missing conditions and extra keys refuse malformed; valid nonempty conditions still refuse unsupported. [admission_test.cljc:387](/Users/sto/workspace/datomworld-ad1/test/yin/repl/admission_test.cljc:387) checks both previously escaping shapes and no load started. **Regression detection: yes.** Removing closed-key validation turns the test red. Restoring only the `{}` fallback is correctly an equivalent mutation while key validation remains. Exact fix is complete.
+
+3. **P3 inheritance coverage — FIXED.**  
+   [admission_test.cljc:683](/Users/sto/workspace/datomworld-ad1/test/yin/repl/admission_test.cljc:683) preinstalls an admitted module, parks a later install child, and compares the child’s inherited record with the parent’s original id/address across all four VMs. **Regression detection: yes.** Dropping admission during child inheritance produces four failures in the existing mutation log. Exact fix is complete.
+
+4. **P3 hook once — FIXED.**  
+   [link.cljc:441](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl/link.cljc:441) binds the legacy hook result once and reuses it. [admission_test.cljc:445](/Users/sto/workspace/datomworld-ad1/test/yin/repl/admission_test.cljc:445) asserts one invocation, that invocation’s refusal value, no question, and no load. **Regression detection: yes.** Reintroducing the second invocation produces two failures. Exact fix is complete; final hook removal remains AD-2’s responsibility.
+
+5. **P3, non-blocking carryover — non-DHT admission allocation remains open.**  
+   [repl.cljc:774](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl.cljc:774) still allocates admission media for every session, contrary to §7.5.1. This is unchanged by the fix diff and remains a topology mismatch without an observed functional defect. **Owner: REPL engineer, AD-3. Exact fix:** supply source-kind information to session construction and allocate admission state/interpreter only for DHT compositions, retaining the pair for external DHT admission.
+
+The **AD-3 deviation is accepted**. The explicit boot option and repeatable startup flag are a minimal policy configuration surface: strict principal parsing at [main.cljc:157](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl/main.cljc:157), collection into `:admission :trusted` at line 596, help at line 756, and persistence through the existing `:many` machinery at [state.cljc:41](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl/state.cljc:41). Default trust remains own principal only, consistent with §7.5.6, §7.5.9, and the owner’s direction.
+
+There is **no join/token trust back door**: [main.cljc:456](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl/main.cljc:456) expands the token into declaration and following only. A fresh reader must explicitly pass `--dht-trust` to admit that publisher’s modules; later restarts may reuse explicitly saved trust. That separation is correct, not a functional usability defect. AD-3 can add `(trust)`, `(untrust)`, and `(trusted)` over the same policy; startup trust naturally remains the configured baseline preserved by reset.
+
+The **process/head rewrites preserve their assertions** and explicitly authorize the publishers needed by their integration scenarios: [dht_head_test.cljc:96](/Users/sto/workspace/datomworld-ad1/test/yin/repl/dht_head_test.cljc:96), [dht_process_test.clj:923](/Users/sto/workspace/datomworld-ad1/test/yin/repl/dht_process_test.clj:923), and line 1132. They exercise head/process behavior under configured policy; the new boot and CLI tests separately prove declaration alone grants no trust. The rewrites do not weaken the admission guard.
+
+The **Node store failure is unrelated to a changed store mechanism**: neither store implementation nor [store_test.cljc:682](/Users/sto/workspace/datomworld-ad1/test/yin/repl/store_test.cljc:682) is in this diff. Existing logs confirm two failures under three-lane load, an isolated Node run with 528 tests and zero failures, and all-green changed-test lanes. This supports the reported contention/timeout diagnosis, though it cannot prove AD-1 adds zero scheduling pressure. Keep timeout/worker diagnostics with the store-test owner’s separate reliability work; it is not an AD-1 blocker.
+tokens used
+62,933
+Completed-GMT: 2026-10-12 11:14:53 GMT  
+Completed-Local: 2026-10-12 18:14:53 +07 (Asia/Ho_Chi_Minh)
+
+**APPROVE-WITH-NITS**
+
+No open in-scope P0/P1. No new blocking P2 found.
+
+Reviewed `438531ec..0e549b721f4776d514ea0b41e927e6bdd31d2a5c` against §7.5, the prior review, engineer’s fix report, and existing test/mutation logs. No files edited or suites run.
+
+1. **P1 boot trust — FIXED.**  
+   [main.cljc:637](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl/main.cljc:637) forwards explicit `:admission`, defaulting to `{}`, independently of `:principals`. [admission_test.cljc:734](/Users/sto/workspace/datomworld-ad1/test/yin/repl/admission_test.cljc:734) asserts declared B is refused before loading, explicitly trusted B imports, and external admission reaches the session. **Regression detection: yes.** Existing mutation logs show deriving trust from declarations and ignoring explicit admission both turn tests red. Exact fix is complete.
+
+2. **P2 malformed allow — FIXED.**  
+   [admission.cljc:191](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl/admission.cljc:191) requires the exact allow key set and map conditions. Missing conditions and extra keys refuse malformed; valid nonempty conditions still refuse unsupported. [admission_test.cljc:387](/Users/sto/workspace/datomworld-ad1/test/yin/repl/admission_test.cljc:387) checks both previously escaping shapes and no load started. **Regression detection: yes.** Removing closed-key validation turns the test red. Restoring only the `{}` fallback is correctly an equivalent mutation while key validation remains. Exact fix is complete.
+
+3. **P3 inheritance coverage — FIXED.**  
+   [admission_test.cljc:683](/Users/sto/workspace/datomworld-ad1/test/yin/repl/admission_test.cljc:683) preinstalls an admitted module, parks a later install child, and compares the child’s inherited record with the parent’s original id/address across all four VMs. **Regression detection: yes.** Dropping admission during child inheritance produces four failures in the existing mutation log. Exact fix is complete.
+
+4. **P3 hook once — FIXED.**  
+   [link.cljc:441](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl/link.cljc:441) binds the legacy hook result once and reuses it. [admission_test.cljc:445](/Users/sto/workspace/datomworld-ad1/test/yin/repl/admission_test.cljc:445) asserts one invocation, that invocation’s refusal value, no question, and no load. **Regression detection: yes.** Reintroducing the second invocation produces two failures. Exact fix is complete; final hook removal remains AD-2’s responsibility.
+
+5. **P3, non-blocking carryover — non-DHT admission allocation remains open.**  
+   [repl.cljc:774](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl.cljc:774) still allocates admission media for every session, contrary to §7.5.1. This is unchanged by the fix diff and remains a topology mismatch without an observed functional defect. **Owner: REPL engineer, AD-3. Exact fix:** supply source-kind information to session construction and allocate admission state/interpreter only for DHT compositions, retaining the pair for external DHT admission.
+
+The **AD-3 deviation is accepted**. The explicit boot option and repeatable startup flag are a minimal policy configuration surface: strict principal parsing at [main.cljc:157](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl/main.cljc:157), collection into `:admission :trusted` at line 596, help at line 756, and persistence through the existing `:many` machinery at [state.cljc:41](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl/state.cljc:41). Default trust remains own principal only, consistent with §7.5.6, §7.5.9, and the owner’s direction.
+
+There is **no join/token trust back door**: [main.cljc:456](/Users/sto/workspace/datomworld-ad1/src/cljc/yin/repl/main.cljc:456) expands the token into declaration and following only. A fresh reader must explicitly pass `--dht-trust` to admit that publisher’s modules; later restarts may reuse explicitly saved trust. That separation is correct, not a functional usability defect. AD-3 can add `(trust)`, `(untrust)`, and `(trusted)` over the same policy; startup trust naturally remains the configured baseline preserved by reset.
+
+The **process/head rewrites preserve their assertions** and explicitly authorize the publishers needed by their integration scenarios: [dht_head_test.cljc:96](/Users/sto/workspace/datomworld-ad1/test/yin/repl/dht_head_test.cljc:96), [dht_process_test.clj:923](/Users/sto/workspace/datomworld-ad1/test/yin/repl/dht_process_test.clj:923), and line 1132. They exercise head/process behavior under configured policy; the new boot and CLI tests separately prove declaration alone grants no trust. The rewrites do not weaken the admission guard.
+
+The **Node store failure is unrelated to a changed store mechanism**: neither store implementation nor [store_test.cljc:682](/Users/sto/workspace/datomworld-ad1/test/yin/repl/store_test.cljc:682) is in this diff. Existing logs confirm two failures under three-lane load, an isolated Node run with 528 tests and zero failures, and all-green changed-test lanes. This supports the reported contention/timeout diagnosis, though it cannot prove AD-1 adds zero scheduling pressure. Keep timeout/worker diagnostics with the store-test owner’s separate reliability work; it is not an AD-1 blocker.

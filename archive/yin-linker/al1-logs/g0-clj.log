@@ -1,0 +1,225 @@
+Read 581 code files under src/ and test/.
+Subsystems: yin.repl, yin.vm, yang.python
+clj: 128 namespaces
+   yang.python-test
+   yang.python.antlr.c3-gate-parser-test
+   yang.python.antlr.c3-gate-test
+   yang.python.antlr.cst-export-test
+   yang.python.antlr.dht-import-test
+   yang.python.antlr.e2e-c1-test
+   yang.python.antlr.e2e-c2-test
+   yang.python.antlr.e2e-test
+   yang.python.antlr.float-address-test
+   yang.python.antlr.float-text-test
+   yang.python.antlr.import-test
+   yang.python.antlr.int-contract-test
+   yang.python.antlr.int-conv-test
+   yang.python.antlr.int-heap-test
+   yang.python.antlr.int-literal-test
+   yang.python.antlr.int-ops-parser-test
+   yang.python.antlr.int-ops-test
+   yang.python.antlr.linked-prelude-test
+   yang.python.antlr.linked-safepoint-test
+   yang.python.antlr.lower-portable-test
+   yang.python.antlr.lower-test
+   yang.python.antlr.prelude-parity-test
+   yang.python.antlr.safepoint-test
+   yang.python.antlr.scope-test
+   yin.repl-test
+   yin.repl.adapter-test
+   yin.repl.ast-index-test
+   yin.repl.ast-query-e2e-test
+   yin.repl.build-test
+   yin.repl.connect-test
+   yin.repl.dht-head-test
+   yin.repl.dht-process-test
+   yin.repl.dht-test
+   yin.repl.driver-test
+   yin.repl.embed-test
+   yin.repl.frontend-catalog-test
+   yin.repl.host.jvm-test
+   yin.repl.index-test
+   yin.repl.main-test
+   yin.repl.python-antlr-test
+   yin.repl.query-test
+   yin.repl.require-test
+   yin.repl.serve-connect-wire-test
+   yin.repl.serve-test
+   yin.repl.state-test
+   yin.repl.store-test
+   yin.vm-test
+   yin.vm.ast-walker-test
+   yin.vm.attach-image-test
+   yin.vm.cell-test
+   yin.vm.code-test
+   yin.vm.completion-test
+   yin.vm.continuation-invoke-test
+   yin.vm.data-test
+   yin.vm.debruijn-code-test
+   yin.vm.debruijn-linearize-test
+   yin.vm.debruijn-register-benchmark-test
+   yin.vm.debruijn-register-code-test
+   yin.vm.debruijn-register-compile-test
+   yin.vm.debruijn-register-contract-test
+   yin.vm.debruijn-register-effects-test
+   yin.vm.debruijn-resolve-test
+   yin.vm.debruijn-test
+   yin.vm.debruijn-vm-contract-test
+   yin.vm.debruijn.register-test
+   yin.vm.debruijn.stack-effects-test
+   yin.vm.debruijn.stack-parity-test
+   yin.vm.debruijn.stack-tail-completion-test
+   yin.vm.debruijn.stack-test
+   yin.vm.effect-forgery-test
+   yin.vm.encoder-test
+   yin.vm.engine-gate-test
+   yin.vm.engine-test
+   yin.vm.ffi-test
+   yin.vm.ffi.remote-serve-test
+   yin.vm.ffi.remote-serve.responder-test
+   yin.vm.heap-reclamation-test
+   yin.vm.host-typed-values-test
+   yin.vm.integer-test
+   yin.vm.ledger-test
+   yin.vm.linearize-test
+   yin.vm.linker-authority-ingestion-test
+   yin.vm.linker-authority-test
+   yin.vm.linker-manifest-test
+   yin.vm.linker-require-test
+   yin.vm.linker-step-test
+   yin.vm.linker-test
+   yin.vm.linker.admission-doc-test
+   yin.vm.linker.admission-test
+   yin.vm.linker.closure-test
+   yin.vm.linker.cross-host-transfer-test
+   yin.vm.linker.dht-end-to-end-test
+   yin.vm.linker.dht-test
+   yin.vm.linker.head-board-test
+   yin.vm.linker.head-follow-test
+   yin.vm.linker.head-test
+   yin.vm.linker.layering-test
+   yin.vm.linker.publish-test
+   yin.vm.linker.remote-transfer-test
+   yin.vm.linker.sign-test
+   yin.vm.macro-build-test
+   yin.vm.macro-test
+   yin.vm.mint-test
+   yin.vm.module-test
+   yin.vm.parity-test
+   yin.vm.pipeline-test
+   yin.vm.rule-r-test
+   yin.vm.semantic-engine-test
+   yin.vm.semantic-ffi-test
+   yin.vm.semantic-register.analysis-test
+   yin.vm.semantic-register.code-test
+   yin.vm.semantic-register.derive-test
+   yin.vm.semantic-register.effects-test
+   yin.vm.semantic-register.frame-test
+   yin.vm.semantic-register.layout-test
+   yin.vm.semantic-register.linearize-test
+   yin.vm.semantic-register.link-test
+   yin.vm.semantic-register.load-paths-test
+   yin.vm.semantic-register.parity-test
+   yin.vm.semantic-register.safepoint-harness-test
+   yin.vm.semantic-register.scan-test
+   yin.vm.semantic-register.vm-test
+   yin.vm.semantic-register.walker-trace-test
+   yin.vm.semantic-stream-observer-test
+   yin.vm.semantic-test
+   yin.vm.store-write-audit-test
+   yin.vm.stream-poll-test
+   yin.vm.telemetry-test
+Selected 129 of 288 test namespaces.
+Prerequisite build:yin-repl-peer (a selected test or its requires name its output)
+Loading initial Timbre config from: :default
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+SLF4J(W): Class path contains SLF4J bindings targeting slf4j-api versions 1.7.x or earlier.
+SLF4J(W): Ignoring binding found at [jar:file:/Users/sto/.m2/repository/org/slf4j/slf4j-simple/1.7.36/slf4j-simple-1.7.36.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J(W): See https://www.slf4j.org/codes.html#ignoredBindings for an explanation.
+
+┌─────────────────────────────────────────────────────────┐
+│ A new version of Flutter is available!                  │
+│                                                         │
+│ To update to the latest version, run "flutter upgrade". │
+└─────────────────────────────────────────────────────────┘
+Resolving dependencies...
+Downloading packages...
++ _fe_analyzer_shared 67.0.0 (109.0.0 available)
++ analyzer 6.4.1 (14.5.0 available)
++ async 2.13.1
++ collection 1.19.1
++ convert 3.1.2
++ crypto 3.0.7
++ file 7.0.1
++ glob 2.2.0
++ meta 1.19.0
++ package_config 2.2.0 (3.0.0 available)
++ path 1.9.1
++ pub_semver 2.2.1
++ source_span 1.10.2
++ string_scanner 1.4.1
++ term_glyph 1.2.2
++ typed_data 1.4.0
++ watcher 1.2.1
++ yaml 3.1.4
+Changed 18 dependencies!
+3 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+
+=== Compiling cljd.core to Dart 3 ===
+
+=== Compiling to Dart... === @15:42:50
+  yin.repl.slice-peer
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member length on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 1341, column: 39, file: dao/data/btree.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 49, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 85, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 29, column: 17, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 20, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 43, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 250, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 254, column: 15, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 261, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member bytes on target type dynamic of library dart:core  at line: 275, column: 27, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 243, column: 12, file: yin/vm/debruijn.cljc
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 184, column: 12, file: yin/vm/debruijn_code.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 354, column: 48, file: yin/repl.cljc
+DYNAMIC WARNING: can't resolve member osError on target type dynamic of library dart:core  at line: 212, column: 38, file: yin/repl/state.cljc
+DYNAMIC WARNING: can't resolve member errorCode on target type dynamic of library dart:core  (no source location)
+Compilation succeeded - You rock! 🤘 @15:43:03
+Generated: /Users/sto/workspace/datomworld-al1/build/yin-repl-peer
+Prerequisite build:yin-repl-node (a selected test or its requires name its output)
+Loading initial Timbre config from: :default
+[:yin-repl] Compiling ...
+[:yin-repl] Build completed. (226 files, 225 compiled, 1 warnings, 9.11s)
+
+[1m------ WARNING #1 - :ns-var-clash ----------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-al1/src/cljc/yin/vm/linker/head.cljc:185:1
+--------------------------------------------------------------------------------
+[2m 182 | ;; The board and the deposit (5.1, 5.2, 5.4)[0m
+[2m 183 | ;; =============================================================================[0m
+[2m 184 | [0m
+[1m 185 | (defn board[0m
+-------^------------------------------------------------------------------------
+ [33;1mNamespace yin.vm.linker.head.board clashes with var yin.vm.linker.head/board[0m
+--------------------------------------------------------------------------------
+[2m 186 |   "A head board: a `dao.stream.ringbuffer` of capacity 1, the latest head[0m
+[2m 187 |    winning.  Answers the ring's handle, which a reader may be handed[0m
+[2m 188 |    directly."[0m
+[2m 189 |   [][0m
+--------------------------------------------------------------------------------
+Prerequisite gen:python-antlr (a selected test or its requires name its output)
+Loading initial Timbre config from: :default
+fetched Java/Python3LexerBase.java 5212b67286df5ec7f8818876cbb2bb178e80fcdc5b3daae69e225edd5f68d385
+fetched Java/Python3ParserBase.java f29fa8fc257027885afdd9c778add55a1128c83b0f888035904d952be0e5222d
+vendored Python3Lexer.g4 407a5312b637ebe386eabaceca758a5714f1d3e26b1f058b96e43dca3ec02662
+vendored Python3Parser.g4 e82099eb8fda51ea8b49c266cba8eb2af47eb400fe657d8d8867b1eaf62fe00d
+generated 4 java files; classes in build/antlr/python3/classes
+clj: 128 namespaces, log target/profile/sub-clj.log
+clj: done, exit 1, 312 s
+
+lane  namespaces  tests failures seconds  status
+clj          128   1871        1     312  FAIL

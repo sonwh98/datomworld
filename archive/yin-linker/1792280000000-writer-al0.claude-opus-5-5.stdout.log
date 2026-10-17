@@ -1,0 +1,28 @@
+I've written the AL-0 docs and they follow the binding design. The admission doc test passes on the JVM; I didn't run its Node and Dart lanes, so the three-host acceptance is still open. Nothing is committed. Only six docs files changed, with no code or test edits and no git write commands. The report is at `collab/1792280000000-writer-al0.findings.md`.
+
+**`docs/design/yin.vm.linker.dht.md`**
+- **7.4:** the false sentence about discharge is gone. It now says the early binding check is today the only guard for a Python import, and that the engine `link-install` pin check (`:dependency-pin-mismatch`) lands with L-d.
+- **7.5:** rewritten as the linker's admission, in subsections 7.5.1–7.5.14 kept at heading level four so the doc test still reads all of them. It covers everything in your list, including the four handoff cases (a)–(d) and both of codex's P3 points, with `recheck-on-tick` replacing the two hooks.
+- **Pinned literals:** the five reasons, `serve-budget` (64), `pair-capacity` (1024) and `origin + "."` are kept. The two new namespace names are stated as pinned literals, but the test doesn't assert them yet; the section says AL-1 extends the test to do that.
+- **8.2:** the `recheck-on-answers` bullet no longer says "not yet built" and says AL-2 replaces both hooks with `recheck-on-tick`.
+
+**`docs/design/yin.vm.linker.md`**
+- New section 6.5, "The link-pair interpreter".
+- Section 10 gets a "Moved (AL-1)" block and export lists for both new namespaces, timed as codex asked: `make` and `round` after AL-2, `reconfigure` after AL-3.
+- The `yin.repl.link/composition` mention in 6.4 now points at the move.
+
+**Other files**
+- **`yang.antlr.md`:** the ~3044 passage and the I3 notes point at AL-1 to AL-4, with no language-specific admission wording.
+- **`dao.shibi.md`:** the first-consumer paragraph names the linker.
+- **`docs/agents/architecture.md`:** has the one-sentence layering rule.
+- **`yin.repl.md`:** it didn't describe admission, so I added a four-line pointer only.
+
+**Checks**
+- **Diff:** `git diff --stat` shows only the six docs files.
+- **Stale text:** no `:yin.link/importer`, `:yin.admit/importer` or "until L-e" remains. `yin.repl.admission` still appears only as the source of the move or as AD-1 history, never as its home.
+- **ASCII and table:** the added lines are all ASCII, and the 7.5.1 table is well-formed.
+- **Doc test:** `clojure -M:test -n yin.repl.admission-doc-test` gave 0 failures.
+
+**Judgement calls:**
+- I left the I3 acceptance line in `yang.antlr.md` (~3208), which mentions the default admission interpreter and AD-2. It records a Python test that already landed, not admission wording.
+- I left the other `yin.repl.link` mentions in dht.md, which describe today's code, for AL-1 to rename with the move.

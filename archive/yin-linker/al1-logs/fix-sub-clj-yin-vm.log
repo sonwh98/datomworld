@@ -1,0 +1,100 @@
+Read 581 code files under src/ and test/.
+Subsystems: yin.vm
+clj: 82 namespaces
+   yin.vm-test
+   yin.vm.ast-walker-test
+   yin.vm.attach-image-test
+   yin.vm.cell-test
+   yin.vm.code-test
+   yin.vm.completion-test
+   yin.vm.continuation-invoke-test
+   yin.vm.data-test
+   yin.vm.debruijn-code-test
+   yin.vm.debruijn-linearize-test
+   yin.vm.debruijn-register-benchmark-test
+   yin.vm.debruijn-register-code-test
+   yin.vm.debruijn-register-compile-test
+   yin.vm.debruijn-register-contract-test
+   yin.vm.debruijn-register-effects-test
+   yin.vm.debruijn-resolve-test
+   yin.vm.debruijn-test
+   yin.vm.debruijn-vm-contract-test
+   yin.vm.debruijn.register-test
+   yin.vm.debruijn.stack-effects-test
+   yin.vm.debruijn.stack-parity-test
+   yin.vm.debruijn.stack-tail-completion-test
+   yin.vm.debruijn.stack-test
+   yin.vm.effect-forgery-test
+   yin.vm.encoder-test
+   yin.vm.engine-gate-test
+   yin.vm.engine-test
+   yin.vm.ffi-test
+   yin.vm.ffi.remote-serve-test
+   yin.vm.ffi.remote-serve.responder-test
+   yin.vm.heap-reclamation-test
+   yin.vm.host-typed-values-test
+   yin.vm.integer-test
+   yin.vm.ledger-test
+   yin.vm.linearize-test
+   yin.vm.linker-authority-ingestion-test
+   yin.vm.linker-authority-test
+   yin.vm.linker-manifest-test
+   yin.vm.linker-require-test
+   yin.vm.linker-step-test
+   yin.vm.linker-test
+   yin.vm.linker.admission-doc-test
+   yin.vm.linker.admission-test
+   yin.vm.linker.closure-test
+   yin.vm.linker.cross-host-transfer-test
+   yin.vm.linker.dht-end-to-end-test
+   yin.vm.linker.dht-test
+   yin.vm.linker.head-board-test
+   yin.vm.linker.head-follow-test
+   yin.vm.linker.head-test
+   yin.vm.linker.layering-test
+   yin.vm.linker.publish-test
+   yin.vm.linker.remote-transfer-test
+   yin.vm.linker.sign-test
+   yin.vm.macro-build-test
+   yin.vm.macro-test
+   yin.vm.mint-test
+   yin.vm.module-test
+   yin.vm.parity-test
+   yin.vm.pipeline-test
+   yin.vm.rule-r-test
+   yin.vm.semantic-engine-test
+   yin.vm.semantic-ffi-test
+   yin.vm.semantic-register.analysis-test
+   yin.vm.semantic-register.code-test
+   yin.vm.semantic-register.derive-test
+   yin.vm.semantic-register.effects-test
+   yin.vm.semantic-register.frame-test
+   yin.vm.semantic-register.layout-test
+   yin.vm.semantic-register.linearize-test
+   yin.vm.semantic-register.link-test
+   yin.vm.semantic-register.load-paths-test
+   yin.vm.semantic-register.parity-test
+   yin.vm.semantic-register.safepoint-harness-test
+   yin.vm.semantic-register.scan-test
+   yin.vm.semantic-register.vm-test
+   yin.vm.semantic-register.walker-trace-test
+   yin.vm.semantic-stream-observer-test
+   yin.vm.semantic-test
+   yin.vm.store-write-audit-test
+   yin.vm.stream-poll-test
+   yin.vm.telemetry-test
+Selected 82 of 288 test namespaces.
+Skipping build:yin-repl-peer (no selected test reaches its output)
+Skipping build:yin-repl-node (no selected test reaches its output)
+Prerequisite gen:python-antlr (a selected test or its requires name its output)
+Loading initial Timbre config from: :default
+fetched Java/Python3LexerBase.java 5212b67286df5ec7f8818876cbb2bb178e80fcdc5b3daae69e225edd5f68d385
+fetched Java/Python3ParserBase.java f29fa8fc257027885afdd9c778add55a1128c83b0f888035904d952be0e5222d
+vendored Python3Lexer.g4 407a5312b637ebe386eabaceca758a5714f1d3e26b1f058b96e43dca3ec02662
+vendored Python3Parser.g4 e82099eb8fda51ea8b49c266cba8eb2af47eb400fe657d8d8867b1eaf62fe00d
+generated 4 java files; classes in build/antlr/python3/classes
+clj: 82 namespaces, log target/profile/sub-clj.log
+clj: done, exit 0, 76 s
+
+lane  namespaces  tests failures seconds  status
+clj           82   1291        0      76  pass

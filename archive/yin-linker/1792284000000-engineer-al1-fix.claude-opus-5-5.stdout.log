@@ -1,0 +1,39 @@
+I fixed both codex findings (the P2 and the P3) in `test/yin/vm/linker/layering_test.clj`. That is the only file changed under `src` and `test`, and it is left uncommitted for you. Tests were run on the JVM only; Node and Dart were not run.
+
+**P2, reader conditionals around whole clauses:**
+- A new `clauses` helper opens every reader conditional in the `ns` body before the dependency clauses are picked out.
+- For `#?`, each branch's value counts as one clause. For `#?@`, each branch's value is a list of clauses.
+- It goes into nested conditionals and reads every host's branch, including `:cljd`, `:cljs` and `:default`.
+
+**P3, roots and files that were silently skipped:**
+- A new test, `every-root-is-inspected-test`, checks each of the three roots on its own: the directory must exist and must contain at least one source file.
+- A file whose first form is not `ns` is now reported as an inspection failure (`[:no-ns-form]`) instead of "no violations".
+- **Empty files:** I decided an empty or comment-only file is also a `:no-ns-form` failure, since every source file under these roots should be a namespace. This is written in the docstrings.
+
+**Red, then green:**
+- On the old code, the new fixtures gave 7 failures, plus 3 errors from the per-root test calling the file lister with a root it did not yet accept.
+- After the fix the layering test passes: 3 tests, 17 assertions, 0 failures.
+- New fixtures that must be detected:
+  - `#?` wrapping a whole `:require` clause
+  - `#?@` wrapping whole `:require`, `:use` and `:require-macros` clauses
+  - a violation only in an inactive `:cljd` branch
+  - a violation only inside a nested `:default #?@(...)`
+  - the existing inside-`:require` case
+- A clean fixture using whole-clause conditionals stays green.
+- Three inputs must be reported as no `ns` form: a file that starts with `(def ...)`, an empty file, and a comment-only file.
+
+**Mutations on real sources, each red and naming its file:**
+
+| Mutation | Reported as |
+|---|---|
+| `#?(:clj (:require [yin.repl.store]))` added to `interpreter.cljc` | `[yin.repl.store]` |
+| `#?@(:clj [] :cljd [(:require [yin.repl ...])])` added to `admission.cljc` (violation only in the inactive branch) | `[yin.repl]` |
+| new file `src/clj/dao/zz_mutation_no_ns.clj` starting with `(def x 1)` | `[:no-ns-form]` |
+| new empty file `src/cljc/yang/zz_mutation_empty.cljc` | `[:no-ns-form]` |
+| root renamed to `src/cljc/yang-missing` in the test | per-root test fails twice (no directory, no files) |
+
+All mutations were reverted or deleted. `git status --short src test` afterwards showed only the test file modified (the `git diff --stat` before the final test run listed only that file).
+
+**Checks:** kondo found 0 errors and 0 warnings, `cljstyle check` is clean, and the file is ASCII with no line over 80 columns. `bb test:sub:clj yin.vm` passed: 82 namespaces, 1291 tests, 0 failures, exit 0, in 76 s. The `admission_doc_test` check for the new namespace names, which failed before AL-0 was on this branch, now passes too.
+
+The "Fix round" section in `collab/1792281000000-engineer-al1.findings.md` has all of this. The test log is at `collab/al1-logs/fix-sub-clj-yin-vm.log`.
