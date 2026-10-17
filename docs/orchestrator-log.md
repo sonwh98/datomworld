@@ -11685,3 +11685,24 @@ Done: (1) C4 I6 (reload/loaders) LANDED 19e7e879: gates JVM slow rc=0 (164/0), N
 Next: archive the C4 collab artifacts into archive/yang-python/ (committed, per the new step 11); C2-S3
   resume (rebase onto the srvm-cutover master — a real port); C4 I1; ADR 0004 Architect round (claude-cloud
   fable or agy/argon) — owner-gated.
+
+## 2026-10-17 02:20:00 +07 — S3 re-implementation dispatched fresh (the old worktree was pruned with the uncommitted slice lost)
+Completed-GMT: 2026-10-16 19:20:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@1fe7ddee == origin/master
+Done: The C2-S3 re-implementation dispatched to claude opus (fresh session, worktree datomworld-py-c2s3v2,
+  branch yang-python-c2-s3v2 off 1fe7ddee). RECOVERY RECORD: the prior C2-S3 worktree
+  (datomworld-py-c2gen3, branch yang-python-c2-s3) was found EMPTY at dispatch — an interim cleanup pruned
+  the worktree WITH its uncommitted S3 implementation (never committed, never pushed; the implementation is
+  not recoverable from git objects). My own dispatch's mkdir -p recreated the dir husk with only brief
+  copies, and the first opus resume correctly reported there was nothing to resume. The pruned-worktree
+  lesson is now twice-taught: copy a worktree's collab/ AND commit or export uncommitted work before any
+  cleanup; an uncommitted slice dies with its worktree. S3 re-implements from the C2 design's S3 table
+  (archived findings staged into the new worktree's collab/) on the current world (srvm cutover + I4-a/I5/I6
+  landed). The old branch yang-python-c2-s3 still exists in the main repo at its old base — left untouched
+  for provenance.
+Also: the logs/archives landed (see the prior entries); codex I1 implementation is mid-run in
+  datomworld-c4-i6 on branch c4-i1 (codex usage reset passed; the run is healthy and long).
+Next: S3v2 return -> lanes -> subagent gate -> land; I1 return -> glm-family static gate (codex-authored ->
+non-GPT family) + codex gates -> land; then C4 I7/I2 per the 8.5.6 table; C2-S4 after S3.
