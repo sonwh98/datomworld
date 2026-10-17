@@ -44,6 +44,40 @@ Connected to daostream:ws://localhost:8080/repl
 
 An absent URL path means `/repl`; an explicit `/` remains `/`.
 
+## Using Python at the prompt
+
+The REPL starts a frontend catalog with four frontends installed: Clojure
+(the default), a legacy Python frontend, PHP, and -- on the JVM only -- the
+ANTLR Python frontend (`:yang.python/antlr`, revision f3), which parses
+Python source with the vendored Python 3 grammar and lowers it through the
+yang.python.antlr pipeline. Select a frontend with the
+`lang` command:
+
+```clojure
+yin> (lang :yang.python/antlr)
+"Switched to :yang.python/antlr"
+yin> print("hello")
+hello
+```
+
+Selection forms: a language keyword selects the one frontend installed for
+that language (`(lang :python)` picks the legacy frontend; on the JVM
+`(lang :python.antlr)` picks the ANTLR one), a qualified id names a
+frontend exactly, and `[id revision]` pins a revision. Selecting a frontend
+with no parser for this host answers
+`Error: unavailable-parser: ...` -- the ANTLR frontend is installed only
+where its parser runs, so on Node and Dart `(lang :yang.python/antlr)`
+fails this way while `(lang :python)` selects the legacy frontend.
+
+The ANTLR frontend displays what the program prints, not the program's
+value, and it keeps a frontend session across submissions (cleared with
+the VM, as with `(reset)` and `(vm ...)`). The generated parser must exist
+before the JVM REPL starts: `yin.repl.frontends` loads the parser
+namespace on the JVM, so on a fresh clone run `clj -M:antlr-gen` once, or
+REPL startup itself fails with class-not-found. The legacy Python
+frontend has no parser dependency and runs on every host, but it is the
+old hand-written frontend, not the ANTLR pipeline.
+
 ## Saved state
 
 A node remembers how it was started. The flags it starts with are saved to
