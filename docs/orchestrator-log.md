@@ -11766,3 +11766,28 @@ Note: my first dht-pin-style verification attempt used the comma-form `-n ns1,ns
   (the recorded trap) — reran per namespace.
 In flight elsewhere: opus S3v2 lanes; codex comprehension-hang fix (datomworld-c4fix).
 Next: on S3v2 and the c4fix returns -> gates -> land; then C3-S2 landing; safepoint s3 dispatch.
+
+## 2026-10-17 14:05:00 +07 — Role-boundary correction (owner): confirm bugs, delegate diagnosis; the comprehension-hang round is delegated
+Completed-GMT: 2026-10-17 07:05:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@42aa4bcf-lineage; worktree datomworld-c4fix (codex round in flight)
+Done: OWNER correction, verbatim: "You're the orchestrator.md. Why are you debugging this yourself? you
+  should confirm the bug and delegate." Applied to the comprehension-hang round: the orchestrator's part was
+  reproduction + evidence (done: the hang reproduced twice, thread dump captured showing the spin in
+  dao.jing.cbor/blen) — but I then read the source and formed my own root-cause hypothesis (encoder
+  realizing an unbounded comprehension result) and baked it into the engineer's brief. The delegated
+  diagnosis DISPROVED it: the real defect is a reflective array-length lookup hit during CBOR decoding in
+  code-index publication; the comprehension always terminated correctly. The fix (non-reflective lookup at
+  cbor.cljc:266) is codex's; the round continues in datomworld-c4fix.
+Lesson (standing): the orchestrator confirms bugs (reproduce, capture evidence, bisect inputs if cheap) and
+  delegates diagnosis; orchestrator hypotheses go into briefs explicitly labeled as guesses to check, never
+  as conclusions; my wrong guess would have anchored a weaker engineer than codex, who caught it.
+Verification status of the round: codex reports the owner's exact line completing in 6.39s with
+  [4, 16, 36, 64, 100] plus regressions added to the e2e corpus; my in-process focused verification of the
+  touched namespaces was interrupted by the owner's correction and NOT completed — the gate review will
+  work from codex's evidence plus whatever the gate reviewer re-checks, and the orchestrator runs the
+  focused e2e verification once before landing (step 6), without re-diagnosing.
+Next: codex round completes -> orchestrator runs the focused verification (step 6 only) -> gate -> land.
+  Also in flight: opus S3v2 lanes. Landed and pushed: I6 19e7e879, goldens 42aa4bcf, I1 aad451c5, archives,
+  the log entries through the correction above.
