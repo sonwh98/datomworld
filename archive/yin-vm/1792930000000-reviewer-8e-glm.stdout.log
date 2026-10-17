@@ -1,0 +1,23 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"agent:builtin:general-purpose"}
+The five verification agents run in the background and will notify me on completion — no polling needed. I'll collect their entry-by-entry verdicts as they arrive, cross-check against my own spot-verifications, and then write the report to `./collab/<ms>-reviewer-8e-glm.report.md`.
+
+Agent D (register-compile entries 1–17) reports all 17 CONFIRMED or RETIRED-OK — no P1/P2, one P3 (five R2 node kinds — `:stream-cursor`, `:stream-next`, `:stream-close`, `:park`, `:current-continuation` — lost per-node exact register-instruction vectors; mitigated by liveness pins and A-level goldens, only physical register numbers unpinned). It also verified the corpus composition 26+32+15+4+5+12 = 94 with the count pinned. Waiting on the four remaining agents before writing the report.
+
+Agent A (contract tests, 19 entries) reports all CONFIRMED — the "ported unchanged" claims verified line-for-line (261-line block identical); no P1/P2; three P3 notes (shared `derive/addresses` reader replacing an independent hand-walk in the moved address-law tests; a stale comment pointing at a deleted test file in debruijn_register_code.cljc:47; a pre-existing vocabulary-tie observation). Three agents still running (resolve, linearize, register-compile second half).
+
+Agent B (resolve file, 14 entries) reports 12 CONFIRMED, 2 RETIRED-OK, no P1/P2; four P3 observations (notably: `:yin/macro-expand` refusal unpinned at the sr datom lane — though pinned one boundary earlier in vm_test and at the native lowerer — and no seen-set cycle guard on the datom-lane flatten, with the refusal boundary deliberately moved to row admission). Two agents still running: linearize (11 entries) and register-compile second half (20 entries).
+
+Agent E (register-compile entries 18–37) reports 14 CONFIRMED, 5 WEAKER-at-P3-level (lost hand literals for fixtures B/C/D and boundary-op live sets; retired literals were the deleted allocator's representation), 1 RETIRED-OK; the "two liveness analyses" independence claim audited sound; one minor ledger inaccuracy noted (hand-derived-liveness runs over golden-asts, not the five live fixtures as the ledger text implies). No P1/P2. One agent remaining: linearize (11 entries).
+
+Review complete. Report: `collab/1792049180000-reviewer-8e-glm.report.md` — verdict **READY**.
+
+**What was done** (read-only; only the report written):
+
+**Part 1 — 84 deleted deftests across the six files.** Recovered every old body from `git show HEAD:` and read every claimed survivor in full (five parallel reviewers + my own firsthand cross-checks of the highest-risk claims; all 21 claimed surviving deftest names pre-verified to exist). Result per file: vm-contract 10/10 CONFIRMED ("ported unchanged" verified line-for-line, 261 identical lines); register-contract 9/9; resolve 12 CONFIRMED + 2 RETIRED-OK; linearize 8 + 3 RETIRED-OK; register-compile 31 + 5 WEAKER-at-P3 + 1 RETIRED-OK; benchmark 2 + 1 RETIRED-OK. Several survivors are strictly stronger than what they replaced (e.g. old `corpus-images-load-and-run-on-b3` ran 5 programs asserting only `halted?`; the new oracle runs 60 rows with 26 exact-value pins; old "byte-identical" compared only hashes, the new one compares images, bytes, and hashes). Corpus C is pinned at exactly 94 entries in-test, so no zero-loop hazards.
+
+**Part 2 — ten C4 files.** All hunks are assertion-neutral image-construction swaps (`dl/adapt`/`rc/adapt` → `derive/…(sr-linearize/project …)`): a grep over the full C4 diff finds no changed assertion/`testing`/`deftest`/`thrown` line, no case lists changed, zero stale references worktree-wide. The four NaN tests fail loudly (still exercising their facts) — no silent vacuous passes.
+
+**Findings: no P1, no P2, nine P3** — the two substantive ones: the ledger sentence "a validation is mandatory in derive/stack-image" is false in source (derive.cljc:60/154 never call `well-formed?`; the refusal is pinned at the row-admission boundary instead), and hand literals for live-fixtures B/C/D/boundary-op live sets retired to computed-agreement (mitigated by the golden rows and `hand-derived-liveness`). Plus a stale comment (debruijn_register_code.cljc:47) and minor hardening notes.
+
+One process note: the concurrent session committed the diff as `bfab4d66` mid-review; all my reads predate or match that commit's content, and the report states its object = that commit.

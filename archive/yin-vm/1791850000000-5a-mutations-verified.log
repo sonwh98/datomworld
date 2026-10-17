@@ -1,0 +1,957 @@
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+lambda application
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{5}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+lambda application
+expected: (= x (get names pc))
+  actual: (not (= x nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+closure value
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{2}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+closure value
+expected: (= x (get names pc))
+  actual: (not (= x nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+higher order
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{4 9}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+higher order
+expected: (= x (get names pc))
+  actual: (not (= f nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+higher order
+expected: (= x (get names pc))
+  actual: (not (= n nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:lambda-application
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{5}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:lambda-application
+expected: (= x (get names pc))
+  actual: (not (= x nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:nested-lambdas
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{9 10}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:nested-lambdas
+expected: (= x (get names pc))
+  actual: (not (= a nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:nested-lambdas
+expected: (= x (get names pc))
+  actual: (not (= b nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:body-queue-order
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{4 10 8}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:body-queue-order
+expected: (= x (get names pc))
+  actual: (not (= p nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:body-queue-order
+expected: (= x (get names pc))
+  actual: (not (= r nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:body-queue-order
+expected: (= x (get names pc))
+  actual: (not (= q nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:if-in-tail
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{13 5}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:if-in-tail
+expected: (= x (get names pc))
+  actual: (not (= n nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:if-in-tail
+expected: (= x (get names pc))
+  actual: (not (= n nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:all-tail-arms
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{7 4}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:all-tail-arms
+expected: (= x (get names pc))
+  actual: (not (= n nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:all-tail-arms
+expected: (= x (get names pc))
+  actual: (not (= n nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:resume-lambda-body
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{4}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:resume-lambda-body
+expected: (= x (get names pc))
+  actual: (not (= x nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:closure-in-arm-in-body
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{4 12 10}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:closure-in-arm-in-body
+expected: (= x (get names pc))
+  actual: (not (= x nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:closure-in-arm-in-body
+expected: (= x (get names pc))
+  actual: (not (= y nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:closure-in-arm-in-body
+expected: (= x (get names pc))
+  actual: (not (= z nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:define-then-call
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{9 10}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:define-then-call
+expected: (= x (get names pc))
+  actual: (not (= a nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:define-then-call
+expected: (= x (get names pc))
+  actual: (not (= b nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:definition
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{4}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:definition
+expected: (= x (get names pc))
+  actual: (not (= x nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:duplicate-param
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{2}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:duplicate-param
+expected: (= x (get names pc))
+  actual: (not (= x nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:free-variable
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{3}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:free-variable
+expected: (= x (get names pc))
+  actual: (not (= x nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:if-in-tail
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{12 5}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:if-in-tail
+expected: (= x (get names pc))
+  actual: (not (= n nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:if-in-tail
+expected: (= x (get names pc))
+  actual: (not (= n nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:nested-closure
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{7 8}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:nested-closure
+expected: (= x (get names pc))
+  actual: (not (= a nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:nested-closure
+expected: (= x (get names pc))
+  actual: (not (= b nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:store-and-control
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{11 9 10 8}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:store-and-control
+expected: (= x (get names pc))
+  actual: (not (= a nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:store-and-control
+expected: (= x (get names pc))
+  actual: (not (= b nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:store-and-control
+expected: (= x (get names pc))
+  actual: (not (= c nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:store-and-control
+expected: (= x (get names pc))
+  actual: (not (= d nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:worked-example
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{5}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:worked-example
+expected: (= x (get names pc))
+  actual: (not (= x nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:duplicate-param
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{2}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:duplicate-param
+expected: (= x (get names pc))
+  actual: (not (= x nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:free-variable
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{3}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:free-variable
+expected: (= x (get names pc))
+  actual: (not (= x nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:shared-lambda-under-two-contexts
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{15 11 10}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:shared-lambda-under-two-contexts
+expected: (= x (get names pc))
+  actual: (not (= z nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:shared-lambda-under-two-contexts
+expected: (= x (get names pc))
+  actual: (not (= q nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:shared-lambda-under-two-contexts
+expected: (= x (get names pc))
+  actual: (not (= z nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:shared-variable-under-two-contexts
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{5}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:shared-variable-under-two-contexts
+expected: (= x (get names pc))
+  actual: (not (= x nil))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:167)
+:live-e
+expected: (= (set (keys names)) (set (keep-indexed (fn [pc t] (when (= :load-bound (first t)) pc)) rv)))
+  actual: (not (= #{} #{3}))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:174)
+:live-e
+expected: (= x (get names pc))
+  actual: (not (= x nil))
+{:mutation "M01 bound names omitted", :named-test resolve-rewrites-only-vars-and-closures, :counts {:test 1, :pass 967, :fail 62, :error 0}, :killed true}
+
+FAIL in (resolution-is-resolve-names) (derive_test.cljc:182)
+expected: (= (quote [[:free +] [:bound 1 1] [:bound 0 0]]) (derive/addresses (projected nested-closure)))
+  actual: (not (= [[:free +] [:bound 1 1] [:bound 0 0]] [[:free +] [:free a] [:bound 0 0]]))
+
+FAIL in (resolution-is-resolve-names) (derive_test.cljc:184)
+expected: (= (quote [[:free +] [:bound 1 0] [:bound 0 0]]) (derive/addresses (projected (get (into {} corpus/programs) :nested-lambdas))))
+  actual: (not (= [[:free +] [:bound 1 0] [:bound 0 0]] [[:free +] [:free a] [:bound 0 0]]))
+{:mutation "M02 outer frame lost", :named-test resolution-is-resolve-names, :counts {:test 1, :pass 2, :fail 2, :error 0}, :killed true}
+
+FAIL in (resolution-is-resolve-names) (derive_test.cljc:181)
+expected: (= [[:bound 0 1]] (derive/addresses (projected duplicate-param)))
+  actual: (not (= [[:bound 0 1]] [[:bound 0 2]]))
+
+FAIL in (resolution-is-resolve-names) (derive_test.cljc:182)
+expected: (= (quote [[:free +] [:bound 1 1] [:bound 0 0]]) (derive/addresses (projected nested-closure)))
+  actual: (not (= [[:free +] [:bound 1 1] [:bound 0 0]] [[:free +] [:bound 1 2] [:bound 0 1]]))
+
+FAIL in (resolution-is-resolve-names) (derive_test.cljc:184)
+expected: (= (quote [[:free +] [:bound 1 0] [:bound 0 0]]) (derive/addresses (projected (get (into {} corpus/programs) :nested-lambdas))))
+  actual: (not (= [[:free +] [:bound 1 0] [:bound 0 0]] [[:free +] [:bound 1 1] [:bound 0 1]]))
+
+FAIL in (resolution-is-resolve-names) (derive_test.cljc:186)
+expected: (= (quote [[:free +] [:bound 0 0] [:free y]]) (derive/addresses (projected free-variable)))
+  actual: (not (= [[:free +] [:bound 0 0] [:free y]] [[:free +] [:bound 0 1] [:free y]]))
+{:mutation "M03 binder position off by one", :named-test resolution-is-resolve-names, :counts {:test 1, :pass 0, :fail 4, :error 0}, :killed true}
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+lambda application
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 1 1 4] [:closure 1 2 4]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+closure value
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 0 1 2] [:closure 0 2 2]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+arity-0 lambda
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 1 0 3] [:closure 1 1 3]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+higher order
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 1 1 4] [:closure 1 2 4]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+higher order
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 2 1 8] [:closure 2 2 8]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:lambda-application
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 1 1 4] [:closure 1 2 4]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:nested-lambdas
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 2 1 6] [:closure 2 2 6]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:nested-lambdas
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 0 1 8] [:closure 0 2 8]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:body-queue-order
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 1 1 4] [:closure 1 2 4]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:body-queue-order
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 2 1 8] [:closure 2 2 8]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:body-queue-order
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 2 1 10] [:closure 2 2 10]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:if-in-tail
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 1 1 4] [:closure 1 2 4]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:all-tail-arms
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 1 1 4] [:closure 1 2 4]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:resume-lambda-body
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 1 1 4] [:closure 1 2 4]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:closure-in-arm-in-body
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 1 1 4] [:closure 1 2 4]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:closure-in-arm-in-body
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 0 1 10] [:closure 0 2 10]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:closure-in-arm-in-body
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 0 1 12] [:closure 0 2 12]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:define-then-call
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 1 2 8] [:closure 1 3 8]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:definition
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 1 1 4] [:closure 1 2 4]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:duplicate-param
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 0 2 2] [:closure 0 3 2]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:free-variable
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 0 1 2] [:closure 0 2 2]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:if-in-tail
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 1 1 4] [:closure 1 2 4]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:nested-closure
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 1 2 4] [:closure 1 3 4]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:nested-closure
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 0 1 6] [:closure 0 2 6]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:store-and-control
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 1 4 7] [:closure 1 5 7]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:worked-example
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 1 1 4] [:closure 1 2 4]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:zero-arity-call
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 1 0 3] [:closure 1 1 3]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:duplicate-param
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 0 2 2] [:closure 0 3 2]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:free-variable
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 0 1 2] [:closure 0 2 2]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:shared-lambda-under-two-contexts
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 2 2 5] [:closure 2 3 5]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:shared-lambda-under-two-contexts
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 3 1 7] [:closure 3 2 7]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:shared-lambda-under-two-contexts
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 0 1 9] [:closure 0 2 9]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:shared-lambda-under-two-contexts
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 0 1 14] [:closure 0 2 14]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:shared-variable-under-two-contexts
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 2 1 5] [:closure 2 2 5]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:shared-variable-under-two-contexts
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 3 1 7] [:closure 3 2 7]))
+
+FAIL in (resolve-rewrites-only-vars-and-closures) (derive_test.cljc:176)
+:live-e
+expected: (= [:closure rd (count x) body] r)
+  actual: (not (= [:closure 0 1 2] [:closure 0 2 2]))
+{:mutation "M04 closure arity off by one", :named-test resolve-rewrites-only-vars-and-closures, :counts {:test 1, :pass 993, :fail 36, :error 0}, :killed true}
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:load-free +] [:push] [:const 1] [:push] [:const 2] [:push] [:call 2 false] [:halt]] [[:load-free +] [:push] [:const 1] [:push] [:const 2] [:push] [:call 3 false] [:halt]]))
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:load-free f] [:push] [:load-free g] [:push] [:load-free x] [:push] [:call 1 false] [:push] [:load-free y] [:push] [:call 2 false] [:halt]] [[:load-free f] [:push] [:load-free g] [:push] [:load-free x] [:push] [:call 2 false] [:push] [:load-free y] [:push] [:call 3 false] [:halt]]))
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:load-free f] [:push] [:call 0 false] [:push] [:call 0 false] [:halt]] [[:load-free f] [:push] [:call 1 false] [:push] [:call 1 false] [:halt]]))
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:load-free f] [:push] [:load-free c] [:branch-false 6] [:const 1] [:jump 7] [:const 2] [:push] [:load-free y] [:push] [:call 2 false] [:halt]] [[:load-free f] [:push] [:load-free c] [:branch-false 6] [:const 1] [:jump 7] [:const 2] [:push] [:load-free y] [:push] [:call 3 false] [:halt]]))
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:closure 1 6] [:push] [:const 10] [:push] [:call 1 false] [:halt] [:load-free +] [:push] [:load-bound 0 0] [:push] [:const 1] [:push] [:call 2 true] [:return]] [[:closure 1 6] [:push] [:const 10] [:push] [:call 2 false] [:halt] [:load-free +] [:push] [:load-bound 0 0] [:push] [:const 1] [:push] [:call 3 true] [:return]]))
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:load-free +] [:push] [:const 1] [:push] [:const 2] [:push] [:call 2 false] [:define y] [:halt]] [[:load-free +] [:push] [:const 1] [:push] [:const 2] [:push] [:call 3 false] [:define y] [:halt]]))
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:load-free f] [:push] [:load-free x] [:resume :p] [:push] [:load-free y] [:push] [:call 2 false] [:halt]] [[:load-free f] [:push] [:load-free x] [:resume :p] [:push] [:load-free y] [:push] [:call 3 false] [:halt]]))
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:load-free f] [:push] [:load-free g] [:push] [:load-free x] [:push] [:call 1 true] [:push] [:load-free y] [:push] [:call 2 false] [:halt]] [[:load-free f] [:push] [:load-free g] [:push] [:load-free x] [:push] [:call 2 true] [:push] [:load-free y] [:push] [:call 3 false] [:halt]]))
+{:mutation "M05 call argc off by one", :named-test stack-goldens, :counts {:test 1, :pass 23, :fail 8, :error 0}, :killed true}
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:closure 1 6] [:push] [:const 10] [:push] [:call 1 false] [:halt] [:load-free +] [:push] [:load-bound 0 0] [:push] [:const 1] [:push] [:call 2 true] [:return]] [[:closure 1 6] [:push] [:const 10] [:push] [:call 1 false] [:halt] [:load-free +] [:push] [:load-bound 0 0] [:push] [:const 1] [:push] [:call 2 false] [:return]]))
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:load-free f] [:push] [:load-free g] [:push] [:load-free x] [:push] [:call 1 true] [:push] [:load-free y] [:push] [:call 2 false] [:halt]] [[:load-free f] [:push] [:load-free g] [:push] [:load-free x] [:push] [:call 1 false] [:push] [:load-free y] [:push] [:call 2 false] [:halt]]))
+{:mutation "M06 tail flag discarded", :named-test stack-goldens, :counts {:test 1, :pass 29, :fail 2, :error 0}, :killed true}
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:load-free c] [:branch-false 4] [:const 1] [:jump 5] [:const 2] [:halt]] [[:load-free c] [:branch-false 5] [:const 1] [:jump 6] [:const 2] [:halt]]))
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:load-free f] [:push] [:load-free c] [:branch-false 6] [:const 1] [:jump 7] [:const 2] [:push] [:load-free y] [:push] [:call 2 false] [:halt]] [[:load-free f] [:push] [:load-free c] [:branch-false 7] [:const 1] [:jump 8] [:const 2] [:push] [:load-free y] [:push] [:call 2 false] [:halt]]))
+{:mutation "M07 conditional labels off by one", :named-test stack-goldens, :counts {:test 1, :pass 29, :fail 2, :error 0}, :killed true}
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:closure 1 6] [:push] [:const 10] [:push] [:call 1 false] [:halt] [:load-free +] [:push] [:load-bound 0 0] [:push] [:const 1] [:push] [:call 2 true] [:return]] [[:closure 1 7] [:push] [:const 10] [:push] [:call 1 false] [:halt] [:load-free +] [:push] [:load-bound 0 0] [:push] [:const 1] [:push] [:call 2 true] [:return]]))
+{:mutation "M08 closure body label off by one", :named-test stack-goldens, :counts {:test 1, :pass 30, :fail 1, :error 0}, :killed true}
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:const 5] [:define x] [:halt]] [[:const 5] [:define wrong] [:halt]]))
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:load-free +] [:push] [:const 1] [:push] [:const 2] [:push] [:call 2 false] [:define y] [:halt]] [[:load-free +] [:push] [:const 1] [:push] [:const 2] [:push] [:call 2 false] [:define wrong] [:halt]]))
+{:mutation "M09 definition key lost", :named-test stack-goldens, :counts {:test 1, :pass 29, :fail 2, :error 0}, :killed true}
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:load-free f] [:push] [:load-free x] [:resume :p] [:push] [:load-free y] [:push] [:call 2 false] [:halt]] [[:load-free f] [:push] [:load-free x] [:resume :wrong] [:push] [:load-free y] [:push] [:call 2 false] [:halt]]))
+{:mutation "M10 resume id lost", :named-test stack-goldens, :counts {:test 1, :pass 30, :fail 1, :error 0}, :killed true}
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:load-free +] [:push] [:const 1] [:push] [:const 2] [:push] [:call 2 false] [:halt]] [[:load-free +] [:const 1] [:const 2] [:call 2 false] [:halt]]))
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:load-free f] [:push] [:load-free g] [:push] [:load-free x] [:push] [:call 1 false] [:push] [:load-free y] [:push] [:call 2 false] [:halt]] [[:load-free f] [:load-free g] [:load-free x] [:call 1 false] [:load-free y] [:call 2 false] [:halt]]))
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:load-free f] [:push] [:call 0 false] [:push] [:call 0 false] [:halt]] [[:load-free f] [:call 0 false] [:call 0 false] [:halt]]))
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:load-free f] [:push] [:load-free c] [:branch-false 6] [:const 1] [:jump 7] [:const 2] [:push] [:load-free y] [:push] [:call 2 false] [:halt]] [[:load-free f] [:load-free c] [:branch-false 5] [:const 1] [:jump 6] [:const 2] [:load-free y] [:call 2 false] [:halt]]))
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:closure 1 6] [:push] [:const 10] [:push] [:call 1 false] [:halt] [:load-free +] [:push] [:load-bound 0 0] [:push] [:const 1] [:push] [:call 2 true] [:return]] [[:closure 1 4] [:const 10] [:call 1 false] [:halt] [:load-free +] [:load-bound 0 0] [:const 1] [:call 2 true] [:return]]))
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:load-free +] [:push] [:const 1] [:push] [:const 2] [:push] [:call 2 false] [:define y] [:halt]] [[:load-free +] [:const 1] [:const 2] [:call 2 false] [:define y] [:halt]]))
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:load-free f] [:push] [:load-free x] [:resume :p] [:push] [:load-free y] [:push] [:call 2 false] [:halt]] [[:load-free f] [:load-free x] [:resume :p] [:load-free y] [:call 2 false] [:halt]]))
+
+FAIL in (stack-goldens) (derive_test.cljc:239)
+expected: (= golden (:image (derive/stack-image (projected ast))))
+  actual: (not (= [[:load-free f] [:push] [:load-free g] [:push] [:load-free x] [:push] [:call 1 true] [:push] [:load-free y] [:push] [:call 2 false] [:halt]] [[:load-free f] [:load-free g] [:load-free x] [:call 1 true] [:load-free y] [:call 2 false] [:halt]]))
+{:mutation "M11 call pushes omitted", :named-test stack-goldens, :counts {:test 1, :pass 23, :fail 8, :error 0}, :killed true}
+
+FAIL in (stack-execution-oracle) (derive_test.cljc:314)
+:ffi-call-no-args
+expected: (= old new)
+  actual: (not (= {:observable [true false :pong], :store {}} {:observable [:thrown nil]}))
+
+FAIL in (stack-execution-oracle) (derive_test.cljc:315)
+:ffi-call-no-args
+expected: (= [true false :pong] (:observable new))
+  actual: (not (= [true false :pong] [:thrown nil]))
+{:mutation "M12 FFI argc off by one", :named-test stack-execution-oracle, :counts {:test 1, :pass 118, :fail 2, :error 0}, :killed true}
+
+FAIL in (stack-images-validate) (derive_test.cljc:255)
+higher order
+expected: (apply < (conj starts (count image)))
+  actual: (not (apply #object[clojure.core$_LT_ 0x104c73 "clojure.core$_LT_@104c73"] [0 14 6 20]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+higher order
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:halt] [:return]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:259)
+higher order
+expected: (= i (code/body-index bodies source))
+  actual: (not (= 0 2))
+
+FAIL in (stack-images-validate) (derive_test.cljc:259)
+higher order
+expected: (= i (code/body-index bodies source))
+  actual: (not (= 0 2))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+higher order
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:259)
+higher order
+expected: (= i (code/body-index bodies source))
+  actual: (not (= 2 1))
+
+FAIL in (stack-images-validate) (derive_test.cljc:255)
+:body-queue-order
+expected: (apply < (conj starts (count image)))
+  actual: (not (apply #object[clojure.core$_LT_ 0x104c73 "clojure.core$_LT_@104c73"] [0 8 6 14 16]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:body-queue-order
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:halt] [:return]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:259)
+:body-queue-order
+expected: (= i (code/body-index bodies source))
+  actual: (not (= 0 2))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:body-queue-order
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:259)
+:body-queue-order
+expected: (= i (code/body-index bodies source))
+  actual: (not (= 2 1))
+
+FAIL in (stack-images-validate) (derive_test.cljc:259)
+:body-queue-order
+expected: (= i (code/body-index bodies source))
+  actual: (not (= 2 1))
+
+FAIL in (stack-images-validate) (derive_test.cljc:255)
+:shared-lambda-under-two-contexts
+expected: (apply < (conj starts (count image)))
+  actual: (not (apply #object[clojure.core$_LT_ 0x104c73 "clojure.core$_LT_@104c73"] [0 10 8 12 20 28]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:shared-lambda-under-two-contexts
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:halt] [:return]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:259)
+:shared-lambda-under-two-contexts
+expected: (= i (code/body-index bodies source))
+  actual: (not (= 0 2))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:shared-lambda-under-two-contexts
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:259)
+:shared-lambda-under-two-contexts
+expected: (= i (code/body-index bodies source))
+  actual: (not (= 2 1))
+
+FAIL in (stack-images-validate) (derive_test.cljc:259)
+:shared-lambda-under-two-contexts
+expected: (= i (code/body-index bodies source))
+  actual: (not (= 3 4))
+
+FAIL in (stack-images-validate) (derive_test.cljc:259)
+:shared-lambda-under-two-contexts
+expected: (= i (code/body-index bodies source))
+  actual: (not (= 3 4))
+
+FAIL in (stack-images-validate) (derive_test.cljc:259)
+:shared-lambda-under-two-contexts
+expected: (= i (code/body-index bodies source))
+  actual: (not (= 3 4))
+
+FAIL in (stack-images-validate) (derive_test.cljc:259)
+:shared-lambda-under-two-contexts
+expected: (= i (code/body-index bodies source))
+  actual: (not (= 4 3))
+
+FAIL in (stack-images-validate) (derive_test.cljc:259)
+:shared-lambda-under-two-contexts
+expected: (= i (code/body-index bodies source))
+  actual: (not (= 4 3))
+
+FAIL in (stack-images-validate) (derive_test.cljc:259)
+:shared-lambda-under-two-contexts
+expected: (= i (code/body-index bodies source))
+  actual: (not (= 4 3))
+
+FAIL in (stack-images-validate) (derive_test.cljc:255)
+:shared-variable-under-two-contexts
+expected: (apply < (conj starts (count image)))
+  actual: (not (apply #object[clojure.core$_LT_ 0x104c73 "clojure.core$_LT_@104c73"] [0 10 8 12]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:shared-variable-under-two-contexts
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:halt] [:return]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:259)
+:shared-variable-under-two-contexts
+expected: (= i (code/body-index bodies source))
+  actual: (not (= 0 2))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:shared-variable-under-two-contexts
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:259)
+:shared-variable-under-two-contexts
+expected: (= i (code/body-index bodies source))
+  actual: (not (= 2 1))
+{:mutation "M14 sibling bodies reordered", :named-test stack-images-validate, :counts {:test 1, :pass 1004, :fail 28, :error 0}, :killed true}
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+lambda application
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+closure value
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+arity-0 lambda
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+higher order
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+higher order
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:lambda-application
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:nested-lambdas
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:nested-lambdas
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:body-queue-order
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:body-queue-order
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:body-queue-order
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:if-in-tail
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:all-tail-arms
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:resume-lambda-body
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:closure-in-arm-in-body
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:closure-in-arm-in-body
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:closure-in-arm-in-body
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:define-then-call
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:definition
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:duplicate-param
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:free-variable
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:if-in-tail
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:nested-closure
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:nested-closure
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:store-and-control
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:worked-example
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:zero-arity-call
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:duplicate-param
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:free-variable
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:shared-lambda-under-two-contexts
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:shared-lambda-under-two-contexts
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:shared-lambda-under-two-contexts
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:shared-lambda-under-two-contexts
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:shared-variable-under-two-contexts
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:shared-variable-under-two-contexts
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+
+FAIL in (stack-images-validate) (derive_test.cljc:257)
+:live-e
+expected: (= [(if (zero? i) :halt :return)] (nth image (dec end)))
+  actual: (not (= [:return] [:halt]))
+{:mutation "M13 lambda terminator becomes halt", :named-test stack-images-validate, :counts {:test 1, :pass 991, :fail 36, :error 0}, :killed true}
+All source restorations passed cmp and git diff --quiet HEAD; new source is untracked, so cmp is the byte proof.

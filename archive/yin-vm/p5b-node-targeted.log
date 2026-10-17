@@ -1,0 +1,54 @@
+Loading initial Timbre config from: :default
+[:test] Compiling ...
+========= Running Tests =======================
+
+Testing yang.python.antlr.lower-portable-test
+
+Testing yin.vm-test
+
+Testing yin.vm.debruijn-code-test
+
+Testing yin.vm.debruijn-linearize-test
+
+Testing yin.vm.debruijn-register-code-test
+
+Testing yin.vm.debruijn-register-compile-test
+
+Testing yin.vm.debruijn-register-contract-test
+
+Testing yin.vm.debruijn-register-effects-test
+
+Testing yin.vm.debruijn-resolve-test
+
+Testing yin.vm.debruijn-vm-contract-test
+
+Testing yin.vm.debruijn.register-test
+
+Testing yin.vm.debruijn.stack-effects-test
+
+Testing yin.vm.debruijn.stack-parity-test
+
+Testing yin.vm.debruijn.stack-test
+
+Testing yin.vm.parity-test
+
+Testing yin.vm.semantic-register.analysis-test
+
+Testing yin.vm.semantic-register.code-test
+
+Testing yin.vm.semantic-register.derive-test
+C4 preparing published py module
+C4 publishing guest k
+C4 publishing guest m
+C4 publishing guest t
+C4 publishing guest w
+C4 publishing guest e
+C4 publishing guest n
+C4 root o :stack
+C4 root o :register
+C4 root q :stack
+C4 root q :register
+C4 root d :stack
+C4 root d :register
+C4 root c :stack
+C4 root c :register

@@ -1,0 +1,17 @@
+[claude-code:unrecognized_model] {"model":"muse-wonder-1.0","query_source":"sdk"}
+Plan written to `/Users/sto/.claude-muse/plans/read-users-sto-workspace-datomworld-revi-recursive-mountain.md` — ready for your approval.
+
+**What it covers:**
+
+- **Context & constraints:** The deliverable is the muse seat's verbatim final message in the three-way mob review of Fable's 6d plan v2 — verdict line, nine finding dispositions, new defects, eight §3.10 default rulings, and 6d-a omissions. Verification is Read-only against `/Users/sto/workspace/datomworld-review-6dv2` (post-module-pins), with no git/Bash or file writes during execution.
+
+- **Investigation already done:** Both reports read in full, and ~18 of the plan's citations sampled against the tree — all held in substance, with documented line drift (e.g. rows.cljc ≈ +28, driver.cljc ≈ +6) because v2 cited `7c4dff32` and the review tree already contains module-pins commit 2. Sampled sites span run-loop/resume order, put-registers/vm-hot materialization, the F5 stack-layout root cause (parse-node-only pcs, `:jump` as metadata), the F7 primitive predicate breadth, the F4 tenure-loss catch, the F6 grant exemption, and the cited design-doc passages.
+
+- **Candidate new defects to verify at execution** (each with a minimal fix, none yet asserted as fact):
+  1. `run-fuel`'s per-tick bound failing through `ffi/maybe-run`'s unbounded bridge-step loop (candidate P1 — would leave F3 partially unanswered);
+  2. `:ready` cursor-cell successor versioning vs the first-wins `cell!` census, risking dropped successor updates and duplicate delivery (candidate P2);
+  3. The `vm-hot` gate guard assigned to 6d-b while 6d-a already exposes a fenced `:running` restore that could be stepped (candidate P1/P2 sequencing);
+  4. The `blocked + ready` coverage class being unreachable through a `run-fuel`-only stepping driver (candidate P2);
+  5. The completed-`:put` op-id well-formedness claim lacking a named check site once excluded from `task-ops` (candidate P3).
+
+- **Execution flow:** re-confirm citations, verify/downgrade the candidate defects, score all nine findings and all eight §3.10 defaults against evidence, then derive the MOB-VERDICT from what survives — with an explicit consistency check that a confirmed P0/P1 against 6d-a as specified forces `NOT-READY`, rather than softening findings to preserve a READY verdict.

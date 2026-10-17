@@ -1,0 +1,51 @@
+Created-GMT: 2026-10-16 11:51:29 GMT
+Created-Local: 2026-10-16 18:51:29 +07
+Coding-Agent: glm
+Session-ID: e33f308d-2ca8-4019-917d-4c85854673b4
+# Task: architect rulings on the three stops of the 6d-a implementation — glm glm-5.3 verdicts (resumed thread)
+Role: Architect
+Implementers:
+- Model: glm-5.3 | Assigned: 2026-10-16 18:40 +07 | Status: completed | Rationale: acting Architect for codex-authored work while Fable is out (handoff §3); final message promoted verbatim below (two CLI warning lines dropped); stdout at collab/1792150706000-architect-6da-stops-glm.glm-5-3.stdout.log
+
+All three stops verified in the implementation worktree. Rulings:
+
+# Architect rulings on the three 6d-a stops (glm, resumed thread; read-only, nothing changed)
+
+Verification basis: the failing test and its corpus (`layout_test.cljc:737-746`, `safepoint_harness_test.cljc:1840-1845`, `corpus.cljc:110`), the driver (`safepoint_harness_test.cljc:2147-2176`) and row 20's builder (`:500-508`), the discharge refusal shape (matches `missing-obligations` and the existing ghost pin at `:2314-2322`), the ledger golden's rendered shape (`test/resources/yin/vm/ucf/ledger-v2.txt` — fixed literal authority data, carrier-derived BLAKE3 addresses embedded in baselines), and `target/6da/root-remints.txt`.
+
+## Ruling 1 — Acceptance 9 set equations vs dead ambient operands: **(a) restrict the equation's domain; do NOT implement the dead-prefix lift in 6d-a**
+
+The four failures are genuine and by construction, not a bug in the fix: `:resume-operand` is `(f (resume :p x) y)` (`corpus.cljc:110`) — at pc 1 (`L={}`) and pc 2 (the `:resume`, `uses={3}`) the enclosing application's operator (register 1) is in the static layout but dead, because `:resume` is abortive (the call site's stack and frames are dropped, `stack.cljc:765-772`); `:tail-operand` is `(f (tail (g x)) y)`, added at phase 5 with a docstring that already documents "dead layout syntax reads registers other than the call's own" (`safepoint_harness_test.cljc:1841-1843`). The static layout is *correct* — the value really is on the stack; it is the equation's identification of region content with the live set that fails at pcs whose remaining enclosing reads a tail transfer or abort abandons. One correction to the question's framing: **6e does not close this** — the dead-prefix rule governs the region *after* the transfer (the dead ambient becomes the prefix below the callee's layout); at these pre-transfer operand pcs the static equality is *permanently* false, and 6e's ordered dynamic checks are what carry them.
+
+**Acceptance-9 replacement text (execute verbatim):**
+
+> **Layout gates.** At every reachable corpus PC, check register injectivity and jump/terminator layout availability; at every reachable tail-call PC check `set(uses(p)) = L(p)`; at every other reachable PC check the inclusion `set(uses(p)) ⊆ L(p) ⊆ set(layout(p)) ∪ set(uses(p))`, and additionally the equality `set(layout(p)) ∪ set(uses(p)) = L(p)` everywhere **except the pinned dead-ambient operand PCs — exactly `{(:resume-operand 1), (:resume-operand 2), (:tail-operand 1), (:tail-operand 2)}`** — where an operand-position `:resume` (abortive) or tail call (the enclosing application's call is unreachable) makes the enclosing application's pushed operands dead per L while they remain in the static layout and on the stack. At the pinned PCs assert the exclusion's cause: the layout entries outside `L(p)` are exactly those dead ambient operands. The exclusion set is enumerated, never predicate-based: a future corpus entry with a dead ambient layout fails the equality loudly rather than being skipped. On executed paths compare ordered region length and values to the ordered register sequence, including repeated-register agreement. Do not compare that sequence length to `|L(pc)|`. No dead-prefix lift, `slice-window` widening, or running-backend lift is implemented in 6d-a; those remain 6e item 6's scope.
+
+**Plan §3.5 sentence to append (records the deferral):**
+
+> **Dead ambient operands (static domain).** The non-tail set equation holds where the enclosing application's pending reads are still reachable. At the operand PCs of an application whose evaluation an operand-position tail call or `:resume` abandons (the corpus's `:resume-operand` and `:tail-operand` fixtures), ambient layout entries are dead per L while remaining in the region: the strongest static truth there is the inclusion `uses(p) ⊆ L(p) ⊆ layout(p) ∪ uses(p)`; the equality is permanently excluded at those pcs. 6e's dead-prefix rule governs the region after the transfer, and 6e's ordered dynamic checks — not the static set equality — carry those pcs.
+
+## Ruling 2 — Row 20 setup snapshot: **measure from the first discharge-satisfied boundary; exclude-and-pin the leading refusal; `discharge!` is NOT changed**
+
+Verified: `fuel-drive` observes S₀ (`safepoint_harness_test.cljc:2150`); row 20's setup batch (`:500-505`) defines `s` and `c` by runtime `s/def!` store-puts, so at S₀ the root store lacks `s` and conservative discharge refuses `:yin.k/unsatisfied :incomplete :obligations #{s}` — the same derive-don't-persist conservatism the owner ratified unchanged under default 5 (the pre-branch `ghost` pin at `:2314-2322` is the family's existing precedent). Admitting future store definitions is a definite-assignment analysis over the CFG — new authority in the portability contract, out of 6d-a scope; do not touch `discharge!`.
+
+**Harness formulation (execute verbatim):** in `check-returned-boundaries`/`fuel-drive`, a boundary whose lift refuses `[:yin.k/unsatisfied :incomplete]` is excludable **only while no boundary of the same case has lifted successfully** (a contiguous leading run). For each excluded boundary: assert zero serves; record its pc and its `:yin.k/missing :obligations`; assert the obligations are names the case's own program defines later (row 20: exactly `#{s}`). After the first successful lift, any refusal is a hard failure. Pinned per-case counts report measured and excluded-leading boundaries separately; row 20's excluded set is exactly `[S₀, obligations #{s}]`.
+
+**Acceptance-text sentence (append to item 7):**
+
+> Row 20's setup batch (`s/def!` store definitions executed at runtime) lifts only from the first boundary at which its definitions are answered in the store; the leading boundary is excluded as a **pinned conservative-discharge false refusal of the owner-ratified Q6 family (default 5: keep edge-reachability, derive don't persist)** — recorded per case with its obligations and zero serves, never skipped silently: the driver asserts the excluded boundaries form a contiguous leading run and that every boundary after the first successful lift lifts.
+
+## Ruling 3 — Protected ledger golden: **regenerate — it is the grammar-consequent re-mint of the same class as the rows fixtures, under four conditions**
+
+Verified: `ledger-v2.txt` is a deterministic rendered journal (header, `projection <digest>`, one hex-CBOR transaction per line) of a scripted custody scenario whose authority data is fixed literals (occurrences `…-01/-02/-04`, holders `holder-a/b`, leases `lease-1..4`, sequential op-ids); the only carrier-derived content is the BLAKE3 segment addresses embedded in the `:yin.k/bid`/`:yin.k/root`/`:yin.k/baseline` records — exactly what the grammar change moves (task slots 17/18 change every task row's canonical bytes, hence every root id and pack address, hence every baseline and the projection digest). Conditions, all mandatory:
+
+1. Regenerate **through the existing render route only** — never hand-edit the golden.
+2. The old→new change must be **address/digest-only**: every non-address field (occurrence ids, holders, leases, epochs, op-ids, kinds, policies, positions, intents, values) byte-identical. Retain a line-level or field-classified old/new diff inventory beside the report in `target/6da` (the recorded digests prove the change happened, not that it is innocent) — Fable's Tuesday diff-confirm reads it.
+3. Account for the **six frame-byte equality failures** in that same inventory: each must compare bytes that embed a moved address. A standalone frame pack's own bytes must NOT change (`:act`/`:tail` grammar is untouched — the unmoved worked-frame pin corroborates this). If any of the six compares a frame whose own bytes changed, stop again: that would not be grammar-consequent.
+4. Old/new projection digests and golden hashes stay recorded in the report (done: `419e3aa6… → 52f8127f…`, `5de18ed0… → 59a6944d…`).
+
+## Embedded question — the nineteen inline task-root pins: **confirmed within the authorized re-mint; none to revert**
+
+`root-remints.txt` shows 19→19 pairs, all `:segment/blake3-…` task-root ids — exactly the class v2.1 default 1 and acceptance item 14 authorize ("remint affected roots after module-pins commit 2"; "remint fixtures from the integrated grammar"). Corroborating: the count is stable, no equality assertion was removed, and the standalone worked-frame pin did **not** move — consistent with task rows moving while `:act`/`:tail` frame packs stay byte-stable. The `:call-id` fixture correction (`:parked-0` rather than nil) is an assertion-target fix, not a pin remint; keep it flagged in the report for Fable's diff-confirm.
+
+These rulings unblock acceptance items 7, 9 and 14; the engineer resumes against the remaining work listed in the report's table, and the next gate remains the full diff review after the resumed run finishes — these rulings cover only the three stops and the pins question, as instructed.

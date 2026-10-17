@@ -1,0 +1,51 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.continuation-invoke-test
+
+Testing yin.vm.debruijn.stack-effects-test
+
+FAIL in (a-full-stream-parks-the-writer-and-retries-test) (stack_effects_test.cljc:408)
+the wait set retries the identical append and resumes with
+              the put's value on the stack, then runs on past it
+expected: (= [7 :after] (:stack done))
+  actual: (not (= [7 :after] [7]))
+
+FAIL in (a-full-stream-parks-the-writer-and-retries-test) (stack_effects_test.cljc:409)
+the wait set retries the identical append and resumes with
+              the put's value on the stack, then runs on past it
+expected: (= :after (vm/value done))
+  actual: (not (= :after 7))
+
+FAIL in (a-blocking-primitive-effect-parks-after-the-call-site-test) (stack_effects_test.cljc:461)
+expected: (= [:woken :tail] (:stack done))
+  actual: (not (= [:woken :tail] [:woken]))
+
+FAIL in (a-blocking-primitive-effect-parks-after-the-call-site-test) (stack_effects_test.cljc:462)
+expected: (= :tail (vm/value done))
+  actual: (not (= :tail :woken))
+
+Testing yin.vm.debruijn.stack-parity-test
+
+Testing yin.vm.debruijn.stack-tail-completion-test
+
+FAIL in (non-tail-park-keeps-successor) (stack_tail_completion_test.cljc:95)
+expected: (not (contains? entry :resume-mode))
+  actual: (not (not true))
+
+FAIL in (non-tail-park-keeps-successor) (stack_tail_completion_test.cljc:98)
+expected: (= [:result :layout] (:stack done))
+  actual: (not (= [:result :layout] [:result]))
+
+FAIL in (non-tail-park-keeps-successor) (stack_tail_completion_test.cljc:99)
+expected: (= :layout (vm/value done))
+  actual: (not (= :layout :result))
+
+Testing yin.vm.debruijn.stack-test
+
+Testing yin.vm.semantic-ffi-test
+
+Ran 87 tests containing 821 assertions.
+7 failures, 0 errors.

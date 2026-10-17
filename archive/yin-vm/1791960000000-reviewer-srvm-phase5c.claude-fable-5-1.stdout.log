@@ -1,0 +1,37 @@
+Review complete. Findings written to `collab/1791960000000-reviewer-srvm-phase5c.claude-fable-5-1.findings.md`, ending `VERDICT: CHANGES_REQUESTED`. No tracked file was modified or staged.
+
+**Verdict rationale.** The scanner code is correct as far as every oracle, golden, hand check and killed mutant can tell. The changes requested are two missing tests on the format record and the three-host C4 gate the design makes mandatory for sign-off.
+
+**Findings**
+- **Medium:** the v4 record's `:validate-fn`/`:row-defect-fn` binding is untested. Replacing both with `(constantly nil)` left linker-test and scan-test green. Fix is one `linker/verify` assertion on a malformed vector expecting `:descriptor-defect`.
+- **Medium:** the registration in `yin.repl.link/formats` is untested. Removing it left the require, serve, linker-require, sr-link and linker suites green. Fix is a one-line containment assertion.
+- **Low:** the `reserved-name?` guard in `scan/free-occurrences` is unreachable, because the validator's item 11 already refuses a reserved `:var`. Equivalent mutant, not a defect.
+- **Low:** the author's mutant harness, like my in-process one, cannot reach the scanner functions captured in the format record, so its nine kills prove the direct-call path only. I re-ran the join-sensitive mutants in fresh JVM processes and they were killed there.
+
+**Mutants:** 25 applied across scan.cljc, linker.cljc, link.cljc and the test's join normalization. 20 killed by named tests, 3 survived (the two findings above plus the equivalent guard), 1 malformed edit superseded, 1 duplicate. Every restore verified by `cmp` and a clean `git diff`.
+
+**Goldens:** generated from the v3 path only, so independent of the new scanner. I hand-verified three entries against the printed v3 vectors and the v3 scanner rules.
+
+**C4 gate (item 7):**
+- JVM: my own slow run passed, 3 tests / 208 assertions / 0 failures, all eight modules.
+- Node: not completed. My run has been in the py completion query for over 30 minutes with no failure. The author's attempts were each interrupted within about a minute, so the report's "stall" means "not given time". The cost is in the pre-existing v3 completion Datalog oracle, not the slice. Closing it needs either one uninterrupted Node run or an Architect ruling to take that live oracle under `:clj` only.
+- Dart: the fast lane ran for me (76 tests, all passed, slow bodies skipped), so the author's "Dart NOT RUN" was their sandbox, not a Dart defect. The Dart slow row was not run.
+
+**Housekeeping for the orchestrator:** the Node slow process (pid 82364, log `collab/5c-review-node-c4.log`) is still running and will record a count if left alone. Kill it if that evidence is not wanted.
+
+That notification is only my ten-minute wait loop expiring; it changes nothing in the findings. The Node slow process itself is still running separately and keeps writing to `collab/5c-review-node-c4.log`, as noted above. The review is complete and the findings file stands as written.
+
+The Node slow C4 row finished after I filed the first version, so the findings file is updated in place. No tracked file is modified.
+
+**New result.** Node C4 row: 1 test / 73 assertions / 0 failures, all eight modules, 79 minutes wall time (08:48 to 10:07 GMT), exit 0. The author's "stall" was only an interrupted run. About 75 of the 79 minutes went into the py module's completion query, which is pre-existing v3 Datalog code outside this slice. Item 7 is now established on the JVM and Node.
+
+**Verdict stays CHANGES_REQUESTED**, on narrower grounds:
+- The v4 record's validator binding is untested (mutant survived).
+- The registration in `yin.repl.link/formats` is untested (mutant survived).
+- The Dart slow C4 row has not run on any session, and the design makes the three-host run mandatory for sign-off.
+
+**Needed before merge**, as written in the file:
+1. Four `is` forms covering the two untested bindings, then re-run linker-test on three hosts.
+2. Either run the Dart slow row once (expect at least 79 minutes) or get an Architect ruling that Node and Dart take the live completion comparison under `:clj` only, with the tree oracle, emission oracle and goldens still checking the row.
+
+The 79-minute cost is worth a ruling either way, since it will recur at every sign-off that touches this row.

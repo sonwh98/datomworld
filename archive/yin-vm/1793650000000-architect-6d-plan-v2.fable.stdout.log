@@ -1,0 +1,12 @@
+Done. The report is at `collab/1793650000000-architect-6d-plan-v2.report.md`, ending `PLAN-V2-READY`. The worktree holds only `collab/` files; the throwaway probe namespace is deleted.
+
+**Verdict on the second review: all nine findings accepted, none disputed.** Three were reproduced by running a throwaway JVM test against the real kernel and layouts, six by reading the cited transitions.
+
+- **F1 and F2 (reproduced).** Resuming one of two woken waiters leaves control set beside a remaining wait, or beside a queued completed wake. One instruction leaves the queue untouched and today's lift refuses it. My v1 rule R0 and the ready-queue refusal are withdrawn.
+- **F5 (reproduced).** The stack-layout equation fails at every conditional's jump pc. The layout table has no entry there or at terminators, while the kernel holds the consequent's value.
+- **F3, F4, F6, F7, F8, F9 (by reading).** Install children run unbounded inside the sweep. A tenure check after the slice discards the computed boundary. My grant-check instruction would have broken halted restoration. The refusal oracle, harness order, and document text were all wrong as I had written them.
+- **One new error I found myself.** v1 claimed module-pins commit 2 has no textual overlap with 6d. It edits the same lift and lower functions and re-mints every pinned root, so 6d-a must branch after it merges.
+
+**Plan v2 in brief.** The task becomes a product: one activation, ordered waits, ordered completed wakes carried by a new `:ready` row, in two new task slots. Fuel propagates to every install child with a per-tree bound, and the guarantee is stated honestly as interruption between instructions with no wall-clock bound. On tenure loss the holder retains the newest pure state for inspection only. Recovery stays the last durable checkpoint and the documents state the loss. Stack layouts are defined at jump and terminator pcs with an ordered check and a dead-prefix rule for tail residuals. The harness lifts, lowers, relifts, then runs in an isolated world. The report carries the exact amended text for six design documents and a line-level inventory of every safepoint mention in docs, code and tests.
+
+**Order and effort.** 6d-a first, then 6d-b and 6e in parallel. The estimate rose from 11 to 15 days. Eight owner decisions are listed with recommendations, and the defaults let 6d-a start as soon as module-pins commit 2 is on master. 6d-a is the slice to brief first.

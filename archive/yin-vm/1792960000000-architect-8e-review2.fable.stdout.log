@@ -1,0 +1,15 @@
+Review done. Verdict: **SIGN-OFF**, conditional only on the gates the orchestrator owns.
+
+Report written to `collab/1792049154000-architect-8e-review2.report.md`.
+
+What I verified in the 8e worktree:
+
+- **Round-2 spec match.** The leaf rule is `(cbor/content= a b)`, the guard calls `same-content?` with message and ex-data unchanged, both docstrings are updated and the false "Known limitation" paragraph is gone. The test require, the T1 slot assertion, T2, and the replacement T3 match the spec verbatim.
+- **Round-1 findings.** P1-1 and P1-2 are closed. P2-1 is closed: the dead helper, its atom and the stale require are gone with no remaining references. P3-2, P3-3 and P3-5 were done. P3-1, P3-4 and P3-6 were skipped as permitted.
+- **Scope.** Only the ten authorised C4 files under test/yang changed. Nothing under docs or src/yang, and the semantic, linearize and code namespaces are untouched. Nothing is staged and `git diff --check` is clean.
+- **Ledger.** Only five files changed since round 1 and none removes a deftest. Spot counts of the ledger's receiving deftests all hold.
+- **My own runs.** Kondo on the five files changed since round 1 came back with zero errors and zero warnings. `yin.vm-test` on the JVM passed with 36 tests and 487 assertions.
+
+Two P3 notes remain, neither blocking: one awkward sentence join in the `same-content?` docstring, and the two known-gaps entries from round 1 that the orchestrator still owes at commit time.
+
+Gates left for the orchestrator: the loopback socket test outside the sandbox, then the Node and Dart lanes on `yin.vm-test`, then commit.

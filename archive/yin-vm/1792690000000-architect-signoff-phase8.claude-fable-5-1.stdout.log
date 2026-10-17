@@ -1,0 +1,18 @@
+The report is written at `collab/1792690000000-architect-signoff-phase8.report.md` (52 lines). Both verdicts are SIGN-OFF, with scoped conditions.
+
+**Verdicts**
+- (a) srvm-phase8 as it stands: SIGN-OFF, scoped. One P2 coverage gap must close before the branch reaches master, and the post-merge lanes must be green.
+- (b) srvm-phase8ab-r2 into srvm-phase8: SIGN-OFF. Delete `handoff-v2.txt` at the one modify/delete conflict and carry the slow dht-import test as expected-red until the landing regen.
+
+**What held**
+- Every design invariant checked out: A is the only identity, no A pin moved, six hash sites on BLAKE3, `:dim/lift-to` gone without a version bump, no kernel or lowerer deleted, and the descriptor-hash golden now lives in a surviving namespace.
+- The merge plan's conflict claim is right. I checked the file sets by hand: master's nine commits since the phase8 base touch nothing 8d touched, and 8ab overlaps 8d only on the deleted fixture.
+- Ten of twelve spot-checked audit mappings hold against the actual test bodies.
+
+**What the earlier reviews missed**
+- F1 (P2): receiver isolation lost its only tests. The row carrier replaces the task-owned fields but merges the receiver's resources, and the holder driver lowers into a live receiver. The audit mapped both deleted isolation tests to fresh-receiver tests. Fix is one rows-test deftest, required before master.
+- F2 (P2): the integration branch predates I4-a, so merging 8ab-r2 is also a master sync. The merged tree has never been run. Quick tier plus Node and Dart on the 8d and 8ab namespaces must precede the 8c dispatch.
+- F3 (P3): the 8d fix uses the two-branch reader conditional the repo rule forbids. The Dart lane is the only proof it compiles correctly, and I could not find a green Dart line for it.
+
+**Limits**
+I could not run tests or read the 8d-fix report. Both needed approvals this session cannot grant, so lane numbers are the delegates' and the orchestrator's.

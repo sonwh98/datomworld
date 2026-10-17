@@ -1,0 +1,21 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.debruijn.stack-tail-completion-test
+
+FAIL in (ffi-response-decodes-before-return) (stack_tail_completion_test.cljc:118)
+expected: (= [:outer :caller nil] (:stack done))
+  actual: (not (= [:outer :caller nil] [:outer :caller :dead nil]))
+
+FAIL in (return-truncates-at-caller-base) (stack_tail_completion_test.cljc:61)
+expected: (= [:outer :caller nil] (:stack done))
+  actual: (not (= [:outer :caller nil] [:outer :caller :dead nil]))
+
+FAIL in (tail-in-operand-position-skips-layout) (stack_tail_completion_test.cljc:89)
+expected: (= [:outer 7] (:stack done))
+  actual: (not (= [:outer 7] [:outer #object[clojure.core$_PLUS_ 0x30fe1b54 "clojure.core$_PLUS_@30fe1b54"] 7]))
+
+Ran 9 tests containing 25 assertions.
+3 failures, 0 errors.

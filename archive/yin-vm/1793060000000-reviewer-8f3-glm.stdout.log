@@ -1,0 +1,15 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Audit complete. Report written to `collab/1792055987000-reviewer-8f3-glm.report.md`, ending **READY**.
+
+**What I did** (read-only; only the report was added, scratch under gitignored `target/` removed after):
+
+- **Census re-derived, not trusted**: per-file `file:deftest` sets at HEAD vs worktree — removals are exactly the 81 deftests of the four deleted files (24+22+12+23), additions exactly 16 (15 carried-over + 1 new demo stamp test). No surviving-file test deleted or renamed. Token delta −65 matches the engineer's 4418→4353 arithmetic.
+- **All 81 deleted deftests verdict'd** by reading both the HEAD bodies and every claimed survivor's body. 78 CONFIRMED or RETIRED-OK-with-coverage; the RETIRED-OK set is genuinely v3-representation-only (v3 segment batches, stack-shaped vector grammar, R2's safepoint tables) — the UCF "conformance" tests' behavioral content (park, blocked read/write, ffi sent/retained, effectful-call parking, resume-pc, saved-register liveness) all survives behaviorally in `effects_test`/`vm_test`/`safepoint_harness_test`.
+- **Consumer diffs** (engine/ffi/observer/test_utils/ucf.remote, nine C4 files, demos, query_test, plus the rest of the 43 changed test files): all hunks are loader/require swaps and `:stack`→`:window`/`:deliver` key adaptations; no `is` removed or loosened. No vacuous loops — iterated corpora are non-empty and mostly self-guarding (`refusals` 33 rows/16 rules, corpus 32 with a size assertion).
+- **Ran the suites firsthand**: vm+linearize 48/1302, effects+demo+code 60/386, engine+ffi+observer+load-paths 35/291 — all green; kondo 27e/63w, all in untouched cljd files.
+
+**Findings — 4×P3, no P1/P2** (details with file:line in the report):
+1. `reset` coverage weaker than the ledger claims: nothing on the semantic-register kernel pins control→pc 0 or rerun-after-reset ("program reruns" is overstated; pc-0 exists only on the native de Bruijn backend).
+2. Bare-row-set nil-origin provenance slot (old lower-rows sub-assertion) no longer pinned.
+3. Blocked-*writer* EDN round-trip-then-wake composite no longer spelled out on the register kernel (reader/FFI revivals and the remote `put` carrier are).
+4. `malformed/malformed-vectors` fixture is now dead (last consumers were the deleted tests).

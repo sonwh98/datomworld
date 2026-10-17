@@ -1,0 +1,14 @@
+Report written to `collab/1793400000000-architect-phase8-closing.report.md`. Verdict: **SIGN-OFF at c11f9299**.
+
+What I checked in the tree:
+
+- **Delta is exactly the three merges** the brief names, 8 files changed, +113/-13. No `src/yang`, no fixture, no collab or secret path. The only C4 file touched is the prelude parity test my ruling named.
+- **Ledger-docs merge** carries my P2-1 line in `yin.vm.ucf-revisions.md` and the P2-2, P3-2, P3-4 rows as I asked. P3-1 and P3-3 remain open post-merge, as allowed.
+- **Frame-NaN merge**: the source and test changes at HEAD are byte-identical to the commit I signed off. The later commit only guards the two signed-zero assertions to non-cljs, which is correct since JS has one zero.
+- **Node slow-C4 merge**: the fixture edit is my F1 verbatim. The pin is my F2 with the tightened cljs half that asserts both lanes refuse the bare Number. The JVM address assertion holds here.
+- **Merged known-gaps.md**: zero conflict markers, 25 rows, zero duplicates, one frame row (closed), one binder row (amended). The union of ledger and frame-NaN rows is the right resolution.
+- **JVM rerun** of the three touched test namespaces at HEAD: 52 tests, 1076 assertions, 0 failures.
+
+Conditions of the final review: (a) the Node slow line is on file with `dht-import-test` the only remaining red, so it is met. (b) the ruling on who regenerates `dht-import-v1.edn` is still the owner's and does not gate the merge.
+
+Unverified from this session: the slow JVM prelude test needs an environment variable I could not set, and the Node and Dart numbers are the orchestrator's. The frame-NaN review and node-pin diagnosis reports are not in this worktree's `collab/`, so I matched against the code, the ledger text and my own rulings. The report asks that they be copied in before the worktree is removed.

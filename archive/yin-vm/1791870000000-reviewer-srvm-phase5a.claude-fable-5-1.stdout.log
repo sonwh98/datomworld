@@ -1,0 +1,15 @@
+Review complete. Findings written to `collab/1791870000000-reviewer-srvm-phase5a.claude-fable-5-1.findings.md`, ending `VERDICT: CHANGES_REQUESTED`. Source tree outside `collab/` is untouched and verified byte-identical to HEAD.
+
+**What I found**
+
+- **Blocking (medium):** two of my 24 mutants survived every test. Omitting the `:ffi-call` operand pushes and swapping the `:stream-put` operand order both pass all lanes. No §6.3 golden covers either instruction, the old-image validator does not check stack discipline, and the runtime corpus never executes either to completion (the `:ffi-call` and `:streams` rows throw on an unbound name first, and the other ffi/stream rows are bytes-only). The fix is test-only and small: two more hand-derived goldens from the §3.2 table plus two runtime rows that reach a value on both pipelines.
+- **Non-blocking:** the oracle composition adds `list`, `vector`, `inc` because `vm/primitives` lacks them, which is a design-text defect in §6.1.3, not an implementation one. The `yin/def` non-vacuity assertion is vacuous as written, though the behaviour is covered by the four-way equality. One docstring carries an unasserted coverage claim. A hard-coded `'yin/def` could use the vm's definition-operator var.
+- **Open gate:** Dart has not run anywhere yet.
+
+**What verified clean**
+
+- All ten pinned H vectors equal my own derivations from the emitter rules and the design text, including the pcs 6/7 conditional-operand row and the body-pc 6 tail-call row. All ten checksum strings recomputed through the public hash function match.
+- 22 of 24 mutants killed by named tests, with the old-resolver leg of the address law providing real independence for the de Bruijn mutants. The author's former survivor (lambda terminator) is now killed.
+- Scope is exactly the two files, no private-var access, no dependency on the retired stack table, no Dart/Node portability traps found. Kondo 0/0, no trailing whitespace. The derive namespace passes in a fresh JVM: 10 tests, 2946 assertions, 0 failures.
+
+Next step for the author is the test addition in finding 1, then the orchestrator's Dart lane.

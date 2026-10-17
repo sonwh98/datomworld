@@ -1,0 +1,20 @@
+Review complete. Findings file written to `collab/1792000000000-reviewer-srvm-phase5b.claude-fable-5-1.findings.md`, source restored byte for byte, tree clean against HEAD.
+
+**Verdict: READY_TO_MERGE.** The implementation is a faithful §2 lowering. No high findings.
+
+**What I ran**
+- Baseline fast lane on JVM: 22 tests, 6200 assertions, 0 failures.
+- 33 adversarial mutants against `derive.cljc`, each run foreground with restore and byte compare. 28 killed by named tests, 5 survived.
+- Independent hand derivation of §6.3 rows 2, 3, 5, 6, 8, 9 and the widened note. All match the pins. Three `register-hash` strings recomputed through the public function match.
+- kondo clean, no trailing whitespace. cljstyle could not run in my sandbox, same refusal the author hit.
+- The slow C4 row and the Node and Dart lanes were not re-run, per instructions. I verified the author's three logs carry the completion line and the quoted counts.
+
+**Findings**
+- **F1, medium:** the §2.2 widened-start rule has no test that can fail. Mutant M06 (start = first definition, the un-widened frozen rule) survives everything, because the test's program has no else-arm temporaries. The rule is observable on `(if c (resume :p 1) (g 2))`, for which I recorded the implementation's image. One added golden kills it. Implementation is correct, so not blocking.
+- **F2 to F5, low or informational:** the interval-pin test checks design arithmetic rather than the allocator; progress printlns in the slow test have precedent; the author's SHA-256 question is a cutover matter with no 5b action; the expiry sort is behaviourally dead because the free set is sorted.
+
+**Surviving mutants judged:** M06 is the real gap. M03 (unsorted free set) is invisible on the JVM by hash-order accident and untestable within one process. M16 (alternative live source with tail special case) is image-equivalent by the design's own argument. M31 and M32 are unobservable by construction.
+
+**On the author's table:** their reported "one survivor" was an error-kill on the exclusive `:end` mutant. My equivalent mutant produced 101 assertion failures as well as 112 errors, so it is killed by assertions too.
+
+**Lane departure:** the background slow lanes are acceptable. The logs show completion and counts. The orchestrator should still run cljstyle and the literal `bb test:sub:clj yin.vm` once before merging.

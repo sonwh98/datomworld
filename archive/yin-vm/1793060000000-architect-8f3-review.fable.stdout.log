@@ -1,0 +1,9 @@
+Review done. The report is at `collab/1792055212830-architect-8f3-review.report.md` and ends **SIGN-OFF**.
+
+**Verdict:** no P1, no P2. The 81 retired deftests are all accounted for: 11 of 22 in linearize_test, 15 of 24 in semantic_test and 6 of 23 in ucf_test pinned language or VM behavior, and each of those survives on the register kernel with the same expected values. The rest were v3 representation facts. I compared every surviving test file's old and new bodies and found no weakened assertion, only loader and field-name changes. The UCF shrink, opcode-table and opcase deletion, and the D2 query port match the rulings. Scope is clean.
+
+**Five P3 nits** (fix now or ledger for 8g): a stale docstring at `vm.cljc:978`, the envelope-refusal branch in test_utils no longer exercised by any test, the blocked-writer EDN round-trip not pinned on the new kernel, `code-address` lost its docstring, and some triple blank lines.
+
+**Five ledger items** for things the old kernel did that the new one does not. The main one is the UCF §7.4 static safepoint map, which has no register implementation and needs 8g to mark it retired or re-specify it.
+
+**Before commit:** Node and Dart lanes are unrun, and this slice edits a cljs demo and a cljd bench that only those lanes compile. The standing rule still applies.

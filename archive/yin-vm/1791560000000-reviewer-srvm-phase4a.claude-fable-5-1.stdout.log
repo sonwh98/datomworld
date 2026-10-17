@@ -1,0 +1,16 @@
+Review complete. The findings file is written at `collab/1791560000000-reviewer-srvm-phase4a.claude-fable-5-1.findings.md`.
+
+**Verdict: CHANGES_REQUESTED**, test-only. No defect in the evaluator source. Every 4a arm matches the frozen §2.4 equations exactly, including the saved-window rule, empty callee window, frame-free tail calls, tail primitives delivering through K, single-write `:return`, `:halt` stripping the module store key, `:define` through `put-active`, and the `:not-in-slice-4a` throws.
+
+**The one blocking finding.** Acceptance item 8 is vacuous. The test `return-writes-rd-once` uses `((fn [x] x) nil)`, where the saved window is empty and the frame's `rd` equals the body's result register. Two mutants of `:return` survive the whole suite: writing into the callee's window instead of the frame's, and writing twice. I hand-traced every eligible corpus row with a non-tail closure call and none exposes them. The one row with a saved register happens to hold `*`, and `(* 10)` equals the expected value. The design specified the weak program, so codex met the spec. The fix is a different program and an exact post-return window assertion.
+
+**Other results.**
+- Mutation table: 19 mutants, 15 caught, 4 survive. Two survivors are the item 8 hole. One is an equivalent mutant (the `rd` subtraction is unobservable at call sites by definite assignment). One is an untested env merge order where the walker agrees anyway.
+- Oracle: tagged results, explicit destinations, park by executed instruction, fuel guard all match §4. I re-derived the pinned traces from the vectors and they hold.
+- Eligibility counts 25/21/5 confirmed by hand and by the runtime assertions. No eligible row can reach an unsupported arm, and `:not-in-slice-4a` can never be swallowed by message equality.
+- Report honesty: accurate except item 8 (proves nothing) and item 12 (the write-order claim is a static read of the golden). The "steps 2-3" reading is ruled correct; the design sentence is the defect.
+- Portability and scope: clean. Four new files only, `:cljd`-first conditionals, no `for`, no nil multi-key assoc.
+
+**Gaps for the 4b brief.** Amend §5.1 "steps 2-3" to "step 3". Add a main-level tail-primitive trace row (the oracle's empty-K branch currently never runs), a parameter-shadowing row, and the missing `:continuation` and `:resume` oracle arms. Align the run-loop predicate and scheduler round with the engine's own helpers.
+
+**One caveat on method.** The sandbox refused ad-hoc Clojure evaluation, so counts and mutant outcomes were established by reading code and corpora, which the brief permits. No lanes were re-run and no file other than the findings file was touched.

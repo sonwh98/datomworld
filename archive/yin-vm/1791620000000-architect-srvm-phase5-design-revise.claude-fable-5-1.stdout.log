@@ -1,0 +1,17 @@
+Revision complete. Only the derivations design and the new report were written; the frozen design, source, tests and the C4 track are untouched, and nothing is staged.
+
+**What changed, by codex item:**
+- **Address oracle:** a new `resolved-addresses` walk skips the definition operator as both lowerers do, and the law's bridge to today's resolver goes through that walk, never the old helper.
+- **Scanner agreement:** split into unordered three-way agreement and ordered agreement against an independent emission-order tree oracle. Site semantics exclude definitions and include FFI nodes on all sides.
+- **Join agreement:** via the public `linker/verify` on both formats, with normalised outcomes compared whole so refusals count. A use-before-definition row is added, and the join runs on the C4 corpus too.
+- **C4 declarations:** raw agreement with the track's own free-name walker is kept separate from the discharged comparison, which removes module-defined keys and requirement-covered names exactly as the module specs do. The gate stays read-only.
+- **Goldens and fixtures:** the worked-example inner call carries live `[1]`. Per-fixture scanner facts are now exact, with `n` identified as a free store name and `a`/`b` bound.
+- **F9 and F10:** body discovery order agrees but each emitter owns its positions; the frozen §8.3 double parse is merged and §8.4's formula updated. Phase 5 leaves lifts and descriptors untouched, and phase 8 needs an explicit lift-contract decision.
+- **Brief gaps, runtime gate, §4.4, resolve-on-vector:** imports and public access pinned with a stack-table-free segment-row projection; runtime corpus, composition and a common native normalisation specified; a discrepancy now blocks and investigates rather than re-versioning, recorded separately for 5a and 5b; side tables compared per closure pc on params only, and `:source` must cover the synthesized records.
+- **Rulings and owner questions:** codex's rulings on the delegated decisions are recorded in §9, and the three owner questions are reworded in its terms.
+
+**One point I kept with a nuance:** §3.2's allocation claim is narrowed to two stated lemmas and their explicit scope rather than dropped entirely, since the lemmas are the proof for exactly the cases claimed.
+
+**Unverified:** the lemma derivations, the per-fixture pc facts, and the use-before-definition refusal are hand readings of the code and goldens. No tests were run.
+
+Report: `collab/1791620000000-architect-srvm-phase5-design-revise.report.md`.

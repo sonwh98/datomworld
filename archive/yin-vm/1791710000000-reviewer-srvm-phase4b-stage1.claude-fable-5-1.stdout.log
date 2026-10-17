@@ -1,0 +1,15 @@
+The Stage 1 review is complete. Findings are at `collab/1791710000000-reviewer-srvm-phase4b-stage1.claude-fable-5-1.findings.md`.
+
+**Verdict: CHANGES_REQUESTED, test-only.** No defect in the evaluator source. Every Stage 1 arm matches evaluator §1.8-1.9 and §2.2 step 3. The `return-to` factoring is sound, and dropping the four materializations satisfies §1.8 as written rather than contradicting it. Scope is clean and no existing assertion is weakened.
+
+**Mutation results.** I applied fourteen mutants to the source one at a time on the JVM, each reverted by the exact reverse edit and verified byte-identical to the committed blob with `git diff --quiet`. The author's eight are all confirmed killed. Four of mine survive the full 570 assertions:
+
+- **A continuation invoke that keeps the invoker's env** (M-G). The frozen design says the caller's window, env and K are discarded. Window and K discard are gated, env discard is not, because every current program reads variables only through a closure's captured env after delivery. One walker-compared row closes it, and I give the program and its expected value `(7 1)`.
+- **`:park` leaving `:control` set** and **a blocked effect leaving `:k` set**. Both are design-mandated state shapes with no assertion. Two one-line assertions close them.
+- **The callee-effect profile check dropped**. A policy gate with no refusal row; deferred to Stage 2 with the FFI respelling.
+
+Two notes worth acting on: the K-discard gate rests on a single assertion in `re-entry-after-return-test`, and a continuation that resumes at its own capture pc hangs the unbounded effects lane rather than failing it, so the five continuation value tests should run under a step bound.
+
+**Trace oracle.** Tagged results, park by executed instruction, explicit destinations read from the pre-state. I derived the three new pinned rows independently and they match event for event on both machines.
+
+**Not run by me.** Node and Dart. One Dart risk flagged: the kernel protocol is extended with two of nine methods, which is safe on JVM and Node but unverified under Dart's partial `extend-type`.

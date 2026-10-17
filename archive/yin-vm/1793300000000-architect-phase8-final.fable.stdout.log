@@ -1,0 +1,24 @@
+The report is drafted with one placeholder: the JVM fast lane result, which is still running in the background and will be filled in when it completes. Nothing else is outstanding.
+
+The report is complete at `collab/1793300000000-architect-phase8-final.report.md`. Verdict: **SIGN-OFF**, scoped.
+
+**What I verified in the tree**
+- Every deletion the plan named is gone: old stack kernel, linearize, code, completion, the three old lowerers, handoff and checkpoint, their tests, support namespaces and fixtures. No require or call of any of them survives in src, test, bb.edn, shadow, deps, subsystems.edn or the Dart entry points.
+- `yin.vm.semantic` is the register kernel. The production pipeline publishes, verifies and re-lowers from A. Derivation records for H and R take A as input, and the manifest index is keyed by format.
+- The SHA-256 grep over `src/cljc/yin/vm` is empty. All six hash sites and three descriptor rows are BLAKE3, and dao.jing keeps SHA-256 only as an explicit registry member with a BLAKE3 default.
+- A pins held: the corpus differs only in its ns form, no 64-hex line changed in rows_test, the ledger fixture and the C4 literal pins are untouched.
+- The JVM fast lane rerun here is green: 4005 tests, 0 failures. Kondo reports no issue in any file the branch touches beyond cosmetic infos.
+- History is 13 signed-off merge commits on top of master's tip, no collab or secret paths, no src/yang changes, 12 test/yang files edited under the freeze.
+
+**Findings, none blocking**
+- P2: the rows-checkpoint-v3 fixture was regenerated in 8c without a recorded reason. I decoded both versions. The only cause is the installs child moving from a v3 to a v4 stamp, which is correct but needs one dated line in the revisions record.
+- P2: the native binder-refusal ledger row has no closing slice.
+- P3: seven docs still cite deleted namespaces in live tense, the 8d partial mappings are not in the ledger, a redundant refer list and a dead fixture remain.
+
+**What the owner must decide**
+1. Merge now or wait for jupiter's Node slow C4 line. I recommend waiting for that one line, with dht-import-test as its only red.
+2. Who regenerates the dht-import fixture and in which commit.
+3. Whether the two P2 doc lines land before or after the merge.
+4. When to lift the C4 freeze and notify the other seat of the 12 moved files.
+
+**Could not verify here:** the slow tier, Node and Dart lanes, and the C4 suite, since this worktree has no node_modules, no Dart output, and no access to the shiva and jupiter summaries. Those stand on the merge subjects and the orchestrator's numbers.

@@ -1,0 +1,12 @@
+The plan is written to `collab/1793610000000-architect-6d-plan.report.md` and ends PLAN-READY. Nothing else in the tree was touched.
+
+**What the report concludes**
+
+- **The invariant reclassifies 6d from a capability gap to a P1 defect.** The lift refuses any machine with control set, the holder runs a machine to its next park with no fuel budget, and every custody kind table phase 7 wrote lists three kinds. The report lists every doc, ledger and code sentence asserting the safepoint-only rule, with a disposition for each, so none survives.
+- **The analysis from 2026-10-13 still holds line for line** after the phase 8 rename. The one correction of substance is to the quiescence rule. A non-empty ready queue is still refused. With control nil a caller crosses it with one step. With control set it is crossed only when the activation parks, which happens organically only in multi-waiter machines.
+- **Custody for a running root is the blocked/parked arm, not the halted arm.** Full custody slot, grant checks on lower, gate `:running` on restore, offerable by the grantor. Protection is vacuous because a running root holds no retained write. No parked-root behaviour regresses.
+- **Module-pins commit 2 is not written yet** and its prospective hunks do not overlap 6d's. Recommended order: 6d first, since it is unblocked and re-mints no fixture. If commit 2 unblocks mid-6d, land it first and rebase.
+- **Three slices**: 6d-a reference lane (validator R1-R3, `:run` row, `:running` kind, laws 1/2/6 at every pc), 6d-b holder and custody wiring (fuelled `run-cycle`, a kernel guard against stepping an exporting machine, the four kind tables, a Stage E scenario), 6e cross-engine on the retained backend fragment. 6d-b can ship on the same branch as 6d-a. About 11 days in total, 7 without 6e. Codex implements, Fable reviews.
+- **No owner decision blocks 6d-a.** Four knobs are stated with a recommended default each: fuel as a holder config key defaulting to nil, no automatic export at the lease bound, the `:run` cref reusing root slot 13, and keeping edge-reachability liveness with the pre-branch false refusal pinned.
+
+**One caveat for the orchestrator**: the step counts quoted for rows 1 and 22 are from the 2026-10-13 JVM probe and must be re-measured once and pinned by 6d-a. The brief is dated 2026-10-17 while the machine clock reads 2026-10-16. The report header uses the clock.

@@ -1,0 +1,12 @@
+$ clojure -J-Xmx256m -M:test -n yin.vm.ucf.rows-test
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.ucf.rows-test
+
+Ran 21 tests containing 324 assertions.
+0 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+exit 0

@@ -1,0 +1,20 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Done. Summary of the run:
+
+**Verification (step 1)** — walked every hunk of all 15 modified files against the Architect's "Exact edit list for codex (8f-2b)":
+- Production `:vm-model :semantic` + `(telemetry/install :semantic)` — done
+- telemetry_test docstring + table key — done, no collision
+- All four duplicate backend-table entries deleted, `:semantic` entries kept (linker_require's real `linker/semantic-format` obligations intact; `sr`/`sr-linearize` aliases still used elsewhere, so no unused-namespace)
+- 15 safepoint + 19 layout_test lane-label lines, incl. `[:semantic :stack :register]` — done
+- Both linker_test deftest renames — done
+- Full P3 prose pass incl. `RegisterVM`→`SemanticVM` (record, extends, `map->`, docstring, diagnostic — no test pins it) and the layout.cljc:4/20 "register machine/kernel"→"semantic kernel" disambiguations — done
+
+Codex had completed everything correctly; **I changed zero src/test files**. Frozen zones verified untouched: `docs/design`, `test/yang`, the nine `semantic-register-vm*` doc citations (all nine still present verbatim), de Bruijn names (`rvm`, `register-image`, `vm/register-contract`), and both pinned hashes read exactly `7b7c6ae9…f3489` / `aa757659…7e74c` in unmodified files — nothing moved, so no STOP condition.
+
+**Lanes (step 2, foreground):**
+- Kondo on the 15 files: errors 0, one warning `telemetry_test.cljc:446 unused binding a` — pre-existing (line 446 byte-identical to HEAD; my diff touches only lines 4/132) → 0 new diagnostics
+- Targeted 8 namespaces: **194 tests, 5613 assertions, 0 failures, 0 errors**
+- Whole JVM quick tier, rerun unrestricted (codex's lost log replaced): **4005 tests, 249625 assertions, 0 failures, 0 errors** — the −242 assertions vs the architect's 249867 is exactly the four deleted duplicate backend iterations; test count unchanged at 4005
+- `git grep -n ':semantic-register' -- src test`: **prints nothing**
+
+Nothing committed or staged. Report at `collab/1792063220000-engineer-8f2b-glm.report.md` — ends **READY**.

@@ -1,0 +1,24 @@
+Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.
+The work is complete; nothing further is needed.
+
+Revision done. Only the design document and the new report changed; nothing is staged. Every codex claim was verified against the code and none is disputed.
+
+**What changed, in the order asked:**
+1. **Free environment:** reversed. The task's free environment is a root slot, every `E` is checked against it off the lexical names by a new validator rule, and the inverse never derives it. Codex's shadowing program is a pinned harness row on all lanes. Verified that `:load-free` resolves through the task-wide `free-env`, which the old subtraction would have corrupted.
+2. **Stack K slices:** corrected to `[previous-base, baseᵢ)` and `[last-base, count)`, verified against the call arm that records the caller's residual height after popping operands. Both worked examples re-derived; a multi-frame example added. I caught and corrected my own first pass of that example, which forgot the pushed operator.
+3. **Stack tail completion:** verified that today's kernel resumes host effects at `pc+1` with no through-K delivery. A kernel seam is specified and gated as slice 6c-pre, the one old-kernel file this phase changes.
+4. **Register K `rd`:** recovered from A's call, never the physical `dest`; each K frame's image and relative pc resolved independently, including cross-image frames.
+5. **Separate `act` and `tail` algorithms** per kernel, with the unused native fields stated and their unobservability checked.
+6. **Static laws:** actual-successor live-out, tail live empty, inverse restricted to reachable boundaries.
+7. **Validator contract:** published with decoded task context as input, structural rules first, `act`-only guards, return-window kinds, and no engine reads.
+8. **Order:** validation after canonical numbering everywhere, with a first-defect test.
+9. **Blinding:** replaced by a specified decode, placeholder, renumber and re-emit procedure.
+10. **Amendment inventory:** extended to every surviving clause codex named, with the grep-based list in §10.3.
+11. **6a** is now the independent codec; full task transport is 6b, depending on 4b stage 2 and phase 5c's scanners.
+12. **Tests:** the nil row uses an earlier nil operand; changed values are tested by execution parity.
+13. **Matrix:** twenty-four concrete rows with programs and expected outcomes, one marked synthetic with the reason, and the stage-2 facilities listed.
+14. **Grounding:** `gc-children` at line 386; the module-store fixture described as the explicit park it is, with a separate blocked-module-closure row.
+
+**Unverified:** 4b stage 2 shapes, the stack seam as a specification, and the six checked-not-assumed properties. No tests were run.
+
+Report: `collab/1791770000000-architect-srvm-phase6-design-revise.report.md`.

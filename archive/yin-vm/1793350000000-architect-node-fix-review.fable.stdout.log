@@ -1,0 +1,13 @@
+Review complete. The report is at `collab/1793360000000-architect-node-fix-review.report.md` and ends **SIGN-OFF**.
+
+**What I checked**
+- The diff matches F1 and F2 from the ruling byte for byte, and touches only the two test files. No source, docs, or other C4 edits.
+- The pinned segment address holds on the JVM. I re-ran the load-paths namespace here: 3 tests, 130 assertions, green.
+- The reader conditional is a sibling of the first `testing` form inside the deftest, with `:default nil`. ClojureDart's host-eval pass cannot pick the `:cljs` branch, and the shape matches the existing precedent in the de Bruijn code test. The regex matches the cbor refusal text.
+- The fixture is not weakened. The three rows assert the same mod results on the same large operands. `py/mod` over float carriers unwraps through `py/as-float` and then calls `py/float-mod` on raw doubles, so the no-quotient property for 1.0E20 and 1.0E300 is still exercised. The unwrap happens in the prelude, not the fixture, so the carrier rule is honoured.
+
+**What I could not run**
+- The slow prelude-parity fixture on the JVM needs an environment-variable prefix the session cannot approve. Codex's log records that exact command passing with 9 tests, 116 assertions, 0 failures, across all four VMs.
+- The Node slow lane and the Node and Dart quick lanes for the new pin remain the orchestrator's verification of record before commit.
+
+**P3 notes only**: the `exact-literals` docstring in the int-ops test is now stale, and the ruling's known-gaps row about projection accepting a bare unsafe JS Number stands for a later slice.

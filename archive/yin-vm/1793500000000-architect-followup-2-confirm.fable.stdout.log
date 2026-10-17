@@ -1,0 +1,20 @@
+Report written to `collab/1793500000000-architect-followup-2-confirm.report.md`. Verdict: **SIGN-OFF**.
+
+**What I checked:** all seven required steps against the full 23-file diff, the three P3 fixes, the cljstyle pass, and the ledger wording. I also ran the JVM focused lane over the six touched test namespaces.
+
+| JVM lane | result |
+|---|---|
+| tests / assertions | 182 / 4057 |
+| failures / errors | 0 / 0 |
+| `git diff --check` | clean |
+
+**Findings:**
+- The cbor diff is the one visibility change only. The decode and abstract checks now refuse `:equality-collapse` via the shared predicate, with the byte-level duplicate check kept and the leaf revert in place.
+- The lower's re-emit on the refusal branch is acceptable. The codec already recovers a root the same way, row ids are content addresses, and nothing is attached or executed on that branch.
+- The JS-only slash-crossed keyword test is sound in code: the encoder writes namespace and name separately, so decode keeps the pair apart while the host map merges them.
+- The separate fixture collection is correct. The existing one is the Universal AST grammar read by three unrelated test namespaces, and the new consumer covers the part-3 conformance for the new rule.
+- Ledger rows 21 and 25 match my wording exactly. The pre-existing indentation touched in `repl_test.cljc` is whitespace only and acceptable.
+
+**One non-blocking P3 note:** the lower's bindings/store/window builder has no host-collapse guard for slash-crossed symbols on JS. Crafted-carrier only, suggested as a later ledger row.
+
+**For the orchestrator:** the report gives the exact three-commit split (code, tests, docs) including which hunks of the two shared files go where, plus the Node and Dart discovery strings and verbatim skip lines expected before merge. Node should show no host-collapse skip, since that test runs there.

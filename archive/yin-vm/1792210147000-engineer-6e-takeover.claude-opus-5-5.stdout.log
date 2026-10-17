@@ -1,0 +1,37 @@
+Waiting for the quick tier and slow confirmation; the 6e code and tests are done and focused lanes are green.
+
+The slow aligned test is confirmed green. The JVM quick tier is still running.
+
+I've finished slice 6e on top of glm's diff, but the report ends **BLOCKED**: the local Dart compile and cljstyle couldn't run because this session wasn't allowed to execute them. Everything else is done and green on the JVM. Nothing is committed. The report is at `collab/1792210147000-engineer-6e-takeover.report.md` in the worktree, with full attribution of glm's work versus mine.
+
+**What I fixed in glm's work** (it was mostly sound):
+- **`:push` relabel could invent a state.** glm applied the relabel everywhere, so a hand-built entry whose resume pc follows a `:push` would lift as a fake delivery state. The relabel now applies only to running kernels.
+- **Refusal oracle ignored the receiving lane.** It expected the register refusal for every target, so a stack receiver wrongly refusing would have passed. It now gives the right answer per lane, and a mutant for exactly that case is killed.
+- **Missing pins, now added:**
+  - taken and untaken branches (row 15);
+  - operand multiplicity, on a hand-built `(g x x)` program;
+  - every `:push` stutter compared against its successor during law 4 (the driver used to skip them);
+  - exact refusal and transfer counts per case and direction (16 quick cases, 61 slow);
+  - a pc truly outside every body;
+  - the lower producing no prefix.
+- **Dart compile risk:** glm turned `register-window` and `canonical-task` into multi-arity functions containing destructuring `fn`s, the pattern that crashed the cljd compiler in 6d-a. Both are single-arity now.
+- **Item 6** is covered both ways: the static check (5 tail-call pcs, all with empty layout) and two hand-built programs, one with the dead prefix in the current region and one with it in a return frame's slice. Laws 4 and 5 hold at every boundary of both.
+
+**JVM results**
+
+| Run | Tests | Assertions | Failures / errors |
+|---|---|---|---|
+| Whole quick tier (`-e :slow`) | 4,086 | 285,050 | 0 / 0 |
+| Focused (layout, harness, 7 de Bruijn namespaces, store-write audit) | 266 | 39,920 | 0 / 0 |
+| Slow aligned test, 61 cases | 1 | 99,087 | 0 / 0 |
+
+kondo reports 0 errors and 0 warnings. All 9 mutants are killed. The mutant campaign ran before the last two behaviour-preserving refactors and wasn't rerun after them.
+
+**Not run:** `mise trust`, cljstyle, `bb`, and `clojure -M:clojuredart:cljd` all required approval in this session. I reviewed the new code by hand for the known Dart pitfalls instead. To unblock, approve `mise trust` in the worktree, then run the `cljd_agg` command and `cljstyle check` listed in the report.
+
+**For you or the Architect to decide:**
+- **Test count:** the 4,086 is exactly the 6d-a figure of 4,079 plus my 7 new quick tests, not the 4,090 the brief states. I couldn't measure master separately to explain the gap.
+- **The `[:call r f [x x]]` ruling rests on a false premise:** that vector isn't well-formed, because the parser requires each operand to be a separate expression. glm's substitute, a repeated register built into a hand-written layout, is kept but needs the Architect's confirmation.
+- **Row 4 lowering:** law 5 lowers row 4 into the de Bruijn backends at the boundaries before its FFI request is retained. I read that as within the fragment, but it's flagged in the report.
+
+glm's `target-6e-*.log` files are still loose at the worktree root because moving them by glob wasn't permitted. They must not be committed.

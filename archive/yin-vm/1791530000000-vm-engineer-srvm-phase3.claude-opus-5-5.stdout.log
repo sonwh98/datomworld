@@ -1,0 +1,28 @@
+The phase-3 code and tests are written and pass on JVM, Node and Dart, but nothing is committed or pushed: the permission layer refused `git add`. All files are untracked in `/Users/sto/workspace/datomworld-srvm-p3`. Staging, committing (`feat(yin.vm.semantic-register): …`) and pushing `srvm-phase3` need your approval.
+
+**What was built** (new files only, under `src/cljc/yin/vm/semantic_register/`; no existing code touched):
+- **`code.cljc`**: the §2.3 operand table, the `"v4"` contract stamp, the §3.1 grammar parser, the §3.4 rules 1–13 run in order (first defect wins, naming rule and pc), and a `load-vector` loader.
+- **`linearize.cljc`**: one shared projection walk with both lanes (datom lane and row lane). It numbers registers per body in pre-order, queues lambda bodies first-in-first-out, and keeps provenance outside the vector.
+- **`analysis.cljc`**: the §8.1 control-flow graph, def/use sets, the live-in set `L` iterated to a fixed point, and `saved(p, rd) = L(p) − {rd}`.
+
+**Tests:**
+
+| Lane | Result |
+|---|---|
+| JVM | 32 tests, 1128 assertions, 0 failures, 0 errors |
+| Node | 32 tests, 1128 assertions, 0 failures, 0 errors; "Testing" line printed for all four namespaces |
+| Dart | 32 tests passed (the runner doesn't report assertion counts) |
+
+- **Corpus:** 32 programs covering every opcode, with fixed golden vectors and code addresses. The same goldens pass on all three hosts, and the §3.3 `(f (g x) y)` example matches byte for byte.
+- **Refusals:** 35 malformed vectors, at least one per rule, each asserting the exact rule and pc.
+- **Liveness:** `L` is checked against a separate reference implementation written inside the test.
+- **Checks:** kondo and cljstyle are clean. `git diff --check` can't see unstaged files, so I scanned the new files for trailing whitespace instead and found none.
+
+**Design ambiguities.** I didn't amend the design; each choice is recorded in the report.
+- **Rules 10 and 12:** their only checks that can fail on their own are operand-type checks (call arguments must be registers, `tail?` must be boolean, `resume`'s operands well formed). Rules 6–9 run first and would hit those operands. I left those checks at rules 10 and 12, as the text places them, and loosened the earlier operand check for just those operands. The "layout syntax" part of rules 10 and 12 is already enforced by rule 6's grammar parse, so it has no separate check.
+- **Rule names:** the design names only three of them. I chose `:body-partition`, `:register-ids`, `:definite-assignment`, `:exclusive-definitions`, `:call-operands` and `:resume-operands`.
+- **Load paths:** the vector-to-datoms projection was scrapped by the owner ruling of 2026-09-18. So "projection load" here means projecting the AST through each lane, then loading through the same validator. The "malformed input, same refusal on both paths" check therefore isn't exercised.
+
+**Open concern for the Architect:** no rule checks that lambda bodies appear in the first-in-first-out order §3.3 requires. Rule 13 compares register ids only, so a vector with two bodies swapped would be accepted even though it isn't the unique projection.
+
+The full report is at `collab/1791530000000-vm-engineer-srvm-phase3.report.md`.

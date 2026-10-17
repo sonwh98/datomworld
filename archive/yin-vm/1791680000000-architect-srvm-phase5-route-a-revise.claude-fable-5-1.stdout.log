@@ -1,0 +1,18 @@
+Revision complete. Only the derivations design and the new report changed; nothing is staged.
+
+**The new owner ruling** is applied throughout: every claim that H equals, is observed to equal, or is checked against the old `lower-stack` output is gone (§3.2, §6.3, §8.1, §11, F9, F13, the 5a golden test). H and R are two kernels' bytecode, derived from the new emitters' own rules and checked only against them.
+
+**Per item:**
+1. **H goldens:** row 5 is `[:branch-false 6]`/`[:jump 7]`, row 6 is `[:closure 1 6]`, each with every pc listed. All other H rows now state their pc ranges and label pcs, re-counted twice.
+2. **Liveness law:** compared against virtual live-out over actual successors minus `rd`; a tail call is `[]`. New pinned row 9, `(f (g x) y)` with the inner call tail, shows why `L(p+1)` was wrong.
+3. **Lift declarations:** verified both descriptors hash a `:dim/lift-to` row. It is removed at phase 8 with no version bump, so descriptor hashes and every H and R re-pin then. The descriptor-hash golden moves to a surviving namespace in 5b. The final manifest is enumerated field by field, including the index's new format-keyed shape.
+4. **C4 gate:** ten root programs by packet var with their pinned outcomes, the six module packets named separately, module bodies covered by running them as root programs, and the install-child path over new images stated as phase 8's.
+5. **Execution rows:** nineteen throws plus one successful FFI under an explicit zero-argument `:op/ping` bridge; counts asserted.
+6. **Retrievability:** a defined set-valued source index with carriers, completeness checks, the several-trees rule, absence versus transient failure, `:trusted` skipping re-lowering only, and a host-module carve-out keeping the absent field.
+7. **Allocator:** the frozen scan's explicit loops restored; `next` advances only for never-used slots.
+8. **Anchors:** paths qualified. One discrepancy with the review: the tail flag is read at `linearize.cljc:116` in this checkout, not 120-121; the document cites 116.
+9. **F12 and rulings:** full scanner text pasted; rulings recorded.
+
+**Unverified:** goldens remain hand derivations; the module-body runs were not executed; no tests were run.
+
+Report: `collab/1791680000000-architect-srvm-phase5-route-a-revise.report.md`.

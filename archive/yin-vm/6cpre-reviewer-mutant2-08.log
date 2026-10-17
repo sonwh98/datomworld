@@ -1,0 +1,86 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.continuation-invoke-test
+
+Testing yin.vm.debruijn.stack-effects-test
+
+Testing yin.vm.debruijn.stack-parity-test
+
+Testing yin.vm.debruijn.stack-tail-completion-test
+
+ERROR in (tail-in-operand-position-skips-layout) (engine.cljc:52)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: clojure.lang.ExceptionInfo: Cannot apply non-function
+{:reason :not-applicable, :kind :keyword}
+ at yin.vm.engine$fail.invokeStatic (engine.cljc:52)
+    yin.vm.engine$fail.invoke (engine.cljc:50)
+    yin.vm.engine$operator_kind.invokeStatic (engine.cljc:89)
+    yin.vm.engine$operator_kind.invoke (engine.cljc:77)
+    yin.vm.debruijn.stack$step1.invokeStatic (stack.cljc:740)
+    yin.vm.debruijn.stack$step1.invoke (stack.cljc:679)
+    yin.vm.engine$run_loop.invokeStatic (engine.cljc:2155)
+    yin.vm.engine$run_loop.invoke (engine.cljc:2149)
+    yin.vm.debruijn.stack$run_scheduler.invokeStatic (stack.cljc:896)
+    yin.vm.debruijn.stack$run_scheduler.invoke (stack.cljc:890)
+    yin.vm.ffi$maybe_run.invokeStatic (ffi.cljc:341)
+    yin.vm.ffi$maybe_run.invoke (ffi.cljc:334)
+    yin.vm.debruijn.stack$eval14828$fn__14832.invoke (stack.cljc:919)
+    yin.vm$eval8991$fn__8992$G__8972__8997.invoke (vm.cljc:41)
+    yin.vm.debruijn.stack_tail_completion_test$fn__19867.invokeStatic (stack_tail_completion_test.cljc:87)
+    yin.vm.debruijn.stack_tail_completion_test/fn (stack_tail_completion_test.cljc:71)
+    clojure.test$test_var$fn__9898.invoke (test.clj:717)
+    clojure.test$test_var.invokeStatic (test.clj:717)
+    clojure.test$test_var.invoke (test.clj:708)
+    clojure.test$test_vars$fn__9924$fn__9929.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars$fn__9924.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars.invokeStatic (test.clj:731)
+    clojure.test$test_all_vars.invokeStatic (test.clj:737)
+    clojure.test$test_ns.invokeStatic (test.clj:758)
+    clojure.test$test_ns.invoke (test.clj:743)
+    clojure.core$map$fn__5956.invoke (core.clj:2772)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.Cons.next (Cons.java:41)
+    clojure.lang.RT.next (RT.java:733)
+    clojure.core$next__5472.invokeStatic (core.clj:64)
+    clojure.core$reduce1.invokeStatic (core.clj:946)
+    clojure.core$reduce1.invokeStatic (core.clj:936)
+    clojure.core$merge_with.invokeStatic (core.clj:3083)
+    clojure.core$merge_with.doInvoke (core.clj:3075)
+    clojure.lang.RestFn.applyTo (RestFn.java:142)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.test$run_tests.invokeStatic (test.clj:768)
+    clojure.test$run_tests.doInvoke (test.clj:768)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.core$apply.invoke (core.clj:662)
+    cognitect.test_runner$test.invokeStatic (test_runner.clj:74)
+    cognitect.test_runner$test.invoke (test_runner.clj:62)
+    cognitect.test_runner$_main.invokeStatic (test_runner.clj:127)
+    cognitect.test_runner$_main.doInvoke (test_runner.clj:115)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.main$main_opt.invokeStatic (main.clj:515)
+    clojure.main$main_opt.invoke (main.clj:511)
+    clojure.main$main.invokeStatic (main.clj:665)
+    clojure.main$main.doInvoke (main.clj:617)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.main.main (main.java:40)
+
+Testing yin.vm.debruijn.stack-test
+
+Testing yin.vm.semantic-ffi-test
+
+Ran 87 tests containing 820 assertions.
+0 failures, 1 errors.

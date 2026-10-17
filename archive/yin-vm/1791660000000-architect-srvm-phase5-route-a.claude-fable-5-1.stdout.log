@@ -1,0 +1,20 @@
+Rewrite complete. The design is now route (a) throughout, and only the derivations design plus the new report changed; nothing is staged.
+
+**Removed:** everything specific to route (b): the resolved-tuple adapter over the old lowerers, the byte-equivalence gates and blocking-gate decision table, the retain-or-re-version machinery, the R1 comparison lemmas, the byte-neutral 5c switch, and the lift-contract and profile-string owner questions.
+
+**Added:**
+- **A → R** as the frozen §8.2 linear scan made complete: intervals from syntactic definitions and the phase-3 live sets (widened over layout syntax, with amendment text), lowest-free assignment with `end < p` expiry, the structural slot, emission into the unchanged register format, and `live` filled by the format's own liveness function. Agreement of the two liveness analyses is a checked gate property, not a theorem.
+- **A → H** as one emitter over the parse trees into the unchanged stack format. No adapter, no second parse.
+- **Verification** by execution oracle: old and new pipelines on the same kernels under one normalization, over B0, the register corpus (the twenty non-value rows compared on their throws) and the C4 linked programs through a locally built backend over the public harness, read-only. Validators on every output, eight hand-derived goldens, determinism checks.
+- **Regeneration table**: every constant that moves, when, and how a reviewer recomputes it from a printed image. Descriptors do not change, so the descriptor-hash golden keeps passing. Old lowerers stay alive until phase 8 as production callers and oracle.
+- **Unitarity conflicts** named with proposed amendment text: the linker's by-identity flow names no tree, `:trusted` never checks the tree is reachable, host modules enter with the tree absent, and UCF's carried vectors and resolution order name no tree.
+
+**Hand-derived numbers:** eight golden rows, each derived twice. Two agree with codex's earlier independent derivations of the frozen scan. I caught and corrected one error of my own while writing (the live-in sets before a `:resume` are empty; the resulting image was unchanged). Hash strings are deliberately left for the implementer to fill from the printed image.
+
+**Facts-A-omits finding:** `:macro?`, shared `:eid`s, `:tail?` on non-applications, entity ids and datom order are all dropped before A is formed, so they cannot affect R or H. Only the diagnostic side tables' provenance columns can differ.
+
+**Owner questions:** none.
+
+**Unverified:** the goldens are hand derivations with no allocator to run; the liveness-agreement property and the expectation that H bytes equal today's are argued, not proven; no tests were run.
+
+Report: `collab/1791660000000-architect-srvm-phase5-route-a.report.md`.

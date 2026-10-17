@@ -1,0 +1,43 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.continuation-invoke-test
+
+Testing yin.vm.debruijn.stack-effects-test
+
+Testing yin.vm.debruijn.stack-parity-test
+
+Testing yin.vm.debruijn.stack-tail-completion-test
+
+FAIL in (return-pops-only-inner-frame) (stack_tail_completion_test.cljc:53)
+expected: (= 1 (count (:continuation done)))
+  actual: (not (= 1 0))
+
+FAIL in (return-pops-only-inner-frame) (stack_tail_completion_test.cljc:55)
+expected: (false? (:halted? done))
+  actual: (not (false? true))
+
+FAIL in (ffi-response-decodes-before-return) (stack_tail_completion_test.cljc:118)
+expected: (= [:outer :caller nil] (:stack done))
+  actual: (not (= [:outer :caller nil] [nil]))
+
+FAIL in (return-restores-caller-environment) (stack_tail_completion_test.cljc:67)
+expected: (= [[:caller]] (:frames done))
+  actual: (not (= [[:caller]] []))
+
+FAIL in (return-restores-caller-environment) (stack_tail_completion_test.cljc:68)
+expected: (= :caller-module (:store-of done))
+  actual: (not (= :caller-module nil))
+
+FAIL in (return-truncates-at-caller-base) (stack_tail_completion_test.cljc:61)
+expected: (= [:outer :caller nil] (:stack done))
+  actual: (not (= [:outer :caller nil] [nil]))
+
+Testing yin.vm.debruijn.stack-test
+
+Testing yin.vm.semantic-ffi-test
+
+Ran 87 tests containing 821 assertions.
+6 failures, 0 errors.

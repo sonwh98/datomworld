@@ -1,0 +1,13 @@
+All five of codex's findings are fixed and the report is written to `collab/1791890000000-architect-srvm-amendments-fix.report.md`. Nothing staged or committed.
+
+**What changed, in codex's order**
+
+1. **Frozen §7 and UCF §7.3.2.** Frozen §7 no longer claims "two load paths" or vector-to-datoms projection. It now points to §3.4 and names §§2.3/3.3/3.4 as the `"v4"` canonical vector and validator. UCF §7.3.2 opens with a precedence note that makes those frozen sections authoritative for `"v4"` and marks the stack-shaped vector, opcode table and batch normalization historical.
+2. **Carrier step 7.** Each body's decoded task context now goes through `frame/task-defect` once before its frames, halted bodies included.
+3. **Census roots.** The initial free environment is now a root in the carrier's step 9 census, the carrier's §9 lift walk, and UCF §7.6.1's fixed point. Exact agreement and the non-empty tree-association check are stated at the census site.
+4. **Retired projection residue.** Code-as-tuples §6.5, §7.1 and the §10 impact table now describe the datom lane as an AST lane and drop the `:yin.code/*` batch load. UCF §7.11.1's matrix tests the direct load plus the two AST lanes instead of "direct and projected loads".
+5. **References and spellings.** A7 became A2 in the carrier and in the continuation design, the one permitted companion edit. Frozen §8.4 qualifies §6.1.3 and §6.1.4 as derivations-design sections. Code-as-tuples' two row-id examples now spell BLAKE3.
+
+**Residue grep** over all five documents is clean apart from the legitimate classes codex listed, each hit tabulated in the report with its line.
+
+**One scope note.** I also added the free environment to the carrier's lift walk, which codex did not name, because lift and lower must compute the census from the same roots. Git status and diff were refused by the sandbox, so the file list in the report comes from the edit log rather than from git.

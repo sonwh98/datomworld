@@ -1,0 +1,31 @@
+The second rename is done: in slice 6a's code and tests, the carrier's box is now called a "cursor cell". Every non-Dart lane passes. Nothing is staged or committed, and only the three listed files changed. `frame.cljc` had no site, and the v2 production code was not touched.
+
+**Decisions:**
+- **No "cursor" kept from the first rename:** every hunk of 83fd51d8 turned out to mean the box. In the original files, every "cell" was the box and every "cursor" meant something else.
+- **How I applied it:** I regenerated the three files from the original pre-rename backups with one ordered script (`c-N` → `cc-N`, `cell` → `cursor-cell`). Then I re-applied round 1's two manual edits and hand-fixed the comments where "cursor cell" is a noun. The diff touches exactly the 119 lines the first rename touched.
+- **Pinned roots:**
+
+| Pin | Original | Round 1 (HEAD) | New |
+|---|---|---|---|
+| fixture `:s1 :s2 :x :y` | `be82d50b…` | `beef94ed…` | `fab223d9…` |
+| loop + 2-cycle | `8899f95d…` | `b140ac40…` | `55ff168e…` |
+| worked frame | `c4a7c7e6…` | unchanged | unchanged |
+
+- **Only the spelling changed:** I checked the new codec against the original one (`c-N`, `:cells`) on six fixtures. On all six the numbering is identical, and the new wire respelled back matches the old wire, root and every row. Both original pins come out exactly; the worked frame's wire is unchanged by the respelling.
+- **Mutants:** all five are still killed by the same named tests as in round 1. The weaker "equality-leaf-only" variant still survives, as it did in round 1, where I argued it is equivalent.
+- **One ambiguous site I kept:** the test keyword `:test/cursor`, in `frame_test` 165/234 and `rows_test` 91/266. It predates both renames and is used as a box id. Renaming it would also change the worked-frame pin, so it is your call; it's a one-line follow-up plus one re-pin. Every other bare "cursor" left is either engine API, the `:cursor-ref` type, or symbols inside guest programs.
+- **One assertion added:** `:yin.k/cur-1` (round 1's spelling) joins `:yin.k/c-1` in the malformed-key list and is refused. That is why the JVM pair counts 554 assertions, not the expected 553.
+
+| Lane | Result |
+|---|---|
+| JVM pair (frame + rows) | 31 tests / 554 assertions, 0 failures |
+| rows under `-Xmx256m` | 21 tests / 324 assertions, 0 failures |
+| semantic-register namespaces | 120 tests / 2181 assertions, 0 failures |
+| Node | 43 tests / 820 assertions, 0 failures, 0 warnings |
+| kondo | 0 errors, 0 warnings |
+| cljstyle | clean, after `cljstyle fix` redid round 1's one re-indent |
+| Dart | not run (yours) |
+
+I did not touch the docs that should go back to the original v2 spellings; they weren't in my file list.
+
+The report is `collab/1792110000000-engineer-rename-cursor-cell-code.report.md`. Its timestamps are raw `date` output, and the system clock reads about 14 hours behind the brief's Created time.

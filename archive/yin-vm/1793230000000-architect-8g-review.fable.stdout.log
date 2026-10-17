@@ -1,0 +1,17 @@
+Review done. The report is at `collab/1792078084000-architect-8g-review.report.md`.
+
+**Verdict: CHANGES-REQUIRED, scoped to three doc lines.** No P1. Everything the brief asked me to verify against the code and git checks out, with one ledger gap and two date slips.
+
+**What verified true**
+
+- Code facts: `yin.vm.ucf` is one function over `jing/segment-key`. No SHA-256 remains under the VM source. H, R, descriptor, dimension and node hashes all call `jing/blake3` and the descriptors declare `:hash :blake3`. The linker's native format records still mint identity by H and R, and the linker.md amendment states that residue honestly. The §5.2 record claims (line 693, contract "v4", scanner names, loader) match the source. The four pre-attach checks in `lower-defect` match continuation §4.6 and the 7.11 wording. Deletion attributions (8d tests only, 8e lowerers, 8f-1 transport and completion, 8f-3 old kernel and UCF halves) match the commit stats.
+- Rename: git pairs the old frozen design to the new file at 91% similarity, net +95/-20. The 20 removed lines are the status header and the working-name paragraph. The four companions differ from HEAD only by path renames and dated additions. The 8964 deleted lines are the moved companions, the paired rename and the old v3 body.
+- Links and greps: every relative link in the 20 touched docs resolves, the history anchor exists, and the acceptance greps return only dated statements. The nine source edits are one docstring line each.
+- known-gaps: the NaN gap cites the exact line, the binder row is consistent with the code, the fixture is readerless, the deletion ledger is right.
+
+**Required changes**
+
+- P2: add one known-gaps row for eight source and test citations of the design doc with v3 section numbers that the rename made wrong and the nine-line allowance forbade editing (vm.cljc:655, two demos, the Dart bench, the JFR note, the bench, repl_test, linearize_test).
+- P3: §10 phase 6 date should be 2026-10-12/13, not 10-13/14. Phase 5 cites review-fix commits dated 10-11 while 5b and 5c merged 10-12.
+
+Four further P3 nits are listed in the report (an evidence citation, a 7.11 sentence fragment, a pre-existing duplicate 4.6 heading, one unverified file count). I noted in the report that the orchestrator may apply the three edits directly and commit on green lanes without another Architect round.

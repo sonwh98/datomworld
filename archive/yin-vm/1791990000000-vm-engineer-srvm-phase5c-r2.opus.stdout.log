@@ -1,0 +1,29 @@
+Both surviving mutants from the review are now killed by new tests, and every lane I ran is green. Nothing is staged or committed, and `src/` differs from HEAD only by a 4-line comment.
+
+1. **F6 is killed (finding 1).** The new test `semantic-register-format-refuses-a-malformed-vector` in `test/yin/vm/linker_test.cljc:2098` checks the v3 and v4 records against the same malformed vector, `[[:jump 9]]`. It asserts that the row-defect and validate functions both report a defect, that `linker/verify` refuses with `:descriptor-defect`, and that the refusal carries the validator's answer. With F6 applied the lane gave 73 tests / 1146 assertions / 2 failures / 1 error. Without it, the same lane gave 73 / 1147 / 0. I put the `verify` call after the two defect checks: in my first draft F6 showed up only as an error, because the scanner threw before any assertion ran.
+2. **F7 is killed (finding 2).** The new test `the-composition-registers-the-v4-format-record` in `test/yin/repl/serve_test.cljc:446` asserts:
+   - `link/formats` holds 7 records;
+   - it contains `semantic-register-format`;
+   - looking up `:yin.semantic-register/code` returns that record (the same lookup the linker's resolver does).
+
+   With F7 applied: 87 / 680 / 3 failures.
+3. **Reserved-name guard (finding 3).** I kept the guard and added a comment explaining why it can't be reached and why it stays. This is the only source change; behaviour is unchanged.
+4. **Mutant-section correction (finding 4).** It is a separate addendum, `collab/1791990000000-vm-engineer-srvm-phase5c-r2.mutant-addendum.md`. The round-1 report is unchanged.
+5. **Lanes:**
+
+   | Lane | Tests | Assertions | Failures / errors |
+   |---|---|---|---|
+   | JVM, the 8 requested namespaces | 173 | 2630 | 0 |
+   | JVM, the other 6 semantic-register namespaces | 81 | 1377 | 0 |
+   | Node, fast (linker-test, scan-test) | 129 | 1759 | 0 |
+
+   - **Node:** the sandbox refused a direct `node` call. The tests ran automatically during the shadow compile, and both target namespaces printed `Testing`.
+   - **kondo:** 0 errors, 0 warnings on the three changed files.
+   - **cljstyle:** clean. It also needed approval to call directly, so I ran it through a `bb` wrapper.
+   - **Not run, as instructed:** the slow C4 row and Dart.
+
+The new registration test in `serve-test` has only run on the JVM. Node and Dart will only cover it if your Dart lane includes `yin.repl.serve-test`.
+
+Files are in `collab/`:
+- 1791990000000-vm-engineer-srvm-phase5c-r2.report.md
+- 1791990000000-vm-engineer-srvm-phase5c-r2.mutant-addendum.md

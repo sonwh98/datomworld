@@ -1,0 +1,13 @@
+Done. The revised ruling is at `collab/1792048442000-architect-8e-ruling2.report.md`, ending RULING-READY. Only the report was written; the JVM probe namespace was deleted.
+
+**Verdict:** Codex was right on both premises. Clojure `=` on two boxed Doubles short-circuits on identity, so `(not= a a)` is false for a NaN that reaches a generic predicate. And the encoder hashes symbol metadata, so the T3 fixture mints three distinct ids and can never reach the guard.
+
+**Revised rule, verified on the JVM:**
+- The leaf of `same-content?` becomes `(cbor/content= a b)`. This is the encoder's own kind-strict content equality, already required in vm.cljc, and it is documented as "equal exactly when content addressing gives one identity". The probe showed it true for two separately boxed NaNs, flat and nested, false for the metadata-distinct symbols, and matching the ids on signed zero and int vs float.
+- The T1 slot assertion becomes `(is (cbor/content= ##NaN value))`. The pinned id still holds for both NaNs.
+- T3 is retired and replaced by a test that pins the premise instead: the two metadata-bearing symbol literals mint two literal rows. The guard's throw path stays proven by codex's mutant gate, which the spec keeps as a required step.
+- The stale "known limitation" paragraph in the `ast->semantic-bytecode` docstring must be deleted; the spec gives the replacement text.
+
+**Cross-host basis:** the NaN-reflexivity of `content=` is already asserted on all three lanes by `test/dao/jing/cbor_content_equality_test.cljc`. I could not read the ClojureScript or ClojureDart sources for `==` from this sandbox, so the `==` candidate is recorded as JVM-verified only and is not prescribed.
+
+**Next for the orchestrator:** dispatch the spec to codex (vm.cljc and vm_test.cljc only), then run the Node and Dart lanes on `yin.vm-test` as gate 5.

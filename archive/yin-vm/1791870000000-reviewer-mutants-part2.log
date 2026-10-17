@@ -1,0 +1,35 @@
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+=== golden hash recomputation ===
+golden  1: computed 32d51cde25ba70371814b6dfdb3769af4ec8b5c52a4c2e03a01ee1abb0c0ab84 pinned 32d51cde25ba70371814b6dfdb3769af4ec8b5c52a4c2e03a01ee1abb0c0ab84 MATCH
+golden  2: computed 2ba41668a2170a3c7ef74182c4e3c81d0b3fdbb7a8a6c96e72511c6f52b82aa8 pinned 2ba41668a2170a3c7ef74182c4e3c81d0b3fdbb7a8a6c96e72511c6f52b82aa8 MATCH
+golden  3: computed f74e6e75631bbd78d6fabb8dd829edc8d149ef29803111f48fefc5b209b39982 pinned f74e6e75631bbd78d6fabb8dd829edc8d149ef29803111f48fefc5b209b39982 MATCH
+golden  4: computed add0178e7de17c8ea2d078834f43898525ec683a3c8f5b8304398d004a09c08b pinned add0178e7de17c8ea2d078834f43898525ec683a3c8f5b8304398d004a09c08b MATCH
+golden  5: computed 7e5eeba449d15077ea0b32bb394138b85d3ef2a8bed68c646973390f75a35e5f pinned 7e5eeba449d15077ea0b32bb394138b85d3ef2a8bed68c646973390f75a35e5f MATCH
+golden  6: computed 52791d4a2d0f4649b6d90e0c7e0a9067c96008ed4ecdc6b77f08a15644893d0c pinned 52791d4a2d0f4649b6d90e0c7e0a9067c96008ed4ecdc6b77f08a15644893d0c MATCH
+golden  7: computed eb70fa6d6b3a4925bb1163916e2a35b0e030a39cb25c66e49e95c4251112bb3f pinned eb70fa6d6b3a4925bb1163916e2a35b0e030a39cb25c66e49e95c4251112bb3f MATCH
+golden  8: computed a71ffdee457d4d6c90d704117cb0b5992abb98c7d4952356e018e056eae2cb48 pinned a71ffdee457d4d6c90d704117cb0b5992abb98c7d4952356e018e056eae2cb48 MATCH
+golden  9: computed fe79f9ab7e0ab5c6a90813bf6dd849c9760577684cfc0aeff5408b922dbb866a pinned fe79f9ab7e0ab5c6a90813bf6dd849c9760577684cfc0aeff5408b922dbb866a MATCH
+golden 10: computed 8c80e1d1b1aafa1a3bcd8d17a31098fc80832f34c02e1983a62449acaecdf741 pinned 8c80e1d1b1aafa1a3bcd8d17a31098fc80832f34c02e1983a62449acaecdf741 MATCH
+=== mutants ===
+X07 bodies emitted LIFO instead of FIFO                        KILLED by {lexical-address-law-stack {:fail 3, :error 0}, stack-images-validate {:fail 28, :error 0}}
+X08 every label marked one pc late                             KILLED by {stack-execution-oracle {:fail 31, :error 0}, stack-goldens {:fail 3, :error 0}, stack-images-validate {:fail 94, :error 0}}
+X09 conditional join label placed before the else arm          KILLED by {stack-execution-oracle {:fail 2, :error 0}, stack-goldens {:fail 2, :error 0}}
+X10 operator push omitted (operands still pushed)              KILLED by {stack-goldens {:fail 8, :error 0}}
+X11 operator emitted after operands                            KILLED by {lexical-address-law-stack {:fail 24, :error 0}, stack-execution-oracle {:fail 53, :error 0}, stack-goldens {:fail 7, :error 0}, stack-images-validate {:fail 6, :error 0}}
+X12 tail flag forced true                                      KILLED by {stack-execution-oracle {:fail 1, :error 0}, stack-goldens {:fail 8, :error 0}}
+X13 :ffi-call pushes omitted                                   SURVIVED
+X14 :stream-put operands swapped                               SURVIVED
+X15 :store-put key/value swapped                               KILLED by {stack-execution-oracle {:fail 3, :error 0}}
+X16 main/lambda terminators swapped                            KILLED by {stack-execution-oracle {:fail 1, :error 0}, stack-goldens {:fail 10, :error 0}, stack-images-validate {:fail 130, :error 0}}
+X17 side-table :source shifted                                 KILLED by {stack-images-validate {:fail 115, :error 24}}
+X18 addresses reads the wrong slice of :load-bound             KILLED by {lexical-address-law-stack {:fail 25, :error 0}, resolution-is-resolve-names {:fail 4, :error 0}}
+X19 resolved-addresses visits a definition's operator          KILLED by {lexical-address-law-stack {:fail 4, :error 0}}
+X20 resolved-addresses bodies LIFO                             KILLED by {lexical-address-law-stack {:fail 3, :error 0}}
+X21 stage-value leak: a public digest function                 KILLED by {resolve-is-a-stage-value {:fail 1, :error 0}}
+X22 register-image returns instead of throwing                 KILLED by {register-image-is-not-in-5a {:fail 1, :error 0}, resolve-is-a-stage-value {:fail 1, :error 0}}
+X23 :define emits the register instead of the name             KILLED by {resolve-is-a-stage-value {:fail 1, :error 0}, stack-execution-oracle {:fail 6, :error 0}, stack-goldens {:fail 2, :error 0}, stack-images-validate {:fail 4, :error 0}}
+X24 :resume walks nothing (operand dropped)                    KILLED by {lexical-address-law-stack {:fail 2, :error 0}, resolve-is-a-stage-value {:fail 1, :error 0}, stack-execution-oracle {:fail 2, :error 0}, stack-goldens {:fail 1, :error 0}}
+=== post-run sanity: restored source, all tests ===
+{stack-determinism {:fail 0, :error 0}, stack-goldens {:fail 0, :error 0}, hand-derived-liveness {:fail 0, :error 0}, resolve-is-a-stage-value {:fail 1, :error 0}, stack-execution-oracle {:fail 0, :error 0}, lexical-address-law-stack {:fail 0, :error 0}, stack-images-validate {:fail 0, :error 0}, resolution-is-resolve-names {:fail 0, :error 0}, register-image-is-not-in-5a {:fail 0, :error 0}, resolve-rewrites-only-vars-and-closures {:fail 0, :error 0}}
+restored: cmp and git diff --quiet HEAD -- src/ both passed on every restore

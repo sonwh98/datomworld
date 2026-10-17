@@ -1,0 +1,17 @@
+Review done. Report written to `collab/1792061458000-architect-8f2-review.report.md`, ending **SIGN-OFF**.
+
+**What I verified independently**
+
+- Every one of the 24 moved files and 64 edited files matches HEAD after applying only the namespace and path substitutions. The one residual is a docstring in `src/cljc/yin/vm.cljc:978` whose alias-style API reference took the new spelling, which is in scope.
+- Zero live references to the old namespace remain in source, tests, or any build and config file. The 74 remaining old-name lines are exactly the keywords, prose, two test names and the register-file function the engineer tabulated.
+- No pinned identity moved. The two descriptor hash pins are untouched and the engineer's green JVM quick tier runs against them. The telemetry model value is asserted symbolically, never by literal.
+- The ten C4 files are the only test/yang edits, three substituted lines each.
+
+**Ruling on the 44 frozen keyword lines: rename to `:semantic` now, as a second commit (8f-2b), not in 8g and not left.** The deleted old kernel was the one that emitted the documented `:semantic` model keyword, so the name is free and prescribed by the telemetry design. The model keyword is persisted into telemetry datoms, so a transitional name should not outlive the rename. The engineer's collision concern is inverted: the `:semantic` backend entries in four test tables already build the register kernel since 8f-3, so the `:semantic-register` entries there are duplicates and one is a stale phase-5 stub. The report gives codex an exact edit list: two production lines, the telemetry table, deletion of the four duplicate entries, a collision-free lane-label replace in two harness files, and two test names.
+
+**Other flags**
+
+- P2: nine code docstrings cite the design docs by file name and will dangle when 8g renames them. The 8g brief must allow those src/test lines.
+- P3: prose still says "semantic-register machine" in 23 lines, the record is still named `RegisterVM`, and two lines call this kernel "the register kernel", which is now ambiguous against the de Bruijn register backend.
+
+Scratch files I used to get around the sandbox were deleted. Node and Dart lanes remain with the orchestrator per the brief.

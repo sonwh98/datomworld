@@ -1,0 +1,14 @@
+Done. The note, the prototype and the report are written; nothing is staged or committed.
+
+**What I found and did**
+
+- **Both blocking findings reproduced and are fixed.** The content encoding now numbers cursor cells inside an element provisionally in the element's own discovery order (de Bruijn style), and an element's sort key is the output of a full local run of the same procedure, which is what makes the key carry alias topology even through nested containers. The orbit rule became a component rule: tied elements sharing an unnumbered cursor cell form a component, a component holding two elements of one group is the D5 refusal, and otherwise components are encoded, sorted, and the least run entered. One worklist per run resolves nested ties. The proof is rewritten as an isomorphism-invariance theorem with four lemmas.
+- **Codex's counterexamples now number canonically**, and the roots for A and B equal the digests codex computed independently for the same numbering. `[#{X Y} #{X Y}]` is no longer refused. The loop plus 2-cycle and seven-cell states stay refused, and the note now separates "not certified" (2-cycle, 3-cycle, shown interchangeable by a permissive diagnostic) from "not interchangeable" (path, seven-cell, shown by witness roots).
+- **Prototype search:** 2300 states (random values with nested sets, aliased pairs, cursor-cell map keys; frame-bearing states with act windows, K-frame windows, environments and a parked act; states with install children). Zero invariance failures and zero decode failures. 35 refusals, reported with the witness split.
+- The decode round trip caught one real prototype bug during revision (a memo returning another element's numbering), which is now a stated requirement in the note.
+
+**Honest gaps, all in the report:** the real-state D5 rate is unmeasured because no version-3 task corpus exists before 6b; the work bound is argued, not measured; the prototype's decode check runs after 6a's frame validation because 6a's decoder is private and monolithic; no three-host or kondo runs.
+
+**Pins:** every first-draft pin is unchanged; new pins are `65ba4530…`, `409548a7…`, `18b70de6…`, `92747c0f…`, `7dc3d5c4…`, `6ea03f9b…`, `b35b8e12…`, with hand derivations in the note's §6.
+
+The two owner questions from the first round stand: accept the D5 class as documented, and use `:unresolved-cursor-cells` rather than `:resource-limit`.

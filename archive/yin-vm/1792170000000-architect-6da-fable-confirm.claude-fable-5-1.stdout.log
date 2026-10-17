@@ -1,0 +1,28 @@
+6DA-FABLE-CONFIRM: SIGNED-OFF (head d5987015)
+
+**What I verified myself, not taken from the reviewers or engineers.** The staged diff file is byte-identical to `git diff b9103797..d5987015`. I read every source hunk in semantic, frame, layout, engine and rows, the full harness and test diffs, and the full docs diff. clj-kondo on all 13 changed Clojure files reports 0 errors, 0 warnings. I ran the JVM quick tier for the seven touched test namespaces in the worktree:
+
+| Run | Tests | Assertions | Failures |
+|---|---|---|---|
+| frame, layout, vm, rows, rows-custody, engine, safepoint-harness | 204 | 24,244 | 0 |
+
+The printed measurements match the pinned tables. I did not rerun Node, Dart or the slow tier; for those I rely on the orchestrator's logged runs.
+
+**Per-point rulings**
+
+1. **Fidelity to plan v2.1: CONFIRMED.** The completion table, slots 17 and 18, the run row, the 19-slot task gate, ready-context frame judging with the descriptor passed through the task context, the factored `check-op-id-shape!` called from slot 18 with per-tag op-id indices, the census traversal that now skips only task slot 9 at all four sites, ready-row traversal in `lower-defect` including value-bearing completion fields, jump and terminator layouts, budget propagation through check-wait-set, poll-links, advance-install(s) via a run-child parameter, `scheduler-round-fuel` with at most one resume, `run-fuel` dispatching on control presence with one raw action and at most one bridge step and no `maybe-run` wrap, and `check-gate!` on vm-hot, step, run and run-fuel outside the loop via a private raw runner. All match §3.1, §3.2, §3.4 and the 6d-a change list. The §3.8 hygiene check passes: no normative clause assigns the guard to 6d-b, forbids completed link/install wakes, validates completed installs against live installs, restarts fuel through `maybe-run`, or promises one-cycle hold resolution.
+2. **Ledger golden: CONFIRMED by my own byte check.** Decoding each changed hex line, every differing byte lies inside a 64-character hex run immediately preceded by the CBOR text header and `segment` and `blake3-`. Nine digests change across journal frames 2, 9, 11, 13, 14 and 15, matching the inventory's entries. The projection line changes as a consequence. Classification `:address-only` stands.
+3. **Retained-FFI `:call-id` correction: CONFIRMED.** The completed-ffi-append test asserts the restored response wait carries the source wait's actual call id and that the request stream was not appended a second time. That is the right assertion target.
+4. **Flagged items: both CONFIRMED.** Row 20 measures exactly pcs 0, 1, 2 with obligations `#{s}`, independently pinned by the conservative-prefixes test, and the general rule in `check-returned-boundaries` is what governs. Row 17 is a like case: every excluded boundary carries exactly `#{host.mod/f}`, answered at the first measured boundary. The doc wording already uses the plural and the require-answered clause. cmd's caveat about the harness re-listing discharge's answer set is a real drift risk; carry it as the 6d-b note already drafted.
+5. **Four deviations: all ACKNOWLEDGED as intentional.** (a) The preflight pass with placeholder identities buys structural zero-serve refusals at roughly double lift cost; documented in §7.1; acceptable for 6d-a, and 6d-b's holder lanes should measure it. (b) Re-receiving the receiver's registry modules in restore is correct, since the restore resets code aliases and the old lowered bindings would otherwise dangle; it serves nothing and is covered by byte-equal relift on a two-module tree. (c) and (d) are harness-only.
+6. **Repeated-register ruling: RATIFIED, option (a).** The linearizer gives every value-producing instruction a fresh register, so `zero?` pins a real invariant and the agreement branch stays dormant until 6e's hand-built `[:call r f [x x]]` case.
+
+**Findings.** No P0, P1 or P2. Nothing blocks the merge.
+
+- **P3, design follow-up (deviation c).** Deviation (c) exists because a module-exported host function held in a window mid-application has no wire form unless the composition registers it in `:primitives`. For real compositions this means a lift refusal at every boundary between loading such an operator and calling it. The refusal is honest, but it is a hole in the any-pc invariant. Add a known-gaps row and give 6e or a later slice the task of lifting module exports by module coordinate via the existing host-export profiles.
+- **P3, docs.** The UCF status table drops the `:yin.k/not-quiescent` row, but the holder export in `holder/export.cljc` still raises it until 6d-b replaces the Quiesce step. Annotate the row as holder-only until 6d-b, or have 6d-b delete it.
+- **P3, docstring.** The `check-install!` docstring still says the carried child must be blocked; the code admits a running child at phase `:running`.
+
+**Wording amendments.** None are merge-blocking. After the merge: update the known-gaps row from "acceptance pending" to "6d-a landed at d5987015; 6d-b and 6e pending", and add the row for the module-export gap above. Add glm's one-sentence comment to the `zero?` pin in the layout test saying the per-group agreement clause is live only for non-projected vectors. Optionally normalise the "amended 2026-10-16, owner invariant 2026-10-17" citations to one timezone so the amendment does not appear to predate the invariant it cites.
+
+**Merge note.** origin/master has moved to 1d7a85a7 with two orchestrator-log commits that touch only `docs/orchestrator-log.md`, so the merge is conflict-free. Use a non-fast-forward merge so d5987015 stays the signed head rather than rebasing it to new hashes.

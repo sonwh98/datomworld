@@ -1,0 +1,2 @@
+error: invalid model selection (--model "argon" --effort "high"): --effort is not supported for model "argon"
+{"conversation_id":"","status":"ERROR","response":"","error":"invalid model selection (--model \"argon\" --effort \"high\"): --effort is not supported for model \"argon\"","duration_seconds":0,"num_turns":0,"usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0}}

@@ -1,0 +1,13 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.debruijn.stack-tail-completion-test
+
+FAIL in (return-pops-only-inner-frame) (stack_tail_completion_test.cljc:53)
+expected: (= 1 (count (:continuation done)))
+  actual: (not (= 1 2))
+
+Ran 9 tests containing 25 assertions.
+1 failures, 0 errors.

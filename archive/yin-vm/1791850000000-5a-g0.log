@@ -1,0 +1,9 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+Syntax error compiling at (yin/vm/semantic_register/derive_test.cljc:146:38).
+No such var: dc/contract
+
+Full report at:
+/var/folders/n0/xl3_1xkn0yd5trpq843l81840000gn/T/clojure-4089137193478478193.edn

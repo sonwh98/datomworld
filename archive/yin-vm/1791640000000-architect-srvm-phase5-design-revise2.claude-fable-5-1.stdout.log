@@ -1,0 +1,13 @@
+Round 2 complete. Only the derivations design and the new report changed; nothing is staged.
+
+**What changed, per item, each verified against the code before writing:**
+
+1. **Raw C4 oracle:** now compares against the prelude walker's set with `yin/def` removed, in §6.3 and in the acceptance item. Verified that the prelude walk's generic branch visits a definition's operator variable and so reports `yin/def`.
+2. **Allocation lemmas:** both withdrawn. I derived the `((f))` counterexample myself under §8.2's rules and it holds: the operator's interval expires before the outer call, so both allocators give the outer result `T0`. The text now makes one narrow claim only, for calls whose operator is a single atom at the body's first pc, and applies it row by row. B0's sixteen differing rows are each covered; seventeen register-corpus rows are listed individually, and twelve are left to the gate with no claim.
+3. **Export gate:** permits both address-sequence readers by name and asserts they return tuple vectors, while forbidding anything that assigns an executable identity.
+4. **F11:** the frozen-text replacement now states the three obligations of §6.3, including the complete normalised join outcome with refusal reason and name.
+5. **Runtime corpus:** twelve selected register-corpus rows, now including the two closure-valued rows, with the twenty exclusions enumerated by reason. Verified row by row against the goldens.
+
+**Unverified:** the lemma and counterexample are hand derivations since no §8.2 allocator exists; the per-row coverage list is by inspection of goldens; no tests were run.
+
+Report: `collab/1791640000000-architect-srvm-phase5-design-revise2.report.md`.

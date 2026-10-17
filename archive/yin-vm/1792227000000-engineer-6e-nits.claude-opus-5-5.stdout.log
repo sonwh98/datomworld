@@ -1,0 +1,23 @@
+The quick tier and slow rerun are both running; I'll write the report when they finish.
+
+The slow rerun is green: 99,087 assertions, 0 failures, 0 errors. Still waiting on the quick tier.
+
+All four review items are done and every JVM lane is green, so this round ends **READY**. The slice is still uncommitted and nothing was pushed. The report is at `collab/1792227000000-engineer-6e-nits.report.md` in the worktree.
+
+- **P3-1 (lower side of the repeated register):** the test now lowers the agreeing payload. The receiver region equals the source stack `[42 f 42 7]`, the pc matches, and an immediate relift equals the lift. That equality is on the lifted payload, not wire bytes: a carrier round trip would re-derive the segment and lose the hand-written layout.
+- **P3-2: I chose (a) and fixed it in code.** `region-window` now pairs each stack position with its register and canonicalizes only live ones, so a dead-ambient value is never walked, matching the reference lane. I chose this over documenting a precondition because it removes the asymmetry and is a three-line change. It's recorded in the docstring and in the §4.3 amendment. A new test shows an unwalkable closure in a dead-ambient slot changes nothing, while the same value in a live slot still refuses.
+- **P3-3:** `boundary-site` now runs inside the refusal-recording `try`. A refusal before the site is known is recorded with `:site nil`, so the lane alignment fails visibly instead of the driver crashing.
+- **Item 5 (ready-root coverage):** no aligned boundary in any of the 61 lane cases carries a ready entry; the stepping driver resumes queued outcomes in the same round that fills them. So I added `backend-ready-root-refusal`. From both de Bruijn sources it builds a swept post-put state whose completion datom holds the `+` primitive:
+  - into the register lane it refuses `:continuation-registers` through the `[:ready 0 :completion …]` path, with zero attaches;
+  - into the semantic and stack lanes it transfers, and the relift is byte-equal;
+  - the oracle predicts all three outcomes.
+
+| Check | Result |
+|---|---|
+| Whole JVM quick tier | 4,087 tests, 285,084 assertions, 0 failures (baseline 4,086 / 285,050; +1 is the new test) |
+| Focused namespaces | 267 tests, 39,954 assertions, 0 failures |
+| Slow aligned test, 61 cases (rerun because P3-2 touches every stack-lane lift) | 99,087 assertions, 0 failures, all pins unchanged |
+| Mutant campaign, rerun on this tree | 10 of 10 killed, including a new "ready roots skipped" mutant that fails the new test 8 times |
+| kondo, cljstyle check | clean |
+
+Your earlier Dart compile predates these edits, so it should be run once more on this tree. Node, Dart and the three-host slow tier remain yours as before.

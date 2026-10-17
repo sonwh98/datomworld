@@ -1,0 +1,25 @@
+Completed-GMT: 2026-10-10 09:18:45 GMT
+Completed-Local: 2026-10-10 16:18:45 Asia/Bangkok
+
+Rule 13 now compares the entire vector, as the amended design requires, and all three lanes are green. Nothing is staged or committed, as instructed.
+
+**How rule 13 works now** (`code.cljc`, function `canonical-projection`):
+1. It first compares register ids body by body, as before. A difference is reported as `:noncanonical-registers` at the first differing pc.
+2. If the ids match, it rebuilds the whole segment from the parse trees under §3.3 and compares it to the original. That means main sequence first, bodies in first-in-first-out queue order, labels placed by the walk and register numbering repeated. Any remaining difference is reported as `:noncanonical-layout` at the first differing pc.
+
+**New refusal rows** (`code_test.cljc`; every golden is still accepted):
+- **Two bodies swapped:** `(f (fn [x] x) (fn [y] y))` with its two bodies swapped and the body-pcs adjusted is refused as `:noncanonical-layout` at pc 1.
+- **Nested body out of queue order:** the `:body-queue-order` program, with the body found inside another body moved ahead of a body queued earlier, is refused as `:noncanonical-layout` at pc 1.
+
+**Label-placement variant:** my parse can't produce one where the ids still match. It uses the labels to decide where each branch of a conditional starts and ends, so moving a label makes it read a different program. The new test `moved-labels-re-parse-as-another-tree` shows `(stream-cursor (if c a b))` with its end label moved past the cursor. It parses as `(if c a (stream-cursor b))` and is refused earlier, by rule 8 (`:definite-assignment`) at pc 6.
+
+| Check | Result |
+|---|---|
+| JVM | 33 tests, 1133 assertions, 0 failures, 0 errors |
+| Node | 33 tests, 1133 assertions, 0 failures, 0 errors; "Testing" line printed for all four namespaces |
+| Dart | 33 tests passed (Dart reports test counts only) |
+| `clj -M:kondo` | 0 errors, 0 warnings |
+| `cljstyle check` | clean |
+| Trailing whitespace | none |
+
+The report is rewritten for round 2 with the same header and the seven ambiguities kept; the body-order concern is marked resolved by the ruling. One oddity: this machine's clock reads 09:18 GMT, which is before the brief's stated creation time of 09:40 GMT. The header records the clock as read, and the report notes the mismatch.

@@ -1,0 +1,76 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"auto_mode"}
+I have enough to rule. I read the round-2 verdict (the decisive reject), the engineer's first report and fix log, the C4 section 8.5.6 and ruling-19/L-e tables, section 7.4 (binding check), the DHT `max-message-bytes` table, the "A is the only code identity" amendments, and the `c4-i3` branch diff. One factual correction up front, then rulings.
+
+Completed-GMT: 2026-10-11 21:05:00 GMT
+Completed-Local: 2026-10-12 04:05:00 Asia/Ho_Chi_Minh (assumed GMT+7)
+
+---
+
+**Files the brief cited that do not exist.** `collab/1791590000000-engineer-c4-i3.findings.md` and `collab/1791591000000-reviewer-c4-i3.findings.md` are not on disk. The actual files are `1791590000000-engineer-c4-i3.claude-opus-5-5.stdout.log`, `1791591000000-reviewer-c4-i3.gpt-6.1-sol.stdout.log` (250 KB), and `1791593000000-reviewer-c4-i3-r2.gpt-6.1-sol.stdout.log` (275 KB). I read the engineer report + fix log in full, and the round-2 verdict (tail) in full; I did not read every line of the two large review logs, and I ran no tests.
+
+## Q1 — Land I3 as **B** (drop the linked-REPL admission path)
+
+**Ruling: B.** The foreign-principal admission was never in I3's scope, and both surviving findings live entirely inside it.
+
+- I3's official acceptance (yang.antlr.md:3201–3204) is exactly three things: "a JVM-published `pym.m` imports parserless on Node and Dart with the same output; a republished dependency is refused as a dependency binding; a cyclic pair is refused at publication by name." **No foreign-principal element.** The table row (yang.antlr.md:3105) says "Publication and DHT import; **needs L-e for foreign principals**" — i.e. foreign principals are a dependency, not a deliverable.
+- Ruling 19 (yang.antlr.md:3034–3043) is explicit: foreign-principal imports are "not claimed until D7 slice B lands." So the `:admit` hook, `:link-admission`, `py/run-session`, `linked-binding`, and the `:yang.python/antlr-linked` catalog entry — the whole enforcement surface P1 and P2 sit in — is work L-e owes, shipped early by the engineer.
+- P1 and P2 are *real* defects, but they are defects in code the slice should not have written. The correct response to "the code is out of scope AND defective" is revert, not fix. Option A would mean building sound isolation machinery for a refusal-only interim whose positive claim is gated on L-e anyway.
+
+**Files/hunks to drop** (revert to `84c7c9b7`): the `admit` threading in `src/cljc/yin/repl.cljc` (`drive-links` admit param, `:admit` staged into `::frontend`, line ~1292/1694/1897), the `antlr-linked-manifest` + `:yang.python/antlr-linked` install in `src/cljc/yin/repl/frontends.cljc`, the `:admit` clause in `src/cljc/yin/repl/link.cljc` (`composition` + the `dht-attempt` refusal branch), the `linked-binding`/`py/run-session` in `src/cljc/yang/python/antlr/repl.cljc`, and the admission integration test in `test/yin/repl/python_antlr_test.cljc`.
+
+**Keep**: the DHT import test + JVM guest-blob fixture/generator (F2), the publication namespace with cycle detection, the `__all__` `range-at` prelude fix (F3, `src/cljc/yang/python/antlr/prelude.cljc` — this is a genuine parity fix independent of admission), and the goldens for those.
+
+**Recorded gap wording**: "I3 lands publication and DHT import. Foreign-principal admission is not shipped: ruling 19 defers it to L-e (D7 slice B, closure-origin + store-ownership check). Until L-e, the REPL serves links without a foreign-principal check — a module asserted by another declared principal is importable. This is the pre-I3 posture, recorded as an open gap against L-e, not a regression."
+
+**Judgment on scope**: the admission was out of scope and should wait for L-e itself. Shipping even a refusal-only interim *now* buys a boundary that is trivially bypassed (P1) and that L-e must rebuild on store-origin anyway.
+
+## Q2 — L-e must add store-origin, and the refusal-only interim is not worth shipping
+
+L-e (D7 slice B) must add, before any foreign-principal import is admitted: recursive verification of **closure origin and store ownership** through exports, re-exports, and transitive dependency slices, before any executable value is exposed — plus (per ruling 19) authenticated publication, dependency-pin checks, primitive/effect admission, and working store-context transitions on all four VMs (yang.antlr.md:3034–3043). Until B, "a forged `:store-of` could reach the prelude's state" — that is the load-bearing sentence.
+
+**Can a refusal-only interim be sound without isolation?** Technically yes *for the name-provenance half*, by checking at **install time** rather than link time: record which principal asserted each name when it enters the task registry, and refuse foreign provenance at install. That closes P1 because a Clojure-`require`d module carries provenance too. But it does **not** close the store-origin half (forged `:store-of`), so it is not a sound *security* boundary — it is a name check over a door whose lock is store-origin.
+
+**Is it worth shipping? No.** A refusal that checks name provenance but not store origin is security theater: it blocks the honest path while the forged-`:store-of` path stays open, and it misleads the operator into believing foreign principals are contained. The honest posture — matching the design — is "foreign-principal imports are neither refused nor claimed until L-e," recorded as a gap. That is also what makes B in Q1 correct.
+
+## Q3 — Acceptance is honestly met; the fix is L-f (chunking), not raising the cap
+
+The acceptance ("a JVM-published `pym.m` imports parserless") is **met for what it claims**: the guest module `pym.m` travels the DHT; `py` (the runtime) is seeded locally because three of its blobs are 0.8–1 MB code images against a 64 KiB blob. `py` is infrastructure, not I3's deliverable, and the limitation is explicitly recorded. So it is not a hollow pass — but it must not be read as "the Python runtime is DHT-portable."
+
+**Recommendation: chunk code images into ≤64 KiB transport blobs (this is L-f).** Three reasons:
+- The 64 KiB bound is `:dao.jing.dht/max-message-bytes` = 65536, and the doc says it is "composition data, not a wire constant" and that "S3 measures … and confirms or raises this default before S4" (dao.jing.dht.md:796–805). Raising it globally is gated on a measurement that hasn't happened and would stress the whole pending-write/reassembly path, not just Python.
+- Chunking is exactly the linker seat's already-planned **L-f** ("Large-module linking: default bounds, derivation fetch at steps 2 to 4" — yang.antlr.md:3075–3076), which blocks P2. So this is not new design; it's L-f.
+- **Invariant check (A is the only code identity)**: A is the content address of the whole instruction vector (`ucf/code-address`; debruijn.stack.md:5–29, debruijn.register.md:5). Chunking for transport does not change A — chunks are reassembly units keyed by their own content but are never separately addressed, pinned, or admitted for execution; A still addresses the whole image. This is consistent with the amendment's "H remains a value, not a name" discipline. "Publish `py` as a tree of smaller blobs" is the same idea but conflates module boundaries with transport size — chunking is the cleaner form.
+
+## Q4 — The dependency-binding check is the sole guard; fix it in the linker seat; it does **not** block I4
+
+**The gap is real and worse than the doc admits.** Section 7.4 asserts the binding check "is the early, named form of what discharge would refuse later as `:unresolved-free`; it adds no rule the linker lacks" (yin.vm.linker.dht.md:1857–1858). The engineer's fix log and the round-2 reviewer both state this is **false**: with the check removed, `t` links and runs against a republished `k` with no refusal — discharge does **not** independently refuse the mismatch. So `dependency-bindings` is the only guard over a pinned dependency across the DHT.
+
+**Fix and owner**: the **linker seat** owns `yin.vm.linker.dht/dependency-bindings`. The fix is either (a) make the binding check a non-removable step in the DHT link source, or (b) make discharge actually refuse the `:unresolved-free` mismatch so the doc's invariant is true — ideally both: keep the early named check (better diagnostics) *and* fix the discharge claim so there is defense in depth. At minimum, correct the doc's false "adds no rule" claim.
+
+**Does it block I4? No.** I4 is "catchable `ImportError`, needs L-d (`module/try-require` + deferred dependency admission)" (yang.antlr.md:3107, 3068). The binding gap is an orthogonal correctness/security issue over pinned dependencies; it predates I3 and touches neither import-error handling nor `try-require`. It *does* block any future cross-principal work (L-e): foreign-principal imports without a working dependency-binding guard would be dangerous. Sequence it as linker hardening before L-e, but it is not an I4 gate.
+
+## Q5 — Next five slices and the cutover
+
+Order (one-line reasoning each):
+1. **F2** (REPL catalog selection) — the design already says "F1 and F2 now" (yang.antlr.md:3216); it unblocks catalog-driven frontend choice and is independent of both the I-track and the register-VM cutover.
+2. **L-d + I4** (catchable `ImportError`) — I4 is the only I-track slice with a hard linker gate, so build `module/try-require` + deferred dependency admission and land I4 immediately after, while the import machinery from I3 is fresh.
+3. **I5** (SCC units) — no external gate; pure emitter/compiler work, orthogonal to the register VM.
+4. **I6** (`import_module`, same-image `reload`) — builds on I5's module runtime; no gate.
+5. **I7** (site sets) — depends on the published-module runtime from I3/I5; natural last in the I-track.
+
+**Which wait for the register-VM cutover**: **C2 S5 (generator heap)** and **safepoint slices 3–4** — these touch the register VM's scanner/execution model and pin addresses that the cutover regenerates, so landing them first means re-minting goldens twice. The **I-track (F2, I4–I7) should not wait**: it is additive, and its handful of newly-pinned A addresses re-mint cheaply in one pass at cutover.
+
+## Q6 — A stop-reviewing rule that would not have weakened the different-family rule
+
+**Rule (severity-gated landing + known-gaps ledger):**
+- A review round may **REJECT** only on a finding that (a) violates a stated axiom/invariant, (b) makes a claimed acceptance test vacuous, or (c) is exploitable across a trust boundary. Everything else — CPython parity corner cases, cross-profile transitions outside the acceptance criteria — is recorded in the **known-gaps ledger** (a running list appended to the slice's design section, like the existing "Open" list at yang.antlr.md:3224) with a severity and an owning slice, and is *scheduled*, not re-reviewed.
+- **Re-review cap**: after one REJECT + one fix round, a second REJECT is accepted only for a *new* invariant violation or genuine exploitation, not a refinement of a settled point. Parity-edge findings go to the QA seat, not a third codex round.
+- **Out-of-scope signal**: findings in code the slice should not have written are a directive to *revert* that code, not to fix it (this is the meta-rule that would have short-circuited I3: P1/P2 live in the out-of-scope admission surface).
+
+**Why this does not weaken different-family review**: it changes *when* we stop and *what* is recorded, never *who* reviews — different-family review stays mandatory on every change. Note also that this rule would **not** have passed I3's P1/P2: both are exactly category (a)/(c) — P2 violates the documented "runtime state never merges across frontend revisions" separation (yang.antlr.md:3031) and P1 defeats an admission boundary across a trust (principal) line. The honest lesson of the I3 loop is not "codex is too strict," it's "the slice wrote out-of-scope enforcement code and the review correctly caught it twice."
+
+---
+
+**Facts I could not verify**: the exact local timezone (assumed GMT+7); the full contents of the two large review logs beyond the verdicts; and I ran no test suites. All code/design citations above are to files and line numbers I read directly.

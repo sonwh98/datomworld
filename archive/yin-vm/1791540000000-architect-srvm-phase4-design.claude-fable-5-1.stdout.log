@@ -1,0 +1,20 @@
+Done. Both deliverables are written in the worktree; nothing was staged or committed, and no existing file was edited.
+
+**What I produced**
+
+- `docs/design/yin.vm.semantic-register-vm.evaluator.md` (1126 lines), the phase-4 companion design. It fixes every in-VM shape against the stack VM's counterparts in a side-by-side table, specifies the restore helper as a short algorithm with a per-pending-reason table, maps each link and install transition to its owner in the engine or linker, gives a precise walker-trace alignment rule with the corpus files named, and splits phase 4 into 4a (core, shippable alone, no edits to existing files) and 4b (effects, continuations, FFI, link) with numbered acceptance lists of 21 and 26 items.
+- `collab/1791540000000-architect-srvm-phase4-design.report.md` with the required header, summary, findings, questions and gaps.
+
+**Key findings against the frozen design** (seven, all with proposed amendment text):
+
+- The restore seam is `engine/resume-from-run-queue` and `engine/resume-continuation`, not `handle-effect`, which never calls a restore function. The frozen claim that no activation is needed is verified true, and the de Bruijn register kernel is the live precedent.
+- `K` has only `:return` frames; the FFI phases are wait-entry markers, not frame kinds.
+- A `tail` state halting on empty `K` must still leave an `:env` (the blocked machine's own, cleared of store-of).
+- `:return r` must be classed administrative in the trace correspondence, or every closure call misaligns by one event.
+- The evaluator needs an interim link format keyword until cutover; I proposed one, marked for the reviewer.
+
+**Questions for the owner:** none. Two items are for the Architect reviewer (the keyword, and adding one entry to four existing backend test maps in 4b).
+
+**One gap:** the phase-3 implementation report lives in the sibling worktree and the sandbox refused every read of it. I grounded the design in the landed phase-3 code and tests instead and flagged this in the report.
+
+**Next:** the orchestrator sends the design to a non-Claude Architect (codex gpt-6.1-sol) for review before any implementation brief, then cites it from the frozen design's §10 phase 4.

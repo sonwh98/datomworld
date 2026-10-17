@@ -1,0 +1,29 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.semantic-register.derive-test
+
+FAIL in (stack-execution-oracle) (derive_test.cljc:282)
+:gensym
+expected: (= [true false] (subvec (:observable new) 0 2))
+  actual: (not (= [true false] [:thrown "Unable to resolve symbol: list in this context"]))
+
+FAIL in (stack-execution-oracle) (derive_test.cljc:282)
+:store-ops
+expected: (= [true false] (subvec (:observable new) 0 2))
+  actual: (not (= [true false] [:thrown "Unable to resolve symbol: vector in this context"]))
+
+FAIL in (stack-execution-oracle) (derive_test.cljc:282)
+:define-then-call
+expected: (= [true false] (subvec (:observable new) 0 2))
+  actual: (not (= [true false] [:thrown "Unable to resolve symbol: inc in this context"]))
+
+FAIL in (lexical-address-law-stack) (derive_test.cljc:289)
+:streams
+expected: (= (derive/addresses a) (derive/addresses (:vector (derive/resolve a))) (derive/addresses (:image (derive/stack-image a))) (derive/resolved-addresses (dr/resolve (vm/ast->datoms ast))))
+  actual: (not (= [[:free s]] [[:free s]] [[:free s]] []))
+
+Ran 10 tests containing 2452 assertions.
+4 failures, 0 errors.

@@ -1,0 +1,16 @@
+I've applied three of the four review nits and gated the new tests for the Dart lane. Nit 1 can't be applied as written, so I stopped on it and turned it into a question. The whole JVM quick tier is green at the same counts as before: 4,079 tests, 269,020 assertions, 0 failures. Nothing is committed and no `src` file was touched. The report ends **READY**.
+
+**Nit 1 (stopped, question for the Architect/Fable).** Changing the check to `(pos? @repeated)` would fail. I measured the repeated-register count at 0 for all four test programs, including `(+ x x)`. The compiler gives every operand its own register: `(+ x x)` becomes `[:var 2 x] [:var 3 x] [:call 0 1 [2 3]]`, so no compiled program ever repeats one. The repeated-register agreement check is never exercised, contrary to the review. In the meantime I pinned the measured value with `(is (zero? @repeated))`, which is stronger than the old `(<= 0 …)` and fails loudly if repeats ever appear. The open question is whether that check is meant for hand-built vectors. If so, it needs a fixture this test can't build; if not, the clause is empty for 6d-a.
+
+**Nit 2 (no code change).** The clause the review thought was dead is live and keyed correctly. Real links key `:module-stores` by the module's manifest address, which is the registry entry's `:address`; the name-keyed maps exist only in hand-built fixtures. On row 17's linked machine it yields `#{host.mod/f}`. I added a comment saying so, and the row-17 pin still passes.
+
+**Nit 3 (done).** Item 7 in `yin.vm.semantic.continuation.md` now says "boundaries" and uses the ruled wording for the obligations.
+
+**Dart gating (done).** All 9 `with-redefs` sites and the 3 `@#'sr/vm-hot*` uses are now JVM/JS-only, following the repo's `:cljd`-first pattern; no source seam was needed.
+- The three boundary-driver tests are excluded on cljd, each with a comment naming the cljd coverage that remains.
+- The other six tests still run on cljd: only their counters and spies are gated, and their outcome and state assertions remain.
+- JVM results are unchanged: the focused run is still 218 tests and 24,342 assertions, and kondo is clean on the changed files.
+
+**Not checked: Node and the cljd compile.** Commit 51117e93 notes that Node once silently ignored a `with-redefs`. Here the driver redefines `vm/run` (a protocol method) and `sr/vm-hot*`, so watch the Node log for these tests. If Node ignores the redefinition, they should fail on their exact pins rather than pass silently. I also didn't run the slow tier again; its JVM code is unchanged apart from the cljd wrapper and reformatting.
+
+The report has the full site inventory: `collab/1792159200000-engineer-6da-fixes.report.md` (in the worktree).

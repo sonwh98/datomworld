@@ -1,0 +1,9 @@
+Ruling complete. All three calls are CONFIRMED, and the full report text is written to the plan file at `/Users/sto/.claude/plans/read-users-sto-workspace-datomworld-coll-curried-pancake.md`. Plan mode blocked writing the report itself, and the ExitPlanMode tool is not available in this session, so the one remaining step is to copy that text verbatim to `collab/1792670000000-architect-f1-confirm.report.md` once edits are allowed.
+
+Summary of the ruling:
+
+- **A, CONFIRM.** A non-BLAKE3 carrier row id is `:yin.k/undecodable :row-algorithm`. The profile map has no algorithm key, so profile-mismatch was the wrong family. The digest can be honest, so hash-mismatch was wrong too. Transport tuples step 1 says the two families are never conflated. Code, test and all three spec passages already agree in commit 00243b57.
+- **B, CONFIRM.** Slot-11 code and both install-record addresses are dao.jing store addresses and verify under the algorithm each address names, per the hash-registry doc and Class 3 of call-site-classification. Carrier row ids stay a frozen carrier-version contract. The two policies do not conflict.
+- **C, CONFIRM.** The inspector puts the root in the baseline, the ledger compares whole baselines, and the grant test pins the counter variant as `:variant-conflict`. The root commits to the counter and every reachable row, so a different root is a different checkpoint. Reordered rows are the only equal-baseline variant, and the docs already say so.
+
+No code or doc change is needed.

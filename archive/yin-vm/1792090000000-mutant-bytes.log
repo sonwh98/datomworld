@@ -1,0 +1,17 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (intermediate-label-bytes-are-bounded) (rows_test.cljc:402)
+expected: (= :resource-limit (:yin.k/kind d))
+  actual: (not (= :resource-limit nil))
+
+FAIL in (intermediate-label-bytes-are-bounded) (rows_test.cljc:403)
+expected: (= [:label-bytes] (:yin.k/path d))
+  actual: (not (= [:label-bytes] nil))
+
+Ran 21 tests containing 323 assertions.
+2 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

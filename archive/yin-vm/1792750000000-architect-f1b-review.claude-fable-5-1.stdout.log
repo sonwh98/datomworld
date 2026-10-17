@@ -1,0 +1,15 @@
+Report written (42 lines, ends with SIGN-OFF) and temp files removed. The copy to the main checkout's collab directory needs approval I can't get here, so it stays in the worktree only. Wrapping up.
+
+Review complete: **SIGN-OFF**.
+
+Report: `collab/1792750000000-architect-f1b-review.report.md` in the worktree. Copying it to the main checkout's collab directory was blocked by the sandbox, so the orchestrator should copy it.
+
+What I verified:
+
+- **Placement** is right. Both dissoc sites run before with-custody and before the fenced make-stream swap. Exclusive and fenced lowers still set exactly what the R2 probe table recorded. Only the KEPT cells of that table became absent. I read the driver and export sites myself. Nothing the lowered task needs comes from the receiver among the seven keys.
+- **Assertions** are non-vacuous, correctly scoped and portable. Fork absence is paired with equality to a clean lower. The exclusive lower checks an exact custody literal, issued 0 and gate running. The fenced block checks root and install child.
+- **Mutants**: all seven root-site key reverts are killed. The gate revert also breaks behaviour, since the inherited ended gate blocks the resume. The child-site dissoc survives a whole-removal mutant because every kernel's spawn-module builds the child fresh, so that dissoc is dead code. Recorded as P3, optional to drop, not blocking.
+- **Lanes**: kondo 0/0, rows-test 36/672/0, slow Stage E and compose-rows suites 9/678/0 on the JVM. Node and Dart not run, as the brief allowed. Nothing in the diff hits a known cross-host trap.
+- **Restoration**: source is byte-identical to the backup and the working-tree diff matches the saved diff. My temporary files are deleted.
+
+Next for the orchestrator: copy the report to main collab, then commit per the standing sign-off rule, and run the Node and Dart lanes for rows-test at the phase 8 landing.

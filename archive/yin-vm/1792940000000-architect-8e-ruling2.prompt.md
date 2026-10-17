@@ -1,0 +1,10 @@
+Created-GMT: 2026-10-15 07:30:00 GMT
+Created-Local: 2026-10-15 14:30:00 +07
+Coding-Agent: claude (claude-fable-5-1)
+Session-ID: pending
+# Task: 8e ruling round 2: your NaN leaf rule and T3 fixture fail on the JVM; give a revised, VERIFIED spec
+Role: Architect
+Implementers:
+- Model: claude-fable-5-1 | Assigned: 2026-10-15 14:30 +07 | Status: active | Rationale: premises of own ruling falsified; same Architect corrects
+
+cwd = 8e worktree (uncommitted diff, includes codex's implementation of your spec). Read ./collab/1792047012394-engineer-8e-fix1.report.md and its premises.log in ./collab/1792047012394-engineer-8e-fix1-verification/. Codex implemented your spec exactly and proved: (1) on the JVM `(or (= a b) (and (not= a a) (not= b b)))` returns false for two separately boxed NaNs because Clojure `=` on boxed Doubles short-circuits on object identity, so `(not= a a)` is false for a boxed NaN passed through a generic function; T1/T2 throw and the T1 slot assertion `(not= v v)` is also false on the JVM. (2) Your T3 fixture (^{:meaning 1} x vs ^{:meaning 2} x literals) mints DIFFERENT ids (metadata is hashed), so the guard never fires; T3 needs a fixture that actually reaches the guard or should be dropped with a stated reason. You MUST verify the revised rule empirically before writing the spec: you may run throwaway probes with `clojure -M:test -n <ns>` from a temporary test namespace file you delete afterwards (JVM). The rule must be portable to Node and Dart (no host conditionals if avoidable, no unary minus; candidates: `(and (number? a) (number? b) (not (== a a)) (not (== b b)))`, a primitive-hinted compare, or an existing portable NaN predicate in src (grep cljc/dao/jing/cbor.cljc, debruijn_code.cljc double-le-hex, ucf) — reuse the existing one the encoder uses if it exists). Give the exact predicate, the fixed T1/T2 slot assertion, a working T3 or its retirement, and state what you probed. Part 1 only (no re-review of the diff). Report ./collab/<ms>-architect-8e-ruling2.report.md with Completed-GMT/Completed-Local/Coding-Agent/Session-ID, ending RULING-READY or BLOCKED. Edit only the report (and your temporary probe, deleted).

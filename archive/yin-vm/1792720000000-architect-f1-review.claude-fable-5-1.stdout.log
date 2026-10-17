@@ -1,0 +1,11 @@
+The report is written to `collab/1792720000000-architect-f1-review.report.md`. Verdict line: **CHANGES_REQUESTED**.
+
+**Why not a sign-off.** The test under review could not be read from this session. The worktree at `datomworld-srvm-p8f1` sits outside the session's allowed directory, and every path to it was denied: the Read tool, `cat`, `git -C`, a `--git-dir` detour, and a subagent. The author report was equally unreachable. Signing off on unseen code would have been fabricated, so the blocking finding (R1) asks the orchestrator to copy the diff and report into main `collab/`, or re-dispatch with `--add-dir`, and the report carries a checklist so the resumed pass is short.
+
+**What I could judge from the committed source at f9d15d36:**
+
+- **R2 (P2, substantive).** Compared with the deleted receiver-isolation path in old handoff.cljc, `restore-task` does not clear the receiver's pending closes, its issued counter under a non-exclusive lower, or its module registry. The two deleted tests pinned exactly those facts. The new test must assert them. If they fail, that is a source defect to fix in its own slice, not a test bug.
+- **R3 (ruling on the resource contract).** Merging resources is the intended design. Fresh keys are minted disjoint from the receiver's, so neither side can overwrite the other. The one real clobber is the fixed link request/response pair, acceptable for a fresh receiver of the composition but worth a docstring sentence.
+- **R4 (mutant predictions).** The keep-parked/store/installs/code/wait-set mutants die only if the test pairs "poison absent" with equality to a clean lower. The reuse-a-receiver-key mutant dies only if the receiver's pre-loaded resource is keyed as the first key `fresh-key!` would mint. Otherwise it survives.
+
+Node and Dart lanes remain unrun, and no mutant was executed. The worktree was never touched.

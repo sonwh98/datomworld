@@ -1,0 +1,17 @@
+Review complete. Findings are in `collab/1791940000000-reviewer-srvm-phase6a.claude-fable-5-1.findings.md`. Verdict: **CHANGES_REQUESTED**. The worktree is untouched outside `collab/` and the source tree is byte-identical to HEAD.
+
+**Headline result: the Dart lane fails.** I ran the Dart lane nobody had run. It compiles, and 20 of 21 tests pass, but `rows-test/task-root-checks-carried-code-and-frame` refuses with `:extra-cell`. The cause is a test-fixture portability bug at rows_test.cljc:238. ClojureDart compiles a multi-key `assoc` on a vector into a `conj` of a map, so the wait never entered the frames slot. Production code is clean of this trap. I extended the existing memory note about this ClojureDart behaviour to cover vectors.
+
+**Code defects found (medium):**
+- Two malformed-wire shapes escape `decode` as host exceptions instead of refusals: a census key not of the form `c-N` hits the EDN reader at rows.cljc:119, and the child gate reads the installs slot before schema validation at rows.cljc:424.
+- The default value markers are plain maps, so a guest map keyed `:yin.k/row` is misread, breaking the §2.7 bijection for such frames.
+
+**Test-coverage defects (medium):** acceptance item 10's "unordered-container permutation" is vacuous. An unsorted `:set` emission survives the whole suite because the fixture restores the original element order after substitution. No test pins a root id or exercises the exhaustive search's min-leaf selection, so a reversed numbering and an input-order tie-break both survive.
+
+**Mutation campaign:** 44 mutants, 29 killed, 15 survived, each run as one named JVM test with verified byte restore. The author's nine mutants all correspond to killed mutants of mine. Survivors are listed with the one assertion each needs.
+
+**Independent derivations agreed with the code:** saved(4,2)={1} by hand from the worked vector; row 22's nil-valued window row `[:window 1 V 2 [:lit nil]]` and a fully hand-built Merkle root equal the codec's; row 21's lexical chain {x f cat} matches the validator.
+
+**One process incident, recorded in the file:** my first harness run mutated rows.cljc before a reviewer backup existed because an earlier backup command had been refused by the sandbox. I restored from the author's verified backup, confirmed `cmp` and a clean git diff, then added a pre-mutation guard before continuing.
+
+**Next for the author:** fix the fixture and rerun Dart, convert the two exceptions to refusals, make the permutation test permute and pin a root id, and decide the marker representation.

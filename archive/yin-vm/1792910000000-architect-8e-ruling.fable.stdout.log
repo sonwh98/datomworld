@@ -1,0 +1,10 @@
+Report written to `collab/1792047401000-architect-8e-ruling.report.md`. Verdict: **CHANGES-REQUIRED**.
+
+**Part 1 ruling: route (a), fix the collision guard.** Every encoder below the guard already identifies all NaNs as one quiet NaN (`7ff8000000000000`): the dao.jing CBOR writer, so the row id and A are NaN-blind, and the de Bruijn scalar encoder, so H and R are too. The only NaN-hostile point is the host `=` re-check at `src/cljc/yin/vm.cljc:1214`. The row lane is also the production publish and link path, so switching the C4 tests to the datoms entry would have masked a real publish defect. The fix is one predicate: make the content check NaN-reflexive via `(or (= a b) (and (not= a a) (not= b b)))`, add count checks, and drop the `=` precheck. No id, address, or golden moves. Three tests are specified for `yin.vm-test`, including a pinned cross-host row id for the NaN literal and a regression test for the metadata-collision throw that nothing pins today.
+
+**Part 2 review.** Scope is clean and the 84-row ledger matches the 84 deftests the deleted files held. Findings:
+- P1: the NaN defect, plus the final test gates that were never rerun after the late fixes.
+- P2: a dead `tu/resolved-of` helper to delete, the dropped descriptor facts being a design-doc gap for the docs slice rather than a code gap, and reduced kernel-side binder coverage to log in known-gaps.
+- P3: cosmetic require ordering, stale prose, a missing trailing newline, and a double projection in one slow test.
+
+Next for the orchestrator: send the ruling to codex, then run the Node and Dart lanes and add the two known-gaps entries once codex resubmits.

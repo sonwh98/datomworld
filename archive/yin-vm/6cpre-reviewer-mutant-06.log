@@ -1,0 +1,35 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.continuation-invoke-test
+
+FAIL in (re-entry-after-return-test) (continuation_invoke_test.cljc:78)
+a continuation captured inside a returned call, kept in the
+            store, re-enters its capture point once per invocation; the
+            counter bounds the loop
+:stack
+expected: (= expected result)
+  actual: (not (= [30 3] [:thrown nil]))
+
+Testing yin.vm.debruijn.stack-effects-test
+
+Testing yin.vm.debruijn.stack-parity-test
+
+Testing yin.vm.debruijn.stack-tail-completion-test
+
+FAIL in (ffi-response-decodes-before-return) (stack_tail_completion_test.cljc:118)
+expected: (= [:outer :caller nil] (:stack done))
+  actual: (not (= [:outer :caller nil] [:outer nil]))
+
+FAIL in (return-truncates-at-caller-base) (stack_tail_completion_test.cljc:61)
+expected: (= [:outer :caller nil] (:stack done))
+  actual: (not (= [:outer :caller nil] [:outer nil]))
+
+Testing yin.vm.debruijn.stack-test
+
+Testing yin.vm.semantic-ffi-test
+
+Ran 87 tests containing 821 assertions.
+3 failures, 0 errors.

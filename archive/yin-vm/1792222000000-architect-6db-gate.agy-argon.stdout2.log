@@ -1,0 +1,16 @@
+error: invalid model selection (--model "argon" --effort ""): model argon is not recognized as a known model or custom model in settings
+Available models:
+  Gemini 4 Argon (Medium)
+  Gemini 4 Argon (High)
+  Gemini 4 Argon (Low)
+  Gemini 3.8 Flash (High)
+  Gemini 3.8 Flash (Medium)
+  Gemini 3.8 Flash (Low)
+  Claude Opus 5.5 (Low)
+  Claude Opus 5.5 (Medium)
+  Claude Opus 5.5 (High)
+  Claude Sonnet 5.5 (Low)
+  Claude Sonnet 5.5 (Medium)
+  Claude Sonnet 5.5 (High)
+  GPT-OSS 120B (Medium)
+{"conversation_id":"","status":"ERROR","response":"","error":"invalid model selection (--model \"argon\" --effort \"\"): model argon is not recognized as a known model or custom model in settings\nAvailable models:\n  Gemini 4 Argon (Medium)\n  Gemini 4 Argon (High)\n  Gemini 4 Argon (Low)\n  Gemini 3.8 Flash (High)\n  Gemini 3.8 Flash (Medium)\n  Gemini 3.8 Flash (Low)\n  Claude Opus 5.5 (Low)\n  Claude Opus 5.5 (Medium)\n  Claude Opus 5.5 (High)\n  Claude Sonnet 5.5 (Low)\n  Claude Sonnet 5.5 (Medium)\n  Claude Sonnet 5.5 (High)\n  GPT-OSS 120B (Medium)","duration_seconds":0,"num_turns":0,"usage":{"input_tokens":0,"output_tokens":0,"thinking_tokens":0,"cache_read_tokens":0,"total_tokens":0}}

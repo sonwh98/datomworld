@@ -1,0 +1,34 @@
+Round 2 is done apart from cljstyle and Dart, which you'll need to run: the harness refused `cljstyle check` here. The earlier attempt had already put the test edits on disk. I checked them against your brief, then re-ran all five mutants and every lane myself.
+
+**Changes:** only `test/yin/vm/debruijn/stack_tail_completion_test.cljc` changed. `src/` is byte-identical to HEAD (checked with `cmp` against the backup and with `git diff --quiet HEAD -- src/`). Nothing is staged or committed, and `handoff.cljc` wasn't touched.
+- **F2:** added `empty-k-halts-with-non-nil-result-and-clears-store`. It uses an empty K, a non-nil `:store-of` on the entry and delivers 7, then asserts `:stack [7]`, `vm/value` 7, `:halted? true` and `:store-of nil`. The nil-delivery test is kept.
+- **F3:** the inner frame in `frame-entry` now has `:return-pc 2`, and `return-pops-only-inner-frame` asserts pc 2.
+
+**Mutants:** all five are killed.
+
+| Mutant | Killed by | Counts |
+|---|---|---|
+| M08 | the new F2 test | 10 tests / 29 assertions, 2 failures |
+| N04 | the new F2 test | 10 / 29, 2 failures |
+| M09 | the new F2 test | 10 / 29, 1 failure |
+| N05 | the new F2 test | 10 / 29, 1 failure |
+| N08 | `return-pops-only-inner-frame` | 10 / 28, 1 failure, plus the existing error in `tail-in-operand-position-skips-layout` |
+
+**Lanes:**
+
+| Lane | Result |
+|---|---|
+| JVM, six suites (includes the new namespace) | 88 tests, 825 assertions, 0 failures, 0 errors. That is the reviewer's baseline of 87 / 821 plus the new test. |
+| Node, new namespace | 10 tests, 29 assertions, 0 failures, 0 errors, 0 compiler warnings |
+| kondo | 0 errors, 0 warnings (one info message on `stack.cljc` that was already there) |
+| cljstyle | Not run: "This command requires approval". The exact command and error are in the report. |
+| Dart | Not run: you're running it, per the brief |
+
+**Report:** `collab/1791970000000-vm-engineer-srvm-phase6cpre-r2.report.md` covers the rest:
+- Your F1 ruling is recorded as a known limitation.
+- F4 has no change, and its mutant M18 still survives, as you decided.
+- The F5 correction says round 1's "no mutant survives" was true only for the author's own eight mutants. Five of the reviewer's 26 survived. Four of those are now killed, leaving only M18.
+
+Two other things:
+- **Clock:** the machine clock read 09:13 GMT when I wrote the report, which is before your brief's Created-GMT of 09:20. I recorded the clock as it read.
+- **Driver change:** I raised the mutation driver's per-run timeout from 55 s to 600 s.

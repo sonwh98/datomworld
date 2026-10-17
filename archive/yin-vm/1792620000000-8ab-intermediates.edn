@@ -1,0 +1,1670 @@
+{"8c80e1d1b1aafa1a3bcd8d17a31098fc80832f34c02e1983a62449acaecdf741"
+ {:kind :h,
+  :input
+  [[:load-free f]
+   [:push]
+   [:load-free g]
+   [:push]
+   [:load-free x]
+   [:push]
+   [:call 1 true]
+   [:push]
+   [:load-free y]
+   [:push]
+   [:call 2 false]
+   [:halt]]},
+ "7a97c0d6bed15a1e5865780e16bceb4ff378c09963146ba8e9694bdc99800130"
+ {:kind :r,
+  :input
+  {:bodies [{:locals 0, :registers 1, :start 0, :end 1}],
+   :instructions [[:gensym 0 "g"] [:halt 0]]}},
+ "71aa237c3fd6395d77da245f6a8c16db735a002257837c5ba748e8db438347c7"
+ {:kind :r,
+  :input
+  {:bodies [{:locals 0, :registers 1, :start 0, :end 5}],
+   :instructions
+   [[:load-free 0 c]
+    [:branch-false 0 4]
+    [:const 0 1]
+    [:jump 5]
+    [:const 0 2]
+    [:halt 0]]}},
+ "b3ee9e8c72e84771fcd582ec779e46954e59a3351ea0d6eaf385d650716d8394"
+ {:kind :projection, :input {:type :literal, :value #{1.0}}},
+ "32d51cde25ba70371814b6dfdb3769af4ec8b5c52a4c2e03a01ee1abb0c0ab84"
+ {:kind :h,
+  :input
+  [[:load-free +]
+   [:push]
+   [:const 1]
+   [:push]
+   [:const 2]
+   [:push]
+   [:call 2 false]
+   [:halt]]},
+ "3eff0da5d025906b7a668c5b52dbf29fb5df4c6b2ea0a8b1bb733c08e35241cc"
+ {:kind :projection, :input {:type :literal, :value 1.0}},
+ "62198ed95487eee3c23191dd5bf092425156b3bdaf1e4a6e5518ce5d2d55d149"
+ {:kind :r,
+  :input
+  {:bodies [{:locals 0, :registers 2, :start 0, :end 3}],
+   :instructions
+   [[:load-free 0 f]
+    [:call 1 0 [] false []]
+    [:call 0 1 [] false []]
+    [:halt 0]]}},
+ "f86f480ae243b7dbd2666431f8b946be63069e4c4bf6ccd2f6c756d55aba0bc5"
+ {:kind :r,
+  :input
+  {:bodies [{:locals 0, :registers 3, :start 0, :end 3}],
+   :instructions
+   [[:const 1 10]
+    [:const 2 20]
+    [:ffi-call 0 :math/add [1 2] []]
+    [:halt 0]]}},
+ "411b0a57a72c09a3314fec224a042159523ec7bf3864b6e7d19eb8e269cace58"
+ {:kind :projection, :input {:type :literal, :value {:a 1.0}}},
+ "8ea2568a409a1e551e7bdf63f811bc80cca0a50f8793bbe77385ac1524e11bcd"
+ {:kind :r,
+  :input
+  {:bodies [{:locals 0, :registers 2, :start 0, :end 2}],
+   :instructions [[:const 1 "ok"] [:resume :p1 1] [:halt 0]]}},
+ "pysp:0971cc1ef48a844872105a79de1ed04a837063cc5e17d8055f66e19a95b7eb8c"
+ {:kind :segment,
+  :input
+  #:yin.module{:index
+               {"9a94268256db3b7a73a51e4581c757d4ae8d4f160059c8717964f9050cbe195f"
+                :segment/blake3-05d913cef3ea078aa56497f98543490f4bf5e5ccfc70cbe0dee7c90e6e811776,
+                "6d0d68b0755a7bb515c566a6d56eb88f2ba1d3956c1eec0029fba98382bf90cd"
+                :segment/blake3-d6020c73951dc412facdacfcb6a4958399a596dbf6413074f7449292a6cc47bd},
+               :exports
+               #{set-handler!
+                 deliver
+                 set-recursion-limit!
+                 attach!
+                 call
+                 recursion-limit
+                 return
+                 poll
+                 loop
+                 enter
+                 class},
+               :tree
+               :segment/blake3-ce60edb8b60c6b9096aa1ae76db30beac58689fc89ccb7838cb3a9ac69b8866d,
+               :footprint
+               {:store-keys
+                #{handler
+                  set-handler!
+                  deliver
+                  set-recursion-limit!
+                  attach!
+                  call
+                  recursion-limit
+                  return
+                  cursor
+                  poll
+                  loop
+                  enter
+                  class},
+                :effects
+                #{:cell/get
+                  :cell/new
+                  :stream/cursor
+                  :stream/poll
+                  :cell/set!}},
+               :contracts
+               {:yin.ast/code "v3",
+                :yin.semantic/code "v3",
+                :yin.debruijn.code "b2",
+                :yin.debruijn.register "r2"},
+               :name pysp,
+               :derivations
+               {:yin.semantic/code
+                :segment/blake3-8c84995db47172bd43fe07513fa296884840e4002abb9e380967452d33272e53,
+                :yin.debruijn.code
+                :segment/blake3-116c3c9055ec81b1a082ccb3657d5030a6c196f6015c724ddaccc07efd66982f,
+                :yin.debruijn.register
+                :segment/blake3-cd2e99108c36c1beaedd52784aaf1d2a75dc71d10bd3e41400e523983d5dc66e},
+               :schema 1,
+               :requires
+               {py
+                :segment/blake3-577aabfb863288b6f7aefbbb4c299befdf4825953aa7ccaa49a55428e26517ee},
+               :primitives
+               {=
+                :yin.k.pp/blake3-a98f34c8f5654f98ae7ef9340a6ec31fd7fc169b049e8cf12b8457b2391afc92,
+                <
+                :yin.k.pp/blake3-cff7d90f50b5076b3dcbea3dbb9dbba257b289e39af01716f2698b271c6b4b84,
+                cell/get
+                :yin.k.pp/blake3-9011bec2959c5aacafc2113988d7d014dcceb225d625637f592b743b494e1f9b,
+                <=
+                :yin.k.pp/blake3-5f7133009f09b21b454d7422d773fe01bdd309018b78cd769b8b7628032ec4c9,
+                cell/new
+                :yin.k.pp/blake3-eda49150a1b821c115ea16a00e31d4f636e06fc942115ab0146c77d27628aea7,
+                get
+                :yin.k.pp/blake3-1ebdadc85212cb41c3d15566fa736fb17badf6d145627c92fa7f363760067688,
+                data/str-concat
+                :yin.k.pp/blake3-3cb4ad823e961927a752eb8f350217dfe5a348b9edeae5a97fdad275107bd4f4,
+                -
+                :yin.k.pp/blake3-2abc882066942f94550584d3b6501eeaee47a8f5339bc1248d973181a628dbd3,
+                nil?
+                :yin.k.pp/blake3-2a5d8e251426162148907b22ee571eb978414427bdd99f0d7f23c8a7da95f4ee,
+                stream/cursor
+                :yin.k.pp/blake3-d61cc1ec4e61e0b21cec958159507e9761bb763a2a99026b45ca8e88055b468b,
+                +
+                :yin.k.pp/blake3-707f34a8e052558228317b229166a0d480e664451d1c547ef39d8faf9d4fe4af,
+                stream/poll!
+                :yin.k.pp/blake3-87074d10f012c608f63929bd829f05566313a428267e472d65483c08b9d93940,
+                assoc
+                :yin.k.pp/blake3-d0e42c2827e6cf21eb0e83c4bbe47dc1765dbc069975fff13957e36b7d04839d,
+                cell/set!
+                :yin.k.pp/blake3-3f9a2a8e4abbe230f4cd7e858d8b1764807255138c8be2c1d1b57b7c69449a67}}},
+ "a9cfdb6d6cbc9d5f3eb54ecb3c3584e0199f0b6d1d9d8fc498f63e5d769f9f14"
+ {:kind :r,
+  :input
+  {:bodies [{:locals 0, :registers 1, :start 0, :end 1}],
+   :instructions [[:stream-make 0 64] [:halt 0]]}},
+ "c0aefe2fa287cbc702e6680b4c7835167cb6458b05680e9271b331dd8c42bb21"
+ {:kind :r,
+  :input
+  {:bodies
+   [{:locals 0, :registers 3, :start 0, :end 3}
+    {:locals 1, :registers 5, :start 4, :end 8}],
+   :instructions
+   [[:closure 1 1 4]
+    [:const 2 10]
+    [:call 0 1 [2] false []]
+    [:halt 0]
+    [:load-free 2 +]
+    [:load-bound 3 0 0]
+    [:const 4 1]
+    [:call 1 2 [3 4] true []]
+    [:return 1]]}},
+ "787f35c8ea6aaec0c82e206caed5d476803a8f0a72dfdaa09e1c06e8bedac9b4"
+ {:kind :r,
+  :input
+  {:bodies [{:locals 0, :registers 4, :start 0, :end 5}],
+   :instructions
+   [[:load-free 0 +]
+    [:const 1 1]
+    [:const 2 2]
+    [:call 3 0 [1 2] false []]
+    [:define 0 y 3]
+    [:halt 0]]}},
+ "3d2f65270b0aebba07e361b79b536fd1c7c08a9ad4fc222fab8da2811d0637fd"
+ {:kind :h,
+  :input [[:closure 1 2] [:return] [:load-bound 0 0] [:return]]},
+ "aed64f20d7150b6a149939f5af307eca809fd9b23000ed44e526353f7f4bfbc0"
+ {:kind :projection,
+  :input
+  {:type :lambda,
+   :params [count],
+   :body
+   {:type :application,
+    :operator {:type :variable, :name +},
+    :operands
+    [{:type :variable, :name count} {:type :literal, :value 1}]}}},
+ "685a0c512ae6531d9814c03c536336f64e51e365050c130f33db938601396988"
+ {:kind :r,
+  :input
+  {:bodies [{:locals 0, :registers 3, :start 0, :end 3}],
+   :instructions
+   [[:const 1 :s] [:const 2 99] [:stream-put 0 1 2 []] [:halt 0]]}},
+ "7e5eeba449d15077ea0b32bb394138b85d3ef2a8bed68c646973390f75a35e5f"
+ {:kind :h,
+  :input
+  [[:load-free f]
+   [:push]
+   [:load-free c]
+   [:branch-false 6]
+   [:const 1]
+   [:jump 7]
+   [:const 2]
+   [:push]
+   [:load-free y]
+   [:push]
+   [:call 2 false]
+   [:halt]]},
+ "handoff-v2:afe9e3ac1c3c29e377dbba5a6ec27d5da8382e97515e2dac21a5cd7797369f10"
+ {:kind :segment,
+  :input
+  #:yin.k{:cells
+          #:yin.k{:c-0
+                  #:yin.k{:stream
+                          {:yin.k/tag :yin.k/stream,
+                           :dao.stream/identity "s0",
+                           :dao.stream/descriptor
+                           #:dao.stream{:type :dao.stream/remote,
+                                        :channel
+                                        #:dao.stream{:type
+                                                     :dao.stream.test/channel,
+                                                     :identity
+                                                     "ucf-handoff-toy"},
+                                        :identity "s0"}},
+                          :position 0}},
+          :layout
+          ["688b2b450aac370f3a5502159c5d896443c6309b56dcf50ebf7c22ac0004f155"],
+          :version 2,
+          :code
+          {"688b2b450aac370f3a5502159c5d896443c6309b56dcf50ebf7c22ac0004f155"
+           [[:closure 1 6]
+            [:push]
+            [:stream-make 4]
+            [:push]
+            [:call 1 false]
+            [:halt]
+            [:closure 1 13]
+            [:push]
+            [:load-bound 0 0]
+            [:stream-cursor]
+            [:push]
+            [:call 1 false]
+            [:return]
+            [:closure 1 20]
+            [:push]
+            [:load-bound 0 0]
+            [:stream-next]
+            [:push]
+            [:call 1 false]
+            [:return]
+            [:const [1.0 -0.0 1]]
+            [:return]]},
+          :kind :blocked,
+          :handoff true,
+          :installs {},
+          :frames
+          [#:yin.k{:pending #:yin.k{:cell :yin.k/c-0, :reason :next},
+                   :registers
+                   #:yin.k{:pc 17,
+                           :image
+                           "688b2b450aac370f3a5502159c5d896443c6309b56dcf50ebf7c22ac0004f155",
+                           :stack
+                           [#:yin.k{:tag :yin.k/closure,
+                                    :arity 1,
+                                    :entry 20,
+                                    :format :yin.debruijn.code,
+                                    :frames
+                                    [[{:yin.k/tag :yin.k/stream,
+                                       :dao.stream/identity "s0",
+                                       :dao.stream/descriptor
+                                       #:dao.stream{:type
+                                                    :dao.stream/remote,
+                                                    :channel
+                                                    #:dao.stream{:type
+                                                                 :dao.stream.test/channel,
+                                                                 :identity
+                                                                 "ucf-handoff-toy"},
+                                                    :identity "s0"}}]
+                                     [#:yin.k{:tag :yin.k/cursor-ref,
+                                              :cell :yin.k/c-0}]],
+                                    :binding :positional,
+                                    :segment
+                                    "688b2b450aac370f3a5502159c5d896443c6309b56dcf50ebf7c22ac0004f155"}],
+                           :frames
+                           [[{:yin.k/tag :yin.k/stream,
+                              :dao.stream/identity "s0",
+                              :dao.stream/descriptor
+                              #:dao.stream{:type :dao.stream/remote,
+                                           :channel
+                                           #:dao.stream{:type
+                                                        :dao.stream.test/channel,
+                                                        :identity
+                                                        "ucf-handoff-toy"},
+                                           :identity "s0"}}]
+                            [#:yin.k{:tag :yin.k/cursor-ref,
+                                     :cell :yin.k/c-0}]],
+                           :layout
+                           ["688b2b450aac370f3a5502159c5d896443c6309b56dcf50ebf7c22ac0004f155"],
+                           :continuation
+                           [#:yin.k{:frames [],
+                                    :return-pc 5,
+                                    :stack-base 0}
+                            #:yin.k{:frames
+                                    [[{:yin.k/tag :yin.k/stream,
+                                       :dao.stream/identity "s0",
+                                       :dao.stream/descriptor
+                                       #:dao.stream{:type
+                                                    :dao.stream/remote,
+                                                    :channel
+                                                    #:dao.stream{:type
+                                                                 :dao.stream.test/channel,
+                                                                 :identity
+                                                                 "ucf-handoff-toy"},
+                                                    :identity "s0"}}]],
+                                    :return-pc 12,
+                                    :stack-base 0}]}}],
+          :module-stores {},
+          :contract
+          {:yin.k/engine :stack,
+           :yin.k/version 1,
+           :yin.code/contract "b2"},
+          :free-env #:yin.k{:bindings {}},
+          :store {},
+          :parked {},
+          :requires
+          #:yin.k{:segments
+                  #{"688b2b450aac370f3a5502159c5d896443c6309b56dcf50ebf7c22ac0004f155"},
+                  :cursor-profiles #{:dao.stream.remote/v1}},
+          :id-counter 2}},
+ "62ddeadc830b05d643c0421e541b2bb78483805987ea84c7166f439f867f3927"
+ {:kind :h, :input [[:const 42] [:return]]},
+ "1c4a5286b6032c64b6356b5c261d3b842bfecd4d9f9c3f951f5050c8a2419cdb"
+ {:kind :r,
+  :input
+  {:bodies [{:locals 0, :registers 2, :start 0, :end 2}],
+   :instructions [[:const 1 :s] [:stream-cursor 0 1] [:halt 0]]}},
+ "f53e884408c9a6f5ecd019103e8f535f8b3d15c7a8b6c20232be64c808d0bad6"
+ {:kind :r,
+  :input
+  {:bodies [{:locals 0, :registers 4, :start 0, :end 4}],
+   :instructions
+   [[:load-free 0 +]
+    [:const 1 1]
+    [:const 2 2]
+    [:call 3 0 [1 2] false []]
+    [:halt 3]]}},
+ "1139b238ade426e60ef7827043f13abd9a456b19606382877bd8f6de899a0d22"
+ {:kind :h,
+  :input [[:closure 1 2] [:halt] [:load-bound 0 0] [:return]]},
+ "728b09df940c6ae20aa49a62bb4301cac93a10063426e1efecd5b2060f7334f6"
+ {:kind :r,
+  :input
+  {:bodies [{:locals 0, :registers 2, :start 0, :end 2}],
+   :instructions [[:const 0 5] [:define 1 x 0] [:halt 1]]}},
+ "2ba41668a2170a3c7ef74182c4e3c81d0b3fdbb7a8a6c96e72511c6f52b82aa8"
+ {:kind :h,
+  :input
+  [[:load-free f]
+   [:push]
+   [:load-free g]
+   [:push]
+   [:load-free x]
+   [:push]
+   [:call 1 false]
+   [:push]
+   [:load-free y]
+   [:push]
+   [:call 2 false]
+   [:halt]]},
+ "1f4ec95cdfd666cf5da2be5f47fd3a7e3c942dfa2ea87e61e0062270f61a0803"
+ {:kind :dimension,
+  :input
+  [[:yin.debruijn/dimension :dim/contract-version 1]
+   [:yin.debruijn/dimension :dim/arity 22]
+   [:yin.debruijn/dimension
+    :dim/slots
+    [[:yin.debruijn/hash :hash :marker]
+     [:yin.debruijn/type :keyword :scalar]
+     [:yin.debruijn/arity :int64 :scalar]
+     [:yin.debruijn/bound [:tuple :int64 :int64] :scalar]
+     [:yin.debruijn/free :symbol :scalar]
+     [:yin.debruijn/value :canonical :scalar]
+     [:yin.debruijn/op :keyword :scalar]
+     [:yin.debruijn/key :symbol :scalar]
+     [:yin.debruijn/prefix :string :scalar]
+     [:yin.debruijn/buffer :int64 :scalar]
+     [:yin.debruijn/parked-id :keyword :scalar]
+     [:yin.debruijn/macro? :bool :scalar]
+     [:yin.debruijn/body :ref :child]
+     [:yin.debruijn/operator :ref :child]
+     [:yin.debruijn/operands [:ordered-vector :ref] :child]
+     [:yin.debruijn/test :ref :child]
+     [:yin.debruijn/consequent :ref :child]
+     [:yin.debruijn/alternate :ref :child]
+     [:yin.debruijn/target :ref :child]
+     [:yin.debruijn/val-node :ref :child]
+     [:yin.debruijn/source :ref :child]
+     [:yin.debruijn/root :bool :marker]]]
+   [:yin.debruijn/dimension
+    :dim/encoding
+    {:hash :blake3,
+     :node-hash
+     "BLAKE3(dimension-hash || encode(tag-specific-slots-in-descriptor-order))",
+     :slot-order :descriptor,
+     :tag-specific-slots-only true,
+     :hash-excluded-slots [:yin.debruijn/hash :yin.debruijn/root],
+     :child-order :declared,
+     :values
+     {:double
+      {:format :ieee-754,
+       :nan :one-quiet-nan,
+       :signed-zero :distinct,
+       :integral-double-folding false},
+      :framing {:slots :tagged-and-length-delimited},
+      :int64 {:domain :signed-int64, :endianness :little},
+      :numbers {:out-of-domain [:bigint :ratio :char :other-numeric]},
+      :symbol {:components [:namespace :name], :encoding :nfc-utf-8},
+      :string
+      {:encoding :utf-8,
+       :normalization :nfc,
+       :framing :length-prefixed},
+      :vector {:order :positional},
+      :list {:order :positional},
+      :keyword {:components [:namespace :name], :encoding :nfc-utf-8},
+      :nil {:encoding :own-tag},
+      :bytes {:framing :length-prefixed},
+      :bool {:bytes {false "00", true "01"}},
+      :limits [:nfc-normalization-collisions],
+      :set {:element-order :canonical-encoded-bytes},
+      :map {:key-order :canonical-encoded-bytes},
+      :classes
+      [:nil
+       :bool
+       :int64
+       :double
+       :string
+       :bytes
+       :keyword
+       :symbol
+       :map
+       :set
+       :vector
+       :list]}}]
+   [:yin.debruijn/dimension
+    :dim/projection-to
+    [[:d1
+      "content-addressing floor: every projected node reduces to its node hash"]
+     [:d3
+      "semantic floor: each projected record is (h, :yin.debruijn/<slot>, v)"]]]
+   [:yin.debruijn/dimension
+    :dim/lift-from
+    [[:d5
+      "the named :yin/* Universal AST datoms (yin.vm/ast->datoms-with-root)"
+      "yin.vm.debruijn/project-datoms is the lift"]]]]},
+ "e780fb5067cedad63476224d01127ac0abcfaf60c0c210aa0b3a9eb34377c180"
+ {:kind :r,
+  :input
+  {:bodies [{:locals 0, :registers 1, :start 0, :end 1}],
+   :instructions [[:store-put 0 :k 42] [:halt 0]]}},
+ "6b8dea73d5a098238eadb0667458631a1f48d3aed702bfb8de9d2601e70188f5"
+ {:kind :h, :input [[:const "hello"] [:return]]},
+ "64ebe1570b00b27fdb47208861002113a830a31bc5e54935a41cfbcd0f202fe5"
+ {:kind :h,
+  :input [[:closure 2 2] [:halt] [:load-bound 0 1] [:return]]},
+ "9a4f2390af6d6b7b79172c8ba39a27dad2daa7905ab73c2b0ff91249cb1e28aa"
+ {:kind :r,
+  :input
+  {:bodies [{:locals 0, :registers 4, :start 0, :end 8}],
+   :instructions
+   [[:load-free 0 f]
+    [:load-free 1 c]
+    [:branch-false 1 5]
+    [:const 1 1]
+    [:jump 6]
+    [:const 1 2]
+    [:load-free 2 y]
+    [:call 3 0 [1 2] false []]
+    [:halt 3]]}},
+ "eb70fa6d6b3a4925bb1163916e2a35b0e030a39cb25c66e49e95c4251112bb3f"
+ {:kind :h, :input [[:const 5] [:define x] [:halt]]},
+ "2f9d03004e233a3d9e78eae688350aaaffd1701977097153434e9b5d36b407a2"
+ {:kind :projection, :input {:type :literal, :value [1.0]}},
+ "71926b1e251a07f8d1234c33e55c77f00fd387b24560a1a7578b95cbe510772e"
+ {:kind :r,
+  :input
+  {:bodies
+   [{:locals 0, :registers 3, :start 0, :end 3}
+    {:locals 1, :registers 5, :start 4, :end 8}],
+   :instructions
+   [[:closure 0 1 4]
+    [:const 1 10]
+    [:call 2 0 [1] false []]
+    [:halt 2]
+    [:load-free 1 +]
+    [:load-bound 2 0 0]
+    [:const 3 1]
+    [:call 4 1 [2 3] true []]
+    [:return 4]]}},
+ "44c761ee3ba9b5669385841b361b76f86f0b1db7b3b42f1c7966458669f6361e"
+ {:kind :descriptor,
+  :input
+  [[:yin.debruijn.code/dimension :dim/lowering-contract-version 2]
+   [:yin.debruijn.code/dimension :dim/arity 23]
+   [:yin.debruijn.code/dimension
+    :dim/slots
+    {:stream-cursor [],
+     :push [],
+     :stream-next [],
+     :store-put
+     [[:yin.debruijn.code/key :data] [:yin.debruijn.code/value :data]],
+     :current-continuation [],
+     :branch-false [[:yin.debruijn.code/target :pc]],
+     :call
+     [[:yin.debruijn.code/argc :uint]
+      [:yin.debruijn.code/tail? :bool]],
+     :ffi-call
+     [[:yin.debruijn.code/ffi-op :kw] [:yin.debruijn.code/argc :uint]],
+     :return [],
+     :store-get [[:yin.debruijn.code/key :data]],
+     :define [[:yin.debruijn.code/name :sym]],
+     :gensym [[:yin.debruijn.code/prefix :str]],
+     :load-free [[:yin.debruijn.code/name :sym]],
+     :const [[:yin.debruijn.code/value :data]],
+     :stream-close [],
+     :stream-make [[:yin.debruijn.code/buffer :buffer]],
+     :halt [],
+     :park [],
+     :resume [[:yin.debruijn.code/parked-id :kw]],
+     :load-bound
+     [[:yin.debruijn.code/depth :uint]
+      [:yin.debruijn.code/position :uint]],
+     :jump [[:yin.debruijn.code/target :pc]],
+     :closure
+     [[:yin.debruijn.code/arity :uint] [:yin.debruijn.code/body :pc]],
+     :stream-put []}]
+   [:yin.debruijn.code/dimension
+    :dim/encoding
+    {:hash :blake3,
+     :scalar-classes
+     [:nil
+      :bool
+      :long
+      :double
+      :ratio
+      :bigint
+      :char
+      :string
+      :keyword
+      :symbol
+      :vector
+      :list
+      :map
+      :set],
+     :framing :tagged-and-length-delimited,
+     :fixed-width-kinds [:uint :pc],
+     :nfc false,
+     :integral-double-folding false,
+     :map-set-order :canonical-encoded-bytes}]]},
+ "52791d4a2d0f4649b6d90e0c7e0a9067c96008ed4ecdc6b77f08a15644893d0c"
+ {:kind :h,
+  :input
+  [[:closure 1 6]
+   [:push]
+   [:const 10]
+   [:push]
+   [:call 1 false]
+   [:halt]
+   [:load-free +]
+   [:push]
+   [:load-bound 0 0]
+   [:push]
+   [:const 1]
+   [:push]
+   [:call 2 true]
+   [:return]]},
+ "f74e6e75631bbd78d6fabb8dd829edc8d149ef29803111f48fefc5b209b39982"
+ {:kind :h,
+  :input
+  [[:load-free f]
+   [:push]
+   [:call 0 false]
+   [:push]
+   [:call 0 false]
+   [:halt]]},
+ "7eacba41f9f1548d18b724cbd2db87945f09ec7b4ab2f303399e9b6497007632"
+ {:kind :descriptor,
+  :input
+  [[:yin.debruijn.register/dimension :dim/contract-version 4]
+   [:yin.debruijn.register/dimension :dim/arity 23]
+   [:yin.debruijn.register/dimension
+    :dim/slots
+    {:stream-cursor
+     [[:yin.debruijn.register/rd :reg]
+      [:yin.debruijn.register/stream-reg :reg]],
+     :stream-next
+     [[:yin.debruijn.register/rd :reg]
+      [:yin.debruijn.register/cursor-reg :reg]
+      [:yin.debruijn.register/live :data]],
+     :store-put
+     [[:yin.debruijn.register/rd :reg]
+      [:yin.debruijn.register/key :data]
+      [:yin.debruijn.register/value :data]],
+     :current-continuation
+     [[:yin.debruijn.register/rd :reg]
+      [:yin.debruijn.register/live :data]],
+     :branch-false
+     [[:yin.debruijn.register/cond-reg :reg]
+      [:yin.debruijn.register/target :pc]],
+     :call
+     [[:yin.debruijn.register/rd :reg]
+      [:yin.debruijn.register/fn-reg :reg]
+      [:yin.debruijn.register/arg-regs :regs]
+      [:yin.debruijn.register/tail? :bool]
+      [:yin.debruijn.register/live :data]],
+     :ffi-call
+     [[:yin.debruijn.register/rd :reg]
+      [:yin.debruijn.register/ffi-op :kw]
+      [:yin.debruijn.register/arg-regs :regs]
+      [:yin.debruijn.register/live :data]],
+     :return [[:yin.debruijn.register/value-reg :reg]],
+     :move
+     [[:yin.debruijn.register/rd :reg]
+      [:yin.debruijn.register/rs :reg]],
+     :store-get
+     [[:yin.debruijn.register/rd :reg]
+      [:yin.debruijn.register/key :data]],
+     :define
+     [[:yin.debruijn.register/rd :reg]
+      [:yin.debruijn.register/name :sym]
+      [:yin.debruijn.register/rs :reg]],
+     :gensym
+     [[:yin.debruijn.register/rd :reg]
+      [:yin.debruijn.register/prefix :str]],
+     :load-free
+     [[:yin.debruijn.register/rd :reg]
+      [:yin.debruijn.register/name :sym]],
+     :const
+     [[:yin.debruijn.register/rd :reg]
+      [:yin.debruijn.register/value :data]],
+     :stream-close
+     [[:yin.debruijn.register/rd :reg]
+      [:yin.debruijn.register/stream-reg :reg]],
+     :stream-make
+     [[:yin.debruijn.register/rd :reg]
+      [:yin.debruijn.register/capacity :uint]],
+     :halt [[:yin.debruijn.register/value-reg :reg]],
+     :park
+     [[:yin.debruijn.register/rd :reg]
+      [:yin.debruijn.register/live :data]],
+     :resume
+     [[:yin.debruijn.register/parked-id :kw]
+      [:yin.debruijn.register/value-reg :reg]],
+     :load-bound
+     [[:yin.debruijn.register/rd :reg]
+      [:yin.debruijn.register/depth :uint]
+      [:yin.debruijn.register/position :uint]],
+     :jump [[:yin.debruijn.register/target :pc]],
+     :closure
+     [[:yin.debruijn.register/rd :reg]
+      [:yin.debruijn.register/arity :uint]
+      [:yin.debruijn.register/body-pc :pc]],
+     :stream-put
+     [[:yin.debruijn.register/rd :reg]
+      [:yin.debruijn.register/stream-reg :reg]
+      [:yin.debruijn.register/value-reg :reg]
+      [:yin.debruijn.register/live :data]]}]
+   [:yin.debruijn.register/dimension
+    :dim/encoding
+    {:hash :blake3,
+     :scalar-encoder :yin.debruijn-code/encode-scalar,
+     :register-banks [:locals :temporaries],
+     :map-set-order :canonical-encoded-bytes}]]},
+ "e971cd9b084c9884443995d6958e772b504079c966abab6c2277ac265079afd3"
+ {:kind :h,
+  :input
+  [[:closure 1 6]
+   [:push]
+   [:stream-make 4]
+   [:push]
+   [:call 1 false]
+   [:halt]
+   [:closure 1 13]
+   [:push]
+   [:load-bound 0 0]
+   [:stream-cursor]
+   [:push]
+   [:call 1 false]
+   [:return]
+   [:closure 1 20]
+   [:push]
+   [:load-bound 0 0]
+   [:stream-next]
+   [:push]
+   [:call 1 false]
+   [:return]
+   [:const [1.0 -0.0 1]]
+   [:return]]},
+ "4dc65d3411d7349b9f2a5f947b103ae04ed179e4b3a5249a2532ea2ce12d2950"
+ {:kind :r,
+  :input
+  {:bodies [{:locals 0, :registers 4, :start 0, :end 6}],
+   :instructions
+   [[:load-free 0 f]
+    [:load-free 1 g]
+    [:load-free 2 x]
+    [:call 3 1 [2] true []]
+    [:load-free 1 y]
+    [:call 2 0 [3 1] false []]
+    [:halt 2]]}},
+ "91eee5759eec08799e98b70f0eecc26255dec4f2def3c8be2dec4595312a625f"
+ {:kind :r,
+  :input
+  {:bodies [{:locals 0, :registers 2, :start 0, :end 2}],
+   :instructions [[:const 1 :s] [:stream-close 0 1] [:halt 0]]}},
+ "aaa109a179b7e4b280ef4c25006316067569bfaddb300d2b46ddadf9398d93fa"
+ {:kind :r,
+  :input
+  {:bodies [{:locals 0, :registers 4, :start 0, :end 6}],
+   :instructions
+   [[:load-free 0 f]
+    [:load-free 1 g]
+    [:load-free 2 x]
+    [:call 3 1 [2] false [0]]
+    [:load-free 1 y]
+    [:call 2 0 [3 1] false []]
+    [:halt 2]]}},
+ "fe79f9ab7e0ab5c6a90813bf6dd849c9760577684cfc0aeff5408b922dbb866a"
+ {:kind :h,
+  :input
+  [[:load-free f]
+   [:push]
+   [:load-free x]
+   [:resume :p]
+   [:push]
+   [:load-free y]
+   [:push]
+   [:call 2 false]
+   [:halt]]},
+ "a71ffdee457d4d6c90d704117cb0b5992abb98c7d4952356e018e056eae2cb48"
+ {:kind :h,
+  :input
+  [[:load-free +]
+   [:push]
+   [:const 1]
+   [:push]
+   [:const 2]
+   [:push]
+   [:call 2 false]
+   [:define y]
+   [:halt]]},
+ "188d78a7a966fc7b2f3ef64327febad1658256f4469c0ce1f6c30e090b59af8d"
+ {:kind :h,
+  :input
+  [[:closure 1 2]
+   [:halt]
+   [:closure 1 4]
+   [:return]
+   [:load-free -]
+   [:push]
+   [:load-bound 1 0]
+   [:push]
+   [:load-bound 0 0]
+   [:push]
+   [:call 2 false]
+   [:return]]},
+ "e00c3b0d63258ae66741fe1c499ee95a31d89a56e945baf0687b659b8ecd142e"
+ {:kind :h, :input [[:load-free x] [:return]]},
+ "52c71ac04f193913c33782d81ec5a2276db53753010f9888c53650f4252c134e"
+ {:kind :r,
+  :input
+  {:bodies [{:locals 0, :registers 4, :start 0, :end 5}],
+   :instructions
+   [[:load-free 0 f]
+    [:load-free 1 x]
+    [:resume :p 1]
+    [:load-free 1 y]
+    [:call 2 0 [3 1] false []]
+    [:halt 2]]}},
+ "fb7626101d5ef04222467e6eee820a73694e1045ecb07d1f4c568b3516758852"
+ {:kind :r,
+  :input
+  {:bodies [{:locals 0, :registers 6, :start 0, :end 10}],
+   :instructions
+   [[:load-free 1 +]
+    [:load-free 2 a]
+    [:load-free 4 test]
+    [:branch-false 4 8]
+    [:load-free 4 f]
+    [:const 5 1]
+    [:call 3 4 [5] false [1 2]]
+    [:jump 9]
+    [:const 3 0]
+    [:call 0 1 [2 3] false []]
+    [:halt 0]]}},
+ "py:b9dbaeff80b320070d24ec870f1b525e4db0c4cd3214d0ba4c3f2f6b56bea427"
+ {:kind :segment,
+  :input
+  #:yin.module{:index
+               {"9519c60ce6b9bc57ff15a08748067cbdf357df590345246a907db854052ab90d"
+                :segment/blake3-c9d1b0d90897bf07211a9164e9e03d72e2d1a054396408469554d7c6c661de4f,
+                "60e1dda50d66fe89c48dae4543fe42d9c29efda0566946188eebf662ac6c108c"
+                :segment/blake3-5c736ecf9e4081c6d14e9894d9a6b41ee3c304b7410375a425fb6798507a98d2},
+               :exports
+               #{rt-limit
+                 zip-pairs
+                 obj-truthy
+                 set-handlers!
+                 yield-raw
+                 type-name
+                 gen-step
+                 is-not
+                 ne
+                 range-has?
+                 int-result
+                 modules-put!
+                 fill-defaults
+                 bind-keyword
+                 finite?
+                 float-text
+                 hash-signed
+                 bind-keywords
+                 ctx
+                 dict-del-quiet
+                 float-floor
+                 as-exception
+                 zero-like
+                 try
+                 dict-has?
+                 gen-enter
+                 lt
+                 le
+                 import
+                 raise-new
+                 bind-args
+                 add
+                 user-adv
+                 unwind-to
+                 iter
+                 division-operands
+                 fill-kwdefaults
+                 int-of
+                 divmod-values
+                 floor
+                 make-class
+                 subclass?
+                 dict-new
+                 digit
+                 iter-step
+                 iadd
+                 decimal-exponent
+                 int-lit
+                 import-star
+                 dict-items
+                 numeric?
+                 range-len
+                 for-each
+                 digits-repr
+                 divmod
+                 int-conv
+                 throw-exc
+                 module-of
+                 cell?
+                 invert
+                 floordiv
+                 same?
+                 instantiate
+                 bind
+                 iter-at
+                 in
+                 iter-outcome
+                 exponent-text
+                 gen-content
+                 pow2-above
+                 shift
+                 range-args
+                 neg
+                 exc-class?
+                 to-vector
+                 with-bound
+                 hash-modulus
+                 int-op
+                 yield-from
+                 num
+                 float-conv
+                 float?
+                 star-copy-all
+                 yield
+                 global-del
+                 set-add
+                 range-count
+                 floor-descend
+                 set-fill
+                 any-class-match?
+                 snapshot-pairs
+                 user-forward
+                 module-run
+                 iterable
+                 ge
+                 float-abs
+                 pop-frame
+                 object-class
+                 check-print-all
+                 user-delegate-step
+                 str-escape
+                 exc-matches
+                 init!
+                 zero-digits?
+                 frame
+                 contains
+                 sum-from
+                 call-kw
+                 hash
+                 int-text-error
+                 key
+                 gen-attr
+                 eq
+                 index
+                 gen-throw
+                 raise
+                 float-power
+                 gen-result
+                 is
+                 call
+                 delattr
+                 unpack-star
+                 list-append
+                 int?
+                 float-decimal
+                 dict-fill
+                 isinstance
+                 kw-pairs
+                 set-slice
+                 division-check
+                 delegate
+                 class-match?
+                 gen-fail
+                 extend
+                 sub
+                 gen-exit
+                 no-module
+                 seq-contains?
+                 import-fail
+                 mod-p
+                 float-text-error
+                 make-function
+                 float-key
+                 delegate-step
+                 module-new
+                 user-iter
+                 float
+                 user-step
+                 gen-close
+                 vconj
+                 mod
+                 method
+                 getitem
+                 run-module
+                 local-get
+                 pick
+                 run-session
+                 sequence?
+                 frame-depth
+                 call-ec
+                 repeat-str
+                 read-digits
+                 slice-int
+                 arith
+                 modules-ref
+                 try-finally
+                 keys-of
+                 user-iterator?
+                 range-has-float?
+                 range-size
+                 pow
+                 snapshot-exc
+                 gen-start
+                 kw-extend
+                 unpack
+                 index-type-error
+                 class-ns-del
+                 make-exc
+                 function?
+                 zero?
+                 abs-depth
+                 round-float
+                 char-escape
+                 reindex
+                 float-to-int
+                 make-generator
+                 int-text
+                 global-del-quiet
+                 range-small?
+                 radix-conv
+                 for-each-at
+                 num-compare
+                 hash-int
+                 rshift
+                 class-ns-get
+                 range-at
+                 dict-set
+                 lnot
+                 tuple
+                 pos
+                 slice-positions
+                 strip-space
+                 attr-error
+                 dict-ref
+                 crossing-base
+                 any-of
+                 lshift
+                 bitor
+                 range-elem
+                 all-of
+                 handlers
+                 snapshot-obj
+                 outcome
+                 gen-send
+                 repeat-items
+                 slice-bound
+                 ascii-lower
+                 setitem
+                 make-instance
+                 print
+                 getattr
+                 globals-fn
+                 stop-as-return
+                 guarded
+                 str-repr
+                 as-float
+                 float-parts
+                 global-or
+                 lookup-attr
+                 imul
+                 text-repeat
+                 type-of
+                 truediv
+                 abs-conv
+                 float-parts-up
+                 range-exact-at
+                 bitand
+                 truthy
+                 type-error
+                 strip-end
+                 module-dict
+                 stop-iteration-class
+                 eq-objects
+                 all-exc-classes?
+                 negative-power
+                 round-conv
+                 str-conv
+                 set-from
+                 eq-items
+                 star-name
+                 str?
+                 mul
+                 snapshot
+                 star-copy-public
+                 float-parts-down
+                 fmod-pos
+                 arg
+                 list
+                 abs
+                 power-overflow
+                 rt-ctx
+                 chars
+                 str
+                 next
+                 delattr-quiet
+                 collect
+                 run-main
+                 pad
+                 import-sub
+                 global-set
+                 strip-start
+                 gt
+                 fn-error
+                 with
+                 float-repr
+                 restore!
+                 slice
+                 class-lookup
+                 fpow
+                 star-item
+                 all-in?
+                 round-integer
+                 slice-of
+                 kind
+                 range3
+                 content-type
+                 compare
+                 power-special
+                 len
+                 type-text
+                 index-of
+                 float-mod
+                 space?
+                 finite-key
+                 set-new
+                 repeat
+                 set-fill-at
+                 hash-float
+                 snapshot-all
+                 import-from
+                 global-get
+                 float-divmod
+                 lookup-pair
+                 bitxor
+                 int-refusal?
+                 not-in
+                 dict-from
+                 modules-del!
+                 setattr
+                 gen-switch
+                 slice-walk
+                 check-print},
+               :tree
+               :segment/blake3-ac9efebbabe8c1ba71550e21de645a64725bbc57d3140037af05df1392f093ef,
+               :footprint
+               {:store-keys
+                #{rt-limit
+                  zip-pairs
+                  obj-truthy
+                  set-handlers!
+                  py.b/oct
+                  yield-raw
+                  type-name
+                  gen-step
+                  is-not
+                  ne
+                  py.b/repr
+                  range-has?
+                  int-result
+                  modules-put!
+                  fill-defaults
+                  bind-keyword
+                  finite?
+                  float-text
+                  hash-signed
+                  bind-keywords
+                  ctx
+                  dict-del-quiet
+                  float-floor
+                  as-exception
+                  py.rt/out
+                  zero-like
+                  try
+                  py.b/IndexError
+                  dict-has?
+                  gen-enter
+                  py.b/divmod
+                  py.b/sum
+                  py.b/LookupError
+                  lt
+                  py.b/set
+                  le
+                  import
+                  raise-new
+                  bind-args
+                  add
+                  user-adv
+                  unwind-to
+                  iter
+                  division-operands
+                  fill-kwdefaults
+                  int-of
+                  divmod-values
+                  floor
+                  make-class
+                  subclass?
+                  dict-new
+                  py.b/hash
+                  digit
+                  iter-step
+                  iadd
+                  decimal-exponent
+                  int-lit
+                  import-star
+                  dict-items
+                  numeric?
+                  range-len
+                  for-each
+                  digits-repr
+                  divmod
+                  int-conv
+                  py.b/bool
+                  throw-exc
+                  module-of
+                  cell?
+                  invert
+                  floordiv
+                  same?
+                  instantiate
+                  py.b/RuntimeError
+                  py.rt/modules
+                  bind
+                  iter-at
+                  py.b/set-add
+                  in
+                  py.b/ValueError
+                  iter-outcome
+                  py.b/builtins
+                  exponent-text
+                  gen-content
+                  pow2-above
+                  shift
+                  range-args
+                  neg
+                  exc-class?
+                  to-vector
+                  with-bound
+                  py.b/iter
+                  py.b/ArithmeticError
+                  hash-modulus
+                  int-op
+                  yield-from
+                  num
+                  float-conv
+                  float?
+                  py.rt/sys
+                  py.b/float
+                  py.b/dict-keys
+                  star-copy-all
+                  yield
+                  py.b/print
+                  py.b/KeyboardInterrupt
+                  py.b/dict-items
+                  py.b/GeneratorExit
+                  global-del
+                  set-add
+                  range-count
+                  floor-descend
+                  set-fill
+                  any-class-match?
+                  snapshot-pairs
+                  user-forward
+                  module-run
+                  iterable
+                  ge
+                  py.b/list-append
+                  float-abs
+                  pop-frame
+                  py.b/round
+                  object-class
+                  check-print-all
+                  py.b/StopIteration
+                  user-delegate-step
+                  str-escape
+                  exc-matches
+                  init!
+                  zero-digits?
+                  frame
+                  contains
+                  sum-from
+                  py.rt/limit
+                  call-kw
+                  hash
+                  int-text-error
+                  key
+                  gen-attr
+                  eq
+                  index
+                  py.b/gen-next
+                  gen-throw
+                  raise
+                  float-power
+                  gen-result
+                  is
+                  call
+                  delattr
+                  unpack-star
+                  list-append
+                  int?
+                  float-decimal
+                  dict-fill
+                  isinstance
+                  kw-pairs
+                  set-slice
+                  division-check
+                  delegate
+                  class-match?
+                  gen-fail
+                  extend
+                  sub
+                  gen-exit
+                  no-module
+                  seq-contains?
+                  py.b/isinstance
+                  import-fail
+                  mod-p
+                  float-text-error
+                  make-function
+                  float-key
+                  delegate-step
+                  module-new
+                  user-iter
+                  float
+                  py.b/pow
+                  py.b/TypeError
+                  user-step
+                  gen-close
+                  vconj
+                  mod
+                  method
+                  getitem
+                  run-module
+                  local-get
+                  pick
+                  run-session
+                  sequence?
+                  frame-depth
+                  call-ec
+                  repeat-str
+                  read-digits
+                  slice-int
+                  arith
+                  modules-ref
+                  try-finally
+                  keys-of
+                  user-iterator?
+                  py.b/int
+                  py.b/bin
+                  range-has-float?
+                  range-size
+                  pow
+                  snapshot-exc
+                  py.b/gen-throw
+                  gen-start
+                  kw-extend
+                  unpack
+                  index-type-error
+                  class-ns-del
+                  make-exc
+                  function?
+                  zero?
+                  abs-depth
+                  round-float
+                  char-escape
+                  reindex
+                  float-to-int
+                  make-generator
+                  int-text
+                  global-del-quiet
+                  py.b/all
+                  range-small?
+                  radix-conv
+                  for-each-at
+                  num-compare
+                  py.b/gen-close
+                  hash-int
+                  rshift
+                  class-ns-get
+                  range-at
+                  dict-set
+                  lnot
+                  tuple
+                  pos
+                  slice-positions
+                  strip-space
+                  attr-error
+                  dict-ref
+                  crossing-base
+                  any-of
+                  lshift
+                  bitor
+                  range-elem
+                  all-of
+                  handlers
+                  snapshot-obj
+                  py.b/gen-iter
+                  outcome
+                  gen-send
+                  repeat-items
+                  slice-bound
+                  ascii-lower
+                  setitem
+                  py.b/next
+                  make-instance
+                  print
+                  getattr
+                  globals-fn
+                  stop-as-return
+                  guarded
+                  str-repr
+                  as-float
+                  float-parts
+                  py.b/UnboundLocalError
+                  global-or
+                  lookup-attr
+                  py.b/tuple
+                  imul
+                  py.b/KeyError
+                  text-repeat
+                  type-of
+                  truediv
+                  abs-conv
+                  float-parts-up
+                  range-exact-at
+                  bitand
+                  truthy
+                  py.b/ZeroDivisionError
+                  type-error
+                  py.b/RecursionError
+                  strip-end
+                  py.b/range
+                  module-dict
+                  stop-iteration-class
+                  eq-objects
+                  py.b/ImportError
+                  all-exc-classes?
+                  negative-power
+                  round-conv
+                  str-conv
+                  set-from
+                  eq-items
+                  star-name
+                  str?
+                  mul
+                  py.b/Exception
+                  py.b/gen-send
+                  snapshot
+                  star-copy-public
+                  py.b/object
+                  float-parts-down
+                  py.b/MemoryError
+                  fmod-pos
+                  arg
+                  list
+                  py.b/len
+                  abs
+                  power-overflow
+                  rt-ctx
+                  chars
+                  str
+                  next
+                  delattr-quiet
+                  collect
+                  run-main
+                  pad
+                  import-sub
+                  py.b/dict-get
+                  py.b/NotImplementedError
+                  global-set
+                  strip-start
+                  gt
+                  fn-error
+                  py.b/any
+                  with
+                  float-repr
+                  restore!
+                  slice
+                  class-lookup
+                  py.b/hex
+                  fpow
+                  star-item
+                  all-in?
+                  round-integer
+                  slice-of
+                  kind
+                  py.b/dict-values
+                  range3
+                  content-type
+                  py.rt/state
+                  compare
+                  power-special
+                  py.b/AttributeError
+                  py.rt/builtins-mod
+                  py.b/BaseException
+                  len
+                  type-text
+                  index-of
+                  float-mod
+                  space?
+                  finite-key
+                  set-new
+                  py.b/NameError
+                  py.rt/ctx
+                  repeat
+                  set-fill-at
+                  hash-float
+                  snapshot-all
+                  import-from
+                  global-get
+                  float-divmod
+                  lookup-pair
+                  bitxor
+                  py.b/OverflowError
+                  int-refusal?
+                  py.b/str
+                  not-in
+                  dict-from
+                  modules-del!
+                  py.b/list
+                  setattr
+                  py.b/abs
+                  gen-switch
+                  slice-walk
+                  check-print},
+                :effects #{:cell/get :cell/new :cell/set!}},
+               :contracts
+               {:yin.ast/code "v3",
+                :yin.semantic/code "v3",
+                :yin.debruijn.code "b2",
+                :yin.debruijn.register "r2"},
+               :name py,
+               :derivations
+               {:yin.semantic/code
+                :segment/blake3-6baccc88aea76f8b89eea30949e3c5c356f412460a18bfb24996782d6ea1e938,
+                :yin.debruijn.code
+                :segment/blake3-72612cb1d2d8346beec0ef66f5b40d10d96a64e132ddec33c15d660da96a4bbf,
+                :yin.debruijn.register
+                :segment/blake3-74ac4df00ba6f3ad2791f5d652e8c94b77cfbc5bf45da2d2236839ffea778ba4},
+               :schema 1,
+               :requires {},
+               :primitives
+               {data/number?
+                :yin.k.pp/blake3-327b9d2fd6f3b4f69d8e3a513df0d5f06950d3ca9aead3de35d12cc9bf1d49c8,
+                integer/add
+                :yin.k.pp/blake3-2ba416dc4f4f86e216aed90717ba10d73676be571fdb25e8f0d05c71a4a23226,
+                integer/floor-div-mod
+                :yin.k.pp/blake3-716b1ed6bdb17c3cd48705ce3a538fa059abb1e6c09ce3134afcc44251ac876f,
+                data/subvec
+                :yin.k.pp/blake3-765946dcaa9e5a0eedb0713c3510270c8291b46fd9bab42e4eb68b389c52a606,
+                data/max-items
+                :yin.k.pp/blake3-318b2e1b059b2e14c47b74a0abc61a8cad6ca4492757411b0696a8ca1c71d969,
+                data/float64
+                :yin.k.pp/blake3-d73457395a03e712800dae286a4ae61b9378cd77d94a7cba1a3c1760086ea74e,
+                =
+                :yin.k.pp/blake3-a98f34c8f5654f98ae7ef9340a6ec31fd7fc169b049e8cf12b8457b2391afc92,
+                <
+                :yin.k.pp/blake3-cff7d90f50b5076b3dcbea3dbb9dbba257b289e39af01716f2698b271c6b4b84,
+                integer/shift-right
+                :yin.k.pp/blake3-d0064b5bd0c78e5127b13acc6c537ab736f4cc76cfa16843c89d46ffa00f5466,
+                data/code-points->str
+                :yin.k.pp/blake3-abf6aaba53387887448a39140373603402674418f13389ff8349743c83e631de,
+                integer/neg
+                :yin.k.pp/blake3-b31539de6894b56d2560962facd32042ce020f4ca7fa1e931dd3ca88c2a0a57a,
+                integer/from-float
+                :yin.k.pp/blake3-d2932d2d04a17198ea7761c44ccc7de6bcd93072dd2ea3d2a7269359109e65d5,
+                data/float-value
+                :yin.k.pp/blake3-1dab03cf4619476a74929cec89512004cef1222195d1587bca2e156100184d2d,
+                cell/get
+                :yin.k.pp/blake3-9011bec2959c5aacafc2113988d7d014dcceb225d625637f592b743b494e1f9b,
+                <=
+                :yin.k.pp/blake3-5f7133009f09b21b454d7422d773fe01bdd309018b78cd769b8b7628032ec4c9,
+                integer/bit-xor
+                :yin.k.pp/blake3-785bca7b86367588b7304d470c9a3f0a76231d86ea3f45b414c7dbc8d8184d27,
+                *
+                :yin.k.pp/blake3-3b46e9d4949aab4547106a64a6024d9a438a506c8d2495c9aada623b3eb68d4d,
+                cell/new
+                :yin.k.pp/blake3-eda49150a1b821c115ea16a00e31d4f636e06fc942115ab0146c77d27628aea7,
+                conj
+                :yin.k.pp/blake3-f2f84cd2a9daa8caa36c69ea62f87efef6b4c1a74438adaccd14db6c347b650c,
+                get
+                :yin.k.pp/blake3-1ebdadc85212cb41c3d15566fa736fb17badf6d145627c92fa7f363760067688,
+                integer/format
+                :yin.k.pp/blake3-9e6dbd16fe3779ff336dffbd138ef2949dfca2a9479a2a6efe6540ae73fc264c,
+                data/content=
+                :yin.k.pp/blake3-1d4a6c64a3df39d498fdca5c6941ce83498108d801daac164842cb2c569d6e6f,
+                data/str-index-of
+                :yin.k.pp/blake3-b34c9a407109594e7ee9822aac04d689aa617957f281b884d4ac4e8f65bd2b13,
+                integer/sub
+                :yin.k.pp/blake3-eb3f765cd34c419903965c464db221e9f5d4f163745578838cba3f490fcbc2a2,
+                integer/to-float
+                :yin.k.pp/blake3-cc157d3bf6f90995ddbe2bee2eb8dbef3642865306490b1b05113073e966aacc,
+                >
+                :yin.k.pp/blake3-969d100e0b734a831a24c01eb03401ab5002bbf2cd5fff540d9ef94ab965b450,
+                data/str-concat
+                :yin.k.pp/blake3-3cb4ad823e961927a752eb8f350217dfe5a348b9edeae5a97fdad275107bd4f4,
+                integer/pow
+                :yin.k.pp/blake3-c3db96194618f806326ca12a6ec9b004d7f8ede7442b0eeed4e5add47920a5d0,
+                integer/float-digits
+                :yin.k.pp/blake3-a41c7aabb728dc62973e120ee1835f8d8c9476bf6c02bdfe7dde760c58deac6b,
+                integer/shift-left
+                :yin.k.pp/blake3-9f4e1dfbaa5c8c90f34b95592c6a8b3eecb1d22417746054029600e93ef2f00d,
+                -
+                :yin.k.pp/blake3-2abc882066942f94550584d3b6501eeaee47a8f5339bc1248d973181a628dbd3,
+                integer/bit-and
+                :yin.k.pp/blake3-5dbe5f7db8d7800dbd3da15d6e5b693483ce3f6a3f4adc51131ea139ef600ae6,
+                integer/decimal->float
+                :yin.k.pp/blake3-c797a9a3451add272bbe4def510ba02f42cec46cb0a3ab8f61cf08afafb65d58,
+                data/substring
+                :yin.k.pp/blake3-cac72ab4915383713b198f84510c9401976ab0f8d097bf8295a5e7391d117f6e,
+                nil?
+                :yin.k.pp/blake3-2a5d8e251426162148907b22ee571eb978414427bdd99f0d7f23c8a7da95f4ee,
+                not
+                :yin.k.pp/blake3-82dbd28748c59a754423de4096a304a2dd01b455cbdc3a3c957c4c049bfd22d5,
+                data/str-length
+                :yin.k.pp/blake3-aebb7c39be96e3f508936f9b0e2bfb58a75e6f35ac8ca4c582898485af5cb5dd,
+                /
+                :yin.k.pp/blake3-398ca735834203d34769bcc49de2673306347c9e9f1ae4e9f3458cfdedd6ae18,
+                >=
+                :yin.k.pp/blake3-600018a1ff2632620a57e962c3d1d9325f316793e46b8a01ac8e20998e9c9e30,
+                data/count
+                :yin.k.pp/blake3-81ae6d3b020b2c1f93f228d55eccb2ade3a2510e2332d4e33e3ca9ae71356369,
+                data/str->code-points
+                :yin.k.pp/blake3-901ebca6179c5f1334d9492f6f6ff9717757b15790db8a3ceef9ff1e54bfa37a,
+                integer/bit-or
+                :yin.k.pp/blake3-9eaa5b05e3868cb8843158aa28ecd6eb9cb6860e09af33e9a08cabbe44cfe8b1,
+                integer/compare-float
+                :yin.k.pp/blake3-49d8465fa06990f8dd67437f68ee694d085ff546843f46df1e94b48b3f7fda8c,
+                data/dissoc
+                :yin.k.pp/blake3-2c2910e52a0ac11e9989ee71ecfbcbd980e6c9244a4c09ffe2d6e5c71fa47ef0,
+                integer/bit-not
+                :yin.k.pp/blake3-6220b31e4315349bb3fc41fc0e9b1abdffe18747cb6c7156b7004f8c93aad77b,
+                +
+                :yin.k.pp/blake3-707f34a8e052558228317b229166a0d480e664451d1c547ef39d8faf9d4fe4af,
+                integer/max-digits
+                :yin.k.pp/blake3-a2510cda75bda372c34dc418e9da535212085a2b1ecdbbd5975a06a1189ed4c5,
+                integer/compare
+                :yin.k.pp/blake3-f612154ca4ac84d248a0fcd1e971238e7d9bf41a6aae68e10e9dd4d899c36f8d,
+                integer/mul
+                :yin.k.pp/blake3-2384cf7e8ead4e486d3cea96179accea583bdd6977f7c28dbdfdb1b87a004900,
+                data/into
+                :yin.k.pp/blake3-f7a2c68b60c1f0f8b406bf2d05171e3c179ed1eebafcd1e808c728234ab9d60a,
+                assoc
+                :yin.k.pp/blake3-d0e42c2827e6cf21eb0e83c4bbe47dc1765dbc069975fff13957e36b7d04839d,
+                integer/parse
+                :yin.k.pp/blake3-1f0c4123d2dbbe89f7932ab66e82735c3ca86def73599bce2f21d3261e04dcd8,
+                integer/true-div
+                :yin.k.pp/blake3-baf20fc684881bc59d300b0f4db8baa3f6777c7c71c3d94d928a004697e42e74,
+                cell/set!
+                :yin.k.pp/blake3-3f9a2a8e4abbe230f4cd7e858d8b1764807255138c8be2c1d1b57b7c69449a67}}},
+ "add0178e7de17c8ea2d078834f43898525ec683a3c8f5b8304398d004a09c08b"
+ {:kind :h,
+  :input
+  [[:load-free c]
+   [:branch-false 4]
+   [:const 1]
+   [:jump 5]
+   [:const 2]
+   [:halt]]},
+ "74f3617eef6eabcad7b27a36dda3b75af18fb1b3e17cf18df88b8a8c2cfcbe33"
+ {:kind :r,
+  :input
+  {:bodies [{:locals 0, :registers 2, :start 0, :end 2}],
+   :instructions [[:const 1 :c] [:stream-next 0 1 []] [:halt 0]]}},
+ "linker-R:c0aefe2fa287cbc702e6680b4c7835167cb6458b05680e9271b331dd8c42bb21"
+ {:kind :r,
+  :input
+  {:bodies
+   [{:locals 0, :registers 3, :start 0, :end 3}
+    {:locals 1, :registers 5, :start 4, :end 8}],
+   :instructions
+   [[:closure 0 1 4]
+    [:const 1 10]
+    [:call 2 0 [1] false []]
+    [:halt 2]
+    [:load-free 1 +]
+    [:load-bound 2 0 0]
+    [:const 3 1]
+    [:call 4 1 [2 3] true []]
+    [:return 4]]}}}

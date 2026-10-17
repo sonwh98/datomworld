@@ -1,0 +1,17 @@
+Report written: `collab/1792056311815-architect-8f3-confirm.report.md`, ending **SIGN-OFF**.
+
+**What I checked.** Only the six files the two codex reports name have mtimes newer than the sign-off report. I read each hunk against the P3 it answers and re-ran the four touched namespaces on the JVM.
+
+```
+Ran 102 tests containing 1615 assertions. 0 failures, 0 errors.
+```
+
+**Findings.**
+- **Docstrings (A-1, A-4)** say exactly what was asked. No deleted var is named any more.
+- **Envelope refusal (A-2)** is real. Appending to the rows medium bypasses the encoder's own check, so the throw can only come from the inline consumer loader in test_utils, and a nil result would fail the equality.
+- **Blocked writer round trip (A-3)** is real. The wake is now driven from the EDN-revived entry rather than the in-memory one, which is the stronger of the two.
+- **Reset (G-1)** is real and stronger than asked. Resetting a halted machine and rerunning to 42 fails if control is not put back at pc 0 or the halted flag is not cleared.
+- **Nil origin (G-2)** is real. Slot 1 of a provenance row is the origin, and no default origin would pass it.
+- **Blank lines (A-5) is only partly done.** Three triple-blank runs remain in the semantic-register linearize test at lines 230, 326 and 382. HEAD has none. Style only, not a commit gate, so I ledgered it rather than withholding sign-off.
+
+Node and Dart lanes are still unrun for the whole 8f-3 tree, so the orchestrator's three-host lane before commit still applies.

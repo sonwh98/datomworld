@@ -1,0 +1,25 @@
+Review done. Verdict: **READY_TO_MERGE**. Report written to `collab/1792195000000-review-free-env-seam.fable.report.md`; source and test trees are byte-identical to commit daf6e184.
+
+**What I checked**
+
+- **Set once, never recomputed.** The field appears only in the record declaration, the single `map->RegisterVM` in `create-vm`, and the `gc-roots` read. Every update site (put-registers, register-restore, reset, eval, attach-image, load-vector, load-ast, spawn-module) leaves it alone. No other file builds a RegisterVM. The UCF handoff refuses the semantic-register format as an unsupported kernel, so its free-env reads and its lower-side assoc never touch this record.
+- **GC root is right and needed.** The initial env may hold heap cell refs, since check-bindings! only rejects reserved names. After a rebind, such a cell is reachable only through free-env, so without the root a collect would sweep it and a later lift would emit a dangling ref. Retention is by design, not stale garbage.
+- **Mutants.** All five killed, source restored and diff-verified after each.
+
+| Mutant | Failures |
+|---|---|
+| M1 transition writes `:free-env E` | 8 |
+| M2 dropped from gc-roots | 1 |
+| M3 reset recomputes from current env | 1 |
+| M4 copy of current env at gc time | 1 |
+| M5 create-vm ignores checked env | 9 |
+
+**Verification run here.** kondo clean on both files. The vm-test namespace passes, and the five external namespaces that build register VMs through the linker pass as well. Node and Dart were out of scope for the brief.
+
+**Non-blocking findings**
+
+- The linker's discharge-defect in engine.cljc now sees the initial env for a register VM instead of an empty map. That is the correct behaviour and matches the de Bruijn kernels, but the engineer report does not mention it. Worth one line in the commit message.
+- The test's GC assertion checks membership in gc-roots by value rather than survival through collect. A cell-ref-in-initial-env test would be stronger. Optional follow-up.
+- Out of scope: the de Bruijn kernels do not root their own free-env although their lift emits it. Same latent gap, for that track.
+
+Next step per standing policy: with sign-off and green lanes, this branch can be committed and merged. I did not commit, since the brief was read-only.

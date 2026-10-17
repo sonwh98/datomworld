@@ -1,0 +1,14 @@
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+FAIL in (stack-operand-goldens) (derive_test.cljc:242)
+expected: (= [[:const 1] [:push] [:const 2] [:push] [:ffi-call :op/echo 2] [:halt]] (:image (derive/stack-image (projected {:type :dao.stream.apply/call, :op :op/echo, :operands [(lit 1) (lit 2)]}))))
+  actual: (not (= [[:const 1] [:push] [:const 2] [:push] [:ffi-call :op/echo 2] [:halt]] [[:const 1] [:const 2] [:ffi-call :op/echo 2] [:halt]]))
+{:mutant "X13 :ffi-call pushes omitted", :named-test stack-operand-goldens, :counts {:test 1, :pass 1, :fail 1, :error 0}, :killed true}
+{:mutant "X13 :ffi-call pushes omitted", :named-test stack-execution-oracle, :counts {:test 1, :pass 128, :fail 0, :error 0}, :killed false}
+Execution error (AssertionError) at user/eval17179$fn (1791910000000-5a-r2-mutants.clj:38).
+Assert failed: Named assertion must fail
+(pos? (:fail counters))
+
+Full report at:
+/var/folders/n0/xl3_1xkn0yd5trpq843l81840000gn/T/clojure-8594261143219602210.edn

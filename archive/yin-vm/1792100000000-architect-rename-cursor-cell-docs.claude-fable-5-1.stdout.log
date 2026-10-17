@@ -1,0 +1,19 @@
+Done. The nine design documents now use the owner's four-word vocabulary, and the report is written to `collab/1792100000000-architect-rename-cursor-cell-docs.report.md`.
+
+**What I did**
+
+- Restored each of the nine documents touched by commit 10876025 to its pre-rename text (no later commits had touched them), then applied the new vocabulary on that base. Every box-sense "cell" became "cursor cell" as a noun or "cursor-cell" as a modifier. Heap-box uses (`yin.vm.cell`, `:cell/new`, "heap cell", the evaluator's "cell ref") and the one table-cell use stayed as they were.
+- Version-3 documents (`yin.vm.ucf-transport-tuples.md`, `yin.vm.semantic-register-vm.continuation.md`) got the new tags and ids: `:yin.k/cc-<n>`, `:cursor-cells`, `:cursor-cell-body`, `[:cursor-cell C]`, `cursor-cell-C`, `:noncanonical-cursor-cells`.
+- Version-2 grammar sites (UCF 7.2.1, 7.4.3, 7.5.1 row, 7.5.3 table, the v2 amendment, ucf-revisions, both linker docs) are back to the exact spellings the shipped v2 code uses, confirmed by grep of `ucf/handoff.cljc` and `ucf/remote.cljc`. Each carries a one-line note that version 3 spells them differently.
+- The three terminology notes now define cursor, cursor cell, cursor-ref and cell.
+- The linker's ASCII reconciliation tables were re-wrapped so column widths still line up.
+
+**Verified**
+
+- No first-rename spellings remain in the nine files. The three remaining bare "cursor" hits are the immutable-value sense.
+- `dao.stream.md` has no "cell" at all and needed nothing.
+- No pinned root id or golden lives in these documents. The report flags that version-3 test pins in `test/` will change when code adopts the new tags.
+
+**State**
+
+Working tree only, nothing staged or committed, collab records untouched. Ambiguous sites and the decision for each are listed per document in the report.

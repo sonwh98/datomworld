@@ -1,0 +1,10 @@
+Created-GMT: 2026-10-15 10:05:00 GMT
+Created-Local: 2026-10-15 17:05:00 +07
+Coding-Agent: claude (claude-fable-5-1)
+Session-ID: pending
+# Task: 8f-3 review of the uncommitted diff (sign-off or changes): old kernel yin.vm.semantic, linearize, code deleted; ~38 consumers ported
+Role: Architect
+Implementers:
+- Model: claude-fable-5-1 | Assigned: 2026-10-15 17:05 +07 | Status: active | Rationale: sign-off gate before commit; reviewer family differs from codex author
+
+cwd = worktree datomworld-srvm-p8f3 (branch srvm-phase8f3 @ c55a6ceb, uncommitted). Read ./collab/1792053792008-engineer-8f3.report.md (codex; the quick tier it left PENDING passed afterwards: 4000 tests / 249194 assertions / 0 failures, /tmp/8f3-quick.log), your 8f-1 ruling/review (./collab/), the owner's concern: the owner asked "why delete the old kernel when the register kernel is not complete?" and accepted, but PARITY matters: every test that pinned LANGUAGE/VM behavior must survive on the new kernel with the same assertion. Review: (1) the retired-test ledger (81 removed forms, 13 added): for each retirement judge whether it pinned an old-representation-only fact (ok) or a language/VM behavior (must survive); flag any behavior that lost coverage; (2) assertions weakened or changed while porting (compare the old test bodies at HEAD with the ported ones, especially semantic_engine_test, semantic_ffi_test, semantic_stream_observer_test, test_utils create-vm/run-encoder-session, the nine C4 files, the three demos); (3) the UCF shrink (code-address only), opcode-table/opcase deletion, D2 segment-db port; (4) scope: only the ten C4 files under test/yang, no src/yang, no docs, no rename, no golden regeneration; (5) anything behavior-bearing the old kernel did that the new kernel does not (list as ledger items: they would die silently otherwise). Report ./collab/<ms>-architect-8f3-review.report.md with Completed-GMT/Completed-Local/Coding-Agent/Session-ID, findings P1/P2/P3, ending SIGN-OFF or CHANGES-REQUIRED. Read-only except the report.

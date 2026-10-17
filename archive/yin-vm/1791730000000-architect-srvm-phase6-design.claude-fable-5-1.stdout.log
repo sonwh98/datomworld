@@ -1,0 +1,18 @@
+Both deliverables are written. The task is complete; nothing further is needed from the environment.
+
+**Deliverable:** `docs/design/yin.vm.semantic-register-vm.continuation.md` (1246 lines) in the new worktree, plus the report at `collab/1791730000000-architect-srvm-phase6-design.report.md`. No other document, source or test was edited; nothing is staged.
+
+**What the design decides:**
+- **One canonical frame, one profile, body version 3.** The carrier carries the register machine's `act` and `tail` states, saved window, `K`, `E`, delivery record and pending. The profile map is the `"v4"` contract with no engine key, since the frame is engine-independent under "one truth"; the stack and register kernels lower the same rows through their layouts. Older bodies are not read.
+- **Frame rows** replace the stale stack-shaped rows: `:act`, `:tail` (no env, window or pc), `:window` sorted with nil values present as `[:lit nil]`, `:kframe` with `rd`, `:wait`, `:reified`, and the parked table. Pending rows, the value union, the census and cell numbering are kept from the draft.
+- **A fourteen-rule frame validator**, engine-independent, with named refusal kinds and a context argument for captured and parked frames. Window membership is recomputed from A.
+- **Two layouts.** The register kernel's physical registers are read off the paired images, which share pcs. The stack kernel's operand stack is the saved window in emission order, aligned through the one-to-one correspondence of non-push instructions with A. Positional frames become `E` through A's owner chain and `bind-params`. The walker is excluded with the reason.
+- **The harness** runs fifteen rows across four segments on three lanes, both delivery modes, nested and reified captures, module contexts, a live install child, and every refusal. The new law is cross-engine canonical equality by root id.
+- **Code travels as canonical vectors keyed by A** plus the tree association; no native image is carried.
+- **Three slices** with numbered acceptance lists, their dependencies on 4b stages and phase 5 named, no file of either touched, and phase 7's entry conditions stated.
+
+**Unverified:** 4b stage 2 is not landed, so the FFI, link and install rows are specified from the evaluator design and must be re-read when it lands. Four layout properties are stated as checked-not-assumed with corpus-wide tests. No tests were run.
+
+**Owner questions:** none. Two choices are flagged for the reviewer: the dropped engine key and carrying the free environment inside each `E`.
+
+Amendment text for the frozen design, UCF, the row-carrier draft and code-as-tuples is in §10 of the design, with the table of affected sections in the report.

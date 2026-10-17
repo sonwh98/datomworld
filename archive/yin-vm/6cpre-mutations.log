@@ -1,0 +1,8 @@
+1 tail-park-is-marked 1 NAMED FAILURE
+2 empty-k-halts-with-result 1 NAMED FAILURE
+3 return-pops-only-inner-frame 1 NAMED FAILURE
+4 return-truncates-at-caller-base 1 NAMED FAILURE
+5 return-restores-caller-environment 1 NAMED FAILURE
+6 tail-in-operand-position-skips-layout 1 NAMED FAILURE
+7 retained-ffi-reparks-before-return 1 NAMED FAILURE
+8 ffi-response-decodes-before-return 1 NAMED FAILURE

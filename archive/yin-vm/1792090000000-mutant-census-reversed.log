@@ -1,0 +1,21 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (census-is-numeric-from-ten-cursors) (rows_test.cljc:337)
+expected: (= (mapv (fn* [p1__22137#] (keyword "yin.k" (str "cur-" p1__22137#))) (range 1 11)) (vec (take-nth 2 (drop 2 census))))
+  actual: (not (= [:yin.k/cur-1 :yin.k/cur-2 :yin.k/cur-3 :yin.k/cur-4 :yin.k/cur-5 :yin.k/cur-6 :yin.k/cur-7 :yin.k/cur-8 :yin.k/cur-9 :yin.k/cur-10] [:yin.k/cur-10 :yin.k/cur-9 :yin.k/cur-8 :yin.k/cur-7 :yin.k/cur-6 :yin.k/cur-5 :yin.k/cur-4 :yin.k/cur-3 :yin.k/cur-2 :yin.k/cur-1]))
+
+FAIL in (canonical-roots-are-pinned) (rows_test.cljc:308)
+expected: (= :segment/blake3-beef94ed002ce432ba00874b12ec585069e82856cec367b86007d657138902b7 (:yin.k/root (rows/emit (fixture :s1 :s2 :x :y))))
+  actual: (not (= :segment/blake3-beef94ed002ce432ba00874b12ec585069e82856cec367b86007d657138902b7 :segment/blake3-e2c03f1f255dac71e59679cb0e42096ee05d05ba2e9ce4b43ff134fe11aa9609))
+
+FAIL in (canonical-roots-are-pinned) (rows_test.cljc:325)
+expected: (= :segment/blake3-b140ac405963a115665c26ac8ff3435d984ed70c8a44cec3be86544ae66abad9 root)
+  actual: (not (= :segment/blake3-b140ac405963a115665c26ac8ff3435d984ed70c8a44cec3be86544ae66abad9 :segment/blake3-879d8b2f1803cd93b04401ef77ad3ba8460325a6e1a35c3b60084fe639b20c44))
+
+Ran 21 tests containing 323 assertions.
+3 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

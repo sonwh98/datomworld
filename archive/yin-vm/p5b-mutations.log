@@ -1,0 +1,333 @@
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+FAIL in (register-goldens) (derive_test.cljc:435)
+§6.3 image 1
+expected: (= golden (derive/register-image (projected ast)))
+  actual: (not (= {:bodies [{:locals 0, :registers 4, :start 0, :end 4}], :instructions [[:load-free 0 +] [:const 1 1] [:const 2 2] [:call 3 0 [1 2] false []] [:halt 3]]} {:bodies [{:locals 0, :registers 3, :start 0, :end 4}], :instructions [[:load-free 0 +] [:const 1 1] [:const 2 2] [:call 0 0 [1 2] false []] [:halt 0]]}))
+
+FAIL in (register-goldens) (derive_test.cljc:435)
+§6.3 image 2
+expected: (= golden (derive/register-image (projected ast)))
+  actual: (not (= {:bodies [{:locals 0, :registers 4, :start 0, :end 6}], :instructions [[:load-free 0 f] [:load-free 1 g] [:load-free 2 x] [:call 3 1 [2] false [0]] [:load-free 1 y] [:call 2 0 [3 1] false []] [:halt 2]]} {:bodies [{:locals 0, :registers 3, :start 0, :end 6}], :instructions [[:load-free 0 f] [:load-free 1 g] [:load-free 2 x] [:call 1 1 [2] false [0]] [:load-free 1 y] [:call 0 0 [1 1] false []] [:halt 0]]}))
+
+FAIL in (register-goldens) (derive_test.cljc:435)
+§6.3 image 3
+expected: (= golden (derive/register-image (projected ast)))
+  actual: (not (= {:bodies [{:locals 0, :registers 2, :start 0, :end 3}], :instructions [[:load-free 0 f] [:call 1 0 [] false []] [:call 0 1 [] false []] [:halt 0]]} {:bodies [{:locals 0, :registers 1, :start 0, :end 3}], :instructions [[:load-free 0 f] [:call 0 0 [] false []] [:call 0 0 [] false []] [:halt 0]]}))
+
+FAIL in (register-goldens) (derive_test.cljc:435)
+§6.3 image 5
+expected: (= golden (derive/register-image (projected ast)))
+  actual: (not (= {:bodies [{:locals 0, :registers 4, :start 0, :end 8}], :instructions [[:load-free 0 f] [:load-free 1 c] [:branch-false 1 5] [:const 1 1] [:jump 6] [:const 1 2] [:load-free 2 y] [:call 3 0 [1 2] false []] [:halt 3]]} {:bodies [{:locals 0, :registers 3, :start 0, :end 8}], :instructions [[:load-free 0 f] [:load-free 1 c] [:branch-false 1 5] [:const 1 1] [:jump 6] [:const 1 2] [:load-free 2 y] [:call 0 0 [1 2] false []] [:halt 0]]}))
+
+FAIL in (register-goldens) (derive_test.cljc:435)
+§6.3 image 6
+expected: (= golden (derive/register-image (projected ast)))
+  actual: (not (= {:bodies [{:locals 0, :registers 3, :start 0, :end 3} {:locals 1, :registers 5, :start 4, :end 8}], :instructions [[:closure 0 1 4] [:const 1 10] [:call 2 0 [1] false []] [:halt 2] [:load-free 1 +] [:load-bound 2 0 0] [:const 3 1] [:call 4 1 [2 3] true []] [:return 4]]} {:bodies [{:locals 0, :registers 2, :start 0, :end 3} {:locals 1, :registers 4, :start 4, :end 8}], :instructions [[:closure 0 1 4] [:const 1 10] [:call 0 0 [1] false []] [:halt 0] [:load-free 1 +] [:load-bound 2 0 0] [:const 3 1] [:call 1 1 [2 3] true []] [:return 1]]}))
+
+FAIL in (register-goldens) (derive_test.cljc:435)
+§6.3 image 7
+expected: (= golden (derive/register-image (projected ast)))
+  actual: (not (= {:bodies [{:locals 0, :registers 2, :start 0, :end 2}], :instructions [[:const 0 5] [:define 1 x 0] [:halt 1]]} {:bodies [{:locals 0, :registers 1, :start 0, :end 2}], :instructions [[:const 0 5] [:define 0 x 0] [:halt 0]]}))
+
+FAIL in (register-goldens) (derive_test.cljc:435)
+§6.3 image 8
+expected: (= golden (derive/register-image (projected ast)))
+  actual: (not (= {:bodies [{:locals 0, :registers 4, :start 0, :end 5}], :instructions [[:load-free 0 +] [:const 1 1] [:const 2 2] [:call 3 0 [1 2] false []] [:define 0 y 3] [:halt 0]]} {:bodies [{:locals 0, :registers 3, :start 0, :end 5}], :instructions [[:load-free 0 +] [:const 1 1] [:const 2 2] [:call 0 0 [1 2] false []] [:define 0 y 0] [:halt 0]]}))
+
+FAIL in (register-goldens) (derive_test.cljc:435)
+§6.3 image 9
+expected: (= golden (derive/register-image (projected ast)))
+  actual: (not (= {:bodies [{:locals 0, :registers 4, :start 0, :end 5}], :instructions [[:load-free 0 f] [:load-free 1 x] [:resume :p 1] [:load-free 1 y] [:call 2 0 [3 1] false []] [:halt 2]]} {:bodies [{:locals 0, :registers 3, :start 0, :end 5}], :instructions [[:load-free 0 f] [:load-free 1 x] [:resume :p 1] [:load-free 1 y] [:call 0 0 [2 1] false []] [:halt 0]]}))
+
+FAIL in (register-goldens) (derive_test.cljc:435)
+§6.3 image 10
+expected: (= golden (derive/register-image (projected ast)))
+  actual: (not (= {:bodies [{:locals 0, :registers 4, :start 0, :end 6}], :instructions [[:load-free 0 f] [:load-free 1 g] [:load-free 2 x] [:call 3 1 [2] true []] [:load-free 1 y] [:call 2 0 [3 1] false []] [:halt 2]]} {:bodies [{:locals 0, :registers 3, :start 0, :end 6}], :instructions [[:load-free 0 f] [:load-free 1 g] [:load-free 2 x] [:call 1 1 [2] true []] [:load-free 1 y] [:call 0 0 [1 1] false []] [:halt 0]]}))
+MUTATION inclusive-expiry TEST register-goldens COUNTS {:test 1, :pass 22, :fail 9, :error 0} KILLED true
+
+FAIL in (worked-example-slots) (derive_test.cljc:541)
+expected: (= (second register-golden-images) image)
+  actual: (not (= {:bodies [{:locals 0, :registers 4, :start 0, :end 6}], :instructions [[:load-free 0 f] [:load-free 1 g] [:load-free 2 x] [:call 3 1 [2] false [0]] [:load-free 1 y] [:call 2 0 [3 1] false []] [:halt 2]]} {:bodies [{:locals 0, :registers 4, :start 0, :end 6}], :instructions [[:load-free 0 f] [:load-free 1 g] [:load-free 2 x] [:call 3 1 [2] false [0]] [:load-free 2 y] [:call 1 0 [3 2] false []] [:halt 1]]}))
+MUTATION highest-free-slot TEST worked-example-slots COUNTS {:test 1, :pass 1, :fail 1, :error 0} KILLED true
+
+FAIL in (register-goldens) (derive_test.cljc:435)
+§6.3 image 1
+expected: (= golden (derive/register-image (projected ast)))
+  actual: (not (= {:bodies [{:locals 0, :registers 4, :start 0, :end 4}], :instructions [[:load-free 0 +] [:const 1 1] [:const 2 2] [:call 3 0 [1 2] false []] [:halt 3]]} {:bodies [{:locals 0, :registers 1, :start 0, :end 4}], :instructions [[:load-free 0 +] [:const 0 1] [:const 0 2] [:call 0 0 [0 0] false []] [:halt 0]]}))
+
+FAIL in (register-goldens) (derive_test.cljc:435)
+§6.3 image 2
+expected: (= golden (derive/register-image (projected ast)))
+  actual: (not (= {:bodies [{:locals 0, :registers 4, :start 0, :end 6}], :instructions [[:load-free 0 f] [:load-free 1 g] [:load-free 2 x] [:call 3 1 [2] false [0]] [:load-free 1 y] [:call 2 0 [3 1] false []] [:halt 2]]} {:bodies [{:locals 0, :registers 1, :start 0, :end 6}], :instructions [[:load-free 0 f] [:load-free 0 g] [:load-free 0 x] [:call 0 0 [0] false []] [:load-free 0 y] [:call 0 0 [0 0] false []] [:halt 0]]}))
+
+FAIL in (register-goldens) (derive_test.cljc:435)
+§6.3 image 3
+expected: (= golden (derive/register-image (projected ast)))
+  actual: (not (= {:bodies [{:locals 0, :registers 2, :start 0, :end 3}], :instructions [[:load-free 0 f] [:call 1 0 [] false []] [:call 0 1 [] false []] [:halt 0]]} {:bodies [{:locals 0, :registers 1, :start 0, :end 3}], :instructions [[:load-free 0 f] [:call 0 0 [] false []] [:call 0 0 [] false []] [:halt 0]]}))
+
+FAIL in (register-goldens) (derive_test.cljc:435)
+§6.3 image 5
+expected: (= golden (derive/register-image (projected ast)))
+  actual: (not (= {:bodies [{:locals 0, :registers 4, :start 0, :end 8}], :instructions [[:load-free 0 f] [:load-free 1 c] [:branch-false 1 5] [:const 1 1] [:jump 6] [:const 1 2] [:load-free 2 y] [:call 3 0 [1 2] false []] [:halt 3]]} {:bodies [{:locals 0, :registers 1, :start 0, :end 8}], :instructions [[:load-free 0 f] [:load-free 0 c] [:branch-false 0 5] [:const 0 1] [:jump 6] [:const 0 2] [:load-free 0 y] [:call 0 0 [0 0] false []] [:halt 0]]}))
+
+FAIL in (register-goldens) (derive_test.cljc:435)
+§6.3 image 6
+expected: (= golden (derive/register-image (projected ast)))
+  actual: (not (= {:bodies [{:locals 0, :registers 3, :start 0, :end 3} {:locals 1, :registers 5, :start 4, :end 8}], :instructions [[:closure 0 1 4] [:const 1 10] [:call 2 0 [1] false []] [:halt 2] [:load-free 1 +] [:load-bound 2 0 0] [:const 3 1] [:call 4 1 [2 3] true []] [:return 4]]} {:bodies [{:locals 0, :registers 1, :start 0, :end 3} {:locals 1, :registers 2, :start 4, :end 8}], :instructions [[:closure 0 1 4] [:const 0 10] [:call 0 0 [0] false []] [:halt 0] [:load-free 1 +] [:load-bound 1 0 0] [:const 1 1] [:call 1 1 [1 1] true []] [:return 1]]}))
+
+FAIL in (register-goldens) (derive_test.cljc:435)
+§6.3 image 7
+expected: (= golden (derive/register-image (projected ast)))
+  actual: (not (= {:bodies [{:locals 0, :registers 2, :start 0, :end 2}], :instructions [[:const 0 5] [:define 1 x 0] [:halt 1]]} {:bodies [{:locals 0, :registers 1, :start 0, :end 2}], :instructions [[:const 0 5] [:define 0 x 0] [:halt 0]]}))
+
+FAIL in (register-goldens) (derive_test.cljc:435)
+§6.3 image 8
+expected: (= golden (derive/register-image (projected ast)))
+  actual: (not (= {:bodies [{:locals 0, :registers 4, :start 0, :end 5}], :instructions [[:load-free 0 +] [:const 1 1] [:const 2 2] [:call 3 0 [1 2] false []] [:define 0 y 3] [:halt 0]]} {:bodies [{:locals 0, :registers 1, :start 0, :end 5}], :instructions [[:load-free 0 +] [:const 0 1] [:const 0 2] [:call 0 0 [0 0] false []] [:define 0 y 0] [:halt 0]]}))
+
+FAIL in (register-goldens) (derive_test.cljc:435)
+§6.3 image 9
+expected: (= golden (derive/register-image (projected ast)))
+  actual: (not (= {:bodies [{:locals 0, :registers 4, :start 0, :end 5}], :instructions [[:load-free 0 f] [:load-free 1 x] [:resume :p 1] [:load-free 1 y] [:call 2 0 [3 1] false []] [:halt 2]]} {:bodies [{:locals 0, :registers 2, :start 0, :end 5}], :instructions [[:load-free 0 f] [:load-free 0 x] [:resume :p 0] [:load-free 0 y] [:call 0 0 [1 0] false []] [:halt 0]]}))
+
+FAIL in (register-goldens) (derive_test.cljc:435)
+§6.3 image 10
+expected: (= golden (derive/register-image (projected ast)))
+  actual: (not (= {:bodies [{:locals 0, :registers 4, :start 0, :end 6}], :instructions [[:load-free 0 f] [:load-free 1 g] [:load-free 2 x] [:call 3 1 [2] true []] [:load-free 1 y] [:call 2 0 [3 1] false []] [:halt 2]]} {:bodies [{:locals 0, :registers 1, :start 0, :end 6}], :instructions [[:load-free 0 f] [:load-free 0 g] [:load-free 0 x] [:call 0 0 [0] true []] [:load-free 0 y] [:call 0 0 [0 0] false []] [:halt 0]]}))
+MUTATION drop-live-points TEST register-goldens COUNTS {:test 1, :pass 22, :fail 9, :error 0} KILLED true
+
+FAIL in (register-goldens) (derive_test.cljc:435)
+§6.3 image 6
+expected: (= golden (derive/register-image (projected ast)))
+  actual: (not (= {:bodies [{:locals 0, :registers 3, :start 0, :end 3} {:locals 1, :registers 5, :start 4, :end 8}], :instructions [[:closure 0 1 4] [:const 1 10] [:call 2 0 [1] false []] [:halt 2] [:load-free 1 +] [:load-bound 2 0 0] [:const 3 1] [:call 4 1 [2 3] true []] [:return 4]]} {:bodies [{:locals 0, :registers 3, :start 0, :end 3} {:locals 0, :registers 4, :start 4, :end 8}], :instructions [[:closure 0 1 4] [:const 1 10] [:call 2 0 [1] false []] [:halt 2] [:load-free 0 +] [:load-bound 1 0 0] [:const 2 1] [:call 3 0 [1 2] true []] [:return 3]]}))
+MUTATION overwrite-local-bank TEST register-goldens COUNTS {:test 1, :pass 30, :fail 1, :error 0} KILLED true
+
+FAIL in (structural-slot) (derive_test.cljc:530)
+expected: (= registers (+ locals peak 1))
+  actual: (not (= 3 4))
+
+FAIL in (structural-slot) (derive_test.cljc:531)
+expected: (= structural (get slots r))
+  actual: (not (= 2 3))
+
+FAIL in (structural-slot) (derive_test.cljc:530)
+expected: (= registers (+ locals peak 1))
+  actual: (not (= 1 2))
+
+FAIL in (structural-slot) (derive_test.cljc:531)
+expected: (= structural (get slots r))
+  actual: (not (= 0 1))
+
+FAIL in (structural-slot) (derive_test.cljc:534)
+expected: (not (contains? reachable pc))
+  actual: (not (not true))
+
+FAIL in (structural-slot) (derive_test.cljc:534)
+expected: (not (contains? reachable pc))
+  actual: (not (not true))
+
+FAIL in (structural-slot) (derive_test.cljc:534)
+expected: (not (contains? reachable pc))
+  actual: (not (not true))
+
+FAIL in (structural-slot) (derive_test.cljc:534)
+expected: (not (contains? reachable pc))
+  actual: (not (not true))
+
+FAIL in (structural-slot) (derive_test.cljc:534)
+expected: (not (contains? reachable pc))
+  actual: (not (not true))
+
+FAIL in (structural-slot) (derive_test.cljc:534)
+expected: (not (contains? reachable pc))
+  actual: (not (not true))
+
+FAIL in (structural-slot) (derive_test.cljc:530)
+expected: (= registers (+ locals peak 1))
+  actual: (not (= 2 3))
+
+FAIL in (structural-slot) (derive_test.cljc:531)
+expected: (= structural (get slots r))
+  actual: (not (= 1 2))
+
+FAIL in (structural-slot) (derive_test.cljc:534)
+expected: (not (contains? reachable pc))
+  actual: (not (not true))
+
+FAIL in (structural-slot) (derive_test.cljc:534)
+expected: (not (contains? reachable pc))
+  actual: (not (not true))
+MUTATION omit-structural-reservation TEST structural-slot COUNTS {:test 1, :pass 13, :fail 14, :error 0} KILLED true
+
+FAIL in (two-liveness-analyses-agree) (derive_test.cljc:514)
+nested application
+expected: (= expected actual)
+  actual: (not (= [0 1] []))
+
+FAIL in (two-liveness-analyses-agree) (derive_test.cljc:514)
+conj onto rest
+expected: (= expected actual)
+  actual: (not (= [0] []))
+
+FAIL in (two-liveness-analyses-agree) (derive_test.cljc:514)
+:worked-example
+expected: (= expected actual)
+  actual: (not (= [0] []))
+
+FAIL in (two-liveness-analyses-agree) (derive_test.cljc:514)
+:nested-calls
+expected: (= expected actual)
+  actual: (not (= [0 1] []))
+
+FAIL in (two-liveness-analyses-agree) (derive_test.cljc:514)
+:nested-calls
+expected: (= expected actual)
+  actual: (not (= [0] []))
+
+FAIL in (two-liveness-analyses-agree) (derive_test.cljc:514)
+:nested-calls
+expected: (= expected actual)
+  actual: (not (= [0 2] []))
+
+FAIL in (two-liveness-analyses-agree) (derive_test.cljc:514)
+:if-in-tail
+expected: (= expected actual)
+  actual: (not (= [2] []))
+
+FAIL in (two-liveness-analyses-agree) (derive_test.cljc:514)
+:streams
+expected: (= expected actual)
+  actual: (not (= [0] []))
+
+FAIL in (two-liveness-analyses-agree) (derive_test.cljc:514)
+:current-continuation
+expected: (= expected actual)
+  actual: (not (= [0] []))
+
+FAIL in (two-liveness-analyses-agree) (derive_test.cljc:514)
+:park
+expected: (= expected actual)
+  actual: (not (= [0] []))
+
+FAIL in (two-liveness-analyses-agree) (derive_test.cljc:514)
+:shared-occurrence
+expected: (= expected actual)
+  actual: (not (= [0] []))
+
+FAIL in (two-liveness-analyses-agree) (derive_test.cljc:514)
+:shared-occurrence
+expected: (= expected actual)
+  actual: (not (= [0 3] []))
+
+FAIL in (two-liveness-analyses-agree) (derive_test.cljc:514)
+:define-then-call
+expected: (= expected actual)
+  actual: (not (= [0 2] []))
+
+FAIL in (two-liveness-analyses-agree) (derive_test.cljc:514)
+:store-and-control
+expected: (= expected actual)
+  actual: (not (= [0 1 2 3] []))
+
+FAIL in (two-liveness-analyses-agree) (derive_test.cljc:514)
+:streams
+expected: (= expected actual)
+  actual: (not (= [0] []))
+
+FAIL in (two-liveness-analyses-agree) (derive_test.cljc:514)
+:live-b
+expected: (= expected actual)
+  actual: (not (= [0 1] []))
+
+FAIL in (two-liveness-analyses-agree) (derive_test.cljc:514)
+:live-c
+expected: (= expected actual)
+  actual: (not (= [0] []))
+
+FAIL in (two-liveness-analyses-agree) (derive_test.cljc:514)
+:live-d
+expected: (= expected actual)
+  actual: (not (= [0 1] []))
+
+FAIL in (two-liveness-analyses-agree) (derive_test.cljc:514)
+:live-d
+expected: (= expected actual)
+  actual: (not (= [0] []))
+MUTATION drop-saved-window TEST two-liveness-analyses-agree COUNTS {:test 1, :pass 514, :fail 19, :error 0} KILLED true
+
+FAIL in (register-operand-goldens) (derive_test.cljc:546)
+expected: (= {:bodies [{:locals 0, :registers 3, :start 0, :end 3}], :instructions [[:const 0 1] [:const 1 2] [:ffi-call 2 :op/echo [0 1] []] [:halt 2]]} (derive/register-image (projected (second (first runtime-extra-rows)))))
+  actual: (not (= {:bodies [{:locals 0, :registers 3, :start 0, :end 3}], :instructions [[:const 0 1] [:const 1 2] [:ffi-call 2 :op/echo [0 1] []] [:halt 2]]} {:bodies [{:locals 0, :registers 3, :start 0, :end 3}], :instructions [[:const 0 1] [:const 1 2] [:ffi-call 2 :op/echo [1 0] []] [:halt 2]]}))
+MUTATION reverse-ffi-operands TEST register-operand-goldens COUNTS {:test 1, :pass 1, :fail 1, :error 0} KILLED true
+
+FAIL in (register-operand-goldens) (derive_test.cljc:549)
+expected: (= {:bodies [{:locals 0, :registers 3, :start 0, :end 3}], :instructions [[:stream-make 0 4] [:const 1 1] [:stream-put 2 0 1 []] [:halt 2]]} (derive/register-image (projected (second (second runtime-extra-rows)))))
+  actual: (not (= {:bodies [{:locals 0, :registers 3, :start 0, :end 3}], :instructions [[:stream-make 0 4] [:const 1 1] [:stream-put 2 0 1 []] [:halt 2]]} {:bodies [{:locals 0, :registers 3, :start 0, :end 3}], :instructions [[:stream-make 0 4] [:const 1 1] [:stream-put 2 1 0 []] [:halt 2]]}))
+MUTATION swap-stream-put-operands TEST register-operand-goldens COUNTS {:test 1, :pass 1, :fail 1, :error 0} KILLED true
+
+ERROR in (register-images-validate) (PersistentVector.java:162)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: java.lang.IndexOutOfBoundsException: null
+ at clojure.lang.PersistentVector.arrayFor (PersistentVector.java:162)
+    clojure.lang.PersistentVector.nth (PersistentVector.java:166)
+    clojure.lang.RT.nth (RT.java:916)
+    yin.vm.debruijn_register_code$body_liveness$at__13199.invoke (debruijn_register_code.cljc:360)
+    yin.vm.debruijn_register_code$body_liveness$fn__13205$fn__13209.invoke (debruijn_register_code.cljc:367)
+    clojure.core.protocols$iterator_reduce_BANG_.invokeStatic (protocols.clj:42)
+    clojure.core.protocols$iter_reduce.invokeStatic (protocols.clj:52)
+    clojure.core.protocols$fn__8260.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yin.vm.debruijn_register_code$body_liveness$fn__13205.invoke (debruijn_register_code.cljc:367)
+    clojure.core.protocols$fn__8279.invokeStatic (protocols.clj:167)
+    clojure.core.protocols/fn (protocols.clj:123)
+    clojure.core.protocols$fn__8233$G__8228__8242.invoke (protocols.clj:19)
+    clojure.core.protocols$seq_reduce.invokeStatic (protocols.clj:31)
+    clojure.core.protocols$fn__8264.invokeStatic (protocols.clj:74)
+    clojure.core.protocols/fn (protocols.clj:74)
+    clojure.core.protocols$fn__8207$G__8202__8220.invoke (protocols.clj:13)
+    clojure.core$reduce.invokeStatic (core.clj:6965)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yin.vm.debruijn_register_code$body_liveness.invokeStatic (debruijn_register_code.cljc:363)
+    yin.vm.debruijn_register_code$body_liveness.invoke (debruijn_register_code.cljc:342)
+    yin.vm.semantic_register.derive$register_image$fn__24960.invoke (derive.cljc:221)
+    clojure.lang.LongRange.reduce (LongRange.java:170)
+    clojure.core$reduce.invokeStatic (core.clj:6964)
+    clojure.core$reduce.invoke (core.clj:6947)
+    yin.vm.semantic_register.derive$register_image.invokeStatic (derive.cljc:217)
+    yin.vm.semantic_register.derive$register_image.invoke (derive.cljc:192)
+    yin.vm.semantic_register.derive_test$fn__20188$fn__20196.invoke (derive_test.cljc:480)
+    yin.vm.semantic_register.derive_test$fn__20188.invokeStatic (derive_test.cljc:479)
+    yin.vm.semantic_register.derive_test/fn (derive_test.cljc:477)
+    clojure.test$test_var$fn__9898.invoke (test.clj:717)
+    clojure.test$test_var.invokeStatic (test.clj:717)
+    clojure.test$test_var.invoke (test.clj:708)
+    clojure.test$test_vars$fn__9924$fn__9929.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars$fn__9924.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars.invokeStatic (test.clj:731)
+    clojure.test$test_vars.invoke (test.clj:723)
+    user$eval21431$fn__21435$fn__21436.invoke (p5b-mutations.clj:24)
+    user$eval21431$fn__21435.invoke (p5b-mutations.clj:23)
+    user$eval21431.invokeStatic (p5b-mutations.clj:20)
+    user$eval21431.invoke (p5b-mutations.clj:18)
+    clojure.lang.Compiler.eval (Compiler.java:7757)
+    clojure.lang.Compiler.load (Compiler.java:8223)
+    clojure.lang.Compiler.loadFile (Compiler.java:8161)
+    clojure.main$load_script.invokeStatic (main.clj:476)
+    clojure.main$script_opt.invokeStatic (main.clj:536)
+    clojure.main$script_opt.invoke (main.clj:531)
+    clojure.main$main.invokeStatic (main.clj:665)
+    clojure.main$main.doInvoke (main.clj:617)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.main.main (main.java:40)
+MUTATION shift-body-and-branch-targets TEST register-images-validate COUNTS {:test 1, :pass 240, :fail 0, :error 1} KILLED true

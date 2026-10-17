@@ -1,0 +1,9 @@
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+source blocked? true | site [:call 1 true] | resume-mode :return-result | K depth 2
+export status :ok
+carried root register keys: ()
+resume status :ok
+resumed entry keys (:continuation :cursor-ref :format :frames :hash :image :pc :reason :segment :stack :stream-id)
+RESULT marker-before :return-result marker-after nil
+:done

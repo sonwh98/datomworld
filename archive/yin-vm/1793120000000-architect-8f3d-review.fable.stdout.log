@@ -1,0 +1,13 @@
+Review done. Verdict: **SIGN-OFF**, written to `collab/1792059110000-architect-8f3d-review.report.md`.
+
+What I verified:
+
+- **F1** matches the ruling verbatim. The private `tuple=` sits after `with-registers`, both `canonical-projection` call sites use it, and the new require introduces no cycle. The `identical?` shortcut in `cbor/content=` gives the JVM reference short-circuit; JS and Dart fall through to the content key, where every NaN is one canonical key and signed zero keeps its sign.
+- **F2** is sound. The address is a BLAKE3 digest over the canonical encoding of the whole vector, minted the same way on every load. Every other image field derives from the vector, so address equality is content equality for one segment id. Two different vectors can share an address only by hash collision, the same assumption the alias table already rests on.
+- **Codex's two corrections** to my test examples are right. Item 7 (`register-ids`) refuses the `rd 1` row before item 13 runs, and a host `isNaN` is the correct replacement for my `(not= value value)`. The three-branch form is the exact idiom already in `yin.vm.integer.host/nan-float?`, which passes all three lanes today.
+- **Design doc** changed only item 13. **Scope** is five files, no `frame.cljc`, nothing staged.
+- **JVM** run of the two test namespaces here: 18 tests, 122 assertions, green.
+
+Node and Dart expectations are spelled out in the report. Before the fix those hosts would fail all four T1 accepted rows, the T1 layout row (register pass hits pc 7 first), T2 at its first load, and the two Python regression tests. After the fix all should be green. No reader-conditional, unary-minus, chunked-seq or Dart cast hazard exists in the new tests.
+
+Three optional P3 notes only: reuse `nan-float?` in T2, a clunky double parenthetical in the doc clause, and the `frame.cljc` free-env comparison stays on the known-gaps ledger. Commit on green Node and Dart counts.

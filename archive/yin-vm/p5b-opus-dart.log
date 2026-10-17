@@ -1,0 +1,422 @@
+Loading initial Timbre config from: :default
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+SLF4J(W): Class path contains SLF4J bindings targeting slf4j-api versions 1.7.x or earlier.
+SLF4J(W): Ignoring binding found at [jar:file:/Users/sto/.m2/repository/org/slf4j/slf4j-simple/1.7.36/slf4j-simple-1.7.36.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J(W): See https://www.slf4j.org/codes.html#ignoredBindings for an explanation.
+Resolving dependencies...
+Downloading packages...
++ _fe_analyzer_shared 67.0.0 (109.0.0 available)
++ analyzer 6.4.1 (14.5.0 available)
++ async 2.13.1
++ collection 1.19.1
++ convert 3.1.2
++ crypto 3.0.7
++ file 7.0.1
++ glob 2.2.0
++ meta 1.19.0
++ package_config 2.2.0 (3.0.0 available)
++ path 1.9.1
++ pub_semver 2.2.1
++ source_span 1.10.2
++ string_scanner 1.4.1
++ term_glyph 1.2.2
++ typed_data 1.4.0
++ watcher 1.2.1
++ yaml 3.1.4
+Changed 18 dependencies!
+3 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+
+=== Compiling cljd.core to Dart 3 ===
+
+=== Compiling to Dart... === @17:10:31
+  yin.vm.debruijn-code-test
+  yin.vm.debruijn-linearize-test
+  yin.vm.debruijn-register-code-test
+  yin.vm.debruijn-register-compile-test
+  yin.vm.debruijn-register-contract-test
+  yin.vm.debruijn-register-effects-test
+  yin.vm.debruijn-resolve-test
+  yin.vm.debruijn.register-test
+  yin.vm.debruijn.stack-effects-test
+  yin.vm.debruijn.stack-parity-test
+  yin.vm.debruijn.stack-test
+  yin.vm.semantic-register.analysis-test
+  yin.vm.semantic-register.code-test
+  yin.vm.semantic-register.derive-test
+  yin.vm.semantic-register.effects-test
+  yin.vm.semantic-register.linearize-test
+  yin.vm.semantic-register.link-test
+  yin.vm.semantic-register.load-paths-test
+  yin.vm.semantic-register.parity-test
+  yin.vm.semantic-register.vm-test
+  yin.vm.semantic-register.walker-trace-test
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member length on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 1341, column: 39, file: dao/data/btree.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 49, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 85, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 184, column: 12, file: yin/vm/debruijn_code.cljc
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 243, column: 12, file: yin/vm/debruijn.cljc
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 29, column: 17, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 20, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 43, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 250, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 254, column: 15, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 261, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member bytes on target type dynamic of library dart:core  at line: 275, column: 27, file: dao/stream/cbor/cljd.cljd
+Compilation succeeded - You rock! 🤘 @17:10:50
+Running 21 test files in 8 shards
+Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 99.0.0 (109.0.0 available)
+  analyzer 12.1.0 (14.5.0 available)
+  clock 1.1.2 (1.1.3 available)
+  frontend_server_client 4.0.0 (4.1.0 available)
+  glob 2.1.3 (2.2.0 available)
+  io 1.0.5 (1.1.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  mime 2.0.0 (2.1.0 available)
+  package_config 2.2.0 (3.0.0 available)
+  pool 1.5.2 (1.5.3 available)
+  pub_semver 2.2.0 (2.2.1 available)
+  source_maps 0.10.13 (0.10.14 available)
+  stack_trace 1.12.1 (1.12.2 available)
+  test 1.31.1 (1.33.0 available)
+  test_api 0.7.12 (0.7.15 available)
+  test_core 0.6.18 (0.6.21 available)
+  unorm_dart 0.3.1+1 (0.3.3 available)
+  vector_math 2.4.2 (2.4.3 available)
+  vm_service 15.2.0 (15.3.0 available)
+  yaml 3.1.3 (3.1.4 available)
+Got dependencies!
+20 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_0_test.dart
+00:00 +0: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_0_test.dart: null yin.vm.semantic-register.effects-test/bridge-manual-bridge-step-test
+00:00 +1: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_0_test.dart: null yin.vm.semantic-register.effects-test/tail-position-invocation-test
+00:00 +2: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_0_test.dart: null yin.vm.semantic-register.effects-test/bridge-history-before-the-cursor-is-not-skipped-test
+00:00 +3: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_0_test.dart: null yin.vm.semantic-register.effects-test/store-not-rolled-back-test
+00:00 +4: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/installed-handlers-round-trip-test
+00:00 +5: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/installed-handlers-round-trip-test
+00:01 +6: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/installed-handlers-round-trip-test
+00:01 +7: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/installed-handlers-round-trip-test
+00:01 +8: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/installed-handlers-round-trip-test
+00:01 +9: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/installed-handlers-round-trip-test
+00:01 +10: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/installed-handlers-round-trip-test
+00:01 +11: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/installed-handlers-round-trip-test
+00:01 +12: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/installed-handlers-round-trip-test
+00:01 +13: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/installed-handlers-round-trip-test
+00:01 +14: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/installed-handlers-round-trip-test
+00:01 +15: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_0_test.dart: null yin.vm.semantic-register.effects-test/bridge-installed-handlers-round-trip-test
+00:01 +16: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/stream-close-and-end-test
+00:01 +17: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_0_test.dart: null yin.vm.semantic-register.effects-test/bridge-gap-at-the-bridge-cursor-is-fatal-test
+00:01 +18: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/manual-bridge-step-test
+00:01 +19: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/manual-bridge-step-test
+00:01 +20: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/manual-bridge-step-test
+00:01 +21: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_0_test.dart: null yin.vm.semantic-register.effects-test/ffi-retained
+00:01 +22: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_0_test.dart: null yin.vm.semantic-register.effects-test/ffi-retained
+00:01 +23: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/current-continuation-test
+00:01 +24: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_0_test.dart: null yin.vm.semantic-register.effects-test/bridge-full-retains-the-response-and-runs-the-handler-once-test
+00:01 +25: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_0_test.dart: null yin.vm.semantic-register.effects-test/bridge-full-retains-the-response-and-runs-the-handler-once-test
+00:01 +26: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/stream-errors-name-their-outcome-test
+00:01 +27: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/stream-errors-name-their-outcome-test
+00:01 +28: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_0_test.dart: null yin.vm.semantic-register.effects-test/tail-primitive-pops-frame
+00:01 +29: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/resume-restores-frames-and-continuation-test
+00:01 +30: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/resume-restores-frames-and-continuation-test
+00:01 +31: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.debruijn-register-contract-test/descriptor-field-list-has-every-declared-field
+00:02 +32: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.debruijn-register-contract-test/descriptor-field-list-has-every-declared-field
+00:02 +33: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.debruijn-register-contract-test/descriptor-field-list-has-every-declared-field
+00:02 +34: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/no-call-pair-test
+00:02 +35: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_0_test.dart: null yin.vm.semantic-register.effects-test/ffi-sent
+00:02 +36: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_0_test.dart: null yin.vm.semantic-register.effects-test/ffi-sent
+00:02 +37: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/blocked-and-woken-parity-test
+00:02 +38: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/blocked-and-woken-parity-test
+00:02 +39: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/blocked-and-woken-parity-test
+00:02 +40: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/blocked-and-woken-parity-test
+00:02 +41: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/blocked-and-woken-parity-test
+00:02 +42: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/blocked-and-woken-parity-test
+00:02 +43: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.debruijn-register-contract-test/address-law-holds-over-b2s-duplicate-and-shared-occurrence-fixtures
+00:02 +44: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_0_test.dart: null yin.vm.semantic-register.effects-test/continuation-restores-captured-environment
+00:02 +45: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_0_test.dart: null yin.vm.semantic-register.effects-test/continuation-restores-captured-environment
+00:02 +46: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_0_test.dart: null yin.vm.semantic-register.effects-test/continuation-restores-captured-environment
+00:02 +47: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_0_test.dart: null yin.vm.semantic-register.effects-test/continuation-restores-captured-environment
+00:02 +48: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_0_test.dart: null yin.vm.semantic-register.effects-test/continuation-restores-captured-environment
+00:02 +49: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.debruijn-register-contract-test/address-law-holds-over-the-b0-parity-corpus
+00:02 +50: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/effect-value-parity-test
+00:02 +51: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/effect-value-parity-test
+00:02 +52: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/effect-value-parity-test
+00:02 +53: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/effect-value-parity-test
+00:02 +54: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/effect-value-parity-test
+00:02 +55: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_1_test.dart: null yin.vm.debruijn.stack-effects-test/effect-value-parity-test
+00:02 +56: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:02 +57: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:02 +58: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:02 +59: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:02 +60: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:02 +61: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:02 +62: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:02 +63: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:02 +64: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:02 +65: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:02 +66: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:02 +67: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:02 +68: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:02 +69: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:02 +70: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:02 +71: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:02 +72: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:02 +73: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:02 +74: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:03 +75: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:03 +76: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:03 +77: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:03 +78: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:03 +79: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:03 +80: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:03 +81: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:03 +82: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:03 +83: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-determinism
+00:03 +84: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_3_test.dart: null yin.vm.debruijn-register-compile-test/golden-descriptor-hash-test
+00:03 +85: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-determinism
+00:03 +86: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-determinism
+00:03 +87: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-determinism
+00:04 +88: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-determinism
+00:04 +89: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-determinism
+00:04 +90: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-determinism
+00:04 +91: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-determinism
+00:04 +92: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-determinism
+00:04 +93: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-determinism
+00:04 +94: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-determinism
+00:04 +95: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-determinism
+00:04 +96: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-determinism
+00:04 +97: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-determinism
+00:04 +98: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-determinism
+00:04 +99: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-determinism
+00:04 +100: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-determinism
+00:04 +101: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-determinism
+00:04 +102: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/bytecode-resume-test
+00:04 +103: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/bytecode-resume-test
+00:04 +104: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/bytecode-resume-test
+00:04 +105: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/bytecode-resume-test
+00:04 +106: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/bytecode-resume-test
+00:04 +107: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/bytecode-resume-test
+00:04 +108: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/bytecode-resume-test
+00:05 +109: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/bytecode-resume-test
+00:05 +110: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/bytecode-resume-test
+00:05 +111: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/bytecode-resume-test
+00:05 +112: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/bytecode-resume-test
+00:05 +113: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/bytecode-resume-test
+00:05 +114: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/bytecode-resume-test
+00:05 +115: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/bytecode-resume-test
+00:05 +116: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/bytecode-resume-test
+00:05 +117: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/resolve-is-a-stage-value
+00:05 +118: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/resolve-is-a-stage-value
+00:05 +119: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/resolve-is-a-stage-value
+00:05 +120: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/resolve-is-a-stage-value
+00:05 +121: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/resolve-is-a-stage-value
+00:05 +122: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/resolve-is-a-stage-value
+00:05 +123: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/resolve-is-a-stage-value
+00:05 +124: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/resolve-is-a-stage-value
+00:05 +125: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/resolve-is-a-stage-value
+00:05 +126: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/resolve-is-a-stage-value
+00:05 +127: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/multi-arg-closure-test
+00:05 +128: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/multi-arg-closure-test
+00:05 +129: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/two-liveness-analyses-agree
+00:05 +130: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/two-liveness-analyses-agree
+00:06 +131: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_3_test.dart: null yin.vm.debruijn.stack-test/branch-true-arm-test
+00:06 +132: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_3_test.dart: null yin.vm.debruijn.stack-test/branch-true-arm-test
+00:06 +133: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_3_test.dart: null yin.vm.debruijn.stack-test/branch-true-arm-test
+00:06 +134: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_3_test.dart: null yin.vm.debruijn.stack-test/branch-true-arm-test
+00:06 +135: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +136: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +137: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +138: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +139: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +140: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +141: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +142: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +143: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +144: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +145: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +146: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +147: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +148: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +149: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +150: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +151: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +152: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +153: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +154: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +155: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +156: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +157: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +158: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +159: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +160: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +161: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +162: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +163: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +164: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +165: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +166: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +167: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +168: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +169: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +170: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +171: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +172: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +173: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:06 +174: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:07 +175: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:07 +176: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:07 +177: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/stack-execution-oracle
+00:07 +178: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.analysis-test/def-and-use-agree-with-the-reference
+00:07 +179: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/b0-parity-corpus-test
+00:07 +180: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/b0-parity-corpus-test
+00:07 +181: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/b0-parity-corpus-test
+00:07 +182: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/b0-parity-corpus-test
+00:07 +183: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/b0-parity-corpus-test
+00:07 +184: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/b0-parity-corpus-test
+00:07 +185: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/b0-parity-corpus-test
+00:07 +186: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/b0-parity-corpus-test
+00:07 +187: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/b0-parity-corpus-test
+00:07 +188: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.debruijn.register-test/b0-parity-corpus-test
+00:07 +189: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/lexical-address-law-stack
+00:07 +190: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/both-paths-one-image
+00:07 +191: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/both-paths-one-image
+00:07 +192: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/both-paths-one-image
+00:07 +193: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/both-paths-one-image
+00:07 +194: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/both-paths-one-image
+00:07 +195: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/both-paths-one-image
+00:07 +196: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/both-paths-one-image
+00:07 +197: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/both-paths-one-image
+00:07 +198: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/both-paths-one-image
+00:08 +199: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/both-paths-one-image
+00:08 +200: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/both-paths-one-image
+00:08 +201: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/both-paths-one-image
+00:08 +202: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/both-paths-one-image
+00:08 +203: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/both-paths-one-image
+00:08 +204: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/both-paths-one-image
+00:08 +205: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/both-paths-one-image
+00:08 +206: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/both-paths-one-image
+00:08 +207: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.semantic-register.link-test/install-refusals
+00:08 +208: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_6_test.dart: null yin.vm.debruijn-linearize-test/adapting-twice-is-byte-identical
+00:08 +209: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_6_test.dart: null yin.vm.debruijn-linearize-test/adapting-twice-is-byte-identical
+00:08 +210: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_6_test.dart: null yin.vm.debruijn-linearize-test/adapting-twice-is-byte-identical
+00:08 +210: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/c4-execution-oracle
+SKIP slow test c4-execution-oracle (set DATOM_SLOW_TESTS=1 to run)
+00:08 +211: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_6_test.dart: null yin.vm.debruijn-linearize-test/adapting-twice-is-byte-identical
+00:08 +212: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/round-tripped-rows-load-to-the-same-image
+00:08 +213: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/round-tripped-rows-load-to-the-same-image
+00:08 +214: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/round-tripped-rows-load-to-the-same-image
+00:08 +215: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.load-paths-test/round-tripped-rows-load-to-the-same-image
+00:08 +216: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-images-validate
+00:08 +217: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-images-validate
+00:08 +218: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-images-validate
+00:08 +219: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-images-validate
+00:08 +220: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-images-validate
+00:09 +221: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-images-validate
+00:09 +222: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-images-validate
+00:09 +223: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.semantic-register.parity-test/b0-values
+00:09 +224: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.semantic-register.parity-test/b0-values
+00:09 +225: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/loader-refusals-are-the-validators
+00:09 +226: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/loader-refusals-are-the-validators
+00:09 +227: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_7_test.dart: null yin.vm.debruijn-code-test/descriptor-declares-the-contract
+00:09 +228: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_7_test.dart: null yin.vm.debruijn-code-test/descriptor-declares-the-contract
+00:09 +229: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_7_test.dart: null yin.vm.debruijn-code-test/descriptor-declares-the-contract
+00:09 +230: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_7_test.dart: null yin.vm.debruijn-code-test/descriptor-declares-the-contract
+00:09 +231: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_7_test.dart: null yin.vm.debruijn-code-test/descriptor-declares-the-contract
+00:09 +232: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_7_test.dart: null yin.vm.debruijn-code-test/descriptor-declares-the-contract
+00:09 +233: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_7_test.dart: null yin.vm.debruijn-code-test/descriptor-declares-the-contract
+00:09 +234: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_7_test.dart: null yin.vm.debruijn-code-test/descriptor-declares-the-contract
+00:09 +235: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_7_test.dart: null yin.vm.debruijn-code-test/descriptor-declares-the-contract
+00:09 +236: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.semantic-register.parity-test/continuation-outcomes
+00:09 +237: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.semantic-register.parity-test/continuation-outcomes
+00:09 +238: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.semantic-register.parity-test/continuation-outcomes
+00:09 +239: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.semantic-register.parity-test/continuation-outcomes
+00:09 +240: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.semantic-register.parity-test/continuation-outcomes
+00:09 +241: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.semantic-register.parity-test/continuation-outcomes
+00:09 +242: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.semantic-register.parity-test/continuation-outcomes
+00:09 +243: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.semantic-register.parity-test/continuation-outcomes
+00:09 +244: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.semantic-register.parity-test/continuation-outcomes
+00:09 +245: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_4_test.dart: null yin.vm.semantic-register.parity-test/continuation-outcomes
+00:09 +246: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +247: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +248: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +249: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +250: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +251: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +252: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +253: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +254: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +255: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +256: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +257: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +258: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +259: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +260: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +261: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +262: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +263: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +264: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +265: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +266: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +267: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +268: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +269: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +270: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +271: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +272: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +273: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_2_test.dart: null yin.vm.semantic-register.derive-test/register-execution-oracle
+00:09 +274: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:10 +275: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:10 +276: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:10 +277: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:10 +278: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:10 +279: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:10 +280: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:10 +281: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:10 +282: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:10 +283: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:10 +284: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:10 +285: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:10 +286: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:10 +287: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:10 +288: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:10 +289: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:10 +290: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:10 +291: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:10 +292: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:11 +293: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:11 +294: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:11 +295: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:11 +296: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:11 +297: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:11 +298: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:11 +299: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:11 +300: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:11 +301: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:11 +302: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:11 +303: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:11 +304: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:11 +305: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:11 +306: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:11 +307: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:11 +308: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:11 +309: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:12 +310: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:12 +311: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:12 +312: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:12 +313: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:12 +314: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-countdown
+00:14 +315: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/halt-shape
+00:14 +316: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/tail-primitive-returns-through-k
+00:14 +317: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/segment-ids
+00:14 +318: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/image-shape
+00:14 +319: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/attach-load-ast-and-reset
+00:14 +320: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/branch-arms-share-rd
+00:14 +321: /Users/sto/workspace/datomworld-srvm-p5b/build/cljd-agg/shard_5_test.dart: null yin.vm.semantic-register.vm-test/one-step-one-write
+00:14 +322: All tests passed!

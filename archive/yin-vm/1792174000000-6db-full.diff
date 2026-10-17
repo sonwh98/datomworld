@@ -1,0 +1,1565 @@
+diff --git a/docs/agents/known-gaps.md b/docs/agents/known-gaps.md
+index 6b9038e63..3c2a7653c 100644
+--- a/docs/agents/known-gaps.md
++++ b/docs/agents/known-gaps.md
+@@ -43,4 +43,7 @@ Adopted by the owner 2026-10-14 (mob consolidation Q6).
+ | R4: carried install child bypasses receiver admission and carries sender evidence | fetch threat model §4.4 | VM Runtime | landed as module-pins commit 1 (origin/master ce76c846): explicit `:yin.k/admitted-modules` name/address gate before attach; lift never carries sender admission fields; a carried admission field refuses `:yin.k/undecodable :install-response`; the pin carrier is module-pins commit 2 | P1 |
+ | Composition fetch loop per-run lease and budget absent | fetch threat model §4.3; reserved `:lease` policy | composition | outside module-pins slice; no fetch loop added | P2 |
+ | Closed 2026-10-16: holder driver forwards admitted-modules | Architect module-pins review P2-1 | VM Runtime | config forwarded to lowering and fenced recovery; parked-installer regression covers absent and admitted config | P2 |
+-| the lift refuses a machine between instructions (`rows.cljc` / `lift-task*`) and a queued completed wake, the holder runs to a park (`driver.cljc` / `run-cycle`) and loses a computed boundary on tenure loss (`step-active`), the custody kind tables list three kinds, and the stack layout is undefined at jump pcs (`layout.cljc` / `stack-layouts`): the carrier cannot express, and the holder cannot pause at, an arbitrary pc | owner invariant 2026-10-17; Architect plan v2.1 `collab/1792145566000-architect-6d-plan-v21.report.md` | yin.vm.semantic (the register-VM track) | 6d-a, 6d-b, 6e; acceptance pending | P1 |
++| the lift refuses a machine between instructions (`rows.cljc` / `lift-task*`) and a queued completed wake, the holder runs to a park (`driver.cljc` / `run-cycle`) and loses a computed boundary on tenure loss (`step-active`), the custody kind tables list three kinds, and the stack layout is undefined at jump pcs (`layout.cljc` / `stack-layouts`): the carrier cannot express, and the holder cannot pause at, an arbitrary pc | owner invariant 2026-10-17; Architect plan v2.1 `collab/1792145566000-architect-6d-plan-v21.report.md` | yin.vm.semantic (the register-VM track) | 6d-a landed at d5987015; 6d-b and 6e pending | P1 |
++| A module-exported host function held in a window mid-application refuses lift unless the composition registers it in `:primitives`: an honest refusal and an any-pc hole | Fable 6d-a sign-off, d5987015 | yin.vm.semantic | 6e or a later slice: lift module exports by module coordinate via host-export profiles | P3 |
++| Observe entries, held observations, unminted cursors and link requests without installed cursors need authority acknowledgement; a full input append preserves an exact held machine for repeated cycles. No one-cycle hold-resolution guarantee | 6d-b `holder.reader-test/hold-resolution-needs-acknowledgement-and-backpressure-can-persist-test` | holder composition | explicit refusal; external acknowledgement/backpressure relief required; bare declared pending-close fixture resolves in one emit | P3 |
++| The boundary harness’s `:store-keys` accounting re-lists discharge’s answer set and may drift if discharge gains an obligation source | cmd 6d-a review caveat, acknowledged by Fable | semantic test harness | derive the answer set from discharge in a later harness slice | P3 |
+diff --git a/docs/design/yin.vm.linker.dht.md b/docs/design/yin.vm.linker.dht.md
+index ff8f3cca7..d61f46f9e 100644
+--- a/docs/design/yin.vm.linker.dht.md
++++ b/docs/design/yin.vm.linker.dht.md
+@@ -3776,6 +3776,7 @@ from carried scheduler state, not map iteration or sorted cursor-cell ids.
+ 
+ | Safepoint kind | Required resume evidence |
+ |---|---|
++| Between instructions (:running) | Active control; ordered waits and completed wakes travel; the window is exactly L(pc); continue at pc. |
+ | Explicit park | No active wait; reachable cursor cells keep their positions. |
+ | Blocked read | Poll the remapped cursor cell at its kept position. |
+ | Blocked write | Retry the retained value on the original target. |
+@@ -3795,7 +3796,7 @@ because a task moves. A retained request is not recomputed. Reflection
+ outbound acceptance alone never wakes a writer: source acceptance is the
+ completion evidence; an unknown append remains undischarged.
+ 
+-Static `:yin.safepoint/kinds` checks pc eligibility only. Dynamic reasons
++Static `:yin.safepoint/kinds` checks a parking pc’s kinds; a `run` pc is any pc of a body. Dynamic reasons
+ and pending variants come from observed parked records, wait entries, and
+ effect outcomes, as ruled in `yin.vm.ucf-revisions.md` section 8. An
+ explicit park uses the approved no-wait shape. An effectful call must use
+@@ -3806,7 +3807,7 @@ refuses before publication.
+ 
+ #### 14.1.2 State, wire, and lift/lower
+ 
+-The driver retains an export record containing the whole blocked task,
++The driver retains an export record containing the whole task, its active control, ordered completed outcomes,
+ ordered waits, reachable parked records, fresh-name counter, isolated
+ store and module snapshots, and private resource graph. It also carries
+ explicit composition state for remote table entries and their lease
+@@ -3824,7 +3825,7 @@ records during one lift; separate encoders per root would erase aliasing.
+ 
+ Lift proceeds as follows:
+ 
+-1. Validate the safepoint and empty ready queue; enter exporting before
++1. Validate the instruction boundary (§7.4.1 as amended); enter exporting before
+    any carrier append. Capture the ordered waits without polling them.
+ 2. Walk the complete reachable graph with one source-resource-to-cursor-cell
+    map. Authenticate sealed references against the source's private
+@@ -3879,7 +3880,7 @@ coverage is recorded separately, never inferred from mesh coverage.
+   ids, and seals occur nowhere in the transferred value.
+ - Setup: The same task at each row of 14.1.1, with distinct activation
+   depths and ordinary/tail calls. Action: hand off, satisfy the wait,
+-  continue to the next safepoint. Assert: canonical frame, result, error,
++  continue to the next park, halt or fuel boundary. Assert: canonical frame, result, error,
+   and effect trace equal the reference run; dynamic reason and pending
+   variant match observed evidence. Halt remains a result. Incomplete
+   install or call evidence refuses without publishing a partial body.
+@@ -3897,8 +3898,7 @@ coverage is recorded separately, never inferred from mesh coverage.
+ - Setup: Missing, extra, cyclic, or malformed cursor-cell references, forged
+   resource references, and a correctly hashed malformed body. Action:
+   lift/decode. Assert: existing non-portable/undecodable path outcomes;
+-  no restored wait or committed effect. A non-safepoint pc and queued work
+-  yield the existing not-at-safepoint and not-quiescent outcomes.
++  no restored wait or committed effect. A pc outside every body yields `not-at-safepoint`; queued work travels as `:ready` rows.
+ 
+ ### 14.2 Exclusive custody and effect fencing
+ 
+@@ -4115,7 +4115,7 @@ collection requires authoritative closure and permanent replay rejection.
+ 
+ #### 14.2.3 Exact handoff and admission steps
+ 
+-1. Quiesce and enter exporting as in 14.1.2. Retain any already assigned
++1. Retain completed outcomes and enter exporting as in 14.1.2. Retain any already assigned
+    op id and sequence. Validate portability and completeness. Append code
+    and body, then offer O on the declared arbitration medium. Carrier
+    publication alone is no offer and no grant. Retry every failed phase
+@@ -4142,7 +4142,7 @@ collection requires authoritative closure and permanent replay rejection.
+    driver advances a pending wait only on its correlated completion.
+    Remote outbound ok, a lease stamp, and absence of lapse prove nothing
+    about commitment. An unreachable authority suspends protected admission.
+-6. At the next safepoint or halt, publish the successor, report resumed
++6. At the next park, halt, or fuel boundary, publish the successor, report resumed
+    with predecessor O and lease, then release. Offer admission may initially
+    answer `:awaiting-completion`; it is not a prerequisite for reporting. An
+    accepted report commits the completion identity. A release or policy lapse
+diff --git a/docs/design/yin.vm.semantic.continuation.md b/docs/design/yin.vm.semantic.continuation.md
+index def98ace2..78472c5a4 100644
+--- a/docs/design/yin.vm.semantic.continuation.md
++++ b/docs/design/yin.vm.semantic.continuation.md
+@@ -2002,11 +2002,16 @@ A fenced restore retains ready entries in `:yin.k/recovery-ready`, alongside rec
+ 
+ An exclusive running, blocked or parked root carries policy, occurrence, arbitration and next-op-seq, with origin on a successor; a halted exclusive root carries origin only. A completed `:put` wake is a completed operation: its op-id is well-formed but not a retained write. Completed outcomes never acquire publication or execution authority from their history.
+ 
+-Stage-local execution returns the latest completed holder state explicitly on tenure failure. The ended holder retains that machine for inspection only. Recovery uses the last durable checkpoint; progress since it is lost. Inner immutable rebinding is not a channel to an outer catch.
++1. **Preemption under live tenure.** `run-cycle` uses `(if fuel (sr/run-fuel m0 fuel) (vm/run m0))` under its existing gate and halted guards. Holder `:fuel` is a positive integer or nil, checked by `check-common!`. Nil retains unrestricted behavior. After replay, emit and live read, active control leaves the holder running with `:yin.k/at-boundary true` in its status detail. The composition explicitly calls `hand-off`; no automatic export at the bound is implied.
+ 
+-Progress since the last durable checkpoint is lost on expiry; fuel makes the computation interruptible, exporting before the bound is what preserves it. Stage-local holder transitions, tenure cuts and durable export are implemented and tested by 6d-b. The 6d-a carrier admits running custody subjects and retains fenced recovery data.
++2. **Tenure dies after a completed slice.** Stage-local execution returns the latest completed holder state explicitly on tenure failure. The ended holder retains that machine for inspection only. Recovery uses the last durable checkpoint; progress since it is lost. Inner immutable rebinding is not a channel to an outer catch.
++
++   Each stage checks tenure against its input, executes with the existing external-seam checks, associates its returned machine and metadata, and passes that successor to the next stage. Its outcome is `{:status :ok :state completed-state}` or `{:status :failed :state latest-completed-state :failure failure}`. The stage-local catch closes over its input. The failure consumer calls `end-run` on that carried state; `:yin.k/retained-boundary` records its PC, segment, checkpoint and completed-slice count (`:yin.k/steps-since-checkpoint`, holder program steps, not a guest-instruction count). A failure before an operation returns retains the previous completed stage, never an invented partial result. External effects are not rolled back. Journal-uncertain and inbox-refusal exceptions retain their propagation rules.
++
++3. **Expiry and recovery.** Progress since the last durable checkpoint is lost on expiry; fuel makes the computation interruptible, exporting before the bound is what preserves it. Recovery lowers the checkpoint this holder received, or a durably authorized successor. Retained local progress receives no adoption, execution or publication authority. The source remains ended; `exit-mint` and abort cannot revive its tenure.
++
++4. **Reopen and fencing.** Direct `vm-hot`, `vm/step`, `vm/run` and `run-fuel` refuse `:exporting` and `:ended` before guest, scheduler or bridge work. The guard ships with running fenced restoration in 6d-a and remains outside the instruction loop. The refusal is an ex-info whose data is `{:rule :gate-closed :yin.k/gate mode}`. A fenced running restore preserves control, window, environment, K and ordered completed outcomes for byte-identical relift; nothing runs during lower. `rehydrate-fenced` reproduces the published pack byte for byte, including cursor updates.
+ 
+-Direct `vm-hot`, `vm/step`, `vm/run` and `run-fuel` refuse `:exporting` and `:ended` before guest, scheduler or bridge work. The guard is outside the instruction loop. The refusal is an ex-info whose data is `{:rule :gate-closed :yin.k/gate mode}` (`mode` the closed gate); 6d-b's holder paths reuse this name. A fenced running restore preserves control, window, environment, K and ordered completed outcomes for byte-identical relift; nothing runs during lower.
+ 
+ ### 7.4 Fuel
+ 
+diff --git a/docs/design/yin.vm.universal-continuation-format.md b/docs/design/yin.vm.universal-continuation-format.md
+index 2b9bec1ed..8f894b7ff 100644
+--- a/docs/design/yin.vm.universal-continuation-format.md
++++ b/docs/design/yin.vm.universal-continuation-format.md
+@@ -1039,21 +1039,7 @@ together with the body's install entry for the same name:
+   5 and 9): the image is well formed, hashes to the address it is
+   delivered under, and is the image the manifest names. A failure is
+   `:yin.k/undecodable` naming the entry's response.
+-- A live install entry carries phase `:running` or `:parked`. Its
+-  child independently satisfies the handoff grammar and the
+-  quiescence requirements, with kind `:blocked`, `:parked`, or
+-  `:halted`. The phase records scheduler progress; it does not
+-  substitute for validation of the child's actual machine state,
+-  and no phase requires or forbids a kind: a `:running` phase with
+-  a blocked child is valid. A runnable, non-quiescent child refuses
+-  export. Lower preserves both fields, and the scheduler continues
+-  from the restored child without rerunning initialization. Other
+-  install phases are not exportable live-child entries, and any
+-  other phase value is `:yin.k/undecodable`. No stricter relation
+-  between phase and kind is introduced until a scheduler
+-  normalization invariant is specified and proved; M-next D tests
+-  every combination of the two phases and three kinds, explicit
+-  park included.
++- A live install entry carries phase `:running` with a `:running` child, or phase `:parked` with a `:blocked` child. The child independently satisfies the complete task-product grammar, including ordered completed outcomes. The engine links a halted child in the sweep it halts in. No ready-queue quiescence requirement applies. Lower preserves the carried child without rerunning initialization; receiver module admission remains required before attachment.
+ - The resumer restores the child's carried state into the fresh
+   child before the scheduler may step it. The fresh child is a
+   template for the receiver's coordinates only: it does not run the
+@@ -1901,25 +1887,18 @@ UCF therefore defines an explicit **exporting** transition that precedes
+ any publication, and the lift driver performs it as one step over the
+ machine value:
+ 
+-1. **Quiesce**: the ready-queue must be empty (§7.6.3).
++1. **Retain the completed outcomes.** Enter the exporting gate and move the ordered ready queue into the retained export record. The live scheduler queue is empty. Preserve every outcome value, status, completion descriptor, cursor update and raised-refusal value. No queued operation is executed, discarded or reissued by this transition.
+ 2. **Detach the wait set**: every wait entry moves from the machine's
+    wait-set into the export record. The machine's wait-set is now empty,
+    so *there is nothing to poll* — no poll, no append, no effect. The
+    entries are not lost: the export record retains them verbatim; they are
+    the source of the `:yin.k/pending` variants of §7.4.3.
+-3. **Neutralize control**: the record's control and K are already absent
+-   (the machine is parked or blocked); direct `:resume` resolves against
+-   `:parked`, and the parked records referenced by reachable code travel
+-   inside the export record — a local `:resume` against them is refused
+-   while exporting (the restore function observes the exporting machine
+-   and declines), because the parked id now names a checkpoint that may be
+-   granted elsewhere.
++3. **Neutralize control:** a parked or blocked machine has no control; a machine between instructions (root kind `:running`) keeps its `:control`, `:window`, `:env` and `:k` as the state the lift reads. The semantic execution entries refuse an exporting or ended machine before instruction, scheduler or bridge execution. This guard ships with running fenced restoration in 6d-a and remains outside the instruction loop. Direct `:resume` resolves against the parked records in the retained export record and is refused while exporting.
+ 4. **Publish, then offer**: append segments and the value body; record
+    `:yin.k/offered` on the arbitration medium. Only now do readers exist,
+    and the source was fenced before any of them did.
+ 
+-The exporting machine is pure data with an empty wait-set and a retained
+-export record — no engine change, no callback, no timer; the drivers of the
++The exporting machine is pure data with its wait set, ready queue and parked records moved into the retained export record — one engine change at the kernel’s entry (the gate guard), no change to the instruction loop, no callback, no timer; the drivers of the
+ world observe the state as they observe `ready-for-ingress?` (§3.1), and a
+ driver that polls an exporting machine's wait set anyway is a host assembly
+ defect of the same kind as wiring a refusing deposit destination.
+@@ -1936,7 +1915,7 @@ the emitter itself* (after); there is no third.
+ 
+ (M-next D8/D9, as built.) The exporting machine carries one gate key,
+ `:yin.k/gate`, with the modes `:running`, `:exporting` and `:ended`:
+-under `:running` internal computation proceeds and stream observations
++under `:running` internal computation proceeds for the holder’s fuel budget per program tick (`driver/run-cycle`, `:fuel`), so a long computation is preempted at an instruction boundary and may be exported there. A holder whose tenure ends receives the latest completed state through stage-local failure handling, retains it for inspection, and offers nothing. Recovery remains the last durable checkpoint. Progress since the last durable checkpoint is lost on expiry; fuel makes the computation interruptible, exporting before the bound is what preserves it (continuation design §7.3). Stream observations
+ and effects are deferred to the driver; under `:exporting` and `:ended`
+ nothing is observed, no install child is advanced, a direct resume is
+ refused, and every public apply refuses a late result. The root's mode
+@@ -1947,8 +1926,7 @@ cursor cell carrying `:yin.k/held`, a cursor cell carrying `:yin.k/unminted`,
+ a machine with a nonempty `:yin.k/closes` queue, and a
+ `:link-request` entry without `:cursor` -- as `:yin.k/non-portable`,
+ kind `:reason-mismatch`, with the holding task's path; the lift
+-refuses the same holds on its own behalf. A task is not at a liftable
+-safepoint while it holds any of these.
++refuses the same holds on its own behalf. A task holding one of these incomplete driver transitions is not export-ready. Resolution may require repeated driver cycles, external acknowledgement or relief from backpressure; no fixed cycle count is promised.
+ 
+ **Amended after 7 (2026-10-14)** — Reason: the holder now exports rows with a local header and source index.
+ The lift's custody input is one **header** argument -- supplied to
+@@ -2037,12 +2015,12 @@ Reopened holders do not regain tenure from persisted clock readings:
+ they reconcile, release and re-enter candidacy, never resume execution.
+ 
+ **Amended after 7 (2026-10-14)** — Reason: custody is checked on the abstract row task, not by re-reading legacy bytes.
+-Kind and header agree at lift: blocked/parked exclusive roots carry
++Kind and header agree at lift: running/blocked/parked exclusive roots carry
+ policy, occurrence, arbitration, counter and optional origin; halted
+ exclusive roots carry origin only and a header-bearing halt without
+ origin refuses. Forks and all children carry nil. After walking and frame
+ validation, `rows/lift-task` checks exhaustion at 2^52-1 on a
+-blocked/parked exclusive root and protection across all retained
++running/blocked/parked exclusive root and protection across all retained
+ put/FFI-request/link-request waits, then runs `custody-baseline` before
+ emit. Enrolled writes without an id refuse `:unprotected-pending`; an id
+ on an unenrolled target refuses `:yin.k/unsatisfied` naming the stream.
+@@ -2167,7 +2145,7 @@ duties*: a judge whose durability matches the resource).
+ 
+ ### 7.7.6 Successors and chains
+ 
+-A resumed continuation runs to its next safepoint and either halts or parks
++A resumed continuation runs to its next park, halt, or fuel boundary
+ again. Either way it produces a successor value — a `:yin.k/continuation`
+ or a `:yin.k/result` — whose `:yin.k/origin` carries the predecessor's
+ `:yin.k/occurrence` and the lease it ran under. Each park is a **new
+@@ -2624,16 +2602,15 @@ than waiting forever. The repair is prospective: no retroactive standalone
+ closure transaction over such old history is authorized. Repeated reopen neither
+ duplicates an edge nor advances an already-reclaimed lease's epoch again.
+ 
+-## §7.8 Lifecycle: lift on park, lower on resume
++## §7.8 Lifecycle: lift at a boundary, lower on resume
+ 
+ **Lift** (emitter side; composition-driven, never automatic on every park):
+ 
+-1. The machine is parked or blocked with a local record `r`, and its
+-   ready-queue is empty, else `:yin.k/not-quiescent`.
++1. The machine is parked, blocked, halted or between instructions (`:running`), with a local record `r`, and holds no observation in flight, else `:yin.k/non-portable :reason-mismatch`.
+ 2. **Enter exporting** (§7.7.4): detach the wait set into the export
+    record, neutralize direct `:resume`. From here the source is fenced; no
+    poll, retry, or local resume can perform an effect.
+-3. `lift(export-record)`: confirm the record is at a safepoint (§7.4.1),
++3. `lift(export-record)`: confirm every pc is a pc of A (§7.4.1),
+    else `:yin.k/not-at-safepoint`; canonicalize every referenced segment and
+    compute its address (§7.3.2), else the refusal; encode (§7.5), else the
+    refusal; compute `:yin.k/requires` and `:yin.k/store` by the fixed point
+@@ -2679,7 +2656,7 @@ duplicates an edge nor advances an already-reclaimed lease's epoch again.
+ 8. `lower(frame, layout)` into engine registers; re-mint every pending wait
+    in the local wait set; seed `:id-counter` per §7.6.3; run — through a
+    fenced writer under `:exclusive` (§7.7.5).
+-9. At the next safepoint or halt, produce the successor occurrence
++9. At the next park, halt, or fuel boundary, produce the successor occurrence
+    (§7.7.6), record `:yin.k/resumed`, release.
+ 
+ Neither sequence contains a callback. Each is a step function a
+@@ -2844,10 +2821,10 @@ independently (7.11).
+ | Invariant | How UCF honors it |
+ |---|---|
+ | No hidden global state | Every dependency is declared in `:yin.k/requires` — *as computed by the declared fixed point, with its completeness stated* (`:yin.k/discovery`); the store travels as an explicit slice restored into an isolated store; fresh-name state and parked records travel explicitly; custody is facts on a named, possessed medium. |
+-| No implicit control flow | Resume happens only at a safepoint the machine's parking transitions define; the successor chain is explicit `:yin.k/origin` links; the exporting state is an observed data state, never a notification. |
++| No implicit control flow | Resume happens only at an instruction boundary the canonical vector defines (a parking transition, or the boundary a holder’s fuel budget stopped at); the successor chain is explicit `:yin.k/origin` links; the exporting state is an observed data state, never a notification. |
+ | No callbacks | Lift and lower are step functions; custody is observed, never notified; a lapsed holder stops at its own bound; an unanswered proposal is a step status, not a wait. |
+ | No shared mutable state | A UCF value is content-addressed and immutable; occurrence identity separates content variants from the one leased computation; two resumers of one value under `:fork` diverge into distinct incarnations; the isolated execution store shares nothing with the resumer's tasks. |
+-| No layer collapsing | Canonicalize, encode, discover, arbitrate, load, restore, execute are separate functions with data between them. The engine's hot loop is untouched: lifting is a pure function over the blocked machine's value, and the exporting state is that value with an emptied wait-set and a retained record — driver discipline, not engine machinery. |
++| No layer collapsing | Canonicalize, encode, discover, arbitrate, load, restore, execute are separate functions with data between them. The engine’s instruction loop is untouched: lifting is a pure function over the machine’s value at any boundary, the one engine change is a gate check at the kernel’s entry, and the exporting state is that value with its waits, queue and parked records moved into a retained record — driver discipline, not engine machinery. |
+ | No assumed graphs | Sharing is an explicit value table keyed by address; cursor aliasing is an explicit cursor-cell graph, not inferred from positions; code refs are pcs relative to an addressed vector; nothing is resolved by pointer; foreign engines reconstruct dynamic state from the frame, never from layouts they assume. |
+ 
+ And the axioms — each claim conditioned on the obligation it depends on: the
+@@ -2938,14 +2915,13 @@ the review's named architectural obligations; they are blockers to
+   store contains exactly the slice and the resumer's pair, and that a
+   receiver-side binding of a name in the slice's name set cannot change
+   resolution.
+-- **Safepoint conformance harness.** A test that runs every corpus segment
+-  on the reference machine to each safepoint of the complete §7.4.1 table —
+-  effect-producing calls included — lifts, lowers into a fresh VM, and
++- **Continuation conformance harness.** A test that runs every corpus segment
++  on the reference machine to **every boundary of the stepping driver** (continuation design §5.7), the complete §7.4.1 table’s parking transitions included, lifts, lowers into a fresh VM, and
+   checks the parity suite's result; the same harness is what a foreign
+   engine runs to claim conformance, including `lift ∘ lower = id` on
+   canonical frames, the static `def`/`use`/`live` and
+   `lexically-required` checks, the frame validator on every frame, and
+-  **cross-engine canonical equality**: one program at one safepoint lifts
++  **cross-engine canonical equality**: one program at one aligned instruction boundary lifts
+   to row sets with equal root ids after the harness's specified
+   re-emission (`yin.vm.semantic.continuation.md` §5.5) from
+   the canonical semantic kernel and from the stack and register backends
+@@ -3109,14 +3085,13 @@ claim that all five blockers have closed.
+ 
+ **Safepoint reconstruction (7.4; blocker 1).**
+ 
+-- Invariant: At every declared parking transition, lifting and lowering
+-  preserve the next observable step and its wait, while other pcs refuse.
++- Invariant: At every instruction boundary, lifting and lowering preserve the next observable step (and, at a parking transition, its wait; with a non-empty queue, its order); a pc outside every body refuses.
+ - Setup: Run the corpus to every 7.4.1 row: explicit park, blocked
+   stream read, blocked write, sent FFI, retained FFI, ordinary and tail
+   effectful calls, and halt; also exercise M4's `:link-request`,
+   `:link-response`, and `:install` pending variants (linker section 11
+   item 12). Exercise distinct activation depths and captured environments
+-  at one pc, a nonempty ready queue, a nonsafepoint pc, and a kept response
++  at one pc, a nonempty ready queue, a `:push` pc of the stack image (relabels) and a body-start pc (lifts), and a kept response
+   cursor shared by two waiters. Omit the portable cursor profile for the
+   refusal case.
+   **Amended after 7 (2026-10-14)** — Reason: cross-engine conformance covers the documented backend fragment.
+@@ -3136,8 +3111,7 @@ claim that all five blockers have closed.
+   outcome determine `:yin.k/reason` and `:yin.k/pending`, never the
+   static kind alone.
+   Test both FFI states and each call effect. `lift(lower(frame))` must
+-  reproduce the canonical frame. An undeclared pc gives
+-  `:yin.k/not-at-safepoint`; queued work gives `:yin.k/not-quiescent`.
++  reproduce the canonical frame. A pc outside every body gives `:yin.k/not-at-safepoint`; every pc of A lifts as a `run` state when the machine is between instructions; queued work travels as `:ready` rows and resumes in order.
+   Insufficient pending evidence refuses before publication, as does a
+   missing portable cursor profile. Halt yields a result, not a frame.
+ - Reflection acceptance (`dao.stream.remote.implementation-plan.md`, slice 8): Park a
+diff --git a/src/cljc/yin/vm/ucf/authority/grant.cljc b/src/cljc/yin/vm/ucf/authority/grant.cljc
+index 37227b9f1..1e115caa9 100644
+--- a/src/cljc/yin/vm/ucf/authority/grant.cljc
++++ b/src/cljc/yin/vm/ucf/authority/grant.cljc
+@@ -72,7 +72,7 @@
+           succession (when-not known (completion/offer-refusal p address b))]
+       (cond
+         (or (:yin.k/fork b)
+-            (not (contains? #{:blocked :parked} (:yin.k/kind b))))
++            (not (contains? #{:running :blocked :parked} (:yin.k/kind b))))
+         (reply :refused :not-offerable nil)
+         (not (custody/occurrence? o))
+         (reply :refused :malformed-occurrence nil)
+diff --git a/src/cljc/yin/vm/ucf/compose.cljc b/src/cljc/yin/vm/ucf/compose.cljc
+index 5d2b771f5..985019314 100644
+--- a/src/cljc/yin/vm/ucf/compose.cljc
++++ b/src/cljc/yin/vm/ucf/compose.cljc
+@@ -663,14 +663,15 @@
+    address), the source's machine, the arbitration decision
+    (arbitration-of's, never the caller's), the protection declaration,
+    the receiving machine, the receiver's own attach/observe/serve seams,
+-   an optional renewal-interval override, and an optional :inbound stream
++   optional :fuel and :yin.k/admitted-modules, an optional renewal-interval
++   override, and an optional :inbound stream
+    (consumed by holder-media, not passed to the driver).  Every other key
+    -- :journal, :reply-inbox, :outcome-inbox, :read-ledger!,
+    :append-request!, :append-diagnostic!, :clock, :store, :medium, :me,
+    :units, :source-index, :enroll!, :journals -- is a composition seam,
+    refused at add-holder, never overridable by a holder config."
+-  [:bytes :address :machine :arbitration :protection :receiver
+-   :attach! :observe! :serve! :renewal-interval :inbound])
++  [:bytes :address :machine :arbitration :protection :receiver :yin.k/admitted-modules
++   :attach! :observe! :serve! :renewal-interval :fuel :inbound])
+ 
+ 
+ (defn- check-holder-config-keys!
+@@ -796,8 +797,8 @@
+ 
+ (defn source
+   "Add the source half: `config` carries :machine -- the machine at its
+-   liftable safepoint, holding no custody -- beside the holder seams of
+-   `holder` (no :bytes and :address: the driver mints those).  An
++   park, halt or instruction boundary, holding no custody -- beside the
++   holder seams of `holder` (no :bytes and :address: the driver mints those).  An
+    exclusive composition offers the export on its own arbitration --
+    the composition names it, and a supplied :arbitration is a refused
+    assembly; a fork composition (the composition's fork decision,
+@@ -838,9 +839,9 @@
+ 
+ 
+ (defn hand-off
+-  "The composition's explicit export of holder `h`'s parked continuation
+-   (`driver/hand-off`): the exit half arms over the safepoint the next
+-   control and program steps drive to its report, release and closure."
++  "Export holder `h` at a park, halt or instruction boundary
++   (`driver/hand-off`): subsequent control and program steps drive the
++   exit to its report, release and closure."
+   [c h]
+   (update-in c [:holders h] driver/hand-off))
+ 
+diff --git a/src/cljc/yin/vm/ucf/holder/driver.cljc b/src/cljc/yin/vm/ucf/holder/driver.cljc
+index 4c7f6eb53..406f5a9eb 100644
+--- a/src/cljc/yin/vm/ucf/holder/driver.cljc
++++ b/src/cljc/yin/vm/ucf/holder/driver.cljc
+@@ -25,7 +25,7 @@
+    `rows/lower-task` under `:exclusive` with no grant, which refuses
+    before any attachment, so nothing is attached and no machine is
+    exposed: it answers `:yin.k/awaiting-grant` for a valid exclusive
+-   blocked or parked root; anything else is a data refusal with no
++   running, blocked or parked root; anything else is a data refusal with no
+    cleanup owed.  A halted exclusive root is not a lease subject: it
+    lowers once, gated `:ended`, and the driver publishes it with no
+    custody.
+@@ -71,8 +71,9 @@
+    completion evidence, and the occurrence of an ordinary failed run
+    stays regrantable under the ordinary policy.
+ 
+-   :safepoint -- the machine has nothing left to drive (halted, no wait
+-   entry, no queued work); the exit half (D14) owns what follows, under
++   :safepoint -- automatic exit after a halt with no waits or queued
++   work, or explicit hand-off at a park, halt or instruction boundary;
++   the exit half (D14) owns what follows, under
+    tenure that is still held: renewal and the recheck continue while it
+    runs, and all IO stops at the bound.
+ 
+@@ -116,6 +117,7 @@
+             [dao.lease :as lease]
+             [dao.stream :as stream]
+             [yin.vm :as vm]
++            [yin.vm.semantic :as sr]
+             [yin.vm.ucf.authority.completion :as completion]
+             [yin.vm.ucf.authority.front :as front]
+             [yin.vm.ucf.custody :as custody]
+@@ -190,6 +192,9 @@
+           {:protection (:protection config)})
+   (check! (map? (:receiver config)) "a receiving machine" {})
+   (check-interval! units (:renewal-interval config))
++  (check! (or (nil? (:fuel config))
++              (and (integer? (:fuel config)) (pos? (:fuel config))))
++          "positive integer fuel or nil" {:fuel (:fuel config)})
+   (doseq [s seams]
+     (check! (fn? (get config s)) (str "the seam " (name s)) {}))
+   (doseq [key (vals inbox/lanes)]
+@@ -219,6 +224,7 @@
+    :address (:address config)
+    :protection (:protection config)
+    :renewal-interval (:renewal-interval config)
++   :fuel (:fuel config)
+    :units units
+    :receiver (:receiver config)
+    :seams (-> (select-keys config (into (into seams optional-seams) (vals inbox/lanes)))
+@@ -258,6 +264,7 @@
+                         class (:enrolled, :at-least-once or :fail-stop)
+      :renewal-interval  the composition's interval, sized strictly below
+                         half the duration it arranges (H2/S1)
++     :fuel              optional positive integer instruction budget; nil runs unrestricted
+      :units             optional unit table, dao.lease's default
+      :receiver          the receiving machine of the receiver's own
+                         composition
+@@ -319,8 +326,7 @@
+    `initial` takes except :bytes and :address -- the driver mints those
+    itself -- plus
+ 
+-     :machine           the machine at its liftable safepoint (parked,
+-                        blocked or halted), gate :running; never one
++     :machine           the machine at a park, halt or instruction boundary, gate :running; never one
+                         that already holds custody (a holder exports its
+                         successor through `hand-off`)
+      :arbitration       the arbitration medium the composition names, an
+@@ -1120,9 +1126,9 @@
+ 
+ 
+ (defn hand-off
+-  "Arm the exit half over a holder whose machine is parked or blocked
+-   at a liftable safepoint: the composition's explicit export of a
+-   parked continuation (UCF 7.8's lift is composition-driven, never
++  "Arm the exit half over a holder at a park, halt or instruction
++   boundary: the composition's explicit export of a continuation
++   (UCF 7.8's lift is composition-driven, never
+    automatic on a park).  The phase becomes :safepoint and the next
+    step mints the successor; a machine that cannot enter exporting
+    answers the refusal, arms nothing and keeps running."
+@@ -1467,7 +1473,13 @@
+    earlier in the same drain -- folds into that one diagnostic under
+    :also-ended, never a second diagnostic."
+   [state cause detail]
+-  (let [also (some-> (:run-end state) :cause)
++  (let [m (:machine state)
++        boundary {:yin.k/pc (get-in m [:control :pc])
++                  :yin.k/segment (get-in m [:control :segment])
++                  :yin.k/steps-since-checkpoint (or (:completed-slices state) 0)
++                  :yin.k/checkpoint (:address state)}
++        state (assoc state :yin.k/retained-boundary boundary)
++        also (some-> (:run-end state) :cause)
+         detail (if (some? also) (assoc detail :also-ended also) detail)
+         diagnostic {:yin.k/diagnostic :yin.k/run-ended
+                     :yin.k/occurrence (:occurrence state)
+@@ -2114,40 +2126,64 @@
+           machine (machines original)))
+ 
+ 
++(defn- stage-result
++  "Run one stage under tenure. Failure carries this stage's input, the
++   latest completed state; uncertain journal and inbox failures propagate."
++  [state operation]
++  (try
++    (require-tenure! state)
++    {:status :ok :state (operation state)}
++    (catch #?(:cljd Object :clj Throwable :cljs :default) failure
++      (if (or (::journal-uncertain (ex-data failure)) (::inbox/refusal (ex-data failure)))
++        (throw failure)
++        {:status :failed :state state :failure failure}))))
++
++
++(defn- completed-stage
++  [state result]
++  (assoc state :machine (:machine result)
++         :run-end (or (:run-end state) (:run-end result))
++         :step-unsatisfied (or (:step-unsatisfied state) (:unsatisfied result))))
++
++
+ (defn- run-cycle
+-  "One program cycle of the run, after tenure: the machine's internal
+-   computation, replay below the frontier, the writer's emit, the
+-   reader's live step.  The unsatisfied answers of the writer and the
+-   reader ride the state as :step-unsatisfied; a run end anywhere
+-   rides it as :run-end."
++  "One execution slice, replay, emit and live read, with a state-bearing
++   outcome before each next tenure check. No unreturned partial state is adopted."
+   [state]
+-  (let [_ (require-tenure! state)
+-        m0 (:machine state)
+-        m1 (if (and (= :running (vm/gate-mode m0)) (not (:halted? m0)))
+-             (vm/run m0)
+-             m0)
+-        _ (require-tenure! state)
+-        replay (reader/replay m1 {:control-outstanding?
+-                                  (control-outstanding? state)})
+-        m2 (:machine replay)
+-        _ (require-tenure! state)
+-        request! (fn [request] (require-tenure! state) (append-request! state request))
+-        emit (writer/emit (guard-writes state m2) request!
+-                          (fn [diagnostic]
+-                            (require-tenure! state)
+-                            (append-diagnostic! state diagnostic)))
+-        m3 (restore-handles (:machine emit) m2)
+-        live (reader/step m3 request!
+-                          (fn [h op arg]
+-                            (require-tenure! state)
+-                            (observe! state h op arg)))
+-        m4 (:machine live)]
+-    (assoc state
+-           :machine m4
+-           :run-end (or (:run-end replay) (:run-end emit) (:run-end live))
+-           :step-unsatisfied (or (:unsatisfied replay)
+-                                 (:unsatisfied emit)
+-                                 (:unsatisfied live)))))
++  (reduce
++    (fn [outcome operation]
++      (if (= :failed (:status outcome)) (reduced outcome)
++          (stage-result (:state outcome) operation)))
++    {:status :ok :state state}
++    [(fn [state]
++       (let [m0 (:machine state)
++             fuel (:fuel state)
++             m1 (if (and (= :running (vm/gate-mode m0)) (not (:halted? m0)))
++                  (if fuel (sr/run-fuel m0 fuel) (vm/run m0)) m0)]
++         (-> state (assoc :machine m1) (update :completed-slices (fnil inc 0)))))
++     (fn [state]
++       (completed-stage state (reader/replay (:machine state)
++                                             {:control-outstanding? (control-outstanding? state)})))
++     (fn [state]
++       (let [m (:machine state)
++             result (writer/emit
++                      (guard-writes state m)
++                      (fn [request] (require-tenure! state) (append-request! state request))
++                      (fn [diagnostic] (require-tenure! state) (append-diagnostic! state diagnostic)))]
++         (completed-stage state (update result :machine restore-handles m))))
++     (fn [state]
++       (completed-stage state
++                        (reader/step (:machine state)
++                                     (fn [request] (require-tenure! state) (append-request! state request))
++                                     (fn [h op arg] (require-tenure! state) (observe! state h op arg)))))]))
++
++
++(defn- failed-stage
++  [{:keys [state failure]}]
++  (if (= :lease-bound (::cause (ex-data failure)))
++    (end-run state :lease-bound {:dao.lease/lease (:lease state)})
++    (end-run state :program-failure
++             {:failure {:message (ex-message failure) :data (ex-data failure)}})))
+ 
+ 
+ (defn- at-safepoint?
+@@ -2188,7 +2224,8 @@
+                  :detail {:yin.k/occurrence (:occurrence state)
+                           :dao.lease/lease (:lease state)})))
+       :else (with-status base :yin.k/ok
+-              {:yin.k/occurrence (:occurrence base) :dao.lease/lease (:lease base)}))))
++              (cond-> {:yin.k/occurrence (:occurrence base) :dao.lease/lease (:lease base)}
++                (some? (:control (:machine base))) (assoc :yin.k/at-boundary true))))))
+ 
+ 
+ (defn- step-active-held
+@@ -2240,7 +2277,12 @@
+                   (or (= :control mode) (= :activating (:phase state)))
+                   (with-status state :yin.k/ok
+                     {:yin.k/occurrence (:occurrence state) :dao.lease/lease (:lease state)})
+-                  :else (cycle-result (drain (run-cycle state) mode)))))))))))
++                  :else (let [outcome (run-cycle state)
++                              drained (if (= :failed (:status outcome)) outcome
++                                          (stage-result (:state outcome) #(drain % mode)))]
++                          (if (= :failed (:status drained))
++                            (failed-stage drained)
++                            (cycle-result (:state drained)))))))))))))
+ 
+ 
+ (defn- step-active
+@@ -2255,11 +2297,7 @@
+        (catch #?(:cljd Object :clj Throwable :cljs :default) failure
+          (if (or (::journal-uncertain (ex-data failure)) (::inbox/refusal (ex-data failure)))
+            (throw failure)
+-           (if (= :lease-bound (::cause (ex-data failure)))
+-             (end-run state :lease-bound {:dao.lease/lease (:lease state)})
+-             (end-run state :program-failure
+-                      {:failure {:message (ex-message failure)
+-                                 :data (ex-data failure)}}))))))
++           (failed-stage {:state state :failure failure})))))
+ 
+ 
+ ;; =============================================================================
+@@ -2299,7 +2337,7 @@
+   (let [b (checkpoint/inspect (:address state) (:bytes state))
+         r (if (:yin.k/status b) b (lowered state {:exclusive true}))]
+     (cond
+-      ;; a valid blocked or parked root answers awaiting-grant at
++      ;; a valid running, blocked or parked root answers awaiting-grant at
+       ;; the custody gate, before any attachment
+       (= :yin.k/awaiting-grant (:yin.k/status r))
+       (assoc state :phase :proposing
+diff --git a/src/cljc/yin/vm/ucf/holder/export.cljc b/src/cljc/yin/vm/ucf/holder/export.cljc
+index 97e2fe0da..11bc7f390 100644
+--- a/src/cljc/yin/vm/ucf/holder/export.cljc
++++ b/src/cljc/yin/vm/ucf/holder/export.cljc
+@@ -4,8 +4,8 @@
+    machine value and data.
+ 
+    `enter` is the one-step transition into exporting: it sets
+-   `:yin.k/gate :exporting` on the root, requires an empty ready queue,
+-   and moves the wait set and every parked record into an export record.
++   `:yin.k/gate :exporting` on the root and moves the wait set, ordered ready queue and
++   every parked record into an export record.
+    The machine then has nothing to poll, resume or advance, and the gate
+    refuses what remains.  It refuses, as `:yin.k/non-portable` of kind
+    `:reason-mismatch`, a task that holds (root or any install child) an
+@@ -104,16 +104,6 @@
+       {:yin.k/hold :link-cursor-not-installed})))
+ 
+ 
+-(defn- first-refusal
+-  [vm]
+-  (some (fn [[path m]]
+-          (when (seq (:ready-queue m))
+-            {:yin.k/status :yin.k/not-quiescent
+-             :yin.k/path path
+-             :yin.k/ready (count (:ready-queue m))}))
+-        (machines [] vm)))
+-
+-
+ ;; =============================================================================
+ ;; Entering exporting
+ ;; =============================================================================
+@@ -121,12 +111,12 @@
+ (defn enter
+   "Enter exporting from `machine`.  Answers
+    `{:status :ok :machine m :record r}`: `m` is `machine` with the gate
+-   `:exporting`, an empty wait set and no parked record, and `r` the
+-   export record, holding the wait set in order, every parked record
++   `:exporting`, empty wait and ready queues and no parked record,
++   and `r` the export record, holding waits and completed outcomes in
++   order, every parked record
+    (the row carrier carries them all, continuation §2.5), and the gate
+    to return to.  Otherwise answers the data outcome of the first
+-   refusal, leaving `machine` as it was: `:yin.k/not-quiescent` for
+-   queued work in the root or a child, a `:yin.k/non-portable` of kind
++   refusal, leaving `machine` as it was: a `:yin.k/non-portable` of kind
+    `:reason-mismatch` (naming the hold and the task path), or
+    `:yin.k/refused` for a machine that is already exporting or ended."
+   [machine]
+@@ -135,15 +125,15 @@
+     (refused :not-running)
+ 
+     :else
+-    (or (first-refusal machine)
+-        (some (fn [[path m]]
++    (or (some (fn [[path m]]
+                 (when-some [h (refusal-at m)]
+                   (non-portable (assoc h :yin.k/path path))))
+               (machines [] machine))
+         {:status :ok
+-         :machine (cond-> (assoc machine :yin.k/gate :exporting :wait-set [])
++         :machine (cond-> (assoc machine :yin.k/gate :exporting :wait-set [] :ready-queue [])
+                     (contains? machine :parked) (assoc :parked {}))
+          :record {:wait-set (vec (:wait-set machine))
++                  :ready-queue (:ready-queue machine)
+                   :parked (:parked machine)
+                   :gate (vm/gate-mode machine)
+                   :served {}}})))
+@@ -157,7 +147,7 @@
+                    (update-in restored [:installs module-name :vm]
+                               reinstated child-record))
+                  machine (or (:children record) {}))
+-      (assoc :wait-set (:wait-set record))
++      (assoc :wait-set (:wait-set record) :ready-queue (:ready-queue record))
+       (update :parked merge (:parked record))))
+ 
+ 
+@@ -276,9 +266,10 @@
+   [m]
+   (let [value (:value m)]
+     (cond
++      (some? (:control m)) :running
+       (and (map? value) (= :parked-continuation (:type value))
+            (contains? (:parked m) (:id value))) :parked
+-      (seq (:wait-set m)) :blocked
++      (or (seq (:wait-set m)) (seq (:ready-queue m))) :blocked
+       :else :halted)))
+ 
+ 
+@@ -324,11 +315,12 @@
+ (defn- recovery-metadata
+   "The holder-local engine state of one task the pack does not carry:
+    the gate to return to, each wait's issue stamp in wait order, the
+-   issued and origin counters, and each install child's, recursively."
++   ready count, issued and origin counters, and each install child's, recursively."
+   [machine record]
+   {:gate (:gate record)
+    :origins (:origins machine)
+    :issues (mapv :yin.k/issue (:wait-set record))
++   :ready-count (count (:ready-queue record))
+    :issued (:yin.k/issued machine)
+    :children (into {}
+                    (map (fn [[module-name install]]
+@@ -337,7 +329,8 @@
+                              (:vm install)
+                              (or (get-in record [:children module-name])
+                                  {:gate (vm/gate-mode (:vm install))
+-                                  :wait-set (:wait-set (:vm install))}))]))
++                                  :wait-set (:wait-set (:vm install))
++                                  :ready-queue (:ready-queue (:vm install))}))]))
+                    (:installs machine))})
+ 
+ 
+@@ -386,8 +379,8 @@
+ 
+ (defn- header-agrees?
+   "The recovery's header is the custody the pack's root slot carries:
+-   nil exactly for a fork; otherwise the slot's keys by kind (blocked or
+-   parked: occurrence, arbitration, counter and origin; halted: origin),
++   nil exactly for a fork; otherwise the slot's keys by kind (running,
++   blocked or parked: occurrence, arbitration, counter and origin; halted: origin),
+    a nil header value being an absent key, as the lift writes it."
+   [header baseline]
+   (if (nil? header)
+@@ -407,7 +400,7 @@
+ 
+ (defn- valid-state?
+   "The recovery state fits the decoded task: one issue stamp per carried
+-   wait, and one child state per carried install, recursively."
++   wait, the ready count, and one child state per install, recursively."
+   [task state]
+   (let [ss (:slots task)
+         installs (nth ss 12)
+@@ -416,6 +409,7 @@
+          (contains? #{nil :running :exporting :ended} (:gate state))
+          (vector? (:issues state))
+          (= (count (:issues state)) (count waits))
++         (= (:ready-count state) (count (nth ss 18)))
+          (every? counter? (:issues state))
+          (counter? (:issued state))
+          (counter? (:origins state))
+@@ -457,6 +451,7 @@
+                     (:yin.k/recovery-waits machine)
+                     (:issues state))
+         record {:wait-set waits
++                :ready-queue (vec (:yin.k/recovery-ready machine))
+                 :parked (or (:yin.k/recovery-parked machine) {})
+                 :recovered? true
+                 :gate (:gate state)
+@@ -468,9 +463,9 @@
+                             (assoc-in parent [:installs module-name :vm]
+                                       (:machine recovered)))
+                           (cond-> (-> machine
+-                                      (dissoc :yin.k/recovery-waits :yin.k/recovery-parked
++                                      (dissoc :yin.k/recovery-waits :yin.k/recovery-ready :yin.k/recovery-parked
+                                               :yin.k/custody :yin.k/closes :yin.k/issued :origins)
+-                                      (assoc :wait-set [] :parked {} :yin.k/gate :exporting))
++                                      (assoc :wait-set [] :ready-queue [] :parked {} :yin.k/gate :exporting))
+                             (some? (:origins state)) (assoc :origins (:origins state))
+                             (some? (:issued state)) (assoc :yin.k/issued (:issued state)))
+                           children)]
+diff --git a/src/cljc/yin/vm/ucf/holder/reader.cljc b/src/cljc/yin/vm/ucf/holder/reader.cljc
+index a55204fed..dd6dbaf47 100644
+--- a/src/cljc/yin/vm/ucf/holder/reader.cljc
++++ b/src/cljc/yin/vm/ucf/holder/reader.cljc
+@@ -484,7 +484,8 @@ resource."
+ (defn- send-held
+   "(Re)send the request of the held observation `held` through
+    `append-input!`, moving it to state 2 when the request may have
+-   left, and answering `[machine' appended]`."
++   left, and answering `[machine' appended]`. Backpressure or acknowledgement
++   delay may preserve the hold over arbitrarily many cycles."
+   [machine custody held append-input!]
+   (let [k (:yin.k/input-seq held)
+         r (input-request custody k (:yin.k/source held) (:yin.k/observed held))
+diff --git a/src/cljc/yin/vm/ucf/ledger.cljc b/src/cljc/yin/vm/ucf/ledger.cljc
+index c296bee5a..fd3ace227 100644
+--- a/src/cljc/yin/vm/ucf/ledger.cljc
++++ b/src/cljc/yin/vm/ucf/ledger.cljc
+@@ -274,7 +274,7 @@
+                 (some? (:yin.k/medium fact))
+                 (map? b)
+                 (= o (:yin.k/occurrence b))
+-                (contains? #{:blocked :parked} (:yin.k/kind b))))
++                (contains? #{:running :blocked :parked} (:yin.k/kind b))))
+       :malformed-fact
+       (not= (:arbitration projection)
+             (get-in b [:yin.k/arbitration :dao.stream/identity]))
+diff --git a/src/cljc/yin/vm/ucf/rows.cljc b/src/cljc/yin/vm/ucf/rows.cljc
+index d364b5cc1..e7ac88f31 100644
+--- a/src/cljc/yin/vm/ucf/rows.cljc
++++ b/src/cljc/yin/vm/ucf/rows.cljc
+@@ -1967,8 +1967,8 @@
+    its own link), the image the manifest names (continuation §11 Q3: the
+    manifest's :yin.semantic/code derivation record is the response's
+    :derivation, from the manifest's tree to the image's A), and a child
+-   that is blocked: the engine links a halted child in the sweep it
+-   halts in."
++   that is blocked at phase :parked or running at phase :running: the
++   engine links a halted child in the sweep it halts in."
+   [recv inst]
+   (let [[mn phase parent response child] (:slots inst)
+         manifest (when (map? response) (:manifest response))
+diff --git a/test/yin/vm/semantic/layout_test.cljc b/test/yin/vm/semantic/layout_test.cljc
+index 14a289eb2..f0f71b63c 100644
+--- a/test/yin/vm/semantic/layout_test.cljc
++++ b/test/yin/vm/semantic/layout_test.cljc
+@@ -810,4 +810,6 @@
+           ;; Pinned as measured: linearize gives every operand a fresh
+           ;; register ((+ x x) is [:var 2 x] [:var 3 x] [:call 0 1 [2 3]]), so
+           ;; no projected program repeats one; a repeat would fail here loudly.
++          ;; Per-group agreement is live only for non-projected vectors
++          ;; (6e's hand-built cases).
+           (is (zero? @repeated)))))))
+diff --git a/test/yin/vm/ucf/authority/grant_test.cljc b/test/yin/vm/ucf/authority/grant_test.cljc
+index 57ee5f6e1..1a4bd5258 100644
+--- a/test/yin/vm/ucf/authority/grant_test.cljc
++++ b/test/yin/vm/ucf/authority/grant_test.cljc
+@@ -10,6 +10,8 @@
+             [dao.stream.remote :as remote]
+             [dao.stream.ringbuffer :as ringbuffer]
+             [yin.vm.ucf.authority :as authority]
++            [yin.vm.ucf.rows :as rows]
++            [yin.vm.ucf.rows-support :as support]
+             [yin.vm.ucf.authority.completion :as completion]
+             [yin.vm.ucf.authority.grant :as grant]
+             [yin.vm.ucf.rows-checkpoint-fixtures :as fx]
+@@ -525,3 +527,18 @@
+              (custody/binding-evidence
+                arb (mapv (fn [[_ r]] ["mallory" r]) read) "lease-1")))
+         "the same records attributed to another author prove nothing")))
++
++
++(deftest running-root-is-offerable-test
++  (let [frames (fresh-frames)
++        a (auth frames)
++        store (mem/create-content-mem)
++        machine (support/load-ast (support/new-machine) (support/lit 42))
++        header {:yin.k/occurrence occ
++                :yin.k/arbitration {:dao.stream/identity arb :dao.stream/descriptor {}}
++                :yin.k/next-op-seq 0 :yin.k/enrolled #{}}
++        wire (rows/lift-task machine nil {:header header :source-index @support/source-index})
++        {:keys [address bytes]} (bytes-of wire)]
++    (is (= :running (:yin.k/kind (checkpoint/inspect address bytes))))
++    (is (= :committed (:yin.k/status (grant/offer! a store address bytes "carrier"))))
++    (is (= :running (get-in (authority/projection a) [:occurrences occ :yin.k/baseline :yin.k/kind])))))
+diff --git a/test/yin/vm/ucf/compose_rows_test.cljc b/test/yin/vm/ucf/compose_rows_test.cljc
+index b134ffa89..41cc0bdf2 100644
+--- a/test/yin/vm/ucf/compose_rows_test.cljc
++++ b/test/yin/vm/ucf/compose_rows_test.cljc
+@@ -44,6 +44,7 @@
+             [dao.stream.journal.file :as file-journal]
+             [dao.stream.memory-log :as memory-log]
+             [yin.vm :as vm]
++            [yin.vm.semantic :as sr]
+             [yin.vm.engine :as engine]
+             [yin.vm.ucf.authority :as authority]
+             [yin.vm.ucf.authority.completion :as completion]
+@@ -2594,3 +2595,61 @@
+         (is (= {:yin.k/status :refused :yin.k/reason :wrong-origin} r))
+         (is (= before (authority/projection (:authority c)))
+             "an unfenced fork result establishes no completion")))))
++
++
++(defn- fuelled-source
++  [child?]
++  (if-not child?
++    {:machine (s/load-ast (s/new-machine)
++                          (apply s/app (s/v '+) (map s/lit (range 100))))
++     :result 4950}
++    (let [request (s/ring 64) response (s/ring 64)
++          body (s/then (apply s/app (s/v '+) (map s/lit (range 100)))
++                       (s/def! 'f (s/lam [] (s/lit 42))))
++          reply (s/linked-response body 'host.mod #{'f})
++          parent (vm/run (s/load-ast (s/new-machine {:link-request request :link-response response})
++                                     (s/then (s/app (s/v 'require) (s/lit 'host.mod))
++                                             (s/app (s/v 'host.mod/f)))))
++          _ (stream/append! response (assoc reply :yin.link/id (:link-id (first (:wait-set parent)))))
++          m (sr/run-fuel parent 1)]
++      {:machine m :result 42
++       :admission {'host.mod (jing/segment-key (:manifest reply))}})))
++
++
++(deftest exclusive-fuel-boundary-and-running-install-child-handoff-test
++  (doseq [child? [false true]]
++    (exclusive-row
++      (fn [w]
++        (let [{:keys [machine admission result]} (fuelled-source child?)
++              handles (atom {})
++              serve (fn [h]
++                      (or (some (fn [[id value]] (when (= h value) {:dao.stream/identity id :dao.stream/channel {}})) @handles)
++                          (let [id (str "compute-" (count @handles))]
++                            (swap! handles assoc id h)
++                            {:dao.stream/identity id :dao.stream/channel {}})))
++              config {:machine machine :fuel 1 :yin.k/admitted-modules admission
++                      :protection {} :receiver (s/new-machine)
++                      :serve! serve
++                      :attach! (fn [d]
++                                 {:dao.stream/outcome :dao.stream/ok
++                                  :dao.stream/handle (get @handles (:dao.stream/identity d))})
++                      :observe! (counting-observe (atom 0))}
++              c (compose/source (:c w) "compute" config)
++              c (step-until c #(= :running (get-in % [:holders "compute" :phase])) 60)
++              m (get-in c [:holders "compute" :machine])
++              _ (if child?
++                  (do (is (= :running (get-in m [:installs 'host.mod :phase])))
++                      (is (some? (get-in m [:installs 'host.mod :vm :control]))))
++                  (is (some? (:control m))))
++              c (compose/hand-off c "compute")
++              stale (get-in c [:holders "compute" :machine])
++              c (step-until c #(= :exited (get-in % [:holders "compute" :phase])) 90)
++              cp (get-in c [:holders "compute" :exit])
++              c (compose/holder c "receiver" (-> config (dissoc :machine)
++                                                 (assoc :bytes (:bytes cp) :address (:address cp))))
++              c (step-until c #(= :exited (get-in % [:holders "receiver" :phase])) 250)]
++          (is (= :exited (get-in c [:holders "receiver" :phase])))
++          (is (= result (get-in c [:holders "receiver" :machine :value])))
++          (is (try (vm/step stale) false
++                   (catch #?(:cljd Object :clj Throwable :cljs :default) e
++                     (= "Gate is closed" (ex-message e))))))))))
+diff --git a/test/yin/vm/ucf/holder/driver_test.cljc b/test/yin/vm/ucf/holder/driver_test.cljc
+index b01a400a5..a199279d8 100644
+--- a/test/yin/vm/ucf/holder/driver_test.cljc
++++ b/test/yin/vm/ucf/holder/driver_test.cljc
+@@ -24,6 +24,9 @@
+             [yin.vm :as vm]
+             [yin.vm.engine :as engine]
+             [yin.vm.module :as module]
++            [yin.vm.semantic :as sr]
++            [yin.vm.ucf.holder.reader :as reader]
++            [yin.vm.ucf.holder.writer :as writer]
+             [yin.vm.ucf.authority :as authority]
+             [yin.vm.ucf.authority.admission :as admission]
+             [yin.vm.ucf.authority.completion :as completion]
+@@ -679,7 +682,7 @@
+ 
+ (defn- reopen-config
+   [state]
+-  (merge (select-keys state [:me :bytes :address :protection :renewal-interval :units :receiver])
++  (merge (select-keys state [:me :bytes :address :protection :renewal-interval :fuel :units :receiver])
+          (:seams state)
+          {:store (get-in state [:seams :content-store])}))
+ 
+@@ -2745,11 +2748,14 @@
+                     (assoc-in [:yin.k/custody :protection "bare"] :at-least-once)
+                     (assoc-in [:installs :child :vm]
+                               (assoc (s/halted-machine) :yin.k/gate :running)))
++        expected (assoc (:machine (reader/replay (vm/run machine) {:control-outstanding? false}))
++                        :yin.k/gate :ended)
+         st (driver/step (assoc (:state running) :machine machine))]
+     (is (= [1] @emitted))
+     (is (= :releasing (:phase st)))
+     (is (= :ended (vm/gate-mode (:machine st))))
+-    (is (= :ended (vm/gate-mode (get-in st [:machine :installs :child :vm]))))
++    (is (= expected (:machine st))
++        "the completed sweep retired the halted child before emit lost tenure")
+     (is (some? (:release st)))))
+ 
+ 
+@@ -4279,3 +4285,217 @@
+         (is (seq (requests-of world' "holder-a" :yin.k/release)))
+         (is (= 1 (count (read-all (:diagnostics prepared))))
+             "one diagnostic, the run end's own")))))
++
++
++;; The clock cuts use the same :cljd-first gate as the 6d-a harness:
++;; ClojureDart cannot redefine these vars. JVM/cljs run the full campaign.
++(defn- pure-body
++  []
++  (reduce (fn [body n] (s/then (s/lit n) body)) (s/lit 42) (range 12)))
++
++
++(defn- running-pure
++  [record]
++  (update record :state
++          (fn [state]
++            (assoc state :fuel 1 :machine
++                   (s/load-ast (assoc (:machine state) :env (:free-env (:machine state)) :wait-set [] :ready-queue [])
++                               (pure-body))))))
++
++
++(deftest fuel-configuration-and-repeated-boundaries-test
++  (let [{:keys [sources]} (reader-source)
++        w (world :holders ["holder-a"] :sources sources)
++        record (driver-for w "holder-a" sources "v1")
++        config (reopen-config (:state record))]
++    (doseq [fuel [0 -1 1.5 "1" false]]
++      (is (try (driver/initial (assoc config :fuel fuel)) false
++               (catch #?(:cljd Object :clj Throwable :cljs :default) _ true))))
++    (doseq [fuel [nil 1 10]]
++      (is (= fuel (:fuel (driver/initial (assoc config :fuel fuel))))))
++    (let [{:keys [sources]} (reader-source)
++          w (world :holders ["holder-a"] :sources sources)
++          record (running-pure (to-running w (driver-for w "holder-a" sources "v1")))
++          m0 (get-in record [:state :machine])
++          one (driver/program-step (:state record))
++          two (driver/program-step one)]
++      (is (= :running (:phase one) (:phase two)))
++      (is (true? (get-in one [:detail :yin.k/at-boundary])))
++      (is (= (sr/run-fuel m0 1) (:machine one)))
++      (is (= (sr/run-fuel (:machine one) 1) (:machine two)))
++      (is (not= (:machine one) (:machine two))))))
++
++
++(deftest clock-cuts-retain-the-exact-completed-stage-test
++  #?(:cljd nil
++     :default
++     (doseq [cut [:before :after-slice :replay :after-replay :emit :after-emit :read :after-read :between]]
++       (let [{:keys [sources]} (reader-source)
++             w (world :holders ["holder-a" "holder-b"] :sources sources)
++             record (running-pure (to-running w (driver-for w "holder-a" sources "v1")))
++             state (:state record)
++             m0 (:machine state)
++             expected (atom m0)
++             serves (atom 0)
++             expire! #(reset! (:clock record) {:s 31})
++             run sr/run-fuel
++             replay reader/replay
++             emit writer/emit
++             read-step reader/step
++             mark (fn [result stage]
++                    (let [m (assoc (:machine result) ::completed-stage stage)]
++                      (reset! expected (assoc m :resources (:resources m0)))
++                      (assoc result :machine m)))
++             _ (reset! (:attaches record) 0)
++             state (assoc-in state [:seams :serve!] (fn [_] (swap! serves inc) nil))
++             _ (when (= :before cut) (expire!))
++             result
++             (with-redefs [sr/run-fuel (fn [m n]
++                                         (let [m (run m n)]
++                                           (reset! expected m)
++                                           (when (= :after-slice cut) (expire!)) m))
++                           reader/replay (fn [& args]
++                                           (when (= :replay cut) (expire!))
++                                           ;; A failure within a stage retains its input.
++                                           (if (= :replay cut)
++                                             (throw (ex-info "cut" {::driver/cause :lease-bound}))
++                                             (let [r (mark (apply replay args) :replay)]
++                                               (when (= :after-replay cut) (expire!)) r)))
++                           writer/emit (fn [& args]
++                                         (when (= :emit cut) (expire!))
++                                         (if (= :emit cut)
++                                           (throw (ex-info "cut" {::driver/cause :lease-bound}))
++                                           (let [r (mark (apply emit args) :emit)]
++                                             (when (= :after-emit cut) (expire!)) r)))
++                           reader/step (fn [& args]
++                                         (when (= :read cut) (expire!))
++                                         (if (= :read cut)
++                                           (throw (ex-info "cut" {::driver/cause :lease-bound}))
++                                           (let [r (mark (apply read-step args) :read)]
++                                             (when (= :after-read cut) (expire!)) r)))]
++               (let [first (driver/program-step state)]
++                 (if (= :between cut)
++                   (do (reset! expected (:machine first)) (expire!) (driver/program-step first)) first)))
++             ended (assoc @expected :yin.k/gate :ended)]
++         (testing (str cut)
++           (is (= ended (:machine result)))
++           (is (= :lease-bound (get-in result [:detail :cause])))
++           (is (= (:address state) (get-in result [:yin.k/retained-boundary :yin.k/checkpoint])))
++           (is (= (get-in ended [:control :pc]) (get-in result [:yin.k/retained-boundary :yin.k/pc])))
++           (is (= (:bytes state) (:bytes result)) "retained state never replaces the checkpoint")
++           (is (= (if (= :before cut) 0 1)
++                  (get-in result [:yin.k/retained-boundary :yin.k/steps-since-checkpoint])))
++           (is (zero? @serves))
++           (is (zero? @(:attaches record)))
++           (is (zero? @(:observations record)))
++           (is (try (vm/step (:machine result)) false
++                    (catch #?(:clj Throwable :cljs :default) e (= "Gate is closed" (ex-message e)))))
++           (let [recovered (to-running w (driver-for w "holder-b" sources "v1"))]
++             (is (= (:bytes state) (get-in recovered [:state :bytes])))
++             (is (nil? (get-in recovered [:state :machine :control])))
++             (is (nil? (get-in recovered [:state :machine ::completed-stage])))
++             (is (not= (:machine result) (get-in recovered [:state :machine])))))))))
++
++
++(deftest two-candidates-for-a-running-offer-test
++  (let [machine (s/load-ast (s/new-machine) (pure-body))
++        lifted (lift-under machine (header-of 0) (serve-as "prog-r"))
++        sources {"v1" lifted "v2" (variant-of lifted)}
++        w (world :holders ["holder-a" "holder-b"] :sources sources)
++        a (driver-for w "holder-a" sources "v1")
++        b (driver-for w "holder-b" sources "v2")
++        a (drive w (drive w a))
++        b (drive w (drive w b))
++        _ (judge! w {:s 2})
++        won (drive w a)
++        lost (drive w b)]
++    (is (= :running (get-in won [:state :phase])))
++    (is (some? (get-in won [:state :machine :control])))
++    (is (= :yin.k/not-holder (get-in lost [:state :status])))
++    (is (nil? (get-in lost [:state :machine])))
++    (is (zero? @(:attaches lost)))
++    (is (= 42 (vm/value (vm/run (get-in won [:state :machine])))))))
++
++
++(deftest running-hand-off-publishes-and-successor-finishes-test
++  (let [{:keys [sources]} (reader-source)
++        w (world :holders ["holder-a" "holder-b"] :sources sources)
++        running (running-pure (to-running w (driver-for w "holder-a" sources "v1")))
++        one (driver/program-step (:state running))
++        handed (driver/hand-off one)
++        old (:machine handed)
++        exited (drive-to w (assoc running :state handed) (phase-of :exited) 30 :judge {:s 3})
++        cp (get-in exited [:state :exit])
++        successor (to-running w (driver-for w "holder-b" {"next" cp} "next"))]
++    (is (= :exporting (vm/gate-mode old)))
++    (is (= :running (:kind cp)))
++    (is (= :running (get-in successor [:state :phase])))
++    (is (= 42 (vm/value (vm/run (get-in successor [:state :machine])))))
++    (is (try (vm/step old) false
++             (catch #?(:cljd Object :clj Throwable :cljs :default) e
++               (= "Gate is closed" (ex-message e)))))))
++
++
++(deftest running-grant-expiry-refuses-before-attachment-test
++  (let [machine (s/load-ast (s/new-machine) (pure-body))
++        lifted (lift-under machine (header-of 0) (serve-as "prog-r"))
++        sources {"v1" lifted}
++        w (world :holders ["holder-a"] :sources sources)
++        accepted (split-grant w sources)
++        _ (reset! (:clock accepted) {:s 31})
++        state (driver/program-step (:state accepted))]
++    (is (= :releasing (:phase state)))
++    (is (nil? (:machine state)))
++    (is (zero? @(:attaches accepted)))
++    (is (zero? @(:observations accepted)))))
++
++
++(deftest running-export-tenure-cuts-keep-the-exact-fence-test
++  #?(:cljd nil
++     :default
++     (doseq [cut [:mint :prepare :offer]]
++       (let [{:keys [sources]} (reader-source)
++             w (world :holders ["holder-a" "holder-b"] :sources sources)
++             run (running-pure (to-running w (driver-for w "holder-a" sources "v1")))
++             run (update-in run [:state :machine] assoc :store {})
++             state (driver/hand-off (driver/program-step (:state run)))
++             exact (:machine state)
++             past-serves (atom 0)
++             past-requests (atom [])
++             expire! #(reset! (:clock run) {:s 31})
++             expired? #(>= (:s @(:clock run)) 31)
++             prepare export/prepare
++             append (get-in state [:seams :append-request!])
++             serve (get-in state [:seams :serve!])
++             state (-> state
++                       (assoc-in [:seams :serve!] (fn [h]
++                                                    (when (expired?) (swap! past-serves inc))
++                                                    (serve h)))
++                       (assoc-in [:seams :append-request!]
++                                 (fn [r]
++                                   (when (and (expired?) (not= :yin.k/release (:yin.k/request r)))
++                                     (swap! past-requests conj r))
++                                   (let [answer (append r)]
++                                     (when (and (= :offer cut) (= :yin.k/offer (:yin.k/request r)))
++                                       (expire!)) answer))))
++             _ (reset! (:attaches run) 0)
++             _ (when (= :mint cut) (expire!))
++             result (with-redefs [export/prepare (fn [& args]
++                                                   (when (= :prepare cut) (expire!))
++                                                   (apply prepare args))]
++                      (loop [st state n 0]
++                        (if (or (= :releasing (:phase st)) (> n 8)) st
++                            (let [next (driver/program-step (driver/control-step st))]
++                              (carry! w)
++                              (recur next (inc n))))))]
++         (is (= :releasing (:phase result)) (pr-str (select-keys result [:phase :detail])))
++         (is (= (assoc exact :yin.k/gate :ended) (:machine result)))
++         (is (= (:address state) (get-in result [:yin.k/retained-boundary :yin.k/checkpoint])))
++         (is (= (:bytes state) (:bytes result)))
++         (is (zero? @past-serves))
++         (is (empty? @past-requests))
++         (is (zero? @(:attaches run)))
++         (is (zero? @(:observations run)))
++         (is (empty? (requests-of w "holder-a" :yin.k/resumed)))
++         (is (not= :ok (:status (export/abort (:machine result) (get-in result [:exit :record])
++                                              [{:append :dao.stream/transport-error}] nil))))))))
+diff --git a/test/yin/vm/ucf/holder/export_test.cljc b/test/yin/vm/ucf/holder/export_test.cljc
+index 840e20d67..4a7f54b63 100644
+--- a/test/yin/vm/ucf/holder/export_test.cljc
++++ b/test/yin/vm/ucf/holder/export_test.cljc
+@@ -13,6 +13,7 @@
+             [yin.vm :as vm]
+             [yin.vm.engine :as engine]
+             [yin.vm.module :as module]
++            [yin.vm.semantic :as sr]
+             [yin.vm.values :as values]
+             [yin.vm.test-utils :as tu]
+             [yin.vm.ucf.holder.export :as export]
+@@ -233,15 +234,16 @@
+         (is (zero? @calls))))))
+ 
+ 
+-(deftest a-non-empty-ready-queue-is-not-quiescent-test
+-  (let [[s _ _ _] (gated)
+-        r (export/enter (assoc s :ready-queue [{:id 1}]))]
+-    (is (= :yin.k/not-quiescent (:yin.k/status r)))
+-    (testing "a child's queue too"
+-      (let [r (export/enter
+-                (assoc s :installs {'foo {:vm (assoc (vm/empty-state {})
+-                                                     :ready-queue [{:id 1}])}}))]
+-        (is (= :yin.k/not-quiescent (:yin.k/status r)))))))
++(deftest completed-queues-are-retained-without-execution-test
++  (let [[s _ _ calls] (gated)
++        ready [{:id 1} {:id 2}]
++        source (assoc s :ready-queue ready)
++        r (export/enter source)]
++    (is (= :ok (:status r)))
++    (is (= ready (get-in r [:record :ready-queue])))
++    (is (empty? (get-in r [:machine :ready-queue])))
++    (is (= source (:machine (export/abort (:machine r) (:record r) [] nil))))
++    (is (zero? @calls))))
+ 
+ 
+ (defn- refused-as
+@@ -450,7 +452,7 @@
+     (is (= (vec (:bytes published)) (vec (:pack-bytes frozen))
+            (vec (jing/base64->bytes (:yin.k/pack-bytes recovery)))))
+     (is (jing/segment-bytes-match? (:address frozen) (:bytes frozen)))
+-    (is (= #{:gate :origins :issues :issued :children} (set (keys (:yin.k/state recovery)))))))
++    (is (= #{:gate :origins :issues :issued :ready-count :children} (set (keys (:yin.k/state recovery)))))))
+ 
+ 
+ ;; =============================================================================
+@@ -558,6 +560,7 @@
+              ["no tag" (dissoc recovery :yin.k/export-recovery) :yin.k/profile-mismatch]
+              ["a header the root does not carry" (assoc recovery :yin.k/header (rs/header 0 nil #{})) :yin.k/undecodable]
+              ["a malformed header" (assoc recovery :yin.k/header {:yin.k/enrolled #{}}) :yin.k/undecodable]
++             ["ready count differs" (assoc-in recovery [:yin.k/state :ready-count] 1) :yin.k/undecodable]
+              ["issues of another wait count" (assoc-in recovery [:yin.k/state :issues] []) :yin.k/undecodable]
+              ["children the tree does not carry" (assoc-in recovery [:yin.k/state :children] {'x {}}) :yin.k/undecodable]
+              ["another root id" (assoc recovery :yin.k/root (:yin.k/root other)) :yin.k/undecodable]
+@@ -1008,3 +1011,32 @@
+     (is (empty? (get-in restored [:machine :parked])))
+     (is (zero? @calls))
+     (is (reproduces? frozen restored))))
++
++
++(deftest running-products-rehydrate-byte-for-byte-and-refuse-execution-test
++  (doseq [ready? [false true]]
++    (let [parked (rs/parked-reader)
++          entry (first (:wait-set parked))
++          source (-> parked
++                     (assoc :env (:free-env parked))
++                     (rs/load-ast (rs/app (rs/v '+) (rs/lit 40) (rs/lit 2)))
++                     (cond-> ready? (assoc :wait-set [] :ready-queue [(assoc entry :value "answer" :status :dao.stream/ok)])))
++          {:keys [frozen prepared machine]} (frozen-of source)
++          {:keys [attach calls]} (counting-attach)
++          restored (rehydrate frozen (rs/new-machine) attach)
++          m (:machine restored)]
++      (is (= :ok (:status frozen)) (pr-str frozen))
++      (is (= :running (:kind (export/encode machine (:record prepared)))))
++      (is (= :ok (:status restored)) (pr-str restored))
++      (is (= :offer-possibly-accepted
++             (:yin.k/reason (export/abort machine (:record prepared)
++                                          [{:append :dao.stream/transport-error}] nil))))
++      (is (reproduces? frozen restored))
++      (is (= (count (:ready-queue source)) (count (get-in restored [:record :ready-queue]))))
++      (is (empty? (:ready-queue m)))
++      (doseq [run [vm/step vm/run #(sr/run-fuel % 1) #(sr/vm-hot % 1)]]
++        (let [failure (try (run m) nil (catch #?(:cljd Object :clj Throwable :cljs :default) e e))]
++          (is (= "Gate is closed" (ex-message failure)))
++          (is (= :gate-closed (:rule (ex-data failure))))))
++      (is (reproduces? frozen restored))
++      (is (zero? @calls)))))
+diff --git a/test/yin/vm/ucf/holder/reader_test.cljc b/test/yin/vm/ucf/holder/reader_test.cljc
+index 63d6a358f..12e857722 100644
+--- a/test/yin/vm/ucf/holder/reader_test.cljc
++++ b/test/yin/vm/ucf/holder/reader_test.cljc
+@@ -26,6 +26,7 @@ observer attribute and observe the way the composition's resolver would."
+             [yin.vm.ucf.rows-checkpoint-fixtures :as fx]
+             [yin.vm.ucf.custody :as custody]
+             [yin.vm.ucf.holder.reader :as reader]
++            [yin.vm.ucf.holder.export :as export]
+             [yin.vm.ucf.holder.writer :as writer]
+             [yin.vm.ucf.rows-support :as s]))
+ 
+@@ -1443,3 +1444,52 @@ live disposition")
+         (is (= {:yin.k/status :yin.k/unsatisfied :yin.k/reason :no-prefix}
+                (:unsatisfied out)))
+         (is (empty? (:applied out)))))))
++
++
++(deftest hold-resolution-needs-acknowledgement-and-backpressure-can-persist-test
++  (let [h (ring 8)
++        _ (stream/append! h "A")
++        [_ poll] (gated-poll h)
++        [next cref] (waiter-machine h :one)
++        [sref m] (engine/attach-resource (assoc (s/new-machine) :yin.k/gate :running) h)
++        mint (:state (engine/handle-effect m (module/make-effect :stream/cursor {:stream sref}) {}))
++        link (vm/run (-> (s/new-machine {:link-request (ring 8) :link-response (ring 8)})
++                         (s/load-ast (s/app (s/v 'require) (s/lit 'host.mod)))
++                         (assoc :yin.k/gate :running)))
++        held (:machine (reader/step (assoc next :yin.k/custody (prefix-custody []))
++                                    (fn [_] {:dao.stream/outcome :dao.stream/full})
++                                    (first (counting-observe))))]
++    (doseq [[kind source] [[:observe poll] [:held held] [:unminted-cursor mint]
++                           [:link-cursor-not-installed link]]]
++      (let [w (world)
++            source (assoc source :yin.k/custody (custody-for (:target w)))
++            [observe! calls] (counting-observe)
++            one (:machine (reader/step source (appender w) observe!))]
++        (is (= kind (:yin.k/hold (export/enter source))))
++        (is (not= :ok (:status (export/enter one)))
++            "one cycle without authority acknowledgement does not resolve the hold")
++        (answer! w 2)
++        (let [settled (:machine (reader/drain one (ack-reader w)))]
++          (is (= :ok (:status (export/enter settled))))
++          (is (empty? (filter :yin.k/held (:wait-set settled)))))
++        (is (<= @calls 1))))
++    (let [m (assoc next :yin.k/custody (prefix-custody []))
++          [observe! calls] (counting-observe)
++          full (fn [_] {:dao.stream/outcome :dao.stream/full})
++          round (fn [m] (:machine (reader/step m full observe!)))
++          one (round m)
++          ten (nth (iterate round one) 9)]
++      (is (= one ten) "backpressure retains the exact machine for repeated cycles")
++      (is (= 1 @calls))
++      (is (= :held (:yin.k/hold (export/enter ten)))))
++    (let [;; The close is on the attached handle, with no outstanding read.
++          with-close (assoc next :wait-set []
++                            :yin.k/custody (prefix-custody [] {:protection {(stream-id h) :at-least-once}})
++                            :yin.k/closes [{:stream-id (get-in next [:resources (:id cref) :stream-id])
++                                            :yin.k/issue 0}])
++          emitted (:machine (writer/emit with-close
++                                         (fn [_] {:dao.stream/outcome :dao.stream/ok})
++                                         (fn [_] nil)))]
++      (is (= :pending-close (:yin.k/hold (export/enter with-close))))
++      (is (empty? (:yin.k/closes emitted)))
++      (is (= :ok (:status (export/enter emitted)))))))
+diff --git a/test/yin/vm/ucf/ledger_test.cljc b/test/yin/vm/ucf/ledger_test.cljc
+index 48f3dc9b0..f0ec0f347 100644
+--- a/test/yin/vm/ucf/ledger_test.cljc
++++ b/test/yin/vm/ucf/ledger_test.cljc
+@@ -527,3 +527,9 @@
+     (is (nil? (::ledger/defect p)))
+     (is (= {} (:answered p))
+         "as dao.lease's judge records no answer for it")))
++
++
++(deftest running-baselines-are-offerable-test
++  (let [b (assoc baseline :yin.k/kind :running)
++        p (fold [(offered addr-1 b)])]
++    (is (= b (get-in p [:occurrences occ :yin.k/baseline])))))
+diff --git a/test/yin/vm/ucf/stage_e_process_test.clj b/test/yin/vm/ucf/stage_e_process_test.clj
+index b2c69598c..5e87a1c9f 100644
+--- a/test/yin/vm/ucf/stage_e_process_test.clj
++++ b/test/yin/vm/ucf/stage_e_process_test.clj
+@@ -310,3 +310,8 @@
+   (run-pairs! (concat (map #(sc/journal-row {:cut %}) sc/journal-cuts)
+                       (map #(sc/journal-row {:fail %}) sc/uncertain-retentions))
+               pairs))
++
++
++(deftest ^:slow running-boundary-handoff-and-expiry-across-processes-test
++  (run-pairs! (concat (map sc/running-handoff [nil :running/before-offer :row7/after-successor-append])
++                      [sc/running-expiry]) pairs))
+diff --git a/test/yin/vm/ucf/stage_e_rows_test.cljc b/test/yin/vm/ucf/stage_e_rows_test.cljc
+index e8a4603ff..1d01306eb 100644
+--- a/test/yin/vm/ucf/stage_e_rows_test.cljc
++++ b/test/yin/vm/ucf/stage_e_rows_test.cljc
+@@ -139,3 +139,11 @@
+       (let [actual (pins/pin-lower-refusal recv wire)]
+         (is (= expected actual))
+         (is (= (hex expected) (hex actual)))))))
++
++
++(deftest ^:slow running-boundary-handoff-and-expiry-test
++  (slow/guard
++    "running-boundary-handoff-and-expiry-test"
++    (fn []
++      (run-all (concat (map sc/running-handoff [nil :running/before-offer :row7/after-successor-append])
++                       [sc/running-expiry])))))
+diff --git a/test/yin/vm/ucf/stage_e_scenarios.cljc b/test/yin/vm/ucf/stage_e_scenarios.cljc
+index 94444084c..10a069fef 100644
+--- a/test/yin/vm/ucf/stage_e_scenarios.cljc
++++ b/test/yin/vm/ucf/stage_e_scenarios.cljc
+@@ -182,7 +182,7 @@
+                 ;; the attempted successor's candidate competes from the
+                 ;; start; the regranted origin hands off on its activation
+                 ;; tick (one tick later its machine holds an unapplied
+-                ;; observation and is no liftable safepoint, UCF 7.4.1)
++                ;; observation and holds a driver transition, UCF 7.7.4)
+                 [[:at-open]
+                  [:source "h1"]
+                  [:candidate "h5" {:kind :successor :of "h1"}]
+@@ -1309,9 +1309,77 @@
+        (is (not= :open (:status inspection)) "the lost ledger opens for no one")))})
+ 
+ 
++(defn running-handoff
++  [cut]
++  {:id [:running-handoff cut]
++   :holders ["h1" "h2"]
++   :lives
++   [(fn [_]
++      {:on :src :kind :running :cut cut
++       :ops [[:source "h1"] [:until "h1" :running 60]
++             [:ticks 2 :program] [:snapshot :boundary]
++             [:hand-off "h1"] [:until "h1" :exited 90]]})
++    (fn [results]
++      (when (:killed? (peek results))
++        {:on :rcv :kind :running
++         :ops [[:source "h1"] [:until "h1" :running 90]
++               [:snapshot :recovered] [:hand-off "h1"] [:until "h1" :exited 90]]}))
++    (fn [_]
++      {:on :rcv :kind :running
++       :ops [[:candidate "h2" {:kind :successor :of "h1"}]
++             [:until "h2" :running 60] [:snapshot :successor]
++             [:until "h2" :exited 180]]})]
++   :check
++   (fn [results _inspection]
++     (let [first-life (first results)
++           boundary (get-in first-life [:report :snapshots :boundary :holders "h1"])
++           ;; Crashed lives emit the snapshot before the kill instead of returning it.
++           boundary (or boundary (get-in (first (filter #(= :boundary (:key %)) (:events first-life)))
++                                         [:snapshot :holders "h1"]))
++           last-life (peek results)
++           successor (get-in last-life [:report :snapshots :successor :holders "h2"])]
++       (is (true? (get-in boundary [:detail :yin.k/at-boundary])))
++       (is (pos? (get-in boundary [:machine :control :pc])))
++       (is (= :running (:phase successor)))
++       (is (some? (get-in successor [:machine :control])))
++       (is (= {:serves 0 :attaches 0 :observations 0}
++              (get-in last-life [:report :final :work])))
++       (is (= :exited (:phase (holder last-life "h2"))))
++       (is (= 4950 (get-in (holder last-life "h2") [:machine :value])))))})
++
++
++(def running-expiry
++  {:id [:running-expiry]
++   :holders ["h1" "h2"]
++   :lives [(fn [_]
++             {:on :src :kind :running
++              :ops [[:source "h1"] [:until "h1" :running 60]
++                    [:ticks 2 :program] [:snapshot :boundary]
++                    [:clock 100] [:ticks 1 :program] [:snapshot :ended]
++                    [:candidate "h2" {:kind :fence :of "h1"}]
++                    [:until "h2" :running 90] [:snapshot :recovered]]})]
++   :check (fn [results _]
++            (let [r (first results)
++                  before (get-in r [:report :snapshots :boundary :holders "h1" :machine])
++                  ended (get-in r [:report :snapshots :ended :holders "h1"])
++                  recovered (get-in r [:report :snapshots :recovered :holders "h2"])]
++              (is (= (assoc before :yin.k/gate :ended) (:machine ended)))
++              (is (= {:serves 0 :attaches 0 :observations 0}
++                     (get-in r [:report :snapshots :ended :work])))
++              (is (some? (:yin.k/retained-boundary ended)))
++              (is (empty? (filter #(contains? #{:yin.k/input :yin.k/admit} (:yin.k/request %))
++                                  (get-in r [:report :snapshots :ended :inbound "h1"]))))
++              (is (empty? (get-in r [:report :snapshots :ended :side])))
++              (is (empty? (get-in r [:report :snapshots :ended :targets])))
++              (is (pos? (get-in before [:control :pc])))
++              (is (= 0 (get-in recovered [:machine :control :pc])))
++              (is (= :running (:phase recovered)))))})
++
++
+ (def all-scenarios
+   "Every scenario, in run order."
+-  (concat [fork-row]
++  (concat [fork-row running-expiry]
++          (map running-handoff [nil :running/before-offer :row7/after-successor-append])
+           (map row7 row7-cuts)
+           [row7-failure-lower row7-lost-authority]
+           (map row4 row4-cuts)
+diff --git a/test/yin/vm/ucf/stage_e_world.cljc b/test/yin/vm/ucf/stage_e_world.cljc
+index fd16de49f..b435bf834 100644
+--- a/test/yin/vm/ucf/stage_e_world.cljc
++++ b/test/yin/vm/ucf/stage_e_world.cljc
+@@ -299,6 +299,12 @@
+    {:site :tick
+     :match (fn [c] (= :running (get-in c [:holders "h1" :phase])))}
+ 
++   :running/before-offer
++   {:site :tick
++    :match (fn [c]
++             (and (some? (get-in c [:holders "h1" :exit :address]))
++                  (nil? (get-in c [:holders "h1" :exit :offer]))))}
++
+    ;; ---- row 4 and clause 8: around the atomic effect commitment (the
+    ;; ledger transaction that records the admitted effect)
+    :row4/before-commit
+@@ -806,8 +812,8 @@
+   "The holder table and protection of the life's world kind."
+   [w]
+   (case (:kind w)
+-    :parked {:table (if (= :none (:attach w)) {} {prog-id (:prog w)})
+-             :protection {prog-id :at-least-once}}
++    (:parked :running) {:table (if (= :none (:attach w)) {} {prog-id (:prog w)})
++                        :protection {prog-id :at-least-once}}
+     :rows {:table (cond-> {source-id (:source w) side-id (:side w)}
+                     (:target w) (assoc (:target w) (:reader w)))
+            :protection (cond-> {source-id :at-least-once side-id :at-least-once}
+@@ -816,22 +822,30 @@
+ 
+ (defn- holder-seams
+   [ctx w]
+-  (let [{:keys [table protection]} (world-table w)]
++  (let [{:keys [table protection]} (world-table w)
++        counted (fn [kind f]
++                  (fn [& args]
++                    (swap! (:work w) update kind (fnil inc 0))
++                    (apply f args)))]
+     {:protection protection
++     :fuel (when (= :running (:kind w)) 1)
+      :receiver (s/new-machine)
+-     :attach! (attach-over ctx table)
+-     :observe! (observe-over ctx)
+-     :serve! (if (= :parked (:kind w))
+-               (fn [_h]
+-                 {:dao.stream/identity prog-id
+-                  :dao.stream/channel {:dao.stream/type :dao.stream.test/channel
+-                                       :dao.stream/identity prog-id}})
+-               (same-id-server))}))
++     :attach! (counted :attaches (attach-over ctx table))
++     :observe! (counted :observations (observe-over ctx))
++     :serve! (counted :serves
++                      (if (contains? #{:parked :running} (:kind w))
++                        (fn [_h]
++                          {:dao.stream/identity prog-id
++                           :dao.stream/channel {:dao.stream/type :dao.stream.test/channel
++                                                :dao.stream/identity prog-id}})
++                        (same-id-server)))}))
+ 
+ 
+ (defn- source-machine
+   [w]
+   (case (:kind w)
++    :running (s/load-ast (s/new-machine)
++                         (apply s/app (s/v '+) (map s/lit (range 100))))
+     :parked (parked-reader-over (scenario-stream prog-id [] 0))
+     :rows (reading-writer (:source w) (:reader w) (:side w))))
+ 
+@@ -865,6 +879,7 @@
+         side (when side-backend
+                (journal-stream side-id (:dao.stream/handle (journal/open! side-backend nil))))
+         w {:root root
++           :work (atom {:serves 0 :attaches 0 :observations 0})
+            :kind kind
+            :mode mode
+            :attach (:attach spec)
+@@ -945,11 +960,12 @@
+ 
+ (defn holder-summary
+   [st]
+-  (->data (merge (select-keys st [:phase :status :detail :occurrence :lease])
++  (->data (merge (select-keys st [:phase :status :detail :occurrence :lease :yin.k/retained-boundary])
+                  {:epoch (get-in st [:evidence :yin.k/binding :yin.k/epoch])
+                   :next-op-seq (get-in st [:machine :yin.k/custody :yin.k/next-op-seq])
+                   :stopped? (:stopped? st)
+-                  :machine? (some? (:machine st))})))
++                  :machine? (some? (:machine st))
++                  :machine (when (:fuel st) (->data (:machine st)))})))
+ 
+ 
+ (defn snapshot
+@@ -957,7 +973,8 @@
+   [ctx w]
+   (let [c (:c w)
+         hs (sort (keys (:holders c)))]
+-    {:holders (into {} (map (fn [h] [h (holder-summary (get-in c [:holders h]))])) hs)
++    {:work @(:work w)
++     :holders (into {} (map (fn [h] [h (holder-summary (get-in c [:holders h]))])) hs)
+      :policy (:yin.k/policy c)
+      :projection (->data (projection-of c))
+      :journals (into {} (map (fn [h] [h (->data (journal-records-of c h))])) hs)

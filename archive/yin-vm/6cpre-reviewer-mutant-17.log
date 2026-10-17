@@ -1,0 +1,43 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.continuation-invoke-test
+
+Testing yin.vm.debruijn.stack-effects-test
+
+FAIL in (installed-handlers-round-trip-test) (stack_effects_test.cljc:497)
+a host call is dispatched and its parked continuation resumes
+the answered call left :parked
+expected: (empty? (:parked done))
+  actual: (not (empty? {:parked-0 {:format :yin.debruijn.code, :hash "f2cd30a1698dc08a5546ac91a550603ee84967ad548c43c1ba1b169fee6c6fb9", :frames [], :type :parked-continuation, :pc 2, :segment [[:const 42] [:ffi-call :op/echo 1] [:halt]], :id :parked-0, :stack [], :continuation [], :image "f2cd30a1698dc08a5546ac91a550603ee84967ad548c43c1ba1b169fee6c6fb9"}}))
+
+FAIL in (manual-bridge-step-test) (stack_effects_test.cljc:532)
+a driver steps the bridge and the call resumes
+expected: (empty? (:parked done))
+  actual: (not (empty? {:parked-0 {:format :yin.debruijn.code, :hash "5b76de91ee6f791ec3881446a4efdec1a8eb76385ae50cce0ac71d2b1e7ae559", :frames [], :type :parked-continuation, :pc 2, :segment [[:const 7] [:ffi-call :op/echo 1] [:halt]], :id :parked-0, :stack [], :continuation [], :image "5b76de91ee6f791ec3881446a4efdec1a8eb76385ae50cce0ac71d2b1e7ae559"}}))
+
+FAIL in (ffi-parity-test) (stack_effects_test.cljc:904)
+expected: (= (empty? (:parked named)) (empty? (:parked db)) true)
+  actual: (not (= true false true))
+
+FAIL in (full-request-is-sent-on-retry-and-answered-test) (stack_effects_test.cljc:649)
+the answered response resumes it
+expected: (empty? (:parked done))
+  actual: (not (empty? {:parked-0 {:format :yin.debruijn.code, :hash "ce22b74ddfd8fe451c2822a9bbb7d3d938a9c74ed705120042b000b7760cfcca", :frames [], :type :parked-continuation, :pc 2, :segment [[:const 5] [:ffi-call :op/echo 1] [:halt]], :id :parked-0, :stack [], :continuation [], :image "ce22b74ddfd8fe451c2822a9bbb7d3d938a9c74ed705120042b000b7760cfcca"}}))
+
+Testing yin.vm.debruijn.stack-parity-test
+
+Testing yin.vm.debruijn.stack-tail-completion-test
+
+FAIL in (ffi-response-decodes-before-return) (stack_tail_completion_test.cljc:119)
+expected: (empty? (:parked done))
+  actual: (not (empty? {:call-1 {:cursor-ref {:type :cursor-ref, :id :cursor-1, :seal "513e5badcd71c43ba0a46c8239d2b65e3be5b5993f06f3114ef564eb6c2fef42"}, :format :yin.debruijn.code, :hash "c8354a65bd3d662cabc43563498e6c62fe194db39cfeda353e847e00df9bc416", :call-id :call-1, :frames [[:dead]], :pc 4, :store-of :dead-module, :stream-id :stream-0, :reason :next, :segment [[:load-free stream/next!] [:stream-make 4] [:stream-cursor] [:call 1 true] [:push] [:const :layout] [:halt]], :stack [:outer :caller :dead], :continuation [{:return-pc 6, :frames [[:outer]], :stack-base 1} {:return-pc 4, :frames [[:caller]], :stack-base 2, :store-of :caller-module}], :image "c8354a65bd3d662cabc43563498e6c62fe194db39cfeda353e847e00df9bc416", :resume-mode :return-result}}))
+
+Testing yin.vm.debruijn.stack-test
+
+Testing yin.vm.semantic-ffi-test
+
+Ran 87 tests containing 821 assertions.
+5 failures, 0 errors.

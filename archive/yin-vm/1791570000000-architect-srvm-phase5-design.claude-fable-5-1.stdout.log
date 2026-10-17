@@ -1,0 +1,18 @@
+Done. Both deliverables are written in the worktree, nothing is staged or committed, and no source, test, or existing design file was touched.
+
+**Deliverable:** `docs/design/yin.vm.semantic-register-vm.derivations.md` (1444 lines). **Report:** `collab/1791570000000-architect-srvm-phase5-design.report.md`.
+
+**Recommendation on A → R: route (b), the adapter route.** The decisive evidence is in the code, not in taste. R1's allocator assigns an expression's destination when the expression is entered, before its children, and reuses freed slots. That is exactly A's pre-order minting rule with a free list. The frozen §8.2 interval scan assigns a destination at its first syntactic definition, which for a call is the `:call` itself, after its operands. The two therefore agree only on bodies that are a single atom. On `(+ 1 2)` they already produce different operands on every instruction, and on the worked example every operand and the register count differ. Route (a) would re-version `r2` for every program containing a call, regenerate twelve pinned R goldens, and move the C4 manifest address, all for an allocator whose only merit is reading A's virtual ids.
+
+Under route (b) one new function, `resolve-vector`, parses an admitted vector and emits resolved tuples in exactly the shape today's named-datom resolver emits. Both existing lowerers are then called unchanged. H and R hold by construction, including saturation, because `ast->datoms` already materialises the gensym prefix and the 1024 buffer. `b2` and `r2` are retained, and §4 of the design makes the byte-identity question a per-program gate over a named corpus rather than a decision.
+
+**Findings against the frozen design:**
+- **F8** route (b), with exact replacement text for §6, §8.2, §8.3, §8.4, §9 and §10 phase 5.
+- **F9** the adapter neither orders bodies nor computes pcs; both emitters own that.
+- **F10** both descriptors hash their declared lift target, so the frozen "lift changes its output contract" would move every H and R if applied to the descriptor. Phase 5 leaves the lifts alone; the phase-8 choice is the owner's.
+- **F11** "discharged bodies" is not a scanner fact; the gate compares names and flags in order, requirements maps, and the step-5a join's retained obligations, on three corpora, with the old scanners' answers pinned before cutover deletes them.
+- **F12** the structural-slot machinery existed only for the interval formulation and retires with it.
+
+**Questions for the owner:** whether retaining `r2`/`b2` with allocators that never read A's virtual ids is the accepted outcome; the phase-8 lift and descriptor label choice; and the `v4` lowering's profile string name.
+
+**Not grounded by running code:** the interval-scan rows were derived by hand under §8.2's stated rules since no implementation exists, and the byte-identity claim is an argument from the two producers' code paths, specified as a gate for the implementer to prove per program. No tests were run; verification was by reading. One oddity to flag: the host clock read three minutes earlier than the prompt's stated creation stamp, and the report carries the clock's actual time with a note.

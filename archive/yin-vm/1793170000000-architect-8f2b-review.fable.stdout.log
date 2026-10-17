@@ -1,0 +1,18 @@
+Review done. Report written to `collab/1792063438000-architect-8f2b-review.report.md`, verdict SIGN-OFF.
+
+**What I checked**
+
+- The diff is exactly the 8f-2b edit list and nothing else. All 15 files, every hunk read. No hash literal, golden fixture, design doc or C4 file touched. No `:semantic-register` remains under src or test.
+- **Deleted backend entries lose nothing.** Each kept `:semantic` entry is equivalent or a superset. The rule-r helper is byte-identical to the deleted lambda. The ffi and continuation-invoke entries use the same loader through a trivial adapter. The linker-require entry carries real obligations where the deleted one had a stub.
+- **The bounded `vm/step` loop is still covered.** The semantic effects test has the identical 10000-step loop on the same kernel and asserts the same four call/cc facts: abortive escape, tail invocation, multi-shot re-entry, store not rolled back.
+- **The record rename has no readers.** The REPL label already said `SemanticVM` before this diff and is what the tests pin. Nothing persists the record's printed name.
+- **The model keyword has no stale consumers.** The one test reading the telemetry datom derives the expected model from the table key. No fixture outside archive or docs contains the old keyword.
+- I ran the targeted JVM selection plus the two step-coverage namespaces myself. All green.
+
+| Lane | Result |
+|---|---|
+| Targeted JVM selection, 10 namespaces | 262 tests, 6055 assertions, 0 failures |
+
+Findings: no P1, no P2. One P3 for 8g, two historical docs under the vm docs folder still use the old record names.
+
+Next: commit the working tree as the second 8f-2 commit on `srvm-phase8f2`. Node and Dart lanes remain due at the 8f merge.

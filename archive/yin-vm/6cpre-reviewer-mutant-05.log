@@ -1,0 +1,22 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.continuation-invoke-test
+
+FAIL in (tail-position-invocation-test) (continuation_invoke_test.cljc:78)
+the continuation invoked as a tail call
+:stack
+expected: (= expected result)
+  actual: (not (= 8 [:thrown "Cannot apply non-function"]))
+
+FAIL in (escape-discards-pending-frames-test) (continuation_invoke_test.cljc:78)
+invoked under (+ 1000 ...), the continuation delivers 7 to the
+            capture point: the +1000 frame is discarded, the captured +1
+            frame is not
+:stack
+expected: (= expected result)
+  actual: (not (= 9 [:thrown "Cannot apply non-function"]))
+
+### TIMEOUT 900s ###

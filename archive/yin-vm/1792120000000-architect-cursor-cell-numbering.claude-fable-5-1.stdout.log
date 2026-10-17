@@ -1,0 +1,21 @@
+I never ran `git add` or `git commit`, so nothing is staged; the status check is not required. The task is complete.
+
+**Recommendation: adopt discovery-order numbering now (option a).** It is a function of structure, renaming-invariant, linear in work, provable by hand, and it deletes the refinement and exhaustive search of carrier section 6. The design document is at `docs/design/yin.vm.semantic-register-vm.cursor-cell-numbering.md` (418 lines) and the report at `collab/1792120000000-architect-cursor-cell-numbering.report.md`. Nothing was staged or committed, and the 6a worktree was not touched.
+
+**What I found**
+
+- Every non-guest position is ordered. Fixed slots, the frame and continuation vectors, and keyed rows with structural keys (environments by symbol bytes, windows by register, stores, parked table, installs, module stores) all have a canonical index. The only unordered positions are guest set elements and guest map entries.
+- The rule is a depth-first canonical traversal where the n-th unnumbered cursor cell met becomes `cc-n`. Unordered containers are entered in byte order of a content encoding that spells numbered cells by number and unnumbered ones by body. Equal runs are deferred and re-examined to a fixpoint, which resolves the review's counterexample.
+- The residue is a tie group whose cells occur only in tie groups. If each cell's occurrences lie inside one element, any entry order gives identical rows (proved as a lemma). Otherwise the lift refuses with a dedicated kind, `:unresolved-cursor-cells`, not `:resource-limit`. The loop plus 2-cycle fixture and the seven-cell fixture fall in that class. The 6a procedure already refuses the seven-cell state by its label-byte budget.
+- Portable ids minted in the VM name history rather than structure, so they break the "same structure, same hash" law and the cross-engine law, and they force the VM to carry a second global name. I recommend against.
+
+**What I verified**
+
+I ran a read-only prototype of the rule against the 6a codec (read via the shared git object store, since the sandbox blocks the p6a path). The 6a tests pass in the probe project. Over 400 random states, renamed and with every set and map shuffled, discovery order had zero invariance failures and one refusal versus two for 6a. The pinned two-cell root and the frame root are unchanged; the three-cell loop pin becomes a refusal. Hand derivations for the two-cell fixture, the counterexample and the alias fixtures match the codec.
+
+**Open for the owner**
+
+- Accept the refusal class as a documented limitation of body version 3 (a later search could narrow it without changing any id numbered today)?
+- Confirm the refusal kind `:unresolved-cursor-cells` over the orchestrator's `:resource-limit`.
+
+One caveat: the host clock read 2026-10-11 19:30 GMT at completion, earlier than the brief's creation time, and the report header uses the host clock.

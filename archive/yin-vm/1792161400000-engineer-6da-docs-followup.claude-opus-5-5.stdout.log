@@ -1,0 +1,11 @@
+I made all three edits, still uncommitted, and the report ends **READY**:
+
+1. **§5.7 of `yin.vm.semantic.continuation.md`:** deleted the leftover line "**Change:** Consensus P2-7; muse N4/glm O3; …".
+2. **§7.3 of the same doc:** added one sentence naming the guard's refusal, `{:rule :gate-closed :yin.k/gate mode}`, so 6d-b reuses that name. It matches `check-gate!` in `semantic.cljc`.
+3. **`completion-node` in `rows.cljc`:** added one comment above the `(boolean (:try? e))` coercions. It says the engine is the trusted producer of the boolean and lower's `:pending-try` check is the real validation.
+
+I made no test changes and didn't touch the `zero?` pin.
+
+Kondo is clean on `rows.cljc`. `cljstyle check` flags two indentation-only problems in `rows.cljc` that were there before this round: in `completion-node` (the block my comment sits in) and in `check-completions!`. The brief allowed exactly three edits, so I didn't reformat them. Running `mise exec -- cljstyle fix src/cljc/yin/vm/ucf/rows.cljc` before the landing commit fixes both.
+
+The report is `collab/1792161400000-engineer-6da-docs-followup.report.md` in the worktree, with before/after text for each edit.

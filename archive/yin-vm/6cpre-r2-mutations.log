@@ -1,0 +1,15 @@
+M08: KILLED by empty-k-halts-with-non-nil-result-and-clears-store; exit 1; Ran 10 tests containing 29 assertions.
+2 failures, 0 errors.
+M08: restored; cmp and git diff --quiet HEAD -- src/ PASS
+N04: KILLED by empty-k-halts-with-non-nil-result-and-clears-store; exit 1; Ran 10 tests containing 29 assertions.
+2 failures, 0 errors.
+N04: restored; cmp and git diff --quiet HEAD -- src/ PASS
+M09: KILLED by empty-k-halts-with-non-nil-result-and-clears-store; exit 1; Ran 10 tests containing 29 assertions.
+1 failures, 0 errors.
+M09: restored; cmp and git diff --quiet HEAD -- src/ PASS
+N05: KILLED by empty-k-halts-with-non-nil-result-and-clears-store; exit 1; Ran 10 tests containing 29 assertions.
+1 failures, 0 errors.
+N05: restored; cmp and git diff --quiet HEAD -- src/ PASS
+N08: KILLED by return-pops-only-inner-frame; exit 1; Ran 10 tests containing 28 assertions.
+1 failures, 1 errors.
+N08: restored; cmp and git diff --quiet HEAD -- src/ PASS

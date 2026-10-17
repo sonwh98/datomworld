@@ -1,0 +1,8 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.debruijn-register-code-test
+
+Ran 1 tests containing 1 assertions.
+0 failures, 0 errors.

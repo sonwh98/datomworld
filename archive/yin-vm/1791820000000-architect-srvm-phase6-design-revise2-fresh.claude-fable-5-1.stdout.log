@@ -1,0 +1,13 @@
+Done. The round-2 revision is complete in `docs/design/yin.vm.semantic-register-vm.continuation.md` (uncommitted, the only tracked file changed) and the report is at `collab/1791810000000-architect-srvm-phase6-design-revise2.report.md`.
+
+**What the partial edits already had right (verified against code):** the cumulative stack-base rule in both lowering algorithms, the virtual-before-mapping live-set formula with its worked example, the free-environment ownership and explicit lift argument, the E2 presence clause plus X1 and the C2 integer guard, the row 15/22/23 oracle rewrites, the explicit stream-correspondence re-emission, and the R9/U7 amendment text.
+
+**What I fixed or added:**
+- **Multi-frame fixture.** Both codex and the partial edit undercounted: under the harness's standard bindings there are five return frames, bases `0,0,0,2,4`, not three. The partial "bare" variant put a primitive in a live slot, which is not a carrier value, so I replaced it with a derivation-only reading.
+- **Row 20.** Its "empty K" claim was false because the harness marks tail calls only explicitly, so the outer application pushes a frame. Rewritten as a two-batch, root-level tail call.
+- **Row 22.** There is no `vector` primitive. The pair builder now uses `cat`.
+- **Rule count.** 24 rules, 25 tamper rows, with `frame/task-defect` as X1's public entry point.
+- **Invariance argument for the re-emission.** Draft §6 seeds labels with stream-marker bytes, so the argument now rests on substitution plus bytewise sorting rather than on "structure only".
+- **U7 scope.** Custody and fencing semantics are declared operative under version 3, the stale `"v3"` code stamp is scoped as historical, and all remaining grep hits are classified.
+
+**Unverified:** nothing was run. Row 20's two-batch shape relies on store persistence across loads, which no landed test exercises for a tail-marked root batch on the 4b evaluator. The report lists this and the two disputes with codex.

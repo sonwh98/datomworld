@@ -1,0 +1,12 @@
+Report written to `collab/1793480000000-architect-followup-1-review.report.md`. Verdict: CHANGES-REQUIRED, scoped to part 1(a) and two ledger rows.
+
+**Part 1(a) is wrong in direction.** The encoder's own key notion in `dao.jing.cbor` is `equiv` collapse plus canonical-bytes duplicates, not `content-key`. The encoder refuses a host map with keys 0.0/-0.0 or 1/1.0 as `:equality-collapse` on every host, and its `built` refuses any host collection that merged a member. The new code admits those key pairs as rows, and the lower then rebuilds them as host maps and sets with no count check, so an entry is lost silently on every host for signed zeros and on Dart for 1/1.0. Master refused them by accident. The fix is to make `collapse?` public, use it in `decode*` and `check-abstract!` under the rule name `:equality-collapse`, add a `built`-style `:host-collapse` guard in the lower, add a malformed-rows entry, and replace the test with refusal pins plus a JVM literal twin. The mutant then dies on all three hosts by rule name.
+
+**Part 1(b) ruled (i): close as not applicable.** Binder names exist only in the tree and in A. A enters through the one `:slot-kind` validator. Native closures carry arity plus body pc, so no native image can hold a binder. The pins already exist in the frozen opcode tables, derive_test, debruijn_code_test, and host_typed_values_test. The native-side defence that does exist is the `:closure-arity` rule.
+
+**Parts 2 and 3 accepted** as two separate commits, after three small fixes:
+- cljstyle fix on parity_test, whose continuation lines kept the old alias column.
+- The UCF clause 10 log pointer should cite the 2026-10-14 14:30 handoff and the 2026-10-16 19:30 landing entry, since the 2026-10-15 entry records Node and Dart as unrun.
+- The linearize_test citation should point to derivations.md §6.3 row 6, because the worked example is not in yin.vm.semantic.md. The linker.md line 243 should say the trees refusal is raised at both lift and the lower's dependency check.
+
+I re-ran the three touched JVM namespaces: 74 tests, 2215 assertions, 0 failures. Node and Dart lanes remain the orchestrator's. Next step for the orchestrator: dispatch part 1(a) round 2 to the engineer with the seven steps in the report, and land parts 2 and 3 once the pointer fixes and lane discovery proofs are in.

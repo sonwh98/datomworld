@@ -1,0 +1,17 @@
+Warning: no stdin data received in 3s, proceeding without it. If piping from a slow command, redirect stdin explicitly: < /dev/null to skip, or wait longer.
+Round-2 confirmation is written to `collab/1791740000000-reviewer-srvm-phase4b-stage1-r2.claude-fable-5-1.findings.md`.
+
+**Verdict: READY_TO_MERGE.**
+
+**All four mutants are killed at the new commit.** I re-applied each one myself against the four Stage 1 namespaces and reverted it byte for byte, verified with `git diff --quiet` after every revert.
+
+- **M-G** (continuation keeps the invoker's env): killed by three assertions in the new env-restore test. The register side yields `(7 9)`, the walker still yields `(7 1)`.
+- **M-I** (park leaves control set): killed by both new nil-control assertions in `park-resume`.
+- **M-O** (blocked stop leaves k set): killed by the new nil-k assertion in the non-main tail-effect case.
+- **M-K** (continuation resumes at its own capture): now fails fast. The whole four-namespace run completed in 7 seconds of wall clock with 6 failures and 1 error, where the previous round hung the lane.
+
+**The M-G row is sound.** It is walker-compared through the shared trace helper and a normalized value comparison. I derived the 22-event trace independently from the projected vectors and the walker's production rule before comparing. It matches the pinned column event for event, and under M-G the register side diverges exactly where the restored activation reads `x`.
+
+**Nothing weakened.** The rename keeps all five programs and expected values. The step bound stops on the same observable `vm/run` ended on. The diff touches only `effects_test.cljc`, and the source is unchanged since the reviewed Stage 1 evaluator.
+
+Two minor notes are recorded: the step-bound helper would misreport a blocking program, and the effects test now depends on the trace-test namespace. Node and Dart remain the orchestrator's lanes. The deferred profile-check gate and the stale `not-in-slice!` naming carry into the Stage 2 brief.

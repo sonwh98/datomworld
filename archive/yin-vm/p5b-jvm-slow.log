@@ -1,0 +1,210 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.semantic-register.derive-test
+2026-10-11 15:48:06
+Full thread dump OpenJDK 64-Bit Server VM (21.0.2+13-58 mixed mode, sharing):
+
+Threads class SMR info:
+_java_thread_list=0x000060000044f540, length=10, elements={
+0x0000000157014e00, 0x000000014580d400, 0x0000000145827a00, 0x0000000157874e00,
+0x0000000157875600, 0x0000000145828c00, 0x0000000145829400, 0x0000000157875e00,
+0x0000000157876600, 0x0000000156008c00
+}
+
+"main" #1 [5635] prio=5 os_prio=31 cpu=191476.02ms elapsed=416.42s tid=0x0000000157014e00 nid=5635 runnable  [0x000000016ddb2000]
+   java.lang.Thread.State: RUNNABLE
+	at clojure.lang.Reflector.getMethods(Reflector.java:533)
+	at clojure.lang.Reflector.invokeStaticMethod(Reflector.java:360)
+	at dao.jing.cbor$blen.invokeStatic(cbor.cljc:266)
+	at dao.jing.cbor$blen.invoke(cbor.cljc:262)
+	at dao.jing.cbor$need.invokeStatic(cbor.cljc:1186)
+	at dao.jing.cbor$need.invoke(cbor.cljc:1184)
+	at dao.jing.cbor$read_head.invokeStatic(cbor.cljc:1197)
+	at dao.jing.cbor$read_head.invoke(cbor.cljc:1193)
+	at dao.jing.cbor$read_item.invokeStatic(cbor.cljc:1287)
+	at dao.jing.cbor$read_item.invoke(cbor.cljc:1278)
+	at dao.jing.cbor$read_item.invokeStatic(cbor.cljc:1348)
+	at dao.jing.cbor$read_item.invoke(cbor.cljc:1278)
+	at dao.jing.cbor$read_item.invokeStatic(cbor.cljc:1348)
+	at dao.jing.cbor$read_item.invoke(cbor.cljc:1278)
+	at dao.jing.cbor$read_item.invokeStatic(cbor.cljc:1358)
+	at dao.jing.cbor$read_item.invoke(cbor.cljc:1278)
+	at dao.jing.cbor$read_item.invokeStatic(cbor.cljc:1348)
+	at dao.jing.cbor$read_item.invoke(cbor.cljc:1278)
+	at dao.jing.cbor$read_item.invokeStatic(cbor.cljc:1348)
+	at dao.jing.cbor$read_item.invoke(cbor.cljc:1278)
+	at dao.jing.cbor$decode_snapshot.invokeStatic(cbor.cljc:1546)
+	at dao.jing.cbor$decode_snapshot.invoke(cbor.cljc:1535)
+	at dao.jing$segment_value.invokeStatic(jing.cljc:338)
+	at dao.jing$segment_value.invoke(jing.cljc:324)
+	at yin.vm.linker.closure$read_blob$fn__15871.invoke(closure.cljc:86)
+	at yin.vm.linker.closure$read_blob.invokeStatic(closure.cljc:86)
+	at yin.vm.linker.closure$read_blob.invoke(closure.cljc:55)
+	at yin.vm.linker.closure$walk_images$fn__15895.invoke(closure.cljc:171)
+	at clojure.lang.PersistentVector.reduce(PersistentVector.java:418)
+	at clojure.core$reduce.invokeStatic(core.clj:6964)
+	at clojure.core$reduce.invoke(core.clj:6947)
+	at yin.vm.linker.closure$walk_images.invokeStatic(closure.cljc:161)
+	at yin.vm.linker.closure$walk_images.invoke(closure.cljc:156)
+	at yin.vm.linker.closure$walk_module.invokeStatic(closure.cljc:230)
+	at yin.vm.linker.closure$walk_module.invoke(closure.cljc:213)
+	at yin.vm.linker.closure$walk.invokeStatic(closure.cljc:260)
+	at yin.vm.linker.closure$walk.invoke(closure.cljc:236)
+	at yin.vm.linker.publish$publish_closure_BANG_$fn__16038.invoke(publish.cljc:130)
+	at clojure.core$some.invokeStatic(core.clj:2718)
+	at clojure.core$some.invoke(core.clj:2709)
+	at yin.vm.linker.publish$publish_closure_BANG_.invokeStatic(publish.cljc:129)
+	at yin.vm.linker.publish$publish_closure_BANG_.invoke(publish.cljc:115)
+	at yin.vm.linker.publish$publish_module_BANG_.invokeStatic(publish.cljc:216)
+	at yin.vm.linker.publish$publish_module_BANG_.invoke(publish.cljc:210)
+	at yin.vm.linker.publish$publish_module_BANG_.invokeStatic(publish.cljc:215)
+	at yin.vm.linker.publish$publish_module_BANG_.invoke(publish.cljc:210)
+	at yang.python.antlr.linked_harness$publish_guest_module_BANG_.invokeStatic(linked_harness.cljc:102)
+	at yang.python.antlr.linked_harness$publish_guest_module_BANG_.invoke(linked_harness.cljc:95)
+	at yin.vm.semantic_register.derive_test$fn__22165$fn__22166$fn__22168.invoke(derive_test.cljc:630)
+	at clojure.lang.PersistentVector.reduce(PersistentVector.java:418)
+	at clojure.core$reduce.invokeStatic(core.clj:6964)
+	at clojure.core$reduce.invoke(core.clj:6947)
+	at yin.vm.semantic_register.derive_test$fn__22165$fn__22166.invoke(derive_test.cljc:626)
+	at dao.test_slow$guard.invokeStatic(test_slow.cljc:27)
+	at dao.test_slow$guard.invoke(test_slow.cljc:22)
+	at yin.vm.semantic_register.derive_test$fn__22165.invokeStatic(derive_test.cljc:622)
+	at yin.vm.semantic_register.derive_test$fn__22165.invoke(derive_test.cljc:621)
+	at clojure.test$test_var$fn__9898.invoke(test.clj:717)
+	at clojure.test$test_var.invokeStatic(test.clj:717)
+	at clojure.test$test_var.invoke(test.clj:708)
+	at clojure.test$test_vars$fn__9924$fn__9929.invoke(test.clj:735)
+	at clojure.test$default_fixture.invokeStatic(test.clj:687)
+	at clojure.test$default_fixture.invoke(test.clj:683)
+	at clojure.test$test_vars$fn__9924.invoke(test.clj:735)
+	at clojure.test$default_fixture.invokeStatic(test.clj:687)
+	at clojure.test$default_fixture.invoke(test.clj:683)
+	at clojure.test$test_vars.invokeStatic(test.clj:731)
+	at clojure.test$test_all_vars.invokeStatic(test.clj:737)
+	at clojure.test$test_ns.invokeStatic(test.clj:758)
+	at clojure.test$test_ns.invoke(test.clj:743)
+	at clojure.core$map$fn__5956.invoke(core.clj:2772)
+	at clojure.lang.LazySeq.force(LazySeq.java:50)
+	at clojure.lang.LazySeq.realize(LazySeq.java:87)
+	at clojure.lang.LazySeq.seq(LazySeq.java:104)
+	at clojure.lang.Cons.next(Cons.java:41)
+	at clojure.lang.RT.boundedLength(RT.java:1810)
+	at clojure.lang.RestFn.applyTo(RestFn.java:133)
+	at clojure.core$apply.invokeStatic(core.clj:669)
+	at clojure.test$run_tests.invokeStatic(test.clj:768)
+	at clojure.test$run_tests.doInvoke(test.clj:768)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.core$apply.invokeStatic(core.clj:667)
+	at clojure.core$apply.invoke(core.clj:662)
+	at cognitect.test_runner$test.invokeStatic(test_runner.clj:74)
+	at cognitect.test_runner$test.invoke(test_runner.clj:62)
+	at cognitect.test_runner$_main.invokeStatic(test_runner.clj:127)
+	at cognitect.test_runner$_main.doInvoke(test_runner.clj:115)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.lang.Var.applyTo(Var.java:707)
+	at clojure.core$apply.invokeStatic(core.clj:667)
+	at clojure.main$main_opt.invokeStatic(main.clj:515)
+	at clojure.main$main_opt.invoke(main.clj:511)
+	at clojure.main$main.invokeStatic(main.clj:665)
+	at clojure.main$main.doInvoke(main.clj:617)
+	at clojure.lang.RestFn.applyTo(RestFn.java:140)
+	at clojure.lang.Var.applyTo(Var.java:707)
+	at clojure.main.main(main.java:40)
+
+"Reference Handler" #9 [18691] daemon prio=10 os_prio=31 cpu=2.64ms elapsed=416.41s tid=0x000000014580d400 nid=18691 waiting on condition  [0x000000016ef2e000]
+   java.lang.Thread.State: RUNNABLE
+	at java.lang.ref.Reference.waitForReferencePendingList(java.base@21.0.2/Native Method)
+	at java.lang.ref.Reference.processPendingReferences(java.base@21.0.2/Reference.java:246)
+	at java.lang.ref.Reference$ReferenceHandler.run(java.base@21.0.2/Reference.java:208)
+
+"Finalizer" #10 [18435] daemon prio=8 os_prio=31 cpu=0.07ms elapsed=416.41s tid=0x0000000145827a00 nid=18435 in Object.wait()  [0x000000016f13a000]
+   java.lang.Thread.State: WAITING (on object monitor)
+	at java.lang.Object.wait0(java.base@21.0.2/Native Method)
+	- waiting on <0x0000000700178c20> (a java.lang.ref.NativeReferenceQueue$Lock)
+	at java.lang.Object.wait(java.base@21.0.2/Object.java:366)
+	at java.lang.Object.wait(java.base@21.0.2/Object.java:339)
+	at java.lang.ref.NativeReferenceQueue.await(java.base@21.0.2/NativeReferenceQueue.java:48)
+	at java.lang.ref.ReferenceQueue.remove0(java.base@21.0.2/ReferenceQueue.java:158)
+	at java.lang.ref.NativeReferenceQueue.remove(java.base@21.0.2/NativeReferenceQueue.java:89)
+	- locked <0x0000000700178c20> (a java.lang.ref.NativeReferenceQueue$Lock)
+	at java.lang.ref.Finalizer$FinalizerThread.run(java.base@21.0.2/Finalizer.java:173)
+
+"Signal Dispatcher" #11 [17923] daemon prio=9 os_prio=31 cpu=5.77ms elapsed=416.41s tid=0x0000000157874e00 nid=17923 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+"Service Thread" #12 [22019] daemon prio=9 os_prio=31 cpu=10.95ms elapsed=416.41s tid=0x0000000157875600 nid=22019 runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+"Monitor Deflation Thread" #13 [22275] daemon prio=9 os_prio=31 cpu=22.00ms elapsed=416.41s tid=0x0000000145828c00 nid=22275 runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+"C2 CompilerThread0" #14 [22531] daemon prio=9 os_prio=31 cpu=7992.11ms elapsed=416.41s tid=0x0000000145829400 nid=22531 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+   No compile task
+
+"C1 CompilerThread0" #17 [22787] daemon prio=9 os_prio=31 cpu=2360.04ms elapsed=416.41s tid=0x0000000157875e00 nid=22787 waiting on condition  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+   No compile task
+
+"Notification Thread" #18 [31491] daemon prio=9 os_prio=31 cpu=0.06ms elapsed=416.40s tid=0x0000000157876600 nid=31491 runnable  [0x0000000000000000]
+   java.lang.Thread.State: RUNNABLE
+
+"Common-Cleaner" #19 [30979] daemon prio=8 os_prio=31 cpu=8.03ms elapsed=416.40s tid=0x0000000156008c00 nid=30979 waiting on condition  [0x000000016ff8e000]
+   java.lang.Thread.State: TIMED_WAITING (parking)
+	at jdk.internal.misc.Unsafe.park(java.base@21.0.2/Native Method)
+	- parking to wait for  <0x0000000700178d70> (a java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject)
+	at java.util.concurrent.locks.LockSupport.parkNanos(java.base@21.0.2/LockSupport.java:269)
+	at java.util.concurrent.locks.AbstractQueuedSynchronizer$ConditionObject.await(java.base@21.0.2/AbstractQueuedSynchronizer.java:1847)
+	at java.lang.ref.ReferenceQueue.await(java.base@21.0.2/ReferenceQueue.java:71)
+	at java.lang.ref.ReferenceQueue.remove0(java.base@21.0.2/ReferenceQueue.java:143)
+	at java.lang.ref.ReferenceQueue.remove(java.base@21.0.2/ReferenceQueue.java:218)
+	at jdk.internal.ref.CleanerImpl.run(java.base@21.0.2/CleanerImpl.java:140)
+	at java.lang.Thread.runWith(java.base@21.0.2/Thread.java:1596)
+	at java.lang.Thread.run(java.base@21.0.2/Thread.java:1583)
+	at jdk.internal.misc.InnocuousThread.run(java.base@21.0.2/InnocuousThread.java:186)
+
+"VM Thread" os_prio=31 cpu=373.75ms elapsed=416.42s tid=0x0000000145609520 nid=20739 runnable  
+
+"GC Thread#0" os_prio=31 cpu=5184.66ms elapsed=416.43s tid=0x00000001568081f0 nid=15619 runnable  
+
+"GC Thread#1" os_prio=31 cpu=5233.62ms elapsed=415.52s tid=0x0000000125608420 nid=23043 runnable  
+
+"GC Thread#2" os_prio=31 cpu=5134.14ms elapsed=415.52s tid=0x00000001456133a0 nid=23299 runnable  
+
+"GC Thread#3" os_prio=31 cpu=5249.68ms elapsed=415.52s tid=0x0000000145613910 nid=23811 runnable  
+
+"GC Thread#4" os_prio=31 cpu=5264.89ms elapsed=415.52s tid=0x0000000145614270 nid=30211 runnable  
+
+"GC Thread#5" os_prio=31 cpu=5143.91ms elapsed=415.52s tid=0x00000001256087c0 nid=29699 runnable  
+
+"GC Thread#6" os_prio=31 cpu=5210.09ms elapsed=415.06s tid=0x0000000135618a40 nid=24323 runnable  
+
+"GC Thread#7" os_prio=31 cpu=5306.27ms elapsed=413.88s tid=0x000000013572d030 nid=24579 runnable  
+
+"G1 Main Marker" os_prio=31 cpu=0.67ms elapsed=416.43s tid=0x00000001456053e0 nid=11523 runnable  
+
+"G1 Conc#0" os_prio=31 cpu=48.73ms elapsed=416.43s tid=0x0000000145605d50 nid=12035 runnable  
+
+"G1 Conc#1" os_prio=31 cpu=48.73ms elapsed=413.28s tid=0x0000000125614ee0 nid=28931 runnable  
+
+"G1 Refine#0" os_prio=31 cpu=799.67ms elapsed=416.43s tid=0x000000015786f400 nid=14851 runnable  
+
+"G1 Service" os_prio=31 cpu=29.80ms elapsed=416.43s tid=0x0000000145608130 nid=14595 runnable  
+
+"VM Periodic Task Thread" os_prio=31 cpu=136.55ms elapsed=416.42s tid=0x00000001568093c0 nid=14083 waiting on condition  
+
+JNI global refs: 9, weak refs: 0
+
+Heap
+ garbage-first heap   total 4110336K, used 493527K [0x0000000700000000, 0x0000000800000000)
+  region size 2048K, 11 young (22528K), 9 survivors (18432K)
+ Metaspace       used 51275K, committed 64768K, reserved 1114112K
+  class space    used 13014K, committed 17536K, reserved 1048576K
+
+C4 root o :stack
+C4 root o :register
+C4 root q :stack
+C4 root q :register

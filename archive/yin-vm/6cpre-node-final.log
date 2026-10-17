@@ -1,0 +1,10 @@
+Loading initial Timbre config from: :default
+[:test] Compiling ...
+========= Running Tests =======================
+
+Testing yin.vm.debruijn.stack-tail-completion-test
+
+Ran 9 tests containing 25 assertions.
+0 failures, 0 errors.
+===============================================
+[:test] Build completed. (132 files, 4 compiled, 0 warnings, 4.54s)

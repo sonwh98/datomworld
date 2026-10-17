@@ -1,0 +1,14 @@
+Ruling written and the probe removed. Report: `collab/1792057828000-architect-8f3-nan-ruling.report.md`, ending RULING-READY.
+
+**Root cause.** Item 13 of the register vector validator at `src/cljc/yin/vm/semantic_register/code.cljc:815` and `:820` compares the re-projected tuple against the loaded tuple with host `=`, literal operands included. The re-projection copies literals by reference, so both tuples hold the same NaN. Only the JVM's `=` short-circuits on identity. On JS `identical?` is `===` and on Dart `=` on doubles is IEEE `==`, both false for NaN, so the first `[:const rd ##NaN]` tuple is refused as `noncanonical-registers`. The failing tests put `##NaN` directly in the test form. ±inf, -0.0 and large floats are not affected.
+
+**Evidence.** A throwaway JVM test namespace, now deleted, showed `=` fails on two distinct NaN boxes while `cbor/content=` holds for every mnemonic shape including nested NaN data. It also exposed a second site: reloading a content-equal vector with a fresh NaN box throws "the id already holds different code" from `store-image`, on the JVM today.
+
+**Fix spec.**
+- Add a private slotwise `tuple=` helper in `code.cljc` using `cbor/content=` per slot, and use it at the two item-13 comparisons. Slotwise so literals hit the identity shortcut and are never traversed.
+- In `semantic_register.cljc` `store-image`, compare `:address` instead of the whole image.
+- Tests: a new deftest in `code_test.cljc` with accepted NaN vectors plus two refusals that pin strictness, and a load, run, reload test in `semantic_engine_test.cljc`. The accepted rows fail on Node and Dart today.
+
+**Other paths.** Derive, the stack and register kernels, and the de Bruijn rules compare only ids, pcs and counts. One out-of-scope same-class gap is logged: `frame.cljc:141` compares free-env bindings with host `=`.
+
+Next: the orchestrator dispatches the seven ordered steps in the report to codex as slice 8f-3d.

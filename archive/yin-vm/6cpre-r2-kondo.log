@@ -1,0 +1,3 @@
+Loading initial Timbre config from: :default
+src/cljc/yin/vm/debruijn/stack.cljc:52:29: info: Unused excluded var: eval
+linting took 692ms, errors: 0, warnings: 0

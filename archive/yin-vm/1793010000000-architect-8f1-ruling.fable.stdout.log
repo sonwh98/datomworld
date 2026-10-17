@@ -1,0 +1,21 @@
+Ruling written to `collab/1792050511876-architect-8f1-ruling.report.md`, ending RULING-READY. No source files were touched.
+
+**What the grep found that changes the picture**
+
+- 8d deleted the old transport's tests but not its sources. `ucf/handoff.cljc` and `checkpoint.cljc` are still on disk, untested, with one C4 caller in `int_heap_test`. They are the only reason `yin.vm.completion` and the v3 halves of `yin.vm.ucf` still look live.
+- After those two die, every production reader of `yin.vm.ucf` uses only `code-address`, and `yin.vm.completion` has no production reader at all. The linker never required it.
+- The native stack descriptor is already pinned by three literal hashes in the debruijn tests, and the scalar encoder orders map entries by encoded bytes, so inlining the table is provably byte-identical.
+- The old `materialize-vector!` has zero callers. The new one is used by publish and tested in mint_test.
+- The "v4 on v3" acceptance exists at two sites, not one: the old kernel's `load-vector` and `ucf.cljc`'s contract stamp.
+
+**Rulings**
+
+- The stack grammar becomes `yin.vm.debruijn-code`'s own literal data, in place, with a private terminator set. No new namespace. Proof is the unchanged pinned literals in two test files, which codex may not edit.
+- `yin.vm.ucf` shrinks to `code-address`. The v3 batch canonicalizer and the stack-shaped safepoint half die un-ported, with `ucf_test` whole.
+- `yin.vm.completion` is deleted with handoff. The report tables which facts survive and in which surviving test. Two tests are dropped as tests of deleted code only.
+- The `:push` row in the v4 footprint table dies along with the two `dissoc` workarounds.
+- Docs wait for 8g.
+
+**Order for codex**
+
+Steps 1 to 3 and the `:push` cleanup are compile-independent of the old kernel and form 8f-1 as one commit. Shrinking `ucf.cljc` cannot land before `semantic.cljc` dies, because the old kernel calls its canonicalizer, so that moves to 8f-3 alongside the three deletions and the requirer rewrite. The report gives the per-step test lanes and the deleted-test ledger shape.

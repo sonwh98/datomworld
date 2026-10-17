@@ -1,0 +1,24 @@
+Created-GMT: 2026-10-12 13:00:00 GMT
+Created-Local: 2026-10-12 20:00:00 Asia/Bangkok
+
+# Task: revise the discovery-order numbering note after codex review (fresh Architect session)
+
+You are claude-fable-5-1, a NEW session with no memory of the note's writing. Worktree `/Users/sto/workspace/datomworld-srvm-numbering`, branch `numbering-note`, HEAD 7a6d7cc9. Edit ONLY `docs/design/yin.vm.semantic-register-vm.cursor-cell-numbering.md`, the prototype under `collab/numbering-probe`, and your report. No git add/commit. Use the vocabulary of UCF section 7.5.3 exactly (cursor, cursor cell, cursor-ref, cell).
+
+Read first: the note; the independent review `collab/1792140000000-architect-cursor-cell-numbering-review.gpt-6.1-sol.findings.md` (all of it: 2 Blocking, 2 High, 3 Medium, 1 Low, with exact counterexamples); the previous report `collab/1792120000000-architect-cursor-cell-numbering.report.md`. The owner approved the direction (discovery-order numbering, refusal for what cannot be certified); codex's job was to break it, and it did. Fix, in this order:
+
+1. BLOCKING, D4's orbit lemma is unsound: `#{[X X] [Y Z]}` (X, Y, Z identical bodies, no other occurrences) passes D4 but different set enumerations give different roots. Equal `CE` of two elements does not imply interchangeable, because unnumbered cursor cells are spelled by body only, which cannot tell the alias pattern `(X X)` from `(Y Z)`. Orchestrator's suggested direction (evaluate, do not assume): make the content encoding of an element spell each UNNUMBERED cursor cell by its body PLUS a local first-occurrence index within that element (de Bruijn style inside the element: `[X X]` spells `[(u0) (u0)]`, `[Y Z]` spells `[(u0) (u1)]`), so alias topology inside an element is part of the sort key, and only elements with equal such encodings are candidates for the orbit rule; then state exactly when the orbit rule is sound (prove it) and refuse otherwise. If you find a better repair, give it with proof.
+2. BLOCKING, nested tie groups: entering a D4 element can discover new tie groups (`#{#{X Y} #{Z W}}`); the prototype returns an empty numbering and emits source ids. Specify the processing of newly discovered deferred groups (recursion or fixpoint), require TOTAL numbering before emission, and make the prototype assert it.
+3. HIGH, the refusal class: `[#{X Y} #{X Y}]` is refused although X and Y are interchangeable and there are no guest pairs or map keys. Define D5's actual predicate precisely; separate "not certified by this procedure" from "non-interchangeable"; remove the unsupported rarity claim, or support it with a measured census of the repository's own fixtures/corpus (how many realistic states hit D5: say so honestly).
+4. HIGH, decode: decode invokes `emit` (rows.cljc ~570-575): a lift-side `:yin.k/non-portable` `:unresolved-cursor-cells` will propagate unless translated. Specify translating ONLY that reason to `:yin.k/undecodable` at the recomputation, preserving resource refusals and the validator order.
+5. MEDIUM, the prototype must follow the spec: numbered `CE` spells the cursor-cell id the way the spec says (integer vs keyword `:yin.k/cc-n`), parked-table values are structural refs (not V), the orbit walker must include `:refs`, and install children must use discovery numbering in every scope. Make the prototype schema-driven and add tests for parked states, K frames and children; re-run the random renaming/permutation search INCLUDING nested sets, `#{[X X] [Y Z]}`-style elements and aliased-in-two-places cells, with at least 2000 states, and report counts (failures must be 0, refusals reported).
+6. MEDIUM, "linear work": establish a bound in terms of expanded positions, sorting, rounds and encoded bytes (acyclic DAGs can expand), and state the budgets that stay (`:bytes`, `:rows`, `:depth`, `:work`) so the work is accounted before allocation.
+7. MEDIUM, stale wording in the amendments: A2 ("no encounter-order tie-break ever decides validity"), A5 (section 10.10 "never falls back to encounter order"), A8 (old byte-string body-label explanation and step-1 reference): update each explicitly; distinguish canonical traversal order from arbitrary host enumeration.
+8. LOW: the portable-id example must hold every carried field, including the id counter, equal; correct the engine line citations; D1 must keep numeric ascending register order for windows as the carrier specifies.
+
+Re-derive every pinned id that changes and report old -> new; hand-derived numbers twice and checked against the 6a codec where possible.
+
+Report to `collab/1792150000000-architect-cursor-cell-numbering-revise.report.md`, beginning exactly:
+Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>
+Completed-Local: <YYYY-MM-DD HH:MM:SS Asia/Bangkok>
+Per item: what changed, what you verified, anything unverified or disputed (if you dispute a codex counterexample, give the exact run showing it).

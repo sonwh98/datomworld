@@ -1,0 +1,14 @@
+Stage 2 review is complete. Findings are at `collab/1791790000000-reviewer-srvm-phase4b-stage2.claude-fable-5-1.findings.md`.
+
+**Verdict: CHANGES_REQUESTED, test-only.** No defect in the evaluator source. The FFI arm, restore steps 1-3, the require builder and all nine kernel-protocol methods match evaluator §1.10, §2.2 and §3.3 and the stack-VM template.
+
+**Mutation results.** I applied nineteen mutants to the source one at a time, each reverted by the exact reverse edit and verified byte-identical to HEAD. Seventeen are killed. Two survive:
+
+- **`pin-refs` dropped from the FFI arm.** The design names this step, and the engine's own rationale is that a value carried by an FFI request leaves the VM's view, so a cell ref passed to a host call would be swept while the host holds it. No test passes a cell ref over FFI and collects. One row closes it, with the stream-side twin in `heap_reclamation_test` as the template.
+- **Install child sharing the parent's window.** Unobservable to programs by definite assignment, visible to GC and inspection. One assertion closes it.
+
+The author's 23-mutant table agrees with mine wherever we overlap, and their one survivor, the order of the two local bindings in restore step 2, is a genuine equivalent mutant.
+
+**Everything else checks out.** The four existing-suite registrations are strictly additive apart from the one authorized exclusion. Only the ten expected files changed. No assertion was weakened. The require rd of 5 and the parked-child fixture are both justified, and I derived both the FFI trace and the linked-require trace independently. Four notes are recorded: the composite-id gate rests on one assertion within the semantic-register suites, the FFI production branch of the trace oracle is unreachable because an FFI call always blocks in the step trace, the binding-mismatch ex-data differs from the template, and the design's "fourteen bridge rows" is thirteen.
+
+Node and Dart lanes remain the orchestrator's; Dart is already reported green.

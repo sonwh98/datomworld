@@ -1,0 +1,83 @@
+Read 562 code files under src/ and test/.
+Subsystems: yin.vm
+cljs: 71 namespaces
+   yin.vm-test
+   yin.vm.ast-walker-test
+   yin.vm.attach-image-test
+   yin.vm.cell-test
+   yin.vm.code-test
+   yin.vm.completion-test
+   yin.vm.continuation-invoke-test
+   yin.vm.data-test
+   yin.vm.debruijn-code-test
+   yin.vm.debruijn-linearize-test
+   yin.vm.debruijn-register-benchmark-test
+   yin.vm.debruijn-register-code-test
+   yin.vm.debruijn-register-compile-test
+   yin.vm.debruijn-register-contract-test
+   yin.vm.debruijn-register-effects-test
+   yin.vm.debruijn-resolve-test
+   yin.vm.debruijn-test
+   yin.vm.debruijn-vm-contract-test
+   yin.vm.debruijn.register-test
+   yin.vm.debruijn.stack-effects-test
+   yin.vm.debruijn.stack-parity-test
+   yin.vm.debruijn.stack-test
+   yin.vm.effect-forgery-test
+   yin.vm.encoder-test
+   yin.vm.engine-gate-test
+   yin.vm.engine-test
+   yin.vm.ffi-test
+   yin.vm.ffi.remote-serve-test
+   yin.vm.ffi.remote-serve.responder-test
+   yin.vm.heap-reclamation-test
+   yin.vm.host-typed-values-test
+   yin.vm.integer-test
+   yin.vm.ledger-test
+   yin.vm.linearize-test
+   yin.vm.linker-authority-ingestion-test
+   yin.vm.linker-authority-test
+   yin.vm.linker-manifest-test
+   yin.vm.linker-require-test
+   yin.vm.linker-step-test
+   yin.vm.linker-test
+   yin.vm.linker.closure-test
+   yin.vm.linker.dht-end-to-end-test
+   yin.vm.linker.dht-test
+   yin.vm.linker.head-board-test
+   yin.vm.linker.head-follow-test
+   yin.vm.linker.head-test
+   yin.vm.linker.publish-test
+   yin.vm.linker.remote-transfer-test
+   yin.vm.linker.sign-test
+   yin.vm.macro-test
+   yin.vm.mint-test
+   yin.vm.module-test
+   yin.vm.parity-test
+   yin.vm.pipeline-test
+   yin.vm.rule-r-test
+   yin.vm.semantic-engine-test
+   yin.vm.semantic-ffi-test
+   yin.vm.semantic-register.analysis-test
+   yin.vm.semantic-register.code-test
+   yin.vm.semantic-register.derive-test
+   yin.vm.semantic-register.effects-test
+   yin.vm.semantic-register.linearize-test
+   yin.vm.semantic-register.link-test
+   yin.vm.semantic-register.load-paths-test
+   yin.vm.semantic-register.parity-test
+   yin.vm.semantic-register.vm-test
+   yin.vm.semantic-register.walker-trace-test
+   yin.vm.semantic-stream-observer-test
+   yin.vm.semantic-test
+   yin.vm.stream-poll-test
+   yin.vm.telemetry-test
+Selected 74 of 278 test namespaces.
+Skipping build:yin-repl-peer (no selected test reaches its output)
+Skipping build:yin-repl-node (no selected test reaches its output)
+Skipping gen:python-antlr (no selected test reaches its output)
+cljs: 71 namespaces, log target/profile/sub-cljs.log
+cljs: done, exit 0, 976 s
+
+lane  namespaces  tests failures seconds  status
+cljs          71   1258        0     976  pass

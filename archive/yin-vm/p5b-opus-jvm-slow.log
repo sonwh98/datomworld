@@ -1,0 +1,53 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.semantic-register.derive-test
+C4 preparing published py module
+C4 publishing guest k
+C4 publishing guest m
+C4 publishing guest t
+C4 publishing guest w
+C4 publishing guest e
+C4 publishing guest n
+C4 root o :stack
+C4 root o :register
+C4 root q :stack
+C4 root q :register
+C4 root d :stack
+C4 root d :register
+C4 root c :stack
+C4 root c :register
+C4 root r :stack
+C4 root r :register
+C4 root x :stack
+C4 root x :register
+C4 root nn :stack
+C4 root nn :register
+C4 root main :stack
+C4 root main :register
+C4 root s :stack
+C4 root s :register
+C4 root tt :stack
+C4 root tt :register
+C4 module py :stack
+C4 module py :register
+C4 module pysp :stack
+C4 module pysp :register
+C4 module k :stack
+C4 module k :register
+C4 module m :stack
+C4 module m :register
+C4 module t :stack
+C4 module t :register
+C4 module w :stack
+C4 module w :register
+C4 module e :stack
+C4 module e :register
+C4 module n :stack
+C4 module n :register
+C4 completed: 10 root programs; 8 module bodies; both kernel families
+
+Ran 1 tests containing 90 assertions.
+0 failures, 0 errors.

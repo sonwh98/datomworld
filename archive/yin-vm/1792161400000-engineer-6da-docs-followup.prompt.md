@@ -1,0 +1,10 @@
+Created-GMT: 2026-10-16 13:15:00 GMT
+Created-Local: 2026-10-16 20:15:00 +07
+Coding-Agent: claude
+Session-ID: dc3e4b88-02d8-428d-b938-541541f0fbe1 (resume)
+# Task: slice 6d-a docs micro-round — three one-line items from the cmd review (uncommitted)
+Role: VM Runtime
+Implementers:
+- Model: claude-opus-5-5 | Assigned: 2026-10-16 20:15 +07 | Status: active | Rationale: mechanical doc edits from the second review (cmd/kimi-k3, APPROVE-WITH-NITS); no test or src changes; a separate glm ruling on the repeated-register pin may follow
+
+Resume of your 6d-a turn. Apply exactly three edits, nothing else: (1) **cmd P3-1:** in `docs/design/yin.vm.semantic.continuation.md` §5.7, delete the trailing plan-amendment line that reads "**Change:** Consensus P2-7; muse N4/glm O3; glm's terminal-status acceptance omission." — spec-edition vocabulary leaked into normative design text when the block was copied from v2.1 §3.6. (2) **cmd P3-3:** the gate guard's refusal shape `{:rule :gate-closed :yin.k/gate mode}` (semantic.cljc, pinned by tests as `:gate-closed`) is new and unnamed in the docs — add one sentence naming it in `yin.vm.semantic.continuation.md` §7.3 or §7.4 (wherever the guard/fuel text lives), so 6d-b reuses the name instead of inventing one. (3) **cmd P3-4:** in `src/cljc/yin/vm/ucf/rows.cljc` `completion-node`, add a one-line comment above the `(boolean (:try? e))` coercion saying the engine is the trusted boolean producer and the lower side carries the validation teeth — preventing a future "fix" from weakening it. That is all: no test edits, no lane runs beyond a kondo/cljstyle sanity pass on the touched files (if available), no quick tier (the tree's test behavior is untouched; the orchestrator re-runs it). A separate ruling on your nit-1 `zero?` pin is in flight from the acting Architect; do not touch that pin in this round — if the ruling changes it, a follow-up will come. Report ./collab/1792161400000-engineer-6da-docs-followup.report.md with the standard header: the three edits with before/after lines, anything you STOPPED on. End READY or BLOCKED.

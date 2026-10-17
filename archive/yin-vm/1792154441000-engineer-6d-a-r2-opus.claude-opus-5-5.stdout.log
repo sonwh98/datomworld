@@ -1,0 +1,31 @@
+Slice 6d-a is finished on JVM: all JVM lanes are green and the report ends **READY**. Nothing is committed or pushed. Node, Dart and the three-host landing run are still yours, and Fable's diff-confirm is still the gate before merge.
+
+**State on takeover:** codex's round-2 turn had already done most of the work before its quota ran out: the ledger golden was regenerated with its diff inventory, the layout gates passed, most acceptance tests existed, and a 19-mutant campaign had run with every mutant killed. The focused run had one failure, the row 20 pin. The slow tier had never completed, and the per-case boundary counts were printed but not pinned.
+
+**What I did** (all in `test/yin/vm/semantic/safepoint_harness_test.cljc` unless noted):
+- **Row 20:** it actually has three leading refused boundaries (pc 0, 1, 2, each missing `#{s}`), not just the first one the ruling predicted. I pinned the measured three, as the brief says to carry the actual value. New assertions show `s` is missing at each excluded boundary and present at the first one that lifts. `discharge!` is unchanged.
+- **Pins:** I pinned the per-case counts and coverage for the 23 quick cases and all 89 slow cases.
+- **Coverage:** no corpus row reaches the "active-plus-waits" and "active-plus-ready" boundaries that plan §3.6 requires. I added two small driver cases (`product-returned-boundaries`) that reach both.
+- **Mutants:** I added 4 implementation-weakening mutants for the execution and backend rules codex's campaign didn't cover. All 4 are killed. The script is saved as `target/6da/r3-mutants-test.clj`.
+- **Docs:** I fixed three remaining stale "ready queue must be empty" clauses in the tuples, UCF §7.6.3 and dependency-completion docs. UCF §7.7.4 "Quiesce" is left for 6d-b, as the plan assigns.
+- I fixed one kondo warning.
+
+**Results:**
+
+| Lane | Tests | Assertions | Failures / errors |
+|---|---:|---:|---:|
+| Whole JVM quick tier | 4,079 | 269,020 | 0 / 0 |
+| Focused namespaces | 218 | 24,342 | 0 / 0 |
+| Slow `every-returned-boundary` | 1 | 129,274 | 0 / 0 |
+| Kondo, 13 changed files | — | — | 0 errors, 0 warnings |
+
+**For Fable to confirm:**
+- Row 20's three-boundary exclusion. The design doc keeps the ruling's verbatim "the leading boundary" wording.
+- Row 17 treated as a "like case". Its leading exclusions all name `host.mod/f`, which the module the program requires defines, not a store definition. In the captured segment, 43 boundaries are excluded against 27 measured.
+- The retained-FFI fixture now carries the wait's real `:call-id` (`:parked-0`) instead of nil. This is codex's correction and I kept it.
+
+**Not done by me:**
+- I didn't re-run codex's 19 mutants. The source and tests they exercise are unchanged since that run.
+- I didn't recompute the ledger golden's hashes. I did confirm the git diff touches exactly the projection line and the six address-only journal frames.
+
+The report is `collab/1792154441000-engineer-6d-a-r2-opus.report.md` in the worktree. It includes the ATTRIBUTION table, per-item assertion counts and the commit mapping. Copying it into the main checkout's `collab/` needed approval outside the worktree, so it is only in the worktree for now. Copy it over before removing the worktree, or it is lost.

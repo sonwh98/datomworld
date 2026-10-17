@@ -1,0 +1,128 @@
+diff --git a/src/cljc/yin/vm/semantic_register/frame.cljc b/src/cljc/yin/vm/semantic_register/frame.cljc
+index fc042138..154e4c6f 100644
+--- a/src/cljc/yin/vm/semantic_register/frame.cljc
++++ b/src/cljc/yin/vm/semantic_register/frame.cljc
+@@ -30,6 +30,7 @@
+ (defn- env?
+   [e]
+   (and (closed? e [:yin.k/bindings] [:yin.k/store-of])
++       (or (not (contains? e :yin.k/store-of)) (some? (:yin.k/store-of e)))
+        (map? (:yin.k/bindings e))
+        (every? symbol? (keys (:yin.k/bindings e)))))
+ 
+diff --git a/src/cljc/yin/vm/ucf/rows.cljc b/src/cljc/yin/vm/ucf/rows.cljc
+index d1a61efa..16bb482c 100644
+--- a/src/cljc/yin/vm/ucf/rows.cljc
++++ b/src/cljc/yin/vm/ucf/rows.cljc
+@@ -4,9 +4,18 @@
+    An abstract row is {:kind keyword :slots vector}. Structural references
+    contain abstract rows; values use [:lit d], [:row abstract-row], [:cell id].
+    A task's :cells row holds alternating source identities and :cell-body
+-   rows. Install children are separate tasks with separate cell scopes."
+-  (:require [clojure.edn :as edn]
+-            [dao.jing :as jing]
++   rows. Install children are separate tasks with separate cell scopes.
++
++   The census is ordered numerically by n (draft §3, \"sorted by n\"), so
++   :yin.k/c-10 follows :yin.k/c-9; its keys must spell c-N with no leading
++   zero, else :slot-kind.
++
++   Default value markers are plain maps {:yin.k/row abstract-row} and
++   {:yin.k/cell keyword}. A guest map whose sole key is :yin.k/row or
++   :yin.k/cell collides with them and is not portable: on encode one whose
++   payload is not a well-formed marker, and on decode any [:lit] of that
++   shape, is refused :yin.k/non-portable."
++  (:require [dao.jing :as jing]
+             [dao.jing.cbor :as cbor]
+             [yin.vm.semantic-register.code :as code]
+             [yin.vm.semantic-register.frame :as frame]))
+@@ -112,11 +121,22 @@
+   (and (vector? d) (= :refs (first d))))
+ 
+ 
++(def ^:private census-key #"c-([1-9][0-9]*)")
++
++
++(defn- census-order
++  ;; Numeric order of c-N without reading wire data: fewer digits first,
++  ;; then the digits. Other keys (a partial emit-numbered) sort last.
++  [k]
++  (let [digits (when (keyword? k) (second (re-matches census-key (name k))))]
++    (if digits [0 (count digits) digits] [1 0 (str k)])))
++
++
+ (defn- ordered-slots
+   [kind slots]
+   (cond
+     (= kind :window) (vec (mapcat identity (sort-by first (partition 2 slots))))
+-    (= kind :cells) (vec (mapcat identity (sort-by #(edn/read-string (subs (name (first %)) 2)) (partition 2 slots))))
++    (= kind :cells) (vec (mapcat identity (sort-by #(census-order (first %)) (partition 2 slots))))
+     (contains? #{:map :bindings :store :parked-table} kind)
+     (vec (mapcat identity (sort #(byte-compare (first %1) (first %2)) (partition 2 slots))))
+     (= kind :set) (sorted-bytes slots)
+@@ -306,8 +326,9 @@
+ 
+ 
+ (defn- structural?
+-  [d x]
++  [kind d x]
+   (cond
++    (and (= :cells kind) (= :C d)) (and (keyword? x) (some? (re-matches census-key (name x))))
+     (or (ref? d) (= :C d)) (keyword? x)
+     (refs? d) (and (vector? x) (every? keyword? x))
+     (contains? #{:V :optional-V} d)
+@@ -418,7 +439,9 @@
+                  [id active]
+                  (when (contains? active id) (bad! :cyclic [id]))
+                  (let [row (get index id) slots (when row (subvec row 2))]
+-                   (when-not (and (= :task (second row)) (= 17 (count slots))) (bad! :task-shape [id]))
++                   (when-not (and (= :task (second row)) (= 17 (count slots))
++                                  (vector? (nth slots 12)) (every? keyword? (nth slots 12)))
++                     (bad! :task-shape [id]))
+                    (when-not (= 3 (nth slots 0)) (refuse! :yin.k/profile-mismatch :version [id 0]))
+                    (when-not (= profile (nth slots 1)) (refuse! :yin.k/profile-mismatch :profile [id 1]))
+                    (doseq [install (nth slots 12)]
+@@ -435,7 +458,7 @@
+                             :else true)
+                           (= (count ds) (count slots))) (bad! :row-shape [id]))
+            (doseq [[i d x] (map vector (range) ds slots)]
+-             (when-not (structural? d x) (bad! :slot-kind [id i])))))
++             (when-not (structural? kind d x) (bad! :slot-kind [id i])))))
+        (let [seen (atom #{})]
+          (letfn [(walk
+                    [id active depth]
+@@ -526,14 +549,21 @@
+       (emit (rewrite task)))))
+ 
+ 
++(defn- marker-shaped?
++  [x]
++  (and (map? x) (= 1 (count x)) (or (contains? x :yin.k/row) (contains? x :yin.k/cell))))
++
++
+ (defn- value-node
+   [x]
+   ;; Explicit codec values allow 6b to supply already classified guest
+   ;; markers, without introducing native seals or resource lookup here.
+-  (cond
+-    (and (map? x) (= #{:yin.k/row} (set (keys x)))) [:row (:yin.k/row x)]
+-    (and (map? x) (= #{:yin.k/cell} (set (keys x)))) [:cell (:yin.k/cell x)]
+-    :else [:lit x]))
++  (let [r (:yin.k/row x)]
++    (cond
++      (not (marker-shaped? x)) [:lit x]
++      (and (map? r) (= #{:kind :slots} (set (keys r))) (keyword? (:kind r)) (vector? (:slots r))) [:row r]
++      (keyword? (:yin.k/cell x)) [:cell (:yin.k/cell x)]
++      :else (refuse! :yin.k/non-portable :marker []))))
+ 
+ 
+ (defn- decoded-value
+@@ -541,7 +571,7 @@
+   (case (first v)
+     :row {:yin.k/row (second v)}
+     :cell {:yin.k/cell (second v)}
+-    :lit (second v)))
++    :lit (if (marker-shaped? (second v)) (refuse! :yin.k/non-portable :marker []) (second v))))
+ 
+ 
+ (defn- keyed-node

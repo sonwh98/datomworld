@@ -1,0 +1,17 @@
+The 8f-1 review is complete and the verdict is SIGN-OFF. The report is at `collab/1792052228000-architect-8f1-review.report.md`.
+
+**Deviation verdicts**
+
+- **D1 confirmed.** Keeping `vm/opcode-table` and `opcase` was correct. The retained semantic.cljc reads the table at seven sites and semantic_test at six, so my ruling's step 3 could not compile. Both die in 8f-3 with semantic.cljc.
+- **D2 confirmed, with the 8f-3 disposition fixed.** The third caller is real. The join test asserts a dao.space fact, a cross-relation join by value, not an old-kernel fact, so 8f-3 must port it rather than drop it. The old-code dependency is only the v3 projection and lowerer inside `segment-db`. The port is to the v4 `scan/segment-rows`, and the join pattern shifts one slot because the register store-put row carries a destination register before the key.
+- **D3 confirmed.** completion_test had 18 deftests at HEAD, so my 19 was a miscount. The name-set diff shows 24 names removed and 2 added. Every removed name is the 18 completion tests, the 4 single deletions in the ledger, or the 2 renames. Nothing else vanished.
+
+**Other gates**
+
+- All six pinned hashes are byte-identical at HEAD and in the working tree, and the register test file is untouched.
+- The literal 23-row table matches the HEAD derivation entry by entry, and the private terminator set equals the old one. No gap.
+- Scope is clean: no src/yang, no docs, only int_heap_test among C4 files. No code reader of any deleted namespace remains.
+
+**Findings** are P3 only: a misnamed publish_test deftest, a duplicated assertion in debruijn_code_test, and stale docstrings in ucf.cljc and linker_test that name deleted code. None block the commit. The report ledgers them for 8f-3 and 8g.
+
+Node and Dart lanes were not run by the engineer. Under the standing rule the orchestrator runs them before committing, and the deletions are filesystem unlinks, so `git add -A` on the listed paths is needed to stage them.

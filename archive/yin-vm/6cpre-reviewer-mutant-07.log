@@ -1,0 +1,301 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.continuation-invoke-test
+
+FAIL in (tail-position-invocation-test) (continuation_invoke_test.cljc:78)
+the continuation invoked as a tail call
+:stack
+expected: (= expected result)
+  actual: (not (= 8 [:thrown nil]))
+
+FAIL in (store-not-rolled-back-test) (continuation_invoke_test.cljc:78)
+a store write made before the invocation is visible after it
+:stack
+expected: (= expected result)
+  actual: (not (= [1 :written] nil))
+
+FAIL in (escape-discards-pending-frames-test) (continuation_invoke_test.cljc:78)
+invoked under (+ 1000 ...), the continuation delivers 7 to the
+            capture point: the +1000 frame is discarded, the captured +1
+            frame is not
+:stack
+expected: (= expected result)
+  actual: (not (= 9 [:thrown nil]))
+
+FAIL in (re-entry-after-return-test) (continuation_invoke_test.cljc:78)
+a continuation captured inside a returned call, kept in the
+            store, re-enters its capture point once per invocation; the
+            counter bounds the loop
+:stack
+expected: (= expected result)
+  actual: (not (= [30 3] [:thrown nil]))
+
+Testing yin.vm.debruijn.stack-effects-test
+
+FAIL in (resume-restores-frames-and-continuation-test) (stack_effects_test.cljc:766)
+a park inside a called closure keeps its frame and return frame,
+            and the resumed body returns through them
+the frame's positional local survived
+expected: (= 11 (vm/value done))
+  actual: (not (= 11 true))
+
+FAIL in (resume-restores-frames-and-continuation-test) (stack_effects_test.cljc:767)
+a park inside a called closure keeps its frame and return frame,
+            and the resumed body returns through them
+the resume value :v and the return landed on the caller's stack
+expected: (= [true 11] (:stack done))
+  actual: (not (= [true 11] [true]))
+
+FAIL in (blocked-and-woken-parity-test) (stack_effects_test.cljc:870)
+both wake to the same value
+expected: (= (wake named :a) (wake db :a) :a)
+  actual: (not (= :a nil :a))
+
+FAIL in (end-and-gap-parity-test) (stack_effects_test.cljc:889)
+eviction surfaces as :dao.stream/gap on both
+expected: (= (overrun (semantic-run ast)) (overrun (debruijn-run ast)) :dao.stream/gap)
+  actual: (not (= :dao.stream/gap nil :dao.stream/gap))
+
+FAIL in (effect-value-parity-test) (stack_effects_test.cljc:851)
+put yields the value
+expected: (= (caught (fn* [] (vm/value (semantic-run ast)))) (caught (fn* [] (vm/value (debruijn-run ast)))))
+  actual: (not (= 7 nil))
+
+FAIL in (effect-value-parity-test) (stack_effects_test.cljc:851)
+cursor
+expected: (= (caught (fn* [] (vm/value (semantic-run ast)))) (caught (fn* [] (vm/value (debruijn-run ast)))))
+  actual: (not (= {:type :cursor-ref, :id :cursor-1} nil))
+
+FAIL in (effect-value-parity-test) (stack_effects_test.cljc:851)
+two gensyms
+expected: (= (caught (fn* [] (vm/value (semantic-run ast)))) (caught (fn* [] (vm/value (debruijn-run ast)))))
+  actual: (not (= :p-1 nil))
+
+FAIL in (effect-value-parity-test) (stack_effects_test.cljc:851)
+store put then get
+expected: (= (caught (fn* [] (vm/value (semantic-run ast)))) (caught (fn* [] (vm/value (debruijn-run ast)))))
+  actual: (not (= 5 nil))
+
+FAIL in (bookkeeping-test) (stack_effects_test.cljc:197)
+:halt and a :return on an empty continuation write the stack
+            top into :value, which `value` reads
+expected: (= 4 (vm/value (run-segment [[:closure 0 3] [:call 0 false] [:halt] [:const 4] [:return]])))
+  actual: (not (= 4 nil))
+
+Testing yin.vm.debruijn.stack-parity-test
+
+FAIL in (differential-execution-parity) (stack_parity_test.cljc:166)
+lambda application
+adapt + stack VM agrees with lower + semantic VM
+expected: (= (named-outcome ast) (debruijn-outcome ast))
+  actual: (not (= {:value 11, :blocked? false} {:value nil, :blocked? false}))
+
+FAIL in (differential-execution-parity) (stack_parity_test.cljc:166)
+arity-0 lambda
+adapt + stack VM agrees with lower + semantic VM
+expected: (= (named-outcome ast) (debruijn-outcome ast))
+  actual: (not (= {:value 7, :blocked? false} {:value nil, :blocked? false}))
+
+FAIL in (differential-execution-parity) (stack_parity_test.cljc:166)
+higher order
+adapt + stack VM agrees with lower + semantic VM
+expected: (= (named-outcome ast) (debruijn-outcome ast))
+  actual: (not (= {:value 15, :blocked? false} {:value nil, :blocked? false}))
+
+FAIL in (differential-execution-parity) (stack_parity_test.cljc:166)
+{:type :application, :operator {:type :lambda, :params [x], :body {:type :variable, :name x}}, :operands [{:type :literal, :value 1} {:type :literal, :value 2}], :tail? false}
+adapt + stack VM agrees with lower + semantic VM
+expected: (= (named-outcome ast) (debruijn-outcome ast))
+  actual: (not (= {:value 1, :blocked? false} {:value nil, :blocked? false}))
+
+FAIL in (alpha-equivalent-programs-run-identically) (stack_parity_test.cljc:254)
+sharing H means the shared image runs to one result :applied
+expected: (= (first outcomes) (named-outcome (first programs)))
+  actual: (not (= {:value nil, :blocked? false} {:value 11, :blocked? false}))
+
+FAIL in (alpha-equivalent-programs-run-identically) (stack_parity_test.cljc:254)
+sharing H means the shared image runs to one result :three-deep
+expected: (= (first outcomes) (named-outcome (first programs)))
+  actual: (not (= {:error {:message nil, :data nil}} {:error {:message "Unable to resolve symbol: vector in this context", :data {:symbol vector}}}))
+
+FAIL in (alpha-equivalent-programs-run-identically) (stack_parity_test.cljc:254)
+sharing H means the shared image runs to one result :duplicate
+expected: (= (first outcomes) (named-outcome (first programs)))
+  actual: (not (= {:value nil, :blocked? false} {:value 2, :blocked? false}))
+
+FAIL in (parity-corpus-pinned-values) (stack_parity_test.cljc:175)
+the de Bruijn pipeline reproduces the parity corpus's pinned
+            values under the normalizer, not merely the semantic VM's lambda application
+expected: (= {:value (b0/normalize expected), :blocked? false} (debruijn-outcome ast))
+  actual: (not (= {:value 11, :blocked? false} {:value nil, :blocked? false}))
+
+FAIL in (parity-corpus-pinned-values) (stack_parity_test.cljc:175)
+the de Bruijn pipeline reproduces the parity corpus's pinned
+            values under the normalizer, not merely the semantic VM's arity-0 lambda
+expected: (= {:value (b0/normalize expected), :blocked? false} (debruijn-outcome ast))
+  actual: (not (= {:value 7, :blocked? false} {:value nil, :blocked? false}))
+
+FAIL in (parity-corpus-pinned-values) (stack_parity_test.cljc:175)
+the de Bruijn pipeline reproduces the parity corpus's pinned
+            values under the normalizer, not merely the semantic VM's higher order
+expected: (= {:value (b0/normalize expected), :blocked? false} (debruijn-outcome ast))
+  actual: (not (= {:value 15, :blocked? false} {:value nil, :blocked? false}))
+
+Testing yin.vm.debruijn.stack-tail-completion-test
+
+FAIL in (ffi-response-decodes-before-return) (stack_tail_completion_test.cljc:118)
+expected: (= [:outer :caller nil] (:stack done))
+  actual: (not (= [:outer :caller nil] [:outer :caller]))
+
+FAIL in (return-truncates-at-caller-base) (stack_tail_completion_test.cljc:61)
+expected: (= [:outer :caller nil] (:stack done))
+  actual: (not (= [:outer :caller nil] [:outer :caller]))
+
+FAIL in (tail-in-operand-position-skips-layout) (stack_tail_completion_test.cljc:88)
+expected: (= 7 (vm/value done))
+  actual: (not (= 7 :outer))
+
+FAIL in (tail-in-operand-position-skips-layout) (stack_tail_completion_test.cljc:89)
+expected: (= [:outer 7] (:stack done))
+  actual: (not (= [:outer 7] [:outer]))
+
+Testing yin.vm.debruijn.stack-test
+
+FAIL in (over-arity-call-drops-extras-test) (stack_test.cljc:228)
+a 2-arity closure called with 3 arguments drops the extra,
+            matching engine/bind-params' zip-stops-at-shorter rule
+expected: (= [1 2] result)
+  actual: (not (= [1 2] nil))
+
+FAIL in (over-arity-call-drops-extras-test) (stack_test.cljc:229)
+a 2-arity closure called with 3 arguments drops the extra,
+            matching engine/bind-params' zip-stops-at-shorter rule
+expected: (= (named-value ast) result)
+  actual: (not (= [1 2] nil))
+
+FAIL in (zero-arity-closure-test) (stack_test.cljc:168)
+a thunk -- multiple arities coverage, arity 0
+expected: (= 99 result)
+  actual: (not (= 99 nil))
+
+FAIL in (zero-arity-closure-test) (stack_test.cljc:169)
+a thunk -- multiple arities coverage, arity 0
+expected: (= (named-value ast) result)
+  actual: (not (= 99 nil))
+
+FAIL in (under-arity-call-nil-fills-test) (stack_test.cljc:212)
+a 2-arity closure called with 1 argument nil-fills the missing
+            parameter, matching engine/bind-params' zip-and-nil-fill rule
+expected: (= [1 nil] result)
+  actual: (not (= [1 nil] nil))
+
+FAIL in (under-arity-call-nil-fills-test) (stack_test.cljc:213)
+a 2-arity closure called with 1 argument nil-fills the missing
+            parameter, matching engine/bind-params' zip-and-nil-fill rule
+expected: (= (named-value ast) result)
+  actual: (not (= [1 nil] nil))
+
+FAIL in (store-get-put-sequenced-test) (stack_test.cljc:282)
+a put, then a get of the same key from inside a called
+            closure -- the named side sequences the two through
+            application operand order (operator then operands, section 3),
+            since the Universal AST has no explicit sequencing node
+expected: (= 123 result)
+  actual: (not (= 123 nil))
+
+FAIL in (store-get-put-sequenced-test) (stack_test.cljc:283)
+a put, then a get of the same key from inside a called
+            closure -- the named side sequences the two through
+            application operand order (operator then operands, section 3),
+            since the Universal AST has no explicit sequencing node
+expected: (= (named-value ast) result)
+  actual: (not (= 123 nil))
+
+ERROR in (nested-closure-capture-test) (PersistentVector.java:162)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: java.lang.IndexOutOfBoundsException: null
+ at clojure.lang.PersistentVector.arrayFor (PersistentVector.java:162)
+    clojure.lang.PersistentVector.nth (PersistentVector.java:166)
+    clojure.lang.RT.nth (RT.java:916)
+    yin.vm.debruijn.stack$step1.invokeStatic (stack.cljc:737)
+    yin.vm.debruijn.stack$step1.invoke (stack.cljc:679)
+    yin.vm.engine$run_loop.invokeStatic (engine.cljc:2155)
+    yin.vm.engine$run_loop.invoke (engine.cljc:2149)
+    yin.vm.debruijn.stack$run_scheduler.invokeStatic (stack.cljc:896)
+    yin.vm.debruijn.stack$run_scheduler.invoke (stack.cljc:890)
+    yin.vm.ffi$maybe_run.invokeStatic (ffi.cljc:341)
+    yin.vm.ffi$maybe_run.invoke (ffi.cljc:334)
+    yin.vm.debruijn.stack$eval14828$fn__14832.invoke (stack.cljc:919)
+    yin.vm$eval8991$fn__8992$G__8972__8997.invoke (vm.cljc:41)
+    yin.vm.debruijn.stack_test$debruijn_value.invokeStatic (stack_test.cljc:39)
+    yin.vm.debruijn.stack_test$debruijn_value.invoke (stack_test.cljc:32)
+    yin.vm.debruijn.stack_test$debruijn_value.invokeStatic (stack_test.cljc:36)
+    yin.vm.debruijn.stack_test$debruijn_value.invoke (stack_test.cljc:32)
+    yin.vm.debruijn.stack_test$fn__19969.invokeStatic (stack_test.cljc:154)
+    yin.vm.debruijn.stack_test/fn (stack_test.cljc:129)
+    clojure.test$test_var$fn__9898.invoke (test.clj:717)
+    clojure.test$test_var.invokeStatic (test.clj:717)
+    clojure.test$test_var.invoke (test.clj:708)
+    clojure.test$test_vars$fn__9924$fn__9929.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars$fn__9924.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars.invokeStatic (test.clj:731)
+    clojure.test$test_all_vars.invokeStatic (test.clj:737)
+    clojure.test$test_ns.invokeStatic (test.clj:758)
+    clojure.test$test_ns.invoke (test.clj:743)
+    clojure.core$map$fn__5956.invoke (core.clj:2772)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.Cons.next (Cons.java:41)
+    clojure.lang.RT.next (RT.java:733)
+    clojure.core$next__5472.invokeStatic (core.clj:64)
+    clojure.core$reduce1.invokeStatic (core.clj:946)
+    clojure.core$reduce1.invokeStatic (core.clj:936)
+    clojure.core$merge_with.invokeStatic (core.clj:3083)
+    clojure.core$merge_with.doInvoke (core.clj:3075)
+    clojure.lang.RestFn.applyTo (RestFn.java:142)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.test$run_tests.invokeStatic (test.clj:768)
+    clojure.test$run_tests.doInvoke (test.clj:768)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.core$apply.invoke (core.clj:662)
+    cognitect.test_runner$test.invokeStatic (test_runner.clj:74)
+    cognitect.test_runner$test.invoke (test_runner.clj:62)
+    cognitect.test_runner$_main.invokeStatic (test_runner.clj:127)
+    cognitect.test_runner$_main.doInvoke (test_runner.clj:115)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.main$main_opt.invokeStatic (main.clj:515)
+    clojure.main$main_opt.invoke (main.clj:511)
+    clojure.main$main.invokeStatic (main.clj:665)
+    clojure.main$main.doInvoke (main.clj:617)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.main.main (main.java:40)
+
+FAIL in (load-bound-identity-test) (stack_test.cljc:91)
+a one-arg closure returning its own argument -- depth 0,
+            position 0, the innermost frame
+expected: (= 42 result)
+  actual: (not (= 42 nil))
+
+FAIL in (load-bound-identity-test) (stack_test.cljc:92)
+a one-arg closure returning its own argument -- depth 0,
+            position 0, the innermost frame
+expected: (= (named-value ast) result)
+  actual: (not (= 42 nil))
+
+Testing yin.vm.semantic-ffi-test
+
+Ran 87 tests containing 820 assertions.
+37 failures, 1 errors.

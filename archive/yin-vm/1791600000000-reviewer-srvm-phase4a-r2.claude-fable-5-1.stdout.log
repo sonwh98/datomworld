@@ -1,0 +1,13 @@
+Round-2 findings are written to `collab/1791600000000-reviewer-srvm-phase4a-r2.claude-fable-5-1.findings.md`.
+
+**Verdict: READY_TO_MERGE.** The source is byte-identical to the reviewed commit and correct by reading. All five confirmation points hold:
+
+1. **Item 8 is now discriminating.** The test pins every precondition literally (saved window `{1 vector}`, frame rd 2, body result register 0, three-key callee window) and asserts the exact post-return map, so a program change cannot re-vacuate it silently. I re-derived the vector and both mutant windows; they match the failures the orchestrator and codex observed.
+2. **The tail-primitive trace row** derives to the pinned five events on both machines and now exercises the oracle's empty-K branch. The M17 mutant would produce `[:value nil]` and be caught.
+3. **The shadowing row** returns 2 with the correct merge order and 1 with the reversed order, compared against the pinned value and the walker. It sits in a separate 4a-only table and leaves the shared corpus and counts untouched.
+4. **The design amendments** are faithful. Two corrections to §5.3 are mine to own: my round-1 summary said 15 of 19 mutants caught when my own table listed 5 survivors (14 caught), and item 5's claim that the subtraction bites at κ capture overstates it (rd is absent there too).
+5. **No weakened assertions, no scope leak.** Only additions in three test files and the design doc.
+
+**One new gap, not blocking.** The pop-and-deliver transition exists in three copies. Item 8 now gates the `:return` arm and `restore-delivery` gates the restore arm, but the tail host-fn copy at `semantic_register.cljc:149` is only reached by programs with an empty saved window, so the same M6 applied there survives. Codex's report confirms the mutants were applied to line 132 only. The fix is either a sibling test with the inner body call in tail position or factoring the three pops into one helper. Proposed as §5.3 item 7. A second low-risk survivor, `:return` keeping the callee's env instead of the frame's, is unobservable in every current program and gets a proposed corpus row.
+
+Nothing was run this round. Verification rests on the orchestrator's three-host run and mutation runs, which the diff and report corroborate.

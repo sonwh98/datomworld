@@ -1,0 +1,124 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.continuation-invoke-test
+
+Testing yin.vm.debruijn.stack-effects-test
+
+FAIL in (installed-handlers-round-trip-test) (stack_effects_test.cljc:496)
+a host call is dispatched and its parked continuation resumes
+expected: (= 42 (vm/value done))
+  actual: (not (= 42 #:dao.stream.apply{:id :parked-0, :ok 42}))
+
+FAIL in (installed-handlers-round-trip-test) (stack_effects_test.cljc:499)
+arguments are taken from the stack in order
+expected: (= [1 2 3] (vm/value (run-segment [[:const 1] [:const 2] [:const 3] [:ffi-call :op/list 3] [:halt]] {:bridge #:op{:list vector}})))
+  actual: (not (= [1 2 3] #:dao.stream.apply{:id :parked-0, :ok [1 2 3]}))
+
+ERROR in (installed-handlers-round-trip-test) (Numbers.java:155)
+the result feeds the instructions after the call site
+expected: (= 42 (vm/value (run-segment [[:load-free (quote +)] [:const 1] [:const 41] [:ffi-call :op/echo 1] [:call 2 false] [:halt]] {:bridge #:op{:echo identity}})))
+  actual: java.lang.ClassCastException: class clojure.lang.PersistentArrayMap cannot be cast to class java.lang.Number (clojure.lang.PersistentArrayMap is in unnamed module of loader 'app'; java.lang.Number is in module java.base of loader 'bootstrap')
+ at clojure.lang.Numbers.add (Numbers.java:155)
+    clojure.core$_PLUS_.invokeStatic (core.clj:994)
+    clojure.core$_PLUS_.invoke (core.clj:986)
+    clojure.lang.AFn.applyToHelper (AFn.java:156)
+    clojure.lang.RestFn.applyTo (RestFn.java:135)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.core$apply.invoke (core.clj:662)
+    yin.vm.debruijn.stack$step1.invokeStatic (stack.cljc:766)
+    yin.vm.debruijn.stack$step1.invoke (stack.cljc:679)
+    yin.vm.engine$run_loop.invokeStatic (engine.cljc:2155)
+    yin.vm.engine$run_loop.invoke (engine.cljc:2149)
+    yin.vm.debruijn.stack$run_scheduler.invokeStatic (stack.cljc:896)
+    yin.vm.debruijn.stack$run_scheduler.invoke (stack.cljc:890)
+    yin.vm.ffi$maybe_run.invokeStatic (ffi.cljc:345)
+    yin.vm.ffi$maybe_run.invoke (ffi.cljc:334)
+    yin.vm.debruijn.stack$eval14828$fn__14832.invoke (stack.cljc:919)
+    yin.vm$eval8991$fn__8992$G__8972__8997.invoke (vm.cljc:41)
+    yin.vm.debruijn.stack_effects_test$run_segment.invokeStatic (stack_effects_test.cljc:80)
+    yin.vm.debruijn.stack_effects_test$run_segment.invoke (stack_effects_test.cljc:78)
+    yin.vm.debruijn.stack_effects_test$fn__18780.invokeStatic (stack_effects_test.cljc:503)
+    yin.vm.debruijn.stack_effects_test/fn (stack_effects_test.cljc:491)
+    clojure.test$test_var$fn__9898.invoke (test.clj:717)
+    clojure.test$test_var.invokeStatic (test.clj:717)
+    clojure.test$test_var.invoke (test.clj:708)
+    clojure.test$test_vars$fn__9924$fn__9929.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars$fn__9924.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars.invokeStatic (test.clj:731)
+    clojure.test$test_all_vars.invokeStatic (test.clj:737)
+    clojure.test$test_ns.invokeStatic (test.clj:758)
+    clojure.test$test_ns.invoke (test.clj:743)
+    clojure.core$map$fn__5956.invoke (core.clj:2772)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.Cons.next (Cons.java:41)
+    clojure.lang.RT.boundedLength (RT.java:1810)
+    clojure.lang.RestFn.applyTo (RestFn.java:133)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.test$run_tests.invokeStatic (test.clj:768)
+    clojure.test$run_tests.doInvoke (test.clj:768)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.core$apply.invoke (core.clj:662)
+    cognitect.test_runner$test.invokeStatic (test_runner.clj:74)
+    cognitect.test_runner$test.invoke (test_runner.clj:62)
+    cognitect.test_runner$_main.invokeStatic (test_runner.clj:127)
+    cognitect.test_runner$_main.doInvoke (test_runner.clj:115)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.main$main_opt.invokeStatic (main.clj:515)
+    clojure.main$main_opt.invoke (main.clj:511)
+    clojure.main$main.invokeStatic (main.clj:665)
+    clojure.main$main.doInvoke (main.clj:617)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.main.main (main.java:40)
+
+FAIL in (manual-bridge-step-test) (stack_effects_test.cljc:531)
+a driver steps the bridge and the call resumes
+expected: (= 7 (vm/value done))
+  actual: (not (= 7 #:dao.stream.apply{:id :parked-0, :ok 7}))
+
+FAIL in (ffi-parity-test) (stack_effects_test.cljc:903)
+expected: (= (b0/normalize (vm/value named)) (b0/normalize (vm/value db)) 42)
+  actual: (not (= 42 #:dao.stream.apply{:id :parked-0, :ok 42} 42))
+
+FAIL in (full-request-is-sent-on-retry-and-answered-test) (stack_effects_test.cljc:648)
+the answered response resumes it
+expected: (= 5 (vm/value done))
+  actual: (not (= 5 #:dao.stream.apply{:id :parked-0, :ok 5}))
+
+FAIL in (error-responses-surface-as-errors-test) (stack_effects_test.cljc:541)
+an unknown op is a portable error response that raises on resume
+expected: (throws? (fn [] (vm/run vm)))
+  actual: (not (throws? #object[yin.vm.debruijn.stack_effects_test$fn__18855$fn__18856$fn__18862 0x65618897 "yin.vm.debruijn.stack_effects_test$fn__18855$fn__18856$fn__18862@65618897"]))
+
+FAIL in (error-responses-surface-as-errors-test) (stack_effects_test.cljc:552)
+a response for another call does not resume this one
+its own response resumes it
+expected: (= 2 (vm/value (vm/run still)))
+  actual: (not (= 2 #:dao.stream.apply{:id :parked-0, :ok 2}))
+
+Testing yin.vm.debruijn.stack-parity-test
+
+Testing yin.vm.debruijn.stack-tail-completion-test
+
+FAIL in (ffi-response-decodes-before-return) (stack_tail_completion_test.cljc:118)
+expected: (= [:outer :caller nil] (:stack done))
+  actual: (not (= [:outer :caller nil] [:outer :caller #:dao.stream.apply{:id :call-1, :ok nil}]))
+
+Testing yin.vm.debruijn.stack-test
+
+Testing yin.vm.semantic-ffi-test
+
+Ran 87 tests containing 821 assertions.
+8 failures, 1 errors.

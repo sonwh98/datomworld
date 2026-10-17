@@ -1,0 +1,13 @@
+Revision 2 is complete. The document length in the report matches the file, and only the evaluator design shows as modified.
+
+**What changed in `docs/design/yin.vm.semantic-register-vm.evaluator.md`** (now 1467 lines, tracked, modified; frozen design untouched; nothing staged):
+
+- **Trace oracle (both High findings).** §4 now defines an event by semantic role: production of an expression's result or delivery to a suspended destination. Relocation (`:return r`, `:halt r`, walker frame pops) and routing are administrative, and value equality is never consulted. Extraction reads destinations explicitly: the instruction's `rd`, the pre-state frame's `:rd` for tail primitives, the captured `:deliver` record for continuation invocation, the parked record for `:resume`. Window diffs and `K` length changes are gone. A fuel bound makes divergence a diagnostic.
+- **Slice gates.** One static predicate `slice-4a-eligible?` over the projected vector's mnemonics is shared by the value, outcome and trace gates. Recounted from the files: B0 has 26 rows (25 eligible), the register corpus 32 (21 eligible, 11 deferred including all four resume rows and `:all-terminal-arms`). Normalization now runs on the pinned `expected` column too, because the closure row carries `:body`.
+- **Guarantees restated.** The FFI dissoc-before-decode order is kept but no longer claimed as cleanup visible to callers. 4b item 22 separates vector refusal through the install path from stamp refusal through the public loader.
+- **Materialization and arities.** Every engine boundary states the `put-registers` write-back first, with the three dependents named. All `act-builders` calls pass `analysis`. Loader arities, defaults and `reset`'s window clearing are pinned; `ast-loader` renamed `load-ast`.
+- **F1/F2 text, editorial items,** and **§6 rewritten** as verbatim replace/with amendment text for the frozen design per the rulings. The two approvals are recorded in §7 and applied in §5.2, including the Rule R `select-keys` change.
+
+**Report:** `collab/1791540000000-architect-srvm-phase4-design-r2.report.md`, with the finding-to-section table, two points of emphasis where I went slightly beyond the review (deferral choice, two extra excluded resume rows), and the note that the phase-3 report is now in this worktree and was read: its seven readings require no evaluator change.
+
+**Next:** the orchestrator applies the §6 texts to the frozen design and sends the revision back to the codex Architect for sign-off before any implementation brief.

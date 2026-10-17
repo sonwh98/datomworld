@@ -1,0 +1,12 @@
+Revision 3 is complete. All three §4 defects are fixed and the report is written.
+
+**Changes in `docs/design/yin.vm.semantic-register-vm.evaluator.md`:**
+
+- **Sentinel removed.** `extract` now returns a tagged result, `{:event? true :value v}` or `{:event? false}`, in the algorithm, in every row of the extraction table and in the §4.4 comparison, so a produced `:none`, `nil` or `false` is recorded like any other value. No `:none` sentinel remains anywhere.
+- **Park recognised from the executed step only.** The walker loop reads whether the pre-state control node is `:vm/park` before stepping; the register loop tests the executed instruction. The `[:park id]` event takes its id from the engine's parked value only after a park is detected, `trace-normalize` lost its parked-record arm so parked-shaped maps are plain data, and a new paragraph relates the trace's `[:park id]` to 4b's run-to-completion park/resume rows. Blocked programs stay outside the step trace.
+- **Stale quotation replaced** in the §4 introduction by a reference to the F5-amended production/delivery correspondence. The only remaining old wording is the "Replace:" blocks in §6, which are the historical texts the review allows.
+- **Four trace-only corpus rows** added in §4.5 with pinned whole traces: `:literal-none`, `:parked-shaped-literal`, `:park-then-halt` (4b, the one row that actually parks, expected `[[:park :parked-0]]`), and `:literal-none-in-call` (added beyond the brief, exercising `:none` through a call and a `:return` relocation). §5.1 and 4b item 25 name them.
+
+**Report:** `collab/1791540000000-architect-srvm-phase4-design-r3.report.md`, with the defect-to-section table, the new rows, the re-grep results for the three patterns, no disagreements, and one ungrounded assumption (the fresh-task park id `:parked-0`, consistent with the existing `ffi_test` and `semantic_test` expectations but not run).
+
+**Next:** the orchestrator sends the revision to codex for confirmation; on sign-off the 4a implementation brief can be cut from §5.1.

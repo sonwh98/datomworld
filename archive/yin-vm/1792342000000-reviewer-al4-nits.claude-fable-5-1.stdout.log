@@ -1,0 +1,36 @@
+Verification done (trust tests, CLI flag test, kondo all green). Writing up the review now.
+
+# Review: AL-4 nits slice (worktree datomworld-nits, uncommitted vs 8d9352bd)
+
+**Verdict: APPROVE-WITH-NITS.** All five items close their nit with a minimal diff. No blocking findings. No new public entry points, catalog ids or frontends. The REPL still holds no admission protocol state. Two P3 wording nits below, neither in claimed acceptance.
+
+## Verified independently on the JVM
+
+| check | result |
+|---|---|
+| `clojure -M:test -n yin.repl.trust-test` | 5 tests, 31 assertions, 0 failures |
+| `clojure -M:test -v yin.repl.main-test/trusted-principals-are-strict-and-apart-from-declared-ones` | 1 test, 7 assertions, 0 failures |
+| kondo on the four changed Clojure files | 0 errors, 0 warnings |
+| lines over 80 cols | none in the diff hunks (the five long lines in repl.cljc and state.cljc are pre-existing, outside the edit) |
+
+## Item-by-item
+
+**1. External trust message (repl.cljc:1841-1844).** Correct. The detector is `(nil? (:admission (:link-source state)))`, which reads the composition value the REPL already owns and displays (it reads `:own` from the same map for `(trusted)`), not the linker's `:interpreter` or admission pair. It is nil exactly when `create-state` composed with `:external` (repl.cljc:937-938), since `{}` is truthy and `admission/policy` always answers a map. It stays correct on repeated commands on both paths: without a DHT store `reconfigure` is a no-op so `:link-source` never changes (interpreter.cljc:605-606); with a DHT store the pair exists but no interpreter, so `after` is nil and the source's `:admission` is re-assoc'd to nil (interpreter.cljc:608-611). The test covers first and repeated commands, the recorded set and the unchanged linker. The pre-fix state is used for the check, which is equivalent since external-ness is invariant under `configure-admission`.
+
+**2. Reset assertions (trust_test.cljc:28-34).** The engineer is right that there were three `:link-source` assertions, not four: old lines 29, 30 and 36 read `[:link-source :admission ...]`; old line 35 read `[:admission :trusted]` on the session and was already meaningful. Without a DHT store `reconfigure` never touches `:source`, so the three deleted assertions only re-read the policy `create-state` composed and could not fail on a reset bug. The replacement `(is (= {} (:admission reset)))` plus the kept `#{pb}` assertion both observe `(configure-admission state (:initial-admission state))` at repl.cljc:1883 and were shown red under a current-instead-of-initial mutation. Reset coverage of the linker side is carried by `admission_test.cljc:1355-1406` (reconfigure over a real pair, external and non-DHT attachment), so nothing is lost.
+
+**3. Docs (yin.vm.linker.dht.md:2214-2219, 2247, 2443-2446).** 7.5.8 now matches `admission/context` (admission.cljc:233-240): one key `:yin.admit/subject`, from the composition's `:holder`, defaulting to the own key's principal, no `:yin.admit/session`. The AL-2 lexical line now says "no protocol state under `:admission` and no session key `:admitter`", which is what landed. The remaining `:yin.admit/session` mentions at lines 1967 (forbidden-key list) and 2382 (AL-1 acceptance history) are correct as they stand.
+
+**4. Own untrust (repl.cljc:1833-1835).** `(contains? (:own (:link-source state)) p)` is nil-safe without a key. State is returned untouched and the test asserts identity with `initial`. Red confirmed by the engineer.
+
+**5. Source-neutral error (state.cljc:32-33).** Shared parser now says "invalid principal id: expected ed25519:<64 lowercase hexadecimal characters>, not ...". Flag help in main.cljc:747-750 untouched. CLI test updated at main_test.cljc:423 and a REPL test asserts the old flag text is gone.
+
+**Portability and layering.** New tests are plain `.cljc`, no reader conditionals, no `with-redefs`, no var-quote, no host interop. The one catch form touched is pre-existing and cljd-first. No file under the linker roots changed, so `layering_test.clj` is unaffected.
+
+## Nits (P3, non-blocking, not in claimed acceptance)
+
+1. **main.cljc:157-160 / state.cljc:32.** The CLI refusal for a bad `--dht-trust` value no longer names the flag, while `--dht-principal` still does ("--dht-principal takes a public key..."). A user with several flags cannot tell which one was refused. Smallest fix: the existing CLI wrapper `main/parse-trust` catches and rethrows with a "--dht-trust: " prefix, leaving the shared parser neutral for the REPL. Also the shared parser's docstring (state.cljc:23) still opens "A `--dht-trust` value".
+2. **repl.cljc:1835.** On an `:external` session with a `:dht-key`, `(untrust <own>)` prints "Own principal p is always trusted", but the external admitter decides trust, so "always trusted" is not something the REPL can promise there. Rare path; optional wording such as "is never removed from the configured set".
+
+## Remaining gates (orchestrator, not findings)
+Node and Dart quick tier on shiva for `yin.repl.trust-test` and `yin.repl.main-test`; `cljstyle check` scoped to the changed files passed per the engineer, the repo-wide exit 2 is pre-existing.

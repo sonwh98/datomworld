@@ -1,0 +1,2 @@
+{"type":"result","subtype":"error","usage":{"inputTokens":0,"outputTokens":0,"cacheReadTokens":0,"cacheWriteTokens":0},"durationMs":6,"finalText":"","error":"Error: No session \"828a1b0d-c2f7-4204-8920-6ca11607a772\" found to resume."}
+Error: No session "828a1b0d-c2f7-4204-8920-6ca11607a772" found to resume.

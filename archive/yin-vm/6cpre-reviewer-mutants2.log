@@ -1,0 +1,16 @@
+N01 seam-only: frame not popped | exit 1 | KILLED | Ran 87 tests containing 821 assertions. | 1 failures, 0 errors. | return-pops-only-inner-frame
+   restored: cmp ok, git diff --quiet HEAD -- src/ ok
+N02 seam-only: base not truncated | exit 1 | KILLED | Ran 87 tests containing 821 assertions. | 3 failures, 0 errors. | ffi-response-decodes-before-return, return-truncates-at-caller-base, tail-in-operand-position-skips-layout
+   restored: cmp ok, git diff --quiet HEAD -- src/ ok
+N03 seam-only: value not pushed | exit 1 | KILLED | Ran 87 tests containing 821 assertions. | 5 failures, 0 errors. | empty-k-halts-with-result, ffi-response-decodes-before-return, return-truncates-at-caller-base, tail-in-operand-position-skips-layout
+   restored: cmp ok, git diff --quiet HEAD -- src/ ok
+N04 seam-only: empty-K halt delivers nil instead of val | exit 0 | SURVIVED | Ran 87 tests containing 821 assertions. | 0 failures, 0 errors. | 
+   restored: cmp ok, git diff --quiet HEAD -- src/ ok
+N05 seam-only: empty-K halt keeps the entry store-of | exit 0 | SURVIVED | Ran 87 tests containing 821 assertions. | 0 failures, 0 errors. | 
+   restored: cmp ok, git diff --quiet HEAD -- src/ ok
+N06 seam-only: delivered against base registers, not the entry | exit 1 | KILLED | Ran 87 tests containing 821 assertions. | 6 failures, 0 errors. | ffi-response-decodes-before-return, return-pops-only-inner-frame, return-restores-caller-environment, return-truncates-at-caller-base
+   restored: cmp ok, git diff --quiet HEAD -- src/ ok
+N07 return-transition keeps vm store-of instead of the frame | exit 1 | KILLED | Ran 87 tests containing 821 assertions. | 1 failures, 0 errors. | return-restores-caller-environment
+   restored: cmp ok, git diff --quiet HEAD -- src/ ok
+N08 seam-only: pc left at entry pc after the return transition | exit 1 | KILLED | Ran 87 tests containing 820 assertions. | 0 failures, 1 errors. | tail-in-operand-position-skips-layout
+   restored: cmp ok, git diff --quiet HEAD -- src/ ok

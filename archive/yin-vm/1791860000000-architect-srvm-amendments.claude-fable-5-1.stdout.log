@@ -1,0 +1,18 @@
+Spot-check passed. Everything is applied and the report is written.
+
+**Done.** All amendments from the two companion designs are applied to the five target documents in the worktree, documents only, nothing staged. The report is at `collab/1791860000000-architect-srvm-amendments.report.md`.
+
+What was applied:
+
+- **Frozen design** (`yin.vm.semantic-register-vm.md`): F1-F4 and F8-F14. §4.2 row names and the pure validator, §4.3 layouts and tail-completion seam, §6 contracts keep names and versions, §8.2 interval bounds and `live` as `body-liveness`, §8.3 one walk with no adapter, §8.4 replaced by the execution oracle, §9 corpora, §10 phases 5, 6 and 8, plus a 2026-10-11 header record.
+- **UCF**: U1-U7 and the §9.2 unitarity row. §7.3.4 carries register-shaped vectors by A with `:yin.k/trees` and one load path, §7.4.1 superseded with the keyed `act`/`tail` frame example, §7.4.2 `def`/`use`/`live`, §7.4.3 pendings on states, new §7.6.1a source association with the completeness rule, §7.11 and §7.11.1 three-engine equality, §7.2.1 scope statement making body versions 0-2 historical. All `:segment/sha256-…` prose spellings moved to BLAKE3.
+- **Carrier draft**: R1-R11 including R1a and R6a, the superseding banner, and a few context repairs (the `:stack` kind removed from §6's ordered-row lists).
+- **Linker**: the four §9.2 rows (`source-index`, `:yin.link/trees`, `:tree-unavailable`, `:trusted` keeps retrievability, host-module carve-out).
+- **Code-as-tuples** §7.2: C1, with the heading adjusted.
+
+Two things to flag:
+
+- **Codex review files were unreadable.** The sibling worktrees' `collab/` directories are outside this session's permitted paths. Rulings were taken from the record the designs themselves carry. Someone with access should confirm nothing in the review files post-dates the designs' text.
+- **Residual vocabulary outside the amended sections** was left alone rather than guessed at. The report's section 4 lists them: code-as-tuples §7.1 and its §10 table still say "projection path" for the datom lane, UCF §7.11.1 still says "direct and projected loads", and code-as-tuples examples still show sha256 ids.
+
+The grep verification found no surviving operative statement from either inventory. Reconciliations where two amendments touched one passage, chiefly UCF §7.3.4 and the §7.11 harness item, are recorded in the report with nothing weakened on either side.

@@ -1,0 +1,15 @@
+Review complete. Findings are in `collab/1792040000000-reviewer-srvm-phase6a-r3.claude-fable-5-1.findings.md`.
+
+**Verdict: CHANGES_REQUESTED**, scoped to one new defect. Everything else in round 3 is confirmed.
+
+**What blocks.** The search leaf key in `rows.cljc:351` runs the whole root task row body through the new 1 MiB label bound. That body holds the inline code map, custody and the result literal, which are the input's own bytes, not an intermediate label. A task with one cell and a ~1.2 MiB inline result literal is now refused on emit and on decode, while the same task with zero cells, or with the literal in a store row, is accepted. Round 2 accepted all of them, and the wire budget still admits 16 MiB. Fix is one line, with no change to canonical bytes, plus one test.
+
+**What I confirmed.**
+- All four of codex's round-2 findings are closed. Marker-shaped guest maps are refused in every literal context I could reach, including stream descriptors, map keys, metadata, bindings, pending values and code constants. The explicit encoder path round-trips.
+- The tagged equality is injective and the earlier genuine duplicate-key refusals survive. The three pinned roots are unmoved.
+- Baseline at 256 MiB heap: 30 tests, 549 assertions, 0 failures, in under 12 seconds including the seven-cell refusal.
+- Mutants: 15 applied, 11 killed by named tests, 4 survived. The survivors each remove one redundant layer of a check another site still performs, so none is a defect. Source restored and byte-verified after every run.
+
+**What I flagged but did not block on.** The work budget charges one unit per operation regardless of label size, so time to refusal is unbounded in practice. Seven equal-body cells in a set refuse after 44 seconds and ten equal-body map keys after 12.5 minutes, from a wire of a few hundred bytes. This predates round 3 and should land before 6b exposes decode to peers. The design needs no amendment to refuse the seven-cell case, but hashing labels per round would change canonical bytes and is an Architect decision.
+
+**Not run.** Dart, Node, kondo and cljstyle. Node and kondo were verified by the author and orchestrator respectively.

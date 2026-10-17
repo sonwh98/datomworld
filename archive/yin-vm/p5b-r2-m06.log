@@ -1,0 +1,14 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.semantic-register.derive-test
+
+FAIL in (widened-layout-interval) (derive_test.cljc:706)
+§2.2 widened start reserves T0 before the else-arm temporaries
+expected: (= (quote {:bodies [{:locals 0, :registers 3, :start 0, :end 8}], :instructions [[:load-free 0 c] [:branch-false 0 5] [:const 0 1] [:resume :p 0] [:jump 8] [:load-free 1 g] [:const 2 2] [:call 0 1 [2] false []] [:halt 0]]}) (derive/register-image a))
+  actual: (not (= {:bodies [{:locals 0, :registers 3, :start 0, :end 8}], :instructions [[:load-free 0 c] [:branch-false 0 5] [:const 0 1] [:resume :p 0] [:jump 8] [:load-free 1 g] [:const 2 2] [:call 0 1 [2] false []] [:halt 0]]} {:bodies [{:locals 0, :registers 3, :start 0, :end 8}], :instructions [[:load-free 0 c] [:branch-false 0 5] [:const 0 1] [:resume :p 0] [:jump 8] [:load-free 0 g] [:const 1 2] [:call 2 0 [1] false []] [:halt 2]]}))
+
+Ran 1 tests containing 3 assertions.
+1 failures, 0 errors.

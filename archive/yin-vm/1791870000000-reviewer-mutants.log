@@ -1,0 +1,20 @@
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+=== golden hash recomputation ===
+golden  1: computed 32d51cde25ba70371814b6dfdb3769af4ec8b5c52a4c2e03a01ee1abb0c0ab84 pinned 32d51cde25ba70371814b6dfdb3769af4ec8b5c52a4c2e03a01ee1abb0c0ab84 MATCH
+golden  2: computed 2ba41668a2170a3c7ef74182c4e3c81d0b3fdbb7a8a6c96e72511c6f52b82aa8 pinned 2ba41668a2170a3c7ef74182c4e3c81d0b3fdbb7a8a6c96e72511c6f52b82aa8 MATCH
+golden  3: computed f74e6e75631bbd78d6fabb8dd829edc8d149ef29803111f48fefc5b209b39982 pinned f74e6e75631bbd78d6fabb8dd829edc8d149ef29803111f48fefc5b209b39982 MATCH
+golden  4: computed add0178e7de17c8ea2d078834f43898525ec683a3c8f5b8304398d004a09c08b pinned add0178e7de17c8ea2d078834f43898525ec683a3c8f5b8304398d004a09c08b MATCH
+golden  5: computed 7e5eeba449d15077ea0b32bb394138b85d3ef2a8bed68c646973390f75a35e5f pinned 7e5eeba449d15077ea0b32bb394138b85d3ef2a8bed68c646973390f75a35e5f MATCH
+golden  6: computed 52791d4a2d0f4649b6d90e0c7e0a9067c96008ed4ecdc6b77f08a15644893d0c pinned 52791d4a2d0f4649b6d90e0c7e0a9067c96008ed4ecdc6b77f08a15644893d0c MATCH
+golden  7: computed eb70fa6d6b3a4925bb1163916e2a35b0e030a39cb25c66e49e95c4251112bb3f pinned eb70fa6d6b3a4925bb1163916e2a35b0e030a39cb25c66e49e95c4251112bb3f MATCH
+golden  8: computed a71ffdee457d4d6c90d704117cb0b5992abb98c7d4952356e018e056eae2cb48 pinned a71ffdee457d4d6c90d704117cb0b5992abb98c7d4952356e018e056eae2cb48 MATCH
+golden  9: computed fe79f9ab7e0ab5c6a90813bf6dd849c9760577684cfc0aeff5408b922dbb866a pinned fe79f9ab7e0ab5c6a90813bf6dd849c9760577684cfc0aeff5408b922dbb866a MATCH
+golden 10: computed 8c80e1d1b1aafa1a3bcd8d17a31098fc80832f34c02e1983a62449acaecdf741 pinned 8c80e1d1b1aafa1a3bcd8d17a31098fc80832f34c02e1983a62449acaecdf741 MATCH
+=== mutants ===
+X01 de Bruijn depth off by one                                 KILLED by {lexical-address-law-stack {:fail 24, :error 0}, resolution-is-resolve-names {:fail 4, :error 0}, stack-execution-oracle {:fail 19, :error 0}, stack-goldens {:fail 1, :error 0}, stack-images-validate {:fail 94, :error 32}}
+X02 frames outer-first (shadowing order across frames)         KILLED by {lexical-address-law-stack {:fail 5, :error 0}, resolution-is-resolve-names {:fail 2, :error 0}, stack-images-validate {:fail 14, :error 0}}
+X03 duplicate parameters collapsed (rightmost-wins lost)       KILLED by {lexical-address-law-stack {:fail 4, :error 0}, resolution-is-resolve-names {:fail 2, :error 0}, stack-images-validate {:fail 3, :error 0}}
+X04 :load-bound/:load-free swapped                             KILLED by {lexical-address-law-stack {:fail 59, :error 0}, resolution-is-resolve-names {:fail 4, :error 0}, resolve-rewrites-only-vars-and-closures {:fail 188, :error 0}, stack-determinism {:fail 0, :error 104}, stack-execution-oracle {:fail 66, :error 0}, stack-goldens {:fail 9, :error 0}, stack-images-validate {:fail 149, :error 182}}
+X05 closure body-pc off by one in resolve                      KILLED by {lexical-address-law-stack {:fail 0, :error 25}, resolve-rewrites-only-vars-and-closures {:fail 36, :error 0}, stack-determinism {:fail 0, :error 1}, stack-execution-oracle {:fail 21, :error 0}, stack-goldens {:fail 0, :error 1}, stack-images-validate {:fail 0, :error 1}}
+X06 :names recorded for free vars too                          KILLED by {resolve-rewrites-only-vars-and-closures {:fail 51, :error 0}}

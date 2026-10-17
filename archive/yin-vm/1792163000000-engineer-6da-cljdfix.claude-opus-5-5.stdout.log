@@ -1,0 +1,10 @@
+The Dart lane passes locally: it compiles and runs all 267 tests over the ten namespaces, which equals their `deftest` count. The fix is commit `d5987015`, pushed to `origin srvm-6d-a` on top of `2a4fe508` with no amend or force-push, and the report ends **READY**.
+
+The Dart SDK is installed locally, so I iterated on the lane's exact command instead of fixing blind. Two forms in `safepoint_harness_test.cljc` needed fixes:
+
+1. **`check-returned-boundaries`** – I reproduced shiva's cljd compiler crash ("aliases is null") and replaced the function with a do-nothing stub on cljd, as the brief's pattern prescribed, with the required one-line comment. Its three callers were already disabled on cljd, so the stub is never called. The two cljd-only `throw` branches inside the body became redundant, so I removed them; the JVM/JS body is the same reviewed code, re-indented.
+2. **`ready-portability-root-oracle`** – once cljd compiled, the Dart compiler rejected `_ (when … (is (seq wkeys)))`, because the `is` became a void `expect` used as a value. I added a trailing `nil`, so the same assertion now runs on every host.
+
+Kondo and cljstyle are clean on the touched file. The JVM quick tier is unchanged at 4,079 tests, 269,020 assertions, 0 failures. The commit is a cljstyle reformat (whitespace only) of the tree I ran Dart on, and I didn't re-run the Dart lane after that.
+
+The report is `collab/1792163000000-engineer-6da-cljdfix.report.md` in the worktree.

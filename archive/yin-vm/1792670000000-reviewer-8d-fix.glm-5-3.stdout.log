@@ -1,0 +1,39 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+# Review: 8d fix (9b4b250a, merged into srvm-phase8 as 4ec2c198)
+
+Scope read: `git show 9b4b250a` (one file, `test/yin/vm/ucf/rows_test.cljc`, +14/−3), the 8d additions diff (67b98907..4b5752a3 — exactly the three deftests, 61 lines, nothing else), the author report and brief, and the code under `src/` / `test/` cited below. Read-only; no file edited.
+
+## (1) Root-cause reading — CORRECT
+
+- `support/lit` wraps the payload as `{:type :literal :value x}` (`test/yin/vm/ucf/rows_support.cljc:47`); `load-ast` (:223) projects via `project` (:40) into `linearize/project-rows`, which throws `Cannot project rows that fail validation` at `src/cljc/yin/vm/semantic_register/linearize.cljc:204` — matches the lane error.
+- Literal grammar `:literal [[:value :data]]` (`src/cljc/yin/vm.cljc:1065`); slot check `(:data :key) (plain-data? v)` (`vm.cljc:1317`).
+- `plain-data?` (`vm.cljc:965`) accepts scalars via `(boolean? number? cbor/float64? string? keyword? symbol?)`. Per `integer-host/big-carrier?` (`src/cljc/yin/vm/integer/host.cljc:41-48`), JS and Dart BigInt answer **false** to `number?`, so the payload's big integers fail the map-values walk; on the JVM `clojure.lang.BigInt` is a `java.lang.Number`, so `number?` admits it — exactly the observed host asymmetry.
+- The `{:path [1]}` defect is the literal's first grammar slot: `validate-rows` numbers slots with `(range 1 (inc (count slots)))` over `(rest (subvec row 1))` (`vm.clc:1432-1435`) — 1-based, tag excluded. The report's rejection of the "second float in the vector" reading is right.
+- `machine-data?` explicitly admits `(integer-host/big-carrier? x)` (`vm.cljc:992`; report cites :984 — nit), so the full halted-machine payload is legal on every host.
+- `demote` (`host.cljc:148-158`): JS native iff within ±(2^53−1) (`js-min-safe`/`js-max-safe`), Dart native iff `isValidInt` (int64), JVM long iff bitLength < 64; module kernels demote (`src/cljc/yin/vm/integer.cljc:171,308`), so `ints/value` answers canonical carriers. First fixture-order reject: `2^53` on Node, `2^63` on Dart — as the report states. All seven floats (incl. NaN/±0/5e-324) are `cbor/float64` carriers, accepted on every host.
+
+## (2) Reader conditional and coverage — CORRECT, nothing lost
+
+- `#?(:clj payload :default (select-keys …))`: JVM keeps the full payload; `:clj` is **not** selected by the ClojureDart reader — precedent: `host.cljc:27-28` puts a `java.math.BigInteger` import in a `:clj` branch of a namespace that builds on Dart (and `docs/design/dao.stream.file.md:402-405` documents cljd only *reads* `:clj` forms for host-eval; the branch here is the bare local `payload`, safe to read). The `:cljd`-first convention applies only to conditionals that *have* a `:cljd` branch. The orchestrator's Dart lane (+65 all passed on this merge) confirms the `:default` branch ran on the changed line.
+- Keys: all nine string keys — `"0" "1" "-1" "2^31-1" "2^31" "2^31+1" "2^32" "2^53-1" "-2^53+1"` — match `int-names` character-for-character (`test/yang/python/antlr/int_contract_fixtures.cljc:50-51`), plus `:floats :strings :true :none`, all present. Every selected integer is native on both JS (inside ±(2^53−1), boundaries included) and Dart (inside int64); the 2^31±1/2^32 and 2^53−1/−2^53+1 pairs are good boundary picks.
+- Coverage: the 22 removed integers still round-trip through the halted path on every host (expected = full payload, `rows_test.cljc:1077-1083`); the frozen-fixture column doseq (:1084-1086, host-unconditional) checks all 31 names' CBOR against CPython-frozen text; the JVM AST path keeps all 31. The only dropped Node/Dart capability — an exact integer >2^53 in a literal slot — is unrepresentable there (its only carrier fails `plain-data?`), and >2^53 magnitude still crosses the Node/Dart AST path as the `f:2^63` float64. Assertion count (35 = 2×2 + 31) matches the report's mutant run.
+
+## (3) CLJS/CLJD traps in the changed lines — none
+
+`select-keys` with mixed keyword/string keys is portable core; no `for`, no private vars, no catch added, no float unary minus, no multi-key assoc on nil; `doseq` destructuring over a literal 2-pair vector is fine; map key order after `select-keys` is irrelevant to the byte comparison (both sides through the same canonical codec, and lanes green).
+
+## (4) The two other 8d additions — assertions are real
+
+- `legacy-version-headers-refuse-before-attachment` (:1043): `rows/emit` → `pack` (`rows.cljc:712-716`) yields exactly the four header keys with version 3; `lower-task` (:2240) runs `decode` → `decode*` whose **first** check (:846-849) refutes `version ≠ 3` via `refuse!` (:79-82) producing exactly the asserted ex-data; `attach-streams!` runs only inside `restore-task` after decode/stores/pendings/dependencies/custody, so `(zero? @attached)` genuinely pins refusal-before-attachment. Both assertions fail on the pinned regression.
+- `result-only-values-complete-the-census` (:1088): per case, three real assertions — attach count = distinct cursors (`attacher` counts, rows_support:369-378), lift emits exactly that many `:cursor-cell-body` rows (`(second %)` is the tag of a `[id tag & slots]` row), and duplicate references restore to `=` values. Loop 2 asserts the closure survives with code, and the `(when (seq (:module-stores m))` gate is exercised by `halted-result-closure` (rows_support:486-495, store `{'c c1 'd c2}`) — 2 attaches + transferred keys. Nothing tautological.
+
+## Findings
+
+| id | severity | file:line | finding | fix |
+|----|----------|-----------|---------|-----|
+| F1 | nit | collab/1792640000000-engineer-8d-fix.report.md (ref src/cljc/yin/vm.cljc:992) | Report cites the `machine-data?` big-carrier admission as ":984"; :984 is inside the docstring — the `(integer-host/big-carrier? x)` arm is :992 | none (citation drift only) |
+| F2 | nit | same report (ref src/cljc/yin/vm/ucf/rows.cljc:849) | Report cites the version refusal as ":847"; the `refuse!` call is :849 (`when-not` begins :846) | none (citation drift only) |
+
+**VERDICT: NO ACTIONABLE FINDINGS**

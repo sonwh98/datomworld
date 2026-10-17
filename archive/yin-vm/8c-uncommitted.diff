@@ -1,0 +1,2254 @@
+diff --git a/src/cljc/yin/repl.cljc b/src/cljc/yin/repl.cljc
+index 0b75449e..df6f2785 100644
+--- a/src/cljc/yin/repl.cljc
++++ b/src/cljc/yin/repl.cljc
+@@ -26,19 +26,18 @@
+             [yin.vm.ast-walker :as ast-walker]
+             [yin.vm.data :as data]
+             [yin.vm.debruijn-code :as dcode]
+-            [yin.vm.debruijn-linearize :as debruijn-linearize]
+             [yin.vm.debruijn-register-code :as rcode]
+-            [yin.vm.debruijn-register-compile :as register-compile]
++            [yin.vm.semantic-register.derive :as derive]
+             [yin.vm.debruijn.register :as register]
+             [yin.vm.debruijn.stack :as stack]
+             [yin.vm.encoder :as encoder]
+             [yin.vm.engine :as engine]
+             [yin.vm.integer :as integer]
+-            [yin.vm.linearize :as linearize]
++            [yin.vm.semantic-register.linearize :as linearize]
+             [yin.vm.linker.interpreter :as link]
+             [yin.vm.macro :as macro]
+             [yin.vm.module :as module]
+-            [yin.vm.semantic :as semantic]
++            [yin.vm.semantic-register :as semantic]
+             [yin.vm.values :as values]
+             [dao.stream.observer :as observer]))
+ 
+@@ -137,9 +136,8 @@
+ 
+ 
+ (def vm-constructors
+-  "The evaluators on `yin.vm`: the ast-walker, the linear semantic VM
+-   (`docs/design/yin.vm.semantic.md`), and the nameless de Bruijn stack
+-   and register kernels, each starting with an empty image."
++  "The evaluators on `yin.vm`: the ast-walker, the semantic register VM,
++   and the nameless de Bruijn stack and register kernels, each starting with an empty image."
+   {:ast-walker ast-walker/create-vm
+    :semantic semantic/create-vm
+    :stack #(stack/create-vm [] %)
+@@ -153,12 +151,9 @@
+    :register "DebruijnRegisterVM"})
+ 
+ 
+-(defn- packet->named-datoms
+-  "The named `:yin/*` datoms of one expanded tree packet, the input the de
+-   Bruijn resolver reads."
++(defn- packet->vector
+   [packet]
+-  (vm/ast->datoms
+-    (vm/semantic-bytecode->ast (macro/packet->row-set packet))))
++  (:vector (linearize/project-rows (macro/packet->row-set packet))))
+ 
+ 
+ (defn- append-stack-image
+@@ -211,9 +206,9 @@
+    evaluator.  Every value there is one expanded canonical tree packet
+    `[root rows]` (yin.vm.macro.md §2.4); each loader takes its row set — the
+    ast-walker through `vm-load-rows`, the semantic VM through
+-   `linearize/rows-loader` over `semantic/load-vector`, and the de Bruijn
+-   kernels through their lowerings to a stack image (H) or a register
+-   image (R).  No evaluator learns that an expander ran."
++   `semantic/load-vector` over the v4 projection, and the de Bruijn
++   kernels through A-derived stack and register images.
++   No evaluator learns that an expander ran."
+   {:ast-walker (fn [vm packet]
+                  (ast-walker/vm-load-rows vm
+                                           (macro/packet->row-set packet)
+@@ -221,21 +216,17 @@
+    ;; every loader here is the trusted fresh-producer path: the only
+    ;; producer of `program-out` is the expander, so each supplies the
+    ;; current stamp itself
+-   :semantic (let [load-rows (linearize/rows-loader semantic/load-vector)]
+-               (fn [vm packet]
+-                 (load-rows vm
+-                            (macro/packet->row-set packet)
+-                            vm/ast-contract)))
++   :semantic (fn [vm packet]
++               (semantic/load-vector vm (packet->vector packet)
++                                     vm/semantic-contract))
+    :stack (fn [vm packet]
+             (append-stack-image
+               vm
+-              (:image (debruijn-linearize/adapt
+-                        (packet->named-datoms packet)))))
++              (:image (derive/stack-image (packet->vector packet)))))
+    :register (fn [vm packet]
+                (append-register-image
+                  vm
+-                 (:image (register-compile/adapt
+-                           (packet->named-datoms packet)))))})
++                 (derive/register-image (packet->vector packet))))})
+ 
+ 
+ (def lang-labels {:clojure "Clojure" :python "Python" :php "PHP"})
+diff --git a/src/cljc/yin/vm.cljc b/src/cljc/yin/vm.cljc
+index c1fc7e95..028ed20d 100644
+--- a/src/cljc/yin/vm.cljc
++++ b/src/cljc/yin/vm.cljc
+@@ -266,7 +266,7 @@
+ (def semantic-contract
+   "The contract of the linear `:yin.code/*` segment and its canonical
+    instruction vector."
+-  "v3")
++  "v4")
+ 
+ 
+ (def stack-contract
+@@ -1336,21 +1336,6 @@
+     (nth row 1)))
+ 
+ 
+-(defn- semantic-bytecode-child-refs
+-  "`[[path-suffix child-id] ..]` for every `node`/`nodes` slot of a row
+-   whose `tag` and `body` already passed `:arity`, in slot order; a `node`
+-   slot's suffix is its slot index, a `nodes` slot's suffix is `[slot-index
+-   item-index]` (§2.5)."
+-  [tag body]
+-  (let [slots (get semantic-bytecode-grammar tag)]
+-    (mapcat (fn [i [_ kind] v]
+-              (case kind
+-                :node [[[i] v]]
+-                :nodes (map-indexed (fn [j cid] [[[i j] cid]]) v)
+-                nil))
+-            (range 1 (inc (count slots))) slots (rest body))))
+-
+-
+ (defn- rows-reserved-defect
+   "Rule R over a row set that already passed every structural rule,
+    occurrence-aware: a row is shared by content address, so a
+@@ -1492,7 +1477,7 @@
+                                         slots (safe-slots tag)
+                                         body (subvec row 1)]
+                                     (some identity
+-                                          (map (fn [i [field kind] v]
++                                          (map (fn [i [field _kind] v]
+                                                  (when (and (nil? v)
+                                                             (contains? semantic-bytecode-defaults [tag field]))
+                                                    (defect-res :saturation id [i])))
+@@ -1500,7 +1485,7 @@
+                                 rows)
+         id-resolves-defect (or (when-not (contains? rows root)
+                                  {:rule :id-resolves :path []})
+-                               (some (fn [[id row]]
++                               (some (fn [[id _row]]
+                                        (some (fn [[suffix cid]]
+                                                (when-not (contains? rows cid)
+                                                  (defect-res :id-resolves id suffix)))
+@@ -1514,7 +1499,7 @@
+                                    (let [row (get rows id)]
+                                      (when row
+                                        (let [on-path' (conj on-path id)]
+-                                         (some (fn [[suffix cid]]
++                                         (some (fn [[_suffix cid]]
+                                                  (check-cycle cid on-path'))
+                                                (safe-children id)))))))]
+                          (check-cycle root #{}))
+diff --git a/src/cljc/yin/vm/ledger.cljc b/src/cljc/yin/vm/ledger.cljc
+index 858b5882..1dbf1bbf 100644
+--- a/src/cljc/yin/vm/ledger.cljc
++++ b/src/cljc/yin/vm/ledger.cljc
+@@ -33,14 +33,14 @@
+             [dao.space.transact :as transact]
+             [dao.space.transactor :as transactor]
+             [yin.vm :as vm]
+-            [yin.vm.code :as code]
+-            [yin.vm.linearize :as linearize]))
++            [yin.vm.semantic-register.code :as code]
++            [yin.vm.semantic-register.linearize :as linearize]))
+ 
+ 
+ (def lowering-profile
+   "The lowering profile this repository implements, exactly as published
+    in §5.2.1: `\"ast-to-bytecode\"` over the UCF §7.3.3 stamp
+-   `{:yin.code/contract \"v3\", :yin.k/version 0}`
++   `{:yin.code/contract \"v4\", :yin.k/version 0}`
+    (`vm/semantic-contract`). A `:derive` record
+    carries this map verbatim, and `verify-derivation` recomputes a
+    derivation only when the record's profile is `=` to the profile the
+@@ -82,7 +82,7 @@
+ 
+ (defn derive-lowering
+   "The `:derive` material for one row-lane lowering, written by
+-   `linearize/lower-rows`'s caller (§5.2): `lower-rows` produces the
++   `linearize/project-rows`'s caller (§5.2): `project-rows` produces the
+    vector and provenance and knows no ledger; its caller names the two
+    addresses and mints the record. Returns the record, its address, the
+    event tx-data for tempid `ev`, and the addresses the ledger names —
+@@ -191,7 +191,7 @@
+          (when-not (row-matches? root) (hash-mismatch root))
+          (some (fn [id] (when-not (row-matches? id) (hash-mismatch id)))
+                (keys rows))
+-         (code/well-formed-vector? vector)
++         (code/well-formed? vector)
+          (let [output (:yin.ledger/output record)]
+            (when-not (jing/segment-matches? output vector)
+              (hash-mismatch output)))
+@@ -201,7 +201,7 @@
+               :record profile
+               :implemented implemented}))
+          (let [output (:yin.ledger/output record)
+-               lowered (:vector (linearize/lower-rows tree))]
++               lowered (:vector (linearize/project-rows tree))]
+            (when-not (jing/segment-matches? output lowered)
+              {:kind :yin.k/derivation-mismatch
+               :output output
+diff --git a/src/cljc/yin/vm/linker.cljc b/src/cljc/yin/vm/linker.cljc
+index 4f4e13f1..2f44ab3b 100644
+--- a/src/cljc/yin/vm/linker.cljc
++++ b/src/cljc/yin/vm/linker.cljc
+@@ -19,8 +19,8 @@
+    identity mint and match, the row-local validator, the whole-value
+    validator, the three position-bearing scanners of section 4.1
+    (`:obligations-fn`, `:definitions-fn`, `:applications-fn`), and the
+-   parts worklist; the five records are `ast-format`, `semantic-format`,
+-   `semantic-register-format`, `stack-format`, and `register-format`
++   parts worklist; the four records are `ast-format`, `semantic-format`,
++   `stack-format`, and `register-format`
+    (section 5). The manifest and
+    derivation record formats of section 8.1 are `manifest-format` and
+    `record-format`, and `link-manifest` is the manifest-delivered image
+@@ -42,14 +42,12 @@
+             [dao.stream :as stream]
+             [dao.stream.ringbuffer :as ring]
+             [yin.vm :as vm]
+-            [yin.vm.code :as code]
+             [yin.vm.semantic-register.code :as sr-code]
+             [yin.vm.semantic-register.scan :as scan]
+             [yin.vm.debruijn-code :as debruijn-code]
+-            [yin.vm.debruijn-linearize :as linearize]
++            [yin.vm.semantic-register.linearize :as sr-linearize]
+             [yin.vm.debruijn-register-code :as debruijn-register-code]
+-            [yin.vm.debruijn-register-compile :as register-compile]
+-            [yin.vm.debruijn-resolve :as resolve]
++            [yin.vm.semantic-register.derive :as derive]
+             [yin.vm.ledger :as ledger]
+             [yin.vm.module :as module]))
+ 
+@@ -693,30 +691,8 @@
+ 
+ 
+ (def semantic-format
+-  "The `:yin.semantic/code` format record: the canonical positional
+-   instruction vector stored as the exact payload at its own
+-   `segment-key` (UCF section 7.3.4), under the \"v3\" contract
+-   (`vm/semantic-contract`). Identity and address are one preimage; step
+-   3 still runs, because it is the only check that the index did not
+-   point the identity at a different, correctly stored payload (section
+-   4.2). Free names are `:var`
+-   operands, definitions `:store-put` and `:define` operands,
+-   application sites the call opcodes (section 5.2)."
+-  {:format              :yin.semantic/code,
+-   :contract            vm/semantic-contract,
+-   :identity-fn         jing/segment-key,
+-   :identity-matches-fn jing/segment-matches?,
+-   :row-defect-fn       code/well-formed-vector?,
+-   :validate-fn         code/well-formed-vector?,
+-   :obligations-fn      semantic-free-occurrences,
+-   :definitions-fn      vector-definition-occurrences,
+-   :applications-fn     vector-application-sites,
+-   :parts-fn            (constantly nil)})
+-
+-
+-(def semantic-register-format
+   "The production v4 semantic register vector format record."
+-  {:format :yin.semantic-register/code
++  {:format :yin.semantic/code
+    :contract sr-code/contract
+    :identity-fn jing/segment-key
+    :identity-matches-fn jing/segment-matches?
+@@ -836,6 +812,9 @@
+           ;; optional, but when present a map: vals of anything else throws
+           (let [index (:yin.module/index manifest)]
+             (when (or (and (some? index) (not (map? index)))
++                      (some (fn [f]
++                              (not (contains? #{:yin.debruijn.code :yin.debruijn.register} f)))
++                            (keys index))
+                       (some (fn [v] (not (address? v))) (vals index)))
+               (shape :yin.module/index)))
+           (when-not (and (set? (:yin.module/exports manifest))
+@@ -2141,39 +2120,18 @@
+            (:format ast-format) (:format semantic-format)]))
+ 
+ 
+-(defn- with-manifest-index
+-  "Merge a verified manifest's `:yin.module/index` into the linker-local
+-   index of `format` (section 8.1) for the rest of this link: the
+-   manifest is verified content, so its entries are composition data
+-   for this link's fetches, never read from the wire again. The merge
+-   is link-local -- the caller's state is not updated. A function index
+-   is composition policy and is left alone."
+-  [state format-kw manifest]
+-  (let [entries (:yin.module/index manifest)]
+-    (if (or (empty? entries)
+-            (fn? (get-in state [:indexes format-kw])))
+-      state
+-      (update-in state [:indexes format-kw] (fnil into {}) entries))))
+-
+-
+ (defn- relowered
+-  "The identity the verified row-lane tree mints under one of the two de
+-   Bruijn lowerings (section 8.1): the tree is reconstructed to the
+-   datom lane -- `semantic-bytecode->ast`, then `ast->datoms`, lossless
+-   for everything the lowerings read -- resolved, and lowered. Nil when
+-   the tree cannot be re-lowered at all: a lowering the linker cannot
+-   run verifies nothing."
++  "The checksum of the native image derived from the verified tree's
++   canonical v4 vector. Nil when projection or derivation fails."
+   [format-kw tree]
+   (try
+     (case format-kw
+       :yin.debruijn.code
+       (debruijn-code/image-hash
+-        (:image (linearize/adapt
+-                  (vm/ast->datoms (vm/semantic-bytecode->ast tree)))))
++        (:image (derive/stack-image (:vector (sr-linearize/project-rows tree)))))
+       :yin.debruijn.register
+       (debruijn-register-code/register-hash
+-        (:image (register-compile/adapt
+-                  (vm/ast->datoms (vm/semantic-bytecode->ast tree))))))
++        (derive/register-image (:vector (sr-linearize/project-rows tree)))))
+     (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))
+ 
+ 
+@@ -2211,8 +2169,8 @@
+    obligations are the walker's, scanned only when the tree is the
+    requested image; and the two de Bruijn formats'
+    recomputed identity must equal the record's output. The semantic
+-   format's recomputation runs in `linked-image`, against the fetched
+-   image, through `yin.vm.ledger`'s own check. Returns `[state
++   leg fetches A through the same pipeline and checks tree -> A before
++   a native derivation may name it as input. Returns `[state
+    outcome]`, the outcome `{:derivation r :output o :tree t :trust
+    :verified}` or a refusal."
+   [state drive format-kw derivation tree-addr]
+@@ -2231,8 +2189,17 @@
+           (let [tree (get-in tc [:image :value])
+                 output (:yin.ledger/output derivation)]
+             (if (= :yin.semantic/code format-kw)
+-              [state {:derivation derivation, :output output,
+-                      :tree tree, :trust :verified}]
++              (let [[state sc] (drive-link state drive :yin.semantic/code output
++                                           vm/semantic-contract false)]
++                (if (refused? sc)
++                  [state (dissoc sc :yin.link/id)]
++                  (if-let [verdict (ledger/verify-derivation
++                                    tree (get-in sc [:image :value]) derivation
++                                    implemented)]
++                    [state (refused :derivation-mismatch
++                                    (assoc verdict :format format-kw))]
++                    [state {:derivation derivation, :output output,
++                            :tree tree, :trust :verified}])))
+               (let [actual (relowered format-kw tree)]
+                 (cond
+                   (nil? actual)
+@@ -2252,8 +2219,8 @@
+ (defn- checked-derivation
+   "The derivation half of a manifest link (section 8.1): fetch the
+    format's record through `record-format`, check its two addresses --
+-   the record's input is the manifest's tree, its output is the identity
+-   the image is then fetched at -- and apply the policy, `:trusted`
++   the semantic input is the manifest's tree; a native input is A from
++   that semantic record, and its output is the native checksum -- and apply the policy, `:trusted`
+    stopping at the addresses, `:verifying` recomputing. Returns `[state
+    outcome]`, the outcome of `verified-policy-outcome`'s shape with
+    `:trust :composition` under `:trusted`, or a refusal. A manifest
+@@ -2268,12 +2235,20 @@
+                                   (:contract record-format))]
+         (if (refused? c)
+           [state (dissoc c :yin.link/id)]
+-          (let [derivation (get-in c [:image :value])]
+-            (if (not= tree-addr (:yin.ledger/input derivation))
++          (let [derivation (get-in c [:image :value])
++                [state semantic] (if (= :yin.semantic/code format-kw)
++                                   [state nil]
++                                   (checked-derivation state drive :yin.semantic/code
++                                                       manifest policy))
++                expected (if (= :yin.semantic/code format-kw)
++                           tree-addr (:output semantic))]
++            (cond
++              (refused? semantic) [state (assoc semantic :format format-kw)]
++              (not= expected (:yin.ledger/input derivation))
+               [state (refused :derivation-mismatch
+-                              {:format format-kw, :expected tree-addr,
++                              {:format format-kw, :expected expected,
+                                :actual (:yin.ledger/input derivation)})]
+-              (if (= :trusted policy)
++              :else (if (= :trusted policy)
+                 [state {:derivation derivation,
+                         :output (:yin.ledger/output derivation),
+                         :trust :composition}]
+@@ -2296,8 +2271,26 @@
+    `[state outcome]`, `fetch`'s outcome shape plus `:manifest` and, for a
+    lowered format, `:derivation` and `:trust`."
+   [state drive record identity manifest derivation receiver defer?]
+-  (let [[state c] (drive-link state drive (:format record) identity
+-                              (:contract record))]
++  (let [native? (contains? #{:yin.debruijn.code :yin.debruijn.register}
++                           (:format record))
++        checksum identity
++        identity (if native?
++                   (get-in derivation [:derivation :yin.ledger/input]) identity)
++        ;; A names the request. The record's output is only a checksum of
++        ;; the selected native bytes, checked by the same fetch pipeline.
++        state (if native?
++                (-> state
++                    (assoc-in [:indexes (:format record)]
++                              (assoc {} identity
++                                     (get-in manifest [:yin.module/index
++                                                       (:format record)])))
++                    (assoc-in [:formats (:format record) :identity-matches-fn]
++                              (fn [a image]
++                                (and (= identity a)
++                                     (= checksum ((:identity-fn record) image))))))
++                state)
++        [state c] (drive-link state drive (:format record) identity
++                             (:contract record))]
+     (if (refused? c)
+       [state (dissoc c :yin.link/id)]
+       (if-let [verdict
+@@ -2364,8 +2357,8 @@
+      8. discharge (5b) against `receiver`, unless       :unresolved-free,
+         `:defer-discharge`                              :shadowed-free
+ 
+-   The manifest's `:yin.module/index` is merged into the linker-local
+-   index of the requested format the moment the manifest is verified.
++   The manifest's format-keyed index supplies [A format]'s native
++   storage address after its derivation chain has been checked.
+    The outcome is `fetch`'s plus `:manifest`, and for a lowered format
+    `:derivation` and `:trust` (`:verified` or `:composition`: a trusted
+    link never reports a verification it did not perform). The tree
+@@ -2409,9 +2402,7 @@
+                    (refused :module-name-mismatch
+                             {:name resolved,
+                              :declared (:yin.module/name manifest)})
+-                   (let [state (with-manifest-index state format-kw
+-                                 manifest)]
+-                     (if (= :yin.ast/code format-kw)
++                   (if (= :yin.ast/code format-kw)
+                        (let [[_ outcome]
+                              (linked-image
+                                state drive record
+@@ -2428,7 +2419,7 @@
+                                    state drive record
+                                    (:output derivation)
+                                    manifest derivation receiver defer?)]
+-                             outcome)))))))))))))))
++                             outcome))))))))))))))
+ 
+ 
+ ;; =============================================================================
+@@ -2454,26 +2445,25 @@
+     (when (and H R) {:root root, :H H, :R R})))
+ 
+ 
+-(defn- relowered-hashes
++(defn- derived-checksums
+   [source-datoms]
+   (try
+-    (let [resolved (resolve/resolve source-datoms)]
++    (let [v (:vector (sr-linearize/project-datoms source-datoms))]
+       {:H (debruijn-code/image-hash
+-            (:image (linearize/lower-stack resolved))),
++            (:image (derive/stack-image v))),
+        :R (debruijn-register-code/register-hash
+-            (:image (register-compile/lower-register resolved)))})
++            (derive/register-image v))})
+     (catch #?(:cljd Object :clj Throwable :cljs :default) _
+       {:H nil, :R nil})))
+ 
+ 
+ (defn verify-same-root-pairing
+-  "Re-lowers the named `source-datoms` locally (`resolve`, then
+-   `lower-stack` for H and `lower-register` for R) and confirms both
++  "Projects `source-datoms` to A and derives H and R locally and confirms both
+    recomputed identities equal the claimed pair. Returns `{:status :ok
+    :root root :H H :R R}` or a `:pairing-mismatch` refusal carrying the
+    expected and actual pairs."
+   [root H R source-datoms]
+-  (let [actual (relowered-hashes source-datoms)]
++  (let [actual (derived-checksums source-datoms)]
+     (if (and (= H (:H actual)) (= R (:R actual)))
+       {:status :ok, :root root, :H H, :R R}
+       (refused :pairing-mismatch
+diff --git a/src/cljc/yin/vm/linker/closure.cljc b/src/cljc/yin/vm/linker/closure.cljc
+index e880bb38..96ef56a6 100644
+--- a/src/cljc/yin/vm/linker/closure.cljc
++++ b/src/cljc/yin/vm/linker/closure.cljc
+@@ -143,7 +143,10 @@
+                   (reduced (stop st (invalid address :record path :record-defect
+                                              (linker/record-defect record))))
+ 
+-                  (not= (:yin.module/tree manifest) (:yin.ledger/input record))
++                  (not= (if (= :yin.semantic/code format-kw)
++                          (:yin.module/tree manifest)
++                          (get-in st [:records :yin.semantic/code :yin.ledger/output]))
++                        (:yin.ledger/input record))
+                   (reduced (stop st (invalid address :record path
+                                              :derivation-mismatch
+                                              {:expected (:yin.module/tree manifest)
+@@ -165,7 +168,7 @@
+               (let [identity (:yin.ledger/output record)
+                     address (if (= :yin.semantic/code format-kw)
+                               identity
+-                              (get (:yin.module/index manifest) identity))]
++                              (get (:yin.module/index manifest) format-kw))]
+                 (if (nil? address)
+                   (reduced (stop st (invalid nil :image path :index-entry-missing
+                                              {:format format-kw
+diff --git a/src/cljc/yin/vm/linker/interpreter.cljc b/src/cljc/yin/vm/linker/interpreter.cljc
+index bfd5bc7c..68195652 100644
+--- a/src/cljc/yin/vm/linker/interpreter.cljc
++++ b/src/cljc/yin/vm/linker/interpreter.cljc
+@@ -82,12 +82,12 @@
+ 
+ 
+ (def formats
+-  "The seven format records a serving composition holds (sections 5 and
+-   8.1): the five execution formats a requesting kernel names, and the
++  "The six format records a serving composition holds (sections 5 and
++   8.1): the four execution formats a requesting kernel names, and the
+    two the manifest flow fetches internally."
+   (into {}
+         (map (fn [r] [(:format r) r]))
+-        [linker/ast-format linker/semantic-format linker/semantic-register-format
++        [linker/ast-format linker/semantic-format
+          linker/stack-format
+          linker/register-format linker/manifest-format
+          linker/record-format]))
+diff --git a/src/cljc/yin/vm/linker/publish.cljc b/src/cljc/yin/vm/linker/publish.cljc
+index 934f2b04..7571144a 100644
+--- a/src/cljc/yin/vm/linker/publish.cljc
++++ b/src/cljc/yin/vm/linker/publish.cljc
+@@ -5,13 +5,12 @@
+   (:require [dao.jing :as jing]
+             [dao.space.query :as query]
+             [yin.vm :as vm]
+-            [yin.vm.code :as code]
++            [yin.vm.semantic-register.code :as code]
+             [yin.vm.debruijn-code :as dcode]
+-            [yin.vm.debruijn-linearize :as dl]
+             [yin.vm.debruijn-register-code :as rcode]
+-            [yin.vm.debruijn-register-compile :as rc]
++            [yin.vm.semantic-register.derive :as derive]
+             [yin.vm.ledger :as ledger]
+-            [yin.vm.linearize :as linearize]
++            [yin.vm.semantic-register.linearize :as linearize]
+             [yin.vm.linker :as linker]
+             [yin.vm.linker.closure :as closure]
+             [yin.vm.linker.requirements :as requirements]
+@@ -155,18 +154,18 @@
+ 
+       :else
+       (let [tree-address (vm/materialize-tree! handle tree)
+-            sem-vector (:vector (linearize/lower-rows tree))
++            sem-vector (:vector (linearize/project-rows tree))
+             sem (code/materialize-vector! handle sem-vector)
+-            h-image (:image (dl/adapt (vm/ast->datoms ast)))
+-            r-image (:image (rc/adapt (second (vm/ast->datoms-with-root ast))))
++            h-image (:image (derive/stack-image sem-vector))
++            r-image (derive/register-image sem-vector)
+             h (dcode/image-hash h-image)
+             r (rcode/register-hash r-image)
+             h-address (jing/materialize! handle h-image)
+             r-address (jing/materialize! handle r-image)
+-            mint (fn [output profile]
++            mint (fn [input output profile]
+                    (jing/materialize!
+                      handle
+-                     (assoc (ledger/derive-record tree-address output)
++                     (assoc (ledger/derive-record input output)
+                             :yin.ledger/profile profile)))
+             manifest {:yin.module/name name
+                       :yin.module/schema linker/manifest-schema
+@@ -177,12 +176,13 @@
+                        :yin.debruijn.register vm/register-contract}
+                       :yin.module/tree tree-address
+                       :yin.module/derivations
+-                      {:yin.semantic/code (mint sem ledger/lowering-profile)
++                      {:yin.semantic/code (mint tree-address sem ledger/lowering-profile)
+                        :yin.debruijn.code
+-                       (mint h linker/stack-lowering-profile)
++                       (mint sem h linker/stack-lowering-profile)
+                        :yin.debruijn.register
+-                       (mint r linker/register-lowering-profile)}
+-                      :yin.module/index {h h-address r r-address}
++                       (mint sem r linker/register-lowering-profile)}
++                      :yin.module/index {:yin.debruijn.code h-address
++                                         :yin.debruijn.register r-address}
+                       :yin.module/exports (set exports)
+                       :yin.module/requires (or requires {})
+                       :yin.module/primitives
+@@ -203,8 +203,9 @@
+                             code-formats)]
+             {:address address :manifest manifest
+              :identities {:yin.semantic/code sem
+-                          :yin.debruijn.code h
+-                          :yin.debruijn.register r}
++                          :yin.debruijn.code sem
++                          :yin.debruijn.register sem}
++             :checksums {:yin.debruijn.code h :yin.debruijn.register r}
+              :links links}))))))
+ 
+ 
+diff --git a/src/cljc/yin/vm/semantic_register.cljc b/src/cljc/yin/vm/semantic_register.cljc
+index 8acc3b5f..8c3421c2 100644
+--- a/src/cljc/yin/vm/semantic_register.cljc
++++ b/src/cljc/yin/vm/semantic_register.cljc
+@@ -407,7 +407,7 @@
+ (extend-type RegisterVM
+   module/IModuleKernel
+   (link-format [_]
+-    {:format :yin.semantic-register/code, :contract code/contract})
++    {:format :yin.semantic/code, :contract code/contract})
+   (spawn-module
+     [vm image {:keys [modules origin ancestry capability-secret]}]
+     (load-vector (create-vm
+@@ -443,7 +443,7 @@
+                          :segment local})))
+       (cond-> {:yin.k/tag :yin.k/closure,
+                :yin.k/binding :named,
+-               :yin.k/format :yin.semantic-register/code,
++               :yin.k/format :yin.semantic/code,
+                :yin.k/segment address,
+                :yin.k/entry (:entry closure),
+                :yin.k/params (:params closure),
+@@ -453,7 +453,7 @@
+         store-of (assoc :yin.k/store-of store-of))))
+   (lower-closure [vm marker decode]
+     (when-not (and (= :named (:yin.k/binding marker))
+-                   (= :yin.semantic-register/code (:yin.k/format marker)))
++                   (= :yin.semantic/code (:yin.k/format marker)))
+       (throw (ex-info "Closure binding or format does not match this kernel" {:reason :binding-mismatch :marker marker})))
+     (let [local (get (:code-aliases vm) (:yin.k/segment marker))
+           entry (:yin.k/entry marker)
+diff --git a/src/cljc/yin/vm/semantic_register/code.cljc b/src/cljc/yin/vm/semantic_register/code.cljc
+index 09b33e2a..bce164ed 100644
+--- a/src/cljc/yin/vm/semantic_register/code.cljc
++++ b/src/cljc/yin/vm/semantic_register/code.cljc
+@@ -11,14 +11,13 @@
+    does for the stack-shaped vector. Decoding into an executable image
+    belongs to the evaluator (phase 4); the static facts of §8.1 are
+    `yin.vm.semantic-register.analysis`'s."
+-  (:require [yin.vm :as vm]
+-            [yin.vm.ucf :as ucf]))
++  (:require [dao.jing :as jing]
++            [yin.vm :as vm]))
+ 
+ 
+ (def contract
+   "The semantic execution contract of the register-shaped vector (§6).
+-   This namespace's own stamp; `yin.vm/semantic-contract` names the
+-   running stack-shaped machine until cutover."
++   The production stamp, also named by `yin.vm/semantic-contract`."
+   "v4")
+ 
+ 
+@@ -875,5 +874,14 @@
+                          " (pc " (:pc defect) ")")
+                     {:defect defect})))
+   {:vector v,
+-   :address (ucf/code-address v),
++   :address (jing/segment-key v),
+    :bodies (mapv #(dissoc % :expr) (parse v))})
++
++
++(defn materialize-vector!
++  "Validate and materialize the canonical v4 vector at its content address."
++  [handle v]
++  (when-let [defect (well-formed? v)]
++    (throw (ex-info "Cannot materialize a vector that fails validation"
++                    {:defect defect})))
++  (jing/materialize! handle v))
+diff --git a/src/cljc/yin/vm/ucf.cljc b/src/cljc/yin/vm/ucf.cljc
+index c840da23..8b45f67f 100644
+--- a/src/cljc/yin/vm/ucf.cljc
++++ b/src/cljc/yin/vm/ucf.cljc
+@@ -42,10 +42,10 @@
+    S2.6 rules, last-value-wins resolution, opcode table, transitions,
+    resolution precedence, effect outcomes and scheduler
+    (`yin.vm.semantic.md` S2.4); `:yin.k/version` is this envelope's own
+-   version. A resumer on another revision answers `:yin.k/profile-mismatch`
++   version (the rows execution profile is version 1). A resumer on another revision answers `:yin.k/profile-mismatch`
+    before lowering; a code index is keyed per stamp."
+   {:yin.code/contract vm/semantic-contract,
+-   :yin.k/version 0})
++   :yin.k/version 1})
+ 
+ 
+ (def profiles
+diff --git a/src/cljc/yin/vm/ucf/rows.cljc b/src/cljc/yin/vm/ucf/rows.cljc
+index 457751d1..31b4bc92 100644
+--- a/src/cljc/yin/vm/ucf/rows.cljc
++++ b/src/cljc/yin/vm/ucf/rows.cljc
+@@ -2124,7 +2124,7 @@
+                   :closure (let [[a entry params bindings store-of] ss]
+                              (module/lower-closure base
+                                                    (cond-> {:yin.k/binding :named
+-                                                            :yin.k/format :yin.semantic-register/code
++                                                            :yin.k/format :yin.semantic/code
+                                                             :yin.k/segment a :yin.k/entry entry :yin.k/params params
+                                                             :yin.k/env (keyed bindings)}
+                                                      (some? store-of) (assoc :yin.k/store-of store-of))
+diff --git a/test/resources/yin/vm/ucf/rows-checkpoint-v3.txt b/test/resources/yin/vm/ucf/rows-checkpoint-v3.txt
+index 33e332ca..f317d3f7 100644
+--- a/test/resources/yin/vm/ucf/rows-checkpoint-v3.txt
++++ b/test/resources/yin/vm/ucf/rows-checkpoint-v3.txt
+@@ -448,12 +448,12 @@ f66468616c74008081d81b827064616f2e6a696e672f6b6579776f7264826773
+ 826579696e2e6b6776657273696f6e03
+ 
+ installs
+-segment/blake3-986cd8214b227b2cb051d90d7b86c54fa6d2f10513f868607c9fcd5528cc9555
++segment/blake3-1d3897a10b81a5e58ca71d1f249cf8f0002a64004f2636cbcad8749305f8614b
+ a4d81b827064616f2e6a696e672f6b6579776f7264826579696e2e6b64726f6f
+ 74d81b827064616f2e6a696e672f6b6579776f726482677365676d656e747847
+-626c616b65332d66366635373032313763393131663966333832653863636662
+-3634313936346161636533346334633966613738363839623137313238396230
+-64383763316431d81b827064616f2e6a696e672f6b6579776f7264826579696e
++626c616b65332d64393365343033376132333735646662386137343162353333
++3536623164313062323934343264646534373163383161316634313534333738
++37396432656564d81b827064616f2e6a696e672f6b6579776f7264826579696e
+ 2e6b64726f77739484d81b827064616f2e6a696e672f6b6579776f7264826773
+ 65676d656e747847626c616b65332d3038363766353632666136343033653866
+ 3438313335663562356465326465336633383237303430363565393733643638
+@@ -472,214 +472,214 @@ a4d81b827064616f2e6a696e672f6b6579776f7264826579696e2e6b64726f6f
+ 64616f2e6a696e672f6b6579776f726482f663726f77d81b827064616f2e6a69
+ 6e672f6b6579776f726482677365676d656e747847626c616b65332d62373331
+ 3832333634616235643139383862646233393536663432373035343737336231
+-3437636166303936623962363136636630373231323535333864356384d81b82
++3437636166303936623962363136636630373231323535333864356387d81b82
+ 7064616f2e6a696e672f6b6579776f726482677365676d656e747847626c616b
+-65332d3230653463336266613832356130376163613333363939313061396530
+-6138353533333536666536386531373938303133666163616633356133616437
+-616664d81b827064616f2e6a696e672f6b6579776f726482f66573746f7265d8
+-1b826f64616f2e6a696e672f73796d626f6c82f6617782d81b827064616f2e6a
+-696e672f6b6579776f726482f663726f77d81b827064616f2e6a696e672f6b65
+-79776f726482677365676d656e747847626c616b65332d636665336165373861
+-6264316261653638393266393666616430353430353263353131393765623935
+-343161383930393436363731326638663037343737316282d81b827064616f2e
++65332d3134633136363562383261613436323239373265313763633563323365
++3166633730666635346263343438383935343235323135336366646336313338
++666134d81b827064616f2e6a696e672f6b6579776f726482f667696e7374616c
++6cd81b826f64616f2e6a696e672f73796d626f6c82f668686f73742e6d6f64d8
++1b827064616f2e6a696e672f6b6579776f726482f6667061726b656482d81b82
++7064616f2e6a696e672f6b6579776f726482f662743001a6d81b827064616f2e
++6a696e672f6b6579776f7264826879696e2e6c696e6b62696482d81b82706461
++6f2e6a696e672f6b6579776f726482f662743001d81b827064616f2e6a696e67
++2f6b6579776f726482f665696d616765a1d81b827064616f2e6a696e672f6b65
++79776f726482f66576616c75658f84d81b827064616f2e6a696e672f6b657977
++6f726482f667636c6f737572650181d81b826f64616f2e6a696e672f73796d62
++6f6c82f661730483d81b827064616f2e6a696e672f6b6579776f726482f66b73
++747265616d2d6d616b65020485d81b827064616f2e6a696e672f6b6579776f72
++6482f66463616c6c00018102f482d81b827064616f2e6a696e672f6b6579776f
++726482f66468616c740084d81b827064616f2e6a696e672f6b6579776f726482
++f667636c6f737572650181d81b826f64616f2e6a696e672f73796d626f6c82f6
++615f0a83d81b827064616f2e6a696e672f6b6579776f726482f66376617204d8
++1b826f64616f2e6a696e672f73796d626f6c82f6617383d81b827064616f2e6a
++696e672f6b6579776f726482f66d73747265616d2d637572736f72030483d81b
++827064616f2e6a696e672f6b6579776f726482f66b73747265616d2d6e657874
++020385d81b827064616f2e6a696e672f6b6579776f726482f66463616c6c0001
++8102f482d81b827064616f2e6a696e672f6b6579776f726482f6667265747572
++6e0084d81b827064616f2e6a696e672f6b6579776f726482f667636c6f737572
++6501800d84d81b827064616f2e6a696e672f6b6579776f726482f66664656669
++6e6500d81b826f64616f2e6a696e672f73796d626f6c82f661660182d81b8270
++64616f2e6a696e672f6b6579776f726482f66672657475726e0083d81b827064
++616f2e6a696e672f6b6579776f726482f665636f6e737400182a82d81b827064
++616f2e6a696e672f6b6579776f726482f66672657475726e00d81b827064616f
++2e6a696e672f6b6579776f726482f666737461747573d81b827064616f2e6a69
++6e672f6b6579776f726482f6626f6bd81b827064616f2e6a696e672f6b657977
++6f726482f6686d616e6966657374a4d81b827064616f2e6a696e672f6b657977
++6f7264826a79696e2e6d6f64756c65646e616d65d81b826f64616f2e6a696e67
++2f73796d626f6c82f668686f73742e6d6f64d81b827064616f2e6a696e672f6b
++6579776f7264826a79696e2e6d6f64756c656474726565d81b827064616f2e6a
++696e672f6b6579776f726482677365676d656e747847626c616b65332d366333
++6232623032656435363534333162326336313034346538373230666338336166
++3035613232323732333264653666363663323033646161623231323662d81b82
++7064616f2e6a696e672f6b6579776f7264826a79696e2e6d6f64756c65676578
++706f727473d9010281d81b826f64616f2e6a696e672f73796d626f6c82f66166
++d81b827064616f2e6a696e672f6b6579776f7264826a79696e2e6d6f64756c65
++6b64657269766174696f6e73a1d81b827064616f2e6a696e672f6b6579776f72
++64826c79696e2e73656d616e74696364636f6465d81b827064616f2e6a696e67
++2f6b6579776f726482677365676d656e747847626c616b65332d343766383232
++3365386535623762336535333262396261393839353464613161336237613336
++3836623734346336386166363836623138363035306132323865d81b82706461
++6f2e6a696e672f6b6579776f726482f66a64657269766174696f6ea5d81b8270
++64616f2e6a696e672f6b6579776f7264826a79696e2e6c6564676572626f70d8
++1b827064616f2e6a696e672f6b6579776f726482f666646572697665d81b8270
++64616f2e6a696e672f6b6579776f7264826a79696e2e6c656467657265696e70
++7574d81b827064616f2e6a696e672f6b6579776f726482677365676d656e7478
++47626c616b65332d366333623262303265643536353433316232633631303434
++6538373230666338336166303561323232373233326465366636366332303364
++6161623231323662d81b827064616f2e6a696e672f6b6579776f7264826a7969
++6e2e6c6564676572666f7574707574d81b827064616f2e6a696e672f6b657977
++6f726482677365676d656e747847626c616b65332d3830623431323963663533
++3861613830336531333033646230653739366266646564323535383231616537
++383437656463646234353364363061613761616661d81b827064616f2e6a696e
++672f6b6579776f7264826a79696e2e6c65646765726770726f66696c65a3d81b
++827064616f2e6a696e672f6b6579776f7264826579696e2e6b6776657273696f
++6e00d81b827064616f2e6a696e672f6b6579776f7264826879696e2e636f6465
++68636f6e7472616374627634d81b827064616f2e6a696e672f6b6579776f7264
++826979696e2e6c6f7765726770726f66696c656f6173742d746f2d6279746563
++6f6465d81b827064616f2e6a696e672f6b6579776f7264826a79696e2e6c6564
++6765726866756e6374696f6ed81b827064616f2e6a696e672f6b6579776f7264
++826679696e2e766d656c6f776572d81b827064616f2e6a696e672f6b6579776f
++726482f66b6f626c69676174696f6e7380d81b827064616f2e6a696e672f6b65
++79776f726482677365676d656e747847626c616b65332d376135643837666264
++6666343764343431353534313766616131396130666564326130663939313239
++383334313861393136363937653166636661663936666584d81b827064616f2e
+ 6a696e672f6b6579776f726482677365676d656e747847626c616b65332d3230
+-6565346632363333393232323164323137393635393361613838626334333738
+-313962313534323937326331313462393838343366366533663536326638d81b
+-827064616f2e6a696e672f6b6579776f726482f6616b86d81b827064616f2e6a
+-696e672f6b6579776f726482677365676d656e747847626c616b65332d323432
+-6337613464616565373139643464336331383331323130613034316637616237
+-3162333561363066623230313133336536346430623663373231353535d81b82
+-7064616f2e6a696e672f6b6579776f726482f66770656e64696e67d81b827064
+-616f2e6a696e672f6b6579776f726482f663707574d81b827064616f2e6a696e
+-672f6b6579776f726482677365676d656e747847626c616b65332d6366653361
+-6537386162643162616536383932663936666164303534303532633531313937
+-65623935343161383930393436363731326638663037343737316282d81b8270
+-64616f2e6a696e672f6b6579776f726482f6636c69746176a2d81b827064616f
+-2e6a696e672f6b6579776f7264826579696e2e6b6373657104d81b827064616f
+-2e6a696e672f6b6579776f7264826579696e2e6b6a6f6363757272656e636578
+-2431643365356237612d306332662d346136392d386231312d37653664356334
+-623361303284d81b827064616f2e6a696e672f6b6579776f726482677365676d
+-656e747847626c616b65332d3331613038623763333037383961386238353463
+-3134613639616632383034373234623362323836386539363866363233373733
+-653233363136366236633837d81b827064616f2e6a696e672f6b6579776f7264
+-82f66770656e64696e67d81b827064616f2e6a696e672f6b6579776f726482f6
+-67696e7374616c6cd81b826f64616f2e6a696e672f73796d626f6c82f668686f
+-73742e6d6f6488d81b827064616f2e6a696e672f6b6579776f72648267736567
+-6d656e747847626c616b65332d34623239376338343139383032623639623535
+-6335353438356430616165326161653332333532313334393130663063346339
+-61333438303162626165613365d81b827064616f2e6a696e672f6b6579776f72
+-6482f663616374d81b827064616f2e6a696e672f6b6579776f72648267736567
+-6d656e747847626c616b65332d65383635373536663638616461616265626263
+-3139646165353262323339333932626431303933643937373039316534316139
+-6534306632383563383034663203d81b827064616f2e6a696e672f6b6579776f
++6534633362666138323561303761636133333639393130613965306138353533
++333536666536386531373938303133666163616633356133616437616664d81b
++827064616f2e6a696e672f6b6579776f726482f66573746f7265d81b826f6461
++6f2e6a696e672f73796d626f6c82f6617782d81b827064616f2e6a696e672f6b
++6579776f726482f663726f77d81b827064616f2e6a696e672f6b6579776f7264
++82677365676d656e747847626c616b65332d6366653361653738616264316261
++6536383932663936666164303534303532633531313937656239353431613839
++30393436363731326638663037343737316282d81b827064616f2e6a696e672f
++6b6579776f726482677365676d656e747847626c616b65332d32306565346632
++3633333932323231643231373936353933616138386263343337383139623135
++34323937326331313462393838343366366533663536326638d81b827064616f
++2e6a696e672f6b6579776f726482f6616b86d81b827064616f2e6a696e672f6b
++6579776f726482677365676d656e747847626c616b65332d3234326337613464
++6165653731396434643363313833313231306130343166376162373162333561
++363066623230313133336536346430623663373231353535d81b827064616f2e
++6a696e672f6b6579776f726482f66770656e64696e67d81b827064616f2e6a69
++6e672f6b6579776f726482f663707574d81b827064616f2e6a696e672f6b6579
++776f726482677365676d656e747847626c616b65332d63666533616537386162
++6431626165363839326639366661643035343035326335313139376562393534
++3161383930393436363731326638663037343737316282d81b827064616f2e6a
++696e672f6b6579776f726482f6636c69746176a2d81b827064616f2e6a696e67
++2f6b6579776f7264826579696e2e6b6373657104d81b827064616f2e6a696e67
++2f6b6579776f7264826579696e2e6b6a6f6363757272656e6365782431643365
++356237612d306332662d346136392d386231312d376536643563346233613032
++84d81b827064616f2e6a696e672f6b6579776f726482677365676d656e747847
++626c616b65332d33316130386237633330373839613862383534633134613639
++6166323830343732346233623238363865393638663632333737336532333631
++36366236633837d81b827064616f2e6a696e672f6b6579776f726482f6677065
++6e64696e67d81b827064616f2e6a696e672f6b6579776f726482f667696e7374
++616c6cd81b826f64616f2e6a696e672f73796d626f6c82f668686f73742e6d6f
++6488d81b827064616f2e6a696e672f6b6579776f726482677365676d656e7478
++47626c616b65332d346232393763383431393830326236396235356335353438
++3564306161653261616533323335323133343931306630633463396133343830
++3162626165613365d81b827064616f2e6a696e672f6b6579776f726482f66361
++6374d81b827064616f2e6a696e672f6b6579776f726482677365676d656e7478
++47626c616b65332d653836353735366636386164616162656262633139646165
++3532623233393339326264313039336439373730393165343161396534306632
++383563383034663203d81b827064616f2e6a696e672f6b6579776f7264826773
++65676d656e747847626c616b65332d3564336366626465396533623330383964
++3161306337663234363433303332343133336162323561646130323136343730
++376333343864373865343032623134d81b827064616f2e6a696e672f6b657977
++6f726482677365676d656e747847626c616b65332d3630626161303533376264
++3131313635633561353230653662323531636632373766636363353735646362
++376436393265616536353234396439306264613962d81b827064616f2e6a696e
++672f6b6579776f726482677365676d656e747847626c616b65332d3230656534
++6632363333393232323164323137393635393361613838626334333738313962
++3135343239373263313134623938383433663665336635363266380082d81b82
++7064616f2e6a696e672f6b6579776f726482677365676d656e747847626c616b
++65332d3465623233626466366338636136326164343731616234366161326165
++3832366164323564326366363062623139373162333234643436343763343665
++623438d81b827064616f2e6a696e672f6b6579776f726482f66573746f726584
++d81b827064616f2e6a696e672f6b6579776f726482677365676d656e74784762
++6c616b65332d3538386362373838643333633464323839393436323264663665
++3062336236316564373538396161366231633365306538323335323230643664
++626465653763d81b827064616f2e6a696e672f6b6579776f726482f664776169
++74d81b827064616f2e6a696e672f6b6579776f726482677365676d656e747847
++626c616b65332d37356266313237356638326333313531323032636437356262
++6666663639363963653562633537643636656263653735643938316266303834
++35616563323064d81b827064616f2e6a696e672f6b6579776f72648267736567
++6d656e747847626c616b65332d33316130386237633330373839613862383534
++6331346136396166323830343732346233623238363865393638663632333737
++3365323336313636623663383784d81b827064616f2e6a696e672f6b6579776f
+ 726482677365676d656e747847626c616b65332d356433636662646539653362
+ 3330383964316130633766323436343330333234313333616232356164613032
+ 3136343730376333343864373865343032623134d81b827064616f2e6a696e67
+-2f6b6579776f726482677365676d656e747847626c616b65332d363062616130
+-3533376264313131363563356135323065366232353163663237376663636335
+-3735646362376436393265616536353234396439306264613962d81b82706461
+-6f2e6a696e672f6b6579776f726482677365676d656e747847626c616b65332d
+-3230656534663236333339323232316432313739363539336161383862633433
+-3738313962313534323937326331313462393838343366366533663536326638
+-0082d81b827064616f2e6a696e672f6b6579776f726482677365676d656e7478
+-47626c616b65332d346562323362646636633863613632616434373161623436
+-6161326165383236616432356432636636306262313937316233323464343634
+-3763343665623438d81b827064616f2e6a696e672f6b6579776f726482f66573
+-746f726584d81b827064616f2e6a696e672f6b6579776f726482677365676d65
+-6e747847626c616b65332d353838636237383864333363346432383939343632
+-3264663665306233623631656437353839616136623163336530653832333532
+-3230643664626465653763d81b827064616f2e6a696e672f6b6579776f726482
+-f66477616974d81b827064616f2e6a696e672f6b6579776f726482677365676d
+-656e747847626c616b65332d3735626631323735663832633331353132303263
+-6437356262666666363936396365356263353764363665626365373564393831
+-626630383435616563323064d81b827064616f2e6a696e672f6b6579776f7264
+-82677365676d656e747847626c616b65332d3331613038623763333037383961
+-3862383534633134613639616632383034373234623362323836386539363866
+-36323337373365323336313636623663383784d81b827064616f2e6a696e672f
+-6b6579776f726482677365676d656e747847626c616b65332d35643363666264
+-6539653362333038396431613063376632343634333033323431333361623235
+-61646130323136343730376333343864373865343032623134d81b827064616f
+-2e6a696e672f6b6579776f726482f663656e76d81b827064616f2e6a696e672f
+-6b6579776f726482677365676d656e747847626c616b65332d65343135346561
+-3164373165316139323264653038386331393533633763393634633830303537
+-63383230303063336237653436653632643533313537366639f682d81b827064
+-616f2e6a696e672f6b6579776f726482677365676d656e747847626c616b6533
+-2d36306261613035333762643131313635633561353230653662323531636632
+-3737666363633537356463623764363932656165363532343964393062646139
+-62d81b827064616f2e6a696e672f6b6579776f726482f66677696e646f7788d8
+-1b827064616f2e6a696e672f6b6579776f726482677365676d656e747847626c
+-616b65332d373562663132373566383263333135313230326364373562626666
+-6636393639636535626335376436366562636537356439383162663038343561
+-6563323064d81b827064616f2e6a696e672f6b6579776f726482f663616374d8
+-1b827064616f2e6a696e672f6b6579776f726482677365676d656e747847626c
+-616b65332d346666353932363837633434646566333934653363393863643362
+-6435396463636164373738313062386436656639323736373439326336396666
+-363934356104d81b827064616f2e6a696e672f6b6579776f726482677365676d
+-656e747847626c616b65332d3564336366626465396533623330383964316130
+-6337663234363433303332343133336162323561646130323136343730376333
+-343864373865343032623134d81b827064616f2e6a696e672f6b6579776f7264
+-82677365676d656e747847626c616b65332d3131626164323938636362666361
+-3533356266663665643864653662373335316132353962373163616462646238
+-653736643232656463306635646564656163d81b827064616f2e6a696e672f6b
+-6579776f726482677365676d656e747847626c616b65332d3230656534663236
+-3333393232323164323137393635393361613838626334333738313962313534
+-3239373263313134623938383433663665336635363266380293d81b82706461
++2f6b6579776f726482f663656e76d81b827064616f2e6a696e672f6b6579776f
++726482677365676d656e747847626c616b65332d653431353465613164373165
++3161393232646530383863313935336337633936346338303035376338323030
++3063336237653436653632643533313537366639f682d81b827064616f2e6a69
++6e672f6b6579776f726482677365676d656e747847626c616b65332d36306261
++6130353337626431313136356335613532306536623235316366323737666363
++63353735646362376436393265616536353234396439306264613962d81b8270
++64616f2e6a696e672f6b6579776f726482f66677696e646f7788d81b82706461
+ 6f2e6a696e672f6b6579776f726482677365676d656e747847626c616b65332d
+-3761356438376662646666343764343431353534313766616131396130666564
+-3261306639393132393833343138613931363639376531666366616639366665
+-d81b827064616f2e6a696e672f6b6579776f726482f6647461736b03a2d81b82
+-7064616f2e6a696e672f6b6579776f7264826579696e2e6b6776657273696f6e
+-01d81b827064616f2e6a696e672f6b6579776f7264826879696e2e636f646568
+-636f6e7472616374627634d81b827064616f2e6a696e672f6b6579776f726482
+-f667626c6f636b6564d81b827064616f2e6a696e672f6b6579776f726482f665
+-6368696c6401d81b827064616f2e6a696e672f6b6579776f726482677365676d
+-656e747847626c616b65332d6534313534656131643731653161393232646530
+-3838633139353363376339363463383030353763383230303063336237653436
+-653632643533313537366639d81b827064616f2e6a696e672f6b6579776f7264
+-82677365676d656e747847626c616b65332d3230653463336266613832356130
+-3761636133333639393130613965306138353533333536666536386531373938
+-30313366616361663335613361643761666480d81b827064616f2e6a696e672f
+-6b6579776f726482677365676d656e747847626c616b65332d39656236313432
+-3063313561343062366333633131613638306666333866306230666336653262
+-62306332333132633937623836303764396666663666633034d81b827064616f
+-2e6a696e672f6b6579776f726482677365676d656e747847626c616b65332d38
+-6361333162663965313165663032616561633439333261346364323064613537
+-62653162303961646362383862663239373733643064366562306537346132a3
+-d81b827064616f2e6a696e672f6b6579776f7264826579696e2e6b6574726565
+-73a1d81b827064616f2e6a696e672f6b6579776f726482677365676d656e7478
+-47626c616b65332d653836353735366636386164616162656262633139646165
+-3532623233393339326264313039336439373730393165343161396534306632
+-3835633830346632d9010281d81b827064616f2e6a696e672f6b6579776f7264
+-82677365676d656e747847626c616b65332d6536333136353439313363636365
+-3566326165626436396139666636636631333663633331326663313961636538
+-313334336231656135323630303966376230d81b827064616f2e6a696e672f6b
+-6579776f7264826579696e2e6b687365676d656e7473d9010281d81b82706461
++3735626631323735663832633331353132303263643735626266666636393639
++6365356263353764363665626365373564393831626630383435616563323064
++d81b827064616f2e6a696e672f6b6579776f726482f663616374d81b82706461
+ 6f2e6a696e672f6b6579776f726482677365676d656e747847626c616b65332d
+-6538363537353666363861646161626562626331396461653532623233393339
+-3262643130393364393737303931653431613965343066323835633830346632
+-d81b827064616f2e6a696e672f6b6579776f7264826579696e2e6b6f63757273
+-6f722d70726f66696c6573d9010280a1d81b827064616f2e6a696e672f6b6579
+-776f726482677365676d656e747847626c616b65332d65383635373536663638
+-6164616162656262633139646165353262323339333932626431303933643937
+-373039316534316139653430663238356338303466328483d81b827064616f2e
+-6a696e672f6b6579776f726482f66376617201d81b826f64616f2e6a696e672f
+-73796d626f6c82f6617783d81b827064616f2e6a696e672f6b6579776f726482
+-f665636f6e737402617684d81b827064616f2e6a696e672f6b6579776f726482
+-f66a73747265616d2d70757400010282d81b827064616f2e6a696e672f6b6579
+-776f726482f66468616c74008081d81b827064616f2e6a696e672f6b6579776f
+-726482677365676d656e747847626c616b65332d303836376635363266613634
+-3033653866343831333566356235646532646533663338323730343036356539
+-3733643638386435663430356539626261633439f6f6f687d81b827064616f2e
+-6a696e672f6b6579776f726482677365676d656e747847626c616b65332d3833
+-3331336663353863393866333361383965643336356261613761313331653837
+-653338353037303364333161343236643238616365323532313633656262d81b
+-827064616f2e6a696e672f6b6579776f726482f667696e7374616c6cd81b826f
+-64616f2e6a696e672f73796d626f6c82f668686f73742e6d6f64d81b82706461
+-6f2e6a696e672f6b6579776f726482f6667061726b656482d81b827064616f2e
+-6a696e672f6b6579776f726482f662743001a6d81b827064616f2e6a696e672f
+-6b6579776f7264826879696e2e6c696e6b62696482d81b827064616f2e6a696e
+-672f6b6579776f726482f662743001d81b827064616f2e6a696e672f6b657977
+-6f726482f665696d616765a1d81b827064616f2e6a696e672f6b6579776f7264
+-82f66576616c75658f84d81b827064616f2e6a696e672f6b6579776f726482f6
+-67636c6f737572650181d81b826f64616f2e6a696e672f73796d626f6c82f661
+-730483d81b827064616f2e6a696e672f6b6579776f726482f66b73747265616d
+-2d6d616b65020485d81b827064616f2e6a696e672f6b6579776f726482f66463
+-616c6c00018102f482d81b827064616f2e6a696e672f6b6579776f726482f664
+-68616c740084d81b827064616f2e6a696e672f6b6579776f726482f667636c6f
+-737572650181d81b826f64616f2e6a696e672f73796d626f6c82f6615f0a83d8
+-1b827064616f2e6a696e672f6b6579776f726482f66376617204d81b826f6461
+-6f2e6a696e672f73796d626f6c82f6617383d81b827064616f2e6a696e672f6b
+-6579776f726482f66d73747265616d2d637572736f72030483d81b827064616f
+-2e6a696e672f6b6579776f726482f66b73747265616d2d6e657874020385d81b
+-827064616f2e6a696e672f6b6579776f726482f66463616c6c00018102f482d8
+-1b827064616f2e6a696e672f6b6579776f726482f66672657475726e0084d81b
+-827064616f2e6a696e672f6b6579776f726482f667636c6f7375726501800d84
+-d81b827064616f2e6a696e672f6b6579776f726482f666646566696e6500d81b
+-826f64616f2e6a696e672f73796d626f6c82f661660182d81b827064616f2e6a
+-696e672f6b6579776f726482f66672657475726e0083d81b827064616f2e6a69
+-6e672f6b6579776f726482f665636f6e737400182a82d81b827064616f2e6a69
+-6e672f6b6579776f726482f66672657475726e00d81b827064616f2e6a696e67
+-2f6b6579776f726482f666737461747573d81b827064616f2e6a696e672f6b65
+-79776f726482f6626f6bd81b827064616f2e6a696e672f6b6579776f726482f6
+-686d616e6966657374a4d81b827064616f2e6a696e672f6b6579776f7264826a
+-79696e2e6d6f64756c65646e616d65d81b826f64616f2e6a696e672f73796d62
+-6f6c82f668686f73742e6d6f64d81b827064616f2e6a696e672f6b6579776f72
+-64826a79696e2e6d6f64756c656474726565d81b827064616f2e6a696e672f6b
+-6579776f726482677365676d656e747847626c616b65332d3663336232623032
+-6564353635343331623263363130343465383732306663383361663035613232
+-323732333264653666363663323033646161623231323662d81b827064616f2e
+-6a696e672f6b6579776f7264826a79696e2e6d6f64756c65676578706f727473
+-d9010281d81b826f64616f2e6a696e672f73796d626f6c82f66166d81b827064
+-616f2e6a696e672f6b6579776f7264826a79696e2e6d6f64756c656b64657269
+-766174696f6e73a1d81b827064616f2e6a696e672f6b6579776f7264826c7969
+-6e2e73656d616e74696364636f6465d81b827064616f2e6a696e672f6b657977
+-6f726482677365676d656e747847626c616b65332d3232633162613762323962
+-3538353361303132376561623837623934356535313236313731306539383339
+-656239336239323731613734333166623961613835d81b827064616f2e6a696e
+-672f6b6579776f726482f66a64657269766174696f6ea5d81b827064616f2e6a
+-696e672f6b6579776f7264826a79696e2e6c6564676572626f70d81b82706461
+-6f2e6a696e672f6b6579776f726482f666646572697665d81b827064616f2e6a
+-696e672f6b6579776f7264826a79696e2e6c656467657265696e707574d81b82
++3466663539323638376334346465663339346533633938636433626435396463
++6361643737383130623864366566393237363734393263363966663639343561
++04d81b827064616f2e6a696e672f6b6579776f726482677365676d656e747847
++626c616b65332d35643363666264653965336233303839643161306337663234
++3634333033323431333361623235616461303231363437303763333438643738
++65343032623134d81b827064616f2e6a696e672f6b6579776f72648267736567
++6d656e747847626c616b65332d31316261643239386363626663613533356266
++6636656438646536623733353161323539623731636164626462386537366432
++32656463306635646564656163d81b827064616f2e6a696e672f6b6579776f72
++6482677365676d656e747847626c616b65332d32306565346632363333393232
++3231643231373936353933616138386263343337383139623135343239373263
++313134623938383433663665336635363266380293d81b827064616f2e6a696e
++672f6b6579776f726482677365676d656e747847626c616b65332d3761356438
++3766626466663437643434313535343137666161313961306665643261306639
++393132393833343138613931363639376531666366616639366665d81b827064
++616f2e6a696e672f6b6579776f726482f6647461736b03a2d81b827064616f2e
++6a696e672f6b6579776f7264826579696e2e6b6776657273696f6e01d81b8270
++64616f2e6a696e672f6b6579776f7264826879696e2e636f646568636f6e7472
++616374627634d81b827064616f2e6a696e672f6b6579776f726482f667626c6f
++636b6564d81b827064616f2e6a696e672f6b6579776f726482f6656368696c64
++01d81b827064616f2e6a696e672f6b6579776f726482677365676d656e747847
++626c616b65332d65343135346561316437316531613932326465303838633139
++3533633763393634633830303537633832303030633362376534366536326435
++33313537366639d81b827064616f2e6a696e672f6b6579776f72648267736567
++6d656e747847626c616b65332d32306534633362666138323561303761636133
++3336393931306139653061383535333335366665363865313739383031336661
++6361663335613361643761666480d81b827064616f2e6a696e672f6b6579776f
++726482677365676d656e747847626c616b65332d396562363134323063313561
++3430623663336331316136383066663338663062306663366532626230633233
++3132633937623836303764396666663666633034d81b827064616f2e6a696e67
++2f6b6579776f726482677365676d656e747847626c616b65332d386361333162
++6639653131656630326165616334393332613463643230646135376265316230
++3961646362383862663239373733643064366562306537346132a3d81b827064
++616f2e6a696e672f6b6579776f7264826579696e2e6b657472656573a1d81b82
+ 7064616f2e6a696e672f6b6579776f726482677365676d656e747847626c616b
+-65332d3663336232623032656435363534333162326336313034346538373230
+-6663383361663035613232323732333264653666363663323033646161623231
+-323662d81b827064616f2e6a696e672f6b6579776f7264826a79696e2e6c6564
+-676572666f7574707574d81b827064616f2e6a696e672f6b6579776f72648267
+-7365676d656e747847626c616b65332d38306234313239636635333861613830
+-3365313330336462306537393662666465643235353832316165373834376564
+-63646234353364363061613761616661d81b827064616f2e6a696e672f6b6579
+-776f7264826a79696e2e6c65646765726770726f66696c65a3d81b827064616f
+-2e6a696e672f6b6579776f7264826579696e2e6b6776657273696f6e00d81b82
+-7064616f2e6a696e672f6b6579776f7264826879696e2e636f646568636f6e74
+-72616374627633d81b827064616f2e6a696e672f6b6579776f7264826979696e
+-2e6c6f7765726770726f66696c656f6173742d746f2d62797465636f6465d81b
+-827064616f2e6a696e672f6b6579776f7264826a79696e2e6c65646765726866
+-756e6374696f6ed81b827064616f2e6a696e672f6b6579776f7264826679696e
+-2e766d656c6f776572d81b827064616f2e6a696e672f6b6579776f726482f66b
+-6f626c69676174696f6e7380d81b827064616f2e6a696e672f6b6579776f7264
+-82677365676d656e747847626c616b65332d3761356438376662646666343764
+-3434313535343137666161313961306665643261306639393132393833343138
+-61393136363937653166636661663936666582d81b827064616f2e6a696e672f
++65332d6538363537353666363861646161626562626331396461653532623233
++3933393262643130393364393737303931653431613965343066323835633830
++346632d9010281d81b827064616f2e6a696e672f6b6579776f72648267736567
++6d656e747847626c616b65332d65363331363534393133636363653566326165
++6264363961396666366366313336636333313266633139616365383133343362
++31656135323630303966376230d81b827064616f2e6a696e672f6b6579776f72
++64826579696e2e6b687365676d656e7473d9010281d81b827064616f2e6a696e
++672f6b6579776f726482677365676d656e747847626c616b65332d6538363537
++3536663638616461616265626263313964616535326232333933393262643130
++393364393737303931653431613965343066323835633830346632d81b827064
++616f2e6a696e672f6b6579776f7264826579696e2e6b6f637572736f722d7072
++6f66696c6573d9010280a1d81b827064616f2e6a696e672f6b6579776f726482
++677365676d656e747847626c616b65332d653836353735366636386164616162
++6562626331396461653532623233393339326264313039336439373730393165
++34316139653430663238356338303466328483d81b827064616f2e6a696e672f
++6b6579776f726482f66376617201d81b826f64616f2e6a696e672f73796d626f
++6c82f6617783d81b827064616f2e6a696e672f6b6579776f726482f665636f6e
++737402617684d81b827064616f2e6a696e672f6b6579776f726482f66a737472
++65616d2d70757400010282d81b827064616f2e6a696e672f6b6579776f726482
++f66468616c74008081d81b827064616f2e6a696e672f6b6579776f7264826773
++65676d656e747847626c616b65332d3038363766353632666136343033653866
++3438313335663562356465326465336633383237303430363565393733643638
++386435663430356539626261633439f6f6f682d81b827064616f2e6a696e672f
+ 6b6579776f726482677365676d656e747847626c616b65332d38636133316266
+ 3965313165663032616561633439333261346364323064613537626531623039
+ 61646362383862663239373733643064366562306537346132d81b827064616f
+@@ -711,87 +711,87 @@ d9010281d81b826f64616f2e6a696e672f73796d626f6c82f66166d81b827064
+ 7264826a64616f2e73747265616d6474797065d81b827064616f2e6a696e672f
+ 6b6579776f7264826f64616f2e73747265616d2e74657374676368616e6e656c
+ d81b827064616f2e6a696e672f6b6579776f7264826a64616f2e73747265616d
+-686964656e7469747962733082d81b827064616f2e6a696e672f6b6579776f72
+-6482677365676d656e747847626c616b65332d65343135346561316437316531
+-6139323264653038386331393533633763393634633830303537633832303030
+-63336237653436653632643533313537366639d81b827064616f2e6a696e672f
+-6b6579776f726482f66862696e64696e677393d81b827064616f2e6a696e672f
+-6b6579776f726482677365676d656e747847626c616b65332d66366635373032
+-3137633931316639663338326538636366623634313936346161636533346334
+-63396661373836383962313731323839623064383763316431d81b827064616f
+-2e6a696e672f6b6579776f726482f6647461736b03a2d81b827064616f2e6a69
+-6e672f6b6579776f7264826579696e2e6b6776657273696f6e01d81b82706461
+-6f2e6a696e672f6b6579776f7264826879696e2e636f646568636f6e74726163
+-74627634d81b827064616f2e6a696e672f6b6579776f726482f667626c6f636b
+-6564d81b827064616f2e6a696e672f6b6579776f726482f664726f6f7402d81b
++686964656e7469747962733093d81b827064616f2e6a696e672f6b6579776f72
++6482677365676d656e747847626c616b65332d64393365343033376132333735
++6466623861373431623533333536623164313062323934343264646534373163
++38316131663431353433373837396432656564d81b827064616f2e6a696e672f
++6b6579776f726482f6647461736b03a2d81b827064616f2e6a696e672f6b6579
++776f7264826579696e2e6b6776657273696f6e01d81b827064616f2e6a696e67
++2f6b6579776f7264826879696e2e636f646568636f6e7472616374627634d81b
++827064616f2e6a696e672f6b6579776f726482f667626c6f636b6564d81b8270
++64616f2e6a696e672f6b6579776f726482f664726f6f7402d81b827064616f2e
++6a696e672f6b6579776f726482677365676d656e747847626c616b65332d6534
++3135346561316437316531613932326465303838633139353363376339363463
++383030353763383230303063336237653436653632643533313537366639d81b
+ 827064616f2e6a696e672f6b6579776f726482677365676d656e747847626c61
+-6b65332d65343135346561316437316531613932326465303838633139353363
+-3763393634633830303537633832303030633362376534366536326435333135
+-37366639d81b827064616f2e6a696e672f6b6579776f726482677365676d656e
+-747847626c616b65332d34656232336264663663386361363261643437316162
+-3436616132616538323661643235643263663630626231393731623332346434
+-3634376334366562343880d81b827064616f2e6a696e672f6b6579776f726482
+-677365676d656e747847626c616b65332d396562363134323063313561343062
+-3663336331316136383066663338663062306663366532626230633233313263
+-3937623836303764396666663666633034d81b827064616f2e6a696e672f6b65
+-79776f726482677365676d656e747847626c616b65332d386361333162663965
+-3131656630326165616334393332613463643230646135376265316230396164
+-6362383862663239373733643064366562306537346132a3d81b827064616f2e
+-6a696e672f6b6579776f7264826579696e2e6b657472656573a1d81b82706461
+-6f2e6a696e672f6b6579776f726482677365676d656e747847626c616b65332d
+-3466663539323638376334346465663339346533633938636433626435396463
+-6361643737383130623864366566393237363734393263363966663639343561
+-d9010281d81b827064616f2e6a696e672f6b6579776f726482677365676d656e
+-747847626c616b65332d64386364623735376333623964366365333532363165
+-6663643034303162363232626331646332613238313465353133373832316134
+-34373530396633613232d81b827064616f2e6a696e672f6b6579776f72648265
+-79696e2e6b687365676d656e7473d9010281d81b827064616f2e6a696e672f6b
+-6579776f726482677365676d656e747847626c616b65332d3466663539323638
+-3763343464656633393465336339386364336264353964636361643737383130
+-623864366566393237363734393263363966663639343561d81b827064616f2e
+-6a696e672f6b6579776f7264826579696e2e6b6f637572736f722d70726f6669
+-6c6573d9010280a1d81b827064616f2e6a696e672f6b6579776f726482677365
+-676d656e747847626c616b65332d346666353932363837633434646566333934
+-6533633938636433626435396463636164373738313062386436656639323736
+-37343932633639666636393435618984d81b827064616f2e6a696e672f6b6579
+-776f726482f667636c6f737572650181d81b826f64616f2e6a696e672f73796d
+-626f6c82f6615f0683d81b827064616f2e6a696e672f6b6579776f726482f663
+-76617203d81b826f64616f2e6a696e672f73796d626f6c82f667726571756972
+-6583d81b827064616f2e6a696e672f6b6579776f726482f665636f6e737404d8
+-1b826f64616f2e6a696e672f73796d626f6c82f668686f73742e6d6f6485d81b
+-827064616f2e6a696e672f6b6579776f726482f66463616c6c02038104f485d8
+-1b827064616f2e6a696e672f6b6579776f726482f66463616c6c00018102f482
+-d81b827064616f2e6a696e672f6b6579776f726482f66468616c740083d81b82
+-7064616f2e6a696e672f6b6579776f726482f66376617201d81b826f64616f2e
+-6a696e672f73796d626f6c8268686f73742e6d6f64616685d81b827064616f2e
+-6a696e672f6b6579776f726482f66463616c6c000180f482d81b827064616f2e
+-6a696e672f6b6579776f726482f66672657475726e0081d81b827064616f2e6a
+-696e672f6b6579776f726482677365676d656e747847626c616b65332d383333
+-3133666335386339386633336138396564333635626161376131333165383765
+-333835303730336433316134323664323861636532353231363365626281d81b
++6b65332d34656232336264663663386361363261643437316162343661613261
++6538323661643235643263663630626231393731623332346434363437633436
++6562343880d81b827064616f2e6a696e672f6b6579776f726482677365676d65
++6e747847626c616b65332d396562363134323063313561343062366333633131
++6136383066663338663062306663366532626230633233313263393762383630
++3764396666663666633034d81b827064616f2e6a696e672f6b6579776f726482
++677365676d656e747847626c616b65332d386361333162663965313165663032
++6165616334393332613463643230646135376265316230396164636238386266
++3239373733643064366562306537346132a3d81b827064616f2e6a696e672f6b
++6579776f7264826579696e2e6b657472656573a1d81b827064616f2e6a696e67
++2f6b6579776f726482677365676d656e747847626c616b65332d346666353932
++3638376334346465663339346533633938636433626435396463636164373738
++3130623864366566393237363734393263363966663639343561d9010281d81b
+ 827064616f2e6a696e672f6b6579776f726482677365676d656e747847626c61
+-6b65332d35383863623738386433336334643238393934363232646636653062
+-3362363165643735383961613662316333653065383233353232306436646264
+-65653763f6f6a5d81b827064616f2e6a696e672f6b6579776f7264826579696e
+-2e6b666f726967696ea3d81b827064616f2e6a696e672f6b6579776f72648265
+-79696e2e6b67656d697474657266706565722d61d81b827064616f2e6a696e67
+-2f6b6579776f7264826579696e2e6b6a6f6363757272656e6365782431643365
+-356237612d306332662d346136392d386231312d376536643563346233613032
+-d81b827064616f2e6a696e672f6b6579776f7264826964616f2e6c6561736565
+-6c65617365676c656173652d37d81b827064616f2e6a696e672f6b6579776f72
+-64826579696e2e6b66706f6c696379d81b827064616f2e6a696e672f6b657977
+-6f7264826579696e2e6b696578636c7573697665d81b827064616f2e6a696e67
+-2f6b6579776f7264826579696e2e6b6a6f6363757272656e6365782438663063
+-366135322d366131652d346534332d396435352d336630613463316232653031
+-d81b827064616f2e6a696e672f6b6579776f7264826579696e2e6b6b61726269
+-74726174696f6ea2d81b827064616f2e6a696e672f6b6579776f7264826a6461
+-6f2e73747265616d686964656e746974796d6172626974726174696f6e2d31d8
+-1b827064616f2e6a696e672f6b6579776f7264826a64616f2e73747265616d6a
+-64657363726970746f72a2d81b827064616f2e6a696e672f6b6579776f726482
+-6a64616f2e73747265616d6474797065d81b827064616f2e6a696e672f6b6579
+-776f726482f66672656d6f7465d81b827064616f2e6a696e672f6b6579776f72
+-6482f6647065657266706565722d62d81b827064616f2e6a696e672f6b657977
+-6f7264826579696e2e6b6b6e6578742d6f702d73657106d81b827064616f2e6a
++6b65332d64386364623735376333623964366365333532363165666364303430
++3162363232626331646332613238313465353133373832316134343735303966
++33613232d81b827064616f2e6a696e672f6b6579776f7264826579696e2e6b68
++7365676d656e7473d9010281d81b827064616f2e6a696e672f6b6579776f7264
++82677365676d656e747847626c616b65332d3466663539323638376334346465
++6633393465336339386364336264353964636361643737383130623864366566
++393237363734393263363966663639343561d81b827064616f2e6a696e672f6b
++6579776f7264826579696e2e6b6f637572736f722d70726f66696c6573d90102
++80a1d81b827064616f2e6a696e672f6b6579776f726482677365676d656e7478
++47626c616b65332d346666353932363837633434646566333934653363393863
++6433626435396463636164373738313062386436656639323736373439326336
++39666636393435618984d81b827064616f2e6a696e672f6b6579776f726482f6
++67636c6f737572650181d81b826f64616f2e6a696e672f73796d626f6c82f661
++5f0683d81b827064616f2e6a696e672f6b6579776f726482f66376617203d81b
++826f64616f2e6a696e672f73796d626f6c82f6677265717569726583d81b8270
++64616f2e6a696e672f6b6579776f726482f665636f6e737404d81b826f64616f
++2e6a696e672f73796d626f6c82f668686f73742e6d6f6485d81b827064616f2e
++6a696e672f6b6579776f726482f66463616c6c02038104f485d81b827064616f
++2e6a696e672f6b6579776f726482f66463616c6c00018102f482d81b82706461
++6f2e6a696e672f6b6579776f726482f66468616c740083d81b827064616f2e6a
++696e672f6b6579776f726482f66376617201d81b826f64616f2e6a696e672f73
++796d626f6c8268686f73742e6d6f64616685d81b827064616f2e6a696e672f6b
++6579776f726482f66463616c6c000180f482d81b827064616f2e6a696e672f6b
++6579776f726482f66672657475726e0081d81b827064616f2e6a696e672f6b65
++79776f726482677365676d656e747847626c616b65332d313463313636356238
++3261613436323239373265313763633563323365316663373066663534626334
++343838393534323532313533636664633631333866613481d81b827064616f2e
++6a696e672f6b6579776f726482677365676d656e747847626c616b65332d3538
++3863623738386433336334643238393934363232646636653062336236316564
++373538396161366231633365306538323335323230643664626465653763f6f6
++a5d81b827064616f2e6a696e672f6b6579776f7264826579696e2e6b666f7269
++67696ea3d81b827064616f2e6a696e672f6b6579776f7264826579696e2e6b67
++656d697474657266706565722d61d81b827064616f2e6a696e672f6b6579776f
++7264826579696e2e6b6a6f6363757272656e6365782431643365356237612d30
++6332662d346136392d386231312d376536643563346233613032d81b82706461
++6f2e6a696e672f6b6579776f7264826964616f2e6c65617365656c6561736567
++6c656173652d37d81b827064616f2e6a696e672f6b6579776f7264826579696e
++2e6b66706f6c696379d81b827064616f2e6a696e672f6b6579776f7264826579
++696e2e6b696578636c7573697665d81b827064616f2e6a696e672f6b6579776f
++7264826579696e2e6b6a6f6363757272656e6365782438663063366135322d36
++6131652d346534332d396435352d336630613463316232653031d81b82706461
++6f2e6a696e672f6b6579776f7264826579696e2e6b6b6172626974726174696f
++6ea2d81b827064616f2e6a696e672f6b6579776f7264826a64616f2e73747265
++616d686964656e746974796d6172626974726174696f6e2d31d81b827064616f
++2e6a696e672f6b6579776f7264826a64616f2e73747265616d6a646573637269
++70746f72a2d81b827064616f2e6a696e672f6b6579776f7264826a64616f2e73
++747265616d6474797065d81b827064616f2e6a696e672f6b6579776f726482f6
++6672656d6f7465d81b827064616f2e6a696e672f6b6579776f726482f6647065
++657266706565722d62d81b827064616f2e6a696e672f6b6579776f7264826579
++696e2e6b6b6e6578742d6f702d7365710682d81b827064616f2e6a696e672f6b
++6579776f726482677365676d656e747847626c616b65332d6534313534656131
++6437316531613932326465303838633139353363376339363463383030353763
++383230303063336237653436653632643533313537366639d81b827064616f2e
++6a696e672f6b6579776f726482f66862696e64696e6773d81b827064616f2e6a
+ 696e672f6b6579776f7264826579696e2e6b6768616e646f6666f5d81b827064
+ 616f2e6a696e672f6b6579776f7264826579696e2e6b6776657273696f6e03
+ 
+@@ -910,7 +910,7 @@ custody-not-map
+ segment/blake3-3d29f409c18d892f0b553df9ab950460e11a8bdc151a7972f7b3acce1ec6bce4
+ 
+ child-header
+-segment/blake3-72ac0f3a2ea0f65830e19b3b88962517f580a29e2c4c35258016ad48b358d523
++segment/blake3-91d1f4e782116f4d172b3d7da11129c20c8e16eee2c24850ca72b7a425905f01
+ 
+ install-without-entry
+ segment/blake3-3c2e318e87e3f381719c93ed8d2b303b9cb137bb94d3d91928c0c23659e8dea0
+@@ -919,7 +919,7 @@ op-id-at-counter
+ segment/blake3-66e184533fe4a1b5bc63095c3133b10aaba5684131f1b60f2f9dab1fbda5caed
+ 
+ child-op-id-out-of-range
+-segment/blake3-a9121e9f891092e9d3c1336142e3d7b2b783f13f77be3413bc3e18a91b950410
++segment/blake3-dee0988a36e9a00e10861bbe1512eae34093d48b7885bda65ba2ce0cfe5a8861
+ 
+ duplicate-op-id
+ segment/blake3-f207ceb70ad9e6250d0c1df8592db375b93e0c7e3c6c3210bcb67200fe4d1aed
+diff --git a/test/yang/python/antlr/linked_prelude_test.cljc b/test/yang/python/antlr/linked_prelude_test.cljc
+index 3ac70331..2f2b8a66 100644
+--- a/test/yang/python/antlr/linked_prelude_test.cljc
++++ b/test/yang/python/antlr/linked_prelude_test.cljc
+@@ -233,7 +233,7 @@
+    checksums, derivation records and index keys. The rebase onto I4-a
+    regenerates this again for statement-time import delivery."
+   (keyword (str "segment/blake3-"
+-                "2e5aebac74d6d39593fed020c333f1f5b42ae4128d4789a24f73dc88083cafc3")))
++                "4aaaa09b192c5fed22786810b43880260aa2293ea0f0bb9c7c7978f14182048a")))
+ 
+ 
+ (def ^:private vector-formats
+diff --git a/test/yang/python/antlr/linked_safepoint_test.cljc b/test/yang/python/antlr/linked_safepoint_test.cljc
+index 9c58795b..bb7c98aa 100644
+--- a/test/yang/python/antlr/linked_safepoint_test.cljc
++++ b/test/yang/python/antlr/linked_safepoint_test.cljc
+@@ -244,7 +244,7 @@
+    regenerates H/R and the pinned py requirement. The I4-a rebase moves
+    the pinned py requirement again for statement-time import delivery."
+   (keyword (str "segment/blake3-"
+-                "a28d246c025785ad24467a95df3c1da821897a323c2d9838e7bcd29cf5d88580")))
++                "76892b7085ecd325c28eaa9e07706b768998f739be06aa96cb4901002a9ca6a0")))
+ 
+ 
+ (defn- pysp-manifest-address
+diff --git a/test/yin/repl/dht_process_test.clj b/test/yin/repl/dht_process_test.clj
+index c2bc3014..dd43ae2d 100644
+--- a/test/yin/repl/dht_process_test.clj
++++ b/test/yin/repl/dht_process_test.clj
+@@ -57,7 +57,7 @@
+             [yin.vm.linker.dht :as ld]
+             [yin.vm.linker.publish :as publish]
+             [yin.vm.linker.sign :as sign]
+-            [yin.vm.semantic :as semantic]
++            [yin.vm.semantic-register :as semantic]
+             [yin.vm.test-utils :as tu])
+   (:import (java.util.concurrent TimeUnit)))
+ 
+diff --git a/test/yin/repl/serve_test.cljc b/test/yin/repl/serve_test.cljc
+index d428f660..ec35246b 100644
+--- a/test/yin/repl/serve_test.cljc
++++ b/test/yin/repl/serve_test.cljc
+@@ -444,8 +444,8 @@
+ 
+ 
+ (deftest the-composition-registers-the-v4-format-record
+-  (is (= 7 (count link/formats)))
+-  (is (some #{linker/semantic-register-format} (vals link/formats)))
+-  (is (= linker/semantic-register-format
+-         (get link/formats :yin.semantic-register/code))
++  (is (= 6 (count link/formats)))
++  (is (some #{linker/semantic-format} (vals link/formats)))
++  (is (= linker/semantic-format
++         (get link/formats :yin.semantic/code))
+       "a link request naming the v4 format resolves to its record"))
+diff --git a/test/yin/vm/ledger_test.cljc b/test/yin/vm/ledger_test.cljc
+index b458f028..0edb6129 100644
+--- a/test/yin/vm/ledger_test.cljc
++++ b/test/yin/vm/ledger_test.cljc
+@@ -16,7 +16,7 @@
+             [dao.stream.ringbuffer :as ringbuffer]
+             [yin.vm :as vm]
+             [yin.vm.ledger :as ledger]
+-            [yin.vm.linearize :as linearize]))
++            [yin.vm.semantic-register.linearize :as linearize]))
+ 
+ 
+ ;; ---------------------------------------------------------------------------
+@@ -70,7 +70,7 @@
+    answers the derive material and the receipt."
+   [log ast sym name-ent]
+   (let [bc (vm/ast->semantic-bytecode ast)
+-        material (ledger/derive-lowering bc (linearize/lower-rows bc) "tid_ev")
++        material (ledger/derive-lowering bc (linearize/project-rows bc) "tid_ev")
+         receipt (ledger/transact!
+                   log
+                   (into (:event material)
+@@ -89,7 +89,7 @@
+ (deftest derive-record-is-content-addressed
+   (let [bc (vm/ast->semantic-bytecode worked-example)
+         {:keys [record record-address segment-address tree-address]}
+-        (ledger/derive-lowering bc (linearize/lower-rows bc) "tid_ev")]
++        (ledger/derive-lowering bc (linearize/project-rows bc) "tid_ev")]
+     (is (= {:yin.ledger/op :derive
+             :yin.ledger/input tree-address
+             :yin.ledger/output segment-address
+@@ -103,12 +103,12 @@
+       (let [bc' (vm/ast->semantic-bytecode worked-example)]
+         (is (= record-address
+                (:record-address (ledger/derive-lowering
+-                                  bc' (linearize/lower-rows bc') "tid_ev"))))))
++                                  bc' (linearize/project-rows bc') "tid_ev"))))))
+     (testing "a different tree lowers to a different record"
+       (let [other (vm/ast->semantic-bytecode other-example)]
+         (is (not= record-address
+                   (:record-address (ledger/derive-lowering
+-                                     other (linearize/lower-rows other)
++                                     other (linearize/project-rows other)
+                                      "tid_ev"))))))))
+ 
+ 
+@@ -118,20 +118,20 @@
+ 
+ (deftest verification-passes-a-real-lowering
+   (let [bc (vm/ast->semantic-bytecode worked-example)
+-        lowered (linearize/lower-rows bc)
++        lowered (linearize/project-rows bc)
+         {:keys [record]} (ledger/derive-lowering bc lowered "tid_ev")]
+     (is (nil? (ledger/verify-derivation bc (:vector lowered) record)))))
+ 
+ 
+ (deftest tampered-vector-reports-derivation-mismatch
+   (let [bc (vm/ast->semantic-bytecode worked-example)
+-        lowered (linearize/lower-rows bc)
++        lowered (linearize/project-rows bc)
+         honest (ledger/derive-lowering bc lowered "tid_ev")
+         ;; A dishonest lowering: the same tree, a vector the profile does
+         ;; not lower it to, and a record claiming that vector's address as
+         ;; its output. The record is self-consistent — only re-deriving
+         ;; exposes it.
+-        tampered (assoc-in (:vector lowered) [0 1] '[q])
++        tampered (assoc-in (:vector lowered) [0 2] '[q])
+         forged (ledger/derive-record (:tree-address honest)
+                                      (jing/segment-key tampered))]
+     (is (= {:kind :yin.k/derivation-mismatch
+@@ -143,10 +143,10 @@
+ 
+ (deftest tampered-content-reports-hash-mismatch
+   (let [bc (vm/ast->semantic-bytecode worked-example)
+-        lowered (linearize/lower-rows bc)
++        lowered (linearize/project-rows bc)
+         {:keys [record]} (ledger/derive-lowering bc lowered "tid_ev")]
+     (testing "a vector that does not hash to the record's output"
+-      (let [tampered (assoc-in (:vector lowered) [0 1] '[q])]
++      (let [tampered (assoc-in (:vector lowered) [0 2] '[q])]
+         (is (= {:kind :yin.k/hash-mismatch
+                 :value (:yin.ledger/output record)}
+                (ledger/verify-derivation bc tampered record)))))
+@@ -161,7 +161,7 @@
+ 
+ (deftest foreign-profile-reports-profile-mismatch
+   (let [bc (vm/ast->semantic-bytecode worked-example)
+-        lowered (linearize/lower-rows bc)
++        lowered (linearize/project-rows bc)
+         {:keys [record]} (ledger/derive-lowering bc lowered "tid_ev")
+         v2 {:yin.lower/profile "ast-to-bytecode-v2"
+             :yin.code/contract "v2"
+diff --git a/test/yin/vm/linker/closure_test.cljc b/test/yin/vm/linker/closure_test.cljc
+index 3f175151..0c182062 100644
+--- a/test/yin/vm/linker/closure_test.cljc
++++ b/test/yin/vm/linker/closure_test.cljc
+@@ -175,17 +175,14 @@
+                                        [:yin.module/derivations :yin.debruijn.code]
+                                        (get-in other [:manifest :yin.module/derivations
+                                                       :yin.debruijn.code])))])
+-     (let [[store res] (fresh)
+-           h (get-in res [:identities :yin.debruijn.code])]
++     (let [[store res] (fresh)]
+        [:index-entry-missing store
+-        (with-manifest store (update (:manifest res) :yin.module/index dissoc h))])
++        (with-manifest store (update (:manifest res) :yin.module/index dissoc :yin.debruijn.code))])
+      (let [[store res] (fresh)
+-           {:keys [manifest identities]} res
+-           h (:yin.debruijn.code identities)
+-           r (:yin.debruijn.register identities)]
++           {:keys [manifest]} res]
+        [:identity-mismatch store
+-        (with-manifest store (assoc-in manifest [:yin.module/index h]
+-                                       (get-in manifest [:yin.module/index r])))])
++        (with-manifest store (assoc-in manifest [:yin.module/index :yin.debruijn.code]
++                                       (get-in manifest [:yin.module/index :yin.debruijn.register])))])
+      (let [[store res] (fresh)]
+        [:parts-limit store (:address res) {:bounds {:max-parts 3}}])]))
+ 
+@@ -257,8 +254,6 @@
+         {:keys [leaf interior]} (leaf-and-interior store tree)
+         records (:yin.module/derivations manifest)
+         {:keys [identities]} app
+-        h (:yin.debruijn.code identities)
+-        r (:yin.debruijn.register identities)
+         base-m (:address base)
+         base-tree (get-in base [:manifest :yin.module/tree])
+         cases [[m :manifest [m]]
+@@ -269,8 +264,8 @@
+                [(:yin.debruijn.code records) :record [m]]
+                [(:yin.debruijn.register records) :record [m]]
+                [(:yin.semantic/code identities) :image [m]]
+-               [(get-in manifest [:yin.module/index h]) :image [m]]
+-               [(get-in manifest [:yin.module/index r]) :image [m]]
++               [(get-in manifest [:yin.module/index :yin.debruijn.code]) :image [m]]
++               [(get-in manifest [:yin.module/index :yin.debruijn.register]) :image [m]]
+                [base-m :require [m base-m]]
+                [base-tree :row [m base-m]]]]
+     (is (some? leaf))
+diff --git a/test/yin/vm/linker/cross_host_transfer_test.clj b/test/yin/vm/linker/cross_host_transfer_test.clj
+index 418923e6..97a42731 100644
+--- a/test/yin/vm/linker/cross_host_transfer_test.clj
++++ b/test/yin/vm/linker/cross_host_transfer_test.clj
+@@ -131,20 +131,16 @@
+                                    :ast fixtures/worked-example
+                                    :exports #{} :requires {}
+                                    :primitives
+-                                   {'+ {:yin.k/profile :test/add
+-                                        :yin.k/effects #{}}}})
++                                   {'+ (get vm/primitives '+)}})
+                 identity (get-in published [:identities (:format format)])
+-                index (select-keys
+-                        (get-in published [:manifest :yin.module/index])
+-                        [identity])
+-                initial {:kind kind :identity identity :index index}
++                initial {:kind kind :identity identity :manifest (:address published)}
+                 received (receive! store initial)
+                 local (b0/normalize
+                         (vm/value (vm/eval (tu/create-vm)
+                                            fixtures/worked-example)))]
+             (is (jing/segment-address? (:address published)))
+             (is (every? #(= :ok (:status %)) (vals (:links published))))
+-            (is (= #{:kind :identity :index} (set (keys initial))))
++            (is (= #{:kind :identity :manifest} (set (keys initial))))
+             (is (= :ok (get-in received [:result :status]))
+                 (pr-str received))
+             (is (true? (:identity-matches received)))
+@@ -155,7 +151,12 @@
+                     (linker/publish! store format
+                                      (image lower fixtures/other-program))
+                     reply (receive! store
+-                                    (assoc initial :index {identity address}))]
++                                    (assoc initial :manifest
++                                           (jing/materialize!
++                                             store
++                                             (assoc-in (:manifest published)
++                                                       [:yin.module/index (:format format)]
++                                                       address))))]
+                 (is (= {:status :refused :reason :hash-mismatch
+                         :expected identity :actual foreign}
+                        (:result reply)))
+diff --git a/test/yin/vm/linker/dht_test.cljc b/test/yin/vm/linker/dht_test.cljc
+index 3bbea2bd..af4b5b00 100644
+--- a/test/yin/vm/linker/dht_test.cljc
++++ b/test/yin/vm/linker/dht_test.cljc
+@@ -29,7 +29,7 @@
+             [yin.vm.linker.publish :as publish]
+             [yin.vm.linker.publish-test :as publish-test]
+             [yin.vm.linker.sign :as sign]
+-            [yin.vm.semantic :as semantic]
++            [yin.vm.semantic-register :as semantic]
+             [yin.vm.test-utils :as tu]))
+ 
+ 
+@@ -210,8 +210,7 @@
+     (let [source (mem/create-content-mem)
+           res (ct/publish-base! source)
+           m (:address res)
+-          h (get-in res [:identities :yin.debruijn.code])
+-          h-address (get-in res [:manifest :yin.module/index h])
++          h-address (get-in res [:manifest :yin.module/index :yin.debruijn.code])
+           w (world {} {:local (ct/without source h-address)})
+           w (update w :b ld/load-module m)
+           seen (atom #{})
+diff --git a/test/yin/vm/linker/publish_test.cljc b/test/yin/vm/linker/publish_test.cljc
+index 9c69622e..7954f5c4 100644
+--- a/test/yin/vm/linker/publish_test.cljc
++++ b/test/yin/vm/linker/publish_test.cljc
+@@ -76,7 +76,7 @@
+ 
+ 
+ (deftest a-required-manifest-with-a-malformed-index-refuses-as-data
+-  (doseq [bad [42 [1] "bad"]]
++  (doseq [bad [42 [1] "bad" {"H" (jing/segment-key [:native])}]]
+     (testing (pr-str bad)
+       (let [store (mem/create-content-mem)
+             dep (:manifest (publish/publish-module!
+@@ -420,3 +420,31 @@
+       (is (= [[7 :yin.module/envelope (:envelope (first first-time))]
+               [7 :yin.module/proof (:proof (first first-time))]]
+              (:datoms (publish/assertion k1 {:name 'lib :manifest a :seq 1 :e 7})))))))
++
++
++(deftest publication-keeps-the-tree-and-derives-native-images-from-a
++  (let [store (mem/create-content-mem)
++        spec {:name 'example :ast module-ast :exports #{'f}
++              :requires {} :primitives {}}
++        {:keys [manifest identities links] :as result}
++        (publish/publish-module! store spec)
++        records (into {} (map (fn [[f a]] [f (jing/get store a nil)]))
++                      (:yin.module/derivations manifest))
++        a (get-in records [:yin.semantic/code :yin.ledger/output])
++        tree (:yin.module/tree manifest)]
++    (is (= "v4" (get-in manifest [:yin.module/contracts :yin.semantic/code])))
++    (is (= #{:yin.semantic/code :yin.debruijn.code :yin.debruijn.register}
++           (set (keys records))))
++    (is (= #{:yin.debruijn.code :yin.debruijn.register}
++           (set (keys (:yin.module/index manifest)))))
++    (is (= tree (get-in records [:yin.semantic/code :yin.ledger/input])))
++    (is (some? (jing/get store tree nil)) "the AST remains retrievable")
++    (is (vector? (jing/get store a nil)) "A's exact vector is materialized")
++    (doseq [f [:yin.debruijn.code :yin.debruijn.register]]
++      (is (= a (get-in records [f :yin.ledger/input])))
++      (is (= a (get identities f) (get-in links [f :identity])))
++      (is (= (get-in manifest [:yin.module/index f])
++             (get-in links [f :address])))
++      (is (= :ok (get-in links [f :status]))))
++    (is (= manifest (:manifest (publish/publish-module! store spec))))
++    (is (= (:address result) (jing/segment-key manifest)))))
+diff --git a/test/yin/vm/linker/transfer_peer.cljd b/test/yin/vm/linker/transfer_peer.cljd
+index cc3a819f..3429b6d5 100644
+--- a/test/yin/vm/linker/transfer_peer.cljd
++++ b/test/yin/vm/linker/transfer_peer.cljd
+@@ -1,6 +1,6 @@
+ (ns yin.vm.linker.transfer-peer
+   "Dart receiver for the JVM transfer test. Bootstrap contains only
+-   format, identity, and index. Transit lines carry remote protocol
++   format, A, and manifest address. Transit lines carry remote protocol
+    envelopes; each side interprets them through dao.stream.remote over
+    rings. Verified H and R images execute in their native VMs."
+   (:require ["dart:io" :as io]
+@@ -43,7 +43,7 @@
+ 
+ (defn ^{:dart/name main} main
+   [_args]
+-  (let [{:keys [kind identity index]} (read!)
++  (let [{:keys [kind identity manifest]} (read!)
+         format (case kind :H linker/stack-format :R linker/register-format)
+         load-image (case kind :H dvm/create-vm :R rvm/create-vm)
+         incoming (medium)
+@@ -61,8 +61,10 @@
+                              :dao.stream/identity name
+                              :dao.stream/channel channel})))
+         runtime {:state (linker/link-state
+-                          {:formats {(:format format) format}
+-                           :indexes {(:format format) index}
++                          {:formats (into {} (map (fn [f] [(:format f) f]))
++                                          [linker/ast-format linker/semantic-format
++                                           linker/stack-format linker/register-format
++                                           linker/manifest-format linker/record-format])
+                            :content {:requests (attach "requests")
+                                      :answers (attach "answers")
+                                      :cursor :dao.stream/newest}})
+@@ -71,14 +73,16 @@
+                           (doseq [value (:wire (read!))]
+                             (stream/append! incoming value))
+                           state)}
+-        result (linker/fetch runtime (:format format) identity
+-                             {:primitives vm/primitives}
+-                             {:contract (:contract format)})]
++        result (linker/link-manifest runtime manifest (:format format)
++                                     {:primitives vm/primitives}
++                                     {:contract (:contract format)})]
+     (emit!
+       (if (linker/ok? result)
+         {:result (dissoc result :value)
+          :identity-matches
+-         ((:identity-matches-fn format) identity (:value result))
++         (and (= identity (:identity result))
++              (= (get-in result [:derivation :yin.ledger/output])
++                 ((:identity-fn format) (:value result))))
+          :value (vm/value
+                   (vm/run
+                     (load-image (:value result)
+diff --git a/test/yin/vm/linker_manifest_test.cljc b/test/yin/vm/linker_manifest_test.cljc
+index 59c0ff2c..969823f5 100644
+--- a/test/yin/vm/linker_manifest_test.cljc
++++ b/test/yin/vm/linker_manifest_test.cljc
+@@ -10,8 +10,8 @@
+             [dao.jing.mem :as mem]
+             [yin.vm :as vm]
+             [yin.vm.ast-walker :as ast-walker]
+-            #?@(:cljd [] :clj [[yin.vm.debruijn-linearize :as linearize]])
+-            [yin.vm.debruijn-register-compile :as rc]
++            [yin.vm.semantic-register.derive :as derive]
++            [yin.vm.semantic-register.linearize :as sr-linearize]
+             [yin.vm.debruijn-vm-contract-test :as b0]
+             [yin.vm.debruijn.register :as rvm]
+             [yin.vm.debruijn.stack :as dvm]
+@@ -20,7 +20,7 @@
+             [yin.vm.linker.publish :as publish]
+             [yin.vm.linker-test :as lt]
+             [yin.vm.module :as module]
+-            [yin.vm.semantic :as semantic]
++            [yin.vm.semantic-register :as semantic]
+             [yin.vm.test-utils :as tu]))
+ 
+ 
+@@ -43,7 +43,7 @@
+   "The register image `ast` lowers to, over the public datom lane (the
+    linker-test helper is private)."
+   [ast]
+-  (:image (rc/adapt (vm/ast->datoms ast))))
++  (derive/register-image (:vector (sr-linearize/project ast))))
+ 
+ 
+ (defn- derive-records
+@@ -54,13 +54,13 @@
+   (let [s (lt/publish store linker/semantic-format (lt/semantic-vector ast))
+         h (lt/publish store linker/stack-format (lt/stack-image ast))
+         r (lt/publish store linker/register-format (register-image ast))
+-        mint (fn [out profile]
++        mint (fn [input out profile]
+                (jing/materialize!
+-                 store (assoc (ledger/derive-record tree-addr out)
++                 store (assoc (ledger/derive-record input out)
+                               :yin.ledger/profile profile)))]
+-    {:yin.semantic/code (mint (:identity s) ledger/lowering-profile)
+-     :yin.debruijn.code (mint (:identity h) linker/stack-lowering-profile)
+-     :yin.debruijn.register (mint (:identity r)
++    {:yin.semantic/code (mint tree-addr (:identity s) ledger/lowering-profile)
++     :yin.debruijn.code (mint (:identity s) (:identity h) linker/stack-lowering-profile)
++     :yin.debruijn.register (mint (:identity s) (:identity r)
+                                   linker/register-lowering-profile)
+      :identities {:sem (:identity s), :h (:identity h), :r (:identity r)}
+      :addresses {:h (:address h), :r (:address r)}}))
+@@ -73,18 +73,18 @@
+    `:address`, and the minted records' own data under `:records`."
+   ([store ast] (module-manifest store ast 'my.lib))
+   ([store ast name]
+-   (let [{:keys [manifest address identities]}
++   (let [{:keys [manifest address identities checksums]}
+          (publish/publish-module!
+            store {:name name :ast ast :exports #{}
+                   :requires {} :primitives {'+ (get vm/primitives '+)}})
+-         h (:yin.debruijn.code identities)
+-         r (:yin.debruijn.register identities)]
++         h (:yin.debruijn.code checksums)
++         r (:yin.debruijn.register checksums)]
+      {:manifest manifest :address address
+       :records (assoc (:yin.module/derivations manifest)
+                       :identities {:sem (:yin.semantic/code identities)
+                                    :h h :r r}
+-                      :addresses {:h (get-in manifest [:yin.module/index h])
+-                                  :r (get-in manifest [:yin.module/index r])})
++                      :addresses {:h (get-in manifest [:yin.module/index :yin.debruijn.code])
++                                  :r (get-in manifest [:yin.module/index :yin.debruijn.register])})
+       :tree (:yin.module/tree manifest)})))
+ 
+ 
+@@ -242,32 +242,15 @@
+ #?(:cljd nil
+    :clj
+    (deftest a-tree-the-lowering-cannot-run-is-unverified-derivation
+-     (doseq [[format lower] [[linker/stack-format #'linearize/adapt]
+-                             [linker/register-format #'rc/adapt]]]
++     (doseq [[format lower] [[linker/stack-format #'derive/stack-image]
++                             [linker/register-format #'derive/register-image]]]
+        (let [store (mem/create-content-mem)
+-             tree (vm/materialize-tree!
+-                    store (vm/ast->semantic-bytecode lt/worked-example))
++             {:keys [address]} (module-manifest store lt/worked-example)
+              profile (if (= linker/stack-format format)
+                        linker/stack-lowering-profile
+                        linker/register-lowering-profile)
+-             rec (jing/materialize!
+-                   store (assoc (ledger/derive-record tree "out")
+-                                :yin.ledger/profile profile))
+-             addr (jing/materialize!
+-                    store
+-                    {:yin.module/name 'my.lib
+-                     :yin.module/schema linker/manifest-schema
+-                     :yin.module/contracts {(:format format)
+-                                            (:contract format)}
+-                     :yin.module/tree tree
+-                     :yin.module/derivations {(:format format) rec}
+-                     :yin.module/index {}
+-                     :yin.module/exports #{}
+-                     :yin.module/requires {}
+-                     :yin.module/primitives {}
+-                     :yin.module/footprint {:store-keys #{}, :effects #{}}})
+              res (with-redefs-fn {lower (fn [_] (throw (ex-info "no" {})))}
+-                   (fn [] (link-local store addr format)))]
++                   (fn [] (link-local store address format)))]
+          (is (= {:status :refused, :reason :unverified-derivation,
+                  :format (:format format), :profile profile,
+                  :missing :relowering}
+@@ -350,10 +333,8 @@
+                   {:yin.semantic/code (get recs :yin.semantic/code)
+                    :yin.debruijn.code (get recs :yin.debruijn.code)
+                    :yin.debruijn.register (get recs :yin.debruijn.register)}
+-                  :yin.module/index {(get-in recs [:identities :h])
+-                                     (get-in recs [:addresses :h])
+-                                     (get-in recs [:identities :r])
+-                                     (get-in recs [:addresses :r])}
++                  :yin.module/index {:yin.debruijn.code (get-in recs [:addresses :h])
++                                     :yin.debruijn.register (get-in recs [:addresses :r])}
+                   :yin.module/exports #{}
+                   :yin.module/requires {}
+                   :yin.module/primitives {'+ plus-profile, '* plus-profile}
+@@ -716,13 +697,13 @@
+   (let [store (mem/create-content-mem)
+         {:keys [address] :as minted} (module-manifest store
+                                                       lt/worked-example)
+-        h (get-in minted [:records :identities :h])]
++        a (get-in minted [:records :identities :sem])]
+     (testing "trusted-fallback names composition trust"
+       (let [res (linker/trusted-fallback (manifest-runtime store) address
+                                          lt/receiver)]
+         (is (linker/ok? res))
+         (is (= :composition (:trust res)))
+-        (is (= h (:identity res)))
++        (is (= a (:identity res)))
+         (is (= :yin.debruijn.code (:format res)))
+         (is (= {:root (:tree minted), :manifest address,
+                 :from :yin.debruijn.register}
+@@ -744,3 +725,26 @@
+                (:reason (linker/verifying-fallback (manifest-runtime store)
+                                                    address lt/receiver))))))
+     (jing/close! store)))
++
++
++(deftest native-verification-checks-the-semantic-derivation-too
++  (let [store (mem/create-content-mem)
++        {:keys [manifest tree]} (module-manifest store lt/worked-example)
++        other (lt/publish store linker/semantic-format
++                          (lt/semantic-vector lt/other-program))
++        a (:identity other)
++        forged (into {}
++                     (map (fn [[f address]]
++                            (let [record (jing/get store address nil)
++                                  record (if (= :yin.semantic/code f)
++                                           (assoc record :yin.ledger/output a)
++                                           (assoc record :yin.ledger/input a))]
++                              [f (jing/materialize! store record)])))
++                     (:yin.module/derivations manifest))
++        address (jing/materialize! store (assoc manifest :yin.module/derivations forged))]
++    (is (= tree (:yin.module/tree manifest)))
++    (doseq [format [linker/stack-format linker/register-format]]
++      (is (= :derivation-mismatch
++             (:reason (link-local store address format
++                                 (linking format :verifying))))))
++    (jing/close! store)))
+diff --git a/test/yin/vm/linker_require_test.cljc b/test/yin/vm/linker_require_test.cljc
+index e0affca5..a47253c9 100644
+--- a/test/yin/vm/linker_require_test.cljc
++++ b/test/yin/vm/linker_require_test.cljc
+@@ -21,19 +21,16 @@
+             [yin.vm :as vm]
+             [yin.vm.ast-walker :as walker]
+             [yin.vm.debruijn-code :as dcode]
+-            [yin.vm.debruijn-linearize :as dl]
+             [yin.vm.debruijn-register-code :as rcode]
+-            [yin.vm.debruijn-register-compile :as rc]
++            [yin.vm.semantic-register.derive :as derive]
+             [yin.vm.debruijn.register :as rvm]
+             [yin.vm.debruijn.stack :as dvm]
+             [yin.vm.engine :as engine]
+-            [yin.vm.linearize :as linearize]
+             [yin.vm.linker :as linker]
+             [yin.vm.linker.interpreter :as link]
+             [yin.vm.linker.publish :as publish]
+             [yin.repl :as repl]
+             [yin.vm.module :as module]
+-            [yin.vm.semantic :as semantic]
+             [yin.vm.semantic-register :as sr]
+             [yin.vm.semantic-register.linearize :as sr-linearize]
+             [yin.vm.test-utils :as tu]
+@@ -90,22 +87,22 @@
+ ;; =============================================================================
+ 
+ (def ^:private semantic-loader
+-  (linearize/ast-loader semantic/vm-load-program))
++  sr/load-ast)
+ 
+ 
+ (defn- stack-image
+   [ast]
+-  (:image (dl/adapt (vm/ast->datoms ast))))
++  (:image (derive/stack-image (:vector (sr-linearize/project ast)))))
+ 
+ 
+ (defn- register-image
+   [ast]
+-  (:image (rc/adapt (second (vm/ast->datoms-with-root ast)))))
++  (derive/register-image (:vector (sr-linearize/project ast))))
+ 
+ 
+ (defn- semantic-vector
+   [ast]
+-  (:vector (linearize/lower-rows (vm/ast->semantic-bytecode ast))))
++  (:vector (sr-linearize/project ast)))
+ 
+ 
+ (defn- single-part-obligations
+@@ -168,7 +165,7 @@
+    :semantic
+    {:image semantic-vector,
+     :vm (fn [ast opts]
+-          (semantic-loader (semantic/create-vm opts)
++          (semantic-loader (sr/create-vm opts)
+                            (vm/ast->datoms ast)
+                            vm/ast-contract)),
+     :continue (fn [task ast]
+@@ -1259,7 +1256,7 @@
+                                            :contract vm/stack-contract}))
+         closure (values/payload (get (vm/store stack-task) 'f))
+         marker (module/lift-closure stack-task closure identity)
+-        semantic-task (semantic/create-vm {})
++        semantic-task (sr/create-vm {})
+         register-task (rvm/create-vm nil {})]
+     (is (= :positional (:yin.k/binding marker)))
+     (is (= :binding-mismatch
+diff --git a/test/yin/vm/linker_test.cljc b/test/yin/vm/linker_test.cljc
+index 38256d7b..69c387cf 100644
+--- a/test/yin/vm/linker_test.cljc
++++ b/test/yin/vm/linker_test.cljc
+@@ -19,7 +19,8 @@
+             [dao.test-slow :as slow]
+             [yin.vm :as vm]
+             [yin.vm.ast-walker :as ast-walker]
+-            [yin.vm.code :as code]
++            [yin.vm.semantic-register.code :as code]
++            [yin.vm.semantic :as old-semantic]
+             [yin.vm.semantic-register.linearize :as sr-linearize]
+             [yin.vm.semantic-register.derive :as derive]
+             [yin.vm.debruijn-code :as dcode]
+@@ -29,10 +30,9 @@
+             [yin.vm.debruijn-vm-contract-test :as b0]
+             [yin.vm.debruijn.register :as rvm]
+             [yin.vm.debruijn.stack :as dvm]
+-            [yin.vm.linearize :as lin]
+-            [yin.vm.linker :as linker]
++                        [yin.vm.linker :as linker]
+             [yin.vm.linker.publish :as publish]
+-            [yin.vm.semantic :as semantic]
++            [yin.vm.semantic-register :as semantic]
+             [yin.vm.test-utils :as tu]))
+ 
+ 
+@@ -204,19 +204,6 @@
+        (v 'x)))
+ 
+ 
+-(def ^:private scan-vector
+-  "A hand-built canonical vector: an unconditional binding, one inside a
+-   jump's target range, a call site, and a closure body reading `w`."
+-  [[:store-put 'y 1]     ; 0 unconditional
+-   [:jump 4]             ; 1 skips 2 and 3
+-   [:store-put 'z 1]     ; 2 inside the jump's target range
+-   [:call 0 false]       ; 3 also inside it
+-   [:halt]               ; 4
+-   [:closure [] 6]       ; 5
+-   [:var 'w]             ; 6 free, inside the closure body
+-   [:return]])           ; 7
+-
+-
+ (def ^:private scan-stack-vector
+   "`scan-vector` in the stack dimension's own mnemonics."
+   [[:store-put 'y 1]
+@@ -240,11 +227,8 @@
+ (def ^:private no-site-vector
+   "`(vm/store-put v 1)`, then a closure reading `v`, then halt: nothing
+    applies the closure before halt."
+-  [[:store-put 'v 1]
+-   [:closure [] 3]
+-   [:halt]
+-   [:var 'v]
+-   [:return]])
++  (:vector (sr-linearize/project
++             (app (v 'yin/def) (lit 'v) (lam [] (v 'v))))))
+ 
+ 
+ (defn- ast-datoms
+@@ -266,7 +250,7 @@
+   "The canonical instruction vector `ast` lowers to: the payload of the
+    `:yin.semantic/code` format (section 5.2)."
+   [ast]
+-  (:vector (lin/lower-rows (vm/ast->semantic-bytecode ast))))
++  (:vector (sr-linearize/project ast)))
+ 
+ 
+ (def ^:private vector-formats
+@@ -532,19 +516,24 @@
+ ;; Free-name scanners and format records
+ ;; =============================================================================
+ 
++(defn- semantic-free-names
++  [v]
++  (into #{} (map :name) ((:obligations-fn linker/semantic-format) v)))
++
++
+ (deftest free-name-scanners-read-every-load-free
+   (is (= '[+] (linker/stack-free-names (stack-image worked-example))))
+   (is (= '[+] (linker/register-free-names (register-image worked-example))))
+   (is (= [] (linker/stack-free-names (stack-image closed-program))))
+   (is (= [] (linker/register-free-names (register-image closed-program))))
+   (is (= '[nope] (linker/stack-free-names (stack-image unknown-free))))
+-  (is (= '#{+} (linker/semantic-free-names
++  (is (= '#{+} (semantic-free-names
+                  (semantic-vector worked-example))))
+-  (is (= '#{nope} (linker/semantic-free-names
++  (is (= '#{nope} (semantic-free-names
+                     (semantic-vector unknown-free))))
+-  (is (= '#{} (linker/semantic-free-names
++  (is (= '#{} (semantic-free-names
+                 (semantic-vector closed-program))))
+-  (is (= '#{} (linker/semantic-free-names
++  (is (= '#{} (semantic-free-names
+                 (semantic-vector nested-capture)))
+       "a read in the inner body binds through the outer closure")
+   (is (= '[+]
+@@ -560,15 +549,15 @@
+ 
+ 
+ (deftest format-records-name-their-contract
+-  (is (= :yin.semantic-register/code (:format linker/semantic-register-format)))
+-  (is (= "v4" (:contract linker/semantic-register-format)))
++  (is (= :yin.semantic/code (:format linker/semantic-format)))
++  (is (= "v4" (:contract linker/semantic-format)))
+   (is (= :yin.debruijn.code (:format linker/stack-format)))
+   (is (= :yin.debruijn.register (:format linker/register-format)))
+   (is (= :yin.semantic/code (:format linker/semantic-format)))
+   (is (= :yin.ast/code (:format linker/ast-format)))
+   (is (= "b2" (:contract linker/stack-format)))
+   (is (= "r2" (:contract linker/register-format)))
+-  (is (= "v3" (:contract linker/semantic-format)))
++  (is (= "v4" (:contract linker/semantic-format)))
+   (is (= "v3" (:contract linker/ast-format)))
+   (is (= [vm/stack-contract vm/register-contract vm/semantic-contract
+           vm/ast-contract]
+@@ -812,8 +801,7 @@
+ 
+ 
+ (deftest vector-scanners-yield-position-bearing-records
+-  (doseq [[label format v] [[:SEM linker/semantic-format scan-vector]
+-                            [:H linker/stack-format scan-stack-vector]]]
++  (doseq [[label format v] [[:H linker/stack-format scan-stack-vector]]]
+     (testing label
+       (is (= [{:name 'w, :at 6, :in-body? true}]
+              ((:obligations-fn format) v))
+@@ -1668,7 +1656,7 @@
+    to `k`: a register instruction carries its key after the destination
+    register."
+   [format image k]
+-  (let [slot (if (= :yin.debruijn.register (:format format)) 2 1)
++  (let [slot (if (contains? #{:yin.debruijn.register :yin.semantic/code} (:format format)) 2 1)
+         rekey-t (fn [t]
+                   (if (contains? #{:store-put :define} (nth t 0))
+                     (assoc t slot k)
+@@ -1807,22 +1795,13 @@
+     (jing/close! store)))
+ 
+ 
+-(deftest an-unreadable-vector-layout-degrades-conservatively
++(deftest an-unreadable-vector-layout-is-refused
+   (let [store (mem/create-content-mem)
+-        address (code/materialize-vector! store unreadable-vector)
+-        format linker/semantic-format]
+-    (is (= [{:name 'q, :at nil, :in-body? true}]
+-           ((:obligations-fn format) unreadable-vector))
+-        "every occurrence is retained, at no position")
+-    (is (= [{:name 'x, :at nil, :conditional? true}]
+-           ((:definitions-fn format) unreadable-vector))
+-        "no definition discharges anything")
+-    (is (= [{:at nil}] ((:applications-fn format) unreadable-vector))
+-        "no application position is usable")
+-    (is (= {:status :refused, :reason :unresolved-free, :name 'q}
+-           (select-keys (fetch-local store {address address} format
+-                                     address {} (requested format))
+-                        [:status :reason :name])))
++        address (jing/materialize! store unreadable-vector)
++        format linker/semantic-format
++        result (fetch-local store {address address} format address {}
++                            (requested format))]
++    (is (= :descriptor-defect (:reason result)))
+     (jing/close! store)))
+ 
+ 
+@@ -1961,7 +1940,7 @@
+ 
+ (deftest verifying-fallback-re-lowers-the-named-root
+   ;; The production pairing verifier uses the old allocator until slice 8c.
+-  (let [old-register-image (fn [ast] (:image (rc/adapt (ast-datoms ast))))
++  (let [old-register-image register-image
+         store (mem/create-content-mem)
+         {:keys [H R h-index]} (mint-root store worked-example old-register-image)
+         other (mint-root store other-program old-register-image)
+@@ -1999,7 +1978,7 @@
+ (defn- lifted-value
+   [named-vector]
+   (b0/normalize
+-    (vm/value (vm/run (semantic/load-vector (semantic/create-vm)
++    (vm/value (vm/run (old-semantic/load-vector (old-semantic/create-vm)
+                                             named-vector
+                                             vm/semantic-contract)))))
+ 
+@@ -2086,7 +2065,7 @@
+ 
+ (deftest semantic-register-scanners-yield-position-bearing-records
+   (let [vector (:vector (sr-linearize/project def-then-use))
+-        {:keys [obligations-fn definitions-fn applications-fn]} linker/semantic-register-format
++        {:keys [obligations-fn definitions-fn applications-fn]} linker/semantic-format
+         defs (definitions-fn vector)
+         occs (obligations-fn vector)]
+     (is (= [{:name 'x :conditional? false}]
+@@ -2099,7 +2078,7 @@
+ 
+ (deftest semantic-register-format-refuses-a-malformed-vector
+   (doseq [[label format] [[:v3 linker/semantic-format]
+-                          [:v4 linker/semantic-register-format]]]
++                          [:v4 linker/semantic-format]]]
+     (testing label
+       (let [bad '[[:jump 9]]
+             a (jing/segment-key bad)]
+diff --git a/test/yin/vm/semantic_register/code_test.cljc b/test/yin/vm/semantic_register/code_test.cljc
+index 7b92d664..8bdb1f45 100644
+--- a/test/yin/vm/semantic_register/code_test.cljc
++++ b/test/yin/vm/semantic_register/code_test.cljc
+@@ -150,8 +150,8 @@
+ (deftest load-vector-checks-the-stamp-then-the-rules
+   (let [v (:vector (get corpus/goldens :worked-example))]
+     (is (= "v4" code/contract))
+-    (is (not= vm/semantic-contract code/contract)
+-        "the running stack-shaped machine keeps its own stamp until cutover")
++    (is (= vm/semantic-contract code/contract)
++        "the production semantic machine uses the v4 contract")
+     (is (= :contract-missing (:rule (throws-ex-data #(code/load-vector v nil)))))
+     (is (= :contract-mismatch (:rule (throws-ex-data #(code/load-vector v "v3")))))
+     (is (= {:rule :register-ids, :pc 0}
+diff --git a/test/yin/vm/semantic_register/link_test.cljc b/test/yin/vm/semantic_register/link_test.cljc
+index a8a8c7de..6003448b 100644
+--- a/test/yin/vm/semantic_register/link_test.cljc
++++ b/test/yin/vm/semantic_register/link_test.cljc
+@@ -77,7 +77,7 @@
+     (is (= :install (:reason install-entry)))
+     (is (= payload (select-keys install-entry (keys payload))))
+     (is (= 'foo (:yin.link/name request)))
+-    (is (= :yin.semantic-register/code (:yin.link/format request)))
++    (is (= :yin.semantic/code (:yin.link/format request)))
+     (is (= [nil 42 2] (vm/value done)))
+     (is (vm/halted? done))
+     (is (empty? (:wait-set done)))
+@@ -124,8 +124,8 @@
+         closure (values/payload (vm/value machine))
+         marker (module/lift-closure machine closure identity)
+         lower #(module/lower-closure machine % identity)]
+-    (is (= {:format :yin.semantic-register/code :contract code/contract} (module/link-format machine)))
+-    (is (= :yin.semantic-register/code (:yin.k/format marker)))
++    (is (= {:format :yin.semantic/code :contract code/contract} (module/link-format machine)))
++    (is (= :yin.semantic/code (:yin.k/format marker)))
+     (is (= closure (values/payload (lower marker))))
+     (is (= :marker-mismatch (:reason (refusal #(lower (assoc marker :yin.k/params '[y]))))))
+     (is (= :marker-mismatch (:reason (refusal #(lower (assoc marker :yin.k/entry 0))))))
+@@ -154,7 +154,7 @@
+     (is (= :child (:origin child)))
+     (is (= ['foo] (:ancestry child)))
+     (is (= tu/secret (:capability-secret child)))
+-    (is (= :yin.semantic-register/code (:format (module/link-format child))))))
++    (is (= :yin.semantic/code (:format (module/link-format child))))))
+ 
+ 
+ (deftest walker-link-parity
+diff --git a/test/yin/vm/semantic_register/scan_test.cljc b/test/yin/vm/semantic_register/scan_test.cljc
+index 50dd1689..324efcc6 100644
+--- a/test/yin/vm/semantic_register/scan_test.cljc
++++ b/test/yin/vm/semantic_register/scan_test.cljc
+@@ -5,7 +5,6 @@
+                                 [dao.jing.cbor :as cbor]])
+             [dao.test-slow :as slow]
+             [yin.vm :as vm]
+-            [yin.vm.code :as old-code]
+             [yin.vm.completion :as completion]
+             [yin.vm.linearize :as old-linearize]
+             [yin.vm.linker :as linker]
+@@ -60,17 +59,10 @@
+    :join (normalized-join fmt vector)})
+ 
+ 
+-(defn old-answer
+-  [ast]
+-  (let [vector (:vector (old-linearize/lower-rows (vm/ast->semantic-bytecode ast)))]
+-    (answer linker/semantic-format vector
+-            (vm/segment-requirements (query/relation (old-code/project-segment-qualified vector))))))
+-
+-
+ (defn new-answer
+   [ast]
+   (let [vector (:vector (linearize/project ast))]
+-    (answer linker/semantic-register-format vector (scan/requirements vector))))
++    (answer linker/semantic-format vector (scan/requirements vector))))
+ 
+ 
+ (defn emission-oracle
+@@ -183,7 +175,7 @@
+     (let [tree (vm/ast->semantic-bytecode ast)
+           rows (query/relation (vals (:rows tree)))
+           occ (query/relation (vm/occurrences tree))
+-          old (old-answer ast) new (new-answer ast)
++          old (get-in goldens/scanner-goldens [group n]) new (new-answer ast)
+           oracle (emission-oracle ast)
+           old-vector (:vector (old-linearize/lower-rows tree))
+           tree-names (tree-free-names tree)]
+@@ -318,7 +310,7 @@
+                 (doseq [[group programs] (all-programs)
+                         [n ast] programs]
+                   (testing [group n]
+-                    (is (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))))))))
++                    (is (= (get-in goldens/scanner-goldens [group n]) (new-answer ast))))))))
+ 
+ 
+ (deftest ^:slow verify-outcomes-agree
+@@ -327,16 +319,6 @@
+                 (doseq [[group programs] (all-programs)
+                         [n ast] programs]
+                   (testing [group n]
+-                    (is (= (:join (old-answer ast)) (:join (new-answer ast))))))
++                    (is (= (:join (get-in goldens/scanner-goldens [group n])) (:join (new-answer ast))))))
+                 (is (= {:status :refused :reason :use-before-definition :name 'n}
+                        (:join (new-answer (second (last b0-programs)))))))))
+-
+-
+-#?(:cljd nil
+-   :clj (defn print-goldens
+-          "Generate the historical scanner fixture, without publishing modules."
+-          []
+-          (prn (into {} (map (fn [[group programs]]
+-                               [group (into {} (map (fn [[n ast]] [n (old-answer ast)])) programs)]))
+-                     [[:b0 b0-programs] [:register corpus/programs]
+-                      [:c4 (mapv (fn [[n spec]] [n (:ast spec)]) (c4-specs))]]))))
+diff --git a/test/yin/vm/ucf_test.cljc b/test/yin/vm/ucf_test.cljc
+index 6ea02f8e..68149c46 100644
+--- a/test/yin/vm/ucf_test.cljc
++++ b/test/yin/vm/ucf_test.cljc
+@@ -176,8 +176,8 @@
+       (is (= (jing/segment-key worked-vector) (:yin.code/hash outcome)))
+       (is (= (ucf/code-address worked-vector) (:yin.code/hash outcome)))
+       (is (jing/segment-address? (:yin.code/hash outcome))))
+-    (testing "The stamp names the v3 contract and the envelope version"
+-      (is (= {:yin.code/contract "v3", :yin.k/version 0}
++    (testing "The stamp names the v4 contract and the envelope version"
++      (is (= {:yin.code/contract "v4", :yin.k/version 1}
+              (:yin.k/contract outcome)))
+       (is (= ucf/contract-stamp (:yin.k/contract outcome))))))
+ 

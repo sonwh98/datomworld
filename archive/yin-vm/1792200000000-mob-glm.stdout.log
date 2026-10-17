@@ -1,0 +1,86 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Completed-GMT: 2026-10-12 00:05 GMT
+Completed-Local: 2026-10-12 07:05 +07
+
+# Q1 — I3 landing
+
+**Ruling: B, refined — land I3 without the linked-REPL production path, keeping the link-source refusal seam. Not A, not C.**
+
+Reasoning (≤8 lines):
+1. Both open findings (P1 bypass, P2 `:primed` sharing) live entirely in the fix-round F1 addition: the catalog entry `:yang.python/antlr-linked` (`yin/repl/frontends.cljc`), `linked-binding`/`lower-linked-session`/`link-admission` (`yang/python/antlr/repl.cljc:123-168`), and the admit staging (`yin/repl.cljc:1292-1324, 1694-1712, 1897-1902`). Remove that container and both findings are voided, not deferred.
+2. That code was never I3's: the slice row is "Publication and DHT import; needs L-e for foreign principals" (yang.antlr.md:3105) and the acceptance (3201-3204) names only the parserless JVM-published import, the dependency-binding refusal, and the cycle refusal — no REPL. The REPL is F2's row ("The REPL selects through the catalog"; F2 has not landed, though the doc orders it before P2/I1). Round-1 codex escalated the refusal into production REPL wiring; that pulled F2's unbuilt per-profile state model into I3, which is precisely what P1/P2 measure.
+3. What B keeps is everything r2 judged FIXED or never contested: `publication.cljc` (publication order, cycle refusal, `principal-admission`), the `:admit` hook on the link source (`yin/repl/link.cljc:390-399`), `prelude.cljc` (note: the `py/run-session` refactor is now used by the *bundled* path — keep it; also `py/range-at`, star fns), the DHT import tests + fixture + `dht-import-v1.edn` artifact, `__all__`, no-install assertions, and the goldens as minted — the drop touches no prelude bytes, so **no golden re-mint**.
+4. Exact drops: (a) `frontends.cljc` — `antlr-linked-manifest`, the second `frontend/install` in `standard`, the linked docstring sentence (keep the `parse-python` extraction); (b) `antlr/repl.cljc` — the whole "linked profile" section (`require-node`, `lower-linked-session`, `link-admission`, `linked-binding`, the `publication` require); (c) `yin/repl.cljc` — the three admit hunks, reverting `drive-links` to 2-arity; (d) the 18 linked-REPL tests in `test/yin/repl/python_antlr_test.cljc` (incl. `a-linked-import-only-another-principal-asserts-is-refused-test`), parked in the worktree for F2 to reuse.
+5. Recorded gap wording (landing note + ledger): *"Linked Python has no REPL profile. `(lang ...)` swaps only `:lang` (`yin/repl.cljc:1812-1818`); the session VM, its `:modules` registry (`:646`) and the single shell-level `:frontend-session` marker (`:1059`, consumed at `:1710`) are shared across frontends, so per-profile runtime cannot be keyed: a module another frontend installed is visible without admission, and bundled/linked would share `:primed`. The ruling-19 interim refusal ships at the link source (`:admit` seam + `principal-admission`) and holds wherever a composition passes `:admit`. The REPL profile, per-[id revision] session/runtime state, and admission at the module-exposure seam land with F2 and L-e."*
+6. Scope judgment: the refusal-only interim **at the link source was in I3's scope** (it is ruling 19's interim form, and the engineer's first cut was exactly that); the **production REPL wiring was not** — it should have been deferred to F2 at round 1.
+7. If the owner overrides to A: smallest sound design = (i) key `:frontend-session` by the selected `[id revision]` (per-frontend session marker — fixes P2 for all frontends uniformly); (ii) for P1 do **not** partition or copy the registry — revalidate at the exposure seam: the require cache short-circuit (`yin/vm/module.cljc:552-554`) must consult the importing program's admission (module records already carry asserters via provenance), matching ruling 19's "before any executable value is exposed". `(lang ...)` should reset the module registry for **no** frontends — it is a view switch; the shared session VM is a feature, and the guard belongs at Python's boundary.
+
+Risks: fix-round code is written and tested and gets shelved (mitigated: worktree preserved, F2 cherry-picks the shapes); a round-3 reviewer may again read "production wiring" into the slice — put the acceptance text and this gap record in the r3 prompt; until F2 nothing production-side exercises `:admit` (acceptable: no production linked-Python path exists to bypass it).
+
+Would NOT: land C (a known admission bypass is exactly the class ruling 19 exists to prevent); fix A by registry reset/copy-on-switch in `(lang ...)`; re-mint goldens for this landing; ship the linked catalog entry "present but unselectable" — that recreates round-1's "wired into tests only".
+
+# Q2 — L-e / ruling 19
+
+**Ruling: L-e must add the linker origin/store check at closure lowering; a refusal-only interim is sound only if enforced at the exposure boundary; yes, ship the interim — at the right seam.**
+
+Reasoning: L-e (D7 slice B, yang.antlr.md:3058-3060 "Blocks: foreign-principal imports") must verify closure origin and store ownership recursively through exports, re-exports and transitive dependency slices *before any executable value is exposed* — today "lower-closure trusts the wire marker's store name" (orchestrator-log.md:8815), so a forged `:store-of` could reach `py.rt/*` state — with forged-`:store-of` tests on all four VMs, plus ruling 19's remainder: authenticated publication, dependency-pin checks, primitive/effect admission, store-context transitions (slice C), and corrected-float publication rebuilding derivations/manifests/pins before cross-principal acceptance (yang.antlr.md:3034-3043). A refusal-only interim without isolation **can** be sound: check the principal at install/resolution time — including the registry cache hit (`yin/vm/module.cljc:552-554`) — instead of at link-request serving; every path to exposure then passes the check, and refusal is vacuously origin-safe since *no* foreign module is admitted. At link-time only (today's seam, `yin/repl/link.cljc:396-399`), no: P1 proved cached and pre-installed modules skip it. The interim is worth shipping — default-deny keeps every future composition honest, it is one hook plus one policy fn, and the r2 reviewer's own end-state keeps the seam ("the `:admit` seam itself can stay; nothing else in I3 changes").
+
+Risks: an unchecked exposure path other than by-name import (see Unverified); install-time checks must cover *transitive* deps, not just the requested name.
+
+Would NOT: attempt real admission (origin verification) inside the Python track — it is the linker seat's; ship a refusal that only guards the by-name link branch and call it enforced.
+
+# Q3 — DHT blob cap
+
+**Ruling: I3's acceptance is honestly met in the letter, half met in spirit — land with the deviation stated; the DHT/linker seat should expose the cap via `join` now and design store-message chunking; never split code images at the format layer.**
+
+Reasoning: the acceptance names *pym.m*, and pym.m genuinely is JVM-published, travels over the DHT (178 guest blobs, all under the cap), and imports parserless on Node/Dart with CPython-equal output; `py`'s local seeding is an explicitly documented, reviewer-accepted deviation (`dht_import_fixture.cljc:74-82` docstring; findings :168-186) — honest, but the landing note must say "py is an installed pin until large blobs travel", not "py publishes over the DHT". The cap is `::max-message-bytes 65536` pinned from defaults in `dao.space.dht/node-over` (`dao/space/dht.cljc:281-284`); `join` (:326-347) exposes no message-size option; oversize is terminal by design (dao.jing.dht.md:485-488), with chunking only at the 1200-byte datagram layer and the total checked *before* any chunk is sent (:666). Recommendation: (1) immediate — plumb `:max-message-bytes` through `join`; the design doc itself calls the bound "composition data, not a wire constant" and says larger values "require an explicit composition limit" (:796-805, :875-880), so a composition knob is the documented answer; (2) the real fix — blob-level chunk/reassembly at the store-message layer, mirroring the datagram chunking one level up, total still bounded per composition. Invariant check: both keep A the only code identity (owner ruling 2026-10-10, `yin.vm.linker.md:211-219`) — addresses stay content-addresses over full blob bytes; chunk frames are transport, like the existing datagram chunks. Format-level splitting of code images would churn every derivation/manifest and flirt with a second identity-bearing structure — refuse it. Gates I7 and any cross-machine remote proof; blocks neither I3 nor I4.
+
+Risks: a raised cap multiplies datagram amplification (~850 frames/MB × replication) — keep `max-inbound-bytes` as the abuse bound; publisher and reader must agree on the limit, refusal stays explicit.
+
+Would NOT: raise the global default to 1 MB; make `py`'s publication quietly fall back to local-only in production paths.
+
+# Q4 — linker gap
+
+**Ruling: restore discharge as the independent second guard by carrying pinned dependency addresses into the deferred obligations; the linker seat owns it; it does not block I4 — fold it into L-d.**
+
+Reasoning: the reader-side check (`dependency-bindings`, `yin/vm/linker/dht.cljc:302-336`, gated in `dht-attempt`, `yin/repl/link.cljc:343-350`) is intact and untouched by I3 — nothing was removed; the gap is that the DHT serving path links with `:defer-discharge true` (`linker/publish.cljc:104-118`; `linker.cljc:2339-2342`), and the install child then requires dependencies **by name**, so a republished `k2` under name `k` binds and discharge never compares addresses — falsifying the doc's claim that the check is "the early, named form of what discharge would refuse later" (`yin.vm.linker.dht.md:1857`). Fix: when deferring, include per dependency "name resolves to the pinned manifest address" among the receiving task's step-5b obligations, refusing with the same `:mismatch` entry — two independent guards again. Owner: the linker seat (both engineer and r2 filed it there; it predates I3). Blocking: not a hard I4 blocker, but L-d ("`module/try-require` plus deferred dependency admission", ruling 8) opens exactly this seam — land it inside L-d, before I4 builds catch semantics on top, and certainly before any L-e admission relaxation (dependency-pin checks are part of ruling 19's claim).
+
+Risks: deferred obligations must cover the transitive closure, not just direct requires, or the guard is shallow.
+
+Would NOT: patch it Python-side; weaken the reader check on the theory that discharge covers it (today it does not).
+
+# Q5 — sequencing (next five)
+
+1. **F2** (catalog selection + per-[id revision] session/runtime state, re-land the linked profile with exposure-seam admission) — it owns the gap Q1 records; REPL-side only, no pinned addresses, so zero cutover coupling.
+2. **L-d + the Q4 discharge-binding fix** — one linker-seat slice restoring the DHT's second guard and unblocking I4; discharge semantics, not format.
+3. **I4** (catchable ImportError) — rides L-d, the most user-visible CPython-parity gap, new goldens confined to test programs.
+4. **DHT large-blob transport** (join option now; store-message chunking designed) — transport not format, so no golden churn whenever it runs; unblocks I7 and cross-machine proofs, and should not wait for the cutover.
+5. **Safepoint slices 3-4** — VM lane, independent of Python; run fifth, or hold for the cutover if their tables are A-derived (unverified).
+
+**Wait for the register-VM cutover:** **I5** (SCC units change publication units and manifest shape — landing pre-cutover re-mints every pinned address twice, once for I5 and again at v4, and its full-`py` lanes are the 1-4 h kind the owner wants kept local until shiva/jupiter are cleared); **I6** (needs I4/I5 semantics and reload touches runtime state L-e/D7-C governs); **I7** (published site sets need Q3's fix and a stable format index); **C2 S5** generator heap (continuation/derivation territory that phase 8 re-derives — inferred from srvm.md §8.1-8.2, not read from the slice definition).
+
+Risk: F2 re-landing the linked profile needs the r2 findings as acceptance tests (install-via-Clojure then switch; bundled↔linked transitions) — write those into F2's row now so the gap can't regress silently.
+
+Would NOT: schedule I5 before the cutover to "finish the import system"; run the cutover concurrently with any slice that mints goldens.
+
+# Q6 — process
+
+**Ruling: scope-contract review + a two-round land rule + a per-track known-gaps ledger; the different-family rule itself is untouched.**
+
+Reasoning: the repeat rounds share one cause — the reviewer's blocking scope silently expanded past the slice's design-doc row (I3's "production wiring", found nowhere in I3's acceptance). Make the contract explicit: (1) every review prompt quotes the slice's design-doc row, acceptance, and declared deviations; **blocking = P0/P1 within that scope** (P0-P3 per `docs/agents/roles/reviewer.md:47-49`); out-of-scope findings are graded and ledgered to the owning seat but never block — r2's own "predates this slice" handling is the precedent. (2) After ≥2 different-family rounds on one slice, **land** when no in-scope P0/P1 is open and every remaining finding is out-of-scope or a P2/P3 whose fix crosses a seat boundary or re-mints goldens; further rounds only for a newly-opened in-scope P0/P1. (3) A known-gaps ledger per track (a yang.antlr.md §8.5.6 table: gap | evidence file:line | owner seat | closing slice | severity); a gap closes only by a slice whose acceptance names it; landing notes must reference their entries. (4) CPython-parity edges: one oracle-test fix round when the fix is local (I3's `range`), otherwise ledger as P3 *with an executable test pinning the deviation*, so gaps are code, not folklore. The different-family rule (team.md:176-181) is preserved exactly — every landing still carries one approving different-family verdict; what changes is what a REJECT can demand, not who reviews.
+
+Risks: a mis-scoped prompt can smuggle a real P1 out of scope — the prompt's scope quote must come from the design doc, not the engineer's summary; the ledger needs an owner seat per row or it becomes a graveyard.
+
+Would NOT: cap review rounds by count alone (that does weaken the rule); let "known gap" absorb anything a fix round could land in-scope cheaply.
+
+# Facts I could not verify
+
+- Whether any **by-address** link-request path (as opposed to by-name) exists that would bypass the `:admit` hook — the hook sits in the by-name branch (`yin/repl/link.cljc:390-399`); I did not exhaustively audit other request shapes.
+- C2 S5's and safepoint slices 3-4's golden/cutover coupling — my "wait for cutover" advice for them is inferred from the phase-8 regeneration scope (srvm.md §8.1-8.2), not read from their slice definitions.
+- Ruling 19's numbered form: read from the archived cross-ruling artifact (`.claude/worktrees/orchestrator-log-srvm/archive/yang-python/1790975400000-architect-c4-crossruling.gpt-6-astra.findings.md:48`, uncommitted), corroborated by yang.antlr.md:3034-3043.
+- "F2 has not landed" rests on the brief's state line plus the doc's status paragraph; I did not diff master for a catalog-selection commit.
+- Lane runtimes and the 63-`^:slow`-tag count are taken from `docs/agents/build-n-test.md` and commit f107670d as reported by exploration; I did not re-run lanes (read-only brief).
+
+Edit-credit: no repo files were modified; the only write was this session's plan file at `/Users/sto/.claude-glm/plans/created-gmt-2026-10-11-20-45-00-gmt-golden-wirth.md` (outside the repo, a record copy of this answer).

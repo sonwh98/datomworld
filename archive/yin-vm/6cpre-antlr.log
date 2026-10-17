@@ -1,0 +1,18 @@
+Loading initial Timbre config from: :default
+Execution error (UnresolvedAddressException) at sun.nio.ch.Net/checkAddress (Net.java:137).
+null
+
+Full report at:
+/var/folders/n0/xl3_1xkn0yd5trpq843l81840000gn/T/clojure-13876072033576652419.edn
+Exception in thread "Thread-0" java.lang.RuntimeException: Operation not permitted (sysctl failed)
+	at java.base@25.0.4/java.lang.ProcessHandleImpl.getProcessPids0(Native Method)
+	at java.base@25.0.4/java.lang.ProcessHandleImpl.descendants(ProcessHandleImpl.java:434)
+	at babashka.process$destroy_tree.invokeStatic(process.cljc:172)
+	at babashka.process$destroy_tree.invoke(process.cljc:163)
+	at babashka.process$process_STAR_$fn__13908.invoke(process.cljc:431)
+	at clojure.lang.AFn.run(AFn.java:22)
+	at java.base@25.0.4/java.lang.Thread.runWith(Thread.java:1487)
+	at java.base@25.0.4/java.lang.Thread.run(Thread.java:1474)
+	at org.graalvm.nativeimage.builder/com.oracle.svm.core.thread.PlatformThreads.threadStartRoutine(PlatformThreads.java:832)
+	at org.graalvm.nativeimage.builder/com.oracle.svm.core.thread.PlatformThreads.threadStartRoutine(PlatformThreads.java:808)
+Error while executing task: gen:python-antlr

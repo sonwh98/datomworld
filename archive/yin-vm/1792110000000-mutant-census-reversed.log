@@ -1,0 +1,21 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (census-is-numeric-from-ten-cursor-cells) (rows_test.cljc:337)
+expected: (= (mapv (fn* [p1__22137#] (keyword "yin.k" (str "cc-" p1__22137#))) (range 1 11)) (vec (take-nth 2 (drop 2 census))))
+  actual: (not (= [:yin.k/cc-1 :yin.k/cc-2 :yin.k/cc-3 :yin.k/cc-4 :yin.k/cc-5 :yin.k/cc-6 :yin.k/cc-7 :yin.k/cc-8 :yin.k/cc-9 :yin.k/cc-10] [:yin.k/cc-10 :yin.k/cc-9 :yin.k/cc-8 :yin.k/cc-7 :yin.k/cc-6 :yin.k/cc-5 :yin.k/cc-4 :yin.k/cc-3 :yin.k/cc-2 :yin.k/cc-1]))
+
+FAIL in (canonical-roots-are-pinned) (rows_test.cljc:308)
+expected: (= :segment/blake3-fab223d9b3540fdce0ccf2132f8a4041917a158a32295470a4936754742d3ac4 (:yin.k/root (rows/emit (fixture :s1 :s2 :x :y))))
+  actual: (not (= :segment/blake3-fab223d9b3540fdce0ccf2132f8a4041917a158a32295470a4936754742d3ac4 :segment/blake3-50c732f1a4e80978d33f67045f47914bd553747dec40588a904aed89f9498a5c))
+
+FAIL in (canonical-roots-are-pinned) (rows_test.cljc:325)
+expected: (= :segment/blake3-55ff168e6b5a37028fb5ecd99ab21dc58f6a4e2b9c95dbe570ccec65b15a63c0 root)
+  actual: (not (= :segment/blake3-55ff168e6b5a37028fb5ecd99ab21dc58f6a4e2b9c95dbe570ccec65b15a63c0 :segment/blake3-47020b37611ded0ccc26db34e75e7dc9b827e76426528d802bd659c93372ee96))
+
+Ran 21 tests containing 324 assertions.
+3 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
