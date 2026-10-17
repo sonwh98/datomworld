@@ -27,7 +27,9 @@
    any syntax error yields an error packet and no nodes: never a partial
    program.
 
-   Invariants every target's exporter must meet (`conform` checks 2-5):
+   Invariants every target's exporter must meet (`validate!` checks 1, 6 and
+   7 structurally, and 2-5 against the source when it is given; `conform` is
+   the source-aware check as a vector of violations):
 
      1. ids are preorder indexes; :root is 0; child edges form a tree
         (`validate!`).
@@ -37,8 +39,10 @@
      3. :span is half-open UTF-8 byte offsets into the sealed source. Each
         target converts its own index unit at the boundary (the JVM indexes
         code points; the JS and Dart streams are opened in code-point mode).
-     4. A token is :synthetic with a zero-width span when its text is not the
-        source at its span or it overlaps the previous real token.
+     4. A token is :synthetic with a zero-width span and the canonical helper
+        text of its type exactly when `synthetic-policy` says so: DEDENT and
+        EOF always, NEWLINE only at the end of the source, no other type ever.
+        A real token's text is the source at its span.
      5. A rule's span covers its real children only; an empty rule is
         zero-width.
      6. Any syntax error yields an error packet with :yang.cst/errors and no
@@ -78,6 +82,29 @@
   "The UTF-8 byte count of a string: span ends are checked against it."
   [s]
   (reduce + 0 (map utf8-length (code-points s))))
+
+
+(defn byte-offsets
+  "Byte offset of each code point index of `cps`, plus the total at index n."
+  [cps]
+  (loop [out [0]
+         acc 0
+         cps (seq cps)]
+    (if cps
+      (let [acc (+ acc (utf8-length (first cps)))]
+        (recur (conj out acc) acc (next cps)))
+      out)))
+
+
+(def synthetic-policy
+  "Which tokens an indentation helper may fabricate, keyed on the token's
+   type: `:when` is `:always` (every token of the type is synthetic) or
+   `:at-end` (synthetic only at the end of the source, real elsewhere), and
+   `:text` is the canonical text a synthetic token carries. A type absent
+   from the map is never synthetic."
+  {"DEDENT" {:when :always, :text ""},
+   "EOF" {:when :always, :text "<EOF>"},
+   "NEWLINE" {:when :at-end, :text "\n"}})
 
 
 ;; =============================================================================
@@ -147,33 +174,260 @@
                          data))))
 
 
-(defn validate!
-  "Return the packet when its nodes form one tree rooted at 0 with preorder
-   ids equal to their index and every child referenced exactly once, after
-   its parent; otherwise throw a qualified malformed-cst error."
+;; =============================================================================
+;; Validation: the packet's contract as a vector of violations
+;; =============================================================================
+
+(defn- span?
+  [s]
+  (and (vector? s)
+       (= 2 (count s))
+       (integer? (first s))
+       (integer? (second s))
+       (<= 0 (first s) (second s))))
+
+
+(defn- blank-string?
+  [s]
+  (or (not (string? s)) (= "" s)))
+
+
+(defn- metadata-violations
+  "The packet's own fields: version, unit, grammar name, completion, outcome,
+   and the outcome-specific contract (an ok packet has a root and nodes and
+   no errors; every other outcome has errors and neither nodes nor a root)."
   [packet]
-  (let [nodes (:yang.cst/nodes packet)
-        n (count nodes)]
-    (when-not (and (vector? nodes) (pos? n) (= 0 (:yang.cst/root packet)))
-      (malformed! "CST packet has no root" {}))
-    (loop [i 0
-           seen #{}]
-      (if (< i n)
-        (let [node (nth nodes i)
-              kids (:children node)]
-          (when-not (= i (:id node))
-            (malformed! "CST node id is not its index" {:index i}))
-          (when-not (contains? #{:rule :token} (:kind node))
-            (malformed! "CST node has an unknown kind" {:id i}))
-          (doseq [k kids]
-            (when-not (and (integer? k) (< i k n) (not (contains? seen k)))
-              (malformed! "CST child edge is not a tree edge"
-                          {:parent i, :child k})))
-          (recur (inc i) (into seen kids)))
-        (when-not (= (dec n) (count seen))
-          (malformed! "CST has nodes unreachable from the root"
-                      {:reachable (count seen), :nodes n}))))
-    packet))
+  (let [outcome (:yang.cst/outcome packet)
+        errors (:yang.cst/errors packet)
+        note (fn [why] {:violation why})]
+    (cond-> []
+      (not= packet-version (:yang.cst/version packet))
+      (conj (note :bad-version))
+      (not (contains? packet :yang.cst/unit))
+      (conj (note :no-unit))
+      (blank-string? (:yang.cst/grammar packet))
+      (conj (note :bad-grammar-name))
+      (not (true? (:yang.cst/complete packet)))
+      (conj (note :not-complete))
+      (not (contains? #{:yang.cst/ok :yang.cst/syntax-error :yang.cst/source-error}
+                      outcome))
+      (conj (note :unknown-outcome))
+      (and (= :yang.cst/ok outcome) (contains? packet :yang.cst/errors))
+      (conj (note :ok-packet-has-errors))
+      (and (= :yang.cst/ok outcome) (not= 0 (:yang.cst/root packet)))
+      (conj (note :no-root))
+      (and (not= :yang.cst/ok outcome)
+           (or (contains? packet :yang.cst/nodes)
+               (contains? packet :yang.cst/root)))
+      (conj (note :error-packet-has-nodes))
+      (and (contains? #{:yang.cst/syntax-error :yang.cst/source-error} outcome)
+           (not (and (vector? errors) (seq errors))))
+      (conj (note :no-errors)))))
+
+
+(defn- error-violations
+  "Each error record of a non-ok packet: its kind matches the outcome, it has
+   a message, a syntax error carries ANTLR's line and column as captured, and
+   a span (when present) is a byte span."
+  [packet]
+  (let [kind ({:yang.cst/syntax-error :syntax-error,
+               :yang.cst/source-error :source-error}
+              (:yang.cst/outcome packet))
+        bad (volatile! [])]
+    (doseq [[i e] (map-indexed vector (:yang.cst/errors packet))
+            :let [note! (fn [why] (vswap! bad conj {:error i, :violation why}))]]
+      (when (not= kind (:kind e)) (note! :error-kind))
+      (when-not (string? (:message e)) (note! :error-message))
+      (when (and (= :syntax-error kind)
+                 (not (and (integer? (:line e)) (<= 1 (:line e)))))
+        (note! :error-line))
+      (when (and (= :syntax-error kind)
+                 (not (and (integer? (:column e)) (<= 0 (:column e)))))
+        (note! :error-column))
+      (when (and (some? (:span e)) (not (span? (:span e))))
+        (note! :error-span)))
+    @bad))
+
+
+(defn- node-field-violations
+  [nodes rule-names]
+  (let [bad (volatile! [])
+        note! (fn [id why] (vswap! bad conj {:id id, :violation why}))]
+    (doseq [i (range (count nodes))
+            :let [n (nth nodes i)]]
+      (cond
+        (not= i (:id n)) (note! i :id-not-index)
+        (= :rule (:kind n))
+        (do (when (blank-string? (:rule n)) (note! i :bad-rule-name))
+            (when (and rule-names
+                       (string? (:rule n))
+                       (not (contains? rule-names (:rule n))))
+              (note! i :unknown-rule-name))
+            (when-not (vector? (:children n)) (note! i :bad-children))
+            (when-not (span? (:span n)) (note! i :bad-span)))
+        (= :token (:kind n))
+        (do (when (blank-string? (:type n)) (note! i :bad-token-type))
+            (when-not (string? (:text n)) (note! i :bad-token-text))
+            (when (seq (:children n)) (note! i :token-has-children))
+            (when-not (span? (:span n)) (note! i :bad-span)))
+        :else (note! i :unknown-kind)))
+    @bad))
+
+
+(defn- edge-violations
+  "One preorder walk from the root: a rule's children are exactly the roots of
+   consecutive subtrees, so every node is reached once, in document order,
+   and a node outside the walk is unreachable."
+  [nodes]
+  (let [total (count nodes)
+        bad (volatile! [])
+        note! (fn [id why] (vswap! bad conj {:id id, :violation why}))
+        walk (fn walk
+               [id]
+               (let [n (nth nodes id)]
+                 (if (= :rule (:kind n))
+                   (loop [cursor (inc id)
+                          kids (seq (:children n))]
+                     (if-not kids
+                       cursor
+                       (let [k (first kids)]
+                         (cond
+                           (not (and (integer? k) (< id k total)))
+                           (do (note! id :child-edge-not-forward) nil)
+                           (< k cursor) (do (note! id :duplicate-child-edge) nil)
+                           (> k cursor) (do (note! id :children-not-preorder) nil)
+                           :else (when-let [next-id (walk k)]
+                                   (recur next-id (next kids)))))))
+                   (inc id))))
+        end (walk 0)]
+    (when (and (empty? @bad) (not= end total))
+      (note! 0 :unreachable-nodes))
+    @bad))
+
+
+(defn- structure-violations
+  [packet rule-names]
+  (let [meta (metadata-violations packet)]
+    (cond
+      (seq meta) meta
+      (= :yang.cst/ok (:yang.cst/outcome packet))
+      (let [nodes (:yang.cst/nodes packet)]
+        (if-not (and (vector? nodes) (pos? (count nodes)))
+          [{:violation :no-nodes}]
+          (let [fields (node-field-violations nodes rule-names)]
+            (if (seq fields) fields (edge-violations nodes)))))
+      :else (error-violations packet))))
+
+
+(defn- source-index
+  [source]
+  (let [cps (code-points source)
+        offsets (byte-offsets cps)]
+    {:cps cps, :total (peek offsets), :at (zipmap offsets (range))}))
+
+
+(defn- span-violation
+  "Why `span` is not a byte span of the source, or nil: it must lie in
+   [0, total] and begin and end on a UTF-8 character boundary."
+  [{:keys [total at]} [a b]]
+  (cond
+    (not (<= 0 a b total)) :span-out-of-range
+    (not (and (contains? at a) (contains? at b))) :span-not-on-utf8-boundary))
+
+
+(defn- token-violation
+  "Why a token record disagrees with the source, or nil. A real token's text
+   is the source at its span and its type may not be one the policy always
+   synthesizes; a synthetic token is permitted by the policy for its type, is
+   zero-width, sits at the end of the source when the policy says so, and
+   carries the canonical text."
+  [{:keys [cps total at]} n]
+  (let [[a b] (:span n)
+        policy (get synthetic-policy (:type n))]
+    (if (:synthetic n)
+      (cond
+        (nil? policy) :synthetic-not-permitted
+        (not= a b) :synthetic-not-zero-width
+        (and (= :at-end (:when policy)) (not= a total)) :synthetic-not-at-end
+        (not= (:text policy) (:text n)) :synthetic-text-not-canonical)
+      (cond
+        (= :always (:when policy)) :real-token-of-synthetic-type
+        (not= (subvec cps (at a) (at b)) (code-points (:text n)))
+        :token-text-not-source))))
+
+
+(defn- source-violations
+  "Invariants 3-5 against `source`: spans are byte spans on character
+   boundaries, tokens are in document order, token text and synthetic tokens
+   follow the policy, and a rule's span covers its real children."
+  [packet source]
+  (let [idx (source-index source)]
+    (if-not (= :yang.cst/ok (:yang.cst/outcome packet))
+      (into []
+            (keep-indexed
+              (fn [i e]
+                (when-let [why (and (:span e) (span-violation idx (:span e)))]
+                  {:error i, :violation why})))
+            (:yang.cst/errors packet))
+      (let [nodes (:yang.cst/nodes packet)
+            bad (volatile! [])
+            note! (fn [id why] (vswap! bad conj {:id id, :violation why}))
+            last-end (volatile! 0)]
+        (doseq [n nodes
+                :let [id (:id n)
+                      [a b] (:span n)
+                      span-why (span-violation idx [a b])]]
+          (if span-why
+            (note! id span-why)
+            (when (= :token (:kind n))
+              (when-let [why (token-violation idx n)] (note! id why))
+              (when (< a @last-end) (note! id :token-overlaps-previous))
+              (when (and (not (:synthetic n)) (< a b)) (vreset! last-end b)))))
+        (doseq [n nodes
+                :when (= :rule (:kind n))
+                :let [real (keep (fn [k]
+                                   (let [c (nth nodes k)
+                                         [a b] (:span c)]
+                                     (when (and (not (:synthetic c)) (< a b))
+                                       [a b])))
+                                 (:children n))
+                      [a b] (:span n)]]
+          (when (and (seq real)
+                     (not= [a b] [(apply min (map first real))
+                                  (apply max (map second real))]))
+            (note! (:id n) :rule-span-not-children))
+          (when (and (empty? real) (not= a b))
+            (note! (:id n) :empty-rule-not-zero-width)))
+        @bad))))
+
+
+(defn violations
+  "Every way `packet` breaks the contract, as a vector of
+   {:violation kw ...} (empty when it conforms). The structure is checked
+   first; the source-dependent checks run only on a well-formed packet and
+   only when `:source` is given. `opts`: `:source` the sealed source text,
+   `:rule-names` the grammar's rule-name set."
+  [packet {:keys [source rule-names]}]
+  (let [structural (structure-violations packet rule-names)]
+    (if (or (seq structural) (nil? source))
+      structural
+      (source-violations packet source))))
+
+
+(defn validate!
+  "Return the packet when it keeps the contract (`violations`); otherwise
+   throw a qualified malformed-cst error carrying the first violation and
+   all of them. Without `opts` the check is structural; with `:source` it is
+   source-aware."
+  ([packet] (validate! packet nil))
+  ([packet opts]
+   (let [bad (violations packet opts)]
+     (when (seq bad)
+       (malformed! (str "CST packet violates its contract: "
+                        (name (:violation (first bad))))
+                   (assoc (select-keys (first bad) [:id :error])
+                          :violations bad)))
+     packet)))
 
 
 (defn node
@@ -213,43 +467,13 @@
 
 
 ;; =============================================================================
-;; Conformance (invariants 3-5), the per-target oracle
+;; Conformance, the per-target oracle
 ;; =============================================================================
 
 (defn conform
-  "Check an ok packet against its `source` text; return a vector of
-   violations (empty when it conforms). Spans stay inside [0, utf8 length],
-   are ordered, synthetic tokens are zero-width, real tokens do not overlap
-   the previous real token, and a rule's span covers its real children."
-  [packet source]
-  (let [total (utf8-bytes source)
-        nodes (:yang.cst/nodes packet)
-        bad (volatile! [])
-        note! (fn [id why] (vswap! bad conj {:id id, :violation why}))
-        last-end (volatile! 0)]
-    (doseq [n nodes
-            :let [id (:id n)
-                  [a b] (:span n)]]
-      (when-not (and (integer? a) (integer? b) (<= 0 a b total))
-        (note! id :span-out-of-range))
-      (when (= :token (:kind n))
-        (if (:synthetic n)
-          (when-not (= a b) (note! id :synthetic-not-zero-width))
-          (do (when (< a @last-end) (note! id :token-overlaps-previous))
-              (when (and (integer? b) (< a b)) (vreset! last-end b))))))
-    (doseq [n nodes
-            :when (= :rule (:kind n))
-            :let [real (keep (fn [k]
-                               (let [c (nth nodes k)
-                                     [a b] (:span c)]
-                                 (when (and (not (:synthetic c)) (< a b))
-                                   [a b])))
-                             (:children n))
-                  [a b] (:span n)]]
-      (when (and (seq real)
-                 (not= [a b] [(apply min (map first real))
-                              (apply max (map second real))]))
-        (note! (:id n) :rule-span-not-children))
-      (when (and (empty? real) (not= a b))
-        (note! (:id n) :empty-rule-not-zero-width)))
-    @bad))
+  "Check a packet against its `source` text; return a vector of violations
+   (empty when it conforms): the structure, then spans on UTF-8 boundaries,
+   token text equal to the source, synthetic tokens only where the policy
+   allows, ordered terminals and rule extents over real children."
+  ([packet source] (conform packet source nil))
+  ([packet source opts] (violations packet (assoc opts :source source))))

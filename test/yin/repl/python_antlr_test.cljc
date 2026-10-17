@@ -343,7 +343,9 @@
 
 (deftest precompiled-packets-are-the-parsers-test
   (doseq [[source p] packets]
-    (is (= [] (packet/conform p (str source "\n"))) source)
+    (is (= [] (packet/conform (parser/parse-source (str source "\n"))
+                              (str source "\n")))
+        source)
     (is (= (map node-shape
                 (:yang.cst/nodes (parser/parse-source (str source "\n"))))
            (map node-shape (:yang.cst/nodes p)))

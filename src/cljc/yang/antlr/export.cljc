@@ -19,14 +19,7 @@
 (defn byte-offsets
   "Byte offset of each code point index of `cps`, plus the total at index n."
   [cps]
-  (loop [out [0]
-         acc 0
-         cps (seq cps)]
-    (if cps
-      (let [cp (first cps)
-            acc (+ acc (packet/utf8-length cp))]
-        (recur (conj out acc) acc (next cps)))
-      out)))
+  (packet/byte-offsets cps))
 
 
 (defn offset-at
@@ -48,21 +41,44 @@
    :span span})
 
 
-(defn- token-record
-  "`last-stop` is the stop index of the previous real token: a token that
-   overlaps it was produced by a helper, not read from the source (the
-   Python helper's DEDENT reports the newline it follows as its text)."
-  [cps offsets last-stop id {:keys [type-name start stop text]}]
+(defn- synthetic-token?
+  "Whether a token is synthetic, decided on its type by
+   `packet/synthetic-policy`. DEDENT and EOF always are. A NEWLINE is only
+   when the source disagrees with the helper (its text is not the source at
+   its range, or its range overlaps the previous real token) and it sits at
+   the end of the source; every other type is never synthetic, so a token
+   the policy forbids stays real and the validator rejects its text."
+  [cps offsets last-stop {:keys [type-name start stop text]}]
   (let [n (dec (count offsets))
-        real-text (when (and (<= 0 start) (<= start stop) (< stop n))
-                    (subvec cps start (inc stop)))
-        synthetic? (or (not= real-text (some-> text packet/code-points))
+        policy (get packet/synthetic-policy type-name)]
+    (case (:when policy)
+      :always true
+      :at-end (and (or (not= (when (and (<= 0 start) (<= start stop) (< stop n))
+                               (subvec cps start (inc stop)))
+                             (some-> text packet/code-points))
                        (<= start last-stop))
-        span (if synthetic?
-               (let [p (offset-at offsets (inc stop))] [p p])
-               [(offset-at offsets start) (offset-at offsets (inc stop))])]
-    (cond-> {:id id, :kind :token, :type type-name, :text text, :span span}
-      synthetic? (assoc :synthetic true))))
+                   (>= stop (dec n)))
+      false)))
+
+
+(defn- token-record
+  "`last-stop` is the stop index of the previous real token: a NEWLINE that
+   overlaps it was produced by a helper, not read from the source. A
+   synthetic token is zero-width and carries its type's canonical text."
+  [cps offsets last-stop id {:keys [type-name start stop text], :as tok}]
+  (if (synthetic-token? cps offsets last-stop tok)
+    (let [p (offset-at offsets (inc stop))]
+      {:id id,
+       :kind :token,
+       :type type-name,
+       :text (get-in packet/synthetic-policy [type-name :text] text),
+       :span [p p],
+       :synthetic true})
+    {:id id,
+     :kind :token,
+     :type type-name,
+     :text text,
+     :span [(offset-at offsets start) (offset-at offsets (inc stop))]}))
 
 
 (defn export-nodes

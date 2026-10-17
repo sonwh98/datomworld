@@ -632,6 +632,24 @@ the Java digests stay byte-identical to today. The runtimes pin per
 target (the Maven runtime, the antlr4 npm package, the antlr4 pub
 package, all at the tool version).
 
+The JavaScript target carries three compatibility additions, each exact
+and digest-pinned in `antlr/python3/manifest.edn`:
+
+- **Duplicate member removal.** The upstream `Python3LexerBase.js` declares
+  `getIndentationCount` twice, identically; Closure (the Node build's
+  release and test compile) rejects the duplicate, so the target's
+  `:patches` entry for that helper deletes the first copy.
+- **Import rewrite.** The `antlr4` package exposes its API at the top level
+  or only under `default`, depending on the loader. The helpers (`:patches`)
+  and the two tool-written files `Python3Lexer.js` and `Python3Parser.js`
+  (`:output-patches`, applied by the generator right after the tool runs)
+  replace `import antlr4 from 'antlr4'` with an import that takes
+  `default` when present.
+- **Runtime default fallback.** `src/cljs/yang/antlr/cst.cljs` resolves the
+  same `default`-or-top-level object (`antlr4-default`) before it reaches
+  the runtime's DFA, prediction-context and simulator classes, so the
+  worker and the generated parsers agree on one runtime object.
+
 The target-neutral parse-tree IR is the existing CST packet v1,
 formalized. ANTLR has no target-neutral tree, and the per-target parse
 trees differ in their objects, but for the same grammar their structure
@@ -647,7 +665,10 @@ own outcome), and a portable `conform` is the per-target oracle. A
 (DEDENT always, NEWLINE at end, EOF always, other types never), and
 error packets carry two independent coordinate systems: the byte span
 computed from token indexes, and ANTLR's line and column captured
-verbatim, which are not required to agree.
+verbatim, which are not required to agree. Where the error token is one an
+indentation helper fabricated (INDENT, EOF), each target's helper reports
+its own line and column, and the conformance corpus pins those per host
+rather than asserting one value across targets.
 
 The lowering stays per language by design and consumes the IR
 host-neutrally; it never sees a target runtime. Per language, the whole

@@ -20,35 +20,35 @@
     (is (= parser/grammar-id (:yang.cst/grammar pk)))
     (is (true? (:yang.cst/complete pk)))
     (is (= 0 (:yang.cst/root pk)))
-    (is (= [["file_input" [0 6]]
-            ["stmt" [0 6]]
-            ["simple_stmts" [0 6]]
-            ["simple_stmt" [0 5]]
-            ["expr_stmt" [0 5]]
-            ["testlist_star_expr" [0 1]]
-            ["test" [0 1]]
-            ["or_test" [0 1]]
-            ["and_test" [0 1]]
-            ["not_test" [0 1]]
-            ["comparison" [0 1]]
-            ["expr" [0 1]]
-            ["atom_expr" [0 1]]
-            ["atom" [0 1]]
-            ["name" [0 1]]
-            ["NAME" "x" [0 1]]
-            ["ASSIGN" "=" [2 3]]
-            ["testlist_star_expr" [4 5]]
-            ["test" [4 5]]
-            ["or_test" [4 5]]
-            ["and_test" [4 5]]
-            ["not_test" [4 5]]
-            ["comparison" [4 5]]
-            ["expr" [4 5]]
-            ["atom_expr" [4 5]]
-            ["atom" [4 5]]
-            ["NUMBER" "1" [4 5]]
-            ["NEWLINE" "\n" [5 6]]
-            ["EOF" "<EOF>" [6 6]]]
+    (is (= [["file_input" [0 6] [1 28]]
+            ["stmt" [0 6] [2]]
+            ["simple_stmts" [0 6] [3 27]]
+            ["simple_stmt" [0 5] [4]]
+            ["expr_stmt" [0 5] [5 16 17]]
+            ["testlist_star_expr" [0 1] [6]]
+            ["test" [0 1] [7]]
+            ["or_test" [0 1] [8]]
+            ["and_test" [0 1] [9]]
+            ["not_test" [0 1] [10]]
+            ["comparison" [0 1] [11]]
+            ["expr" [0 1] [12]]
+            ["atom_expr" [0 1] [13]]
+            ["atom" [0 1] [14]]
+            ["name" [0 1] [15]]
+            ["NAME" "x" [0 1] false]
+            ["ASSIGN" "=" [2 3] false]
+            ["testlist_star_expr" [4 5] [18]]
+            ["test" [4 5] [19]]
+            ["or_test" [4 5] [20]]
+            ["and_test" [4 5] [21]]
+            ["not_test" [4 5] [22]]
+            ["comparison" [4 5] [23]]
+            ["expr" [4 5] [24]]
+            ["atom_expr" [4 5] [25]]
+            ["atom" [4 5] [26]]
+            ["NUMBER" "1" [4 5] false]
+            ["NEWLINE" "\n" [5 6] false]
+            ["EOF" "<EOF>" [6 6] true]]
            (shape pk)))
     (testing "ids are preorder indexes and children are ordered edges"
       (is (= (range (count (:yang.cst/nodes pk)))
@@ -116,14 +116,55 @@
       (is (seq errors))
       (is (= :syntax-error (:kind e)))
       (is (= 1 (:line e)))
+      (is (= 6 (:column e)))
       (is (= [6 7] (:span e)))
       (is (string? (:message e))))))
 
 
 (deftest lexer-errors-are-records-test
-  (let [pk (parser/parse-source "x = $\n")]
-    (is (= :yang.cst/syntax-error (:yang.cst/outcome pk)))
-    (is (= [4 5] (:span (first (:yang.cst/errors pk)))))))
+  (conformance/check-error parser/parse-source "x = $\n"
+                           {:line 1, :column 4, :span [4 5]}))
+
+
+(deftest error-coordinates-are-independent-test
+  (testing "the byte span comes from the token indexes and ANTLR's line and
+            column are captured as reported: they need not agree. The
+            indentation helper places an unexpected INDENT's column after the
+            indentation (the span starts at 0), and its EOF token reports a
+            line and column of its own while the span is the end of the
+            source. These coordinates are each target helper's own, pinned
+            per host: the INDENT column is 2 on the JVM and Node and 0 on
+            Dart; the EOF [line column] is [1 0] on the JVM, [2 0] on Node
+            and [1 7] on Dart."
+    (let [pk (conformance/check-error parser/parse-source "  x = 1\n"
+                                      {:line 1,
+                                       :column #?(:cljd 0 :default 2),
+                                       :span [0 2]})
+          e (second (:yang.cst/errors pk))]
+      (is (= [#?(:cljs 2 :default 1) #?(:cljd 7 :default 0) [8 8]]
+             ((juxt :line :column :span) e)))))
+  (testing "where they do agree they are still both recorded"
+    (conformance/check-error parser/parse-source "if x:\npass\n"
+                             {:line 2, :column 0, :span [6 10]})))
+
+
+(deftest packets-keep-the-synthetic-policy-test
+  (testing "helper tokens carry their type's canonical text"
+    (let [pk (parser/parse-source "if x:\n    y = 1\nz = 2\n")
+          dedent (first (filter #(= "DEDENT" (:type %)) (:yang.cst/nodes pk)))]
+      (conformance/check-ok parser/parse-source "if x:\n    y = 1\nz = 2\n")
+      (is (= ["" [16 16] true] ((juxt :text :span :synthetic) dedent)))))
+  (testing "a comment before the end of input leaves the helpers at the end"
+    (let [src "if x:\n    y = 1  # c"
+          pk (conformance/check-ok parser/parse-source src)
+          helpers (filterv :synthetic (:yang.cst/nodes pk))]
+      (is (= [["NEWLINE" "\n"] ["DEDENT" ""] ["EOF" "<EOF>"]]
+             (mapv (juxt :type :text) helpers)))
+      (is (every? #(= [20 20] (:span %)) helpers)))))
+
+
+(deftest adversarial-mutations-are-refused-test
+  (conformance/check-mutations parser/parse-source "s = 'é𝄞'\nt = 2\n"))
 
 
 (deftest exporter-is-deterministic-test
