@@ -11862,3 +11862,27 @@ Decisions: the epic's implementation routing evolved with the owner's relays (co
 Verification: all counts in this entry and the collab reports; slow-tier failure identities verified byte-level against the ledger's foreign known reds; the merge combination verified by this seat's own quick-tier run.
 Delegates: glm-5.3 (6e first pass), claude-opus-5-5 (6e takeover + nits), muse-wonder-1.0 (6e review), agy gemini-4-argon (6e gate).
 Next: the any-pc epic is CLOSED — preemptive migration at any pc is implemented end to end (carrier 6d-a, holder 6d-b, backends 6e) with every slice gates-signed and merged. Remaining track items are owner-scheduled product work (REPL export command; composition-level fetch loop) with no dispatch authority requested. Three items queued for Fable's next gate (argon's 6d-b list + the 6e list in its findings). Process: agy quirks documented in the delegate-invocation-reference; master-moves-mid-merge will be stated in merge messages going forward.
+
+## 2026-10-17 06:05:00 +07 — C3-S2 closure: already landed on master (be1f8d06); the stale c3key1 worktree removed
+Completed-GMT: 2026-10-16 23:05:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@origin-tip; the c3key1 worktree removed (--force; the branch held nothing unique)
+Done: The C3-S2 thread CLOSES with a correction: the keys/hash/is surface was ALREADY LANDED on master
+  as be1f8d06 (2026-10-04) + 33419c2e by an interim seat — recovered and landed during the interim era
+  after the original c3key1 round. My "C3-S2 landing queued" item was stale: the c3key1 worktree's
+  uncommitted diff was the OLD pre-landing state, and the deepseek gate correctly refused to gate it
+  ("the older C3-S2 surface is on master; signing it off would certify a different, already-landed
+  change"). The gate's verdict (REQUEST CHANGES) is recorded as the stale-diff finding; the C3-S2
+  surface on master is the landed be1f8d06 state (verified: be1f8d06 and 33419c2e are ancestors of
+  origin/master; the prelude carries the py/key, py/hash P=2^61-1, and py/is surface).
+Also confirmed: the c3key1 worktree's git registration was already broken (status exit 128 — pruned
+  metadata, the same class as the c2gen3 loss) — removed with --force. The round's artifacts were
+  already safe in collab/ and the gate findings file (1792315000000-reviewer-c3s2-gate.deepseek-flash.findings.md
+  records the full ruling-by-ruling status for provenance).
+Remaining C3 work: the completion gate (ruling 14: the twelve-lane matrix, cross-host goldens, mutation
+  evidence) and the remaining slices (conversions/pow, big literals) — dispatched after the antlr
+  multi-target and the value-display rounds land.
+Next: the antlr M0-M2 (sonnet, running) -> gates -> land; the value-display r3-restricted (sonnet,
+  running) -> gates -> land; the C3-S2 gate for the safe... no — C3-S2 is closed. The safepoint s3
+  (tracing) continues; C4 I7 after C3-S2's surface settles.
