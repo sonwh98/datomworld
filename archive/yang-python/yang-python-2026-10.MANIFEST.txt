@@ -1,0 +1,6 @@
+# Archived 2026-10-17 (owner-requested sweep of landed-track collab artifacts)
+# Criterion: cross-seat orchestrator notes for the yang-python track; exchanges closed by the spec landings (c71065ed).
+# Files NOT moved when cited by living docs (docs/src/test) — those stay in collab/.
+# Manifest may lag the log: docs/orchestrator-log.md citations of collab/ paths are historical.
+1792205000000-note-to-yang-python-orchestrator-conformance.md
+1792580000000-note-to-yang-python-orchestrator-reply.md
