@@ -37,7 +37,7 @@
 
    Two profiles, one source (C4 slice P3). `uast` is the bundled hook
    prelude: it loads before the base prelude and may not touch a base
-   definition while loading, so it allocates only a cell and a cursor, and
+   definition while loading, so it allocates only the handler cell, a cursor and the trace cell, and
    the hooks name base keys only inside their bodies. `module-uast` is the
    same definition list as the linker module `pysp`, which requires `py`,
    inverting the bundled load order: its install child defines lambdas
@@ -353,8 +353,8 @@
 
 
 (def ^:private state-definitions
-  "The bundled profile's runtime state, allocated while loading: a cell
-   and a cursor, nothing else."
+  "The bundled profile's runtime state, allocated while loading: the
+   handler cell, the cursor and the trace cell, nothing else."
   '[[py.sp/handler (cell/new :py/None)]
     [py.sp/cursor (stream/cursor py.sp/signals)]
     [py.sp/trace (py.sp/trace-state)]])
@@ -406,8 +406,8 @@
 ;; =============================================================================
 
 (def runtime-keys
-  "Every key `pysp/attach!` defines, sorted: the handler cell and the
-   signal cursor. Each is a runtime key of the module, held at install
+  "Every key `pysp/attach!` defines, sorted: the handler cell, the
+   signal cursor and the trace cell. Each is a runtime key of the module, held at install
    time by a `:py/uninit` placeholder so the linker's scanners discharge
    the bodies that read it."
   '[py.sp/handler py.sp/cursor py.sp/trace])

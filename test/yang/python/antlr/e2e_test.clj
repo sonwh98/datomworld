@@ -934,7 +934,8 @@
                #'programs/throwclose #'programs/nested-admission
                #'programs/delegation #'programs/while-true-pass
                #'programs/caught #'programs/def-and-while
-               #'trace/trace-basic #'trace/trace-profile #'trace/trace-unwind
+               #'trace/trace-basic #'trace/trace-basic-crlf
+               #'trace/trace-basic-ff #'trace/trace-profile #'trace/trace-unwind
                #'trace/trace-recursion #'trace/trace-unset]]
       (is (= (map node-shape (:yang.cst/nodes (parser/parse-source (:doc (meta v)))))
              (map node-shape (:yang.cst/nodes @v)))

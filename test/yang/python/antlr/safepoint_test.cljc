@@ -818,6 +818,21 @@
   (slow/guard "trace-basic-test" trace-basic))
 
 
+(defn- trace-basic-newlines
+  []
+  (testing "a CRLF or form-feed NEWLINE token is one line break, not two or
+            none: the line events and f_lineno match the LF source"
+    (doseq [pk [trace/trace-basic-crlf trace/trace-basic-ff]]
+      (every= [true false {:py/out ["call f 7" "line f 8" "call g 5" "line g 6"
+                                    "return g 6" "line f 9" "return f 9"],
+                           :py/exception nil}]
+              (traced pk true nil)))))
+
+
+(deftest ^:slow trace-basic-newlines-test
+  (slow/guard "trace-basic-newlines-test" trace-basic-newlines))
+
+
 (defn- trace-profile
   []
   (testing "a profile function sees call and return for each call, and is

@@ -69,7 +69,7 @@
 
 
 (defn site-set
-  "The selected sites as a sorted vector of `[path kind]`, in an order every
+  "The selected sites as a sorted vector of `[path mark]`, a mark a kind or `[kind datum ...]`, in an order every
    host computes alike."
   [selected]
   (vec (sort-by pr-str (map vec selected))))
@@ -189,8 +189,9 @@
 
 (defn insert
   "Pure: the canonical row set `tree` (`{:root id :rows {id row}}`) with
-   each of `sites` (`{path kind}`) that `profile` (`{kind hook}`) maps a
-   hook to, by its kind or by an exit kind of it, rewritten: the entry hook
+   each of `sites` (`{path mark}`, a mark a kind or `[kind datum ...]`) that
+   `profile` (`{kind hook}`, a hook a symbol or `{:hook sym :operands true}`)
+   maps a hook to, by its kind or by an exit kind of it, rewritten: the entry hook
    prefixed, the exit hook wrapped around the body. Returns
    `{:tree A' :sites selected}`. With nothing selected `A'` is `tree`
    itself."

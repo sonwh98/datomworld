@@ -254,7 +254,9 @@
    I6's reload runtime moves it once more (the hook prelude joins the
    move; both hosts mint fbd90016). The standalone hook install now
    delivers its pinned base prelude after defining hooks. The loop-level
-   value display (py/result!, py.rt/value) moves the py address again."
+   value display (py/result!, py.rt/value) moves the py address again.
+   S3's tracing (the trace cell and its hooks in the prelude) moves it
+   once more."
   (keyword (str "segment/blake3-"
                 "97aba7f734fa7e599df846984bf02cfb04659c78cd24589708d2d47ddfe49f4c")))
 

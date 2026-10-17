@@ -221,16 +221,18 @@
 
 (defn- newline-lines
   "Per node id, the line breaks the packet's NEWLINE tokens hold before
-   that id: the statement at id `i` starts on line `1 + (nth v i)`. The
-   packet carries no source text, so a line is the logical line: a
+   that id (one per token, whatever its \n, \r\n, \r or \f spelling;
+   the start-of-input one holds none): the statement at id `i` starts on
+   line `1 + (nth v i)`. The packet carries no source text, so a line is the logical line: a
    statement continued over several physical lines is counted once."
   [pk]
   (let [nodes (:yang.cst/nodes pk)]
     (second
       (reduce (fn [[n out] node]
                 [(if (and (= :token (:kind node)) (= "NEWLINE" (:type node)))
-                   (+ n (count (filter #(contains? #{\newline \return} %)
-                                       (:text node))))
+                   (if (some #{\newline \return \formfeed} (:text node))
+                     (inc n)
+                     n)
                    n)
                  (conj out n)])
               [0 []]

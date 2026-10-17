@@ -1226,3 +1226,25 @@
                   ["CLOSE_PAREN" ")"]]]]]]]]]]]]
        ["NEWLINE" "\n"]]]
      ["EOF" "<EOF>"]]))
+
+
+(defn- with-newline
+  "`trace-basic` with every NEWLINE token's text replaced by `nl`."
+  [nl]
+  (update trace-basic
+          :yang.cst/nodes
+          (fn [nodes]
+            (mapv #(if (and (= :token (:kind %)) (= "NEWLINE" (:type %)))
+                     (assoc % :text nl)
+                     %)
+                  nodes))))
+
+
+(def trace-basic-crlf
+  "import sys\r\ndef tr(frame, event, arg):\r\n    print(event, frame.f_code.co_name, frame.f_lineno)\r\n    return tr\r\ndef g(n):\r\n    return n + 1\r\ndef f(n):\r\n    x = g(n)\r\n    return x\r\nsys.settrace(tr)\r\nf(1)\r\nsys.settrace(None)\r\n"
+  (with-newline "\r\n"))
+
+
+(def trace-basic-ff
+  "import sys\fdef tr(frame, event, arg):\f    print(event, frame.f_code.co_name, frame.f_lineno)\f    return tr\fdef g(n):\f    return n + 1\fdef f(n):\f    x = g(n)\f    return x\fsys.settrace(tr)\ff(1)\fsys.settrace(None)\f"
+  (with-newline "\f"))
