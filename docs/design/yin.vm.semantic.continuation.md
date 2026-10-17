@@ -883,7 +883,9 @@ the value at the entry's `pc` (`:748-752`, `:555-568`).
 
 **Amended 2026-10-16 (any-pc, owner invariant 2026-10-17).** Static layouts are defined at every pc of every body. For a conditional's jump pc `j`, `stack-layout(j) = stack-layout(b) ++ [rd(if)]`, where `b` is its branch pc and both arms define `rd(if)`. A body's `:return` or `:halt` terminator has layout `[]`.
 
-Let `register-sequence(p) = layout(p) ++ uses-in-order(p)` and `expected-values(p) = [W[r] for r in register-sequence(p)]`. Compare ordered region length and contents to that sequence, including repeated-register agreement. Separately check `set(layout(p)) ∪ set(uses(p)) = L(p)` at reachable non-tail PCs except the four enumerated dead ambient operand PCs in §8.6 item 9, and `set(uses(p)) = L(p)` at reachable tail-call PCs. Ordered multiplicity is not the cardinality of `L(p)`. Retain the parked-window check. The dead-prefix treatment and running backend lift belong to 6e.
+Let `register-sequence(p) = layout(p) ++ uses-in-order(p)` and `expected-values(p) = [W[r] for r in register-sequence(p)]`. Compare ordered region length and contents to that sequence, including repeated-register agreement. Separately check `set(layout(p)) ∪ set(uses(p)) = L(p)` at reachable non-tail PCs except the four enumerated dead ambient operand PCs in §8.6 item 9, and `set(uses(p)) = L(p)` at reachable tail-call PCs. Ordered multiplicity is not the cardinality of `L(p)`. Retain the parked-window check.
+
+**Amended 2026-10-17 (any-pc, 6e).** The dead-prefix rule is implemented: a tail call keeps the values below `layout(p) ++ uses(p)` without pushing a frame, so a region entered through a tail call may hold a dead prefix; `lift-running` takes the top `|stack-layout(p)| + |uses(p)|` values of the current region and the top `|stack-layout(pc_i − 1)|` of each frame's slice, drops the rest and records `:yin.k/dead-prefix n` in the lift's diagnostics, never in the frame; `lower-running` produces no prefix and recomputes bases cumulatively; a dead-ambient layout entry outside `L(p)` is not carried by the run window, nor is its value walked (only live positions are canonicalized, so the stack lane refuses nothing the reference lane's `L(p)` window would not), and the lower fills its region position with nil (write-back's discipline). The repeated-register agreement refuses on divergent values; no well-formed vector repeats a register in the sequence (§3.4 item 6 refuses the literal `[:call r f [x x]]` shape, and linearize gives every operand a fresh register), so the clause is pinned on a hand-built layout.
 
 **K slices (corrected).** Let the kernel's continuation be
 `[f₀ … f_{m−1}]` outermost first with bases `b₀ … b_{m−1}` and the
@@ -1097,8 +1099,16 @@ task's `free-env`, `entry` the body pc. The inverse reads `F` back from
 context; it never runs code, never fills a binding from the receiver's
 store or free environment (the free environment is the **carried** one,
 §6.3), never reads a native image's hash as an identity, and never
-invents a safepoint: a kernel pc whose predecessor is not a parking
-instruction is `:yin.k/not-at-safepoint` (UCF §7.4.2).
+invents a state: a kernel pc outside every body is
+`:yin.k/not-at-safepoint` (UCF §7.4.2, as amended; the name is
+historical); every other kernel pc lifts, as a delivery state when the
+kernel is parked and as a `run` state when it is between instructions
+(6e); a `:push` pc of H is relabelled to its successor — its state is
+its successor's but for pc — without running anything. The relabel is
+the run state's only: a delivery state's parking instruction or a
+closure's entry is never a `:push`, and one named there refuses
+`:yin.k/not-at-safepoint` rather than borrow its successor's pc.
+**Amended 2026-10-17 (any-pc, 6e).**
 
 ### 4.6 The de Bruijn kernels are backends
 
@@ -1314,7 +1324,9 @@ encode as `:yin.k/non-portable :install-response`.
 
 Historical phase-6 refusal rows (superseded by the completed carrier): `:yin.k/not-quiescent` (`a-nonempty-ready-queue-is-not-quiescent`,
 `:591-603`); `:yin.k/not-at-safepoint` (a register kernel stepped one
-instruction past a `:const`, asked to lift); `:yin.k/non-portable
+instruction past a `:const`, asked to lift — from 6e a stepped kernel
+lifts as a `run` state and only a pc outside every body refuses,
+§4.5); `:yin.k/non-portable
 :reason-mismatch` (the `:observe` hold, `:675-692`); and the validator's
 **membership tampers**, each a row-set edit of a valid body before
 lower: a window with an extra live key → `:window-extra`; a live key
@@ -2327,8 +2339,12 @@ lanes added to the 6b harness file. **Depends on:** 5a, 5b (`derive`),
     (backends)**: "366 once 6c-post-D2 lands" and "96 with the seam"
     withdrawn; the seam is rejected and retained FFI is outside the
     fragment, §4.6.)
-12. `harness/layout-refusals`: `:yin.k/not-at-safepoint` from a kernel
-    stepped to a non-safepoint pc; a register entry whose `live` was
+12. `harness/layout-refusals`: a kernel stepped to a non-parking pc
+    lifts as a `run` state on both de Bruijn lanes — kind `:running`,
+    one run row, its pc the A pc the kernel stopped at (`layout-refusals`
+    since 6e; a hand-built entry at a pc no delivery state of A occupies
+    still refuses `:yin.k/not-at-safepoint`, and the same pc lifts as a
+    run state: any pc inside a body); a register entry whose `live` was
     tampered reconstructs a frame the validator refuses (`:window-extra`
     for a unique dead slot, `:window-missing` for a dropped live slot),
     or is refused by the layout itself as `:yin.k/non-portable
@@ -2343,7 +2359,10 @@ lanes added to the 6b harness file. **Depends on:** 5a, 5b (`derive`),
     refusals of §4.2: a primitive in a window, in a lexical binding, in
     a closure's capture and nested in a window's guest collection, each
     with its path and zero attaches, and each program crossing into the
-    stack lane with the reference value.)
+    stack lane with the reference value. **Amended 2026-10-17 (any-pc,
+    6e)**: the first clause is the positive running lift; the
+    `:not-at-safepoint` refusal belongs to a pc outside every body, not
+    to a stepped kernel.)
 13. kondo clean; `bb test:sub yin.vm` green on three hosts.
 
 **Amended after 6c (2026-10-13), the acceptance the fix round added
@@ -2461,6 +2480,45 @@ design names no kernel edit beyond 6c-pre (**Amended 2026-10-13
 
 14. **Landing checks.** Kondo clean; the quick tier passes on JVM, Node and Dart with every touched namespace present in logs; the slow tier runs once at landing on all three hosts. Remint fixtures from the integrated grammar. Review stops on satisfied gates, not a fixed round count.
 
+
+## 8.8 Slice 6e: the cross-engine half
+
+**Amended 2026-10-17 (any-pc).** Implemented: `lift-running`/`lower-running`
+over the kernels' live fields (register `{:pc :registers :frames
+:continuation :store-of}`, stack `{:pc :stack :frames :continuation
+:store-of}`); `virt` and `register-window` over an explicit virtual set
+(`L(p)` for a run) with nil fill outside it at the lower; `h->a`'s
+`:push` stutter relabel (run states only, §4.5); the dead-prefix rule of §4.3's amendment
+(`slice-window`'s `≥`, the top-take, the `:yin.k/dead-prefix`
+diagnostics); `safepoint!`'s run mode (any pc inside a body);
+`canonical-task` lifting an active kernel as `:running` with waits and
+ready as the semantic lift reconstructs them (ready entries lowered
+back by `kernel-task`, which lowers a `:running` machine into a running
+kernel); backends still refuse installs. **Acceptance**: laws 4 and 5
+at every aligned boundary of the 61 lane cases — one root id on three
+lanes with the stack lane's `:push` stutters relabelled (each stutter
+lifted and compared with its successor's site and root), taken and
+untaken branches pinned (row 15), and six ordered pairs each continuing
+to the reference under §3.6's full-payload refusal oracle, judged per
+receiving lane (exact refusals, zero attaches; exact transfers,
+byte-equal relifts; a boundary's outcome into a lane is the same
+whichever lane it leaves); measured counts per case are pinned on the
+JVM; ordered operand multiplicity pinned on a hand-built `(g x x)`
+program; the `:push` relabel pinned on one row; `layout-refusals` per
+§8.3 item 12, with a running kernel at the pc one past its last image,
+and a delivery entry naming a `:push` as its parking instruction, both
+refusing `:yin.k/not-at-safepoint`; item 6 resolved by the static check
+— no lane-fragment tail call has a non-empty ambient layout (five
+reachable tail-call pcs over the fragment's distinct vectors) — with the
+rule pinned end to end on two hand-built operand-tail programs (the
+prefix in the current region, and in a return frame's slice), laws 4
+and 5 holding at their every boundary, and the repeated-register
+agreement pinned on a hand-built layout (the literal `[:call r f [x x]]`
+vector is refused by §3.4 item 6, so no well-formed vector exercises
+it); the fragment unchanged (rows 7-12 and 17 excluded; row 4's
+retained-FFI boundaries refuse `:retained-ffi` into both backends, and
+its boundaries before the request is retained transfer). No kernel
+edit: `layout.cljc` only.
 
 ## 9. Verification honesty
 
