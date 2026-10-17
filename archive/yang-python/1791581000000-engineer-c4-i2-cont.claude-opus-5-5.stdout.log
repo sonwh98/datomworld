@@ -1,0 +1,63 @@
+The golden-pinning run is still going in the background, and I'll pick up again when it finishes.
+
+So far:
+- **JVM import-test passes:** 28 tests, 125 assertions, 0 failures. I've kept the earlier run's diff; nothing in it looked wrong.
+- **CPython 3.9.6 agrees:** I re-ran the oracle script and its output matches every expected output the I2 acceptance tests pin.
+- **Lint:** kondo is clean. I fixed one new line in `scope.cljc` that ran past 80 columns (a line break only).
+- **Goldens:** `float_address_test` fails as expected because the prelude changed. The prelude address and all three program addresses (A, A' and the record) moved. I'll wait for the other namespaces, then update all the moved goldens together on the final prelude.
+
+Still to do:
+- the four mutations, each run once to confirm the tests go red, then reverted
+- the e2e parity test
+- updating the goldens, with before/after values in the report
+- `cljstyle`
+- the Node lane, then the Dart lane
+
+Lint and style are clean on every touched file. Waiting for the JVM re-run (goldens, e2e parity, lower, cst-export) before starting Node.
+
+The Node lane is running in the background (`--slow`, yang.python, 23 namespaces). Dart runs after it, since only one of the two lanes runs at a time.
+
+The Dart lane is running in the background (`bb test:sub:cljd yang.python --slow`). That's the last lane left.
+
+Slice I2 is done and passes on JVM, Node and Dart. It runs on three of the four VMs: the semantic, stack and register VMs. The AST walker is still excluded until L-b, as it was for I1. I kept the earlier run's partial work: the tests pass against it and nothing in the diff looked wrong. Nothing is committed, and the full record is in `collab/1791580000000-engineer-c4-i2.findings.md`.
+
+**What I did on top of the earlier work**
+- **One fix:** a new line in `scope.cljc` ran past 80 columns, so I broke it (whitespace only).
+- **CPython check:** I re-ran the oracle script on python3 3.9.6. Its output matches every expected output the I2 acceptance tests pin.
+- **Mutations:** each was applied alone, turned at least one test red, and was reverted. A byte compare against a backup confirms the sources are restored.
+  1. **Bodies run twice** (`py/import-sub` ignores the sys.modules hit): the dotted acceptance test failed on all three VMs.
+  2. **Wrong order** (the chain loads leaf first): the fast chain-order test and the dotted acceptance test both failed.
+  3. **Parent attribute not set** (`py/setattr` dropped): the dotted acceptance test failed with `AttributeError: b`.
+  4. **Packageless relative import doesn't raise** (`py/import-fail` returns None): the packageless test failed on all three VMs.
+- **Import-free regression:** the existing check that a linked `x = 1` program is unchanged still holds; its program-root golden did not move.
+
+**Test runs**
+
+| Lane | Result |
+|---|---|
+| JVM import-test | 28 tests, 125 assertions, 0 failures |
+| JVM golden, e2e parity, lower and cst-export namespaces, after re-minting | 140 tests, 1574 assertions, 0 failures |
+| Node, `bb test:sub:cljs yang.python --slow` | 197 tests, 0 failures, 3016 s |
+| Dart, `bb test:sub:cljd yang.python --slow` | 197 tests, 0 failures, 875 s, none skipped; all five slow I2 acceptance tests ran |
+
+Kondo and cljstyle are clean on every touched file.
+
+**Goldens moved.** All are `:segment/blake3-…` addresses, updated once on the final prelude after the mutations were reverted. The full hex for each is in the report.
+
+| Test | Golden | Before | After |
+|---|---|---|---|
+| `float_address_test` | bundled prelude | `7884769a…2a27caa1` | `9d4b099d…a584faf` |
+| `float_address_test` | program A | `060a2d40…6e9f97cf` | `817c8030…0d841c72` |
+| `float_address_test` | program A' | `000ca732…7caf6` | `02a3790f…18d8d3` |
+| `float_address_test` | derivation record | `65068fed…220082f` | `acc22da0…ebf63cd` |
+| `float_address_test` | prelude subtree in A | `c83da797…6075b79` | `3287bef1…f83546e5` |
+| `linked_prelude_test` | `py` manifest | `ad6f34e3…49f1c3d8` | `051dc1ce…fda90ca` |
+| `linked_safepoint_test` | `pysp` manifest | `79432fa6…c7458da9` | `0d9db03a…a68644f7` |
+
+These goldens did not move: the hook prelude, the linked `x = 1` program root, and the int_literal goldens.
+
+**Differences from CPython and I1 worth a look in review**
+- `from pkg import sub` does not auto-import the submodule, as ruling 13 requires, though CPython would. The test says so.
+- A top-level module's `__package__` is now `''` as in CPython, where I1 had None. This change is part of why the goldens moved.
+
+Besides the I2 files, the only other test files touched are the three listed above, and only their golden values changed. No F3 files were touched and no git write commands were run.

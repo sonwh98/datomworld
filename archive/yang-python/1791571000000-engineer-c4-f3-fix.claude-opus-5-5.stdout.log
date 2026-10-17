@@ -1,0 +1,41 @@
+The lane is running. I'll act on the completion notice.
+
+The monitor expired, but the background until-loop is still waiting on the lane summary. I'll continue when it completes.
+
+The Node lane is running; I'll check it when it completes.
+
+The Dart lane is running. I'll pick it up on completion.
+
+All six review findings are fixed, and the JVM, Node and Dart test runs all pass. Nothing is committed; I ran no git write commands. The full report is at `collab/1791571000000-engineer-c4-f3-fix.findings.md`.
+
+**Fixes:**
+1. **Blank line inside brackets:** a blank line now ends a submission only when brackets, strings and continuations are all closed. `print(`, blank line, `1)` now prints `1`.
+2. **Probe scanner:** the regex/count heuristic in `repl_probe.clj` is replaced by a character scanner. It tracks short and triple strings with escapes, comments, typed bracket nesting and backslash continuation.
+3. **EOF classification:** the probe no longer reads the error text. It reruns the parse itself and checks which token the first error failed on.
+   - For most errors that is the reported token.
+   - For "no viable alternative" errors, ANTLR reports the token where its lookahead started (e.g. `(` in `print(`). So the probe uses the furthest token the parser read instead.
+   - Only a failure on end-of-input tokens buffers for more lines. Anything earlier is reported at once, even under an open bracket (e.g. `x = (1 + * 2`), and the next line evaluates normally.
+4. **`:primed` marker:** the session marker is now saved only when the program actually halts, or when a parked require later completes. Any failure, rollback or abandon keeps the previous marker. A first round that throws, followed by a retry, now works.
+5. **Stray `nil`:** a new binding key, `:display :output`, makes the shell show only what a Python submission printed. Only the ANTLR frontend sets it. The tests now check exact responses: assignment `""`, print `"1\n"`, `"ZeroDivisionError: division by zero\n"`. The Clojure and legacy Python frontends still echo `"3"`.
+6. **Catalog test:** it now selects the installed parserless `:yang.python/service` id and asserts both the `unavailable-parser` answer and the unchanged language. A new test checks that `:yang.python/antlr` is selectable on the JVM and answers `unavailable-parser` on Node and Dart.
+
+**Added tests:** `(vm ...)` rebuild; first-round failure then retry; later-round failure keeping the marker; and portable session tests that run on all three hosts using precompiled CST packets. On the JVM those packets are checked against the real parser, and the same scenarios also run through the installed frontend.
+
+**Results:**
+
+| Check | Result |
+|---|---|
+| JVM (the four namespaces) | 71 tests, 427 assertions, 0 failures |
+| Node (`bb test:cljs`) | 3874 tests, 0 failures, both F3 namespaces ran |
+| Dart (`bb test:cljd`) | 3826 passed, all 7 portable F3 tests ran |
+| kondo, cljstyle | clean |
+
+**Deviations from the brief:**
+- **Test file renamed:** `test/yin/repl/python_antlr_test.clj` is now `.cljc` so the session tests can run on Node and Dart. Its JVM-only tests use `#?(:cljd nil :clj ...)` with `:cljd` first. No other files were touched.
+- **JVM lane in the background:** it takes over 10 minutes, longer than the foreground limit, so it ran in the background with a completion notice. Lanes still ran one at a time.
+- **Parser classes:** I ran `bb gen:python-antlr` once, because the generated (gitignored) parser classes were missing in this worktree.
+- **Small tidies inside the F3 diff:** wrapped two lines over 80 columns in `repl.cljc`, made `antlr-manifest` JVM-only to clear a kondo warning, and applied cljstyle fixes.
+
+**Known limits (also in the report):**
+- An unclosed triple string waits for more lines without checking earlier text on that line for errors.
+- Trailing spaces on lines inside a triple string are still trimmed; that behaviour predates this fix.

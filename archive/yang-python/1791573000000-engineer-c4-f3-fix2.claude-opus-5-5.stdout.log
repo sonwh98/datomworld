@@ -1,0 +1,30 @@
+I fixed all three findings, writing each test before its fix. The test suites pass on all three platforms (JVM, Node, Dart), and kondo and cljstyle report nothing. Nothing is committed. The full report is in `collab/1791573000000-engineer-c4-f3-fix2.findings.md`.
+
+**(A) Finding 7: trailing whitespace in Python input is kept.** `eval-input` in `src/cljc/yin/repl.cljc` no longer trims trailing whitespace off lines when the language has a completeness probe (the check that decides whether more lines are needed). Blank-line checks still decide when a submission is complete. Languages without a probe still trim as before.
+- One new test prints a triple-quoted string with trailing spaces and tabs and checks the exact output.
+- Another checks that `s = 'a\  ` (backslash, then spaces) is reported as a SyntaxError at once, nothing is held back, and `print(2)` works afterwards.
+
+**(B) Finding 3: syntax errors before an unfinished string are reported at once.** When a string is still open, the probe in `repl_probe.clj` now parses the text up to the opening quote with an empty string `''` in its place. If parsing fails on that string or anything before it, more lines can't fix the input, so it returns `:complete` and the SyntaxError is shown immediately. Otherwise the input stays `:incomplete` and waits for more lines.
+- The new regression cases are `x = 1 """abc`, `x = = """`, `foo(1 2 '''` and `x = (1 + * 2 'a\`. Each gives an immediate SyntaxError, nothing held back, then `print(2)` works.
+
+**I didn't follow the reviewer's example here.** `x = * """` is not an error that more lines can't fix. The grammar allows a starred expression on the right of `=` (`star_expr: '*' expr`), and `x = *"""ab""",` is valid Python. So I left that case `:incomplete` and pinned it in a test with a comment. The regression test uses inputs that really are unfixable. The reviewer may want to confirm this.
+
+**(C) Finding 4: tests for a session paused on a pending `require`.** I added four tests that run on every platform. They use a test language that counts its rounds as its session value, so the tests can see whether a session is saved or kept.
+- **While waiting:** the shell keeps session 1 and the paused run carries session 2.
+- **Completion:** the require finishes and session 2 is saved.
+- **Refusal:** the require is refused ("absent") and session 1 is kept.
+- **`(abandon)`:** session 1 is kept and the next round builds on it.
+
+These test code that already worked, so they pass against it.
+
+**Proof of red before green.** I temporarily put the old code back and ran only the (A)/(B) tests: 20 failures. Then I restored the fixes.
+
+**Test results:**
+- **JVM** (the four namespaces you listed): 76 tests, 467 assertions, 0 failures. This run takes over 20 minutes here: each Python session test took 80–160 s while other worktrees' test runs shared the machine. It looked like a hang at first, but timing each test showed it was only slow.
+- **Node:** 3878 tests, 0 failures. Its one build warning comes from `head.cljc`, which isn't an F3 file and predates this work.
+- **Dart:** 3830 tests, all passed. The log names only some tests, so I confirmed all four new tests are compiled into the Dart test file.
+
+**Other changes:**
+- I replaced the `§` character with the word "section" in two F3 docstrings so the files are plain ASCII.
+- A few lines over 80 columns remain, all older than F3: `repl.cljc` lines 354, 381, 1583, 1584 and `frontend_catalog_test.cljc` line 68.
+- Scratch logs are in `target/f3tmp/`, which git doesn't track.

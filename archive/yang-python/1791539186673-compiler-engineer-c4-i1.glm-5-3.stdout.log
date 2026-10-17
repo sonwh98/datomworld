@@ -1,0 +1,38 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+Waiting on the background lanes now — I'll finalize the report the moment they complete.
+
+The full JVM lane is progressing through the e2e suites. Still waiting on the three lane summaries — the armed monitors will fire when each completes.
+
+Both remaining lanes still grinding (the e2e suites are the slow tail of the JVM lane; Node buffers until completion). Monitors armed — waiting.
+
+JVM lane is past the e2e tail into the int suites; Node monitor re-armed. Waiting for both.
+
+Full JVM lane is through the yang tree's int suites; the yin tree remains. Monitors armed for the summary line — waiting.
+
+Still working through `int-ops-parser-test` (a parser-heavy suite, on a contended box). The completion notification and summary-line monitor are both armed — nothing further to do until they fire.
+
+The full JVM lane is healthy (15 min CPU over 15:40 elapsed) and has moved into the `yin.repl` suites. Waiting for its completion notification.
+
+**Phase C4 Slice I1 is complete and fully verified.** The report is at `./findings.md` in the worktree root (the collab directory is outside this sandbox — please move it to `collab/1791539186673-compiler-engineer-c4-i1.glm-5-3.findings.md`).
+
+## Final verification — all green
+
+| Lane | Result |
+|---|---|
+| Full JVM fast (`bb test:clj`) | 3947 tests / 244,056 assertions / 0 failures |
+| Node fast (`bb test:cljs`, final code) | 3826 tests / 108,231 assertions / 0 failures |
+| Dart fast (`bb test:cljd`, final code) | 3778 tests, all passed |
+| Slow linked import acceptance | 8 tests / 30 assertions / 0 — all six §8.5.6 rows on the semantic, stack and register VMs |
+| Slow `py`/`pysp` golden suites | 15 tests / 99 assertions / 0 |
+| clj-kondo / cljstyle / `git diff --check` | 0/0 on touched files / clean / clean |
+
+Node computed the new bundled goldens byte-for-byte — the cross-host address identity the float-address ruling requires.
+
+## What landed
+
+- **Runtime**: `py/import` (sys.modules → pre-seeded `sys`/`builtins` → linker-delivered spec/body; insert-before-execute, remove-and-re-raise), module objects `{:py/type :module :name s :dict d}` with the full attribute protocol, `py/run-main` as `"__main__"` (one image, two names), `sys.modules` in `py/init!`, `ImportError`.
+- **Lowering**: statement-time `import m` with hoisted `(require 'pym.m)` per import (import-free trees unchanged — the `dbe72b29…` program root did *not* move), bundled refusal for compiled modules, I2-form refusals, `del` for name/attribute targets, and the `pym.*` module emitter (`module-packet`/`module-spec`).
+- **Goldens moved once each** (final values pinned and verified): `py` manifest `607cef06…`, `pysp` `a842d2ad…`, bundled prelude root `f4a40353…`, float A/A'/record/prelude-id; `runtime-keys` 61→65.
+- Two notable findings for the record: `import sys` legitimately lowers under the *bundled* profile too (pre-seeded, no delivery — `sys` exposes only `modules`, so the interpreter hooks stay unreachable as an `AttributeError`, which the updated e2e test now asserts), and the prelude-notation trap that cost a fix round — map literals embed symbols, so dict keys must be `(assoc {} :py/str name)` calls; that fix moved the goldens a second time, and the pins in this report are from the final green runs.
+
+The tree is clean (no dev artifacts); `collab-brief.md` remains untracked for the orchestrator to keep or drop per protocol.

@@ -1,0 +1,2922 @@
+diff --git a/docs/design/yang.antlr.md b/docs/design/yang.antlr.md
+index 19f32ed1..b7f4dbdc 100644
+--- a/docs/design/yang.antlr.md
++++ b/docs/design/yang.antlr.md
+@@ -3144,8 +3144,9 @@ precompiled CST packets or rows, since the parser is JVM-only):
+   `:segment/blake3-8f5e6bc93e0e8960682b65c2e4254ec959e69f0579ccda07a3189ea0e0e4b9d7`
+   was moved once, by P3's two accessors, to
+   `:segment/blake3-b891d48b14e3fc3757535e580a3511e95d8ddf6c57d3e637f1ba0f9a97cb0ee7`
+-  (every golden moves once when the wrapper or the definition list it
+-  addresses changes). Measured on the JVM: `publish-module!` of `py`
++  and once more, by I1's module runtime, to the address I1's entry pins
++  (every golden moves once per slice that changes the wrapper or the
++  definition list it addresses). Measured on the JVM: `publish-module!` of `py`
+   takes about 37 to 45 s; one linked run takes about 4.4 to 5.3 s against
+   0.4 to 1.0 s bundled, about 80% of it the CBOR decode of the served
+   image (reflective `alength` in `dao.jing.cbor/blen`).
+@@ -3154,9 +3155,10 @@ precompiled CST packets or rows, since the parser is JVM-only):
+   no `pysp` binding reports the unresolved hook name. Landed, with slice
+   2's recursion acceptance re-run linked too (depth tracking across the
+   module boundary), in `linked_safepoint_test`: `pysp` publishes to one
+-  pinned manifest address on each host
+-  (`:segment/blake3-6133313d60c4080c0803daa6de5b53b195fa6c650af4b4b9e354ce247950fa87`,
+-  JVM golden), and its requirement pins `py` by
++  pinned manifest address on each host (P3 pinned
++  `:segment/blake3-6133313d60c4080c0803daa6de5b53b195fa6c650af4b4b9e354ce247950fa87`,
++  moved once since by I1's `py` requirement pin to the address I1's
++  entry names, JVM golden), and its requirement pins `py` by
+   manifest address, so a `pysp`-free name environment still runs the
+   naive linked program and refuses the derived one by hook name.
+ - F3: at the REPL, `x = 1` then `print(x)` prints `1`; the probe answers
+@@ -3166,7 +3168,32 @@ precompiled CST packets or rows, since the parser is JVM-only):
+   through `m.__dict__` and to `m`'s functions; a raising body removes
+   its entry and propagates; a handler in the importer catches an
+   exception from a function in `m` on every VM; one image as main and as
+-  import sees different `__name__` values.
++  import sees different `__name__` values. Landed in `import_test`
++  (with the programs of `import_programs`, each packet the parser's for
++  its source, checked by `e2e_test`): the runtime is `py/import`,
++  `py/module-run`, `py/run-main` as `"__main__"`, the module objects
++  `py/getattr`/`py/setattr`/`py/delattr` answer for, sys.modules
++  (`py.rt/modules`) with `sys` and `builtins` pre-seeded, and the
++  `ImportError` class; the module emitter is `lower/module-packet` and
++  `lower/module-spec` (`pym.m` for module `m`), one `(require 'pym.i)`
++  hoisted per static import in the unit beside the wrapper's `py`
++  require — an import-free program's tree is unchanged, so its linked
++  program root golden did not move. Each import-free golden moved once
++  with the prelude change: the `py` manifest to
++  `:segment/blake3-ad6f34e349ce527382ddd039236197a700c6c1182f163bc3b8bcf13449f1c3d8`
++  and, through the requirement pin, the `pysp` manifest to
++  `:segment/blake3-79432fa68e23ce3d1a4fbf4f882713b8ba9fe0cb74467285cb832e25c7458da9`
++  (JVM goldens in `linked_prelude_test` and `linked_safepoint_test`);
++  the bundled prelude root, program root, derivation record and
++  prelude-id goldens in `float_address_test` moved once each; the hook
++  prelude's own root did not move. An import of a compiled module under
++  the bundled profile is refused (`Imports require the linked prelude`),
++  as is every I2 form — dotted, aliased, and `from` — and `del` is
++  lowered for name and attribute targets. `import sys` and
++  `import builtins` resolve under either profile with no delivery: spec
++  and body are `None` and no `pym.sys` require is hoisted, the
++  pre-seeded `sys.modules` entry answering; the pre-seeded `sys` exposes
++  `modules` only, so the interpreter hooks stay unreachable.
+ - I2: `import a.b.c` runs three bodies once, in order, with attributes
+   set; a relative import in a packageless unit raises an `ImportError`
+   caught by `except`; `from pkg import sub` with no explicit import and
+diff --git a/src/cljc/yang/python/antlr/lower.cljc b/src/cljc/yang/python/antlr/lower.cljc
+index 2b35ea7a..d2be96e8 100644
+--- a/src/cljc/yang/python/antlr/lower.cljc
++++ b/src/cljc/yang/python/antlr/lower.cljc
+@@ -32,6 +32,12 @@
+      eager; a generator expression is an anonymous generator whose first
+      iterable is evaluated and `iter()`-checked at creation, every other
+      clause lazily, at each resume.
++   - `import m` (C4 I1, single undotted names) lowers at the statement to
++     `(py/import m pym.m/spec pym.m/body)` plus the binding of the
++     module object, one `(require 'pym.m)` hoisted per import in the
++     program wrapper (linked only); `sys` and `builtins` come pre-seeded
++     with no delivery. `del m.y` is a delattr call, `del x` an unbind.
++     Dotted, aliased and from-imports are I2's.
+    - A function whose body yields is a generator function: its code binds
+      the arguments and allocates the cells, then returns
+      `(py/make-generator name (fn [%gen] body))`; each `yield v` is
+@@ -57,8 +63,10 @@
+     [yang.python.antlr.scope :as scope]
+     [yang.python.antlr.uast :as u]
+     [yang.stage :as stage]
++    [yin.vm :as vm]
+     [yin.vm.encoder :as encoder]
+-    [yin.vm.integer :as integer]))
++    [yin.vm.integer :as integer]
++    [yin.vm.module :as module]))
+ 
+ 
+ ;; =============================================================================
+@@ -92,15 +100,9 @@
+    "async_funcdef" "async def",
+    "async_stmt" "async statement",
+    "annassign" "annotated assignment",
+-   "del_stmt" "del statement",
+-   "import_stmt" "import",
+-   "import_name" "import",
+-   "import_from" "import",
+-   "import_as_name" "import",
+-   "import_as_names" "import",
+-   "dotted_as_name" "import",
+-   "dotted_as_names" "import",
+-   "dotted_name" "import",
++   "import_from" "from import",
++   "import_as_name" "from import",
++   "import_as_names" "from import",
+    "assert_stmt" "assert statement",
+    "match_stmt" "match statement",
+    "subject_expr" "match statement",
+@@ -149,7 +151,7 @@
+     "augassign" "except_clause" "block" "comp_op" "trailer" "subscriptlist"
+     "subscript_" "sliceop" "arglist" "argument" "testlist_comp"
+     "dictorsetmaker" "strings" "comp_for" "comp_iter" "comp_if" "with_item"
+-    "yield_arg"})
++    "yield_arg" "dotted_name" "dotted_as_name" "dotted_as_names"})
+ 
+ 
+ (def handled-rules
+@@ -160,7 +162,8 @@
+     "global_stmt" "nonlocal_stmt" "if_stmt" "while_stmt" "for_stmt"
+     "try_stmt" "with_stmt" "funcdef" "classdef" "test" "test_nocond"
+     "lambdef" "lambdef_nocond" "or_test" "and_test" "not_test" "comparison"
+-    "expr" "star_expr" "atom_expr" "atom" "name" "yield_stmt" "yield_expr"})
++    "expr" "star_expr" "atom_expr" "atom" "name" "yield_stmt" "yield_expr"
++    "del_stmt" "import_stmt" "import_name"})
+ 
+ 
+ (defn- default-arm
+@@ -489,6 +492,162 @@
+       :global (app* 'py/global-del-quiet (u/v globals-sym) (global-key name)))))
+ 
+ 
++(declare target-elements target-atom-expr apply-trailer)
++
++
++(defn- del-name
++  "`del name`: strict where `unbind-name` is quiet -- CPython raises
++   NameError (a global) or UnboundLocalError (a local) deleting a name
++   with no binding, so the read runs first and the delete follows it."
++  [ctx name]
++  (let [r (resolve-name ctx name)]
++    (case (:kind r)
++      :cell (u/seq-nodes
++              [(app* 'py/local-get (u/v (symbol name)) (u/lit {:py/str name}))
++               (app* 'cell/set! (u/v (symbol name)) (u/lit :py/unbound))])
++      :class-attr (app* 'py/class-ns-del (u/v (:class ctx)) (u/lit name))
++      :global (app* 'py/global-del (u/v globals-sym) (global-key name)))))
++
++
++;; -----------------------------------------------------------------------------
++;; Imports (C4 I1)
++;; -----------------------------------------------------------------------------
++
++(def ^:private preseeded-modules
++  "The runtime-synthesized modules `py/init!` pre-seeds into sys.modules
++   (docs/design/yang.antlr.md 8.5.6, resolution step 2): their import
++   carries no spec or body and hoists no require -- resolution never
++   reaches the linker."
++  #{"sys" "builtins"})
++
++
++(def module-prefix
++  "The reserved linker-module prefix of a Python module (8.5.6): module
++   `m` is the linker module `pym.m`; nothing is ever installed at the
++   `pym` root."
++  "pym")
++
++
++(defn module-symbol
++  "The linker module name of the Python module `name`."
++  [name]
++  (symbol (str module-prefix "." name)))
++
++
++(defn- import-target-name
++  "The module name of import target `n` (a dotted_as_name) when it is
++   I1's shape -- a single undotted name, no `as` -- else nil."
++  [pk n]
++  (let [dn (first (p/child-rules pk n "dotted_name"))]
++    (when (and dn
++               (not (p/has-token? pk n "as"))
++               (= 1 (count (p/child-rules pk dn "name"))))
++      (let [nm (first (p/child-rules pk dn "name"))]
++        (:text (first (p/children pk nm)))))))
++
++
++(defn- packet-import-targets
++  "Every import target of the packet's `import` statements, in source
++   order, at any depth (a function or class body included): delivery is
++   hoisted for each, wherever the statement runs."
++  [pk]
++  (let [out (volatile! [])]
++    (letfn [(walk
++              [n]
++              (when (p/rule? n)
++                (if (= "import_name" (:rule n))
++                  (when-let [das (first (p/child-rules pk n "dotted_as_names"))]
++                    (vswap! out into (p/child-rules pk das "dotted_as_name")))
++                  (run! walk (p/children pk n)))))]
++      (walk (p/root pk))
++      @out)))
++
++
++(defn imported-module-names
++  "The distinct module names the unit statically imports in I1's shape,
++   source order, the pre-seeded `sys` and `builtins` aside."
++  [pk]
++  (into [] (comp (keep #(import-target-name pk %))
++                 (remove preseeded-modules)
++                 (distinct))
++        (packet-import-targets pk)))
++
++
++(defn- import-requires
++  "The linker modules a unit's static imports deliver: `pym.<name>` per
++   imported name, source order. The module's own `py` require is not
++   here; the wrappers add it ahead of these."
++  [pk]
++  (mapv module-symbol (imported-module-names pk)))
++
++
++(defn- lower-import
++  "import_name (I1): every target a single undotted module, no `as`.
++   Each lowers at its statement position to `(py/import name spec body)`
++   plus the binding of the module object to the imported name in the
++   scope the statement runs in; `sys.modules` answers first, the body
++   runs lazily in the importing task. Dotted and aliased targets are
++   I2's; a from-import too. `sys` and `builtins` need no delivery: spec
++   and body are None, and the pre-seeded sys.modules entry answers."
++  [ctx n]
++  (let [pk (:pk ctx)
++        das (first (rules ctx n "dotted_as_names"))
++        targets (rules ctx das "dotted_as_name")]
++    (u/seq-nodes
++      (mapv (fn [t]
++              (when (p/has-token? pk t "as") (unsupported! t "aliased import"))
++              (let [dn (first (rules ctx t "dotted_name"))
++                    names (rules ctx dn "name")]
++                (when (not= 1 (count names))
++                  (unsupported! t "dotted import"))
++                (let [nm (name-of ctx (first names))
++                      preseeded (contains? preseeded-modules nm)
++                      mod (module-symbol nm)
++                      spec (if preseeded none (u/v (symbol (str mod) "spec")))
++                      body (if preseeded none (u/v (symbol (str mod) "body")))
++                      tmp (gen "imp" t)]
++                  (u/let1 tmp (app* 'py/import (u/lit {:py/str nm}) spec body)
++                          (assign-name ctx nm (u/v tmp))))))
++            targets))))
++
++
++(defn- lower-del-target
++  "One `del` target: a name unbound strictly, an attribute chain removed
++   from its receiver (`del m.y`, C4 I1's module attribute). Subscript and
++   starred targets are later slices'; a tuple deletes each element."
++  [ctx t]
++  (if-let [nm (scope/simple-name (:pk ctx) t)]
++    (del-name ctx nm)
++    (if-let [elems (target-elements ctx t)]
++      (u/seq-nodes (mapv #(lower-del-target ctx %) elems))
++      (let [ae (target-atom-expr ctx t)
++            ks (when ae (kids ctx ae))
++            trailers (rest ks)]
++        (when (or (nil? ae) (empty? trailers))
++          (unsupported! t "delete target"))
++        (let [receiver (reduce #(apply-trailer ctx %1 %2)
++                               ((:lower ctx) ctx (first ks))
++                               (butlast trailers))
++              last-t (last trailers)
++              head (first (kids ctx last-t))]
++          (cond
++            (p/token? head "[") (unsupported! last-t "delete of a subscript")
++            (p/token? head ".")
++            (let [attr (name-of ctx (first (rules ctx last-t "name")))]
++              (app* 'py/delattr receiver (u/lit attr)))
++            :else (unsupported! t "delete target")))))))
++
++
++(defn- lower-del
++  "del_stmt: `del exprlist`, each target deleted in order. A one-target
++   exprlist is not a tuple to `target-elements`, so it lowers as the
++   single target it is."
++  [ctx n]
++  (let [xl (first (rules ctx n "exprlist"))
++        targets (or (target-elements ctx xl) [xl])]
++    (u/seq-nodes (mapv #(lower-del-target ctx %) targets))))
++
++
+ ;; =============================================================================
+ ;; The dispatch: one arm per grammar rule
+ ;; =============================================================================
+@@ -1501,6 +1660,12 @@
+     "with_stmt" (lower-with ctx n)
+     "funcdef" (lower-funcdef ctx n)
+     "classdef" (lower-classdef ctx n)
++    "del_stmt" (lower-del ctx n)
++    ;; a from-import is I2's; the import_name arm lowers I1's form
++    "import_stmt" (if (p/rule? (first (kids ctx n)) "import_from")
++                    (unsupported! n "from import")
++                    ((:lower ctx) ctx (first (kids ctx n))))
++    "import_name" (lower-import ctx n)
+     ;; ---- expressions
+     "testlist_star_expr" (display ctx n)
+     "testlist" (display ctx n)
+@@ -1590,18 +1755,126 @@
+    default) carries the prelude tree ahead of the body; `:linked`
+    requires the module `py` from the task's link pair, then allocates the
+    task's runtime state with `(py/init!)`. Either way the body names only
+-   `py/` exports, never a runtime key."
++   `py/` exports, never a runtime key.
++
++   A unit that statically imports a module needs it delivered: under
++   `:linked` one `(require 'pym.<name>)` per import is hoisted after the
++   `py` require (ruling 4's explicit eager-dependency restriction; an
++   import-free unit's tree is unchanged). Imports need the linked
++   prelude -- a module closure's free reads never see the ambient store,
++   so a bundled importer's `py/*` definitions are invisible to an
++   imported body -- and a bundled unit holding an import is refused."
+   ([packet] (lower-packet packet {}))
+   ([packet {:keys [prelude], :or {prelude :bundled}}]
+-   (let [main (app* 'py/run-main
++   (let [requires (import-requires (p/validate! packet))
++         main (app* 'py/run-main
+                     (u/lam [globals-sym globals-fn-sym]
+                            (lower-module-body packet)))]
+      (u/mark-tails
+        (case prelude
+-         :bundled (u/then prelude/uast main)
+-         :linked (u/seq-nodes [(app* 'require (u/lit prelude/module-name))
+-                               (app* 'py/init!)
+-                               main]))))))
++         :bundled (if (seq requires)
++                    (throw (ex-info
++                             "Imports need the linked prelude (docs/design/yang.antlr.md 8.5.6)"
++                             {:yang.python.antlr/diagnostic :yang.python.antlr/unsupported,
++                              :construct "import under the bundled prelude"}))
++                    (u/then prelude/uast main))
++         :linked (u/seq-nodes
++                   (into [(app* 'require (u/lit prelude/module-name))]
++                         (concat (mapv #(app* 'require (u/lit %)) requires)
++                                 [(app* 'py/init!) main]))))))))
++
++
++;; =============================================================================
++;; The module emitter: one Python unit as the linker module pym.<name>
++;; =============================================================================
++
++(defn- require-node
++  "(require 'm) as a tree node."
++  [m]
++  (u/sexp->uast (list 'require (list 'quote m))))
++
++
++(def module-exports
++  "The exports of a compiled Python unit: its spec and body, immutable
++   after install (docs/design/yang.antlr.md 8.5.6's module shape)."
++  '#{spec body})
++
++
++(defn module-packet
++  "One ok packet as the linker module `pym.<name>`: one wide application
++   whose operands are `(require 'py)`, one `(require 'pym.<i>)` per
++   static import (delivery hoisted and pinned, bodies lazy), then the
++   spec and body definitions. `name` is the Python module name; I1
++   admits undotted names only, and the spec's package-ness is false (I2
++   derives it from source layout). The body is the same form
++   `lower-packet` runs as `__main__`: one code image, two roles."
++  [packet {:keys [name]}]
++  (when (or (empty? name) (str/includes? name "."))
++    (throw (ex-info "I1 module names are single undotted names"
++                    {:yang.python.antlr/diagnostic :yang.python.antlr/unsupported,
++                     :construct "dotted module name",
++                     :name name})))
++  (let [requires (import-requires (p/validate! packet))
++        nodes (into [prelude/module-name] requires)
++        defs [(u/def! 'spec (u/lit {:name name, :package? false}))
++              (u/def! 'body (u/lam [globals-sym globals-fn-sym]
++                                   (lower-module-body packet)))]
++        operands (into (mapv require-node nodes) defs)
++        params (mapv (fn [i] (symbol (str "%d" i))) (range (count operands)))]
++    (u/mark-tails (apply u/app (u/lam params (u/lit nil)) operands))))
++
++
++(defn- declare-free-name
++  "The `:primitives` entry free name `n` declares over `registry`, or nil
++   when `covered` (the requirement-pinned module names) covers it."
++  [registry covered n]
++  (if (and (symbol? n) (some? (namespace n))
++           (contains? covered (symbol (namespace n))))
++    nil
++    (if-let [profile (vm/profile-of vm/primitives n)]
++      [n profile]
++      (if-let [address (module/host-export-profile registry n)]
++        (let [entry (module/module-entry (:modules registry)
++                                         (symbol (namespace n)))
++              f (get-in entry [:slice (symbol (name n))])]
++          [n {:yin.k/profile address,
++              :yin.k/effects
++              (get (:callable-effects registry) f #{})}])
++        (throw (ex-info
++                 "the module reads an undeclared name"
++                 {:yang.python.antlr/refusal
++                  :yang.python.antlr/undeclared-free,
++                  :name n}))))))
++
++
++(defn module-spec
++  "`yin.vm.linker.publish/publish-module!`'s spec for the Python module
++   `name` over the host registry `registry`, requiring `py` at
++   `py-address` and each imported module at its manifest address in
++   `deps` ({python-name address}). A free name of the module tree is
++   declared one of three ways, as the hook prelude's emitter declares
++   its own: a name qualified by `py` or by an imported `pym.<i>` is
++   covered by that requirement, discharged by a linked module of equal
++   manifest address; a bare name is a primitive declared by its
++   `vm/primitives` profile; any other `ns/name` is a host export
++   declared by the profile address the registry's host module `ns`
++   publishes. A free name none of these supplies is refused before
++   anything is published. This namespace emits; it never publishes."
++  [registry packet {:keys [name py-address deps]}]
++  (let [ast (module-packet packet {:name name})
++        covered (into #{prelude/module-name} (map module-symbol (keys deps)))
++        free-names (vec (sort-by str
++                                 (remove (conj (prelude/defined-keys ast) 'yin/def)
++                                         (prelude/free-names ast))))]
++    {:name (module-symbol name),
++     :ast ast,
++     :exports module-exports,
++     :requires (into {prelude/module-name py-address}
++                     (map (fn [[n a]] [(module-symbol n) a]))
++                     deps),
++     :primitives
++     (into {} (keep (partial declare-free-name registry covered)
++                    free-names))}))
+ 
+ 
+ ;; =============================================================================
+diff --git a/src/cljc/yang/python/antlr/prelude.cljc b/src/cljc/yang/python/antlr/prelude.cljc
+index 762ab8c7..1d97afa7 100644
+--- a/src/cljc/yang/python/antlr/prelude.cljc
++++ b/src/cljc/yang/python/antlr/prelude.cljc
+@@ -50,6 +50,13 @@
+                      as `%globals` and every function closes over it, which
+                      is Python's own `__globals__`; a miss falls back to the
+                      builtins dict, and a miss there is NameError
++     module          a cell {:py/type :module :name s :dict d} (C4 I1): the
++                     object `py/import` binds, its dict the module's own
++                     namespace, so attribute reads, writes and deletes are
++                     dict operations every function of the module sees, and
++                     `__dict__` reads the cell's dict; sys.modules itself is
++                     the dict `py.rt/modules`, `sys` and `builtins` the two
++                     module objects `py/init!` pre-seeds into it
+ 
+    Calling convention: a function's `:code` takes one vector of arguments
+    laid out as the parameters are written. `py/call-kw` (and `py/call`,
+@@ -93,6 +100,14 @@
+                      frame fits; the hook prelude checks function entry
+                      against it and sets it
+      py.rt/out       the values `print` collected, one vector per call
++     py.rt/modules   sys.modules (C4 I1): the dict of py str name to module
++                     object; an import consults it before anything else, a
++                     miss is instantiated and inserted before its body
++                     runs, and a raising body removes its entry again.
++                     py.rt/sys and py.rt/builtins-mod are the two module
++                     objects `py/init!` pre-seeds into it: `sys`, whose
++                     dict holds py.rt/modules under the name modules, and
++                     `builtins`, whose dict is the builtins namespace
+ 
+    Escapes and handlers tell the first pass through a capture point from a
+    re-entry with a flag cell allocated before the capture (`:first`, then
+@@ -1009,40 +1024,54 @@
+                  (let [m (py/class-lookup (get c :class) name)]
+                    (if (= m :py/missing) (py/attr-error name) (py/bind o m)))
+                  own))
+-             (if (= t :class)
+-               (let [m (py/class-lookup o name)]
+-                 (if (= m :py/missing)
+-                   (if (= name "__name__") (py/str (get c :name)) (py/attr-error name))
+-                   m))
+-               (if (= t :list)
+-                 (if (= name "append")
+-                   (py/method o py.b/list-append)
+-                   (py/attr-error name))
+-                 (if (= t :function)
+-                   (if (= name "__name__")
+-                     (py/str (get c :name))
++             (if (= t :module)
++               ;; the module's dict is its namespace, so every attribute
++               ;; (the dunders py/module-new sets included) reads through
++               ;; it; `__dict__` is the dict itself (C4 I1). The lookup
++               ;; key is a call: a map literal here would embed the symbol
++               (if (= name "__dict__")
++                 (get c :dict)
++                 (let [dc (cell/get (get c :dict))
++                       slot (get (get dc :index)
++                                 (assoc {} :py/str name)
++                                 :py/missing)]
++                   (if (= slot :py/missing)
++                     (py/attr-error name)
++                     (get (get dc :vals) slot))))
++               (if (= t :class)
++                 (let [m (py/class-lookup o name)]
++                   (if (= m :py/missing)
++                     (if (= name "__name__") (py/str (get c :name)) (py/attr-error name))
++                     m))
++                 (if (= t :list)
++                   (if (= name "append")
++                     (py/method o py.b/list-append)
+                      (py/attr-error name))
+-                   (if (= t :set)
+-                     (if (= name "add") (py/method o py.b/set-add) (py/attr-error name))
+-                     (if (= t :dict)
+-                       (if (= name "items")
+-                         (py/method o py.b/dict-items)
+-                         (if (= name "keys")
+-                           (py/method o py.b/dict-keys)
+-                           (if (= name "values")
+-                             (py/method o py.b/dict-values)
+-                             (if (= name "get")
+-                               (py/method o py.b/dict-get)
+-                               (py/attr-error name)))))
+-                       (if (= t :generator)
+-                         (py/gen-attr o name)
+-                         (if (= t :iterator)
+-                           (if (= name "__next__")
+-                             (py/method o py.b/gen-next)
+-                             (if (= name "__iter__")
+-                               (py/method o py.b/gen-iter)
+-                               (py/attr-error name)))
+-                           (py/attr-error name))))))))))
++                   (if (= t :function)
++                     (if (= name "__name__")
++                       (py/str (get c :name))
++                       (py/attr-error name))
++                     (if (= t :set)
++                       (if (= name "add") (py/method o py.b/set-add) (py/attr-error name))
++                       (if (= t :dict)
++                         (if (= name "items")
++                           (py/method o py.b/dict-items)
++                           (if (= name "keys")
++                             (py/method o py.b/dict-keys)
++                             (if (= name "values")
++                               (py/method o py.b/dict-values)
++                               (if (= name "get")
++                                 (py/method o py.b/dict-get)
++                                 (py/attr-error name)))))
++                         (if (= t :generator)
++                           (py/gen-attr o name)
++                           (if (= t :iterator)
++                             (if (= name "__next__")
++                               (py/method o py.b/gen-next)
++                               (if (= name "__iter__")
++                                 (py/method o py.b/gen-iter)
++                                 (py/attr-error name)))
++                             (py/attr-error name)))))))))))
+          (py/attr-error name)))]
+     [py/setattr
+      (fn [o name x]
+@@ -1052,7 +1081,13 @@
+            (if (if (= t :instance) true (= t :class))
+              (do (cell/set! o (assoc c :attrs (assoc (get c :attrs) name x)))
+                  :py/None)
+-             (py/attr-error name)))
++             (if (= t :module)
++               ;; a module attribute is a binding in the module's dict
++               ;; (C4 I1), so the module's own functions see the write;
++               ;; the key is a call, as py/getattr's
++               (do (py/dict-set (get c :dict) (assoc {} :py/str name) x)
++                   :py/None)
++               (py/attr-error name))))
+          (py/attr-error name)))]
+ 
+     ;; ---------------------------------------------------------- numbers
+@@ -1884,11 +1919,41 @@
+                                    (py/reindex ks2 0 {})))
+                  :py/None)))))]
+     [py/global-del-quiet (fn [g n] (py/dict-del-quiet g n))]
++    [py/global-del
++     ;; strict `del x` at module level: must be bound in the module's own dict,
++     ;; never falling back to builtins; absent is NameError
++     (fn [g n]
++       (if (py/dict-has? g n)
++         (py/dict-del-quiet g n)
++         (py/raise-new py.b/NameError
++                       (py/str (data/str-concat "name '" (get n :py/str)
++                                                "' is not defined")))))]
+     [py/delattr-quiet
+      (fn [o name]
+        (let [c (cell/get o)]
+          (do (cell/set! o (assoc c :attrs (data/dissoc (get c :attrs) name)))
+              :py/None)))]
++    [py/class-ns-del
++     ;; strict `del x` inside class body: must exist in class attrs, else NameError
++     (fn [cls name]
++       (let [c (cell/get cls)]
++         (if (not (= (get (get c :attrs) name :py/missing) :py/missing))
++           (do (cell/set! cls (assoc c :attrs (data/dissoc (get c :attrs) name)))
++               :py/None)
++           (py/raise-new py.b/NameError
++                         (py/str (data/str-concat "name '" name "' is not defined"))))))]
++    [py/delattr
++     ;; `del o.name` (C4 I1): a module binding removed from the module's
++     ;; dict, AttributeError naming the attribute when it is absent; the
++     ;; keys are calls, as py/getattr's
++     (fn [o name]
++       (let [c (cell/get o)]
++         (if (= (get c :py/type) :module)
++           (let [d (get c :dict)]
++             (if (py/dict-has? d (assoc {} :py/str name))
++               (py/dict-del-quiet d (assoc {} :py/str name))
++               (py/attr-error name)))
++           (py/attr-error name))))]
+     [py/dict-fill
+      (fn [d pairs i]
+        (let [pair (get pairs i :py/stop)]
+@@ -2365,7 +2430,9 @@
+                        (assoc {} :py/generator (get c :name))
+                        (if (= t :iterator)
+                          (assoc {} :py/iterator "iterator")
+-                         :py/object))))))))))]
++                         (if (= t :module)
++                           (assoc {} :py/module (get c :name))
++                           :py/object)))))))))))]
+     [py/snapshot-exc
+      (fn [e]
+        (if (= (py/content-type e) :instance)
+@@ -2876,15 +2943,86 @@
+              (py/type-text "type " x " doesn't define __round__ method")))))]
+ 
+     ;; ---------------------------------------------------------- module
++    ;; Modules over sys.modules (C4 I1, docs/design/yang.antlr.md 8.5.6):
++    ;; install delivers spec and body, instantiation is the importing
++    ;; task's own evaluation, and the module object's dict is the
++    ;; namespace the body receives, so no linker store holds Python state.
++    [py/globals-fn
++     ;; the module's `globals` builtin over its namespace dict
++     (fn [g]
++       (py/make-function "globals" {:params [], :no-kw true} [] []
++                         (fn [args] g)))]
++    [py/module-of
++     ;; a module object: a heap cell {:py/type :module :name s :dict d},
++     ;; `name` plain text, `d` the namespace dict the body receives
++     (fn [name d]
++       (cell/new (assoc (assoc (assoc {} :py/type :module) :name name) :dict d)))]
++    [py/module-dict (fn [m] (get (cell/get m) :dict))]
++    [py/module-new
++     ;; a fresh module object carrying the standard dunders (8.5.6):
++     ;; __name__ and __package__ as given, __spec__ and __loader__ None;
++     ;; __file__ is absent. `name` a py str, `package` a py str or None
++     (fn [name package]
++       (let [d (py/dict-new)]
++         (do (py/dict-set d {:py/str "__name__"} name)
++             (py/dict-set d {:py/str "__package__"} package)
++             (py/dict-set d {:py/str "__spec__"} :py/None)
++             (py/dict-set d {:py/str "__loader__"} :py/None)
++             (py/module-of (get name :py/str) d))))]
++    [py/modules-ref
++     ;; sys.modules[name]: the module object, or :py/missing
++     (fn [name]
++       (let [c (cell/get py.rt/modules)
++             slot (get (get c :index) (py/key name) :py/missing)]
++         (if (= slot :py/missing)
++           :py/missing
++           (get (get c :vals) slot))))]
++    [py/modules-put!
++     (fn [name m] (do (py/dict-set py.rt/modules name m) :py/None))]
++    [py/modules-del!
++     (fn [name] (py/dict-del-quiet py.rt/modules name))]
++    [py/module-run
++     ;; instantiate the module `name` (a py str) from `body`: the object
++     ;; is created and inserted into sys.modules BEFORE the body runs, so
++     ;; an import the body itself makes finds the partial module, and a
++     ;; raising body removes the entry again and re-raises to the
++     ;; importer; the module object is the value
++     (fn [name package body]
++       (let [m (py/module-new name package)
++             d (py/module-dict m)]
++         (do (py/modules-put! name m)
++             (py/try (fn [] (do (body d (py/globals-fn d)) :py/None))
++                     (fn [e] (do (py/modules-del! name) (py/raise e)))
++                     (fn [] :py/None))
++             m)))]
++    [py/import
++     ;; the import statement's runtime (I1), the 8.5.6 resolution order:
++     ;; sys.modules first -- a hit is the module object, the body never
++     ;; re-executes; a miss instantiates from the linker-delivered spec
++     ;; and body, __package__ from the spec's package-ness. spec and body
++     ;; None name a runtime-synthesized module (`sys`, `builtins`),
++     ;; pre-seeded by py/init!, so a miss is ImportError
++     (fn [name spec body]
++       (let [hit (py/modules-ref name)]
++         (if (not (= hit :py/missing))
++           hit
++           (if (= body :py/None)
++             (py/raise-new
++               py.b/ImportError
++               (py/str (data/str-concat "No module named '"
++                                        (data/str-concat (get name :py/str) "'"))))
++             (py/module-run name
++                            (if (get spec :package?) name :py/None)
++                            body)))))]
+     [py/run-module
+-     ;; the body receives the module namespace dict and the module's
+-     ;; `globals` builtin, a function object returning that dict
++     ;; a body against a fresh module namespace, the outcome snapshotted:
++     ;; the test-runner form of the entry wrapper. No module object and no
++     ;; sys.modules entry -- py/run-main and py/import are the named forms
+      (fn [body]
+        (do (cell/set! py.rt/out [])
+            (cell/set! py.rt/ctx (py/ctx nil 0 0 nil))
+            (let [g (py/dict-new)
+-                 gf (py/make-function "globals" {:params [], :no-kw true} [] []
+-                                      (fn [args] g))
++                 gf (py/globals-fn g)
+                  exc (py/try (fn [] (do (body g gf) :py/None))
+                              (fn [e] e)
+                              (fn [] :py/None))]
+@@ -2892,9 +3030,23 @@
+                     :py/exception
+                     (if (= exc :py/None) nil (py/snapshot-exc exc))))))]
+     [py/run-main
+-     ;; the entry wrapper's call: today the same as run-module; I1 gives it
+-     ;; __name__ and the module object
+-     (fn [body] (py/run-module body))]])
++     ;; the entry wrapper's call (I1): the same body image py/import runs,
++     ;; as the module "__main__" -- a module object inserted into
++     ;; sys.modules with __name__ set before the body runs, its raising
++     ;; body's re-raise the program's snapshotted value. One code image
++     ;; therefore sees __main__ as main and its own name as an import
++     (fn [body]
++       (do (cell/set! py.rt/out [])
++           (cell/set! py.rt/ctx (py/ctx nil 0 0 nil))
++           (let [exc (py/try
++                       (fn []
++                         (do (py/module-run (py/str "__main__") :py/None body)
++                             :py/None))
++                       (fn [e] e)
++                       (fn [] :py/None))]
++             (assoc (assoc {} :py/out (cell/get py.rt/out))
++                    :py/exception
++                    (if (= exc :py/None) nil (py/snapshot-exc exc))))))]])
+ 
+ 
+ (def builtin-classes
+@@ -2915,6 +3067,9 @@
+    ["TypeError" 'py.b/TypeError 'py.b/Exception]
+    ["ValueError" 'py.b/ValueError 'py.b/Exception]
+    ["AttributeError" 'py.b/AttributeError 'py.b/Exception]
++   ;; what py/import raises when sys.modules holds no runtime-synthesized
++   ;; module either (C4 I1); catchable link refusals are I4's
++   ["ImportError" 'py.b/ImportError 'py.b/Exception]
+    ["NameError" 'py.b/NameError 'py.b/Exception]
+    ["UnboundLocalError" 'py.b/UnboundLocalError 'py.b/NameError]
+    ["RuntimeError" 'py.b/RuntimeError 'py.b/Exception]
+@@ -3089,7 +3244,9 @@
+ (defn- init-form
+   "`py/init!`'s body: the three runtime cells, every builtin class,
+    function and method implementation, then the builtins dict seeded from
+-   the tables, then the ready flag, under the uninit guard."
++   the tables, then sys.modules with the two runtime-synthesized modules
++   `py/init!` pre-seeds (8.5.6 resolution step 2), then the ready flag,
++   under the uninit guard."
+   []
+   (list 'fn []
+         (list 'if (list '= 'py.rt/state :py/uninit)
+@@ -3113,6 +3270,27 @@
+                 (mapv (fn [[nm key _]]
+                         (list 'py/dict-set 'py.b/builtins {:py/str nm} key))
+                       builtin-functions)
++                ;; sys.modules and its two pre-seeded modules (C4 I1):
++                ;; `sys`, whose dict holds the dict itself under modules,
++                ;; and `builtins`, whose dict IS the builtins namespace
++                ;; with the standard dunders in it
++                [(define 'py.rt/modules '(py/dict-new))
++                 (define 'py.rt/sys '(py/module-new (py/str "sys") :py/None))
++                 (list 'py/dict-set '(py/module-dict py.rt/sys)
++                       {:py/str "modules"} 'py.rt/modules)
++                 (define 'py.rt/builtins-mod '(py/module-of "builtins"
++                                                            py.b/builtins))
++                 (list 'py/dict-set 'py.b/builtins
++                       {:py/str "__name__"} '(py/str "builtins"))
++                 (list 'py/dict-set 'py.b/builtins
++                       {:py/str "__package__"} :py/None)
++                 (list 'py/dict-set 'py.b/builtins
++                       {:py/str "__spec__"} :py/None)
++                 (list 'py/dict-set 'py.b/builtins
++                       {:py/str "__loader__"} :py/None)
++                 (list 'py/modules-put! (list 'py/str "sys") 'py.rt/sys)
++                 (list 'py/modules-put! (list 'py/str "builtins")
++                       'py.rt/builtins-mod)]
+                 ;; last, so a failed init never reports ready
+                 [(define 'py.rt/state :py/ready)
+                  :py/None])
+@@ -3157,10 +3335,11 @@
+ (def runtime-keys
+   "Every key `py/init!` allocates, the ready flag aside, sorted: the three
+    runtime cells, the builtin classes, functions and method
+-   implementations, and the builtins dict. Read from the same tables
+-   `init-form` reads."
++   implementations, the builtins dict, and sys.modules with its two
++   pre-seeded module objects. Read from the same tables `init-form` reads."
+   (vec (sort-by str
+-                (concat '[py.rt/ctx py.rt/limit py.rt/out py.b/builtins]
++                (concat '[py.rt/ctx py.rt/limit py.rt/out py.b/builtins
++                          py.rt/modules py.rt/sys py.rt/builtins-mod]
+                         (mapv second builtin-classes)
+                         (mapv second builtin-functions)
+                         (mapv first method-implementations)))))
+diff --git a/src/cljc/yang/python/antlr/render.cljc b/src/cljc/yang/python/antlr/render.cljc
+index eeb143a6..7e2418a5 100644
+--- a/src/cljc/yang/python/antlr/render.cljc
++++ b/src/cljc/yang/python/antlr/render.cljc
+@@ -163,6 +163,9 @@
+       (contains? v :py/generator) (str "<generator object " (:py/generator v) ">")
+       (contains? v :py/iterator) (str "<" (:py/iterator v) " object>")
+       (contains? v :py/class) (str "<class '" (:py/class v) "'>")
++      ;; C4 I1: the uniform module repr; CPython's built-in marker is not
++      ;; distinguished
++      (contains? v :py/module) (str "<module '" (:py/module v) "'>")
+       (contains? v :py/function) (str "<function " (:py/function v) ">")
+       :else (pr-str v))
+     (= :py/method v) "<bound method>"
+diff --git a/src/cljc/yang/python/antlr/scope.cljc b/src/cljc/yang/python/antlr/scope.cljc
+index 243c61bc..9ba883df 100644
+--- a/src/cljc/yang/python/antlr/scope.cljc
++++ b/src/cljc/yang/python/antlr/scope.cljc
+@@ -122,6 +122,28 @@
+   (mapv #(name-text pk %) (p/child-rules pk n "name")))
+ 
+ 
++(defn import-bindings
++  "The names an `import_stmt` binds, as Python's own rule has it: plain
++   `import a.b` binds `a`, the root; `import a.b as x` binds `x`; a
++   `from` import is I2's and binds nothing here (the lowering refuses it
++   before any name it would bind is read)."
++  [pk n]
++  (letfn [(dotted-as
++            [dan]
++            ;; the direct `name` child exists only beside an `as`; a
++            ;; plain target binds the dotted name's root
++            (let [as-name (first (p/child-rules pk dan "name"))]
++              (if as-name
++                [(name-text pk as-name)]
++                (let [dn (first (p/child-rules pk dan "dotted_name"))]
++                  [(name-text pk (first (p/child-rules pk dn "name")))]))))]
++    (if-let [iname (first (p/child-rules pk n "import_name"))]
++      (if-let [das (first (p/child-rules pk iname "dotted_as_names"))]
++        (into [] (mapcat dotted-as) (p/child-rules pk das "dotted_as_name"))
++        [])
++      [])))
++
++
+ (defn params-of
+   "Parameter names of a funcdef or lambdef node, in order. Shapes the
+    lowering rejects (defaults, stars, annotations) still contribute their
+@@ -189,6 +211,12 @@
+                                           (names-of-decl pk n))
+                     "nonlocal_stmt" (vswap! acc update :nonlocals into
+                                             (names-of-decl pk n))
++                    ;; an import binds names in the scope it runs in
++                    ;; (module level: globals; a function body: locals)
++                    "import_stmt" (run! bind! (import-bindings pk n))
++                    "del_stmt" (do (run! bind! (target-names pk (first (p/child-rules pk n
++                                                                                      "exprlist"))))
++                                   (run! walk (p/children pk n)))
+                     "expr_stmt" (do (run! #(run! bind! (target-names pk %))
+                                           (expr-stmt-targets pk n))
+                                     (run! walk (p/children pk n)))
+diff --git a/test/yang/python/antlr/e2e_test.clj b/test/yang/python/antlr/e2e_test.clj
+index c0564d3f..56b3add5 100644
+--- a/test/yang/python/antlr/e2e_test.clj
++++ b/test/yang/python/antlr/e2e_test.clj
+@@ -24,6 +24,7 @@
+     [yang.python.antlr.prelude :as prelude]
+     [yang.python.antlr.render :as render]
+     [yang.python.antlr.safepoint :as hooks]
++    [yang.python.antlr.import-programs :as imports]
+     [yang.python.antlr.safepoint-programs :as programs]
+     [yang.safepoint :as safepoint]
+     [yin.vm :as vm]
+@@ -868,11 +869,19 @@
+ 
+ (deftest sys-is-refused-test
+   (testing "sys.setrecursionlimit and sys.settrace are not reachable: the
+-            lowering refuses `import`, so neither runs silently"
+-    (doseq [source ["import sys\nsys.setrecursionlimit(50)\n"
+-                    "import sys\nsys.settrace(None)\n"]]
+-      (is (= ["Unsupported Python construct: import"]
+-             (map :message (:diagnostics (run-python (host-registry) source))))))))
++            pre-seeded `sys` module resolves under the bundled profile too
++            (I1: no linker delivery), but it exposes only sys.modules, so
++            each read is an AttributeError and nothing runs silently"
++    (doseq [[source attr] [["import sys\nsys.setrecursionlimit(50)\n"
++                            "setrecursionlimit"]
++                           ["import sys\nsys.settrace(None)\n" "settrace"]]]
++      (let [results (run-python (host-registry) source)]
++        (is (not (contains? results :diagnostics)) (pr-str results))
++        (doseq [[k v] results]
++          (is (= {:py/out [], :py/exception {:type "AttributeError",
++                                             :args [attr]}}
++                 v)
++              (str k)))))))
+ 
+ 
+ (defn- node-shape
+@@ -891,3 +900,18 @@
+       (is (= (map node-shape (:yang.cst/nodes (parser/parse-source (:doc (meta v)))))
+              (map node-shape (:yang.cst/nodes @v)))
+           (str v)))))
++
++
++(deftest import-packets-are-the-parsers-test
++  (testing "each packet in import-programs is what the parser makes of the
++            source its docstring holds"
++    (doseq [v [#'imports/m-packet #'imports/k-packet #'imports/t-packet
++               #'imports/w-packet #'imports/e-packet #'imports/n-packet
++               #'imports/o-packet #'imports/d-packet #'imports/c-packet
++               #'imports/r-packet #'imports/x-packet #'imports/s-packet
++               #'imports/q-packet #'imports/tt-packet #'imports/nn-packet
++               #'imports/dotted-packet #'imports/aliased-packet
++               #'imports/from-packet #'imports/del-packet]]
++      (is (= (map node-shape (:yang.cst/nodes (parser/parse-source (:doc (meta v)))))
++             (map node-shape (:yang.cst/nodes @v)))
++          (str v)))))
+diff --git a/test/yang/python/antlr/float_address_test.cljc b/test/yang/python/antlr/float_address_test.cljc
+index 1c684047..aedef0fd 100644
+--- a/test/yang/python/antlr/float_address_test.cljc
++++ b/test/yang/python/antlr/float_address_test.cljc
+@@ -219,12 +219,13 @@
+ 
+ (deftest prelude-addresses-test
+   (testing "the bundled prelude and the hook prelude: one address on every
+-            host (JVM goldens; both moved once with P3's accessor calls and
+-            `py.sp/class` reads)"
++            host (JVM goldens; the prelude moved once with I1's module
++            runtime -- sys.modules, module objects, py/import -- and the
++            hook prelude did not move)"
+     (is (= (keyword
+              (str "segment/blake3-"
+-                  "3019a1385eb02d791dd20e636d56be38"
+-                  "b1fa36371d08f641d47956765eefd25e"))
++                  "7884769a9ed50fee565ec4672e0a01d4"
++                  "6129c9e9a4d0b19eec42e7132a27caa1"))
+            (:root (vm/ast->semantic-bytecode prelude/uast))))
+     (is (= :segment/blake3-2d387d0d4787a7222ad358d8d262d2d64b169162889461e84b954c1812074d08
+            (:root (vm/ast->semantic-bytecode hooks/uast))))))
+@@ -244,28 +245,28 @@
+         prelude-id (fn [{:keys [root rows]}] (first (nth (get rows root) 3)))]
+     (is (nil? (vm/validate-rows a')))
+     (testing "A, A' and the record: one address on every host (JVM goldens;
+-              all three moved once with the P3 hook-body changes)"
++              all three moved once with I1's prelude changes)"
+       (is (= (keyword
+                (str "segment/blake3-"
+-                    "c5b36cf2e694d0dda0e36bf85f2bf33c"
+-                    "6da344499f490b89576b3747ddc7ac48"))
++                    "060a2d407549ab3204d4783a8ea546aa"
++                    "3990a80fd173f999b0313b726e9f97cf"))
+              (:root a)))
+       (is (= (keyword
+                (str "segment/blake3-"
+-                    "104c9a619eafe2817e56bc5364ebf15e"
+-                    "8459bb521838d6b985b1b9f706424119"))
++                    "000ca732d3292a08e5931bb4cc4a9a07"
++                    "79ed6e08a69fef3943b2bfabdc67caf6"))
+              (:root a')))
+       (is (= (keyword
+                (str "segment/blake3-"
+-                    "ee7f95c075bcbfbfbcacd577e7558cdb"
+-                    "830d8209eed36b3bf6bea677444b746c"))
++                    "65068fedcc9bd4dc71b7e7a211c467c5"
++                    "f765b4582ed1ec7b7d7984d39220082f"))
+              record-address)))
+     (testing "the bundled prelude is the same subtree in A and A'"
+       (is (= (prelude-id a) (prelude-id a')))
+       (is (= (keyword
+                (str "segment/blake3-"
+-                    "337b4387d4a8de51be2759d0416a1e56"
+-                    "fc25f71248476392ccc07404b92a011d"))
++                    "c83da7975e34ad2bbff22f10dc4f1c52"
++                    "e37c760ea4ae8ca2c9b6c8b3d6075b79"))
+              (prelude-id a))))
+     (testing "decoding A and projecting it again keeps every address"
+       (let [decoded (cbor/decode (jing/canonical-bytes a))]
+diff --git a/test/yang/python/antlr/import_programs.cljc b/test/yang/python/antlr/import_programs.cljc
+new file mode 100644
+index 00000000..ab76fa1e
+--- /dev/null
++++ b/test/yang/python/antlr/import_programs.cljc
+@@ -0,0 +1,1168 @@
++(ns yang.python.antlr.import-programs
++  "The C4 slice I1 modules and programs, as the CST packets the JVM
++   parser produces for their sources (each def's docstring is the source).
++   The parser is JVM-only; these let every host run the real lowering.
++   `yang.python.antlr.import-test` runs them, and
++   `yang.python.antlr.e2e-test` checks each against the parser, so the
++   two cannot drift."
++  (:require [yang.python.antlr.lower-portable-test :refer [packet]]))
++
++
++(def m-packet
++  "y = 1\nval = 7\ndef read():\n    try:\n        a = y\n    except NameError:\n        a = \"gone\"\n    return (a, val)\nprint(\"m-body\")\n"
++  (packet
++    [:file_input
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test [:comparison [:expr [:atom_expr [:atom [:name ["NAME" "y"]]]]]]]]]]]
++         ["ASSIGN" "="]
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test [:comparison [:expr [:atom_expr [:atom ["NUMBER" "1"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison [:expr [:atom_expr [:atom [:name ["NAME" "val"]]]]]]]]]]]
++         ["ASSIGN" "="]
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test [:comparison [:expr [:atom_expr [:atom ["NUMBER" "7"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:compound_stmt
++       [:funcdef
++        ["DEF" "def"]
++        [:name ["NAME" "read"]]
++        [:parameters ["OPEN_PAREN" "("] ["CLOSE_PAREN" ")"]]
++        ["COLON" ":"]
++        [:block
++         ["NEWLINE" "\n"]
++         ["INDENT" "    "]
++         [:stmt
++          [:compound_stmt
++           [:try_stmt
++            ["TRY" "try"]
++            ["COLON" ":"]
++            [:block
++             ["NEWLINE" "\n"]
++             ["INDENT" "        "]
++             [:stmt
++              [:simple_stmts
++               [:simple_stmt
++                [:expr_stmt
++                 [:testlist_star_expr
++                  [:test
++                   [:or_test
++                    [:and_test
++                     [:not_test
++                      [:comparison [:expr [:atom_expr [:atom [:name ["NAME" "a"]]]]]]]]]]]
++                 ["ASSIGN" "="]
++                 [:testlist_star_expr
++                  [:test
++                   [:or_test
++                    [:and_test
++                     [:not_test
++                      [:comparison [:expr [:atom_expr [:atom [:name ["NAME" "y"]]]]]]]]]]]]]
++               ["NEWLINE" "\n"]]]
++             ["DEDENT" ""]]
++            [:except_clause
++             ["EXCEPT" "except"]
++             [:test
++              [:or_test
++               [:and_test
++                [:not_test
++                 [:comparison [:expr [:atom_expr [:atom [:name ["NAME" "NameError"]]]]]]]]]]]
++            ["COLON" ":"]
++            [:block
++             ["NEWLINE" "\n"]
++             ["INDENT" "        "]
++             [:stmt
++              [:simple_stmts
++               [:simple_stmt
++                [:expr_stmt
++                 [:testlist_star_expr
++                  [:test
++                   [:or_test
++                    [:and_test
++                     [:not_test
++                      [:comparison [:expr [:atom_expr [:atom [:name ["NAME" "a"]]]]]]]]]]]
++                 ["ASSIGN" "="]
++                 [:testlist_star_expr
++                  [:test
++                   [:or_test
++                    [:and_test
++                     [:not_test
++                      [:comparison [:expr [:atom_expr [:atom ["STRING" "\"gone\""]]]]]]]]]]]]
++               ["NEWLINE" "\n"]]]
++             ["DEDENT" ""]]]]]
++         [:stmt
++          [:simple_stmts
++           [:simple_stmt
++            [:flow_stmt
++             [:return_stmt
++              ["RETURN" "return"]
++              [:testlist
++               [:test
++                [:or_test
++                 [:and_test
++                  [:not_test
++                   [:comparison
++                    [:expr
++                     [:atom_expr
++                      [:atom
++                       ["OPEN_PAREN" "("]
++                       [:testlist_comp
++                        [:test
++                         [:or_test
++                          [:and_test
++                           [:not_test
++                            [:comparison
++                             [:expr [:atom_expr [:atom [:name ["NAME" "a"]]]]]]]]]]
++                        ["COMMA" ","]
++                        [:test
++                         [:or_test
++                          [:and_test
++                           [:not_test
++                            [:comparison
++                             [:expr [:atom_expr [:atom [:name ["NAME" "val"]]]]]]]]]]]
++                       ["CLOSE_PAREN" ")"]]]]]]]]]]]]]
++           ["NEWLINE" "\n"]]]
++         ["DEDENT" ""]]]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison
++               [:expr
++                [:atom_expr
++                 [:atom [:name ["NAME" "print"]]]
++                 [:trailer
++                  ["OPEN_PAREN" "("]
++                  [:arglist
++                   [:argument
++                    [:test
++                     [:or_test
++                      [:and_test
++                       [:not_test
++                        [:comparison
++                         [:expr [:atom_expr [:atom ["STRING" "\"m-body\""]]]]]]]]]]]
++                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     ["EOF" "<EOF>"]]))
++
++
++(def k-packet
++  "kval = 3\nprint(\"k-body\")\n"
++  (packet
++    [:file_input
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison [:expr [:atom_expr [:atom [:name ["NAME" "kval"]]]]]]]]]]]
++         ["ASSIGN" "="]
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test [:comparison [:expr [:atom_expr [:atom ["NUMBER" "3"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison
++               [:expr
++                [:atom_expr
++                 [:atom [:name ["NAME" "print"]]]
++                 [:trailer
++                  ["OPEN_PAREN" "("]
++                  [:arglist
++                   [:argument
++                    [:test
++                     [:or_test
++                      [:and_test
++                       [:not_test
++                        [:comparison
++                         [:expr [:atom_expr [:atom ["STRING" "\"k-body\""]]]]]]]]]]]
++                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     ["EOF" "<EOF>"]]))
++
++
++(def t-packet
++  "import k\nprint(\"t-sees\", k.kval)\n"
++  (packet
++    [:file_input
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:import_stmt
++         [:import_name
++          ["IMPORT" "import"]
++          [:dotted_as_names [:dotted_as_name [:dotted_name [:name ["NAME" "k"]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison
++               [:expr
++                [:atom_expr
++                 [:atom [:name ["NAME" "print"]]]
++                 [:trailer
++                  ["OPEN_PAREN" "("]
++                  [:arglist
++                   [:argument
++                    [:test
++                     [:or_test
++                      [:and_test
++                       [:not_test
++                        [:comparison
++                         [:expr [:atom_expr [:atom ["STRING" "\"t-sees\""]]]]]]]]]]
++                   ["COMMA" ","]
++                   [:argument
++                    [:test
++                     [:or_test
++                      [:and_test
++                       [:not_test
++                        [:comparison
++                         [:expr
++                          [:atom_expr
++                           [:atom [:name ["NAME" "k"]]]
++                           [:trailer ["DOT" "."] [:name ["NAME" "kval"]]]]]]]]]]]]
++                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     ["EOF" "<EOF>"]]))
++
++
++(def w-packet
++  "print(\"w-once\")\nraise ValueError(\"boom\")\n"
++  (packet
++    [:file_input
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison
++               [:expr
++                [:atom_expr
++                 [:atom [:name ["NAME" "print"]]]
++                 [:trailer
++                  ["OPEN_PAREN" "("]
++                  [:arglist
++                   [:argument
++                    [:test
++                     [:or_test
++                      [:and_test
++                       [:not_test
++                        [:comparison
++                         [:expr [:atom_expr [:atom ["STRING" "\"w-once\""]]]]]]]]]]]
++                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:flow_stmt
++         [:raise_stmt
++          ["RAISE" "raise"]
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison
++               [:expr
++                [:atom_expr
++                 [:atom [:name ["NAME" "ValueError"]]]
++                 [:trailer
++                  ["OPEN_PAREN" "("]
++                  [:arglist
++                   [:argument
++                    [:test
++                     [:or_test
++                      [:and_test
++                       [:not_test
++                        [:comparison
++                         [:expr [:atom_expr [:atom ["STRING" "\"boom\""]]]]]]]]]]]
++                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     ["EOF" "<EOF>"]]))
++
++
++(def e-packet
++  "def boom():\n    raise ValueError(\"from-e\")\n"
++  (packet
++    [:file_input
++     [:stmt
++      [:compound_stmt
++       [:funcdef
++        ["DEF" "def"]
++        [:name ["NAME" "boom"]]
++        [:parameters ["OPEN_PAREN" "("] ["CLOSE_PAREN" ")"]]
++        ["COLON" ":"]
++        [:block
++         ["NEWLINE" "\n"]
++         ["INDENT" "    "]
++         [:stmt
++          [:simple_stmts
++           [:simple_stmt
++            [:flow_stmt
++             [:raise_stmt
++              ["RAISE" "raise"]
++              [:test
++               [:or_test
++                [:and_test
++                 [:not_test
++                  [:comparison
++                   [:expr
++                    [:atom_expr
++                     [:atom [:name ["NAME" "ValueError"]]]
++                     [:trailer
++                      ["OPEN_PAREN" "("]
++                      [:arglist
++                       [:argument
++                        [:test
++                         [:or_test
++                          [:and_test
++                           [:not_test
++                            [:comparison
++                             [:expr [:atom_expr [:atom ["STRING" "\"from-e\""]]]]]]]]]]]
++                      ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++           ["NEWLINE" "\n"]]]
++         ["DEDENT" "<EOF>"]]]]]
++     ["EOF" "<EOF>"]]))
++
++
++(def n-packet
++  "print(__name__)\n"
++  (packet
++    [:file_input
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison
++               [:expr
++                [:atom_expr
++                 [:atom [:name ["NAME" "print"]]]
++                 [:trailer
++                  ["OPEN_PAREN" "("]
++                  [:arglist
++                   [:argument
++                    [:test
++                     [:or_test
++                      [:and_test
++                       [:not_test
++                        [:comparison
++                         [:expr [:atom_expr [:atom [:name ["NAME" "__name__"]]]]]]]]]]]]
++                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     ["EOF" "<EOF>"]]))
++
++
++(def o-packet
++  "print(\"a\")\nimport m\nprint(\"b\")\n"
++  (packet
++    [:file_input
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison
++               [:expr
++                [:atom_expr
++                 [:atom [:name ["NAME" "print"]]]
++                 [:trailer
++                  ["OPEN_PAREN" "("]
++                  [:arglist
++                   [:argument
++                    [:test
++                     [:or_test
++                      [:and_test
++                       [:not_test
++                        [:comparison [:expr [:atom_expr [:atom ["STRING" "\"a\""]]]]]]]]]]]
++                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:import_stmt
++         [:import_name
++          ["IMPORT" "import"]
++          [:dotted_as_names [:dotted_as_name [:dotted_name [:name ["NAME" "m"]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison
++               [:expr
++                [:atom_expr
++                 [:atom [:name ["NAME" "print"]]]
++                 [:trailer
++                  ["OPEN_PAREN" "("]
++                  [:arglist
++                   [:argument
++                    [:test
++                     [:or_test
++                      [:and_test
++                       [:not_test
++                        [:comparison [:expr [:atom_expr [:atom ["STRING" "\"b\""]]]]]]]]]]]
++                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     ["EOF" "<EOF>"]]))
++
++
++(def d-packet
++  "import m\nx = m.val\nprint(x)\n"
++  (packet
++    [:file_input
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:import_stmt
++         [:import_name
++          ["IMPORT" "import"]
++          [:dotted_as_names [:dotted_as_name [:dotted_name [:name ["NAME" "m"]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test [:comparison [:expr [:atom_expr [:atom [:name ["NAME" "x"]]]]]]]]]]]
++         ["ASSIGN" "="]
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison
++               [:expr
++                [:atom_expr
++                 [:atom [:name ["NAME" "m"]]]
++                 [:trailer ["DOT" "."] [:name ["NAME" "val"]]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison
++               [:expr
++                [:atom_expr
++                 [:atom [:name ["NAME" "print"]]]
++                 [:trailer
++                  ["OPEN_PAREN" "("]
++                  [:arglist
++                   [:argument
++                    [:test
++                     [:or_test
++                      [:and_test
++                       [:not_test
++                        [:comparison [:expr [:atom_expr [:atom [:name ["NAME" "x"]]]]]]]]]]]]
++                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     ["EOF" "<EOF>"]]))
++
++
++(def c-packet
++  "import m\nm.val = 5\ndel m.y\nprint(m.__dict__.get(\"val\"))\nprint(m.__dict__.get(\"y\", \"absent\"))\nprint(m.read())\n"
++  (packet
++    [:file_input
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:import_stmt
++         [:import_name
++          ["IMPORT" "import"]
++          [:dotted_as_names [:dotted_as_name [:dotted_name [:name ["NAME" "m"]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison
++               [:expr
++                [:atom_expr
++                 [:atom [:name ["NAME" "m"]]]
++                 [:trailer ["DOT" "."] [:name ["NAME" "val"]]]]]]]]]]]
++         ["ASSIGN" "="]
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test [:comparison [:expr [:atom_expr [:atom ["NUMBER" "5"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:del_stmt
++         ["DEL" "del"]
++         [:exprlist
++          [:expr
++           [:atom_expr
++            [:atom [:name ["NAME" "m"]]]
++            [:trailer ["DOT" "."] [:name ["NAME" "y"]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison
++               [:expr
++                [:atom_expr
++                 [:atom [:name ["NAME" "print"]]]
++                 [:trailer
++                  ["OPEN_PAREN" "("]
++                  [:arglist
++                   [:argument
++                    [:test
++                     [:or_test
++                      [:and_test
++                       [:not_test
++                        [:comparison
++                         [:expr
++                          [:atom_expr
++                           [:atom [:name ["NAME" "m"]]]
++                           [:trailer ["DOT" "."] [:name ["NAME" "__dict__"]]]
++                           [:trailer ["DOT" "."] [:name ["NAME" "get"]]]
++                           [:trailer
++                            ["OPEN_PAREN" "("]
++                            [:arglist
++                             [:argument
++                              [:test
++                               [:or_test
++                                [:and_test
++                                 [:not_test
++                                  [:comparison
++                                   [:expr [:atom_expr [:atom ["STRING" "\"val\""]]]]]]]]]]]
++                            ["CLOSE_PAREN" ")"]]]]]]]]]]]
++                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison
++               [:expr
++                [:atom_expr
++                 [:atom [:name ["NAME" "print"]]]
++                 [:trailer
++                  ["OPEN_PAREN" "("]
++                  [:arglist
++                   [:argument
++                    [:test
++                     [:or_test
++                      [:and_test
++                       [:not_test
++                        [:comparison
++                         [:expr
++                          [:atom_expr
++                           [:atom [:name ["NAME" "m"]]]
++                           [:trailer ["DOT" "."] [:name ["NAME" "__dict__"]]]
++                           [:trailer ["DOT" "."] [:name ["NAME" "get"]]]
++                           [:trailer
++                            ["OPEN_PAREN" "("]
++                            [:arglist
++                             [:argument
++                              [:test
++                               [:or_test
++                                [:and_test
++                                 [:not_test
++                                  [:comparison
++                                   [:expr [:atom_expr [:atom ["STRING" "\"y\""]]]]]]]]]]
++                             ["COMMA" ","]
++                             [:argument
++                              [:test
++                               [:or_test
++                                [:and_test
++                                 [:not_test
++                                  [:comparison
++                                   [:expr
++                                    [:atom_expr [:atom ["STRING" "\"absent\""]]]]]]]]]]]
++                            ["CLOSE_PAREN" ")"]]]]]]]]]]]
++                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison
++               [:expr
++                [:atom_expr
++                 [:atom [:name ["NAME" "print"]]]
++                 [:trailer
++                  ["OPEN_PAREN" "("]
++                  [:arglist
++                   [:argument
++                    [:test
++                     [:or_test
++                      [:and_test
++                       [:not_test
++                        [:comparison
++                         [:expr
++                          [:atom_expr
++                           [:atom [:name ["NAME" "m"]]]
++                           [:trailer ["DOT" "."] [:name ["NAME" "read"]]]
++                           [:trailer ["OPEN_PAREN" "("] ["CLOSE_PAREN" ")"]]]]]]]]]]]
++                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     ["EOF" "<EOF>"]]))
++
++
++(def r-packet
++  "try:\n    import w\nexcept ValueError:\n    print(\"cleaned\")\ntry:\n    import w\nexcept ValueError:\n    print(\"again\")\n"
++  (packet
++    [:file_input
++     [:stmt
++      [:compound_stmt
++       [:try_stmt
++        ["TRY" "try"]
++        ["COLON" ":"]
++        [:block
++         ["NEWLINE" "\n"]
++         ["INDENT" "    "]
++         [:stmt
++          [:simple_stmts
++           [:simple_stmt
++            [:import_stmt
++             [:import_name
++              ["IMPORT" "import"]
++              [:dotted_as_names [:dotted_as_name [:dotted_name [:name ["NAME" "w"]]]]]]]]
++           ["NEWLINE" "\n"]]]
++         ["DEDENT" ""]]
++        [:except_clause
++         ["EXCEPT" "except"]
++         [:test
++          [:or_test
++           [:and_test
++            [:not_test
++             [:comparison [:expr [:atom_expr [:atom [:name ["NAME" "ValueError"]]]]]]]]]]]
++        ["COLON" ":"]
++        [:block
++         ["NEWLINE" "\n"]
++         ["INDENT" "    "]
++         [:stmt
++          [:simple_stmts
++           [:simple_stmt
++            [:expr_stmt
++             [:testlist_star_expr
++              [:test
++               [:or_test
++                [:and_test
++                 [:not_test
++                  [:comparison
++                   [:expr
++                    [:atom_expr
++                     [:atom [:name ["NAME" "print"]]]
++                     [:trailer
++                      ["OPEN_PAREN" "("]
++                      [:arglist
++                       [:argument
++                        [:test
++                         [:or_test
++                          [:and_test
++                           [:not_test
++                            [:comparison
++                             [:expr [:atom_expr [:atom ["STRING" "\"cleaned\""]]]]]]]]]]]
++                      ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++           ["NEWLINE" "\n"]]]
++         ["DEDENT" ""]]]]]
++     [:stmt
++      [:compound_stmt
++       [:try_stmt
++        ["TRY" "try"]
++        ["COLON" ":"]
++        [:block
++         ["NEWLINE" "\n"]
++         ["INDENT" "    "]
++         [:stmt
++          [:simple_stmts
++           [:simple_stmt
++            [:import_stmt
++             [:import_name
++              ["IMPORT" "import"]
++              [:dotted_as_names [:dotted_as_name [:dotted_name [:name ["NAME" "w"]]]]]]]]
++           ["NEWLINE" "\n"]]]
++         ["DEDENT" ""]]
++        [:except_clause
++         ["EXCEPT" "except"]
++         [:test
++          [:or_test
++           [:and_test
++            [:not_test
++             [:comparison [:expr [:atom_expr [:atom [:name ["NAME" "ValueError"]]]]]]]]]]]
++        ["COLON" ":"]
++        [:block
++         ["NEWLINE" "\n"]
++         ["INDENT" "    "]
++         [:stmt
++          [:simple_stmts
++           [:simple_stmt
++            [:expr_stmt
++             [:testlist_star_expr
++              [:test
++               [:or_test
++                [:and_test
++                 [:not_test
++                  [:comparison
++                   [:expr
++                    [:atom_expr
++                     [:atom [:name ["NAME" "print"]]]
++                     [:trailer
++                      ["OPEN_PAREN" "("]
++                      [:arglist
++                       [:argument
++                        [:test
++                         [:or_test
++                          [:and_test
++                           [:not_test
++                            [:comparison
++                             [:expr [:atom_expr [:atom ["STRING" "\"again\""]]]]]]]]]]]
++                      ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++           ["NEWLINE" "\n"]]]
++         ["DEDENT" "<EOF>"]]]]]
++     ["EOF" "<EOF>"]]))
++
++
++(def x-packet
++  "import e\ntry:\n    e.boom()\nexcept ValueError:\n    print(\"caught-e\")\n"
++  (packet
++    [:file_input
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:import_stmt
++         [:import_name
++          ["IMPORT" "import"]
++          [:dotted_as_names [:dotted_as_name [:dotted_name [:name ["NAME" "e"]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:compound_stmt
++       [:try_stmt
++        ["TRY" "try"]
++        ["COLON" ":"]
++        [:block
++         ["NEWLINE" "\n"]
++         ["INDENT" "    "]
++         [:stmt
++          [:simple_stmts
++           [:simple_stmt
++            [:expr_stmt
++             [:testlist_star_expr
++              [:test
++               [:or_test
++                [:and_test
++                 [:not_test
++                  [:comparison
++                   [:expr
++                    [:atom_expr
++                     [:atom [:name ["NAME" "e"]]]
++                     [:trailer ["DOT" "."] [:name ["NAME" "boom"]]]
++                     [:trailer ["OPEN_PAREN" "("] ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++           ["NEWLINE" "\n"]]]
++         ["DEDENT" ""]]
++        [:except_clause
++         ["EXCEPT" "except"]
++         [:test
++          [:or_test
++           [:and_test
++            [:not_test
++             [:comparison [:expr [:atom_expr [:atom [:name ["NAME" "ValueError"]]]]]]]]]]]
++        ["COLON" ":"]
++        [:block
++         ["NEWLINE" "\n"]
++         ["INDENT" "    "]
++         [:stmt
++          [:simple_stmts
++           [:simple_stmt
++            [:expr_stmt
++             [:testlist_star_expr
++              [:test
++               [:or_test
++                [:and_test
++                 [:not_test
++                  [:comparison
++                   [:expr
++                    [:atom_expr
++                     [:atom [:name ["NAME" "print"]]]
++                     [:trailer
++                      ["OPEN_PAREN" "("]
++                      [:arglist
++                       [:argument
++                        [:test
++                         [:or_test
++                          [:and_test
++                           [:not_test
++                            [:comparison
++                             [:expr [:atom_expr [:atom ["STRING" "\"caught-e\""]]]]]]]]]]]
++                      ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++           ["NEWLINE" "\n"]]]
++         ["DEDENT" "<EOF>"]]]]]
++     ["EOF" "<EOF>"]]))
++
++
++(def s-packet
++  "import sys\nimport m\nprint(sys.modules.get(\"m\") is m)\nprint(sys.modules.get(\"sys\") is sys)\n"
++  (packet
++    [:file_input
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:import_stmt
++         [:import_name
++          ["IMPORT" "import"]
++          [:dotted_as_names [:dotted_as_name [:dotted_name [:name ["NAME" "sys"]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:import_stmt
++         [:import_name
++          ["IMPORT" "import"]
++          [:dotted_as_names [:dotted_as_name [:dotted_name [:name ["NAME" "m"]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison
++               [:expr
++                [:atom_expr
++                 [:atom [:name ["NAME" "print"]]]
++                 [:trailer
++                  ["OPEN_PAREN" "("]
++                  [:arglist
++                   [:argument
++                    [:test
++                     [:or_test
++                      [:and_test
++                       [:not_test
++                        [:comparison
++                         [:expr
++                          [:atom_expr
++                           [:atom [:name ["NAME" "sys"]]]
++                           [:trailer ["DOT" "."] [:name ["NAME" "modules"]]]
++                           [:trailer ["DOT" "."] [:name ["NAME" "get"]]]
++                           [:trailer
++                            ["OPEN_PAREN" "("]
++                            [:arglist
++                             [:argument
++                              [:test
++                               [:or_test
++                                [:and_test
++                                 [:not_test
++                                  [:comparison
++                                   [:expr [:atom_expr [:atom ["STRING" "\"m\""]]]]]]]]]]]
++                            ["CLOSE_PAREN" ")"]]]]
++                         [:comp_op ["IS" "is"]]
++                         [:expr [:atom_expr [:atom [:name ["NAME" "m"]]]]]]]]]]]]
++                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison
++               [:expr
++                [:atom_expr
++                 [:atom [:name ["NAME" "print"]]]
++                 [:trailer
++                  ["OPEN_PAREN" "("]
++                  [:arglist
++                   [:argument
++                    [:test
++                     [:or_test
++                      [:and_test
++                       [:not_test
++                        [:comparison
++                         [:expr
++                          [:atom_expr
++                           [:atom [:name ["NAME" "sys"]]]
++                           [:trailer ["DOT" "."] [:name ["NAME" "modules"]]]
++                           [:trailer ["DOT" "."] [:name ["NAME" "get"]]]
++                           [:trailer
++                            ["OPEN_PAREN" "("]
++                            [:arglist
++                             [:argument
++                              [:test
++                               [:or_test
++                                [:and_test
++                                 [:not_test
++                                  [:comparison
++                                   [:expr [:atom_expr [:atom ["STRING" "\"sys\""]]]]]]]]]]]
++                            ["CLOSE_PAREN" ")"]]]]
++                         [:comp_op ["IS" "is"]]
++                         [:expr [:atom_expr [:atom [:name ["NAME" "sys"]]]]]]]]]]]]
++                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     ["EOF" "<EOF>"]]))
++
++
++(def q-packet
++  "import m\nimport m\nprint(\"done\")\n"
++  (packet
++    [:file_input
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:import_stmt
++         [:import_name
++          ["IMPORT" "import"]
++          [:dotted_as_names [:dotted_as_name [:dotted_name [:name ["NAME" "m"]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:import_stmt
++         [:import_name
++          ["IMPORT" "import"]
++          [:dotted_as_names [:dotted_as_name [:dotted_name [:name ["NAME" "m"]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison
++               [:expr
++                [:atom_expr
++                 [:atom [:name ["NAME" "print"]]]
++                 [:trailer
++                  ["OPEN_PAREN" "("]
++                  [:arglist
++                   [:argument
++                    [:test
++                     [:or_test
++                      [:and_test
++                       [:not_test
++                        [:comparison
++                         [:expr [:atom_expr [:atom ["STRING" "\"done\""]]]]]]]]]]]
++                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     ["EOF" "<EOF>"]]))
++
++
++(def tt-packet
++  "import t\nprint(\"t-done\")\n"
++  (packet
++    [:file_input
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:import_stmt
++         [:import_name
++          ["IMPORT" "import"]
++          [:dotted_as_names [:dotted_as_name [:dotted_name [:name ["NAME" "t"]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:expr_stmt
++         [:testlist_star_expr
++          [:test
++           [:or_test
++            [:and_test
++             [:not_test
++              [:comparison
++               [:expr
++                [:atom_expr
++                 [:atom [:name ["NAME" "print"]]]
++                 [:trailer
++                  ["OPEN_PAREN" "("]
++                  [:arglist
++                   [:argument
++                    [:test
++                     [:or_test
++                      [:and_test
++                       [:not_test
++                        [:comparison
++                         [:expr [:atom_expr [:atom ["STRING" "\"t-done\""]]]]]]]]]]]
++                  ["CLOSE_PAREN" ")"]]]]]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     ["EOF" "<EOF>"]]))
++
++
++(def nn-packet
++  "import n\n"
++  (packet
++    [:file_input
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:import_stmt
++         [:import_name
++          ["IMPORT" "import"]
++          [:dotted_as_names [:dotted_as_name [:dotted_name [:name ["NAME" "n"]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     ["EOF" "<EOF>"]]))
++
++
++(def dotted-packet
++  "import a.b\n"
++  (packet
++    [:file_input
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:import_stmt
++         [:import_name
++          ["IMPORT" "import"]
++          [:dotted_as_names
++           [:dotted_as_name
++            [:dotted_name [:name ["NAME" "a"]] ["DOT" "."] [:name ["NAME" "b"]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     ["EOF" "<EOF>"]]))
++
++
++(def aliased-packet
++  "import m as mm\n"
++  (packet
++    [:file_input
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:import_stmt
++         [:import_name
++          ["IMPORT" "import"]
++          [:dotted_as_names
++           [:dotted_as_name
++            [:dotted_name [:name ["NAME" "m"]]]
++            ["AS" "as"]
++            [:name ["NAME" "mm"]]]]]]]
++       ["NEWLINE" "\n"]]]
++     ["EOF" "<EOF>"]]))
++
++
++(def from-packet
++  "from m import val\n"
++  (packet
++    [:file_input
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:import_stmt
++         [:import_from
++          ["FROM" "from"]
++          [:dotted_name [:name ["NAME" "m"]]]
++          ["IMPORT" "import"]
++          [:import_as_names [:import_as_name [:name ["NAME" "val"]]]]]]]
++       ["NEWLINE" "\n"]]]
++     ["EOF" "<EOF>"]]))
++
++
++(def del-packet
++  "del m.y\n"
++  (packet
++    [:file_input
++     [:stmt
++      [:simple_stmts
++       [:simple_stmt
++        [:del_stmt
++         ["DEL" "del"]
++         [:exprlist
++          [:expr
++           [:atom_expr
++            [:atom [:name ["NAME" "m"]]]
++            [:trailer ["DOT" "."] [:name ["NAME" "y"]]]]]]]]
++       ["NEWLINE" "\n"]]]
++     ["EOF" "<EOF>"]]))
+diff --git a/test/yang/python/antlr/import_test.cljc b/test/yang/python/antlr/import_test.cljc
+new file mode 100644
+index 00000000..6bd56fbf
+--- /dev/null
++++ b/test/yang/python/antlr/import_test.cljc
+@@ -0,0 +1,517 @@
++(ns yang.python.antlr.import-test
++  "C4 slice I1 (docs/design/yang.antlr.md 8.5.6): static absolute imports
++   of single modules. The fast tests pin the lowering -- the hoisted
++   requires, the statement-time py/import call, the refusals -- and the
++   slow ones run the acceptance over `yang.python.antlr.linked-harness`:
++   every guest module is published once per process beside `py`, and each
++   run links over a source serving every name, so every test that
++   publishes or links is slow."
++  (:require
++    [clojure.test :refer [deftest is testing]]
++    [dao.test-slow :as slow]
++    [yang.python.antlr.import-programs :as programs]
++    [yang.python.antlr.linked-harness :as h]
++    [yang.python.antlr.lower :as lower]
++    [yang.python.antlr.lower-portable-test :as portable]
++    [yang.python.antlr.prelude :as prelude]
++    [yang.python.antlr.render :as render]
++    [yang.python.antlr.scope :as scope]
++    [yang.python.antlr.uast :as u]
++    [yin.vm :as vm]
++    [yin.vm.data :as data]
++    [yin.vm.module :as module]))
++
++
++;; =============================================================================
++;; The fast tests: the lowering, before anything links
++;; =============================================================================
++
++(defn- nodes
++  "Every node of map AST `ast`."
++  [ast]
++  (tree-seq map?
++            (fn [n] (filter map? (mapcat #(if (vector? %) % [%]) (vals n))))
++            ast))
++
++
++(defn- requires-of
++  "The literal module names the linked program's hoisted `(require 'm)`
++   applications name, in order."
++  [ast]
++  (vec (keep (fn [n]
++               (when (and (= :application (:type n))
++                          (= 'require (get-in n [:operator :name])))
++                 (get-in n [:operands 0 :value])))
++             (nodes ast))))
++
++
++(defn- call-sites
++  "The applications of `op` in map AST `ast`."
++  [ast op]
++  (filter #(and (= :application (:type %))
++                (= op (get-in % [:operator :name])))
++          (nodes ast)))
++
++
++(defn- def-key
++  "The literal key of a `(yin/def k v)` application node, else nil."
++  [node]
++  (when (and (map? node)
++             (= :application (:type node))
++             (= 'yin/def (get-in node [:operator :name])))
++    (get-in node [:operands 0 :value])))
++
++
++(defn- refusal-of
++  "The ex-data of what `thunk` throws, or nil when it returns."
++  [thunk]
++  (try (thunk)
++       nil
++       (catch #?(:cljd Object :clj Exception :cljs :default) e
++         (or (ex-data e) {}))))
++
++
++(defn- required-modules
++  "The set of module names the program's hoisted requires name."
++  [ast]
++  (set (requires-of ast)))
++
++
++(deftest import-lowers-at-the-statement-with-a-hoisted-require-test
++  (let [program (lower/lower-packet programs/d-packet {:prelude :linked})
++        body (get-in (first (call-sites program 'py/run-main))
++                     [:operands 0 :body])]
++    (testing "the wrapper requires py, then pym.m, then initializes"
++      (is (= '#{py pym.m} (required-modules program))))
++    (testing "the statement is (py/import m pym.m/spec pym.m/body) and
++              the binding of the module object to the global m"
++      (let [vars (set (keep #(when (= :variable (:type %)) (:name %))
++                            (nodes body)))]
++        (is (contains? vars 'pym.m/spec))
++        (is (contains? vars 'pym.m/body))
++        (is (some #(= {:type :literal, :value {:py/str "m"}}
++                      (get-in % [:operands 0]))
++                  (call-sites body 'py/import)))
++        (is (some #(= {:py/str "m"} (get-in % [:operands 1 :value]))
++                  (call-sites body 'py/global-set)))))))
++
++
++(deftest preseeded-imports-carry-no-delivery-test
++  (let [program (lower/lower-packet programs/s-packet {:prelude :linked})
++        body (get-in (first (call-sites program 'py/run-main))
++                     [:operands 0 :body])]
++    (testing "sys is pre-seeded: no pym.sys require, spec and body are None"
++      (is (= '#{py pym.m} (required-modules program)))
++      (is (some #(and (= {:type :literal, :value {:py/str "sys"}}
++                         (get-in % [:operands 0]))
++                      (= :py/None (get-in % [:operands 1 :value]))
++                      (= :py/None (get-in % [:operands 2 :value])))
++                (call-sites body 'py/import))))))
++
++
++(def ^:private expr-chain
++  "The single-child chain from `test` down to `atom` (linked-prelude's)."
++  [:testlist_star_expr :test :or_test :and_test :not_test :comparison :expr
++   :atom_expr :atom])
++
++
++(defn- chain
++  "Leaf wrapped in one level per rule of `rules`."
++  [rules leaf]
++  (reduce (fn [inner r] [r inner]) leaf (reverse rules)))
++
++
++(defn- statement
++  "One simple statement `s` as a file statement."
++  [s]
++  [:stmt [:simple_stmts [:simple_stmt s] ["NEWLINE" "\n"]]])
++
++
++(defn- import-simple-stmt
++  "The parser's `import m` simple statement, import-programs' shape."
++  [nme]
++  [:import_stmt
++   [:import_name
++    ["IMPORT" "import"]
++    [:dotted_as_names
++     [:dotted_as_name [:dotted_name [:name ["NAME" nme]]]]]]])
++
++
++(deftest an-import-free-program-tree-is-unchanged-test
++  (let [plain (portable/packet
++                [:file_input
++                 (statement [:expr_stmt
++                             (chain expr-chain [:name ["NAME" "x"]])
++                             ["ASSIGN" "="]
++                             (chain expr-chain ["NUMBER" "1"])])
++                 ["EOF" "<EOF>"]])
++        program (lower/lower-packet plain {:prelude :linked})]
++    (testing "no import, no extra require and no import call: the P2
++              wrapper exactly, so its program-root golden does not move"
++      (is (= '[py] (requires-of program)))
++      (is (empty? (call-sites program 'py/import)))
++      (is (nil? (vm/ast-reserved-defect program))))))
++
++
++(deftest imports-need-the-linked-prelude-test
++  (testing "a bundled unit importing a compiled module is refused, naming
++            it; the pre-seeded sys needs no delivery and lowers bundled"
++    (let [refusal (refusal-of #(lower/lower-packet programs/d-packet {}))]
++      (is (= :yang.python.antlr/unsupported
++             (:yang.python.antlr/diagnostic refusal)))
++      (is (= "import under the bundled prelude" (:construct refusal))))
++    (let [sys-only (portable/packet
++                     [:file_input (statement (import-simple-stmt "sys"))
++                      ["EOF" "<EOF>"]])
++          program (lower/lower-packet sys-only {})]
++      (is (empty? (required-modules program)))
++      (is (some #(and (= {:type :literal, :value {:py/str "sys"}}
++                         (get-in % [:operands 0]))
++                      (= :py/None (get-in % [:operands 1 :value])))
++                (call-sites program 'py/import))))))
++
++
++(deftest i2-forms-are-refused-naming-the-construct-test
++  (doseq [[pk construct] [[programs/dotted-packet "dotted import"]
++                          [programs/aliased-packet "aliased import"]
++                          [programs/from-packet "from import"]]]
++    (testing construct
++      (is (= construct
++             (:construct (refusal-of
++                           #(lower/lower-packet pk {:prelude :linked}))))))))
++
++
++(deftest import-binds-the-imported-name-in-its-scope-test
++  (testing "module level: m is an assigned global"
++    (let [analysis (scope/analyze programs/d-packet)
++          module (get (:scopes analysis) (:module analysis))]
++      (is (contains? (set (:assigned module)) "m"))))
++  (testing "an import in a function binds a local, and its require is
++            still hoisted for the unit"
++    (let [pk (portable/packet
++               [:file_input
++                [:stmt [:compound_stmt
++                        [:funcdef ["DEF" "def"] [:name ["NAME" "f"]]
++                         [:parameters ["OPEN_PAREN" "("] ["CLOSE_PAREN" ")"]]
++                         ["COLON" ":"]
++                         [:block ["NEWLINE" "\n"] ["INDENT" "    "]
++                          (statement (import-simple-stmt "m"))
++                          ["DEDENT" "<EOF>"]]]]]
++                ["EOF" "<EOF>"]])
++          analysis (scope/analyze pk)
++          f-scope (some (fn [s] (when (contains? (set (:locals s)) "m") s))
++                        (vals (:scopes analysis)))
++          program (lower/lower-packet pk {:prelude :linked})]
++      (is (some? f-scope) "m is a local of f")
++      (is (= :cell (:kind (scope/resolve analysis (:id f-scope) "m")))
++          "read inside f reaches the cell")
++      (is (= '#{py pym.m} (required-modules program))))))
++
++
++(deftest del-lowers-to-delattr-and-a-strict-unbind-test
++  (testing "del m.y is a delattr of the module attribute"
++    (let [body (lower/lower-module-body programs/del-packet)]
++      (is (some (fn [n]
++                  (and (= :application (:type n))
++                       (= 'py/delattr (get-in n [:operator :name]))
++                       (= "y" (get-in n [:operands 1 :value]))))
++                (nodes body)))))
++  (testing "del x uses strict py/global-del (NameError when unbound in module)"
++    (let [pk (portable/packet
++               [:file_input
++                (statement [:del_stmt ["DEL" "del"]
++                            [:exprlist
++                             (chain [:expr :atom_expr :atom]
++                                    [:name ["NAME" "x"]])]])
++                ["EOF" "<EOF>"]])
++          body (lower/lower-module-body pk)
++          ops (set (map #(get-in % [:operator :name])
++                        (filter #(= :application (:type %)) (nodes body))))]
++      (is (contains? ops 'py/global-del))))
++  (testing "scope collects del targets as local cells in function scope"
++    (let [pk (portable/packet
++               [:file_input
++                [:stmt [:compound_stmt
++                        [:funcdef ["DEF" "def"] [:name ["NAME" "f"]]
++                         [:parameters ["OPEN_PAREN" "("] ["CLOSE_PAREN" ")"]]
++                         ["COLON" ":"]
++                         [:block ["NEWLINE" "\n"] ["INDENT" "    "]
++                          (statement [:del_stmt ["DEL" "del"]
++                                      [:exprlist
++                                       (chain [:expr :atom_expr :atom]
++                                              [:name ["NAME" "x"]])]])
++                          ["DEDENT" "<EOF>"]]]]]
++                ["EOF" "<EOF>"]])
++          analysis (scope/analyze pk)
++          f-scope (some (fn [s] (when (contains? (set (:locals s)) "x") s))
++                        (vals (:scopes analysis)))]
++      (is (some? f-scope) "x is treated as a local cell of f")
++      (is (= :cell (:kind (scope/resolve analysis (:id f-scope) "x")))))))
++
++
++;; =============================================================================
++;; The module emitter
++;; =============================================================================
++
++(def ^:private stand-in-address
++  "A stand-in manifest address: the spec builder only pins it, and no fast
++   test may force a publication."
++  :test/address)
++
++
++(deftest module-packet-is-one-wide-application-test
++  (let [ast (lower/module-packet programs/m-packet {:name "m"})
++        operands (:operands ast)
++        op (:operator ast)]
++    (testing "one application: the py require, one per static import,
++              then the spec and body definitions"
++      (is (= :application (:type ast)))
++      (is (= :lambda (:type op)))
++      (is (= (count operands) (count (:params op))))
++      (is (nil? (get-in op [:body :value])))
++      (is (= '[py] (requires-of ast)))
++      (is (= '[spec body] (mapv def-key (drop 1 operands)))))
++    (testing "the spec is the literal module record; the body is the same
++              %globals form the main wrapper runs"
++      (is (= {:name "m", :package? false}
++             (get-in (second operands) [:operands 1 :value])))
++      (is (= '[%globals %globals-fn]
++             (get-in (nth operands 2) [:operands 1 :params])))
++      (is (= '#{spec body} lower/module-exports)))
++    (testing "Rule R holds over the module tree"
++      (is (nil? (vm/ast-reserved-defect ast))))))
++
++
++(deftest module-packet-of-a-unit-with-imports-requires-them-test
++  (let [ast (lower/module-packet programs/t-packet {:name "t"})]
++    (is (= '#{py pym.k} (required-modules ast)))
++    (is (contains? (set (keep #(when (= :variable (:type %)) (:name %))
++                              (nodes ast)))
++                   'pym.k/spec))
++    (testing "a dotted module name is I2's"
++      (is (= :yang.python.antlr/unsupported
++             (:yang.python.antlr/diagnostic
++               (refusal-of #(lower/module-packet programs/m-packet
++                                                 {:name "a.b"}))))))))
++
++
++(deftest module-spec-test
++  (let [spec (lower/module-spec (h/registry) programs/t-packet
++                                {:name "t",
++                                 :py-address stand-in-address,
++                                 :deps {"k" :test/k}})]
++    (testing "the linker module pym.t requires py and each import pinned"
++      (is (= 'pym.t (:name spec)))
++      (is (= '{py :test/address, pym.k :test/k} (:requires spec)))
++      (is (= '#{spec body} (:exports spec)))
++      (is (= (lower/module-packet programs/t-packet {:name "t"})
++             (:ast spec))))
++    (testing "a py- or pym.k-qualified free name is never a primitive
++              declaration: the requirements cover it"
++      (is (empty? (filter #(contains? #{"py" "pym.k"} (namespace %))
++                          (keys (:primitives spec))))))
++    (testing "a free name no registry module or primitive supplies is
++              refused before anything is published"
++      (let [no-cell (-> (module/empty-registry)
++                        (data/register-data-module
++                          {::data/max-items 1048576})
++                        (prelude/register-integer-module h/integer-limits))
++            refusal (refusal-of
++                      ;; m's functions allocate cells, so its tree reads
++                      ;; cell names no cell module supplies
++                      #(lower/module-spec no-cell programs/m-packet
++                                          {:name "m",
++                                           :py-address stand-in-address,
++                                           :deps {}}))]
++        (is (= :yang.python.antlr/undeclared-free
++               (:yang.python.antlr/refusal refusal)))
++        (is (= "cell" (namespace (:name refusal))))))))
++
++
++;; =============================================================================
++;; The linked acceptance: every guest module published beside py
++;; =============================================================================
++
++(def ^:private published-guests
++  "Every guest module the acceptance imports, published once per process
++   into `py`'s own store, imports bottom-up: `{name address}`."
++  (delay
++    (let [reg (h/registry)
++          py (:address @h/published)
++          publish (fn [name pk deps]
++                    [name (:address
++                            (h/publish-guest-module!
++                              (lower/module-spec reg pk
++                                                 {:name name,
++                                                  :py-address py,
++                                                  :deps deps})))])
++          [_ k-a] (publish "k" programs/k-packet {})
++          [_ m-a] (publish "m" programs/m-packet {})
++          [_ t-a] (publish "t" programs/t-packet {"k" k-a})
++          [_ w-a] (publish "w" programs/w-packet {})
++          [_ e-a] (publish "e" programs/e-packet {})
++          [_ n-a] (publish "n" programs/n-packet {})]
++      {:k k-a, :m m-a, :t t-a, :w w-a, :e e-a, :n n-a})))
++
++
++(defn- guest-source
++  "The serving composition over py and every published guest module."
++  []
++  (let [a @published-guests]
++    (h/source (into {'py (:address @h/published)}
++                    (map (fn [[n a]] [(lower/module-symbol (name n)) a]))
++                    a))))
++
++
++(defn- outcome
++  "A finished run as `[halted? blocked? rendered-value]`."
++  [task]
++  [(vm/halted? task) (vm/blocked? task) (render/output (vm/value task))])
++
++
++(defn- on-every-vm
++  "Every vector VM's `[halted? blocked? output]` for the linked program of
++   `pk`, or the throw."
++  [pk]
++  (into {}
++        (map (fn [k]
++               [k (try (outcome
++                         (h/run-linked
++                           k (lower/lower-packet pk {:prelude :linked})
++                           {:link-source (guest-source)}))
++                       (catch #?(:cljd Object :clj Exception :cljs :default) e
++                         [:thrown (ex-message e)]))]))
++        (keys h/backends)))
++
++
++(defn- every=
++  [expected results]
++  (doseq [[k result] results]
++    (is (= expected result) (str k))))
++
++
++(defn- import-orders-statements-test
++  []
++  (testing "print(\"a\"); import m; print(\"b\") orders a, m's output, b"
++    (every= [true false {:py/out ["a" "m-body" "b"], :py/exception nil}]
++            (on-every-vm programs/o-packet))))
++
++
++(deftest ^:slow import-orders-statements-test-test
++  (slow/guard "import-orders-statements-test" import-orders-statements-test))
++
++
++(defn- second-import-does-not-re-execute-test
++  []
++  (testing "a second import does not re-execute the body: the sys.modules
++            hit answers; `import m; x = m.val; print(x)` reads 7 through
++            the module object"
++    (every= [true false {:py/out ["m-body" "done"], :py/exception nil}]
++            (on-every-vm programs/q-packet))
++    (every= [true false {:py/out ["m-body" "7"], :py/exception nil}]
++            (on-every-vm programs/d-packet))))
++
++
++(deftest ^:slow second-import-does-not-re-execute-test-test
++  (slow/guard "second-import-does-not-re-execute-test"
++              second-import-does-not-re-execute-test))
++
++
++(defn- module-dict-mutations-are-shared-test
++  []
++  (testing "m.val = 5 and del m.y reach m's dict: m.__dict__ shows them
++            and m's own functions read them"
++    (every= [true false {:py/out ["m-body" "5" "absent" "('gone', 5)"],
++                         :py/exception nil}]
++            (on-every-vm programs/c-packet))))
++
++
++(deftest ^:slow module-dict-mutations-are-shared-test-test
++  (slow/guard "module-dict-mutations-are-shared-test"
++              module-dict-mutations-are-shared-test))
++
++
++(defn- raising-body-removes-its-entry-test
++  []
++  (testing "a raising body propagates to the importer's handler and
++            removes its sys.modules entry -- the second attempt runs the
++            body again"
++    (every= [true false {:py/out ["w-once" "cleaned" "w-once" "again"],
++                         :py/exception nil}]
++            (on-every-vm programs/r-packet))))
++
++
++(deftest ^:slow raising-body-removes-its-entry-test-test
++  (slow/guard "raising-body-removes-its-entry-test"
++              raising-body-removes-its-entry-test))
++
++
++(defn- importer-catches-imported-function-exception-test
++  []
++  (testing "a handler in the importer catches an exception a function of
++            the imported module raises, on every VM -- cross-module raise
++            through the module boundary"
++    (every= [true false {:py/out ["caught-e"], :py/exception nil}]
++            (on-every-vm programs/x-packet))))
++
++
++(deftest ^:slow importer-catches-imported-function-exception-test-test
++  (slow/guard "importer-catches-imported-function-exception-test"
++              importer-catches-imported-function-exception-test))
++
++
++(defn- one-image-two-names-test
++  []
++  (testing "pym.n's own body, the one export the import runs, prints its
++            module name when imported"
++    (every= [true false {:py/out ["n"], :py/exception nil}]
++            (on-every-vm programs/nn-packet)))
++  (testing "the same body value run by py/run-main prints __main__: one
++            code image, two roles"
++    (let [main (u/mark-tails
++                 (u/seq-nodes
++                   [(u/sexp->uast '(require (quote py)))
++                    (u/sexp->uast '(require (quote pym.n)))
++                    (u/sexp->uast '(py/init!))
++                    (u/app (u/v 'py/run-main) (u/v 'pym.n/body))]))]
++      (every= [true false {:py/out ["__main__"], :py/exception nil}]
++              (into {}
++                    (map (fn [k]
++                           [k (try (outcome (h/run-linked
++                                              k main
++                                              {:link-source (guest-source)}))
++                                   (catch #?(:cljd Object
++                                             :clj Exception
++                                             :cljs :default) e
++                                     [:thrown (ex-message e)]))]))
++                    (keys h/backends))))))
++
++
++(deftest ^:slow one-image-two-names-test-test
++  (slow/guard "one-image-two-names-test" one-image-two-names-test))
++
++
++(defn- preseeded-modules-resolve-test
++  []
++  (testing "import sys needs no linker module, and sys.modules holds the
++            imported module and sys itself"
++    (every= [true false {:py/out ["m-body" "True" "True"], :py/exception nil}]
++            (on-every-vm programs/s-packet))))
++
++
++(deftest ^:slow preseeded-modules-resolve-test-test
++  (slow/guard "preseeded-modules-resolve-test" preseeded-modules-resolve-test))
++
++
++(defn- transitive-import-delivers-test
++  []
++  (testing "t imports k: k's body runs once inside t's own import, and t
++            reads k's attribute -- the module's install child delivers
++            its own imports"
++    (every= [true false {:py/out ["k-body" "t-sees 3" "t-done"],
++                         :py/exception nil}]
++            (on-every-vm programs/tt-packet))))
++
++
++(deftest ^:slow transitive-import-delivers-test-test
++  (slow/guard "transitive-import-delivers-test" transitive-import-delivers-test))
+diff --git a/test/yang/python/antlr/linked_harness.cljc b/test/yang/python/antlr/linked_harness.cljc
+index 8fd9c0c4..964f4e6a 100644
+--- a/test/yang/python/antlr/linked_harness.cljc
++++ b/test/yang/python/antlr/linked_harness.cljc
+@@ -92,6 +92,16 @@
+   (source {'py (:address @published), 'pysp (:address @published-pysp)}))
+ 
+ 
++(defn publish-guest-module!
++  "One guest module's `spec` (lower/module-spec's) published into `py`'s
++   own content store, where its pinned requirements already live:
++   `publish-module!`'s answer. Guest modules are tiny beside `py`, so a
++   test may publish its own; publish imports bottom-up, the `deps` map
++   naming each import's address."
++  [spec]
++  (publish/publish-module! (:store @published) spec))
++
++
+ (def ^:private semantic-loader
+   (linearize/ast-loader semantic/vm-load-program))
+ 
+diff --git a/test/yang/python/antlr/linked_prelude_test.cljc b/test/yang/python/antlr/linked_prelude_test.cljc
+index f0750d67..25fc9453 100644
+--- a/test/yang/python/antlr/linked_prelude_test.cljc
++++ b/test/yang/python/antlr/linked_prelude_test.cljc
+@@ -181,7 +181,7 @@
+              (disj (sexp-def-keys (get (into {} prelude/definitions)
+                                        'py/init!))
+                    'py.rt/state)))
+-      (is (= 61 (count prelude/runtime-keys))))))
++      (is (= 65 (count prelude/runtime-keys))))))
+ 
+ 
+ ;; =============================================================================
+@@ -221,11 +221,12 @@
+ ;; =============================================================================
+ 
+ (def ^:private manifest-golden
+-  "P3 moved this once: the two runtime-cell accessors `py/rt-ctx` and
+-   `py/rt-limit` the linked hook module reads are new exports."
++  "I1 moved this once: the definition list gained the module runtime
++   (`py/import`, module objects, sys.modules and its two pre-seeded
++   modules) and the `ImportError` class."
+   (keyword (str "segment/blake3-"
+-                "b891d48b14e3fc3757535e580a3511e9"
+-                "5d8ddf6c57d3e637f1ba0f9a97cb0ee7")))
++                "ad6f34e349ce527382ddd039236197a7"
++                "00c6c1182f163bc3b8bcf13449f1c3d8")))
+ 
+ 
+ (def ^:private vector-formats
+diff --git a/test/yang/python/antlr/linked_safepoint_test.cljc b/test/yang/python/antlr/linked_safepoint_test.cljc
+index 09091135..af2a0971 100644
+--- a/test/yang/python/antlr/linked_safepoint_test.cljc
++++ b/test/yang/python/antlr/linked_safepoint_test.cljc
+@@ -238,9 +238,11 @@
+ ;; =============================================================================
+ 
+ (def ^:private pysp-manifest-golden
++  "I1 moved this once: the pinned `py` requirement is py's own manifest
++   address, which I1's module runtime moved."
+   (keyword (str "segment/blake3-"
+-                "6133313d60c4080c0803daa6de5b53b1"
+-                "95fa6c650af4b4b9e354ce247950fa87")))
++                "79432fa68e23ce3d1a4fbf4f882713b8"
++                "ba9fe0cb74467285cb832e25c7458da9")))
+ 
+ 
+ (defn- pysp-manifest-address
+diff --git a/test/yang/python/antlr/lower_test.clj b/test/yang/python/antlr/lower_test.clj
+index 8debea13..049f8dda 100644
+--- a/test/yang/python/antlr/lower_test.clj
++++ b/test/yang/python/antlr/lower_test.clj
+@@ -440,9 +440,10 @@
+ 
+ 
+ (deftest unsupported-constructs-are-qualified-test
++  ;; `import m` and `del x` lower since I1; the I2 import forms still
++  ;; refuse, naming their construct
+   (doseq [[src rule construct]
+-          [["import os\n" "import_stmt" "import"]
+-           ["x = a @ b\n" "expr" "operator @"]
++          [["x = a @ b\n" "expr" "operator @"]
+            ["x @= b\n" "augassign" "augmented @="]
+            ["def f(a: int): pass\n" "tfpdef" "parameter annotation"]
+            ["a[1:2:3] = x\n" "trailer" "extended slice assignment"]
+@@ -451,7 +452,6 @@
+            ["x = f'{a}'\n" "atom" "f-string"]
+            ["x = 1 <> 2\n" "comp_op" "comparison <>"]
+            ["class C(A, B): pass\n" "classdef" "multiple inheritance"]
+-           ["del x\n" "del_stmt" "del statement"]
+            ["assert x\n" "assert_stmt" "assert statement"]]]
+     (testing src
+       (is (= {:yang.python.antlr/diagnostic :yang.python.antlr/unsupported,
+@@ -619,16 +619,17 @@
+       (is (= :yang.python.antlr/syntax-error
+              (:yang.python.antlr/diagnostic (first diagnostics))))
+       (is (seq (:errors (first diagnostics))))))
+-  (testing "an unsupported construct produces a qualified diagnostic"
++  (testing "an import under the bundled prelude produces a qualified
++            diagnostic (I1: imports need the linked profile)"
+     (let [{:keys [program diagnostics]} (run-stages ["import os\n"])]
+       (is (empty? program))
+       (is (= {:yang.cst/unit [:u 1],
++              :message "Imports need the linked prelude (docs/design/yang.antlr.md 8.5.6)",
+               :yang.python.antlr/diagnostic :yang.python.antlr/unsupported,
+-              :rule "import_stmt",
+-              :construct "import",
+-              :span [0 9],
+-              :message "Unsupported Python construct: import"}
+-             (first diagnostics)))))
++              :construct "import under the bundled prelude"}
++             (select-keys (first diagnostics)
++                          [:yang.cst/unit :message
++                           :yang.python.antlr/diagnostic :construct])))))
+   (testing "yield at module level, and yield in a comprehension's own scope,
+             is one syntax diagnostic and no program"
+     (doseq [src ["yield 1\n" "x = [(yield x) for x in y]\n"]]
+diff --git a/test/yang/python/antlr/prelude_parity_test.cljc b/test/yang/python/antlr/prelude_parity_test.cljc
+index d180b49c..6d691b95 100644
+--- a/test/yang/python/antlr/prelude_parity_test.cljc
++++ b/test/yang/python/antlr/prelude_parity_test.cljc
+@@ -1590,7 +1590,8 @@
+ 
+ (deftest shadow-then-delete-builtin-test
+   (testing "a module key shadows the builtin; deleting it restores the
+-            builtin; a name in neither is NameError"
++            builtin; a name in neither is NameError; deleting a builtin without
++            global binding raises NameError"
+     (doseq [[k result]
+             (run-with-prelude
+               prelude/uast
+@@ -1598,16 +1599,24 @@
+                      a (py/global-get g {:py/str "len"})
+                      _ (py/global-set g {:py/str "len"} 1)
+                      b (py/global-get g {:py/str "len"})
+-                     _ (py/global-del-quiet g {:py/str "len"})
++                     _ (py/global-del g {:py/str "len"})
+                      c (py/global-get g {:py/str "len"})
+-                     d (py/try (fn [] (py/global-get g {:py/str "nosuch"}))
++                     d (py/try (fn [] (py/global-del g {:py/str "len"}))
+                                (fn [e] (py/isinstance e py.b/NameError))
+-                               (fn [] :no))]
+-                 (py/vconj (py/vconj (py/vconj (py/vconj [] (= a py.b/len)) b)
+-                                     (= c py.b/len))
+-                           d)))]
++                               (fn [] false))
++                     cls (py/make-class "C" :py/None)
++                     _ (cell/set! cls (assoc (cell/get cls) :attrs {"x" 1}))
++                     del-ok (do (py/class-ns-del cls "x") true)
++                     del-err (py/try (fn [] (py/class-ns-del cls "x"))
++                                     (fn [e] (py/isinstance e py.b/NameError))
++                                     (fn [] false))]
++                 (py/vconj (py/vconj (py/vconj (py/vconj (py/vconj (py/vconj [] (= a py.b/len)) b)
++                                                         (= c py.b/len))
++                                               d)
++                                     del-ok)
++                           del-err)))]
+       (testing (str k)
+-        (is (= [true 1 true true] result))))))
++        (is (= [true 1 true true true true] result))))))
+ 
+ 
+ (deftest builtin-mutation-test
+@@ -1641,9 +1650,15 @@
+ 
+ (deftest seeded-builtins-test
+   (testing "py.b/builtins holds exactly the class names and the twenty-five
+-            function names, keyed as a module dict is, in table order"
++            function names, keyed as a module dict is, in table order, then
++            the four standard dunders of the builtins module object (C4 I1:
++            that module's dict is the builtins namespace itself)"
+     (let [table-order (mapv (fn [row] {:py/str (first row)})
+-                            (concat prelude/builtin-classes prelude/builtin-functions))]
++                            (concat prelude/builtin-classes
++                                    prelude/builtin-functions))
++          with-dunders (into table-order (map (fn [nm] {:py/str nm}))
++                             ["__name__" "__package__" "__spec__"
++                              "__loader__"])]
+       (is (= (set (map (fn [nm] {:py/str nm})
+                        (concat (map first prelude/builtin-classes)
+                                builtin-function-names)))
+@@ -1652,7 +1667,7 @@
+       (doseq [[k result] (run-with-prelude prelude/uast
+                                            '(get (cell/get py.b/builtins) :keys))]
+         (testing (str k)
+-          (is (= table-order result)))))))
++          (is (= with-dunders result)))))))
+ 
+ 
+ (defn- definition-keys
+@@ -1695,6 +1710,46 @@
+         (is (= [true [[true]]] result))))))
+ 
+ 
++(deftest module-objects-test
++  (testing "a module object's dict is its namespace (C4 I1): __name__ set
++            at creation, attribute read/write/delete dict operations,
++            __dict__ the dict itself, a second import answered from
++            sys.modules, and a None-spec miss ImportError"
++    (let [checks ['(py/getattr m "__name__")
++                  '(py/getattr m "v")
++                  '(do (py/setattr m "v" 5) (py/getattr m "v"))
++                  '(py/delattr m "v")
++                  '(py/is hit m)
++                  '(not (= (py/modules-ref (py/str "sys")) :py/missing))
++                  '(py/try
++                     (fn []
++                       (do (py/import (py/str "nope") :py/None :py/None)
++                           false))
++                     (fn [e] (py/isinstance e py.b/ImportError))
++                     (fn [] false))]
++          printed (reduce (fn [acc c] (list 'py/vconj acc c)) [] checks)
++          form (list 'py/run-module
++                     (list 'fn ['g 'gf]
++                           (list 'let
++                                 ['m (list 'py/module-run
++                                           '(py/str "m")
++                                           :py/None
++                                           (list 'fn ['d 'gf2]
++                                                 '(py/dict-set d
++                                                               {:py/str "v"}
++                                                               7)))
++                                  'hit (list 'py/import
++                                             '(py/str "m")
++                                             {:name "m", :package? false}
++                                             :py/None)]
++                                 (list 'py/print printed))))]
++      (doseq [[k result] (run-with-prelude prelude/uast form)]
++        (testing (str k)
++          (is (= {:py/out [["m" 7 5 nil true true true]], :py/exception nil}
++                 result)
++              (pr-str result)))))))
++
++
+ (deftest prelude-notation-test
+   (testing "the prelude is canonical Universal AST: no reserved-name defect,
+             and every definition key is a literal symbol"

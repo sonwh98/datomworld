@@ -1,0 +1,41 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.semantic-register.scan-test
+C4 scanner oracle: :py
+C4 tree free names complete: :py
+C4 completion free names complete: :py
+C4 scanner oracle complete: :py
+C4 scanner oracle: :pysp
+C4 tree free names complete: :pysp
+C4 completion free names complete: :pysp
+C4 scanner oracle complete: :pysp
+C4 scanner oracle: :k
+C4 tree free names complete: :k
+C4 completion free names complete: :k
+C4 scanner oracle complete: :k
+C4 scanner oracle: :m
+C4 tree free names complete: :m
+C4 completion free names complete: :m
+C4 scanner oracle complete: :m
+C4 scanner oracle: :t
+C4 tree free names complete: :t
+C4 completion free names complete: :t
+C4 scanner oracle complete: :t
+C4 scanner oracle: :w
+C4 tree free names complete: :w
+C4 completion free names complete: :w
+C4 scanner oracle complete: :w
+C4 scanner oracle: :e
+C4 tree free names complete: :e
+C4 completion free names complete: :e
+C4 scanner oracle complete: :e
+C4 scanner oracle: :n
+C4 tree free names complete: :n
+C4 completion free names complete: :n
+C4 scanner oracle complete: :n
+
+Ran 3 tests containing 208 assertions.
+0 failures, 0 errors.

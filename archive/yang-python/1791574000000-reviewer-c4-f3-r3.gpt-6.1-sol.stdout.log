@@ -1,0 +1,2882 @@
+Reading additional input from stdin...
+OpenAI Codex v0.159.3
+--------
+workdir: /Users/sto/workspace/datomworld-c4-f3
+model: gpt-6.1-sol
+provider: openai
+approval: on-request
+sandbox: read-only
+reasoning effort: low
+reasoning summaries: none
+session id: 01a1267b-1960-7f91-8ca6-31211176d5dd
+--------
+user
+Created-GMT: 2026-10-10 15:30:00 GMT
+Coding-Agent: codex (gpt-6.1-sol)
+# Task: round-3 review of C4 slice F3 (read-only)
+Round 2 verdict was REJECT narrowly: collab/1791572000000-reviewer-c4-f3-r2.findings.md. The author (opus) reports the three remaining items fixed: collab/1791573000000-engineer-c4-f3-fix2.findings.md. Review the UNCOMMITTED tree in /Users/sto/workspace/datomworld-c4-f3 (`git diff HEAD -- src test` plus the three untracked F3 files). For each remaining item state FIXED / NOT FIXED / PARTIAL with file:line: (A) probed lines kept verbatim (trailing spaces/tabs in triple strings, short string ending in backslash plus spaces; frontends without a probe unchanged); (B) an earlier irreparable error before an open string returns :complete (`x = * """`) while genuine unfinished literals stay :incomplete: the author says one class of input was deliberately kept :incomplete and pinned with a comment: judge whether that is a defect; (C) coverage of the staged session through parked completion, refusal and abandonment. Then a last adversarial pass for regressions in the whole F3 diff. Only report concrete defects; do not re-litigate fixed round-1/2 items. Do not edit; do not run suites. Output: verdict (APPROVE / APPROVE-WITH-NITS / REJECT) first, numbered findings with file:line, severity, exact fix. Your FINAL MESSAGE must contain the complete review beginning with Completed-GMT / Completed-Local lines.
+codex
+I’ll read the architecture rules and prior findings, inspect the uncommitted F3 changes, and review the three fixes plus the full diff for concrete regressions. I won’t edit files or run suites.
+exec
+/bin/zsh -lc 'cat docs/design/datom.world.md' in /Users/sto/workspace/datomworld-c4-f3
+ succeeded in 0ms:
+---
+description: Core philosophy, foundational axioms, invariants, primitives (tuples, streams, host boundaries), architectural commitments, design principles, code style, and development workflow for datom.world
+---
+
+# DATOM.WORLD ARCHITECTURAL FOUNDATIONS & DEVELOPMENT RULES
+
+## Core Philosophy
+
+Everything is data.
+Interpretation > abstraction.
+Explicit causality > implicit assumptions.
+Restrictions are a feature.
+
+### Foundational Axioms
+
+1. **Everything is a Stream**: All IO and data flow through append-only streams.
+2. **Interpretation Creates Semantics**: Data is syntax; semantics only emerge through interpretation (one truth, many perspectives).
+   At system scale, a "system" is an emergent property of interpreters of
+   pure data, not an object, service, or stored artifact. Find the
+   interpreters and the data they share to find the system.
+3. **Code and State are Datoms**: Code (Universal AST) and runtime execution state are structured datoms, enabling syntax independence and structural reflection.
+4. **Everything is a Continuation**: Computation is modeled as serializable, portable continuations that can pause, travel across streams, and resume anywhere.
+
+## Non-Negotiable Invariants
+
+- Do not introduce hidden global state.
+- Do not introduce implicit control flow.
+- Do not introduce callbacks; every callback is an event on a stream.
+- Do not introduce shared mutable state.
+- Do not collapse interpretation and execution into the same layer.
+- Do not assume graphs: graphs must be constructed explicitly from tuples.
+
+## Tuples and Datoms
+
+Tuples are elements in an open moduli space, graded by dimension $n$. A tuple can be any dimension/size.
+A datom is the canonical persistent tuple `[e a v t m]` (entity, attribute, value, transaction, metadata). Persistent facts are immutable datoms.
+Source scope belongs to the interpreter, never to an appended tuple slot. Queries keep physical sources as separate db-values and express union or joins explicitly.
+
+See [`docs/design/datom.md`](./datom.md) for full specification.
+
+## Streams
+
+All IO is modeled as a stream. Functions consume streams and produce streams.
+No direct function-to-function coupling without a stream boundary.
+Side effects must appear as stream emissions.
+Streams are values that can be sent through streams.
+Streams carry whatever values the consumer needs: no datom requirement, no privileged payload shape.
+
+A stream has no privileged reader, and its meaning is not in it. Any number
+of interpreters may observe the same medium, and each constructs its own
+semantics from the same batches: a `yin.vm` evaluator observing a program
+stream constructs CESK state and executes it; `dao.space.index` observing
+the very same stream materializes covered indexes, so `dao.space.query/q`
+answers Datalog over the program as it grows. Neither knows the other
+exists. The medium is their only coupling, and each observer's ignorance of
+the other is load-bearing: the evaluator never consults an index to run,
+and the index never evaluates a form to index it. This is how axiom 2
+becomes architecture: one stream, many interpretations, none of them
+the stream's own.
+
+Functions can take anything and return anything.
+Agents are functions, closures, or continuations in `yin.vm` that communicate with the outside world through `dao.stream`. Agent behavior is specified entirely through stream effects.
+
+See [`docs/design/dao.stream.md`](./dao.stream.md) for full stream specification.
+See [`docs/design/yin.vm.streams-all-the-way-down.md`](./yin.vm.streams-all-the-way-down.md) for VM architecture.
+
+### Host Boundaries
+
+A host boundary is a stream boundary, never a function call. The one
+sanctioned function-shaped contact is a `dao.stream` handle operation, whose
+exhaustive outcome map is stream protocol, not an application callback.
+
+**Effects out.** Portable code appends an effect value describing what must
+happen. A host interpreter consumes that stream, performs the operation, and
+appends the outcome. Portable code reads the outcome. Correlation is by
+identity in the data; neither side holds a reference to the other. A host with
+no implementation for an effect emits a qualified unsupported result. That is a
+correct outcome, not a gap to be filled.
+
+**Events in.** When the host initiates (a socket receives, a connection drops,
+a timer fires) the adapter appends one plain-data event and returns. It invokes
+nothing. An interpreter reads that stream and decides what the event means.
+Constructively: **a callback is replaced by a function that transforms an event
+to data on a stream.** The host's demand for a callback stops at that function.
+
+**Adapters.** An adapter is a map of those transform functions. That is all an
+adapter is. It is a value, not a namespace, and it is general: sockets, files,
+timers and windows all deliver events by calling something, and an adapter is
+what they call. Each entry takes the host's arguments and returns one value;
+the append is the adapter's, not the entry's, so an entry cannot return a value
+to the host and cannot invoke application code. The adapter is handed only the
+deposit operation and its own host resource. If its deposit channel fails, it
+may close that resource to make the boundary observably gone; this is teardown,
+not an upward callback.
+
+Host types are classified into plain data in the transform: it is the last
+place holding a host error object, and no host type crosses onto the stream. A
+transport may use a qualified envelope to preserve correlation, lifecycle, and
+additive evolution; that envelope remains plain data and creates no separate
+event mechanism. A composition may likewise define its own qualified vocabulary
+for facts it owns.
+
+Which stream an adapter writes to is the caller's composition, never the
+adapter's knowledge. An adapter cannot tell whether it deposits into one
+transport's private stream or into a medium many interpreters read. This keeps
+the layering one-way: a boundary depends on nothing above it, because whoever
+constructs the adapter supplies the stream.
+
+A transform deposits every event admitted by the boundary protocol and judges
+none of them semantically. Wire framing, decoding, and protocol validation
+happen below the transform: malformed wire input is transport machinery, not an
+event. Once the transport has produced a valid host event, data is syntax
+(axiom 2): an event that is noise to one interpreter is signal to another that
+does not exist yet, and filtering at the depositing layer destroys perspectives
+not yet taken. Retention is the medium's operational policy; meaning is
+interpretation. Neither is the depositor's decision.
+
+Two things are not adapters. One that exposes a function for portable code to
+call isolates the host library but keeps the coupling, and the effect never
+appears as an emission. One that takes a function to invoke has relocated the
+callback, not removed it, even when every value it passes is plain data; if
+that callback has a meaningful return value, it is a synchronous call in both
+directions wearing the shape of an event.
+
+## Architectural Commitments
+
+- **`dao.jing` is syntax, agents are semantics**: the content-addressed encoding stays passive and payload-agnostic.
+- **Macros are stream topology**: an evaluator knows nothing about macro expansion; expansion happens on the syntax side of a medium boundary, upstream of any evaluator.
+- **Peer observers, one stream**: a generic evaluator and `dao.space` independently observe the same stream topic, as described under Streams. This is not a claim about any two consumers regardless of what they consume.
+- **Observers are independent and optional**: nothing requires a medium to have any particular set of consumers. Which observers exist for a stream is a per-composition choice, not a design-time commitment.
+
+## Design Principles
+
+Code quality is measured by malleability: how cheaply can changes adapt without breaking promises?
+Stigmergic coordination emerges from sharing data across streams.
+
+**Systems emerge from interpreters of pure data.** Streams are the
+composition medium; each interpreter gives the same data a perspective
+without collapsing interpretation into execution or owning the truth.
+
+- `dao.space` emerges from `dao.space.index` and `dao.space.query` over
+  ordinary streams.
+- ShiBi capability, metering, and budget emerge from different
+  interpreters over the same tuples; no token object is stored.
+- The four VMs interpret one Universal AST; many syntaxes feed that AST.
+- The semantic AST in `dao.space` is queryable facts projected by the
+  auto-index observer.
+- Client and server are roles in one stigmergic behavior implemented by
+  interpreters, not distinct kinds of nodes.
+
+**Derive, don't persist.** Before adding a tag, slot, or field to any
+canonical content-hashed structure (an AST grammar, a datom schema, a row
+shape), check whether a correctly scoped Datalog query over
+`dao.space.query/q` can already compute the fact. If it can, it belongs as a
+query or projection: new persisted structure migrates every downstream
+consumer and duplicates authority over a fact a query derives fresh. The
+retired `:global` tag in
+[`docs/design/yin.vm.code-as-tuples.md`](./yin.vm.code-as-tuples.md) is the
+case study, including the scoping bug that a naive query introduced.
+
+See [`docs/agents/malleability.md`](../agents/malleability.md) for complete design guidance (cohesion, coupling, bounded complexity, evolution, testing strategy).
+See [`docs/agents/vocabulary.md`](../agents/vocabulary.md) for domain vocabulary reference (biology, economics, physics, philosophy).
+
+## Code Style
+
+- Prefer simple data over rich types.
+- Prefer total functions over partial ones.
+- Prefer declarative pipelines over imperative logic.
+- Avoid cleverness.
+- Name things after what they do to streams.
+
+## Development Workflow
+
+- Do not invent abstractions that hide streams.
+- Do not suggest mainstream frameworks unless explicitly asked.
+- Do not optimize prematurely.
+- When uncertain, ask at the architectural level, not the implementation level.
+- Explanations should align with Plan 9 / Datomic / Lisp lineage.
+- Program store writes go through `engine/store-put`; any other store write
+  the store-write audit (`test/yin/vm/store_write_audit_test.clj`)
+  detects must be on its allowlist; its docstring states the residual it
+  leaves to review.
+
+### Problem Decomposition
+
+If a problem appears complex:
+1. Decompose it into streams.
+2. Identify invariants.
+3. Restrict degrees of freedom.
+4. Make causality explicit.
+5. Let structure emerge from constraints.
+
+## Operational & Specialized Guides
+
+- **Advanced Concepts**: See [`docs/agents/advanced-concepts.md`](../agents/advanced-concepts.md) for parallel transport, capability tokens, and entanglement.
+- **Build & Test**: See [`docs/agents/build-n-test.md`](../agents/build-n-test.md) for build, lint, and test commands and TDD guidelines.
+- **Engineering Team Roster**: See [`docs/agents/team.md`](../agents/team.md) for engineering team roles and LLM model assignments.
+- **Agent Delegation**: See [`docs/agents/roles/orchestrator.md`](../agents/roles/orchestrator.md) for collaboration protocols and delegating tasks or reviews through `agy`, `cmd`, `glm`, `deepseek`, and `codex`; the orchestrator's append-only work log is [`docs/orchestrator-log.md`](../orchestrator-log.md).
+- **Website & Content**: See [`docs/agents/format.md`](../agents/format.md) for `.chp` and `.blog` EDN/Hiccup file specifications.
+
+exec
+/bin/zsh -lc 'git status --short; git diff HEAD --stat -- src test; cat collab/1791572000000-reviewer-c4-f3-r2.findings.md collab/1791573000000-engineer-c4-f3-fix2.findings.md' in /Users/sto/workspace/datomworld-c4-f3
+ succeeded in 4868ms:
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-vaMJVs9s' (errno=Operation not permitted)
+2026-10-10 22:42:56.899 xcodebuild[75736:55199236]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-10 22:42:57.240 xcodebuild[75736:55199235] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-gttTtaMd' (errno=Operation not permitted)
+2026-10-10 22:42:57.864 xcodebuild[75741:55199262]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-10 22:42:58.041 xcodebuild[75741:55199261] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+ M src/cljc/yin/repl.cljc
+ M src/cljc/yin/repl/frontends.cljc
+ M test/yin/repl/frontend_catalog_test.cljc
+?? collab/1791570000000-reviewer-c4-f3.findings.md
+?? collab/1791570000000-reviewer-c4-f3.prompt.md
+?? collab/1791571000000-engineer-c4-f3-fix.findings.md
+?? collab/1791571000000-engineer-c4-f3-fix.prompt.md
+?? collab/1791572000000-reviewer-c4-f3-r2.findings.md
+?? collab/1791572000000-reviewer-c4-f3-r2.prompt.md
+?? collab/1791573000000-engineer-c4-f3-fix2.findings.md
+?? collab/1791573000000-engineer-c4-f3-fix2.prompt.md
+?? collab/1791574000000-reviewer-c4-f3-r3.prompt.md
+?? src/clj/yang/python/antlr/repl_probe.clj
+?? src/cljc/yang/python/antlr/repl.cljc
+?? test/yin/repl/python_antlr_test.cljc
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-9pW3HCTD' (errno=Operation not permitted)
+2026-10-10 22:42:59.330 xcodebuild[75749:55199305]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-10 22:42:59.521 xcodebuild[75749:55199304] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-VXCpLTTW' (errno=Operation not permitted)
+2026-10-10 22:43:00.059 xcodebuild[75752:55199318]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-10 22:43:00.238 xcodebuild[75752:55199317] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+ src/cljc/yin/repl.cljc                   | 133 +++++++++++++++++++++++++------
+ src/cljc/yin/repl/frontends.cljc         |  52 +++++++++---
+ test/yin/repl/frontend_catalog_test.cljc |  23 ++++--
+ 3 files changed, 167 insertions(+), 41 deletions(-)
+Completed-GMT: 2026-10-10 13:02:31 GMT
+Completed-Local: 2026-10-10 20:02:31 Asia/Ho_Chi_Minh
+
+**REJECT**
+
+Read-only review of the uncommitted source/test diff, all three untracked files, and both reports. No edits or suites run. Test effectiveness below is assessed by inspection; the author’s reported results were not independently verified.
+
+1. **Round 1 finding 1 — FIXED.** `src/clj/yang/python/antlr/repl_probe.clj:223` checks lexical state before permitting blank-line submission at line 228. Open brackets survive blank lines. **Regression test:** yes—`test/yin/repl/python_antlr_test.cljc:235` asserts the retained buffer and exact responses for `print(`, blank, `1)`. No further fix required.
+
+2. **Round 1 finding 2 — FIXED, with the source-preservation defect in finding 7 below.** `repl_probe.clj:51` handles short/triple strings and escapes; lines 97, 115, 123, and 127 handle comments, explicit continuation, and typed bracket nesting. **Regression tests:** yes—`python_antlr_test.cljc:242`, 246, and 269 cover triple strings, bracket content, escaped quotes, comments, nested brackets, and backslash continuation. No further fix to the original missing scanner required.
+
+3. **Round 1 finding 3 — PARTIAL; P2 remains.** `repl_probe.clj:169` replaces diagnostic-text matching with token-based classification; lines 198–209 distinguish source tokens from EOF and synthetic trailing tokens. The original malformed bracket cases are covered at `python_antlr_test.cljc:254`.
+
+   However, `repl_probe.clj:227` returns `:incomplete` for an open string before checking earlier syntax errors. For example, `x = * """` buffers despite the irreparable `*` before the string. **Exact fix:** classify syntax errors before the unfinished string’s opening position; return `:complete` for an earlier irreparable error while retaining genuinely unfinished literals. **Regression test:** existing tests would catch the original cases, but none catches this remaining case. Add it, assert immediate SyntaxError and cleared pending input, then successful `print(2)` recovery.
+
+4. **Round 1 finding 4 — FIXED.** `src/cljc/yin/repl.cljc:1696` stages the session in AST metadata; line 1826 stages it during evaluation; `commit-frontend` at line 1052 commits it only through finalization. Failed rounds retain the previous marker. Parked evaluations carry the staged data at line 1507 and restore it for finalization at line 1890; refusal and abandonment retain the previous session.
+
+   **Regression tests:** yes for initial and later evaluator failures—`python_antlr_test.cljc:151` and 169 verify retry initialization and rollback. No test currently exercises staged frontend metadata through parked completion, refusal, or abandonment. Add those cases to protect the new branches; no concrete defect found in those branches by inspection.
+
+5. **Round 1 finding 5 — FIXED.** `yin/repl.cljc:1072` reads the staged display policy and line 1085 suppresses value rendering only for `:output`, while retaining output and value history. `src/cljc/yin/repl/frontends.cljc:79` applies the policy to the ANTLR binding; the other production bindings omit it.
+
+   **Regression tests:** yes—`python_antlr_test.cljc:114`, 121, and 132 assert complete assignment, print, and exception responses. Line 183 checks unchanged Clojure and legacy Python echoes. PHP remains on the default display path by inspection. No further fix required.
+
+6. **Round 1 finding 6 — FIXED.** `test/yin/repl/frontend_catalog_test.cljc:164` selects the actual parserless `:yang.python/service` binding, then asserts unavailable-parser and unchanged language at lines 165–166. The pinned-compilation assertion remains at line 167. **Regression test:** yes—incorrectly accepting that binding would fail these assertions. No further fix required.
+
+7. **P1 — Input trimming silently changes Python string values.** `src/cljc/yin/repl.cljc:2012` applies `str/trimr` to every probed line before scanning, buffering, and parsing. Submit these physical lines, with two spaces after `a`:
+
+   ```text
+   s = """a  
+   """
+   print(s)
+   ```
+
+   The stored string loses those spaces. Trimming also changes escape classification: a short-string line ending in backslash followed by spaces becomes a backslash-newline continuation.
+
+   **Exact fix:** preserve each probed line verbatim; use whitespace predicates only for submission decisions. Keep existing normalization for frontends without a probe. Add exact-output tests for trailing spaces/tabs inside triple strings and for a short string ending in backslash followed by spaces. **Existing tests would not fail:** their string fixtures omit trailing whitespace.
+
+The renamed `.cljc` test correctly guards JVM parser imports and JVM-only definitions with `:cljd` first (`python_antlr_test.cljc:21`, 194 onward). Portable CST scenarios use the real lowering and shell evaluation paths, cover persistence, reset, VM rebuilding, exceptions, and rollback, and compare fixture node shapes against the JVM parser at line 203. Their main remaining coverage gap is the parked frontend-session lifecycle described in finding 4.
+# C4 F3 fix round 2 -- engineer report (claude opus-5-5)
+
+Completed-GMT: 2026-10-10
+
+Status: DONE -- all three fixed test-first; JVM, Node, Dart green; kondo
+and cljstyle clean. Ready for re-review.
+
+## (A) finding 7 (P1): probed lines kept verbatim -- FIXED
+
+- `src/cljc/yin/repl.cljc` `eval-input`: with a probe the line is no
+  longer `str/trimr`-ed; whitespace predicates (`str/blank?` on the
+  combined text, the probe's own `last-line-blank?`) still decide
+  submission. Frontends without a probe keep `str/trim`.
+- Test `probed-lines-keep-their-whitespace-test` (JVM):
+  - `s = """a  \t` / `  ` / `\tb """` / `print(s)` prints exactly
+    `"a  \t\n  \n\tb \n"`;
+  - `s = 'a\  ` (backslash, then spaces) is `:complete`, reported as a
+    SyntaxError at once with nothing pending, and `print(2)` then
+    answers `"2\n"`.
+- Red on the old line: printed `"a\n\n\tb \n"`; `s = 'a\` was buffered.
+
+## (B) finding 3 (P2): errors before an open string -- FIXED
+
+- `src/clj/yang/python/antlr/repl_probe.clj`: `scan` adds `:string-at`
+  (the opening quote of the string still open). `probe` parses the text
+  up to that quote plus `''` (the open string standing as an empty
+  one): a failure on that string token or before it (`:early`) is
+  `:complete`; otherwise (parses, or fails only at end of input) it
+  stays `:incomplete`.
+- Tests: `probe-reports-irreparable-errors-at-once-test` gains
+  `x = 1 """abc`, `x = = """`, `foo(1 2 '''`, `x = (1 + * 2 'a\` (each:
+  probe `:complete`, SyntaxError at once, no pending input, then
+  `print(2)` -> `"2\n"`). `probe-classifies-test` gains
+  `s = 'abc\  ` :complete, `foo("""a`, `if x:\n    s = '''a` and
+  `x = * """` :incomplete.
+- Red on the old `string :incomplete`: all four irreparable cases were
+  buffered (16 failures).
+- DEVIATION: the reviewer's literal example `x = * """` is NOT an
+  irreparable error. In this grammar `testlist_star_expr` admits
+  `star_expr: '*' expr` (Python3Parser.g4 lines 155, 559), and
+  `x = *"""ab""",` is valid Python (x = ('a', 'b')). The fix keeps it
+  `:incomplete`, pinned in `probe-classifies-test` with a comment; the
+  regression uses genuinely irreparable cases instead.
+
+## (C) finding 4 coverage: parked frontend session -- ADDED
+
+Portable (every host) tests in `python_antlr_test.cljc`, on a test
+binding whose `:lower-session` counts rounds (session = round count), a
+`:stack` shell that committed one round (session 1), then
+`(require (quote mod))` parked over a content wire nothing answers:
+
+- `a-parked-round-stages-its-session-test`: while parked,
+  `:frontend-session` is still 1; the run carries `{:session 2}`.
+- `a-parked-round-commits-its-session-on-completion-test`: swap in a
+  link source holding `mod`, `recheck-pending` completes the require
+  (`:last-value` `mod`) and commits session 2.
+- `a-refused-parked-round-keeps-the-previous-session-test`: the
+  re-check's source lacks the name; the require is refused ("absent"),
+  session stays 1.
+- `an-abandoned-parked-round-keeps-the-previous-session-test`:
+  `(abandon)` keeps session 1 and the next round lowers against it (2).
+
+These cover existing branches, so they pass against the current code
+(4 tests, 15 assertions). Their first run failed only on test setup: the
+binding lacked `:lower`, which `usable-binding` requires, and a
+placeholder address refused the require at once instead of parking it.
+
+## Other
+
+- Non-ASCII section signs in the docstrings of `repl_probe.clj` and
+  `yang/python/antlr/repl.cljc` replaced with the word "section".
+- Touched only the F3 files: `yin/repl.cljc`, `repl_probe.clj`,
+  `yang/python/antlr/repl.cljc` (docstring), `python_antlr_test.cljc`.
+- Scratch logs are in `target/f3tmp/` (build dir, untracked).
+
+## Lanes
+
+- Red (old code restored temporarily, `-v` on the three A/B tests):
+  3 tests, 81 assertions, 20 failures (16 for B, 4 for A). Fixes then
+  restored.
+- JVM `clojure -M:test -n yin.repl.python-antlr-test -n
+  yin.repl.frontend-catalog-test -n yin.repl-test -n yang.frontend-test`:
+  Ran 76 tests containing 467 assertions. 0 failures, 0 errors.
+  Note: this lane is slow here (each Python session test 80-160 s
+  while other worktrees' JVMs share the machine); expect over 20 min.
+- Node `bb test:cljs`: Ran 3878 tests containing 109447 assertions.
+  0 failures, 0 errors. `yin.repl.python-antlr-test` listed. The one
+  build warning is a pre-existing `:ns-var-clash` in
+  `yin/vm/linker/head.cljc`, not an F3 file.
+- Dart `bb test:cljd`: +3830, "All tests passed!". All four parked tests
+  are registered in `test/cljd-out/yin/repl/python-antlr-test_test.dart`
+  (the reporter prints only some test names).
+- `clj -M:kondo --lint` (six F3 files): errors 0, warnings 0.
+- `mise exec -- cljstyle check` (six F3 files): clean.
+- ASCII: the six F3 files are ASCII now. <= 80 columns: new lines comply.
+  The over-80 lines that remain predate F3 (`repl.cljc` 354, 381, 1583,
+  1584; `frontend_catalog_test.cljc` 68).
+
+exec
+/bin/zsh -lc 'git diff HEAD -- src test' in /Users/sto/workspace/datomworld-c4-f3
+ succeeded in 2009ms:
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-TpFrgqZZ' (errno=Operation not permitted)
+2026-10-10 22:43:04.973 xcodebuild[75767:55199404]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-10 22:43:05.149 xcodebuild[75767:55199401] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+git: warning: confstr() failed with code 5: couldn't get path of DARWIN_USER_TEMP_DIR; using /tmp instead
+git: error: couldn't create cache file '/tmp/xcrun_db-RA3QC9CR' (errno=Operation not permitted)
+2026-10-10 22:43:05.687 xcodebuild[75770:55199420]  DVTFilePathFSEvents: Failed to start fs event stream.
+2026-10-10 22:43:05.866 xcodebuild[75770:55199419] [MT] DVTDeveloperPaths: Failed to get length of DARWIN_USER_CACHE_DIR from confstr(3), error = Error Domain=NSPOSIXErrorDomain Code=5 "Input/output error". Using NSCachesDirectory instead.
+diff --git a/src/cljc/yin/repl.cljc b/src/cljc/yin/repl.cljc
+index 33f0413b..5d3d5620 100644
+--- a/src/cljc/yin/repl.cljc
++++ b/src/cljc/yin/repl.cljc
+@@ -24,6 +24,7 @@
+             [yin.repl.store :as store]
+             [yin.vm :as vm]
+             [yin.vm.ast-walker :as ast-walker]
++            [yin.vm.data :as data]
+             [yin.vm.debruijn-code :as dcode]
+             [yin.vm.debruijn-linearize :as debruijn-linearize]
+             [yin.vm.debruijn-register-code :as rcode]
+@@ -32,6 +33,7 @@
+             [yin.vm.debruijn.stack :as stack]
+             [yin.vm.encoder :as encoder]
+             [yin.vm.engine :as engine]
++            [yin.vm.integer :as integer]
+             [yin.vm.linearize :as linearize]
+             [yin.vm.macro :as macro]
+             [yin.vm.module :as module]
+@@ -641,8 +643,14 @@
+    ((get vm-constructors vm-type)
+     (cond-> {:primitives (merge (make-repl-primitives output-stream)
+                                 extra-primitives)
+-             :modules (cond-> (module/register-stream-module
+-                                (module/default-registry))
++             :modules (cond-> (-> (module/default-registry)
++                                  module/register-stream-module
++                                  module/register-cell-module
++                                  (data/register-data-module
++                                    {::data/max-items 1048576})
++                                  (integer/register-integer-module
++                                    {::integer/max-bits 100000
++                                     ::integer/max-digits 4300}))
+                         query-pair query/register)
+              :make-stream make-ring-stream
+              ;; the task's capability secret (yin.vm.linker.md 7.3, r10):
+@@ -1041,22 +1049,38 @@
+   [(:shell-token state) (:round state)])
+ 
+ 
++(defn- commit-frontend
++  "Keep what a frontend program's lowering staged (`::frontend`, see
++   `eval-compiled`) now that its VM state survives: the frontend session
++   it leaves becomes the shell's `:frontend-session`."
++  [state]
++  (let [staged (::frontend state)]
++    (cond-> (dissoc state ::frontend)
++      (contains? staged :session) (assoc :frontend-session (:session staged)))))
++
++
+ (defn- finalize-eval
+   "Drain the round's output and its result from the output medium.  Only a
+    result stamped with this round's identity is this round's value; the
+    evaluator answers once per halted program, after its prints.  A missing
+    or foreign-round result is loss, reported with the append outcome the
+-   runner recorded."
++   runner recorded.  The program halted, so its VM state survives and a
++   frontend's staged session is committed; a frontend whose display
++   policy is `:output` shows what the program wrote and not its value."
+   [state state' vm']
+   (let [append (::result-append vm')
++        display (:display (::frontend state'))
+         [state'' output-text results]
+-        (drain-output (assoc state' :vm (dissoc vm' ::result-append)))
++        (drain-output (commit-frontend
++                        (assoc state' :vm (dissoc vm' ::result-append))))
+         round (round-id state')
+         current (filterv #(= round (:round %)) results)]
+     (if (seq current)
+       (let [value (:value (peek current))]
+         [(record-last-value state state'' value)
+-         (str output-text (format-value value (host-fn-namer (:vm state''))))])
++         (str output-text
++              (when-not (= :output display)
++                (format-value value (host-fn-namer (:vm state'')))))])
+       [state''
+        (str output-text "Error: " result-loss-text
+             (when (and append (not= :dao.stream/ok append))
+@@ -1473,16 +1497,19 @@
+    `:pending-run`, and the prompt returns.  Nothing is wedged: another
+    line re-checks the link, the host may step one itself with
+    `recheck-pending`, the link policy is consulted as the run parks, and
+-   `(reset)` or `(vm ...)` drops it with the session."
++   `(reset)` or `(vm ...)` drops it with the session.  What a frontend
++   staged for the round rides on the run, committed only if it completes."
+   [state state' vm' pending]
+   (let [[state'' text] (drain-output state')]
+     (consult-link-policy
+       (assoc state''
+              :vm vm'
+-             :pending-run {:vm vm'
+-                           :base (:vm state)
+-                           :links pending
+-                           :checks 0})
++             :pending-run (cond-> {:vm vm'
++                                   :base (:vm state)
++                                   :links pending
++                                   :checks 0}
++                            (::frontend state')
++                            (assoc :frontend (::frontend state'))))
+       text
+       (pending-text pending))))
+ 
+@@ -1656,12 +1683,30 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
+                          :selection selected})))))
+ 
+ 
++(defn- lower-parsed
++  "Lower `parsed` through `binding`.  A binding with a `:lower-session`
++   stage lowers against the frontend session the shell keeps
++   (`:frontend-session`, cleared with the VM) and leaves the session it
++   answers, with the binding's `:display` policy, in the program's
++   `::frontend` metadata, for `eval-compiled` to stage."
++  [state binding parsed]
++  (let [staged (cond-> {}
++                 (:display binding) (assoc :display (:display binding)))]
++    (if-let [lower-session (:lower-session binding)]
++      (let [[ast session] (lower-session parsed (:frontend-session state))]
++        (vary-meta ast assoc ::frontend (assoc staged :session session)))
++      (cond-> ((:lower binding) parsed)
++        (seq staged) (vary-meta assoc ::frontend staged)))))
++
++
+ (defn- compile-input
+   "Lower `input` through the selected frontend; `forms` are the shell
+    reader's forms, used by a frontend that consumes them."
+   [state input forms]
+-  (let [{:keys [parse lower] in :input} (frontend-binding state (:lang state))]
+-    (lower (parse (if (= :forms in) forms input)))))
++  (let [binding (frontend-binding state (:lang state))]
++    (lower-parsed state binding
++                  ((:parse binding)
++                   (if (= :forms (:input binding)) forms input)))))
+ 
+ 
+ (defn- forms-input?
+@@ -1671,8 +1716,10 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
+ 
+ (defn- compile-source
+   [state input]
+-  (let [{:keys [parse lower] in :input} (frontend-binding state (:lang state))]
+-    (lower (parse (if (= :forms in) (read-forms input) input)))))
++  (let [binding (frontend-binding state (:lang state))]
++    (lower-parsed state binding
++                  ((:parse binding)
++                   (if (= :forms (:input binding)) (read-forms input) input)))))
+ 
+ 
+ (defn- compile-command-ast
+@@ -1726,6 +1773,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
+           :last-value nil
+           :last-value-2 nil
+           :last-value-3 nil
++          :frontend-session nil
+           :pending-run nil}))
+ 
+ 
+@@ -1767,6 +1815,21 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
+       [state (str "Error: Unknown Yin REPL command " (pr-str command))])))
+ 
+ 
++(defn- eval-compiled
++  "Evaluate a program `compile-input` or `compile-source` lowered.  What
++   its lowering left (`::frontend`: the session and the display policy) is
++   staged on the round and committed only where the round's VM state
++   survives: when the program halts, now or when its parked require
++   completes (`finalize-eval`).  A round that fails, rolls back, or is
++   abandoned keeps the shell's previous `:frontend-session`."
++  [state ast]
++  (let [staged (::frontend (meta ast))
++        [state' text] (eval-program (cond-> state
++                                      staged (assoc ::frontend staged))
++                                    ast)]
++    [(dissoc state' ::frontend) text]))
++
++
+ (defn- eval-parsed*
+   "The parse dispatch of one line, against a shell with no require to
+    re-check."
+@@ -1778,9 +1841,9 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
+         (and form (command-form? form)) (handle-command state form)
+         (and form (datom-stream? form)) (eval-program state (vec form))
+         (and form (ast-map? form)) (eval-program state form)
+-        forms (eval-program state (compile-input state trimmed forms))
++        forms (eval-compiled state (compile-input state trimmed forms))
+         (forms-input? state) [state (format-error (:error parsed))]
+-        :else (eval-program state (compile-source state trimmed))))
++        :else (eval-compiled state (compile-source state trimmed))))
+     (catch #?(:cljd Object :clj Exception :cljs js/Error) error
+       (let [[state' output-text] (drain-output state)]
+         [state' (str output-text (format-error error))]))))
+@@ -1824,7 +1887,10 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
+         (if (vm/halted? vm')
+           (let [vm'' (engine/restore-initial-env (:env (:base parked)) vm')
+                 [st text] (finalize-eval state
+-                                         (assoc state' :vm vm'')
++                                         (cond-> (assoc state' :vm vm'')
++                                           (:frontend parked)
++                                           (assoc ::frontend
++                                                  (:frontend parked)))
+                                          (tokenize state' vm''))]
+             (fold-queued [(assoc st :vm vm'' :pending-run nil) text]
+                          (cond-> (vec (:pending-lines parked))
+@@ -1925,19 +1991,38 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
+     (eval-parsed* state trimmed parsed)))
+ 
+ 
++(defn- input-probe
++  "The completeness probe of the session's frontend, or nil when it has
++   none or none is installed (the compile then reports it)."
++  [state]
++  (:probe (usable-binding (select-frontend (:frontends state) (:lang state)))))
++
++
+ (defn eval-input
+   "Evaluate one input line locally, returning `[state text]`.
+ 
+-   Input whose brackets do not balance is retained as `:pending-input` and
+-   produces no text.  Nothing here is asynchronous: the driver, not this
+-   namespace, decides when the next step happens."
++   Input that is not yet a whole submission is retained as `:pending-input`
++   and produces no text: for a frontend with a `:probe` the probe decides
++   and the line is kept verbatim (whitespace can be inside a string);
++   otherwise the brackets must balance.  Nothing here is asynchronous: the
++   driver, not this namespace, decides when the next step happens."
+   [state line]
+-  (let [pending (or (:pending-input state) "")
++  (let [probe (input-probe state)
++        pending (or (:pending-input state) "")
++        line (if probe line (str/trim line))
+         combined (if (str/blank? pending)
+-                   (str/trim line)
+-                   (str pending "\n" (str/trim line)))]
+-    (if (pos? (bracket-balance combined))
++                   line
++                   (str pending "\n" line))]
++    (cond
++      (and probe (str/blank? combined))
++      [(assoc state :pending-input nil) ""]
++
++      (if probe
++        (= :incomplete (probe combined))
++        (pos? (bracket-balance combined)))
+       [(assoc state :pending-input combined) ""]
++
++      :else
+       (let [state' (assoc state :pending-input nil)
+             parsed (try {:forms (read-forms combined)}
+                         (catch #?(:cljd Object
+diff --git a/src/cljc/yin/repl/frontends.cljc b/src/cljc/yin/repl/frontends.cljc
+index 3dc436e9..5e8ef64f 100644
+--- a/src/cljc/yin/repl/frontends.cljc
++++ b/src/cljc/yin/repl/frontends.cljc
+@@ -13,6 +13,9 @@
+     [yang.frontend :as frontend]
+     [yang.php :as yang.php]
+     [yang.python :as yang.python]
++    [yang.python.antlr.repl :as python.antlr.repl]
++    #?@(:cljd [] :clj [[yang.python.antlr.parser :as python.antlr.parser]
++                       [yang.python.antlr.repl-probe :as python.antlr.probe]])
+     [yin.repl :as repl]))
+ 
+ 
+@@ -38,19 +41,43 @@
+     (yang.clojure/compile-program forms)))
+ 
+ 
++#?(:cljd nil
++   :clj
++   (defn- antlr-manifest
++     []
++     (assoc (manifest :yang.python/antlr :python.antlr)
++            :yang.frontend/revision "f3"
++            :yang.frontend/grammar
++            {:yang.grammar/package "python3",
++             :yang.grammar/entries {:module "file_input"},
++             :yang.grammar/export-profile :yang.cst/v1})))
++
++
+ (defn standard
+   "The standard catalog. The Clojure frontend consumes the forms the
+-   shell's own reader read, so its parse stage is the identity."
++   shell's own reader read, so its parse stage is the identity.  The Python
++   ANTLR frontend is installed where its parser runs (the JVM); elsewhere
++   selecting it answers `unavailable-parser`.  It shows what a submission
++   printed and not the program's value (`:display :output`)."
+   []
+-  (-> frontend/empty-catalog
+-      (frontend/install (manifest :yang.clojure/legacy :clojure)
+-                        {:input :forms,
+-                         :parse identity,
+-                         :lower clojure-lower})
+-      (frontend/install (manifest :yang.python/legacy :python)
+-                        {:parse identity, :lower yang.python/compile})
+-      (frontend/install (manifest :yang.php/legacy :php)
+-                        {:parse identity, :lower yang.php/compile})))
++  (cond-> frontend/empty-catalog
++    true (frontend/install (manifest :yang.clojure/legacy :clojure)
++                           {:input :forms,
++                            :parse identity,
++                            :lower clojure-lower})
++    true (frontend/install (manifest :yang.python/legacy :python)
++                           {:parse identity, :lower yang.python/compile})
++    true (frontend/install (manifest :yang.php/legacy :php)
++                           {:parse identity, :lower yang.php/compile})
++    #?@(:cljd [] :clj [true (frontend/install
++                              (antlr-manifest)
++                              {:parse (fn [source]
++                                        (python.antlr.parser/parse-source
++                                          (str source "\n"))),
++                               :lower python.antlr.repl/lower,
++                               :lower-session python.antlr.repl/lower-session,
++                               :display :output,
++                               :probe python.antlr.probe/probe})])))
+ 
+ 
+ (defn create-state
+@@ -58,4 +85,7 @@
+    host supplies its own `:frontends`."
+   ([] (create-state {}))
+   ([opts]
+-   (repl/create-state (update opts :frontends #(or % (standard))))))
++   (repl/create-state
++     (-> opts
++         (update :frontends #(or % (standard)))
++         (update :primitives #(merge python.antlr.repl/primitives %))))))
+diff --git a/test/yin/repl/frontend_catalog_test.cljc b/test/yin/repl/frontend_catalog_test.cljc
+index 02344fc3..a9ac9de7 100644
+--- a/test/yin/repl/frontend_catalog_test.cljc
++++ b/test/yin/repl/frontend_catalog_test.cljc
+@@ -90,12 +90,12 @@
+ 
+ (deftest an-unavailable-frontend-answers-without-fallback-test
+   (let [state (repl.frontends/create-state)
+-        [state' answer] (run state "(lang :yang.python/antlr)")]
++        [state' answer] (run state "(lang :yang.python/uninstalled)")]
+     (testing "selecting an id the catalog does not hold is a diagnostic"
+       (is (str/includes? answer "unavailable-parser"))
+       (is (= :clojure (:lang state'))))
+     (testing "compiling under it answers unavailable-parser, not legacy"
+-      (let [pinned (assoc state :lang :yang.python/antlr)
++      (let [pinned (assoc state :lang :yang.python/uninstalled)
+             [_ result] (run pinned "1 + 2")
+             [_ compiled] (run pinned "(compile \"1 + 2\")")]
+         (is (str/includes? result "unavailable-parser"))
+@@ -111,6 +111,16 @@
+         (is (str/includes? result "unavailable-parser"))))))
+ 
+ 
++(deftest the-antlr-id-is-installed-only-where-its-parser-runs-test
++  (let [jvm? #?(:cljd false :clj true :cljs false)
++        [state answer] (run (repl.frontends/create-state)
++                            "(lang :yang.python/antlr)")]
++    (if jvm?
++      (is (= :yang.python/antlr (:lang state)))
++      (do (is (str/includes? answer "unavailable-parser"))
++          (is (= :clojure (:lang state)))))))
++
++
+ (deftest a-core-session-with-no-catalog-has-no-frontend-test
+   (let [[_ result] (run (repl/create-state) "(+ 1 2)")]
+     (is (str/includes? result "unavailable-parser"))
+@@ -139,7 +149,7 @@
+ 
+ 
+ (deftest an-explicit-parser-service-makes-an-id-available-test
+-  (let [id :yang.python/antlr
++  (let [id :yang.python/service
+         antlr-manifest (assoc (manifest "antlr-1") :yang.frontend/id id)
+         bare (frontend/install (repl.frontends/standard)
+                                antlr-manifest
+@@ -150,8 +160,9 @@
+                  {:parse (fn [src] (count src)),
+                   :lower (fn [n] (yang.clojure/compile n))})]
+     (testing "no parser and no service: unavailable, no legacy fallback"
+-      (let [[state _] (run (repl.frontends/create-state {:frontends bare})
+-                           "(lang :yang.python/antlr)")]
++      (let [[state answer] (run (repl.frontends/create-state {:frontends bare})
++                                "(lang :yang.python/service)")]
++        (is (str/includes? answer "unavailable-parser"))
+         (is (= :clojure (:lang state))))
+       (is (str/includes?
+             (second (run (assoc (repl.frontends/create-state
+@@ -161,5 +172,5 @@
+             "unavailable-parser")))
+     (testing "a configured service binding answers"
+       (let [[state _] (run (repl.frontends/create-state {:frontends served})
+-                           "(lang :yang.python/antlr)")]
++                           "(lang :yang.python/service)")]
+         (is (= "5" (second (run state "12345"))))))))
+
+exec
+/bin/zsh -lc 'nl -ba src/clj/yang/python/antlr/repl_probe.clj; nl -ba src/cljc/yang/python/antlr/repl.cljc; nl -ba test/yin/repl/python_antlr_test.cljc' in /Users/sto/workspace/datomworld-c4-f3
+ succeeded in 0ms:
+     1	(ns yang.python.antlr.repl-probe
+     2	  "The Python ANTLR frontend's completeness probe (docs/design/yang.antlr.md
+     3	   section 8.5.6, slice F3; JVM only, as the parser is). `probe` answers
+     4	   whether the text typed so far is a whole submission:
+     5	
+     6	   - `:complete`: the text parses, or it is wrong in a way more lines cannot
+     7	     mend (the shell then reports the syntax error);
+     8	   - `:incomplete`: more lines can still finish it.
+     9	
+    10	   Two passes decide. A lexical `scan` follows short and triple-quoted
+    11	   strings with their escapes, comments, typed bracket nesting and explicit
+    12	   backslash continuation: a string still open waits for more lines unless
+    13	   the text, with that string standing as an empty one, already fails on
+    14	   or before it; a bracket or continuation still open waits too (a blank
+    15	   line among them is legal Python), and a closer that matches no opener
+    16	   is an error at once. Then
+    17	   the parser runs, and its first error is classified by the token it
+    18	   failed on: only a failure on the end-of-input tokens (EOF, and the
+    19	   NEWLINE and DEDENT the lexer synthesizes there) is mendable by more
+    20	   lines; any earlier token is not, so the error is reported even under an
+    21	   open bracket. With brackets, strings and continuations closed, a blank
+    22	   line ends the submission, and text that parses waits only while its
+    23	   last logical line is indented: as in CPython's REPL, a blank line closes
+    24	   a block."
+    25	  (:require
+    26	    [clojure.string :as str]
+    27	    [yang.python.antlr.parser :as parser])
+    28	  (:import
+    29	    (org.antlr.v4.runtime
+    30	      ANTLRErrorListener
+    31	      BaseErrorListener
+    32	      CharStreams
+    33	      CommonTokenStream
+    34	      Lexer
+    35	      NoViableAltException
+    36	      Parser
+    37	      Token)
+    38	    (org.antlr.v4.runtime.atn
+    39	      ATN
+    40	      LexerATNSimulator
+    41	      ParserATNSimulator
+    42	      PredictionContextCache)))
+    43	
+    44	
+    45	;; =============================================================================
+    46	;; Lexical scan
+    47	;; =============================================================================
+    48	
+    49	(def ^:private opener-of
+    50	  {\) \(, \] \[, \} \{})
+    51	
+    52	
+    53	(defn- string-end
+    54	  "The index just past the string literal whose body starts at `i`, quoted
+    55	   by `q`, tripled when `triple?`: `:open` when more lines can still close
+    56	   it (a triple string, or a short string whose line ends in a backslash),
+    57	   `:broken` when a short string's line ends without one. A backslash
+    58	   escapes the next character, a newline included, in raw strings too."
+    59	  [^String text i q triple?]
+    60	  (let [n (count text)
+    61	        closer (if triple? (str q q q) (str q))]
+    62	    (loop [i i]
+    63	      (if (>= i n)
+    64	        (if triple? :open :broken)
+    65	        (let [c (.charAt text i)]
+    66	          (cond
+    67	            (= \\ c) (if (< (inc i) n) (recur (+ i 2)) :open)
+    68	            (.startsWith text closer (int i)) (+ i (count closer))
+    69	            (and (not triple?) (= \newline c)) :broken
+    70	            :else (recur (inc i))))))))
+    71	
+    72	
+    73	(defn scan
+    74	  "The lexical state at the end of `text`:
+    75	
+    76	     {:brackets [opener ...]   ; still open, innermost last
+    77	      :block? b}               ; the last logical line is indented
+    78	
+    79	   plus `:string :open` when the text ends inside a string (`:string-at`
+    80	   its opening quote), `:continued
+    81	   true` when it ends on an explicit backslash continuation, or `:error`
+    82	   (`:bracket`, `:string`) for a closer with no matching opener or a short
+    83	   string broken by a newline; the scan stops there."
+    84	  [^String text]
+    85	  (let [n (count text)]
+    86	    ;; line-begin: where the current logical line's physical line began;
+    87	    ;; line?: no code yet on the current logical line
+    88	    (loop [i 0
+    89	           stack []
+    90	           line-begin 0
+    91	           line? true
+    92	           block? false]
+    93	      (let [state {:brackets stack, :block? block?}
+    94	            code (fn [stack]
+    95	                   [stack (if line? (> i line-begin) block?)])]
+    96	        (if (>= i n)
+    97	          state
+    98	          (let [c (.charAt text i)]
+    99	            (cond
+   100	              (= \# c)
+   101	              (let [eol (str/index-of text "\n" i)]
+   102	                (recur (or eol n) stack line-begin line? block?))
+   103	
+   104	              (= \newline c)
+   105	              (if (empty? stack)
+   106	                (recur (inc i) stack (inc i) true block?)
+   107	                (recur (inc i) stack line-begin line? block?))
+   108	
+   109	              (or (= \" c) (= \' c))
+   110	              (let [triple? (.startsWith text (str c c c) (int i))
+   111	                    end (string-end text (+ i (if triple? 3 1)) c triple?)
+   112	                    [stack block?] (code stack)]
+   113	                (case end
+   114	                  :open (assoc state :string :open :string-at i)
+   115	                  :broken (assoc state :error :string)
+   116	                  (recur end stack line-begin false block?)))
+   117	
+   118	              (= \\ c)
+   119	              (cond
+   120	                (= (inc i) n) (assoc state :continued true)
+   121	                (= \newline (.charAt text (inc i)))
+   122	                (recur (+ i 2) stack line-begin line? block?)
+   123	                :else (let [[stack block?] (code stack)]
+   124	                        (recur (inc i) stack line-begin false block?)))
+   125	
+   126	              (contains? #{\( \[ \{} c)
+   127	              (let [[stack block?] (code stack)]
+   128	                (recur (inc i) (conj stack c) line-begin false block?))
+   129	
+   130	              (contains? opener-of c)
+   131	              (if (= (peek stack) (opener-of c))
+   132	                (let [[stack block?] (code stack)]
+   133	                  (recur (inc i) (pop stack) line-begin false block?))
+   134	                (assoc state :error :bracket))
+   135	
+   136	              (contains? #{\space \tab \formfeed \return} c)
+   137	              (recur (inc i) stack line-begin line? block?)
+   138	
+   139	              :else
+   140	              (let [[stack block?] (code stack)]
+   141	                (recur (inc i) stack line-begin false block?)))))))))
+   142	
+   143	
+   144	;; =============================================================================
+   145	;; Parse: where the first error failed
+   146	;; =============================================================================
+   147	
+   148	(defn- first-failure
+   149	  "Parse `source` and answer nil when it parses, `:end` when its first
+   150	   error failed on an end-of-input token, else `:early`.
+   151	
+   152	   The failing token is the offending token of a mismatch; a
+   153	   no-viable-alternative error names the token its prediction began at,
+   154	   so for it the failing token is the furthest one the parser had read
+   155	   when the error was reported. End-of-input tokens are EOF and the
+   156	   zero-width ones after the last token with source text (the lexer's
+   157	   EOF can carry a span, so it is excluded by type). A lexer error has no
+   158	   token and is `:early`."
+   159	  [^String source]
+   160	  (let [{:keys [profile lexer-atn lexer-dfa lexer-cache parser-atn
+   161	                parser-dfa parser-cache]}
+   162	        (parser/make-worker)
+   163	        far (volatile! -1)
+   164	        failure (volatile! nil)
+   165	        lexer ^Lexer ((:make-lexer profile) (CharStreams/fromString source))
+   166	        tokens (proxy [CommonTokenStream] [lexer]
+   167	                 (LT
+   168	                   [k]
+   169	                   (let [^Token t (proxy-super LT k)]
+   170	                     (when t (vswap! far max (.getTokenIndex t)))
+   171	                     t)))
+   172	        listener (proxy [BaseErrorListener] []
+   173	                   (syntaxError
+   174	                     [_recognizer offending _line _column _msg e]
+   175	                     (when-not @failure
+   176	                       (vreset! failure
+   177	                                (cond
+   178	                                  (not (instance? Token offending)) :lexical
+   179	                                  (instance? NoViableAltException e) @far
+   180	                                  :else (.getTokenIndex ^Token offending))))))
+   181	        _ (.setInterpreter
+   182	            lexer
+   183	            (LexerATNSimulator.
+   184	              lexer
+   185	              ^ATN lexer-atn
+   186	              ^"[Lorg.antlr.v4.runtime.dfa.DFA;" lexer-dfa
+   187	              ^PredictionContextCache lexer-cache))
+   188	        _ (.removeErrorListeners lexer)
+   189	        _ (.addErrorListener lexer ^ANTLRErrorListener listener)
+   190	        parser ^Parser ((:make-parser profile) tokens)
+   191	        _ (.setInterpreter
+   192	            parser
+   193	            (ParserATNSimulator.
+   194	              parser
+   195	              ^ATN parser-atn
+   196	              ^"[Lorg.antlr.v4.runtime.dfa.DFA;" parser-dfa
+   197	              ^PredictionContextCache parser-cache))
+   198	        _ (.removeErrorListeners parser)
+   199	        _ (.addErrorListener parser ^ANTLRErrorListener listener)]
+   200	    ((:start profile) parser)
+   201	    (let [index @failure
+   202	          last-real (->> (.getTokens ^CommonTokenStream tokens)
+   203	                         (keep (fn [^Token t]
+   204	                                 (when (and (not= Token/EOF (.getType t))
+   205	                                            (<= (.getStartIndex t)
+   206	                                                (.getStopIndex t)))
+   207	                                   (.getTokenIndex t))))
+   208	                         (reduce max -1))]
+   209	      (cond
+   210	        (nil? index) nil
+   211	        (and (int? index) (> index last-real)) :end
+   212	        :else :early))))
+   213	
+   214	
+   215	;; =============================================================================
+   216	;; Probe
+   217	;; =============================================================================
+   218	
+   219	(defn- last-line-blank?
+   220	  [text]
+   221	  (str/blank? (peek (str/split text #"\n" -1))))
+   222	
+   223	
+   224	(defn probe
+   225	  [text]
+   226	  (let [{:keys [error string string-at continued brackets block?]} (scan text)
+   227	        open? (boolean (or continued (seq brackets)))]
+   228	    (cond
+   229	      error :complete
+   230	      ;; the open string stands as an empty one: an error on it or before
+   231	      ;; it is not mended by more lines
+   232	      string (if (= :early (first-failure (str (subs text 0 string-at)
+   233	                                               "''\n")))
+   234	               :complete
+   235	               :incomplete)
+   236	      (and (not open?) (last-line-blank? text)) :complete
+   237	      :else (case (first-failure (str text "\n"))
+   238	              nil (if (or open? block?) :incomplete :complete)
+   239	              :end :incomplete
+   240	              :early :complete))))
+     1	(ns yang.python.antlr.repl
+     2	  "The Python ANTLR frontend's REPL lowering (docs/design/yang.antlr.md
+     3	   section 8.5.6, slice F3). Portable: the parser is JVM-only, but a host
+     4	   that holds a CST packet lowers it here.
+     5	
+     6	   One REPL submission lowers to a program that runs the packet's module body
+     7	   against the session's `__main__` namespace: the module object and its
+     8	   globals dict live in `sys.modules` (ruling 18), so a name bound by one
+     9	   submission is read by the next. `(reset)` rebuilds the VM, and with it the
+    10	   runtime state.
+    11	
+    12	   The bundled prelude defines the runtime in the VM's store and `py/init!`
+    13	   allocates its task state; running it twice would discard that state. The
+    14	   first lowering of a session therefore carries the prelude and returns the
+    15	   session marker `:primed`; later lowerings of the same session omit it. The
+    16	   shell keeps the marker (`:frontend-session`) and clears it with the VM.
+    17	
+    18	   Printed lines and an uncaught exception are rendered by the host
+    19	   primitive `py-report` (`report`) and written with the shell's own
+    20	   `println`, so they arrive on the output medium in order."
+    21	  (:require
+    22	    [clojure.string :as str]
+    23	    [yang.antlr.packet :as p]
+    24	    [yang.python.antlr.lower :as lower]
+    25	    [yang.python.antlr.prelude :as prelude]
+    26	    [yang.python.antlr.render :as render]
+    27	    [yang.python.antlr.uast :as u]))
+    28	
+    29	
+    30	(def report-primitive
+    31	  "The primitive name the lowered program calls."
+    32	  'py-report)
+    33	
+    34	
+    35	(defn report
+    36	  "The text of one submission: each `print` call's line, then the uncaught
+    37	   exception as `Type: args`, newline separated. Empty when it did neither."
+    38	  [out exception]
+    39	  (str/join
+    40	    "\n"
+    41	    (cond-> (mapv render/line out)
+    42	      exception (conj (str (:type exception)
+    43	                           (when (seq (:args exception))
+    44	                             (str ": " (str/join " "
+    45	                                                 (map render/py-str
+    46	                                                      (:args exception))))))))))
+    47	
+    48	
+    49	(def primitives
+    50	  "The host primitives the lowered program needs, for a shell's `:primitives`."
+    51	  {report-primitive report})
+    52	
+    53	
+    54	(def ^:private run-form
+    55	  '(do (cell/set! py.rt/out [])
+    56	       (cell/set! py.rt/ctx (py/ctx nil 0 0 nil))
+    57	       (let [hit (py/modules-ref (py/str "__main__"))
+    58	             m (if (= hit :py/missing)
+    59	                 (let [fresh (py/module-new (py/str "__main__") :py/None)]
+    60	                   (do (py/modules-put! (py/str "__main__") fresh)
+    61	                       fresh))
+    62	                 hit)
+    63	             d (py/module-dict m)
+    64	             exc (py/try (fn []
+    65	                           (do (%repl-body d (py/globals-fn d))
+    66	                               :py/None))
+    67	                         (fn [e] e)
+    68	                         (fn [] :py/None))
+    69	             text (py-report
+    70	                    (cell/get py.rt/out)
+    71	                    (if (= exc :py/None) nil (py/snapshot-exc exc)))]
+    72	         (if (= text "") nil (println text)))))
+    73	
+    74	
+    75	(defn- ok-packet!
+    76	  [packet]
+    77	  (if (= :yang.cst/ok (:yang.cst/outcome packet))
+    78	    packet
+    79	    (throw (ex-info
+    80	             (let [e (first (:yang.cst/errors packet))]
+    81	               (str "SyntaxError: " (:message e)
+    82	                    (when (:line e) (str " (line " (:line e) ")"))))
+    83	             {:yang.python.antlr/diagnostic :yang.python.antlr/syntax
+    84	              :errors (:yang.cst/errors packet)}))))
+    85	
+    86	
+    87	(defn lower-session
+    88	  "`[ast session']` for one ok CST `packet` under `session` (nil on a fresh
+    89	   session, `:primed` once the prelude has run)."
+    90	  [packet session]
+    91	  (let [packet (ok-packet! packet)
+    92	        packet (cond-> packet
+    93	                 (not (contains? packet :yang.python.antlr/max-digits))
+    94	                 (assoc :yang.python.antlr/max-digits 4300))
+    95	        _ (p/validate! packet)
+    96	        body (lower/lower-module-body packet)
+    97	        main (u/let1 '%repl-body
+    98	                     (u/lam [lower/globals-sym lower/globals-fn-sym] body)
+    99	                     (u/sexp->uast run-form))
+   100	        ast (u/mark-tails (if (= :primed session)
+   101	                            main
+   102	                            (u/then prelude/uast main)))]
+   103	    [ast :primed]))
+   104	
+   105	
+   106	(defn lower
+   107	  "The stateless lowering: a program that carries the prelude."
+   108	  [packet]
+   109	  (first (lower-session packet nil)))
+     1	(ns yin.repl.python-antlr-test
+     2	  "Slice F3 (docs/design/yang.antlr.md section 8.5.6): the Python ANTLR
+     3	   frontend at the REPL. State persists across submissions, the shell
+     4	   shows what a submission printed and not its value, a failed round
+     5	   keeps the session's runtime state as it was, a round parked on a
+     6	   require commits its frontend session only when it completes, and
+     7	   `(reset)` and `(vm ...)` start a new process.
+     8	
+     9	   The parser is JVM-only, so the session scenarios run on every host
+    10	   through a binding whose parse stage answers the parser's packets,
+    11	   precompiled below (each def's docstring is the source the REPL hands
+    12	   the parser); on the JVM they run through the installed frontend too,
+    13	   and the packets are checked against the parser so the two cannot
+    14	   drift. The completeness probe is JVM-only, as the parser is."
+    15	  (:require
+    16	    [clojure.string :as str]
+    17	    [clojure.test :refer [deftest is testing]]
+    18	    [dao.jing.mem :as mem]
+    19	    [dao.stream :as stream]
+    20	    [dao.stream.ringbuffer :as ring]
+    21	    [yang.clojure :as yang.clojure]
+    22	    [yang.frontend :as frontend]
+    23	    [yang.python.antlr.c3-programs :refer [asg call e ex lit op st tc tx vr]]
+    24	    [yang.python.antlr.lower-portable-test :refer [packet]]
+    25	    [yang.python.antlr.repl :as python.repl]
+    26	    #?@(:cljd [] :clj [[yang.python.antlr.parser :as parser]
+    27	                       [yang.python.antlr.repl-probe :as probe]])
+    28	    [yin.repl :as repl]
+    29	    [yin.repl.frontends :as frontends]
+    30	    [yin.repl.link :as link]
+    31	    [yin.vm.linker.publish :as publish]))
+    32	
+    33	
+    34	;; =============================================================================
+    35	;; Precompiled packets
+    36	;; =============================================================================
+    37	
+    38	(defn- module
+    39	  [& stmts]
+    40	  (packet (-> [:file_input] (into stmts) (conj ["EOF" "<EOF>"]))))
+    41	
+    42	
+    43	(def ^:private packets
+    44	  "The parser's packet for each line the session scenarios submit; the
+    45	   REPL hands the parser the line with a newline appended."
+    46	  {"x = 1" (module (st (asg (tc (vr "x")) (tc (lit "1"))))),
+    47	   "x = 5" (module (st (asg (tc (vr "x")) (tc (lit "5"))))),
+    48	   "print(x)" (module (st (ex (tc (call "print" (tc (vr "x"))))))),
+    49	   "1/0" (module (st (ex (tx (op (e (lit "1")) "/" (e (lit "0")))))))})
+    50	
+    51	
+    52	;; =============================================================================
+    53	;; Sessions
+    54	;; =============================================================================
+    55	
+    56	(def ^:private cst-manifest
+    57	  {:yang.frontend/id :yang.python/cst,
+    58	   :yang.frontend/spi 1,
+    59	   :yang.frontend/revision "f3-test",
+    60	   :yang.frontend/language :python.cst,
+    61	   :yang.frontend/grammar {:yang.grammar/package "python3",
+    62	                           :yang.grammar/entries {:module "file_input"},
+    63	                           :yang.grammar/export-profile :yang.cst/v1},
+    64	   :yang.frontend/options-schema :segment/none,
+    65	   :yang.frontend/lowering-profile :segment/f3-test,
+    66	   :yang.frontend/runtime-profile :segment/f3-test,
+    67	   :yang.frontend/support-profile :segment/f3-test})
+    68	
+    69	
+    70	(defn- cst-catalog
+    71	  "The standard catalog plus the Python lowering behind a parse stage
+    72	   that answers the precompiled packets."
+    73	  []
+    74	  (frontend/install (frontends/standard)
+    75	                    cst-manifest
+    76	                    {:parse (fn [source] (get packets source)),
+    77	                     :lower python.repl/lower,
+    78	                     :lower-session python.repl/lower-session,
+    79	                     :display :output}))
+    80	
+    81	
+    82	(defn- session
+    83	  "A shell switched to `lang`, composed with `opts`."
+    84	  ([lang] (session lang {}))
+    85	  ([lang opts]
+    86	   (first (repl/eval-input
+    87	            (frontends/create-state (merge {:frontends (cst-catalog)} opts))
+    88	            (str "(lang " lang ")")))))
+    89	
+    90	
+    91	(def ^:private langs
+    92	  "The ids every session scenario runs under: the precompiled packets on
+    93	   every host, and the installed parser where it runs."
+    94	  #?(:cljd [:yang.python/cst]
+    95	     :clj [:yang.python/cst :yang.python/antlr]
+    96	     :cljs [:yang.python/cst]))
+    97	
+    98	
+    99	(defn- feed
+   100	  "Submit each line in order; every `[state text]` answered."
+   101	  [state lines]
+   102	  (rest (reductions (fn [[st _] line] (repl/eval-input st line))
+   103	                    [state nil]
+   104	                    lines)))
+   105	
+   106	
+   107	(defn- texts
+   108	  [state lines]
+   109	  (mapv second (feed state lines)))
+   110	
+   111	
+   112	;; =============================================================================
+   113	;; Session scenarios (every host)
+   114	;; =============================================================================
+   115	
+   116	(deftest assignment-then-print-test
+   117	  (doseq [lang langs]
+   118	    (testing (str lang)
+   119	      (let [[[assigned t1] [_ t2]] (feed (session lang) ["x = 1" "print(x)"])]
+   120	        (is (= lang (:lang (session lang))))
+   121	        (is (= ["" "1\n"] [t1 t2]))
+   122	        (is (= :primed (:frontend-session assigned)))))))
+   123	
+   124	
+   125	(deftest an-exception-keeps-the-session-test
+   126	  (doseq [lang langs]
+   127	    (testing (str lang)
+   128	      (is (= ["" "ZeroDivisionError: division by zero\n" "5\n"]
+   129	             (texts (session lang) ["x = 5" "1/0" "print(x)"]))))))
+   130	
+   131	
+   132	(deftest reset-is-a-new-process-test
+   133	  (doseq [lang langs]
+   134	    (testing (str lang)
+   135	      (let [[_ before [reset-state _] after]
+   136	            (feed (session lang) ["x = 1" "print(x)" "(reset)" "print(x)"])]
+   137	        (is (= "1\n" (second before)))
+   138	        (is (nil? (:frontend-session reset-state)))
+   139	        (is (= "NameError: name 'x' is not defined\n" (second after)))))))
+   140	
+   141	
+   142	(deftest vm-rebuild-is-a-new-process-test
+   143	  (doseq [lang langs]
+   144	    (testing (str lang)
+   145	      (let [vm-type (first (remove #{(:vm-type (session lang))}
+   146	                                   [:semantic :register]))
+   147	            [_ [switched _] gone _ again]
+   148	            (feed (session lang)
+   149	                  ["x = 1" (str "(vm " vm-type ")") "print(x)" "x = 5"
+   150	                   "print(x)"])]
+   151	        (is (= vm-type (:vm-type switched)))
+   152	        (is (nil? (:frontend-session switched)))
+   153	        (testing "the new VM runs the prelude again and has no x"
+   154	          (is (= "NameError: name 'x' is not defined\n" (second gone))))
+   155	        (is (= "5\n" (second again)))))))
+   156	
+   157	
+   158	(deftest a-failed-first-round-keeps-the-runtime-uninitialized-test
+   159	  (doseq [lang langs]
+   160	    (testing (str lang)
+   161	      (let [calls (atom 0)
+   162	            report (fn [out exception]
+   163	                     (if (= 1 (swap! calls inc))
+   164	                       (throw (ex-info "report failed" {}))
+   165	                       (python.repl/report out exception)))
+   166	            [[failed failed-text] _ [_ text]]
+   167	            (feed (session lang {:primitives {'py-report report}})
+   168	                  ["x = 1" "x = 1" "print(x)"])]
+   169	        (testing "the failed round is reported and leaves no session marker"
+   170	          (is (str/includes? failed-text "report failed"))
+   171	          (is (nil? (:frontend-session failed))))
+   172	        (testing "the retry carries the prelude again and the session works"
+   173	          (is (= "1\n" text)))))))
+   174	
+   175	
+   176	(deftest a-failed-later-round-keeps-the-previous-marker-test
+   177	  (let [calls (atom 0)
+   178	        report (fn [out exception]
+   179	                 (if (= 2 (swap! calls inc))
+   180	                   (throw (ex-info "report failed" {}))
+   181	                   (python.repl/report out exception)))
+   182	        [_ [failed _] [_ text]]
+   183	        (feed (session :yang.python/cst {:primitives {'py-report report}})
+   184	              ["x = 1" "x = 5" "print(x)"])]
+   185	    (is (= :primed (:frontend-session failed)))
+   186	    (testing "the failed round's binding rolled back with its VM"
+   187	      (is (= "1\n" text)))))
+   188	
+   189	
+   190	;; =============================================================================
+   191	;; The staged session through a parked require (every host)
+   192	;; =============================================================================
+   193	
+   194	(def ^:private counting-manifest
+   195	  (assoc cst-manifest
+   196	         :yang.frontend/id :yang.test/counting
+   197	         :yang.frontend/language :clojure.counting))
+   198	
+   199	
+   200	(defn- counting-session
+   201	  "A shell on a Clojure binding whose lowering counts its rounds in the
+   202	   frontend session, so the marker shows which round was committed."
+   203	  [opts]
+   204	  (let [catalog (frontend/install
+   205	                  (frontends/standard)
+   206	                  counting-manifest
+   207	                  {:input :forms,
+   208	                   :parse identity,
+   209	                   :lower #(yang.clojure/compile (first %)),
+   210	                   :lower-session (fn [forms n]
+   211	                                    [(yang.clojure/compile (first forms))
+   212	                                     (inc (or n 0))])})]
+   213	    (first (repl/eval-input
+   214	             (frontends/create-state (merge {:frontends catalog,
+   215	                                             :vm-type :stack}
+   216	                                            opts))
+   217	             "(lang :yang.test/counting)"))))
+   218	
+   219	
+   220	(def ^:private module-ast
+   221	  "`(yin/def f (fn [] 42))`."
+   222	  {:type :application,
+   223	   :operator {:type :variable, :name 'yin/def},
+   224	   :operands [{:type :literal, :value 'f}
+   225	              {:type :lambda, :params [], :body {:type :literal, :value 42}}]})
+   226	
+   227	
+   228	(defn- silent-client
+   229	  "A content-pair client on a wire nothing answers: a link over it stays
+   230	   pending."
+   231	  []
+   232	  (let [medium #(-> {:dao.stream/type ring/transport-type,
+   233	                     ring/capacity-key 64}
+   234	                    ring/create!
+   235	                    :dao.stream/handle)
+   236	        responses (medium)]
+   237	    {:requests (medium),
+   238	     :answers responses,
+   239	     :cursor (:dao.stream/cursor
+   240	               (stream/cursor responses stream/anchor-newest))}))
+   241	
+   242	
+   243	(defn- parked
+   244	  "A counting shell that committed one round, then typed a require of
+   245	   `mod` that parks: nothing answers its link."
+   246	  [opts]
+   247	  (let [[primed _] (repl/eval-input (counting-session opts) "(+ 1 2)")]
+   248	    (first (repl/eval-input primed "(require (quote mod))"))))
+   249	
+   250	
+   251	(deftest a-parked-round-stages-its-session-test
+   252	  (let [state (parked {})]
+   253	    (is (some? (:pending-run state)))
+   254	    (testing "the parked round's session rides on the run, uncommitted"
+   255	      (is (= 1 (:frontend-session state)))
+   256	      (is (= 2 (get-in state [:pending-run :frontend :session]))))))
+   257	
+   258	
+   259	(defn- published
+   260	  "`[store address]`: a store holding `mod`, published at `address`."
+   261	  []
+   262	  (let [store (mem/create-content-mem)]
+   263	    [store
+   264	     (:address (publish/publish-module!
+   265	                 store
+   266	                 {:name 'mod, :ast module-ast, :exports #{'f},
+   267	                  :requires {}, :primitives {}}))]))
+   268	
+   269	
+   270	(deftest a-parked-round-commits-its-session-on-completion-test
+   271	  (let [[store address] (published)
+   272	        state (parked {:content-client (silent-client),
+   273	                       :name-env {'mod address}})
+   274	        [done _] (repl/recheck-pending
+   275	                   (assoc state
+   276	                          :link-source (link/composition
+   277	                                         {:content-store store,
+   278	                                          :name-env {'mod address}})))]
+   279	    (is (some? (:pending-run state)))
+   280	    (is (nil? (:pending-run done)))
+   281	    (is (= 'mod (:last-value done)))
+   282	    (is (= 2 (:frontend-session done)))))
+   283	
+   284	
+   285	(deftest a-refused-parked-round-keeps-the-previous-session-test
+   286	  (let [state (parked {:content-client (silent-client),
+   287	                       :name-env {'mod (second (published))}})
+   288	        [refused text] (repl/recheck-pending
+   289	                         (assoc state
+   290	                                :link-source (link/composition
+   291	                                               {:content-store
+   292	                                                (mem/create-content-mem),
+   293	                                                :name-env {}})))]
+   294	    (is (some? (:pending-run state)))
+   295	    (is (nil? (:pending-run refused)))
+   296	    (is (str/includes? text "absent"))
+   297	    (is (= 1 (:frontend-session refused)))))
+   298	
+   299	
+   300	(deftest an-abandoned-parked-round-keeps-the-previous-session-test
+   301	  (let [[freed text] (repl/eval-input (parked {}) "(abandon)")]
+   302	    (is (str/includes? text "abandoned"))
+   303	    (is (nil? (:pending-run freed)))
+   304	    (is (= 1 (:frontend-session freed)))
+   305	    (testing "the next round lowers against the kept session"
+   306	      (is (= 2 (:frontend-session
+   307	                 (first (repl/eval-input freed "(+ 1 2)"))))))))
+   308	
+   309	
+   310	(deftest other-frontends-still-echo-their-value-test
+   311	  (let [state (frontends/create-state)
+   312	        [python _] (repl/eval-input state "(lang :yang.python/legacy)")]
+   313	    (is (= "3" (second (repl/eval-input state "(+ 1 2)"))))
+   314	    (is (= "3" (second (repl/eval-input python "1 + 2"))))))
+   315	
+   316	
+   317	;; =============================================================================
+   318	;; The parser and the probe (JVM)
+   319	;; =============================================================================
+   320	
+   321	#?(:cljd nil
+   322	   :clj
+   323	   (defn- node-shape
+   324	     [node]
+   325	     (select-keys node [:id :kind :type :text :rule :children])))
+   326	
+   327	
+   328	#?(:cljd nil
+   329	   :clj
+   330	   (deftest precompiled-packets-are-the-parsers-test
+   331	     (doseq [[source p] packets]
+   332	       (is (= (map node-shape
+   333	                   (:yang.cst/nodes (parser/parse-source (str source "\n"))))
+   334	              (map node-shape (:yang.cst/nodes p)))
+   335	           source))))
+   336	
+   337	
+   338	#?(:cljd nil
+   339	   :clj
+   340	   (deftest probe-buffers-an-open-block-test
+   341	     (let [[[s1 t1] [s2 t2] [s3 t3] [_ t4]]
+   342	           (feed (session :yang.python/antlr)
+   343	                 ["def f(n):" "    return n + 1" "" "print(f(2))"])]
+   344	       (testing "the header and body are buffered"
+   345	         (is (= "" t1))
+   346	         (is (= "def f(n):" (:pending-input s1)))
+   347	         (is (= "" t2))
+   348	         (is (some? (:pending-input s2))))
+   349	       (testing "a blank line closes the block"
+   350	         (is (nil? (:pending-input s3)))
+   351	         (is (= "" t3)))
+   352	       (testing "the function is callable afterwards"
+   353	         (is (= "3\n" t4))))))
+   354	
+   355	
+   356	#?(:cljd nil
+   357	   :clj
+   358	   (deftest probe-buffers-across-lines-test
+   359	     (testing "an open bracket"
+   360	       (is (= ["" "(1, 2)\n"]
+   361	              (texts (session :yang.python/antlr) ["print((1," "2))"]))))
+   362	     (testing "a blank line inside brackets does not submit"
+   363	       (let [[[s1 t1] [s2 t2] [s3 t3]]
+   364	             (feed (session :yang.python/antlr) ["print(" "" "1)"])]
+   365	         (is (= ["" "" "1\n"] [t1 t2 t3]))
+   366	         (is (= "print(\n" (:pending-input s2)))
+   367	         (is (nil? (:pending-input s3)))
+   368	         (is (some? (:pending-input s1)))))
+   369	     (testing "an open triple string, brackets inside it"
+   370	       (is (= ["" "" "hello\n(\n\n"]
+   371	              (texts (session :yang.python/antlr)
+   372	                     ["s = \"\"\"hello" "(" "\"\"\"; print(s)"]))))
+   373	     (testing "explicit backslash continuation"
+   374	       (is (= ["" "" "3\n"]
+   375	              (texts (session :yang.python/antlr)
+   376	                     ["x = 1 \\" "+ 2" "print(x)"]))))))
+   377	
+   378	
+   379	#?(:cljd nil
+   380	   :clj
+   381	   (deftest probed-lines-keep-their-whitespace-test
+   382	     (testing "trailing spaces and tabs inside a triple string are kept"
+   383	       (is (= ["" "" "" "a  \t\n  \n\tb \n"]
+   384	              (texts (session :yang.python/antlr)
+   385	                     ["s = \"\"\"a  \t" "  " "\tb \"\"\"" "print(s)"]))))
+   386	     (testing "a short string ending in a backslash and spaces is broken"
+   387	       (is (= :complete (probe/probe "s = 'a\\  ")))
+   388	       (let [[[s t] [_ t']] (feed (session :yang.python/antlr)
+   389	                                  ["s = 'a\\  " "print(2)"])]
+   390	         (is (nil? (:pending-input s)))
+   391	         (is (str/includes? t "SyntaxError"))
+   392	         (is (= "2\n" t'))))))
+   393	
+   394	
+   395	#?(:cljd nil
+   396	   :clj
+   397	   (deftest probe-reports-irreparable-errors-at-once-test
+   398	     (doseq [bad ["x = (1 + * 2" "foo(1 2" "x = )" "x = (]" "x =" "1 +"
+   399	                  "lambda x:" "s = 'abc"
+   400	                  ;; an error before a string still open
+   401	                  "x = 1 \"\"\"abc" "x = = \"\"\"" "foo(1 2 '''"
+   402	                  "x = (1 + * 2 'a\\"]]
+   403	       (testing bad
+   404	         (is (= :complete (probe/probe bad)))
+   405	         (let [[[s t] [_ t']] (feed (session :yang.python/antlr)
+   406	                                    [bad "print(2)"])]
+   407	           (is (nil? (:pending-input s)))
+   408	           (is (str/includes? t "SyntaxError"))
+   409	           (testing "and the next submission evaluates"
+   410	             (is (= "2\n" t'))))))))
+   411	
+   412	
+   413	#?(:cljd nil
+   414	   :clj
+   415	   (deftest probe-classifies-test
+   416	     (doseq [[text expected]
+   417	             [["x = 1" :complete]
+   418	              ["print(" :incomplete]
+   419	              ["print(\n" :incomplete]
+   420	              ["print((1," :incomplete]
+   421	              ["d = {'a': [1, 2" :incomplete]
+   422	              ["if x:\n  y = {1: (2" :incomplete]
+   423	              ["f(a for a in b" :incomplete]
+   424	              ["x = (1 if y else" :incomplete]
+   425	              ["def f(n):" :incomplete]
+   426	              ["def f(n): # body next" :incomplete]
+   427	              ["@dec" :incomplete]
+   428	              ["def f(n):\n    return n" :incomplete]
+   429	              ["def f(n):\n    return n\n" :complete]
+   430	              ["s = \"\"\"hello" :incomplete]
+   431	              ["s = \"\"\"a\n  b\"\"\"" :complete]
+   432	              ["s = \"\"\"(\"\"\"" :complete]
+   433	              ["s = '(' # )" :complete]
+   434	              ["s = 'it\\'s ('" :complete]
+   435	              ["s = 'abc\\" :incomplete]
+   436	              ["s = 'abc\\  " :complete]
+   437	              ["foo(\"\"\"a" :incomplete]
+   438	              ["if x:\n    s = '''a" :incomplete]
+   439	              ;; `x = *"""a""",` is a valid star expression
+   440	              ["x = * \"\"\"" :incomplete]
+   441	              ["x = 1 \\" :incomplete]
+   442	              ["x = 1 \\\n+ 2" :complete]
+   443	              ["x = 1 # \\" :complete]
+   444	              ["x = (1 + * 2" :complete]
+   445	              ["x = )" :complete]]]
+   446	       (is (= expected (probe/probe text)) (pr-str text)))))
+
+exec
+/bin/zsh -lc 'cat -n src/clj/yang/python/antlr/repl_probe.clj; cat -n src/cljc/yang/python/antlr/repl.cljc' in /Users/sto/workspace/datomworld-c4-f3
+ succeeded in 0ms:
+     1	(ns yang.python.antlr.repl-probe
+     2	  "The Python ANTLR frontend's completeness probe (docs/design/yang.antlr.md
+     3	   section 8.5.6, slice F3; JVM only, as the parser is). `probe` answers
+     4	   whether the text typed so far is a whole submission:
+     5	
+     6	   - `:complete`: the text parses, or it is wrong in a way more lines cannot
+     7	     mend (the shell then reports the syntax error);
+     8	   - `:incomplete`: more lines can still finish it.
+     9	
+    10	   Two passes decide. A lexical `scan` follows short and triple-quoted
+    11	   strings with their escapes, comments, typed bracket nesting and explicit
+    12	   backslash continuation: a string still open waits for more lines unless
+    13	   the text, with that string standing as an empty one, already fails on
+    14	   or before it; a bracket or continuation still open waits too (a blank
+    15	   line among them is legal Python), and a closer that matches no opener
+    16	   is an error at once. Then
+    17	   the parser runs, and its first error is classified by the token it
+    18	   failed on: only a failure on the end-of-input tokens (EOF, and the
+    19	   NEWLINE and DEDENT the lexer synthesizes there) is mendable by more
+    20	   lines; any earlier token is not, so the error is reported even under an
+    21	   open bracket. With brackets, strings and continuations closed, a blank
+    22	   line ends the submission, and text that parses waits only while its
+    23	   last logical line is indented: as in CPython's REPL, a blank line closes
+    24	   a block."
+    25	  (:require
+    26	    [clojure.string :as str]
+    27	    [yang.python.antlr.parser :as parser])
+    28	  (:import
+    29	    (org.antlr.v4.runtime
+    30	      ANTLRErrorListener
+    31	      BaseErrorListener
+    32	      CharStreams
+    33	      CommonTokenStream
+    34	      Lexer
+    35	      NoViableAltException
+    36	      Parser
+    37	      Token)
+    38	    (org.antlr.v4.runtime.atn
+    39	      ATN
+    40	      LexerATNSimulator
+    41	      ParserATNSimulator
+    42	      PredictionContextCache)))
+    43	
+    44	
+    45	;; =============================================================================
+    46	;; Lexical scan
+    47	;; =============================================================================
+    48	
+    49	(def ^:private opener-of
+    50	  {\) \(, \] \[, \} \{})
+    51	
+    52	
+    53	(defn- string-end
+    54	  "The index just past the string literal whose body starts at `i`, quoted
+    55	   by `q`, tripled when `triple?`: `:open` when more lines can still close
+    56	   it (a triple string, or a short string whose line ends in a backslash),
+    57	   `:broken` when a short string's line ends without one. A backslash
+    58	   escapes the next character, a newline included, in raw strings too."
+    59	  [^String text i q triple?]
+    60	  (let [n (count text)
+    61	        closer (if triple? (str q q q) (str q))]
+    62	    (loop [i i]
+    63	      (if (>= i n)
+    64	        (if triple? :open :broken)
+    65	        (let [c (.charAt text i)]
+    66	          (cond
+    67	            (= \\ c) (if (< (inc i) n) (recur (+ i 2)) :open)
+    68	            (.startsWith text closer (int i)) (+ i (count closer))
+    69	            (and (not triple?) (= \newline c)) :broken
+    70	            :else (recur (inc i))))))))
+    71	
+    72	
+    73	(defn scan
+    74	  "The lexical state at the end of `text`:
+    75	
+    76	     {:brackets [opener ...]   ; still open, innermost last
+    77	      :block? b}               ; the last logical line is indented
+    78	
+    79	   plus `:string :open` when the text ends inside a string (`:string-at`
+    80	   its opening quote), `:continued
+    81	   true` when it ends on an explicit backslash continuation, or `:error`
+    82	   (`:bracket`, `:string`) for a closer with no matching opener or a short
+    83	   string broken by a newline; the scan stops there."
+    84	  [^String text]
+    85	  (let [n (count text)]
+    86	    ;; line-begin: where the current logical line's physical line began;
+    87	    ;; line?: no code yet on the current logical line
+    88	    (loop [i 0
+    89	           stack []
+    90	           line-begin 0
+    91	           line? true
+    92	           block? false]
+    93	      (let [state {:brackets stack, :block? block?}
+    94	            code (fn [stack]
+    95	                   [stack (if line? (> i line-begin) block?)])]
+    96	        (if (>= i n)
+    97	          state
+    98	          (let [c (.charAt text i)]
+    99	            (cond
+   100	              (= \# c)
+   101	              (let [eol (str/index-of text "\n" i)]
+   102	                (recur (or eol n) stack line-begin line? block?))
+   103	
+   104	              (= \newline c)
+   105	              (if (empty? stack)
+   106	                (recur (inc i) stack (inc i) true block?)
+   107	                (recur (inc i) stack line-begin line? block?))
+   108	
+   109	              (or (= \" c) (= \' c))
+   110	              (let [triple? (.startsWith text (str c c c) (int i))
+   111	                    end (string-end text (+ i (if triple? 3 1)) c triple?)
+   112	                    [stack block?] (code stack)]
+   113	                (case end
+   114	                  :open (assoc state :string :open :string-at i)
+   115	                  :broken (assoc state :error :string)
+   116	                  (recur end stack line-begin false block?)))
+   117	
+   118	              (= \\ c)
+   119	              (cond
+   120	                (= (inc i) n) (assoc state :continued true)
+   121	                (= \newline (.charAt text (inc i)))
+   122	                (recur (+ i 2) stack line-begin line? block?)
+   123	                :else (let [[stack block?] (code stack)]
+   124	                        (recur (inc i) stack line-begin false block?)))
+   125	
+   126	              (contains? #{\( \[ \{} c)
+   127	              (let [[stack block?] (code stack)]
+   128	                (recur (inc i) (conj stack c) line-begin false block?))
+   129	
+   130	              (contains? opener-of c)
+   131	              (if (= (peek stack) (opener-of c))
+   132	                (let [[stack block?] (code stack)]
+   133	                  (recur (inc i) (pop stack) line-begin false block?))
+   134	                (assoc state :error :bracket))
+   135	
+   136	              (contains? #{\space \tab \formfeed \return} c)
+   137	              (recur (inc i) stack line-begin line? block?)
+   138	
+   139	              :else
+   140	              (let [[stack block?] (code stack)]
+   141	                (recur (inc i) stack line-begin false block?)))))))))
+   142	
+   143	
+   144	;; =============================================================================
+   145	;; Parse: where the first error failed
+   146	;; =============================================================================
+   147	
+   148	(defn- first-failure
+   149	  "Parse `source` and answer nil when it parses, `:end` when its first
+   150	   error failed on an end-of-input token, else `:early`.
+   151	
+   152	   The failing token is the offending token of a mismatch; a
+   153	   no-viable-alternative error names the token its prediction began at,
+   154	   so for it the failing token is the furthest one the parser had read
+   155	   when the error was reported. End-of-input tokens are EOF and the
+   156	   zero-width ones after the last token with source text (the lexer's
+   157	   EOF can carry a span, so it is excluded by type). A lexer error has no
+   158	   token and is `:early`."
+   159	  [^String source]
+   160	  (let [{:keys [profile lexer-atn lexer-dfa lexer-cache parser-atn
+   161	                parser-dfa parser-cache]}
+   162	        (parser/make-worker)
+   163	        far (volatile! -1)
+   164	        failure (volatile! nil)
+   165	        lexer ^Lexer ((:make-lexer profile) (CharStreams/fromString source))
+   166	        tokens (proxy [CommonTokenStream] [lexer]
+   167	                 (LT
+   168	                   [k]
+   169	                   (let [^Token t (proxy-super LT k)]
+   170	                     (when t (vswap! far max (.getTokenIndex t)))
+   171	                     t)))
+   172	        listener (proxy [BaseErrorListener] []
+   173	                   (syntaxError
+   174	                     [_recognizer offending _line _column _msg e]
+   175	                     (when-not @failure
+   176	                       (vreset! failure
+   177	                                (cond
+   178	                                  (not (instance? Token offending)) :lexical
+   179	                                  (instance? NoViableAltException e) @far
+   180	                                  :else (.getTokenIndex ^Token offending))))))
+   181	        _ (.setInterpreter
+   182	            lexer
+   183	            (LexerATNSimulator.
+   184	              lexer
+   185	              ^ATN lexer-atn
+   186	              ^"[Lorg.antlr.v4.runtime.dfa.DFA;" lexer-dfa
+   187	              ^PredictionContextCache lexer-cache))
+   188	        _ (.removeErrorListeners lexer)
+   189	        _ (.addErrorListener lexer ^ANTLRErrorListener listener)
+   190	        parser ^Parser ((:make-parser profile) tokens)
+   191	        _ (.setInterpreter
+   192	            parser
+   193	            (ParserATNSimulator.
+   194	              parser
+   195	              ^ATN parser-atn
+   196	              ^"[Lorg.antlr.v4.runtime.dfa.DFA;" parser-dfa
+   197	              ^PredictionContextCache parser-cache))
+   198	        _ (.removeErrorListeners parser)
+   199	        _ (.addErrorListener parser ^ANTLRErrorListener listener)]
+   200	    ((:start profile) parser)
+   201	    (let [index @failure
+   202	          last-real (->> (.getTokens ^CommonTokenStream tokens)
+   203	                         (keep (fn [^Token t]
+   204	                                 (when (and (not= Token/EOF (.getType t))
+   205	                                            (<= (.getStartIndex t)
+   206	                                                (.getStopIndex t)))
+   207	                                   (.getTokenIndex t))))
+   208	                         (reduce max -1))]
+   209	      (cond
+   210	        (nil? index) nil
+   211	        (and (int? index) (> index last-real)) :end
+   212	        :else :early))))
+   213	
+   214	
+   215	;; =============================================================================
+   216	;; Probe
+   217	;; =============================================================================
+   218	
+   219	(defn- last-line-blank?
+   220	  [text]
+   221	  (str/blank? (peek (str/split text #"\n" -1))))
+   222	
+   223	
+   224	(defn probe
+   225	  [text]
+   226	  (let [{:keys [error string string-at continued brackets block?]} (scan text)
+   227	        open? (boolean (or continued (seq brackets)))]
+   228	    (cond
+   229	      error :complete
+   230	      ;; the open string stands as an empty one: an error on it or before
+   231	      ;; it is not mended by more lines
+   232	      string (if (= :early (first-failure (str (subs text 0 string-at)
+   233	                                               "''\n")))
+   234	               :complete
+   235	               :incomplete)
+   236	      (and (not open?) (last-line-blank? text)) :complete
+   237	      :else (case (first-failure (str text "\n"))
+   238	              nil (if (or open? block?) :incomplete :complete)
+   239	              :end :incomplete
+   240	              :early :complete))))
+     1	(ns yang.python.antlr.repl
+     2	  "The Python ANTLR frontend's REPL lowering (docs/design/yang.antlr.md
+     3	   section 8.5.6, slice F3). Portable: the parser is JVM-only, but a host
+     4	   that holds a CST packet lowers it here.
+     5	
+     6	   One REPL submission lowers to a program that runs the packet's module body
+     7	   against the session's `__main__` namespace: the module object and its
+     8	   globals dict live in `sys.modules` (ruling 18), so a name bound by one
+     9	   submission is read by the next. `(reset)` rebuilds the VM, and with it the
+    10	   runtime state.
+    11	
+    12	   The bundled prelude defines the runtime in the VM's store and `py/init!`
+    13	   allocates its task state; running it twice would discard that state. The
+    14	   first lowering of a session therefore carries the prelude and returns the
+    15	   session marker `:primed`; later lowerings of the same session omit it. The
+    16	   shell keeps the marker (`:frontend-session`) and clears it with the VM.
+    17	
+    18	   Printed lines and an uncaught exception are rendered by the host
+    19	   primitive `py-report` (`report`) and written with the shell's own
+    20	   `println`, so they arrive on the output medium in order."
+    21	  (:require
+    22	    [clojure.string :as str]
+    23	    [yang.antlr.packet :as p]
+    24	    [yang.python.antlr.lower :as lower]
+    25	    [yang.python.antlr.prelude :as prelude]
+    26	    [yang.python.antlr.render :as render]
+    27	    [yang.python.antlr.uast :as u]))
+    28	
+    29	
+    30	(def report-primitive
+    31	  "The primitive name the lowered program calls."
+    32	  'py-report)
+    33	
+    34	
+    35	(defn report
+    36	  "The text of one submission: each `print` call's line, then the uncaught
+    37	   exception as `Type: args`, newline separated. Empty when it did neither."
+    38	  [out exception]
+    39	  (str/join
+    40	    "\n"
+    41	    (cond-> (mapv render/line out)
+    42	      exception (conj (str (:type exception)
+    43	                           (when (seq (:args exception))
+    44	                             (str ": " (str/join " "
+    45	                                                 (map render/py-str
+    46	                                                      (:args exception))))))))))
+    47	
+    48	
+    49	(def primitives
+    50	  "The host primitives the lowered program needs, for a shell's `:primitives`."
+    51	  {report-primitive report})
+    52	
+    53	
+    54	(def ^:private run-form
+    55	  '(do (cell/set! py.rt/out [])
+    56	       (cell/set! py.rt/ctx (py/ctx nil 0 0 nil))
+    57	       (let [hit (py/modules-ref (py/str "__main__"))
+    58	             m (if (= hit :py/missing)
+    59	                 (let [fresh (py/module-new (py/str "__main__") :py/None)]
+    60	                   (do (py/modules-put! (py/str "__main__") fresh)
+    61	                       fresh))
+    62	                 hit)
+    63	             d (py/module-dict m)
+    64	             exc (py/try (fn []
+    65	                           (do (%repl-body d (py/globals-fn d))
+    66	                               :py/None))
+    67	                         (fn [e] e)
+    68	                         (fn [] :py/None))
+    69	             text (py-report
+    70	                    (cell/get py.rt/out)
+    71	                    (if (= exc :py/None) nil (py/snapshot-exc exc)))]
+    72	         (if (= text "") nil (println text)))))
+    73	
+    74	
+    75	(defn- ok-packet!
+    76	  [packet]
+    77	  (if (= :yang.cst/ok (:yang.cst/outcome packet))
+    78	    packet
+    79	    (throw (ex-info
+    80	             (let [e (first (:yang.cst/errors packet))]
+    81	               (str "SyntaxError: " (:message e)
+    82	                    (when (:line e) (str " (line " (:line e) ")"))))
+    83	             {:yang.python.antlr/diagnostic :yang.python.antlr/syntax
+    84	              :errors (:yang.cst/errors packet)}))))
+    85	
+    86	
+    87	(defn lower-session
+    88	  "`[ast session']` for one ok CST `packet` under `session` (nil on a fresh
+    89	   session, `:primed` once the prelude has run)."
+    90	  [packet session]
+    91	  (let [packet (ok-packet! packet)
+    92	        packet (cond-> packet
+    93	                 (not (contains? packet :yang.python.antlr/max-digits))
+    94	                 (assoc :yang.python.antlr/max-digits 4300))
+    95	        _ (p/validate! packet)
+    96	        body (lower/lower-module-body packet)
+    97	        main (u/let1 '%repl-body
+    98	                     (u/lam [lower/globals-sym lower/globals-fn-sym] body)
+    99	                     (u/sexp->uast run-form))
+   100	        ast (u/mark-tails (if (= :primed session)
+   101	                            main
+   102	                            (u/then prelude/uast main)))]
+   103	    [ast :primed]))
+   104	
+   105	
+   106	(defn lower
+   107	  "The stateless lowering: a program that carries the prelude."
+   108	  [packet]
+   109	  (first (lower-session packet nil)))
+
+exec
+/bin/zsh -lc "sed -n '1080,1155p' src/cljc/yin/repl.cljc; sed -n '1500,1620p' src/cljc/yin/repl.cljc; sed -n '1860,1995p' src/cljc/yin/repl.cljc; rg -n 'testlist_star_expr|star_expr|expr_stmt' grammar* src/yang resources -g '*.g4'" in /Users/sto/workspace/datomworld-c4-f3
+ exited 1 in 0ms:
+        [(record-last-value state state'' value)
+         (str output-text
+              (when-not (= :output display)
+                (format-value value (host-fn-namer (:vm state'')))))])
+      [state''
+       (str output-text "Error: " result-loss-text
+            (when (and append (not= :dao.stream/ok append))
+              (str " (append: " (name append) ")")))])))
+
+
+(defn- drain-observer
+  "Advance one observer past every batch still on its medium, keeping any
+   gap it recovers across.  A nil observer — a session without that medium —
+   stays nil."
+  [observer]
+  (when observer
+    (loop [observer observer]
+      (let [{:keys [status] observer' :observer}
+            (observer/observe-next observer)]
+        (if (#{:ok :gap} status) (recur observer') observer')))))
+
+
+(defn- ingress-gaps
+  "Gaps the evaluation path's observers counted.  The code indexer's are
+   its own: an index loss is reported without refusing evaluation."
+  [state]
+  (+ (:ingress-gaps (:observer state) 0)
+     (:ingress-gaps (:row-observer state) 0)))
+
+
+(defn- consume-failed-round
+  "Answer a round that threw with a recoverable shell state.
+
+   The failed input is consumed exactly once: each of the session's
+   observers resumes from the session the throw carried — the failing
+   stage's, matched by the medium it holds — or from where the round began
+   when it carried none, and reads past every batch still on its medium.
+   The shell is the only appender and appends one batch per round, so what
+   remains is the failed batch alone.  The VM is the one the round began
+   with, so a half-run continuation cannot be resumed — and its error
+   replayed — by the next input.  Output the round already emitted is
+   drained here, once."
+  [state error]
+  (let [carried (get-in (ex-data error) [:session :observer])
+        resume (fn [observer]
+                 (if (and observer
+                          carried
+                          (= (:stream carried) (:stream observer)))
+                   carried
+                   observer))
+        drained (assoc state
+                       :observer (drain-observer (resume (:observer state)))
+                       :row-observer (drain-observer
+                                       (resume (:row-observer state)))
+                       :indexer (index/skip (:indexer state))
+                       :ast-indexer (ast-index/skip (:ast-indexer state)))
+        [state' output-text]
+        (drain-output
+          (cond-> drained
+            (> (ingress-gaps drained) (ingress-gaps state))
+            (assoc :ingress-loss? true)))]
+    [state' (str output-text (format-error error))]))
+
+
+(defn- run-index-stage
+  "Drive the code indexer's observer over `program-out`: it commits each
+   forwarded packet as one transaction and publishes the covered indexes.
+   It runs before the evaluator, so a program is indexed whether its VM
+   returns, parks, or raises; the two observers meet only at the medium."
+  [state]
+  (update state :indexer index/step (:round state)))
+
+
+(defn- run-ast-index-stage
+  "Drive the AST indexer's observer over `program-out`: it adds each
+   forwarded packet's rows and occurrences to the session's `$ast` and
+   `(reset)` or `(vm ...)` drops it with the session.  What a frontend
+   staged for the round rides on the run, committed only if it completes."
+  [state state' vm' pending]
+  (let [[state'' text] (drain-output state')]
+    (consult-link-policy
+      (assoc state''
+             :vm vm'
+             :pending-run (cond-> {:vm vm'
+                                   :base (:vm state)
+                                   :links pending
+                                   :checks 0}
+                            (::frontend state')
+                            (assoc :frontend (::frontend state'))))
+      text
+      (pending-text pending))))
+
+
+(defn- wedged-program
+  [state]
+  (ex-info
+    "Program stream did not form a complete, runnable Yin VM program.
+Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
+    {:vm-type (:vm-type state)}))
+
+
+(defn- run-evaluation
+  "The evaluator half of a round whose expander forwarded a program: run
+   it, then either finalize the value, drive its require to a conclusion,
+   or park it as `:pending-run`.  `state` is the round's starting state;
+   `expanded` already carries the expander's progress, which a failing
+   evaluation keeps."
+  [state expanded]
+  (try
+    (let [gaps-before (ingress-gaps expanded)
+          evaluated (run-evaluator-stage expanded)
+          vm (:vm evaluated)]
+      (cond
+        (> (ingress-gaps evaluated) gaps-before)
+        [(assoc evaluated :ingress-loss? true)
+         (str "Error: " ingress-loss-text)]
+
+        (vm/halted? vm)
+        (finalize-eval state evaluated
+                       (engine/restore-initial-env (:env (:vm expanded)) vm))
+
+        (or (link-waiting? vm) (query/waiting? vm))
+        (let [[state' vm' pending] (drive-links evaluated vm)]
+          (cond
+            (vm/halted? vm')
+            (finalize-eval state
+                           (assoc state' :vm vm')
+                           (tokenize state'
+                                     (engine/restore-initial-env
+                                       (:env (:vm expanded)) vm')))
+
+            (link-waiting? vm')
+            (pending-eval state state' vm' pending)
+
+            :else (throw (wedged-program state))))
+
+        :else (throw (wedged-program state))))
+    (catch #?(:cljd Object :clj Exception :cljs js/Error) error
+      ;; a link raise rolls the shell back to the round's base; the
+      ;; identity the interrupted VM had minted rides on it, so nothing
+      ;; is minted twice on the surviving pair
+      (let [d (ex-data error)
+            base (query/discard-answers
+                   (if (or (::link-counter d) (::link-origins d))
+                     (carry-link-identity
+                       (:vm state)
+                       {:id-counter (::link-counter d)
+                        :origins (::link-origins d)})
+                     (:vm state))
+                   (:query-pair expanded))]
+        (consume-failed-round (carry-served (assoc expanded :vm base) d)
+                              error)))))
+
+
+(defn- eval-program
+  "Evaluate one frontend program — the map AST the compilers emit or a
+   datom-literal program — through the §10.1 composition.  The encoder
+   projects it to an input batch of canonical rows with its harvest and
+   declaration rows; the shell appends that batch to `program-in`, drives
+   the expander, drains its summary, and drives the code and AST indexers and then
+   the evaluator only when a program was forwarded.  An expansion failure is reported as data: its
+   batch is consumed, the store keeps its previous macros, and the next
+   input evaluates normally.  An encoding failure throws before anything
+   is appended.
+
+   The observers recover across a gap on their own, but the shell reads the
+   gap counts around the round: an increase on any medium means one or more
+   batches were never run, so resuming as though execution were complete
+   would report a result built on programs the VM never saw.  The loss is
+   reported and the shell refuses further evaluation until `(reset)`.
+
+   A completed program's lexical environment does not outlive it: the VM's
+   environment is restored to the one the round began with, as `vm/eval`
+   does.  A round that throws is consumed by `consume-failed-round`."
+  [state program]
+  (if (:ingress-loss? state)
+    [state (str "Error: " ingress-loss-text)]
+    (let [state' (update (inject-last-value state) :round inc)
+          batch (encoder/program-batch program)
+          append (stream/append! (:program-stream state') batch)]
+      (if-not (= :dao.stream/ok (:dao.stream/outcome append))
+        [state (str "Error: program batch not ingested: "
+                    (name (:dao.stream/outcome append)))]
+        (let [expanded (try
+                         (run-expander-stage state')
+                         (catch #?(:cljd Object
+                                   :clj Exception
+                                   :cljs js/Error) error
+                           {:failed (consume-failed-round state error)}))]
+          (if-let [failed (:failed expanded)]
+            failed
+            (let [[expanded {:keys [errors forwarded]}] expanded
+                  indexed (cond-> expanded
+                            (pos? forwarded) (-> run-index-stage
+                                                 run-ast-index-stage))]
+              (with-index-notice
+                (cond
+         [in & more :as queued] (seq queued)]
+    (cond
+      (empty? queued) [state text]
+      (:pending-run state) [(update-in state [:pending-run :pending-lines]
+                                       (fnil into []) queued)
+                            text]
+      :else (let [[state' text'] (eval-parsed* state
+                                               (:trimmed in)
+                                               (:parsed in))]
+              (recur state' (str text "\n" text') more)))))
+
+
+(defn- recheck-pending*
+  "One bounded re-check of the shell's `:pending-run`: serve the
+   interpreter, run the parked VM, and either answer its value -- the
+   round the require began in finally completes, and the lines retained
+   while it was pending, then `input`, evaluate against it -- consult
+   the link policy when the re-check leaves the run pending, `:checks`
+   counting this pending run's re-checks that made no progress and
+   resetting on one that did, or, when the re-check raised the link's
+   refusal, return the shell to the round's base with the error as text
+   and evaluate `input` there.  `input` is nil for the host's
+   `recheck-pending`, which evaluates no line of its own."
+  [state input]
+  (let [parked (:pending-run state)]
+    (try
+      (let [[state' vm' pending progress?] (drive-links state (:vm parked))]
+        (if (vm/halted? vm')
+          (let [vm'' (engine/restore-initial-env (:env (:base parked)) vm')
+                [st text] (finalize-eval state
+                                         (cond-> (assoc state' :vm vm'')
+                                           (:frontend parked)
+                                           (assoc ::frontend
+                                                  (:frontend parked)))
+                                         (tokenize state' vm''))]
+            (fold-queued [(assoc st :vm vm'' :pending-run nil) text]
+                         (cond-> (vec (:pending-lines parked))
+                           input (conj input))))
+          (let [checks (if progress? 0 (inc (or (:checks parked) 0)))
+                parked' (cond-> (assoc parked
+                                       :vm vm'
+                                       :links pending
+                                       :checks checks)
+                          input (update :pending-lines
+                                        (fnil conj []) input))
+                [st text] (drain-output (assoc state'
+                                               :vm vm'
+                                               :pending-run parked'))]
+            (consult-link-policy st text (pending-text pending)))))
+      (catch #?(:cljd Object :clj Exception :cljs js/Error) error
+        (let [[st text] (drain-output state)
+              d (ex-data error)]
+          (fold-queued
+            [(carry-served (assoc st
+                                  :vm (query/discard-answers
+                                        (carry-link-identity
+                                          (:base parked)
+                                          {:id-counter (::link-counter d)
+                                           :origins (::link-origins d)})
+                                        (:query-pair st))
+                                  :pending-run nil)
+                           d)
+             (str text
+                  (format-error error)
+                  (dropped-lines-text (count (:pending-lines parked))))]
+            (cond-> [] input (conj input))))))))
+
+
+(defn recheck-pending
+  "One re-check of the shell's `:pending-run` without an input line --
+   the step an unattended host drives at its own cadence
+   (yin.repl.link-policy.md section 4): serve the interpreter, run the
+   parked VM, and consult the link policy when the run is still
+   pending.  A re-check that completes the run folds the retained lines
+   exactly as a typed line's completion does.  Returns `[state text]`,
+   `text` nil when nothing is pending.  It reads no clock and takes no
+   callback; the host decides when to call it."
+  [state]
+  (if (:pending-run state)
+    (recheck-pending* state nil)
+    [state nil]))
+
+
+(defn recheck-on-load-events
+  "The host ticker's re-check of a pending run over a DHT link source
+   (yin.vm.linker.dht.md 8.2): `recheck-pending`, once, if and only if
+   `events` -- one tick's `dao.space.dht/step` events and head follower
+   events -- hold a `:loaded` or `:load-failed` event for a manifest a
+   pending link waits on, or an `:installed` head of a principal a
+   pending link awaits (yin.vm.linker.dht.head.md 5.6, first contact).
+   Any other event, and any event while nothing waits on it, answers
+   `[state nil]` with `state` itself: no re-check, no `:checks`."
+  [state events]
+  (let [links (get-in state [:pending-run :links])
+        waits (set (keep :manifest links))
+        heads (set (mapcat :principals links))]
+    (if (some (fn [e]
+                (or (and (contains? #{:loaded :load-failed}
+                                    (:dao.space.dht/event e))
+                         (contains? waits (:manifest e)))
+                    (and (= :installed (:yin.head/event e))
+                         (contains? heads (:principal e)))))
+              events)
+      (recheck-pending state)
+      [state nil])))
+
+
+(defn- resume-pending
+  "One bounded re-check of the shell's `:pending-run` behind a typed
+   line: while the run stays pending the line is retained -- the parked
+   VM owns the store a new evaluation would fork -- and it evaluates,
+   in typing order and exactly once, when the link completes."
+  [state trimmed parsed]
+  (recheck-pending* state {:trimmed trimmed, :parsed parsed}))
+
+
+(defn- command-line?
+  [parsed]
+  (let [forms (:forms parsed)
+        form (when (= 1 (count forms)) (first forms))]
+    (and form (command-form? form))))
+
+
+(defn- eval-parsed
+  [state trimmed parsed]
+  (if (and (:pending-run state) (not (command-line? parsed)))
+    ;; A require is still pending: re-check it first.  While it stays
+    ;; pending the line is retained -- the parked VM owns the store a new
+    ;; evaluation would fork -- and it evaluates, in typing order and
+    ;; exactly once, when the link completes.
+    (resume-pending state trimmed parsed)
+    (eval-parsed* state trimmed parsed)))
+
+
+(defn- input-probe
+  "The completeness probe of the session's frontend, or nil when it has
+zsh:1: no matches found: grammar*
+
+codex
+The whitespace fix preserves probed lines and leaves the old normalization path intact. The parked-session tests cover completion, refusal, and abandonment. I’m checking the `x = * """` exception against the grammar and reviewing the remaining probe and session paths for regressions.
+exec
+/bin/zsh -lc "rg --files | rg 'Python3Parser.g4|Python3Lexer.g4|yang.antlr.md|repl_probe|AGENTS.md'; rg -n '8.5.6|F3|completeness|probe' docs/design/yang.antlr.md; sed -n '1720,1815p' src/cljc/yin/repl.cljc; rg -n 'lang|frontend-session|rebuild-vm' src/cljc/yin/repl.cljc" in /Users/sto/workspace/datomworld-c4-f3
+ succeeded in 0ms:
+AGENTS.md
+src/clj/yang/python/antlr/repl_probe.clj
+antlr/python3/Python3Lexer.g4
+antlr/python3/Python3Parser.g4
+docs/design/yang.antlr.md
+20:slices 3 and 4 (tracing, threads), C4 (section 8.5.6 records the design
+24:true when written; sections 8.5.2 to 8.5.6 and section 12 carry the
+62:  `collab/1790875860000-architect-c3-bignum-crossruling.claude-fable-5-1.findings.md`.
+90:They amend section 8.5.1 and add section 8.5.6. None of them has landed:
+233:of present feature completeness or portability.
+353:     requirements, REPL completeness, incremental parsing.")
+354:  ;; REPL completeness probe (3.4, 5.3). Returns
+357:  (completeness [this source-snapshot options])
+411:- REPL completeness detection.
+725:REPL frontends can publish a completeness probe returning complete,
+727:unsound. Where a reliable probe is unavailable, use an explicit submit
+1422:   when the prelude becomes a linked module. C4 ruling 15 (section 8.5.6)
+1461:  section 8.5.6). This supersedes the per-receiving-task copy (mob D1)
+2077:(section 8.5.6), refusing by the same names. An image carries no
+2637:#### 8.5.6 Imports, the linked prelude, and the frontend catalog (phase C4)
+2642:pending, in slices F2, F3, P1 to P3, and I1 to I7 below; F1, P1 and P2
+2915:boundaries by continuation invoke, so I1's cross-module raise test probes
+2987:  and lower, plus an optional completeness probe; the REPL steps them to
+2988:  an outcome. Language-specific parsing and completeness logic stay out
+3097:| F3    | The Python ANTLR frontend in the catalog (JVM); persistent           |
+3144:  `:segment/blake3-8f5e6bc93e0e8960682b65c2e4254ec959e69f0579ccda07a3189ea0e0e4b9d7`
+3164:- F3: at the REPL, `x = 1` then `print(x)` prints `1`; the probe answers
+3219:single source and are profile-agnostic. Then P2 after L-a; then P3, F3,
+    (lower-parsed state binding
+                  ((:parse binding)
+                   (if (= :forms (:input binding)) (read-forms input) input)))))
+
+
+(defn- compile-command-ast
+  [state arg]
+  (cond
+    (string? arg) (compile-source state arg)
+    (forms-input? state) (compile-input state nil [arg])
+    :else (throw (ex-info "This compile command expects a source string"
+                          {:lang (:lang state) :arg arg}))))
+
+
+(defn- render-compile-output
+  "Render the frontend syntax, the input row batch, and what the session's
+   expander would make of it against its current store: the expanded tree
+   packet (or the expansion error) and the event rows.  The expansion is a
+   preview; its context is discarded, so nothing is committed."
+  [state ast]
+  (let [batch (encoder/program-batch ast)
+        {:keys [tree error log]}
+        (macro/expand-batch batch (get-in state [:expander :ctx]))]
+    (str "AST:\n" (format-value ast)
+         "\n\nInput rows:\n" (format-value batch)
+         (if tree
+           (str "\n\nExpanded rows:\n" (format-value tree))
+           (str "\n\nExpansion error:\n" (format-value error)))
+         "\n\nEvents:\n" (format-value (second log)))))
+
+
+(defn- rebuild-session
+  "Replace the VM, the expander, and their media, attachments, and
+   observers.  The value history is cleared with them: a closure in `*1`
+   names a code segment the old VM held, which the new one does not.  The
+   new expander holds only the standard forms.  A require still pending
+   on the old VM is dropped with it: its link pair is the session's, and
+   the new session answers from its own.
+
+   Over a durable store the code index is not the session's to drop: the
+   new indexer continues the old one's log, entity allocation, and
+   published manifest (`yin.repl.index/carry-over`), so a rebuild never
+   resets `t`.  Over the memory store it starts empty, as it always has."
+  [state vm-type]
+  (merge state
+         (cond-> (make-session vm-type (:output-stream state)
+                               (:extra-primitives state)
+                               (:shell-token state)
+                               (:index-store state))
+           (store/durable? (:index-store state))
+           (update :indexer index/carry-over (:indexer state)))
+         {:vm-type vm-type
+          :ingress-loss? false
+          :last-value nil
+          :last-value-2 nil
+          :last-value-3 nil
+          :frontend-session nil
+          :pending-run nil}))
+
+
+(declare repl-state)
+
+
+(defn handle-command
+  "Answer one shell command.  Unsupported arguments are answered as text, not
+   thrown, so a mistyped command cannot end a step."
+  [state form]
+  (let [[command & args] form]
+    (case command
+      vm (let [vm-type (first args)]
+           (if (contains? vm-constructors vm-type)
+             [(rebuild-session state vm-type)
+              (str "Switched to " (get vm-labels vm-type)
+                   (if (store/durable? (:index-store state))
+                     " (VM store cleared; durable code index kept)"
+                     " (store cleared)"))]
+             [state (str "Error: Unknown Yin REPL VM type " (pr-str vm-type)
+                         "; supported: "
+                         (pr-str (vec (keys vm-constructors))))]))
+      lang (let [lang (first args)]
+             (if (usable-binding (select-frontend (:frontends state) lang))
+               [(assoc state :lang lang)
+                (str "Switched to " (get lang-labels lang (str lang)))]
+               [state (str "Error: unavailable-parser: Yin REPL language "
+                           (pr-str lang) " is not in the frontend catalog")]))
+      compile [state (render-compile-output
+                       state
+                       (compile-command-ast state (first args)))]
+      reset [(rebuild-session state (:vm-type state))
+             (str (get vm-labels (:vm-type state)) " reset")]
+      abandon (abandon-pending state)
+      help [state help-text]
+      repl-state [state (format-value (repl-state state))]
+      quit [(assoc state :running? false) "Bye"]
+      telemetry [state telemetry-text]
+      [state (str "Error: Unknown Yin REPL command " (pr-str command))])))
+8:   watches (`docs/design/yin.vm.macro.md` §10.1) — the language, the value
+240:(def lang-labels {:clojure "Clojure" :python "Python" :php "PHP"})
+247:  #{'vm 'lang 'compile 'reset 'help 'repl-state 'quit 'telemetry 'abandon})
+253:       "  (lang :clojure | :python | :php)\n"
+890:   never changes a live session.  `:lang` selects a frontend by id
+891:   (`:yang.python/legacy`), by `[id revision]`, or by language (`:python`);
+895:  ([{:keys [lang output-cursor output-stream vm-type primitives
+899:     :or {lang :clojure vm-type :semantic}}]
+939:       {:lang lang
+1055:   it leaves becomes the shell's `:frontend-session`."
+1059:      (contains? staged :session) (assoc :frontend-session (:session staged)))))
+1634:(defn- language-ids
+1635:  "The ids in `catalog` whose manifest language is `language`."
+1636:  [catalog language]
+1639:               (when (= language (:yang.frontend/language (:manifest entry)))
+1646:  "Select the frontend `lang` names in `catalog`: a qualified id selects
+1649:   that language."
+1650:  [catalog lang]
+1652:    (vector? lang) (frontend/select catalog
+1653:                                    {:yang.frontend/id (first lang),
+1654:                                     :yang.frontend/revision (second lang)})
+1655:    (qualified-keyword? lang) (frontend/select catalog
+1656:                                               {:yang.frontend/id lang})
+1657:    :else (let [ids (language-ids catalog lang)]
+1659:              0 (frontend/refused :yang.frontend/unknown {:language lang})
+1674:  "The installed binding for `lang` in the session's pinned catalog.  With
+1677:  [state lang]
+1678:  (let [selected (select-frontend (:frontends state) lang)]
+1680:        (throw (ex-info (str "unavailable-parser: no parser for " (pr-str lang))
+1682:                         :lang lang
+1689:   (`:frontend-session`, cleared with the VM) and leaves the session it
+1696:      (let [[ast session] (lower-session parsed (:frontend-session state))]
+1706:  (let [binding (frontend-binding state (:lang state))]
+1714:  (= :forms (:input (frontend-binding state (:lang state)))))
+1719:  (let [binding (frontend-binding state (:lang state))]
+1731:                          {:lang (:lang state) :arg arg}))))
+1776:          :frontend-session nil
+1799:      lang (let [lang (first args)]
+1800:             (if (usable-binding (select-frontend (:frontends state) lang))
+1801:               [(assoc state :lang lang)
+1802:                (str "Switched to " (get lang-labels lang (str lang)))]
+1803:               [state (str "Error: unavailable-parser: Yin REPL language "
+1804:                           (pr-str lang) " is not in the frontend catalog")]))
+1824:   abandoned keeps the shell's previous `:frontend-session`."
+1998:  (:probe (usable-binding (select-frontend (:frontends state) (:lang state)))))
+2055:  {:lang (:lang state)
+
+exec
+/bin/zsh -lc "rg -n 'register-cell-module|register-data-module|register-integer-module' src/cljc/yin/vm/{module,data,integer}.cljc; cat collab/1791570000000-reviewer-c4-f3.findings.md" in /Users/sto/workspace/datomworld-c4-f3
+ succeeded in 0ms:
+src/cljc/yin/vm/data.cljc:8:   profile names it installs it explicitly with `register-data-module`,
+src/cljc/yin/vm/data.cljc:11:   composition's sequence-size limit (`register-data-module`).
+src/cljc/yin/vm/data.cljc:48:  "The module `register-data-module` installs."
+src/cljc/yin/vm/data.cljc:554:(defn register-data-module
+src/cljc/yin/vm/integer.cljc:9:   `register-integer-module`, and Yin source reaches the exports as
+src/cljc/yin/vm/integer.cljc:106:  "The module `register-integer-module` installs."
+src/cljc/yin/vm/integer.cljc:908:(defn register-integer-module
+src/cljc/yin/vm/module.cljc:381:(defn register-cell-module
+Completed-GMT: 2026-10-10 11:50:18 GMT
+Completed-Local: 2026-10-10 18:50:18 Asia/Ho_Chi_Minh
+
+**REJECT**
+
+1. **P1 — Blank lines prematurely submit unfinished expressions.** `src/clj/yang/python/antlr/repl_probe.clj:55` returns `:complete` before checking brackets or parsing. Feed `print(`, an empty line, then `1)`: the empty line submits `print(`, reports a syntax error, and clears the buffer. Blank lines inside parenthesized expressions are legal Python. **Fix:** check lexical continuation first; allow a blank line to close an indentation block only when brackets, strings, and explicit continuations are closed. Add this three-line regression.
+
+2. **P1 — Triple strings and explicit backslash continuation are not recognized.** `src/clj/yang/python/antlr/repl_probe.clj:41` strips only complete single-line strings. An opening `s = """hello` reaches the parser as unmatched quote tokens and can be classified complete instead of buffered. Conversely, brackets inside a complete multiline triple string remain visible to the bracket counter. For explicit continuation, `x = 1 \` receives an appended newline; the grammar’s `LINE_JOINING` consumes the backslash/newline, allowing the parser to accept the assignment prematurely. **Fix:** replace the regex/count heuristic with a lexical scanner tracking short/triple strings, escapes, comments, typed bracket nesting, and explicit continuation. Add opening/closing triple-string cases, a bracket inside triple-string content, and `x = 1 \` followed by `+ 2`.
+
+3. **P2 — An expected EOF is confused with an offending EOF.** `src/clj/yang/python/antlr/repl_probe.clj:33` searches the entire diagnostic for `<EOF>`. ANTLR also includes `<EOF>` in *expected-token lists* for errors at ordinary tokens; those errors cannot necessarily be repaired by appending lines. The blanket bracket check at line 59 likewise buffers already-invalid input such as `x = (1 + * 2`. **Fix:** classify the offending token structurally, distinguishing actual end-of-input errors from earlier errors. Report irreparable syntax errors immediately even when an opening bracket remains. Add malformed-input cases that must return `:complete` and recover on the next submission.
+
+4. **P1 — Failed first evaluation still marks the runtime initialized.** `src/cljc/yin/repl.cljc:1796–1798` installs `:primed` whenever `eval-program` returns, including failure paths that restore the original VM. For example, override the supported `py-report` primitive with one that throws: the first Python submission rolls back to the uninitialized VM, but the shell retains `:primed`; the next submission omits the prelude and fails on missing runtime bindings. Expansion and ingestion failures have the same premature-commit problem. **Fix:** return an explicit evaluation outcome and commit frontend session state only when the corresponding runtime state survives. Preserve the previous marker on rollback; handle parked evaluations when they complete. Add a first-round failure followed by a successful retry.
+
+5. **P2 — Every successful Python submission emits an unwanted `nil`.** `src/cljc/yang/python/antlr/repl.cljc:71` returns nil, and `yin.repl/finalize-eval` at line 1065 always renders it. Assignment produces `"nil"`; `print(x)` produces `"1\nnil"`; caught Python exceptions also acquire this suffix. `test/yin/repl/python_antlr_test.clj:28`, 43, 50, and 63 use prefix assertions, so they explicitly tolerate this reporting defect. **Fix:** add a frontend result-display policy that suppresses the shell value echo for this Python wrapper while preserving its output and exception text. Assert complete responses: assignment `""`, print `"1\n"`, and exact exception output. Preserve existing frontend echo behavior.
+
+6. **P2 — The catalog test no longer exercises selection of the installed parserless binding.** `test/yin/repl/frontend_catalog_test.cljc:154` selects `:yang.python/uninstalled`, although `bare` installs `:yang.python/service` without a parser. That assertion now tests an unrelated unknown id and would pass if command selection incorrectly accepted parserless bindings. **Fix:** select `id` here and assert both the unavailable-parser diagnostic and unchanged language. Keep the separate pinned-compilation assertion.
+
+The five new tests exercise the advertised persistence, block buffering, reset, and caught-exception paths, but omit `(vm ...)` rebuilding, failed-first-round recovery, and portable CST-driven session evaluation on Node/Dart. Add those cases alongside the fixes above.
+
+Read-only inspection; no edits or suites run. The working tree contains exactly the six F3 source/test paths specified. No new direct `:yin.code/*` matching or hand-pinned A addresses appear. The JVM reader guards correctly exclude parser namespaces on Dart and JavaScript; no new JVM-only form was found in the portable lowering file. The missing coordination note and author’s F3 log entry were read from `/Users/sto/workspace/datomworld`.
+
+exec
+/bin/zsh -lc "sed -n '145,180p' antlr/python3/Python3Parser.g4; sed -n '548,570p' antlr/python3/Python3Parser.g4; sed -n '2975,3015p' docs/design/yang.antlr.md; sed -n '3090,3112p' docs/design/yang.antlr.md; sed -n '3158,3175p' docs/design/yang.antlr.md; sed -n '1360,1495p' src/cljc/yin/repl.cljc; sed -n '2010,2047p' src/cljc/yin/repl.cljc; sed -n '1,35p' test/yin/repl/python_antlr_test.cljc" in /Users/sto/workspace/datomworld-c4-f3
+ succeeded in 0ms:
+        annassign
+        | augassign (yield_expr | testlist)
+        | ('=' (yield_expr | testlist_star_expr))*
+    )
+    ;
+
+annassign
+    : ':' test ('=' test)?
+    ;
+
+testlist_star_expr
+    : (test | star_expr) (',' (test | star_expr))* ','?
+    ;
+
+augassign
+    : (
+        '+='
+        | '-='
+        | '*='
+        | '@='
+        | '/='
+        | '%='
+        | '&='
+        | '|='
+        | '^='
+        | '<<='
+        | '>>='
+        | '**='
+        | '//='
+    )
+    ;
+
+// For normal and annotated assignments, additional restrictions enforced by the interpreter
+del_stmt
+    : 'del' exprlist
+    ;
+    | '=='
+    | '>='
+    | '<='
+    | '<>'
+    | '!='
+    | 'in'
+    | 'not' 'in'
+    | 'is'
+    | 'is' 'not'
+    ;
+
+star_expr
+    : '*' expr
+    ;
+
+expr
+    : atom_expr
+    | expr '**' expr
+    | ('+' | '-' | '~')+ expr
+    | expr ('*' | '@' | '/' | '%' | '//') expr
+    | expr ('+' | '-') expr
+    | expr ('<<' | '>>') expr
+    | expr '&' expr
+realizes sections 3.3 and 3.6 for the REPL:
+
+- `yang.frontend`, new and pure cljc: manifest validation,
+  `install catalog manifest binding => catalog'`, and selection by
+  `[id revision]`. The catalog is a value; a manifest carrying a
+  function or handle is rejected.
+- The REPL takes the catalog from its composition as a `create-state`
+  option; each host's `main` builds it and `yin.repl` requires no
+  frontend. A session pins an immutable catalog snapshot, and each
+  request pins the selected revision and installed binding. Shell
+  commands stay the shell's own syntax.
+- The installed binding is a pair of stages over supplied streams, parse
+  and lower, plus an optional completeness probe; the REPL steps them to
+  an outcome. Language-specific parsing and completeness logic stay out
+  of REPL core. An explicit parser service, worker or remote, has the
+  same shape; a slow one needs a pending-compile state like the existing
+  pending-require.
+- No fallback between frontends: `:yang.python/antlr` and
+  `:yang.python/legacy` are distinct ids, and legacy retires at its own
+  migration gate. Selecting a frontend answers unavailable-parser only
+  when neither a local parser nor an explicitly configured service is
+  available, on any host (section 4.1).
+- Support claims derive from explicit semantic and runtime declarations
+  and tests, not solely from the syntactic `unsupported-rules` list.
+- A second language (JavaScript, parked) installs as parser artifacts,
+  a lowering namespace, a published prelude module, a manifest, and one
+  `install` call in the composition, with no edit to `yin.repl`, Yang
+  core, or the evaluator.
+
+Python's frontend profile pins:
+
+```text
++-----------+------------------------------------------------------------------+
+| Part      | Pin                                                              |
++===========+==================================================================+
+| Grammar   | `grammar-id`, entry rules, export profile `:yang.cst/v1`         |
++-----------+------------------------------------------------------------------+
+| Lowering  | An immutable implementation revision tied to source or           |
+|           | build-artifact digests, its dependencies and options, and a      |
+|           | content-addressed lowering-profile descriptor (ruling 17). A     |
+|           | golden-corpus digest is supplementary evidence, not identity;    |
+| P1    | Single-source prelude, `py/init!`, builtins dict; still bundled      |
++-------+----------------------------------------------------------------------+
+| P2    | Module emitter, publication, linked profile; needs L-a, L-f and the  |
+|       | float fix                                                            |
++-------+----------------------------------------------------------------------+
+| P3    | `pysp` linked, `attach!`                                             |
++-------+----------------------------------------------------------------------+
+| F3    | The Python ANTLR frontend in the catalog (JVM); persistent           |
+|       | `__main__`; needs P2                                                 |
++-------+----------------------------------------------------------------------+
+| I1    | Static absolute imports of single modules, `py/import`, module       |
+|       | objects, `sys.modules`, `__name__`                                   |
++-------+----------------------------------------------------------------------+
+| I2    | Packages, mangling, relative imports, `as`, `*`, `__package__`       |
++-------+----------------------------------------------------------------------+
+| I3    | Publication and DHT import; needs L-e for foreign principals         |
++-------+----------------------------------------------------------------------+
+| I4    | Catchable `ImportError`; needs L-d                                   |
++-------+----------------------------------------------------------------------+
+| I5    | SCC units and alias modules                                          |
++-------+----------------------------------------------------------------------+
+| I6    | Literal `import_module`, same-image `reload`; hooks refused          |
++-------+----------------------------------------------------------------------+
+  pinned manifest address on each host (P3 pinned
+  `:segment/blake3-6133313d60c4080c0803daa6de5b53b195fa6c650af4b4b9e354ce247950fa87`,
+  moved once since by I1's `py` requirement pin to the address I1's
+  entry names, JVM golden), and its requirement pins `py` by
+  manifest address, so a `pysp`-free name environment still runs the
+  naive linked program and refuses the derived one by hook name.
+- F3: at the REPL, `x = 1` then `print(x)` prints `1`; the probe answers
+  incomplete until a multi-line `def` closes.
+- I1: `print("a"); import m; print("b")` orders `a`, `m`'s output, `b`;
+  a second import does not re-execute; `m.x = 5; del m.y` is visible
+  through `m.__dict__` and to `m`'s functions; a raising body removes
+  its entry and propagates; a handler in the importer catches an
+  exception from a function in `m` on every VM; one image as main and as
+  import sees different `__name__` values. Landed in `import_test`
+  (with the programs of `import_programs`, each packet the parser's for
+  its source, checked by `e2e_test`): the runtime is `py/import`,
+  `py/module-run`, `py/run-main` as `"__main__"`, the module objects
+  `py/getattr`/`py/setattr`/`py/delattr` answer for, sys.modules
+  ((make-runner (:output-stream state) (round-id state)) vm))
+
+
+(defn- pending-text
+  [pending]
+  (if (seq pending)
+    (str ";; require pending: "
+         (str/join ", " (map (fn [p]
+                               (str (pr-str (:name p))
+                                    " (link " (pr-str (:yin.link/id p)) ")"))
+                             pending))
+         "); lines typed meanwhile run when it completes, (abandon) gives"
+         " up\n")
+    (str ";; require still pending; lines typed meanwhile run when it"
+         " completes, (abandon) gives up\n")))
+
+
+(defn- dropped-lines-text
+  [n]
+  (when (pos? n)
+    (str ";; dropped " n " line" (when (> n 1) "s")
+         " typed while the require was pending\n")))
+
+
+(def ^:private policy-abandon-text
+  "The message a policy-driven abandon prints, in the shape of the
+   `(abandon)` notice, so a policy abandon is never mistaken for a
+   user's (yin.repl.link-policy.md section 3.3)."
+  ";; the session link policy ended the require\n")
+
+
+(defn- abandon-pending
+  "Give up the shell's `:pending-run` (section 7.2, step 7, the abandoned
+   case): every install in flight is dropped through the engine's own
+   `refused`, every link wait entry is retired with the reason raised as
+   the require's error, and the shell returns to the round the require
+   began in, whose store and value history the parked evaluation never
+   wrote.  Lines typed while the require was pending are dropped with
+   it, and said so.  The linker side learns nothing: no response was
+   ever promised, and one that still arrives is skipped as late.  The
+   identity the parked evaluation minted -- link ids and child origins
+   -- is carried onto the base, so nothing is minted twice on the
+   surviving pair.  The `(abandon)` command retires with
+   `:yin.repl/abandoned` and no message of its own; the session link
+   policy retires with the reason it answered and prints
+   `policy-abandon-text`, so a policy abandon is never mistaken for a
+   user's."
+  ([state] (abandon-pending state :yin.repl/abandoned nil))
+  ([state reason ended-text]
+   (if-let [parked (:pending-run state)]
+     (let [[state' text] (drain-output state)
+           ;; installs first: their waiters leave the wait set with the
+           ;; refusal queued, then every remaining link entry retires
+           vm (engine/abandon-installs (:vm parked) reason)
+           error (try
+                   (vm/run (reduce (fn [vm e]
+                                     (engine/abandon-link vm (:link-id e)
+                                                          reason))
+                                   vm
+                                   (:wait-set vm)))
+                   nil
+                   (catch #?(:cljd Object :clj Exception :cljs js/Error) e
+                     e))]
+       [(assoc state'
+               :vm (query/discard-answers
+                     (carry-link-identity (:base parked) vm)
+                     (:query-pair state'))
+               :pending-run nil)
+        (str text
+             ended-text
+             (if error (format-error error) "")
+             (dropped-lines-text (count (:pending-lines parked))))])
+     [state "Nothing is pending"])))
+
+
+(defn- consult-link-policy
+  "Consult the shell's `:link-policy` over a run that is still pending --
+   when the require parks, and after each re-check that leaves it so;
+   never on a re-check that completes it (yin.repl.link-policy.md
+   section 3.2).  `text` is what the round printed so far and
+   `kept-text` what a kept run reports.  `:manual` is never consulted
+   and keeps the run; a function's `:keep` keeps it; `:abandon` or
+   `{:abandon reason}` runs the same abandon path as `(abandon)`, the
+   reason defaulting to `:yin.repl/link-policy`; a throw or a return
+   outside the contract is a `:keep` for this consult plus one shell
+   error line -- never a silent abandon, never session death (section
+   3.4).  The view the function receives is plain data, no clock, no
+   handle, no secret (section 3.1).  Returns `[state text]`."
+  [state text kept-text]
+  (if-not (fn? (:link-policy state))
+    [state (str text kept-text)]
+    (let [parked (:pending-run state)
+          answer (try
+                   {:answer ((:link-policy state)
+                             {:links (mapv (fn [p]
+                                             {:name (:name p)
+                                              :link-id (:yin.link/id p)})
+                                           (:links parked))
+                              :checks (or (:checks parked) 0)
+                              :lines-retained
+                              (count (:pending-lines parked))})}
+                   (catch #?(:cljd Object :clj Exception :cljs js/Error) e
+                     {:thrown e}))]
+      (cond
+        (:thrown answer)
+        [state (str text kept-text (format-error (:thrown answer)) "\n")]
+
+        (= :keep (:answer answer))
+        [state (str text kept-text)]
+
+        (= :abandon (:answer answer))
+        (let [[state' text'] (abandon-pending state :yin.repl/link-policy
+                                              policy-abandon-text)]
+          [state' (str text text')])
+
+        (and (map? (:answer answer))
+             (= #{:abandon} (set (keys (:answer answer)))))
+        (let [reason (or (:abandon (:answer answer)) :yin.repl/link-policy)
+              [state' text'] (abandon-pending state reason
+                                              policy-abandon-text)]
+          [state' (str text text')])
+
+        :else
+        [state
+         (str text
+              kept-text
+              (format-error
+                (ex-info
+                  "Link policy returned a value outside its contract"
+                  {:answer (:answer answer)
+                   :contract [:keep :abandon {:abandon :reason}]}))
+              "\n")]))))
+
+
+(defn- pending-eval
+  "Answer a round whose require did not complete: the parked VM, its
+  (let [probe (input-probe state)
+        pending (or (:pending-input state) "")
+        line (if probe line (str/trim line))
+        combined (if (str/blank? pending)
+                   line
+                   (str pending "\n" line))]
+    (cond
+      (and probe (str/blank? combined))
+      [(assoc state :pending-input nil) ""]
+
+      (if probe
+        (= :incomplete (probe combined))
+        (pos? (bracket-balance combined)))
+      [(assoc state :pending-input combined) ""]
+
+      :else
+      (let [state' (assoc state :pending-input nil)
+            parsed (try {:forms (read-forms combined)}
+                        (catch #?(:cljd Object
+                                  :clj Exception
+                                  :cljs js/Error) error
+                          {:error error}))]
+        (eval-parsed state' combined parsed)))))
+
+
+(defn repl-state
+  "A serializable summary of shell state.
+
+   The stream summaries read the ledger rather than asking a handle whether it
+   is closed: dao.stream has no `closed?`, and an idle medium has no last
+   operation.
+   The program media are the composition's own, observed beside the VM, so
+   the shell reports what it knows of them — the declared capacity, the gaps
+   the session's observers counted, and whether a loss has already refused
+   further evaluation.  Each `:pending` entry carries the link policy's
+   name (`:manual` or `:fn`) and the pending run's `:checks`, so a host
+   can display why a run is still waiting (yin.repl.link-policy.md
+   section 3.5).  `:macros` maps each macro the expander's store holds
+(ns yin.repl.python-antlr-test
+  "Slice F3 (docs/design/yang.antlr.md section 8.5.6): the Python ANTLR
+   frontend at the REPL. State persists across submissions, the shell
+   shows what a submission printed and not its value, a failed round
+   keeps the session's runtime state as it was, a round parked on a
+   require commits its frontend session only when it completes, and
+   `(reset)` and `(vm ...)` start a new process.
+
+   The parser is JVM-only, so the session scenarios run on every host
+   through a binding whose parse stage answers the parser's packets,
+   precompiled below (each def's docstring is the source the REPL hands
+   the parser); on the JVM they run through the installed frontend too,
+   and the packets are checked against the parser so the two cannot
+   drift. The completeness probe is JVM-only, as the parser is."
+  (:require
+    [clojure.string :as str]
+    [clojure.test :refer [deftest is testing]]
+    [dao.jing.mem :as mem]
+    [dao.stream :as stream]
+    [dao.stream.ringbuffer :as ring]
+    [yang.clojure :as yang.clojure]
+    [yang.frontend :as frontend]
+    [yang.python.antlr.c3-programs :refer [asg call e ex lit op st tc tx vr]]
+    [yang.python.antlr.lower-portable-test :refer [packet]]
+    [yang.python.antlr.repl :as python.repl]
+    #?@(:cljd [] :clj [[yang.python.antlr.parser :as parser]
+                       [yang.python.antlr.repl-probe :as probe]])
+    [yin.repl :as repl]
+    [yin.repl.frontends :as frontends]
+    [yin.repl.link :as link]
+    [yin.vm.linker.publish :as publish]))
+
+
+;; =============================================================================
+;; Precompiled packets
+
+codex
+Completed-GMT: 2026-10-10 15:43:47 GMT
+Completed-Local: 2026-10-10 22:43:47 Asia/Ho_Chi_Minh
+
+**APPROVE**
+
+1. **A — FIXED.** `src/cljc/yin/repl.cljc:2012` preserves probed lines verbatim and retains `str/trim` for frontends without a probe. `test/yin/repl/python_antlr_test.cljc:381` checks exact triple-string whitespace and immediate SyntaxError/recovery for a short string ending in backslash plus spaces. No further fix required.
+
+2. **B — FIXED; the documented exception is correct.** `src/clj/yang/python/antlr/repl_probe.clj:232` checks the prefix with the unfinished literal replaced by an empty string, reporting earlier irreparable errors while preserving unfinished literals. Tests at `test/yin/repl/python_antlr_test.cljc:397` cover immediate error and recovery. Keeping `x = * """` incomplete at line 440 is **not a defect**: it can become `x = *"""ab""",`. The grammar admits this through `testlist_star_expr` (`antlr/python3/Python3Parser.g4:155`) and `star_expr` (line 559). No further fix required.
+
+3. **C — FIXED.** `test/yin/repl/python_antlr_test.cljc:251`, `:270`, `:285`, and `:300` cover staging while parked, committing on completion, retaining the previous session on refusal, and retaining it through abandonment and subsequent evaluation. These are portable tests. No further fix required.
+
+The final adversarial pass over the complete tracked source/test diff and all three untracked F3 files found no additional concrete defects.
+
+Read-only review; no files edited or suites run. Test coverage was assessed by inspection; the author’s reported results were not independently verified.
+tokens used
+55,791
+Completed-GMT: 2026-10-10 15:43:47 GMT
+Completed-Local: 2026-10-10 22:43:47 Asia/Ho_Chi_Minh
+
+**APPROVE**
+
+1. **A — FIXED.** `src/cljc/yin/repl.cljc:2012` preserves probed lines verbatim and retains `str/trim` for frontends without a probe. `test/yin/repl/python_antlr_test.cljc:381` checks exact triple-string whitespace and immediate SyntaxError/recovery for a short string ending in backslash plus spaces. No further fix required.
+
+2. **B — FIXED; the documented exception is correct.** `src/clj/yang/python/antlr/repl_probe.clj:232` checks the prefix with the unfinished literal replaced by an empty string, reporting earlier irreparable errors while preserving unfinished literals. Tests at `test/yin/repl/python_antlr_test.cljc:397` cover immediate error and recovery. Keeping `x = * """` incomplete at line 440 is **not a defect**: it can become `x = *"""ab""",`. The grammar admits this through `testlist_star_expr` (`antlr/python3/Python3Parser.g4:155`) and `star_expr` (line 559). No further fix required.
+
+3. **C — FIXED.** `test/yin/repl/python_antlr_test.cljc:251`, `:270`, `:285`, and `:300` cover staging while parked, committing on completion, retaining the previous session on refusal, and retaining it through abandonment and subsequent evaluation. These are portable tests. No further fix required.
+
+The final adversarial pass over the complete tracked source/test diff and all three untracked F3 files found no additional concrete defects.
+
+Read-only review; no files edited or suites run. Test coverage was assessed by inspection; the author’s reported results were not independently verified.

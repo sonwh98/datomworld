@@ -1,0 +1,32 @@
+The JVM lane is still running (it's on `dht-import-test`). I'll wait for its completion notice before starting Node and Dart, one lane at a time.
+
+The Node lane is running; I'll start Dart once it completes.
+
+The Dart lane is running; it's the last one left.
+
+I3 is now narrowed to option B. The linked REPL path is gone, the prelude bytes are untouched, the goldens pass without re-minting, and every lane is green. The full report is in `collab/1792201000000-engineer-c4-i3-narrow.findings.md`.
+
+**What I reverted (compared with base 84c7c9b7):**
+- **`yin/repl/frontends.cljc`**: put back exactly as in base. The `parse-python` extraction came in with the linked path, so nothing in this file belonged to I3.
+- **`yin/repl.cljc`**: put back exactly as in base. All three admit hunks are gone, and `drive-links` takes two arguments again.
+- **`yang/python/antlr/repl.cljc`**: put back as in base, then I re-applied only the `run-form` change that calls `py/run-session` (3 lines added, 18 removed). I also dropped `checked-packet` and `main-node`. Fable's notes said to keep them, but only the linked path used them, so `lower-session` is back to its base body.
+- **`test/yin/repl/python_antlr_test.cljc`**: put back exactly as in base. Every hunk was linked-REPL code. The full diff and the full I3 version of the file are saved in `collab/1792201000000-parked-linked-repl-tests.cljc.txt` for F2.
+- **`docs/design/yang.antlr.md`**: removed the passage from "At the REPL the linked profile…" to "…never moves it between programs", and added your I3 gap (REPL) paragraph word for word.
+
+**Diff stat for the six files:** only the doc (+39 lines), `prelude.cljc` (58 lines) and `antlr/repl.cljc` (21 lines) still differ from base. The `prelude.cljc` stat is the same as before this change, because I never edited that file.
+
+**Lanes:**
+
+| Lane | Result |
+|---|---|
+| JVM, all 9 namespaces, slow tests included | 154 tests, 986 assertions, 0 failures |
+| Node, `yang.python` | 15 namespaces, 254 tests, 38,512 assertions, 0 failures |
+| Dart, `yang.python` | 15 namespaces, 208 tests, all passed |
+| kondo | 0 errors, 0 warnings |
+| cljstyle | 28 files flagged repo-wide; none are I3 files, and all were unmodified from base, so they failed before this change |
+
+Neither Node nor Dart needed `--slow`.
+
+One comment is now out of date: the `;;` comment above `py/run-session` in `prelude.cljc` still says the linked profile calls it. I left it because the brief froze that file. It can be fixed in F2 or the next time the prelude changes.
+
+I ran no git write commands, and the tree is left uncommitted for the round-3 review.

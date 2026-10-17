@@ -1,0 +1,21 @@
+No Monitor needed: the RED run is a harness-tracked background task, so I'll be woken when it finishes.
+
+Where things stand:
+- **Oracle extended and run on 3.9.6.** It reproduces all four of the reviewer's behaviours exactly.
+- **Three new parser packets added**, plus fast and slow tests for every fix.
+- **All four fixes written** in `lower.cljc` and `prelude.cljc`.
+- **Kondo and cljstyle are clean.**
+
+The RED baseline is still running. It loaded the source from before the fixes, so it should show the new tests failing. Once it finishes I'll run GREEN, then the mutations, then re-mint the goldens once, then the Node and Dart lanes.
+
+GREEN run in progress (~8 min); report updated with RED results and the fix list. I'll continue when it completes.
+
+Mutation runs in progress (4 JVM runs, sources mutated one at a time; I won't touch sources until it finishes).
+
+Golden run in progress; report updated with GREEN and mutation results.
+
+JVM focused set running; report has the golden table. Continuing on completion.
+
+The Node lane is running on its own; the Dart lane will start after it finishes.
+
+You've hit your session limit · resets 3:30pm (Asia/Saigon)

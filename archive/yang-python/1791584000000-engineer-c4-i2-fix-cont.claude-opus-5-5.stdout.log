@@ -1,0 +1,31 @@
+Still running; waiting for the completion notice.
+
+The Dart lane is running in the background (about 15 minutes last time). I'll finish the report when it completes.
+
+The I2 fix round is finished and the tree is ready for codex to re-review. Every lane passes on the final, uncommitted tree, and I ran no git write commands.
+
+**Tree check:**
+- All four codex findings are fixed in the sources:
+  - **Dotted alias:** `import a.b as x` now reads each name component as an attribute, so a rebound `a.b` is what `x` gets.
+  - **from-import:** `from m import __dict__ as d` now uses the same attribute lookup as `getattr`.
+  - **Star imports:** a non-string name in `__all__` or in the module's dict raises CPython's `TypeError`.
+  - **Bundled profile:** it now refuses any import statement except plain `import sys` / `import builtins`, which covers the three packageless relative forms.
+- No mutation is left in the sources. `lower.cljc` and `prelude.cljc` are byte-identical to the copies saved after the fixes and before the mutations. The mutation log shows each of the four new mutations failing its test once, then restored identically.
+- The previous run's Node lane had actually finished before the session limit hit. Every file was last changed at 13:19, before that lane started, so it tested the final tree.
+
+**Lanes on the final tree:**
+
+| Lane | Result |
+|---|---|
+| JVM focused (import, e2e, float_address, linked_prelude, linked_safepoint, lower, lower-portable, int-literal, cst-export) | 172 tests, 1715 assertions, 0 failures |
+| Node `bb test:sub:cljs yang.python --slow` | 201 tests, 0 failures, 3382 s |
+| Dart `bb test:sub:cljd yang.python --slow` | 201 tests, 0 failures, "All tests passed!", 0 skipped, 1404 s |
+| kondo (9 touched files) | 0 errors, 0 warnings |
+| `mise exec -- cljstyle check` | clean |
+
+- **Goldens:** they were re-minted once on the final prelude, and the golden tests pass on the final tree, so they match. The report lists before and after for all seven.
+- **Dart evidence is the count:** the Dart log shows only one test name per shard, so I couldn't see the four new tests by name. The evidence they ran is the count: 201 = the earlier 197 plus the 4 new tests, the same as Node.
+- **Not checked:** I couldn't run the separate 80-column/ASCII check on the diff (the commands needed permission). Kondo and cljstyle passed.
+- **Not re-run:** the original four mutations, since the code they target didn't change this round.
+
+The report is updated with each step and marked DONE: `collab/1791580000000-engineer-c4-i2.findings.md`.

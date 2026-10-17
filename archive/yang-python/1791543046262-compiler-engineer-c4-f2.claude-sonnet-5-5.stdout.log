@@ -1,0 +1,25 @@
+I've addressed all three review findings. The targeted JVM run, Node and Dart pass. I did not run the full JVM suite, only the namespaces that call `yin.repl/create-state`.
+
+1. **Core has no frontend requires.**
+   - `yin.repl` now requires only `yang.frontend`, the catalog itself, and no language namespace or `yin.repl.frontends`. Say if you meant `yang.frontend` to leave core too.
+   - Without `:frontends`, a session gets an empty catalog, so every compile answers `unavailable-parser`.
+   - `yin.repl.frontends/create-state` builds the standard catalog and calls core. `main/boot`, `embed`, `serve` and `driver/create-state` now pass it explicitly.
+   - About 15 existing test files now call `repl.frontends/create-state`, because the implicit default is gone.
+2. **Revision pinning.**
+   - `:lang` can now be `[id revision]`, for example `(lang [:example.toy/frontend "r1"])`, and the vector is kept in `:lang`. The immutable catalog snapshot already fixes the binding, so I added no separate pin field.
+   - A bare id or language alias with several revisions installed is ambiguous and answers `unavailable-parser`.
+   - `(lang X)` is now refused up front when the selected frontend has no parse and lower stage.
+3. **Tests.** `test/yin/repl/frontend_catalog_test.cljc` now has 7 tests. The three new ones cover:
+   - a bare core session with no catalog;
+   - revision pinning, ambiguity across two revisions, and an uninstalled revision;
+   - an explicit parser-service binding that makes `:yang.python/antlr` available, against a binding with no parser that stays unavailable with no legacy fallback.
+
+**Verification**
+- **JVM:** the 14 namespaces that use `create-state` ran 311 tests with 2800 assertions and 0 failures.
+- **Node:** 3814 tests, 0 failures.
+- **Dart:** "All tests passed!", 3766 tests (3763 before this revision, matching the three new tests).
+- **Linter:** no new findings. The one error is at `src/cljc/yin/repl/host.cljc:15` ("Invalid require"), in a file this work doesn't touch.
+
+I modelled the parser service as a binding whose `:parse` the composition supplies. There is no async pending-compile state yet, which the spec defers.
+
+Nothing is committed. The updated findings are in `collab/findings.md`.

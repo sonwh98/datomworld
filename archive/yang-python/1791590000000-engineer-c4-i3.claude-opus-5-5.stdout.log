@@ -1,0 +1,53 @@
+The JVM DHT acceptance run is still going. When it finishes I'll check the result, then do the mutation reds for the admission seam, re-mint the goldens once, and run the Node and Dart lanes.
+
+The mutation run for the `:admit` seam is still going. I added the I3 landing note to the design doc in the meantime.
+
+The full JVM `yang.python` slow lane is running. After it, I'll run Node and then Dart, one at a time.
+
+The JVM lane is still running. Node and Dart are queued behind it.
+
+The JVM lane is still running and its runner process is alive. Node and Dart wait until it finishes.
+
+The JVM lane passed: 125 tests, 4023 assertions, 0 failures, in 79 minutes. The Node lane is running now, and Dart goes after it.
+
+The Node lane is still running. So far `dht-import-test` and `import-test` show no failures on Node.
+
+The Node lane passed: 253 tests, 41552 assertions, 0 failures, and no slow test was skipped. The Dart lane is running now.
+
+I3 is finished and green on all three hosts, with the `__all__` fix folded in. One deviation: the Python runtime `py` itself can't travel over the DHT, so it is pre-installed on both nodes and only the guest modules are published and fetched. Nothing is committed or staged. The report is `collab/1791590000000-engineer-c4-i3.findings.md`.
+
+**Test lanes (`yang.python --slow`):**
+
+| Host | Tests | Assertions | Failures | Time |
+|---|---|---|---|---|
+| JVM | 125 | 4023 | 0 | 79 min |
+| Node | 253 | 41552 | 0 | 59 min |
+| Dart | 207 | not printed | 0 | 15 min |
+
+No slow test was skipped on any host. Kondo and cljstyle are clean. The two existing link tests (`yin.repl.require-test`, `yin.vm.linker-require-test`) still pass after the link change.
+
+**Blocker for the DHT seat: `py` can't be published over the DHT.** Each DHT blob is capped at 64 KiB, and `dao.space.dht/join` has no option to raise it. Three of `py`'s 6273 blobs are its code images, about 0.8 to 1 MB each. So in the test, `py` is the reader's installed runtime: each host seeds it from its own `py` publication, which has the same golden address everywhere. Only the guest modules (`pym.*`) go over the DHT.
+
+**What I3 delivers:**
+- **Cross-host import:** a module published from the JVM parser's committed packet is imported, with no parser, on all three hosts and the semantic, stack and register VMs. Output matches CPython. The new test is `dht_import_test`, run over the in-process mesh like `dht-end-to-end-test`; a real cross-process Dart reader doesn't exist, so that is the reading I recorded.
+- **Republished dependency:** after `k` is republished, importing `t` (which pinned the old `k`) is refused as `:yin.link.dht/dependency-binding` with `:mismatch`, before any install child runs. That refusal is existing linker behaviour; I3 only asserts it under Python.
+- **Cyclic pair:** refused at publication as `:yang.python.antlr/import-cycle` naming `["ca" "cb"]`, with nothing written. The new `yang.python.antlr.publication` namespace orders units by their imports and publishes bottom-up.
+- **Foreign principal:** refused only, not implemented. I added an optional `:admit` hook to `yin.repl.link/composition`. A Python link source refuses any name none of its own principals asserts, as `:yang.python.antlr/foreign-principal` with `:requires :L-e`. The report lists what L-e must add before this refusal can be lifted.
+- **`__all__` fix:** `from m import *` now reads `__all__` by index. A generator, set or dict `__all__` raises CPython 3.9.6's exact `TypeError` texts, which I checked against `python3` 3.9.6. The new test failed on the old prelude on all three VMs.
+
+**Test-first and mutations:**
+- I wrote the fast publication tests together with the code, so they passed on their first run instead of failing first.
+- Mutations then turned each new behaviour red: the cycle check, the unsupplied-import check, the ordering, the admission, and the `:admit` hook. Each was restored and byte-compared with `cmp`.
+- With `:admit` disabled, the foreign module links and runs. That confirms the test's foreign-principal case resolves through the second principal's signed assertion and is stopped only by the admission check.
+
+**Goldens and other changes:**
+- Goldens were re-minted once on the final prelude: the `py` and `pysp` manifests, plus five addresses in `float_address_test`. No new address is pinned.
+- I added four parser packets to `import_programs` and registered them in `e2e_test`'s parser check.
+- I added an I3 landing note to section 8.5.6 of `docs/design/yang.antlr.md`.
+
+Both of these were already done, so I didn't rerun anything.
+
+- **Dart lane:** it passed. 15 namespaces, 207 tests, 0 failures, and "All tests passed!" in 896 seconds. No slow test was skipped, and the DHT import test (`dht-import-test-test`) actually ran, taking about 2 minutes 50 seconds. The Dart reporter doesn't print every test name, so the new `__all__` test shows up only as part of its namespace passing.
+- **Report:** `collab/1791590000000-engineer-c4-i3.findings.md` is finished and marked COMPLETE. It has all three lane results, the scope ruling and deviations, the finding that `py` can't go over the DHT, what L-e still needs, the mutation evidence, the re-minted goldens and the file list.
+
+Nothing is committed or staged. The commit candidates are the modified and new files under `src/`, `test/` and `docs/`; the report itself is under `collab/`, which is never committed.
