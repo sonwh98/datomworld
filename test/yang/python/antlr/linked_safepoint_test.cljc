@@ -137,7 +137,11 @@
               loop lambda exactly as the bundled one does"
       (let [marks (filter #(= :yang/site (nth % 3))
                           (:yin/frontend-metadata projected))]
-        (is (= [:call :loop] (sort (map #(nth % 4) marks))))))
+        (is (= [:call :loop]
+               (sort (keep #(let [m (nth % 4)
+                                  k (if (vector? m) (first m) m)]
+                              (when (not= :line k) k))
+                           marks))))))
     (testing "every derived row validates"
       (is (nil? (vm/validate-rows (tree-of derived)))))))
 
@@ -250,7 +254,7 @@
    move; both hosts mint fbd90016). The standalone hook install now
    delivers its pinned base prelude after defining hooks."
   (keyword (str "segment/blake3-"
-                "cf017bd4063d8888c12ad6f967d49534c464d6bdcce453cb2f0a4139ea377184")))
+                "767d8a65d9c460dbeee5de3ecaf14a6c88178921d1b6928e4959733092093d01")))
 
 
 (defn- pysp-manifest-address

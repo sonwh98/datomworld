@@ -1706,6 +1706,29 @@ Composition and cost:
   (decision 8).
 - Under a profile without tracing, `sys.settrace` raises an explicit
   unsupported error (decision 10).
+- Slice 3 implements tracing. A frontend mark may carry data:
+  `[:call name def-line]` on a function's code lambda, `[:line n]` on
+  every statement (`:line` sites mark any node, and the hook is
+  sequenced before it). A profile entry `{:hook sym :operands true}`
+  applies the hook to the mark's data as literals. A line is the
+  logical line (`1 +` the line breaks of the preceding NEWLINE tokens),
+  as a packet carries no source text. The trace state is one cell
+  `{:global :profile :busy}`; a traced frame is a record in the
+  dynamic-context record's `:frame` (name, line, Python-visible frame
+  object with `f_code.co_name`, `f_lineno`, `f_back`, local trace
+  function, and the absolute depth that tells the running function's
+  frame from one a caller opened). Frames open only while a trace or
+  profile function is set, so a function entered before `settrace` is
+  untraced, as in CPython. Events fire at the marks: `call` after the
+  recursion check, `line` per statement start, `return` on normal exit
+  (before the depth decrement). Trace and profile functions run with the
+  `:busy` flag set, so they are not traced; one that raises clears both
+  functions and propagates. An escape restores the frame with the depth.
+  `py.sp/install-sys!` puts `settrace`, `setprofile`, `gettrace` and
+  `getprofile` into the `sys` module; with a false flag the setters
+  raise `NotImplementedError`. Not emitted: `exception` and C-call
+  events, events for module-level code, `f_locals`, and the `line` event
+  for loop tests and `except` headers.
 
 The stage is generic over the Universal AST and the frontend-metadata
 side table and lives at `yang.safepoint`, not under `yang.python`. Each

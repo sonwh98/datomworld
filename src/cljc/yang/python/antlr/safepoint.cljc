@@ -71,6 +71,25 @@
   {:loop 'pysp/loop, :call 'pysp/call, :return 'pysp/return})
 
 
+(def tracing-profile
+  "The `yang.safepoint` profile with tracing (slice 3), under the bundled
+   prelude: the recursion hooks plus the trace-aware `tcall`/`treturn`
+   and `tline`. `tcall` is applied to the function's name and its `def`
+   line, `tline` to the statement's line."
+  {:loop 'py.sp/loop,
+   :call {:hook 'py.sp/tcall, :operands true},
+   :return 'py.sp/treturn,
+   :line {:hook 'py.sp/tline, :operands true}})
+
+
+(def linked-tracing-profile
+  "`tracing-profile` under the linked prelude."
+  {:loop 'pysp/loop,
+   :call {:hook 'pysp/tcall, :operands true},
+   :return 'pysp/treturn,
+   :line {:hook 'pysp/tline, :operands true}})
+
+
 (def signals-key
   "The store key the composition binds the signal stream's reference to."
   'py.sp/signals)
@@ -145,6 +164,180 @@
                                      "the limit is too low")))
              (do (cell/set! (py/rt-limit) (py/num n)) :py/None)))
          (py/type-error {:py/str "an integer is required"})))]
+    ;; ------------------------------------------------------------ tracing
+    ;; The trace state is one cell, {:global :profile :busy}: the functions
+    ;; sys.settrace and sys.setprofile installed (None when unset), and a
+    ;; flag that is true while one runs, so trace code is never traced.
+    ;; A traced frame is a record {:name :line :obj :back :local :d} in the
+    ;; dynamic-context record's :frame, so an escape restores the frame
+    ;; with the depth: :obj is the Python-visible frame object (f_code,
+    ;; f_lineno, f_back), :back the caller's record, :local the frame's
+    ;; local trace function (None: none), :d the absolute depth the frame
+    ;; was opened at, which tells the frame of the running function from
+    ;; one a caller opened. Frames are opened only while a trace or profile
+    ;; function is set, so a function entered before settrace has none.
+    [py.sp/trace-state
+     (fn []
+       (cell/new (assoc (assoc (assoc {} :global :py/None) :profile :py/None)
+                        :busy false)))]
+    [py.sp/trace-on?
+     (fn []
+       (let [t (cell/get py.sp/trace)]
+         (if (get t :busy) false (not (= (get t :global) :py/None)))))]
+    [py.sp/profile-on?
+     (fn []
+       (let [t (cell/get py.sp/trace)]
+         (if (get t :busy) false (not (= (get t :profile) :py/None)))))]
+    [py.sp/fire
+     ;; f(frame, event, arg) with tracing suppressed; its answer is the
+     ;; value. A raise out of it clears both functions, as CPython does,
+     ;; and propagates
+     (fn [f frame ev arg]
+       (let [res (cell/new :py/None)]
+         (do (cell/set! py.sp/trace (assoc (cell/get py.sp/trace) :busy true))
+             (py/try
+               (fn []
+                 (cell/set! res (py/call f (py/vconj (py/vconj (py/vconj [] frame)
+                                                               (py/str ev))
+                                                     arg))))
+               (fn [e]
+                 (do (cell/set! py.sp/trace
+                                (assoc (assoc (assoc (cell/get py.sp/trace)
+                                                     :global :py/None)
+                                              :profile :py/None)
+                                       :busy false))
+                     (py/raise e)))
+               (fn []
+                 (do (cell/set! py.sp/trace
+                                (assoc (cell/get py.sp/trace) :busy false))
+                     (cell/get res)))))))]
+    [py.sp/frame-new
+     (fn [name line back]
+       (let [code (py/module-new (py/str "code") :py/None)
+             obj (py/module-new (py/str "frame") :py/None)]
+         (do (py/dict-set (py/module-dict code) (py/str "co_name") (py/str name))
+             (py/dict-set (py/module-dict obj) (py/str "f_code") code)
+             (py/dict-set (py/module-dict obj) (py/str "f_lineno") line)
+             (py/dict-set (py/module-dict obj) (py/str "f_back")
+                          (if (nil? back) :py/None (get back :obj)))
+             obj)))]
+    [py.sp/set-local!
+     ;; the frame record the context holds now, with local trace function f
+     (fn [f]
+       (let [cell (py/rt-ctx)
+             c (cell/get cell)]
+         (cell/set! cell (assoc c :frame (assoc (get c :frame) :local f)))))]
+    [py.sp/open-frame
+     (fn [name line]
+       (let [cell (py/rt-ctx)
+             c (cell/get cell)
+             back (get c :frame)
+             obj (py.sp/frame-new name line back)
+             fr (assoc (assoc (assoc (assoc (assoc (assoc {} :name name) :line line)
+                                            :obj obj)
+                                     :back back)
+                              :local :py/None)
+                       :d (py/abs-depth c))]
+         (do (cell/set! cell (assoc c :frame fr))
+             (if (py.sp/trace-on?)
+               (py.sp/set-local!
+                 (py.sp/fire (get (cell/get py.sp/trace) :global) obj "call"
+                             :py/None))
+               :py/None)
+             (if (py.sp/profile-on?)
+               (do (py.sp/fire (get (cell/get py.sp/trace) :profile) obj "call"
+                               :py/None)
+                   :py/None)
+               :py/None))))]
+    [py.sp/tcall
+     (fn [name line]
+       (do (py.sp/poll)
+           (py.sp/enter)
+           (if (py.sp/trace-on?)
+             (py.sp/open-frame name line)
+             (if (py.sp/profile-on?) (py.sp/open-frame name line) :py/None))))]
+    [py.sp/own-frame
+     ;; the running function's frame record, or nil
+     (fn []
+       (let [c (cell/get (py/rt-ctx))
+             fr (get c :frame)]
+         (if (nil? fr)
+           nil
+           (if (= (get fr :d) (py/abs-depth c)) fr nil))))]
+    [py.sp/tline
+     (fn [line]
+       (do (py.sp/loop)
+           (let [fr (py.sp/own-frame)]
+             (if (nil? fr)
+               :py/None
+               (if (py.sp/trace-on?)
+                 (do (py/dict-set (py/module-dict (get fr :obj))
+                                  (py/str "f_lineno") line)
+                     (if (= (get fr :local) :py/None)
+                       :py/None
+                       (py.sp/set-local!
+                         (py.sp/fire (get fr :local) (get fr :obj) "line"
+                                     :py/None))))
+                 :py/None)))))]
+    [py.sp/treturn
+     (fn [v]
+       (let [fr (py.sp/own-frame)]
+         (do (if (nil? fr)
+               :py/None
+               (do (if (py.sp/trace-on?)
+                     (if (= (get fr :local) :py/None)
+                       :py/None
+                       (py.sp/fire (get fr :local) (get fr :obj) "return" v))
+                     :py/None)
+                   (if (py.sp/profile-on?)
+                     (py.sp/fire (get (cell/get py.sp/trace) :profile)
+                                 (get fr :obj) "return" v)
+                     :py/None)
+                   (let [cell (py/rt-ctx)]
+                     (cell/set! cell (assoc (cell/get cell) :frame (get fr :back))))))
+             (py.sp/return v))))]
+    [py.sp/settrace
+     (fn [f tracing?]
+       (if tracing?
+         (do (cell/set! py.sp/trace (assoc (cell/get py.sp/trace) :global f))
+             :py/None)
+         (py/raise-new
+           (py.sp/class {:py/str "NotImplementedError"})
+           {:py/str "sys.settrace is not supported without a tracing profile"})))]
+    [py.sp/setprofile
+     (fn [f tracing?]
+       (if tracing?
+         (do (cell/set! py.sp/trace (assoc (cell/get py.sp/trace) :profile f))
+             :py/None)
+         (py/raise-new
+           (py.sp/class {:py/str "NotImplementedError"})
+           {:py/str "sys.setprofile is not supported without a tracing profile"})))]
+    [py.sp/install-sys!
+     ;; the composition's call, after the base prelude has run: puts
+     ;; settrace, setprofile, gettrace and getprofile in the sys module.
+     ;; With `tracing?` false the setters raise NotImplementedError; a
+     ;; composition that never calls this leaves sys without them
+     (fn [tracing?]
+       (let [d (py/module-dict (py/modules-ref (py/str "sys")))]
+         (do (py/dict-set d (py/str "settrace")
+                          (py/make-function "settrace"
+                                            {:params ["function"], :no-kw true} [] []
+                                            (fn [args]
+                                              (py.sp/settrace (py/arg args 0) tracing?))))
+             (py/dict-set d (py/str "setprofile")
+                          (py/make-function "setprofile"
+                                            {:params ["function"], :no-kw true} [] []
+                                            (fn [args]
+                                              (py.sp/setprofile (py/arg args 0) tracing?))))
+             (py/dict-set d (py/str "gettrace")
+                          (py/make-function "gettrace" {:params [], :no-kw true} [] []
+                                            (fn [args]
+                                              (get (cell/get py.sp/trace) :global))))
+             (py/dict-set d (py/str "getprofile")
+                          (py/make-function "getprofile" {:params [], :no-kw true} [] []
+                                            (fn [args]
+                                              (get (cell/get py.sp/trace) :profile))))
+             :py/None)))]
     [py.sp/attach!
      ;; the linked wrapper's call: a module closure cannot read the task's
      ;; ambient signal stream, so the wrapper passes its reference, and the
@@ -154,6 +347,7 @@
        (if (= py.sp/cursor :py/uninit)
          (do (yin/def (quote py.sp/handler) (cell/new :py/None))
              (yin/def (quote py.sp/cursor) (stream/cursor signals))
+             (yin/def (quote py.sp/trace) (py.sp/trace-state))
              :py/None)
          :py/None))]])
 
@@ -162,7 +356,8 @@
   "The bundled profile's runtime state, allocated while loading: a cell
    and a cursor, nothing else."
   '[[py.sp/handler (cell/new :py/None)]
-    [py.sp/cursor (stream/cursor py.sp/signals)]])
+    [py.sp/cursor (stream/cursor py.sp/signals)]
+    [py.sp/trace (py.sp/trace-state)]])
 
 
 (defn- definitions->uast
@@ -215,7 +410,7 @@
    signal cursor. Each is a runtime key of the module, held at install
    time by a `:py/uninit` placeholder so the linker's scanners discharge
    the bodies that read it."
-  '[py.sp/handler py.sp/cursor])
+  '[py.sp/handler py.sp/cursor py.sp/trace])
 
 
 (defn strip

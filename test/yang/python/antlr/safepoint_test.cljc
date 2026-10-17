@@ -16,6 +16,7 @@
             [yang.python.antlr.render :as render]
             [yang.python.antlr.safepoint :as hooks]
             [yang.python.antlr.safepoint-programs :as programs]
+            [yang.python.antlr.trace-programs :as trace]
             [yang.python.antlr.uast :as u]
             [yang.safepoint :as safepoint]
             [yang.tails :as tails]
@@ -166,8 +167,14 @@
   (let [{:keys [projected]} (derive* def-and-while hooks/profile)
         tree (tree-of projected)
         marks (filter #(= :yang/site (nth % 3)) (:yin/frontend-metadata projected))]
-    (testing "the function's code lambda and the loop lambda are marked"
-      (is (= [:call :loop] (sort (map #(nth % 4) marks)))))
+    (testing "the function's code lambda and the loop lambda are marked, and
+              every statement starts a line"
+      (is (= [:loop [:call "f" 1]]
+             (remove #(and (vector? %) (= :line (first %)))
+                     (sort-by pr-str (map #(nth % 4) marks)))))
+      (is (= [1 2 3 4 5 6]
+             (sort (keep #(when (and (vector? %) (= :line (first %))) (second %))
+                         (map #(nth % 4) marks))))))
     (testing "marks are metadata: the rows are those of the unmarked tree"
       (letfn [(unmark
                 [node]
@@ -743,3 +750,137 @@
 (deftest ^:slow set-recursion-limit-test
   (slow/guard "set-recursion-limit-test"
               set-recursion-limit))
+
+
+;; =============================================================================
+;; Tracing (slice 3): sys.settrace and sys.setprofile at :call, :line, :return
+;; =============================================================================
+
+(def ^:private traced-ast
+  "`A'` for `pk` under the tracing profile, memoized."
+  (memoize
+    (fn [pk]
+      (vm/semantic-bytecode->ast
+        (tree-of (:derived (derive* pk hooks/tracing-profile)))))))
+
+
+(defn- traced
+  "Every VM's outcome for `pk` derived under the tracing profile, `sys`
+   installed with `tracing?` and the recursion limit `limit` (nil: the
+   default) set before the module runs."
+  [pk tracing? limit]
+  (hooked
+    (with-run (traced-ast pk)
+      #(u/then (u/sexp->uast
+                 (list 'do
+                       (list 'py.sp/install-sys! tracing?)
+                       (if limit
+                         (list 'py.sp/set-recursion-limit! limit)
+                         :py/None)))
+               %))))
+
+
+(deftest marks-carry-name-and-line-test
+  (let [{:keys [projected]} (derive* trace/trace-basic hooks/tracing-profile)
+        marks (map #(nth % 4)
+                   (filter #(= :yang/site (nth % 3))
+                           (:yin/frontend-metadata projected)))]
+    (testing "a function's mark carries its name and its def line"
+      (is (= #{[:call "tr" 2] [:call "g" 5] [:call "f" 7]}
+             (set (filter #(= :call (first %)) marks)))))
+    (testing "a statement's mark carries its logical line"
+      (is (= #{[:line 1] [:line 2] [:line 3] [:line 4] [:line 5] [:line 6]
+               [:line 7] [:line 8] [:line 9] [:line 10] [:line 11] [:line 12]}
+             (set (filter #(= :line (first %)) marks)))))))
+
+
+(deftest tracing-profile-inserts-line-hooks-test
+  (testing "a profile without :line inserts no line hook: its tree is smaller"
+    (let [plain (derive* trace/trace-basic hooks/profile)
+          full (derive* trace/trace-basic hooks/tracing-profile)]
+      (is (< (count (:rows (tree-of (:derived plain))))
+             (count (:rows (tree-of (:derived full)))))))))
+
+
+(defn- trace-basic
+  []
+  (testing "a trace function prints call/line/return with the frame's name
+            and line: the local trace function is the one the call event
+            returned, f_lineno follows the line events, and the trace
+            function's own statements are not traced"
+    (every= [true false {:py/out ["call f 7" "line f 8" "call g 5" "line g 6"
+                                  "return g 6" "line f 9" "return f 9"],
+                         :py/exception nil}]
+            (traced trace/trace-basic true nil))))
+
+
+(deftest ^:slow trace-basic-test
+  (slow/guard "trace-basic-test" trace-basic))
+
+
+(defn- trace-profile
+  []
+  (testing "a profile function sees call and return for each call, and is
+            not called for its own body"
+    (every= [true false {:py/out ["4"
+                                  "['call', 'return', 'call', 'return']"],
+                         :py/exception nil}]
+            (traced trace/trace-profile true nil))))
+
+
+(deftest ^:slow trace-profile-test
+  (slow/guard "trace-profile-test" trace-profile))
+
+
+(defn- trace-unwind
+  []
+  (testing "an exception caught two frames up: thrower has no return event,
+            and the frame is restored to mid, so the later lines are mid's"
+    (every= [true false {:py/out ["call mid 7" "line mid 8" "line mid 9"
+                                  "call thrower 5" "line thrower 6"
+                                  "line mid 11" "line mid 12" "return mid 12"],
+                         :py/exception nil}]
+            (traced trace/trace-unwind true nil))))
+
+
+(deftest ^:slow trace-unwind-test
+  (slow/guard "trace-unwind-test" trace-unwind))
+
+
+(defn- trace-recursion
+  []
+  (testing "under limit 10 the profile function runs on top of the frame it
+            reports, so the call event of the ninth f needs depth 11 and
+            raises RecursionError inside the profile function: tracing is
+            cleared, the error propagates to probe's handler, and the
+            events are probe and the eight f calls before it"
+    (every= [true false {:py/out ["rec" "9"], :py/exception nil}]
+            (traced trace/trace-recursion true 10))))
+
+
+(deftest ^:slow trace-recursion-test
+  (slow/guard "trace-recursion-test" trace-recursion))
+
+
+(defn- trace-unsupported
+  []
+  (testing "without a tracing profile sys.settrace is an explicit error"
+    (every= [true false {:py/out [],
+                         :py/exception
+                         {:type "NotImplementedError",
+                          :args ["sys.settrace is not supported without a tracing profile"]}}]
+            (traced trace/trace-unset false nil)))
+  (testing "the same under the plain signal-and-recursion profile"
+    (every= [true false {:py/out [],
+                         :py/exception
+                         {:type "NotImplementedError",
+                          :args ["sys.settrace is not supported without a tracing profile"]}}]
+            (hooked (with-run (derived-ast trace/trace-unset)
+                      #(u/then (u/sexp->uast '(py.sp/install-sys! false)) %)))))
+  (testing "with a tracing profile settrace(None) is accepted"
+    (every= [true false {:py/out [], :py/exception nil}]
+            (traced trace/trace-unset true nil))))
+
+
+(deftest ^:slow trace-unsupported-test
+  (slow/guard "trace-unsupported-test" trace-unsupported))
