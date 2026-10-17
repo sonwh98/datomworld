@@ -1,0 +1,90 @@
+The suites are still running, and the monitor will report as each finishes.
+
+Waiting on the remaining six suites (python-antlr, linked-prelude, scan, e2e, safepoint, dht-import).
+
+Those six suites haven't finished. The monitor will notify me when they do.
+
+Still no results from the six suites. Waiting on the monitor.
+
+The scan-test passed (12 tests, 716 assertions). Five suites are still running.
+
+The linked-prelude test passed (14 tests, 122 assertions). Four suites are still running: python-antlr, e2e, safepoint and dht-import.
+
+The linked-safepoint test passed (15 tests, 110 assertions). Three suites are left: python-antlr, e2e and dht-import.
+
+The dht-import test passed (4 tests, 98 assertions). Only python-antlr and e2e are still running.
+
+The python-antlr test passed with the new rows (18 tests, 171 assertions). Only the e2e suite is still running.
+
+Waiting on the e2e suite, the last one outstanding.
+
+Committed as e5a32b72. I'm waiting on the e2e result.
+
+The P1 and all three P3 groups are fixed, and every requested namespace passes. The work is committed on `value-display-r2` as two commits and not pushed.
+
+**Commits:**
+- `cc6789cd` is the WIP commit.
+- `23c0b580` merges `origin/master` (ba197c96) with no conflicts.
+- `e5a32b72` is the fix.
+
+**Files changed in the fix:**
+- `test/yang/python/antlr/float_address_test.cljc`
+- `test/yang/python/antlr/linked_safepoint_test.cljc`
+- `test/yin/vm/semantic/scanner_goldens.cljc`
+- `test/yin/repl/python_antlr_test.cljc`
+- `src/cljc/yin/repl.cljc` (docstring)
+- `src/cljc/yang/python/antlr/prelude.cljc` (docstrings)
+- `src/cljc/yin/vm/docs/yin.repl.md`
+- `docs/design/yang.typescript.md`
+
+`scanner-golden-c4.generate.clj` is back at `deferred #{:pysp}`, so it is unchanged against master.
+
+**Test results**, each as its own invocation. On the JVM, `-n` already runs `^:slow` tests.
+
+| Namespace | Tests | Assertions | Failures |
+|---|---|---|---|
+| float-address-test | 12 | 105 | 0 |
+| linked-prelude-test | 14 | 122 | 0 |
+| linked-safepoint-test | 15 | 110 | 0 |
+| python-antlr-test (with the new rows) | 18 | 171 | 0 |
+| e2e-test | 44 | 768 | 0 |
+| frontend-catalog-test | 8 | 39 | 0 |
+| dht-import-test | 4 | 98 | 0 |
+| main-test | 45 | 370 | 0 |
+| scan-test | 12 | 716 | 0 |
+| lower-portable-test | 5 | 19 | 0 |
+
+`dht-import-test` is the only reader of `dht-import-v1.edn`; `linked_prelude_test` only mentions it in a comment.
+
+**New pins** were taken from the failing assertions, not hand-made:
+- **py manifest:** `093fc404…`, already in the diff.
+- **pysp manifest:** `fa373f02a01ec41338f0a3084aba7adce4982387a10f39fd664bc9ef2618d2fc`.
+- **Bundled prelude root:** `ff9b9c08d1fde82f9fb97e9521b6eaafa579383e95ccafbaece0069836018c91`.
+- **A:** `66fcac5f202b438999ca40fb293a7cb0eab06d81858cb7fb40011d514e084a2c`.
+- **A′:** `f99d5e41de375b028fe2bd1840b1925f6fa2d0cff547f94b7dda037be01f0a10`.
+- **Derivation record:** `e2db3e586820b7134e79a21540185b6eeafb790752731f2f47e1311f9f8703b2`.
+- **prelude-id:** `ea29e3058583aa14d1ee13ae95ff79ad676009cc5638ff27b994fee6608afd4c`.
+
+**Generator.** With `deferred #{:py}` the gate did not abort on `:pysp` (application-count 77→77, no free names added). `:py` moved from 3957 to 3968 applications and gained one free name. Two runs left `scanner_goldens.cljc` with the identical git blob hash `aee2ef72930d108ee72f7ca12b4505da50da60dd`.
+
+**Acceptance rows.** The shared `packets` map now has:
+- the `even_squares` comprehension and its display, `[4, 16, 36, 64, 100]`
+- `None` alone, which prints nothing
+- `1 + 2`, which prints `3`
+- a string, which prints `'hi'`
+- `x = 1; x`, which prints `1`
+- an assignment after a displayed expression, which prints nothing
+
+The existing `precompiled-packets-are-the-parsers-test` checks these packets against the real parser output, and it passes.
+
+**Edge cases.** The three edges are recorded in `yin.repl.md` beside the display policy, with no behavior change. The raw C1 control character reaching the prompt (e.g. `'\x80'`) is a known-gaps candidate. It affects every submitted string, so it is worth its own slice.
+
+**Not verified:**
+- **kondo:** `clj -M:kondo` showed 0 errors and 0 warnings on the six changed source and test files. I did not lint the two markdown docs.
+- **cljstyle:** I couldn't run `cljstyle check`, because the command needed approval. The pre-commit hook ran the formatters on the staged files, and I did not re-run the suites after that reformat.
+- **Node (cljs) lane:** not run, because it wasn't cheap in this session.
+- **`bb`:** not installed, so I used `clojure -M:test -n <ns>` throughout.
+
+That last event is the e2e suite's final result, which I already have: 44 tests, 768 assertions, 0 failures. Nothing changes in my report above, and no work is left in this task.
+
+That's just the e2e monitor timing out after it had already delivered its result. Nothing is outstanding, and the report above stands.

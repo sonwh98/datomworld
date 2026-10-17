@@ -11915,3 +11915,53 @@ Decisions: per the owner's challenge ("argon queued? why? its available"), confi
 Verification: argon's file:line checks in its findings; master's tip carries all merged slice content.
 Delegates: agy gemini-4-argon.
 Next: the yin.vm.semantic track has NO open engineering work — the any-pc epic is landed and its review loop closed. Remaining items are owner-scheduled product work (REPL export command, composition-level fetch loop) and Fable's claude-cloud reservation (until Tuesday) for any future security-capable sign-off. The other seat's C3/TS/PHP work continues independently on master.
+
+## 2026-10-18 11:2x +07 — the loop-level value display LANDED (06065e42); the four-round arc closed
+The owner ruled the semantics ("match Clojure's — print the last expression evaluated", REPL-loop
+  level, not frontend-level). Rounds: the sonnet draft (killed mid-level; preserved as prior art), r2
+  (sonnet, the loop print), the deepseek gate v2 (P2: last-statement is not CPython's — the owner
+  ratified last-only anyway), r3-restricted (sonnet), the gate v3 (REQUEST CHANGES: the P1 stale
+  dependents — exactly the in-slice-generator failure mode fable's rule now prevents), r4 (sonnet:
+  every dependent re-pinned mechanically, the acceptance rows incl. the owner's even_squares in the
+  shared packets, the edges documented), the gate v4 (deepseek: READY, its own evidence run green).
+  Lanes: JVM 10 namespaces green, Node 4061/149759/0, Dart 4009 all passed (orchestrator-run),
+  cljstyle rc=0, kondo 0/0. Landed value-display-r2:master = 06065e42 (the docs-only master merge
+  folded in). The gate's non-blocking notes ride the safepoint-s3 round: the float_address/
+  linked_prelude/scanner_goldens provenance docstrings (which s3's own pin moves will re-date), the
+  py/run-session comment, the yang.typescript.md line width. The C1-control edge gets its known-gaps
+  row with this commit.
+Next: the safepoint-s3 finish round (unblocked by this landing; its pins re-stale against the new py
+  manifest), then the antlr M0-M2 (m012d implementing the codex gate's three P1s), then the C3
+  completion gate over the final head.
+
+## 2026-10-18 01:42:56 +0700 — semantic-register-vm seat: REPL export/import via dao.jing — DESIGNED IN CONVERSATION, PARKED FOR TUESDAY (owner)
+Completed-GMT: 2026-10-17 18:42:56 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: sess_607c1129-1dcd-49ba-9b34-58565f4f42e4 (interactive seat)
+Tree: origin/master @ 8b84437b+ (log-only pushes; the other seat's C3/TS/PHP work continues independently). No code changed this unit.
+Done: The owner asked what the queued product work is; after explanation, the owner proposed the shape for the REPL export/import command: **save the CESK state to dao.jing** (content-addressed store) rather than a local file — making an exported running state a BLAKE3-addressed, durable, fetchable object. Design status: discussed; PARKED FOR TUESDAY (2026-10-20) by the owner. The design as discussed: (a) export = force a durable checkpoint of the running task and publish the canonical pack into dao.jing (address = BLAKE3 of the pack; the architecture composes with landed work — 6d's carrier encoding, 6d-b's recover-from-last-durable-checkpoint semantics, module-pins admission on the resume side); (b) import = fetch by address, verify, admit (module pins), lower, resume; (c) command surface likely wants both save-and-continue and save-and-stop variants. FOUR DESIGN QUESTIONS the Tuesday loop must settle: (1) custody/split-brain — a published CESK state is durable and addressable; who may resume it, and what prevents two hosts resuming the same pack concurrently (occurrence/successor/arbitration vocabulary exists; the policy is new authority); (2) save-and-continue vs save-and-stop custody consequences; (3) privacy — dao.jing is public-by-address and a CESK state exposes the full live state (registers, stores, pending datoms): encryption-at-rest vs address-capability as the access model; (4) size — stores make packs large: dao.jing chunking/large-blob path and the DHT transport story. Process proposal (owner to confirm Tuesday): architect design loop (Fable via claude-cloud — her subscription resets Tuesday, or agy/argon) producing a short spec, then implementation to claude/codex/agy by capability (~4-6 days incl. tests; the file-based thin version was 2-3 days but skips dao.jing publication and custody). Also still queued from the argon gates: the module-export lift-refusal hole (lift module exports by module coordinate via host-export profiles — known-gaps row exists) as a small companion design/implementation item.
+Decisions: nothing dispatched; the owner explicitly parked the design until Tuesday. This entry is the pickup point.
+Verification: none needed (design conversation only).
+Delegates: none.
+Next (Tuesday, or on owner request): run the architect design loop on the four questions + command surface; then the implementation slice per routing. Also Tuesday: Fable's subscription resets (the claude-cloud reservation ends).
+
+## 2026-10-18 14:3x +07 — safepoint s3 (tracing) LANDED (a822e152); the finish round closed the slice
+Rounds: s3 round 1 (sonnet, the tracing surface + five fixtures, open items), WIP protected at
+  752647e5; the finish round (sonnet: merged the landed value-display, re-pinned the stacked moves —
+  the hook root fda45181…, the pysp manifest 97aba7f7…, the :pysp scanner entry 77→281 applications
+  with the 21 tracing free names, :py held at 3968 —, the linked-tracing-profile test, the v4 riders);
+  the deepseek gate (REQUEST CHANGES: the newline-lines P2 — CRLF counted 2, form feed 0 — plus the
+  rewrap falsely claimed and four docstring lags; everything else verified sound, incl. an independent
+  recount of +204); the fix round (sonnet 874dbf6a: one line per NEWLINE token containing a break,
+  the CRLF/FF fixtures + the ^:slow LF-equivalence test on all VMs); MY mutation check: the new test
+  FAILS (8 failures) against the restored buggy counter, passes with the fix; the deepseek re-gate
+  verified all four fixes code-level but caught the rewrap STILL not done (byte-identical file, the
+  false claim repeated); applied the re-gate's dictated break as landing mechanics (7c915940, every
+  line ≤75 cols, zero lines over 80 in the file). Lanes: 10 JVM namespaces + the fix rounds (95/1487/0,
+  slow 54/710/0), Node 4069/149763/0, Dart all passed; the line-count fix is LF-invariant so the
+  quick lanes stand. Landed safepoint-s3:master = a822e152 (the f3a1e0bb docs merge folded in).
+Process note: the s3-fix engineer claimed the typescript rewrap twice without doing it — the re-gate's
+  blob-identity check is what caught it. Gate reports now cross-check "done" claims against blob/diff
+  evidence by default.
+Next: the antlr M0-M2 (m012e's NEWLINE/DEDENT fixtures → the codex verification → land), then the C3
+  completion gate (ruling 14) over the final head.

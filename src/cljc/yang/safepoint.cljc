@@ -16,6 +16,13 @@
      reserved namespace: no new tag, no gensym counter. An exit kind
      (`exit-kinds`: `:return` at `:call` sites) wraps the body instead: its
      hook is applied to the body's value, so it runs on normal exit only.
+   - A mark's value is a kind, or a vector `[kind datum ...]`: the data
+     (a function's name and line, a statement's line) are literals the
+     frontend knows and the derived tree may need. A profile entry is a
+     hook symbol, or `{:hook symbol :operands true}` to apply the hook to
+     the mark's data. A statement kind (`statement-kinds`: `:line`) marks
+     any node, not a lambda; its hook is applied before the node, which
+     is sequenced after it.
    - Every tail mark is stripped and recomputed over the whole derived tree
      (`yang.tails`): a wrapped body's old tail calls would otherwise skip
      its wrapper. With no site selected `A'` is `A`, row for row.
@@ -51,7 +58,7 @@
 
 
 (defn sites
-  "`{path kind}` of every site marked in the frontend-metadata relation
+  "`{path mark}` (a kind, or `[kind datum ...]`) of every site marked in the frontend-metadata relation
    `metadata` at occurrence `origin` of tree `root`."
   [metadata origin root]
   (into {}
@@ -62,7 +69,7 @@
 
 
 (defn site-set
-  "The selected sites as a sorted vector of `[path kind]`, in an order every
+  "The selected sites as a sorted vector of `[path mark]`, a mark a kind or `[kind datum ...]`, in an order every
    host computes alike."
   [selected]
   (vec (sort-by pr-str (map vec selected))))
@@ -75,31 +82,60 @@
   {:return :call})
 
 
+(def statement-kinds
+  "Kinds whose sites are any node, not a lambda: the hook runs before the
+   node, and the node's value is the site's."
+  #{:line})
+
+
+(defn- mark-kind
+  [mark]
+  (if (vector? mark) (first mark) mark))
+
+
+(defn- entry-hook
+  "The `{:hook sym :operands [literal ...]}` of profile entry `entry` at a
+   site marked `mark`, or nil."
+  [entry mark]
+  (when entry
+    (if (map? entry)
+      {:hook (:hook entry),
+       :operands (when (:operands entry) (vec (rest mark)))}
+      {:hook entry})))
+
+
 (defn- site-hooks
-  "`{:enter hook :exit hook}` (either absent) for a site of `kind` under
-   `profile`."
-  [profile kind]
-  (let [exit (some (fn [[x entry]] (when (= entry kind) (get profile x)))
+  "`{:enter h :exit h}` (either absent), each an `entry-hook`, for a site
+   marked `mark` under `profile`."
+  [profile mark]
+  (let [kind (mark-kind mark)
+        exit (some (fn [[x entry]] (when (= entry kind) (get profile x)))
                    exit-kinds)]
     (cond-> {}
-      (get profile kind) (assoc :enter (get profile kind))
-      exit (assoc :exit exit))))
+      (get profile kind) (assoc :enter (entry-hook (get profile kind) mark))
+      exit (assoc :exit (entry-hook exit mark)))))
 
 
 (defn- hook-application
-  [hook operands]
+  [{:keys [hook operands]} args]
   {:type :application,
    :operator {:type :variable, :name hook},
-   :operands operands})
+   :operands (into (mapv (fn [x] {:type :literal, :value x}) operands) args)})
+
+
+(defn- sequence-hook
+  "`node` evaluated after `hook` is applied."
+  [node hook]
+  {:type :application,
+   :operator {:type :lambda, :params [binder], :body node},
+   :operands [(hook-application hook [])]})
 
 
 (defn- prefix-hook
   "Lambda `node` with `hook` applied before its body runs."
   [node hook]
   (assoc node
-         :body {:type :application,
-                :operator {:type :lambda, :params [binder], :body (:body node)},
-                :operands [(hook-application hook [])]}))
+         :body (sequence-hook (:body node) hook)))
 
 
 (defn- wrap-hook
@@ -131,15 +167,17 @@
                                  n)))
                            node
                            (map-indexed vector slots))]
-                (if-let [{:keys [enter exit]} (get hooks path)]
-                  (do (when-not (= :lambda (:type node))
-                        (throw (ex-info "Safepoint site is not a lambda"
-                                        {:rule :site-not-lambda, :path path,
-                                         :type (:type node)})))
-                      (vswap! seen conj path)
-                      (cond-> node
-                        exit (wrap-hook exit)
-                        enter (prefix-hook enter)))
+                (if-let [{:keys [enter exit statement?]} (get hooks path)]
+                  (do (vswap! seen conj path)
+                      (if statement?
+                        (sequence-hook node enter)
+                        (do (when-not (= :lambda (:type node))
+                              (throw (ex-info "Safepoint site is not a lambda"
+                                              {:rule :site-not-lambda, :path path,
+                                               :type (:type node)})))
+                            (cond-> node
+                              exit (wrap-hook exit)
+                              enter (prefix-hook enter)))))
                   node)))]
       (let [out (walk ast [])
             missing (remove @seen (keys hooks))]
@@ -151,16 +189,20 @@
 
 (defn insert
   "Pure: the canonical row set `tree` (`{:root id :rows {id row}}`) with
-   each of `sites` (`{path kind}`) that `profile` (`{kind hook}`) maps a
-   hook to, by its kind or by an exit kind of it, rewritten: the entry hook
+   each of `sites` (`{path mark}`, a mark a kind or `[kind datum ...]`) that
+   `profile` (`{kind hook}`, a hook a symbol or `{:hook sym :operands true}`)
+   maps a hook to, by its kind or by an exit kind of it, rewritten: the entry hook
    prefixed, the exit hook wrapped around the body. Returns
    `{:tree A' :sites selected}`. With nothing selected `A'` is `tree`
    itself."
   [tree sites profile]
   (let [hooks (into {}
-                    (keep (fn [[path kind]]
-                            (let [h (site-hooks profile kind)]
-                              (when (seq h) [path h]))))
+                    (keep (fn [[path mark]]
+                            (let [h (site-hooks profile mark)]
+                              (when (seq h)
+                                [path (cond-> h
+                                        (contains? statement-kinds (mark-kind mark))
+                                        (assoc :statement? true))]))))
                     sites)
         selected (into {}
                        (filter (fn [[path _]] (contains? hooks path)))

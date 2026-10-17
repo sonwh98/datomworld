@@ -27,6 +27,7 @@
             [yang.python.antlr.safepoint :as hooks]
             [yang.python.antlr.import-programs :as imports]
             [yang.python.antlr.safepoint-programs :as programs]
+            [yang.python.antlr.trace-programs :as trace]
             [yang.safepoint :as safepoint]
             [yin.repl :as repl]
             [yin.repl.frontends :as frontends]
@@ -932,7 +933,10 @@
                #'programs/probe #'programs/admission #'programs/rebase
                #'programs/throwclose #'programs/nested-admission
                #'programs/delegation #'programs/while-true-pass
-               #'programs/caught #'programs/def-and-while]]
+               #'programs/caught #'programs/def-and-while
+               #'trace/trace-basic #'trace/trace-basic-crlf
+               #'trace/trace-basic-ff #'trace/trace-profile #'trace/trace-unwind
+               #'trace/trace-recursion #'trace/trace-unset]]
       (is (= (map node-shape (:yang.cst/nodes (parser/parse-source (:doc (meta v)))))
              (map node-shape (:yang.cst/nodes @v)))
           (str v)))))

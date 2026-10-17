@@ -211,12 +211,45 @@
 
 
 (defn- site
-  "`node` marked as a safepoint site of `kind` (`:loop`, `:call`). The
-   mark is map metadata, so it never enters a canonical row: projection
+  "`node` marked as a safepoint site of `kind` (`:loop`, `:call`, `:line`),
+   a keyword or a vector `[kind datum ...]`. The mark is map metadata, so it never enters a canonical row: projection
    puts it in the frontend-metadata side table, where `yang.safepoint`
    finds it."
   [kind node]
   (vary-meta node assoc :yang/site kind))
+
+
+(defn- newline-lines
+  "Per node id, the line breaks the packet's NEWLINE tokens hold before
+   that id (one per token, whatever its \n, \r\n, \r or \f spelling;
+   the start-of-input one holds none): the statement at id `i` starts on
+   line `1 + (nth v i)`. The packet carries no source text, so a line is the logical line: a
+   statement continued over several physical lines is counted once."
+  [pk]
+  (let [nodes (:yang.cst/nodes pk)]
+    (second
+      (reduce (fn [[n out] node]
+                [(if (and (= :token (:kind node)) (= "NEWLINE" (:type node)))
+                   (if (some #{\newline \return \formfeed} (:text node))
+                     (inc n)
+                     n)
+                   n)
+                 (conj out n)])
+              [0 []]
+              nodes))))
+
+
+(defn- line-of
+  [ctx n]
+  (inc (nth (:lines ctx) (:id n))))
+
+
+(defn- statement
+  "`node`, the lowering of statement `n`, marked as a `:line` site."
+  [ctx n node]
+  (if (contains? (meta node) :yang/site)
+    node
+    (site [:line (line-of ctx n)] node)))
 
 
 (defn- app*
@@ -1506,7 +1539,7 @@
           (build-vector (map (fn [[nm d]]
                                (build-vector [(u/lit nm) ((:lower ctx) ctx d)]))
                              kwdefaults))
-          (site :call
+          (site [:call fname (line-of ctx scope-node)]
                 (u/lam [args]
                        (if (seq (:locals s))
                          (apply u/app (u/lam (map symbol (:locals s)) body) cells)
@@ -1898,10 +1931,11 @@
     "stmt" (lower ctx (first (kids ctx n)))
     "simple_stmts" (u/seq-nodes (mapv #(lower ctx %)
                                       (rules ctx n "simple_stmt")))
-    "simple_stmt" (lower ctx (first (kids ctx n)))
-    "compound_stmt" (lower ctx (first (kids ctx n)))
+    "simple_stmt" (statement ctx n (lower ctx (first (kids ctx n))))
+    "compound_stmt" (statement ctx n (lower ctx (first (kids ctx n))))
     "flow_stmt" (lower ctx (first (kids ctx n)))
-    "expr_stmt" (lower-expr-stmt ctx n)
+    "expr_stmt" (let [v (lower-expr-stmt ctx n)]
+                  (if (= (:id n) (:display-id ctx)) (app* 'py/result! v) v))
     "pass_stmt" none
     "break_stmt" (lower-flow ctx n)
     "continue_stmt" (lower-flow ctx n)
@@ -1977,13 +2011,33 @@
       b)))
 
 
+;; A bare expression statement carries one child; an assignment, an augmented
+;; assignment and an annotation carry more.
+(defn- display-statement
+  "The id of the last top-level bare expression statement of the module,
+   the one a REPL submission displays (Clojure's last expression evaluated;
+   an assignment is a statement and displays nothing), or nil."
+  [pk]
+  (let [expr-stmts (for [stmt (p/child-rules pk (p/root pk) "stmt")
+                         simple (p/child-rules pk
+                                               (first (p/children pk stmt))
+                                               "simple_stmt")
+                         :let [e (first (p/children pk simple))]
+                         :when (and (p/rule? e "expr_stmt")
+                                    (= 1 (count (p/children pk e))))]
+                     (:id e))]
+    (last expr-stmts)))
+
+
 (defn- context
-  [packet unit]
+  [packet unit display?]
   (let [pk (p/validate! packet)
         analysis (scope/analyze pk)]
     {:pk pk,
+     :display-id (when display? (display-statement pk)),
      :unit unit,
      :importlib-bindings (importlib-bindings pk),
+     :lines (newline-lines pk),
      :max-digits (digit-budget packet),
      :analysis analysis,
      :scope (:module analysis),
@@ -2002,8 +2056,9 @@
    :package?}`, resolves its relative imports; nil (the default, as for
    `__main__`) is a packageless unit."
   ([packet] (lower-module-body packet nil))
-  ([packet unit]
-   (let [ctx (context packet unit)]
+  ([packet unit] (lower-module-body packet unit false))
+  ([packet unit display?]
+   (let [ctx (context packet unit display?)]
      (lower ctx (p/root (:pk ctx))))))
 
 

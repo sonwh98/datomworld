@@ -69,7 +69,7 @@
    Runtime state is allocated by `py/init!`, once per task, under the slot
    `py.rt/state` (the literal `:py/uninit` until `py/init!` flips it to
    `:py/ready` as its last write; a second call allocates nothing): the
-   three cells below, the builtin classes and functions as `py.b/*` keys,
+   four cells below, the builtin classes and functions as `py.b/*` keys,
    and the builtins namespace dict `py.b/builtins`, which `py/global-get`
    falls back to. All of it is reached through the store (`yin/def`
    appears only in the prelude):
@@ -102,6 +102,8 @@
                      frame fits; the hook prelude checks function entry
                      against it and sets it
      py.rt/out       the values `print` collected, one vector per call
+     py.rt/value     the REPL submission's result: the snapshot of the last
+                     bare expression statement it ran (None when none ran)
      py.rt/modules   sys.modules (C4 I1): the dict of py str name to module
                      object; an import consults it before anything else, a
                      miss is instantiated and inserted before its body
@@ -2528,6 +2530,15 @@
                       (conj (cell/get py.rt/out) (py/snapshot-all items 0 [])))
            :py/None))]
 
+    [py/result!
+     ;; the evaluation's result channel: a REPL submission's bare
+     ;; expression statement records its value, snapshotted (digit limit
+     ;; checked as print's) for the loop that reads and prints it
+     (fn [x]
+       (do (py/check-print x)
+           (cell/set! py.rt/value (py/snapshot x))
+           :py/None))]
+
     ;; ---------------------------------------------------------- conversions
     ;; The scalar conversions behind int, float, str, repr, abs, hex, oct,
     ;; bin and round (C3 slice S4). Text is validated here, before any
@@ -3279,11 +3290,13 @@
     [py/run-session
      ;; one REPL submission (ruling 18): `body` runs against the
      ;; persistent __main__ of sys.modules, made by the first submission,
-     ;; so a name one submission binds is read by the next; the value is
-     ;; run-main's. The bundled REPL runner calls it, so the runner names
-     ;; no runtime key
+     ;; so a name one submission binds is read by the next; it answers
+     ;; the output, the exception and :py/value (the last bare expression
+     ;; statement's value). The bundled REPL runner calls it, so the
+     ;; runner names no runtime key
      (fn [body]
        (do (cell/set! py.rt/out [])
+           (cell/set! py.rt/value :py/None)
            (cell/set! py.rt/ctx (py/ctx nil 0 0 nil))
            (let [hit (py/modules-ref (py/str "__main__"))
                  m (if (= hit :py/missing)
@@ -3297,7 +3310,8 @@
                                    :py/None))
                              (fn [e] e)
                              (fn [] :py/None))]
-             (assoc (assoc {} :py/out (cell/get py.rt/out))
+             (assoc (assoc (assoc {} :py/out (cell/get py.rt/out))
+                           :py/value (cell/get py.rt/value))
                     :py/exception
                     (if (= exc :py/None) nil (py/snapshot-exc exc))))))]])
 
@@ -3503,7 +3517,7 @@
 
 
 (defn- init-form
-  "`py/init!`'s body: the three runtime cells, every builtin class,
+  "`py/init!`'s body: the four runtime cells, every builtin class,
    function and method implementation, then the builtins dict seeded from
    the tables, then sys.modules with the runtime-synthesized modules
    `py/init!` pre-seeds (8.5.6 resolution step 2), then the ready flag,
@@ -3516,7 +3530,8 @@
                  (define 'py.rt/ctx '(cell/new (py/ctx nil 0 0 nil)))
                  ;; CPython's default sys.getrecursionlimit()
                  (define 'py.rt/limit '(cell/new 1000))
-                 (define 'py.rt/out '(cell/new []))]
+                 (define 'py.rt/out '(cell/new []))
+                 (define 'py.rt/value '(cell/new :py/None))]
                 ;; Group initialization phases so adding a builtin does not
                 ;; deepen every earlier form's occurrence path.
                 [(cons 'do
@@ -3608,12 +3623,12 @@
 
 
 (def runtime-keys
-  "Every key `py/init!` allocates, the ready flag aside, sorted: the three
+  "Every key `py/init!` allocates, the ready flag aside, sorted: the four
    runtime cells, the builtin classes, functions and method
    implementations, the builtins dict, and sys.modules with its three
    pre-seeded module objects. Read from the same tables `init-form` reads."
   (vec (sort-by str
-                (concat '[py.rt/ctx py.rt/limit py.rt/out py.b/builtins
+                (concat '[py.rt/ctx py.rt/limit py.rt/out py.rt/value py.b/builtins
                           py.rt/modules py.rt/sys py.rt/builtins-mod py.rt/importlib]
                         (mapv second builtin-classes)
                         (mapv second builtin-functions)
