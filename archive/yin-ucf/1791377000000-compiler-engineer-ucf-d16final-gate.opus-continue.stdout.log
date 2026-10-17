@@ -1,0 +1,16 @@
+I couldn't start this round. Nothing was done and no files were changed.
+
+**What blocked it:** the session started in the main checkout (`/Users/sto/workspace/datomworld`, on master). The task's worktree is `/Users/sto/workspace/datomworld-d16final`, on branch `ucf-d16-final` at 4d46b798. The sandbox only allows access inside the main checkout, so every route into the worktree was refused:
+- `git -C … status` was refused and asked for approval.
+- `ls` on the worktree's `collab/` and `test/yin/vm/ucf/` was blocked as outside the allowed directories.
+- Switching the session into the worktree needs interactive approval, which this non-interactive run can't give.
+
+**Why I didn't work from master instead:** master is also at 4d46b798, but the prior round's findings file (`collab/1791377000000-compiler-engineer-ucf-d16final-gate.findings.md`) exists only in the worktree's `collab/`. So does the "Remaining acceptance work" table that is this round's worklist, and probably any uncommitted row-test work from earlier rounds. Writing tests on master would split the D16-final work across two checkouts and ignore the worklist.
+
+**To unblock, either:**
+1. Re-run this delegate with its working directory set to `/Users/sto/workspace/datomworld-d16final`. For example, launch `claude -p` from inside the worktree, or add the path to the allowed directories (`--add-dir /Users/sto/workspace/datomworld-d16final`, with `cd` first).
+2. Pre-approve switching into that worktree for this session.
+
+Once I have access I'll go through every row of the worklist test-first. That includes confirming the two completion-crash rows and the row-7 post-report/release cuts pass on the completion-recovery repair. I'll run compose-test, compose-rows-test, main-test and the full JVM fast lane and report exact counts. Then I'll overwrite the findings file, starting with the Completed-GMT/Completed-Local/Coding-Agent lines. I won't touch `compose.cljc`, the landed namespaces or git.
+
+Separately, the claude.ai Gmail, Google Calendar and Google Drive connectors need authorizing in your claude.ai connector settings before they can be used; this task doesn't need them.

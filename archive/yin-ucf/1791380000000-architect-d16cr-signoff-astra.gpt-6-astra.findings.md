@@ -1,0 +1,4 @@
+Completed-GMT: 2026-10-08 20:59:19 GMT
+Completed-Local: 2026-10-09 03:59:19 Asia/Ho_Chi_Minh
+
+SIGN-OFF (ready to land). The repair implements atomic completion for eligible release and policy lapses while preserving same-transaction validation, actual lapse cause, exact closure/edge identity and epoch advancement. Recovery checks closure before release handling, never fabricates carriage, preserves abandonment re-candidacy and terminates impossible histories without retroactive repair. The original crash rows retain their completion assertions; added tests cover terminal results, uncertain acceptance, mismatches and abandonment. Documentation matches the ruling. This signs off the completion-recovery prerequisite, not the unfinished D16 gate or its missing-fixture error. Read-only review; no suites run.

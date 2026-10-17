@@ -1,0 +1,5 @@
+CONFIRMED
+
+A candidate holds nothing until an authenticated grant, so a passive proposal wait while the inbox is down is sound (a proposal creates no state and the grantor owes no answer), and accepting a grant into `:activating` without lowering is safe because nothing can be admitted, recorded or renewed without the inbox, so at worst the lease lapses at its bound and the epoch advances. The one condition the rulings already impose and that must hold here: an `:activating` candidate still stops at its own lease bound and releases (or lets lapse) if the inbox does not return before it, and it never lowers from a grant it can no longer confirm live through the ledger reader.
+
+(The D9 sign-off and D10 kernel-scope briefs bundled above this message appear superseded by D15a's existence; tell me if either still needs a verdict.)

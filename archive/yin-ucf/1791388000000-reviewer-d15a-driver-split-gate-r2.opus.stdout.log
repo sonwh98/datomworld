@@ -1,0 +1,84 @@
+Completed-GMT: 2026-10-07 16:44:29 GMT Completed-Local: 2026-10-07 23:44:29 +07
+
+# D15a verification review: driver split, fix round
+
+## Verdict: NOT READY
+
+Both of my blockers are closed for holders, and the architect's ruling is implemented for the holder path as written. One new blocker is left: a **candidate** with an unavailable inbox. It is the same problem as old finding 1 (the cadence predicate says a write is owed when none happens), and it also blocks a cleanup path. The fix is small.
+
+## Blocker 1 (owed-control-write? true during passive ledger waits): CLOSED
+
+- `owed-control-write?` (`driver.cljc:2308-2314`) now treats `:proposing` with no proposal as owed only when all of these hold:
+  - the driver is not stopped;
+  - the inbox is available;
+  - the status is not `:yin.k/not-holder`;
+  - the reason is not `:no-arbitration`.
+- That covers the three paths I named. "Held by another lease" and "can never be granted again" share the `not-holder` branch (`driver.cljc:1841-1843`). An unavailable ledger answers `:no-arbitration` (`driver.cljc:1829`).
+- Each path has its own test, and each test also checks that no proposal request was sent:
+  - `passive-held-candidate-owes-no-control-write-test` (`driver_test.cljc:1883`)
+  - `passive-closed-candidate-owes-no-control-write-test` (`:1897`)
+  - `passive-unavailable-ledger-candidate-owes-no-control-write-test` (`:1925`)
+- The held-by-another test also confirms that a fresh candidate is owed (`true`) before its first step, which is correct.
+
+## Blocker 2 (an unavailable inbox stopping renewal): CLOSED for holders, per the ruling
+
+Here is how `step-active-held` (`driver.cljc:2094-2143`) now meets each point of the ruling:
+
+- **Renewal goes ahead.** The old early return on unavailability before `renew` is gone. Binding validation still runs first, so a ledger outage or a stale binding still prevents renewal (pinned by `unavailable-inbox-does-not-waive-control-evidence-test`).
+- **Program work stays blocked on every route:**
+  - `drain` skips `apply-program-inbox` while the inbox is unavailable (`:1946`).
+  - Activation is skipped in program mode (`:2260`) and in combined mode (`:2263`).
+  - An armed exit that is still preparing (mint, prepare, fence) is not advanced (`:2130`).
+  - `cycle-result` does not arm a new exit (`:2080`).
+  - `program-step` does not rescan the inbox, so the flag from the last control scan keeps it blocked.
+- **Established brackets proceed.** Once the exit has an address, the report, release and offer brackets continue in control and combined modes. The "unavailable" status is kept rather than overwritten with `:yin.k/ok` (`:2132-2133`). The flag clears only after a later successful scan (`:1780`).
+- **Reply lane unavailable.** `renew` keeps resending the same pending request. It does not change the request id or the pre-send reading, does not count a renewal, and does not move the local bound. Only an authenticated carriage reply credits a renewal, and it is re-checked for tenure before and after (`:1705-1720`). Reply-first selection is unchanged: an unavailable reply lane ends the scan without reading the outcome lane.
+- **At the bound.** `binding-check` checks tenure before it reads the ledger, so expiry is detected even with an inbox down. The run ends once. After that the driver is in `:releasing`, where `step-releasing` retries the same release with its journaled intent first. Reopen tolerates an unavailable inbox (`:2598-2636`) only when a grant was folded, and it keeps the receipts for later reconciliation. An uncertain journal append is still a hard stall.
+- **Cadence.** A pending renewal or release still counts as owed while the inbox is unavailable (`:2315-2316`). Unavailability by itself does not (`unavailable-inbox-control-cadence-test`).
+
+The four regression rows from the ruling are pinned. Each runs under both split scheduling (`control-step` then `program-step`) and combined `step`:
+
+| Row | Test | What it proves |
+|---|---|---|
+| a | `driver_test.cljc:708` | Outcome lane down: renewal is credited; machine, attach count, observations and outcome position are unchanged; the program record stays queued |
+| b | `:743` | Reply lane down: two identical renewal requests, two attempt records, no acknowledgment, holder unchanged, outcome lane never read |
+| c | `:780` | Reply lane recovers: before the bound the renewal is credited; after the bound the run ends with a lease-bound cause and no credit |
+| d | `:806` | Both lanes: one run-end diagnostic, an intent/attempt pair before each release send, the same release request after restart, no machine, final carriage |
+
+There are extra tests for blocked activation (`:858`), conflicting history during reconciliation (`:906`) and the uncertain-journal stall (`:935`).
+
+## Findings
+
+**1. BLOCKING: a candidate with an unavailable inbox does nothing, while `owed-control-write?` still says a write is owed.**
+- `step-proposing` returns straight after `drain-control` when the inbox is unavailable (`driver.cljc:1825-1826`). It never reads the ledger, never resends the proposal, and never reaches `accept`.
+- The proposal branch of `owed-control-write?` (`:2309-2310`) does not look at inbox availability. So a candidate with a pending, uncarried proposal reports `true` on every tick and writes nothing. This is the same busy-loop problem for D15's `moved?` as old finding 1.
+- It also blocks two real outcomes:
+  - **A won grant is never taken.** Grants are seen on the ledger, not the inbox, but the early return stops the ledger read. The grant runs to its bound unused.
+  - **A stopped candidate never releases a late grant.** That release happens only through `accept` (`:1609-1610`), so cleanup is blocked by inbox unavailability alone. The ruling's principle is that neither lane's unavailability stops cleanup.
+- No test covers this: `unavailable-inbox-control-cadence-test` only checks `:proposing` with no proposal.
+- Recommended fix: drop the early return in `step-proposing`, so ledger reads, proposal resends, `accept` and the stopped-candidate release all proceed. Activation is already blocked separately (`:2260`, `:2263`), so this keeps the ruling's line: control continues, program work is suspended.
+- Simpler alternative: make the proposal branch of the predicate also return `false` while the inbox is unavailable. That fixes the busy loop but leaves the grant and cleanup gaps.
+- If there is any doubt that the ruling (written for holders) covers candidates, get a one-line Architect confirmation. Either way, add a test for a candidate with an unavailable inbox and a pending proposal, plus a stopped candidate with a late grant.
+
+**2. Non-blocking: a candidate stuck on a history defect is still reported as owed.**
+- When `step-proposing` finds a history defect or a fold defect (`:1837-1838`, `:1845`), it returns "unsatisfied" with no proposal and sends nothing.
+- `owed-control-write?` returns `true` for that state, because the exclusion lists only `not-holder` and `:no-arbitration`.
+- A persistent defect would keep `moved?` true forever. Better to list the passive waits the predicate allows, rather than the ones it excludes.
+
+**3. Non-blocking, coverage: row (d) proves "no activation" only on a stopped reopen.**
+- The reopened driver is wrapped in `driver/stop`, which hides whether an unstopped reopen with a re-proposal stays inactive while the inbox is unavailable. Finding 1 above affects exactly that path.
+
+**4. Non-blocking: reopen still fails for a candidate or source whose inbox is unavailable.**
+- Reopen tolerates an unavailable inbox only when a grant was folded (`:2600-2604`). Otherwise the failure is rethrown, so a candidate or source cannot restart while its inbox is down.
+- That may be intended, since the ruling covers holders. It is worth noting for D15's restart path.
+
+**Earlier observations, re-checked:**
+- **r2 #3 (unbounded journal, quadratic fold, full reconcile on reopen):** unchanged, non-blocking.
+- **r2 #4 (the "replaced" case):** still covered with a release lapse rather than a real regrant to another holder (`driver_test.cljc:1034`). Non-blocking.
+- **r2 #5 (another round's files in the worktree):** still present: the four `handoff_v2_*` test files and `test/resources/yin/vm/ucf/handoff-v2.txt`. Leave them out of the D15a commit.
+- **r2 #6 (destructive helper):** the fold over a destructive `read-outcome!` is still in `writer.cljc:522-534`. Non-blocking.
+- **Design doc:** the `universal-continuation-format.md` changes describe the ruling accurately (availability vs. refusal, renewal under unavailability, the cadence rule).
+
+This was a read-only review: I edited nothing and ran no suites.
+
+The Gmail, Google Calendar and Google Drive connectors need authorizing in your claude.ai connector settings before they can be used; this review didn't need them.

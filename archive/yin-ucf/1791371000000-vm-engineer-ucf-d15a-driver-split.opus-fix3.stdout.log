@@ -1,0 +1,30 @@
+The gate r2 blocker is fixed and the tests pass: the focused driver suite and the full JVM fast lane are both green.
+
+**The bug:** a candidate waiting to propose with its inbox down sent nothing, but `owed-control-write?` still said it owed a write, so D15's `moved?` would loop on it forever. Two related gaps:
+- While the inbox was down the driver skipped reading the ledger, so a stopped candidate never saw a late grant and never released it.
+- A stopped candidate kept resending a proposal the front hadn't yet confirmed.
+
+**Fix** (only `driver.cljc` and `driver_test.cljc` changed):
+- **`propose`:** sends nothing while the candidate is stopped or the inbox is down. A pending proposal just waits; it is resent unchanged once an inbox read succeeds.
+- **`step-proposing`:** now stops early only when the inbox has refused (as the holder phases do). With the inbox merely down it still reads the ledger. A late grant to a stopped candidate is checked, journaled and released with `{:cause :stopped}`, and the program is never lowered.
+- **`accept`, stale-own-grant case:** a stopped candidate answers `:ended` instead of proposing again.
+- **Combined step:** doesn't activate while the inbox is down. The grant is held and only lowering waits.
+- **`owed-control-write?`:** in `:proposing`, a stopped candidate or a down inbox owes nothing, whether or not a proposal is pending. Renewal and release behave as before, so an opened release still counts as owed until the front confirms it.
+
+**Tests (written first):**
+- `unavailable-inbox-candidate-waits-to-propose-test`, split and combined steps × reply and outcome inbox: owes nothing, sends nothing, then resends the same request once the inbox is back.
+- `stopped-candidate-releases-a-late-grant-test`, with the inbox available, reply down and outcome down: exactly one proposal and one release, ends `:failed` with `:dao.lease/released true`, no machine attached.
+- Two pure rows added to `unavailable-inbox-control-cadence-test`.
+
+**Results:**
+- **Before the fix:** 118 tests / 1912 assertions / 28 failures / 0 errors, all in the new rows.
+- **Focused driver suite after the fix:** 118 tests / 1912 assertions / 0 failures / 0 errors.
+- **Full JVM fast lane:** 3668 tests / 238519 assertions / 0 failures / 0 errors. `bb` wasn't on this shell's PATH, so I ran the task's own command, `clojure -M:test -e :slow`. Usual skips: five CBOR conformance cases that don't apply on the JVM, and the Dart-dialer row (`build/ws-project-peer` missing).
+- **Lint:** kondo 0 errors / 0 warnings; `git diff --check` clean.
+- **Not run:** cljstyle (the command needed an approval this session didn't have), and the Node and Dart lanes.
+
+**Things to know:**
+- I couldn't read the gate r2 log in the main tree (permission denied), so the fix follows your brief's description of the blocker.
+- One behaviour change: a candidate that is not stopped, with its inbox down, now accepts a grant into `:activating` instead of waiting. Lowering still waits for the inbox, as in the holder's paused-activation case.
+- The findings report has this round appended. The lane log is at `collab/d15a-fix-r1-jvm.log` in this worktree. It's under `collab/`, so it won't be committed.
+- No git writes.

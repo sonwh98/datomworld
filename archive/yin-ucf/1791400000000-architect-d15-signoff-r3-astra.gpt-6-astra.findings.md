@@ -1,0 +1,4 @@
+Completed-GMT: 2026-10-08 14:38:43 GMT
+Completed-Local: 2026-10-08 21:38:43 Asia/Ho_Chi_Minh
+
+SIGN-OFF (ready to land). Both returned journal backends are now checked against the exclusive composition’s required failure model before driver construction. A mismatch refuses holder addition, closes the rejected backend and releases an already-acquired progress backend when reply validation fails. The regression tests independently pin weaker progress and reply suppliers. This closes the remaining D15 composition finding; actual-backend validation occurs at holder addition, not `open!`, which checks the substrate declaration. Read-only review; no suites run.

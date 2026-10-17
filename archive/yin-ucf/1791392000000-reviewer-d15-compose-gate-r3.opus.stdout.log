@@ -1,0 +1,108 @@
+Completed-GMT: 2026-10-08 14:20:51 GMT Completed-Local: 2026-10-08 21:20:51 +07
+
+# D15 gate review, round 3: the composition and the REPL wiring
+
+**Verdict: READY.**
+
+All four of my round-1 blockers are closed in the current uncommitted diff, and astra's three items hold. I found no blocking regression. Five should-fix or hardening items follow (findings 5 to 9). Finding 5 is a small fix worth making before or right after the commit. I edited nothing and ran no suite; any test result mentioned below is the engineer's.
+
+## Round-1 blockers: all closed
+
+### 1. Durable holder storage: closed
+- **Every holder journal now comes from the composition's substrate.** `compose.cljc:562-595` (`holder-media`) takes both the progress journal and the reply journal from `:journals`, through `substrate-journal` (`compose.cljc:197-212`). Each backend is kept for `close!`.
+  - `file-journals` (`compose.cljc:235-265`) gives one locked `dao.stream.journal.file` directory per holder and journal kind.
+  - The file journal stores its identity in the header frame (`file.cljc:41`, `:persisted #{:identity …}`). So when a fresh process passes the same root, it reopens the same reply identity, and the driver's `:inbox-identity` check accepts it.
+- **An exclusive composition refuses a weak substrate, as data.** `exclusive-journals-refusal` (`compose.cljc:149-168`) runs before any authority is opened (`compose.cljc:521`). It answers `:journals-uncapable` for nil, empty, partial or undeclared substrates, for memory, and for a file substrate asked to survive `:power-loss`. Nothing silently falls back to memory.
+- **A holder whose journal already exists is recovered at addition.** `add-holder` (`compose.cljc:695-696`) calls `driver/reopen` when the progress journal already has records. So a restarted process never mints a second occurrence.
+- **Recovery reclaims old tenures.** `open-exclusive` now goes through `grant/reopen!` plus `grant/rebuild-judge` (`compose.cljc:400-450`). Tenures that were live at the crash are lapsed with cause `:policy` before the authority is handed out.
+- **The restart rows are real reconstructions.** `reopened-world` (`compose_test.cljc:324-347`) rebuilds from configuration only, after `close!` and after the authority backend is closed.
+  - `compose_test.cljc:771-859` covers: same reply identity, history unchanged, `:releasing` (never re-executing), no second mint, release sent, crashed lease ended, and a fresh reply journal refused with `:inbox-identity`.
+  - `compose_test.cljc:862-927` covers a crash between a reply arriving and being retained, with the reply retained exactly once after recovery.
+
+### 2. Shutdown drain independent of the endpoint: closed
+- **New drain predicates.** `shutdown-enter?` (`main.cljc:1110-1118`) enters on `(or server (custody-owed? state))`. `shutdown-drained?` (`main.cljc:1121-1130`) exits on endpoint stopped AND nothing owed. `shutdown-tick` (`main.cljc:1133`) applies the stop latch, then the custody control step, then `stop-tick`, which answers stopped for an absent server.
+- **All three hosts use them.**
+  - JVM: `drain-server!` (`main.cljc:1162-1189`).
+  - Node: `main.cljc:1351-1379`.
+  - Dart: `main.cljc:1486-1516`.
+  - Node and Dart now store `:state state'` on each continuing drain tick (`main.cljc:1373`, `1510`).
+- **The rows run each host's real loop.**
+  - JVM `poll-loop!` (`main_test.cljc:1778`) uses an injected `exit!`. The gate opens at 150 ms against a 5 s budget (200 × 25 ms), so the timing has ample margin.
+  - Node and Dart `run-node!`/`run-dart!` rows drive the owner's own `:tick`, with no endpoint. Each host has two rows: the release ends the drain, and a write that stays owed spends exactly `stop-ticks + 2` control ticks.
+- **Default behaviour is unchanged.** With `:custody` nil, entry and exit reduce to the old `server` / `stopped?` conditions.
+
+### 3. Close before exit: closed
+- `compose/close!` (`compose.cljc:538-554`) retires the authority, then closes every progress and reply backend it opened. Each close is guarded by its own try, and the function is idempotent.
+- `close-index-store!` (`main.cljc:862`) calls it first. Every host's post-loop exit path runs through that function (`main.cljc:1226`, `1328`, `1460`).
+- **Rows:** `main_test.cljc:1731` checks the exit path directly; the JVM-loop row checks that the directory is unlocked after the real loop; `compose_test.cljc:930-945` checks `close!` on its own.
+- The stale-value sub-point is only partly addressed; see finding 7.
+
+### 4. Exclusivity gate: closed
+- **A fork refuses `:arbitration`.** `arbitration-of` (`compose.cljc:665-677`) refuses it, tested at `compose_test.cljc:572`.
+- **A fork holder given exclusive-header bytes is harmless.** Its ledger reader answers nil, so the driver ends `:no-arbitration` (`driver.cljc:1306`, `1844`), and that state owes no write (`driver.cljc:2330`).
+- **Holder configs can't replace composition seams.**
+  - The allowlist is `holder-config-keys` (`compose.cljc:598-622`), checked before anything is minted (`compose.cljc:685`).
+  - `driver-config` (`compose.cljc:625-647`) merges only allowlisted keys, and `:enroll!` last.
+  - The row at `compose_test.cljc:589` sends each of the 14 seam keys alone and expects each to be refused.
+
+### Astra's three items
+- **Stop latch for late additions:** holds.
+  - `add-holder` stops a driver added after the latch (`compose.cljc:699`).
+  - `program-step` is a no-op once latched (`compose.cljc:893`).
+  - `restart` reapplies the latch (`compose.cljc:765`).
+  - Both `holder` and `source` are pinned (`compose_test.cljc:636-670`).
+- **Durable storage and the drain without an endpoint:** covered under blockers 1 and 2.
+
+## Regression hunt in the REPL wiring: clean
+- **`step-all` keeps the custody value.** It now feeds `(:repl state)`, which carries the stepped custody, into `recheck-on-load-events` (`main.cljc:1007`). Using the old local `repl` would have dropped the custody step.
+- **The refusal branch latches the stop** (`main.cljc:1001`).
+- **The program step runs only while `:running?`** (`main.cljc:1013`).
+- **`moved?` includes custody-owed** (`main.cljc:1039`).
+- **Custody survives the endpoint.** The endpoint threads the whole `:repl` map, so `:custody` is carried through (`serve.cljc:515-518`).
+- **`run-node!` and `run-dart!` are now public, for tests only.** That is consistent with the ClojureDart rule that cross-namespace access to private vars fails at runtime.
+
+## Findings (none blocking)
+
+### 5. Should-fix: a refused `add-holder` leaves its journal directories locked
+- **What happens:** `holder-media` opens and locks the progress backend, then the reply backend (`compose.cljc:575-579`), before `driver/reopen`, `make` or `front-of` run (`compose.cljc:696`, `712`). If any of those throws, the composition value is never updated, so `close!` cannot see those backends.
+- **The same leak in `substrate-journal`:** when `journal/open!` refuses (`compose.cljc:207-211`), the backend it just obtained is not closed either.
+- **Why it matters:** this is exactly the restart path. After an `:inbox-identity` refusal, retrying the addition in the same process gets `:locked` (on the JVM, `fs/lock!` refuses an overlapping lock) until the process exits.
+- **The test shows it:** `compose_test.cljc:826-855` leaks `root/h1-progress` and never closes `opened`'s authority.
+- **Fix:** wrap the body of `add-holder` after `holder-media` in a try that calls `close-backend!` on both opened entries and rethrows. Do the same in `substrate-journal`, and add one retry-after-refusal row.
+
+### 6. Hardening: the substrate gate trusts the substrate's own label, not the backends it supplies
+- **The gap:** `journal-substrate-capable?` reads `:dao.stream.journal/durability` from the substrate map (`compose.cljc:158`). A hand-built `{durability file-journal/durability, :progress-backend! memory…, :reply-backend! memory…}` passes the exclusive gate while journalling to memory.
+- **Fix:** every backend already declares its own durability (`file.cljc:92`; the memory backend carries one too). In exclusive mode, `substrate-journal` could check the backend's own declaration against `:failure-model`, the same way the authority gate reads `authority/durability`. Both shipped constructors are honest, so this is not a blocker.
+
+### 7. Residual from round-1 #3: close and exit read a stale state
+- **Where:**
+  - Node and Dart call `finish!` on the `shutdown-drained?` branch and the budget branch without storing that tick's `state'` (`main.cljc:1369`, `1506`).
+  - The JVM closes the state from before the drain, because `drain-server!` discards its final state (`main.cljc:1224-1226`).
+- **Harmless today:** `compose/close!` only touches resources held by reference — the authority object, and `:backend` entries that never change during the drain (no holder is added and `restart` keeps `:backend`) — and `exit-status` only looks at fields the drain never changes.
+- **Worth fixing anyway:** store the final state before `finish!` and have `drain-server!` return its state. That removes a latent hazard if `close!` ever starts depending on per-tick data.
+
+### 8. Note: nobody closes the authority's own backend on REPL exit
+- `authority/close!` explicitly leaves its journal open (`authority.cljc:149-158`), and `compose/close!` documents the authority backend as the caller's. Under `main`, the caller is stage E, and no exit hook closes it.
+- **Effect:** the OS lock is released when the process exits on the JVM and Dart. On Node the claim file stays behind and depends on the pid-reuse rule.
+- **Before stage E:** decide who owns it — `close!`, or an `:on-close` passed into `boot`.
+
+### 9. Round-1 non-blocking notes, re-checked
+- **#5 (default ring evicts): still open.** The `default-inbound-capacity` docstring still says "The backpressure" (`compose.cljc:81-85`), but the default ring evicts and never answers `:full`. Every `:full` drain row uses a hand-built `gated-stream`, so production's default inbound turns overflow into gaps and retries.
+- **#6 (inbox adapters): now fully conformant.** The identity survives a restart through the file header and the outcome reader's stable `ledger/outcomes` identity.
+- **#7 (ledger reader): unchanged.** `ledger-reader` still reads `(:journal a)` and replays from the origin on every call (`compose.cljc:334-352`); flag for stage E.
+- **#8 (Flutter embed and browser demo bypass custody): unchanged** and acceptable.
+- **#9 (test gaps): partly closed.** Fork plus `:arbitration`, and file plus `:power-loss`, are now covered. Still missing: an authority with lock kind `:none`, and an exclusive (not fork) run of the "no yin.repl loaded" subprocess row (`compose_test.cljc:948-975`).
+- **#10 (store-audit allowlist): still correct.** `store_write_audit_test.clj:364-372` names the same three sites, and they are still the only `:store`-keyed map literals in `compose.cljc`. It still needs the orchestrator's explicit acceptance because it is outside the permitted diff.
+- **#11 (gate checked only at `open!`): unchanged** and acceptable.
+
+### 10. Docs: what the docstrings say about `:arbitration` contradicts the exclusive path
+- `source`'s docstring says "a supplied :arbitration is a refused assembly" (`compose.cljc:738-740`).
+- But in exclusive mode, `arbitration-of` silently replaces a caller's `:arbitration` (`compose.cljc:677`), and `holder-config-keys` allows the key.
+- The behaviour is safe, since the composition's own arbitration always wins. Either refuse it in exclusive mode too, or fix the docstring.
+
+### 11. Outside this slice: a golden fixture that committed tests read is untracked
+`test/resources/yin/vm/ucf/handoff-v2.txt` is untracked in this worktree and on master, yet the committed `handoff_v2_census_test.cljc:233-236` reads it. A clean checkout would fail that test. It predates D15 (dated 2026-10-07), so it should get its own commit rather than being swept into the D15 commit, or left out.
+
+## Before landing
+- **Required:** none.
+- **Recommended:** finding 5 (close on refusal, plus a retry row), then findings 6 and 7. Findings 8 and 10 go to the stage-E or docs queue. Finding 11 is the orchestrator's call.

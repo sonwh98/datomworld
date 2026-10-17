@@ -1,0 +1,12 @@
+**Verdict: ACCEPTED.** The revised post at commit e6421ca3 closes every blocking and non-blocking item from the first review. Findings are written to `collab/1791396000000-architect-blog-re-review.claude-fable-5-1.findings.md`.
+
+What I verified against the tree:
+
+- **Counts:** the 3 modules / 55 exports / 40 Python calls / 22 core primitives wording is in the abstract, intro, and section 1, with the corrected per-module lines.
+- **Tense:** sections 3 and 5 are framed as the C4 plan and "where the architecture points next". The upgrade and reproducibility bullets carry the ruling 11 and package-identity qualifications. The module shape matches the design doc text.
+- **Prelude semantics:** the three symbols exist in the prelude under the names the post now uses. MRO is gone, effects are listed.
+- **Rows example:** the compiler does lower `+` to the prelude's add function, and the EAV style matches the sibling post.
+- **Symmetric ignorance:** stated in the master design's own words, macros removed from the walker bullet, the `$ast` attribution corrected.
+- **Format:** all six lists use the bulleted class, all three back-link targets exist, the file parses as EDN.
+
+Two optional cosmetic nits remain, neither needing a further pass. One row in the example packs two attributes where the series uses one per row. The invariant sentence is attributed to two sibling posts rather than to the master design.

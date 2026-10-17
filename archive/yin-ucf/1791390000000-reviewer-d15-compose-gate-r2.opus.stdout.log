@@ -1,0 +1,119 @@
+Completed-GMT: 2026-10-08 13:10:13 GMT Completed-Local: 2026-10-08 20:10:13 +07
+
+# D15 gate review, round 2: the composition and the REPL wiring
+
+**Verdict: NOT READY.**
+
+The fix round closes three of my four round-1 blockers outright: the shutdown drain, the close before exit, and fork running an exclusive export. It also closes the architect's stop latch. Two pieces of my round-1 blockers remain open:
+
+- **Finding 4, second half: not addressed at all.** A holder's config still overrides the composition's own seams. The engineer's session could not read my round-1 log, and the dispatch's restatement left this half out. The engineer's report itself says anything beyond the restatement "is unaddressed".
+- **Finding 1, the gate bullet: still open.** Durable holder storage now exists as an option. But an exclusive composition still opens without it, on in-memory holder journals, and passes the gate.
+
+I edited nothing and ran no suite. The lane counts quoted are the engineers'.
+
+## Status of the round-1 blockers
+
+### (1) Durable holder storage: mostly closed; the gate still does not enforce it
+**Closed:**
+- **Backends can be reopened.** `compose.cljc:150-211` adds a `:journals` substrate:
+  - `file-journals` gives each holder a progress directory and a reply directory, `<root>/<h>-progress` and `<root>/<h>-reply`.
+  - `memory-journals` keeps the frames in one atom.
+  - Both journals come from the substrate, and the reply journal's backend is now kept (`holder-media`, `:515-524`).
+- **Restart reopens by identity.** A journal's identity lives in its header frame (`journal.cljc:8-26`), so reopening the same frames gives back the same identity. A holder whose progress journal already stands is folded by `driver/reopen` when it is added (`add-holder`, `:608-609`). `open-exclusive` reopens the authority through `grant/reopen!` and `grant/rebuild-judge` (`:357-393`).
+- **Reconstruction is pinned without the original composition.** `reopened-world` (`compose_test.cljc:315-338`) rebuilds from the directory, the substrate, the store, the clock and the holder config only. The memory-substrate row checks:
+  - the same reply identity;
+  - the whole progress history;
+  - `:releasing` after recovery;
+  - one mint only;
+  - the release sent over the rebuilt front.
+  - a fresh reply journal is refused with `:inbox-identity`.
+- **The read-before-retention crash row is real.** The crash lands after the front appends the renewal's reply and before the holder retains it, on `file-journals` (`:714-779`). The recovered holder retains that reply exactly once and sends the pending release.
+- **One caveat on the crash rows:** they simulate the crash with an orderly `compose/close!` plus `file-journal/close!`. On one JVM that is unavoidable, because the directory lock is per process. It is acceptable.
+
+**Open (blocking, see A2):** with `:journals` nil, which is the default, an exclusive composition still mints memory journals (`:157-159`). Passing `memory-journals` is accepted the same way. Either way it passes a gate that promised `:process-crash`.
+
+### (2) The shutdown drain: closed
+- **Entry and exit are shared.** `shutdown-enter?` (an endpoint, or custody owes a write) and `shutdown-drained?` (the endpoint stopped and nothing owed) are both in `main.cljc`. `stop-tick` now handles a nil endpoint.
+- **All three host loops use them:**
+  - JVM `drain-server!`: entry check, a `shutdown-tick` every tick, and `shutdown-drained?` before the budget check.
+  - Node and Dart: the stopping branch is gated on `shutdown-enter?`, and the drain branch tests `shutdown-drained?`.
+- **Tests drive each real loop:**
+  - JVM `poll-loop!` with no endpoint; the stream opens mid-drain, and the release, not the budget, ends the drain.
+  - `run-node!` and `run-dart!` are now public with an injected `exit!`. `pump-while` calls the owner's own `:tick`.
+  - Each host has a "delivered release ends it" row and a "whole budget spent" row, the latter at exactly `stop-ticks + 2` attempts.
+- **No program step runs during the drain:** `shutdown-tick` is `custody-stop`, then `custody-control-step`, then `stop-tick`.
+- **The default is unchanged:** with `:custody` nil, `custody-owed?` is false, so the old endpoint-only behaviour holds.
+
+### (3) Closing custody before exit: closed
+- `close-index-store!` calls `compose/close!` first on every exit path.
+- `compose/close!` closes the authority value, then every progress and reply backend that has a `::file-journal/close!` key. It never throws and is idempotent.
+- The directory unlock is pinned across hosts, on the real JVM loop exit, and by compose's own close row.
+- **Round-1 3c is closed in effect, not literally.** Node and Dart `finish!` still read `(:state @box)`, which the drained and budget branches do not refresh. The JVM still closes `state'` from before the drain. This is harmless: `close!` only touches backend and authority references, and those cannot change during the drain. See non-blocking item 5.
+
+### (4a) Fork running an exclusive export: closed
+- **Fork refuses `:arbitration`.** `arbitration-of` (`:585-591`) refuses a caller's `:arbitration` in fork mode, pinned by `a-fork-refuses-a-caller-supplied-arbitration-test`.
+- **Exclusive always uses its own arbitration.** It overwrites any value the caller supplied.
+- **A fork holder given exclusive-header bytes fails safe.** The fork's `read-ledger!` answers nil, so the driver parks the holder in a passive `:no-arbitration` wait. It never runs.
+
+### (4b) Holder configs overriding composition seams: NOT FIXED (see A1)
+
+### Architect item 3, the stop latch for late additions: closed
+- `add-holder` stops anything added while `:stopped?` is set (`:612`), and that covers recovered holders too.
+- `program-step` is a no-op while the latch stands (`:804`).
+- `restart` reapplies the stop.
+- Both the `holder` and `source` paths are pinned, with red evidence on mutation.
+
+### The `handoff-v2.txt` fixture: correct; it must be committed with this slice
+- **The lift has not changed since the file was written.** The file was written on 2026-10-07 at 20:52 +07, after D10b-B. The only later commits under `src/` are S2d, C3 S7, S3a-1 and D15a, and D15a touched only `holder/driver.cljc` and `holder/inbox.cljc`. Neither is lift or wire code.
+- **The census ran green over this tree.** `yin.vm.ucf.handoff-v2-census-test` runs in `d15fix-jvm-full.log` and `d15fix-node-full.log`, both at 0 failures. The engineer's focused run reported 5 tests and 163 assertions, all green.
+- **Limits of my check:** I could not hash it, because there is no blake3 tool here. The Dart census was not rerun this round.
+- **Master is affected now.** Master's working tree has no `test/resources/yin/vm/ucf/handoff-v2.txt`, while master's census test reads it. So master's census already fails on a clean checkout, and the fixture has to land with this slice.
+
+## Findings
+
+### Blocking
+
+**A1. A holder's config still overrides the composition's own seams (round-1 4b, not addressed).**
+- **Where:** `driver-config` (`compose.cljc:544-561`) still merges `(dissoc config :inbound)` after the seam map. A holder config can therefore replace `:journal`, `:reply-inbox`, `:outcome-inbox`, `:read-ledger!`, `:append-request!`, `:clock`, `:store`, `:medium` or `:me`. Only `:enroll!` is protected, because it is merged last.
+- **The fix round made this worse.** Three paths now read the substrate's journal while the driver writes to the caller's:
+  - `add-holder` decides `recovered?` from the substrate journal `(:journal media)`, not the journal the driver writes to.
+  - `close!` closes the substrate's backends.
+  - `restart` reopens `[:progress h :backend]` and puts that handle over the caller's `:journal` in the stored config.
+- **Example:** a holder config carrying `:journal` writes its whole history to the caller's journal. A restart then folds the empty substrate journal, losing the history, and `add-holder` treats the holder as fresh.
+- **Other overrides:** a `:reply-inbox` override brings back the ring inbox the research disqualified. An `:me` override mis-attributes the holder's lease facts, because the front's resolver still names `h`.
+- **Required:** merge the composition's seams last, or refuse those keys in a holder config. Add a row that tries one override, such as `:journal` or `:reply-inbox`.
+
+**A2. The exclusivity gate still does not cover the holder side (round-1 finding 1, bullet 2).**
+- **What happens:** with `:mode :exclusive :failure-model :process-crash` and `:journals` nil, the default, every holder journal is `journal/memory-backend` (`:157-159`). `memory-journals` passes the same way. The only gate check, `check-substrate!`, checks shape, not durability.
+- **Why it matters:** the authority's file backend can promise `:process-crash`, but the holder intents and reply history do not survive one. That is the silent downgrade the gate exists to prevent, and the round-1 "required" line asked for the composition to supply durable backends.
+- **Required:** an exclusive composition needs a substrate that declares a failure model at least as strong as the required one. `file-journals` can carry `file-journal/durability`; `memory-journals` declares `:none`. Without one, `open!` should answer `:yin.k/unsatisfied`, the same way the authority gate refuses.
+- **Test impact:**
+  - The many exclusive rows that pass `:journals` nil would move to `file-journals` over the temp directory that `exclusive-world` already creates.
+  - The memory-substrate recovery row would need either a file substrate or an explicit test-only acknowledgement.
+- **If the Architect prefers to allow a memory substrate for exclusive** (for example, labelled in `status`), that is a ruling to obtain, not an assumption.
+
+### Non-blocking
+
+1. **Docstring drift in `compose.cljc`:**
+   - The ns docstring (`:47-50`) says "every holder's control step, then every front, then the judge". The code and `control-step`'s docstring say judge, then fronts. The ns docstring is wrong.
+   - `source`'s docstring says "a supplied :arbitration is a refused assembly" for exclusive, but `arbitration-of` silently overwrites it.
+   - `default-inbound-capacity` still calls an evict-oldest ring "the backpressure" (round-1 item 5, carried over).
+2. **File locks leak when adding a holder fails partway.** `holder-media` opens and locks the progress and reply directories before the driver's assembly validates the config. If `make` or `driver/reopen` then throws, or the reply backend refuses, those backends are never recorded in `c`. `close!` cannot release them, and retrying in the same process gets `:locked`. Close the opened backends when an add fails.
+3. **Nothing on the exit path closes the authority's own backend.** `compose/close!` leaves it to its caller by design, and `authority/close!` leaves the journal as it is. The REPL exit path does not close it either. No CLI path wires `:custody` yet, so this is stage E's concern. When stage E wires it, the backend close has to join the exit path, especially on Node, whose lock is a claim file.
+4. **`open-exclusive` reclaims every live tenure on every open** (`grant/reopen!`). This was disclosed. It is correct for an in-process grantor. If stage E puts holders in other processes behind fronts, restarting the grantor process ends their leases. That is an Architect question for stage E, not a D15 defect.
+5. **Node and Dart `finish!` close and compute the exit status from the previous tick's box state** (round-1 3c). It is harmless today, as explained above. Updating `:state` on the drained and budget branches would make it exact.
+6. **Carried from round 1:** `ledger-reader` still reads the authority's `:journal` internals and replays the whole ledger on every tick (item 7). `enroll`, `abort` and `target-reader` still have no D15 rows.
+7. **Lint coverage was split across the two sessions.** The glm session's kondo and cljstyle were blocked by its sandbox. The deepseek session then ran both through mise over the six changed files and reports them clean.
+
+## No regressions found
+- **`step-all` with `:custody` nil behaves exactly as before.** The `:else` branch's switch to `(:repl state)` is identical when nothing changes custody.
+- **The endpoint drain without custody behaves as before:** `custody-owed?` is false, so the exit is `serve/stopped?`.
+- **`shutdown-tick` never runs a program step.** Its per-tick `custody-stop` is idempotent.
+- **The hydration and refusal branches still step the control plane, and the refusal branch latches the stop.**
+- **The `store_write_audit` allowlist entry still matches** the three `:store`-keyed maps: `bare-composition`, `driver-config` and `front-of`.
+- **No new thread, timer, loader or DHT step owner** appears in `compose` or `main`.
+
+## What re-gating needs
+1. **A1:** the composition's seams win over a holder's config, or those keys are refused, with a row that tries an override.
+2. **A2:** the exclusive gate requires a substrate whose declared durability covers the failure model, or an Architect ruling that allows otherwise.
+3. **Commit:** `test/resources/yin/vm/ucf/handoff-v2.txt` together with `compose.cljc` and `compose_test.cljc`, both currently untracked.

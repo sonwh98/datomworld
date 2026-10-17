@@ -1,0 +1,27 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+D15 is complete and green on all three lanes. The final report is at `collab/1791365499405-compiler-engineer-ucf-d15-compose.findings.md`.
+
+## What landed
+
+**`src/cljc/yin/vm/ucf/compose.cljc`** (new) — the composition stage E drives:
+- **`open!` + the exclusivity gate**: exclusive opens the authority and reads `exclusive-capable?` for the required failure model; a memory backend answers `:yin.k/unsatisfied :exclusive-uncapable` with the durability declaration — never a silent fork. Fork only on explicit `:mode :fork`, labelled `:yin.k/fork` in the value and `status`.
+- **Authority side**: the judge (wired to a tick log and every holder's lease medium), one front per holder, the target and outcome readers, the diagnostic stream.
+- **Holder side**: `holder`/`source`/`restart`/`hand-off`/`enroll`/`abort` assemble the landed driver over composition-supplied seams — inbound appender, reply journal + outcome projection as D15a's durable positional inboxes, ledger reader, lease clock, progress journal (backend kept for `restart`), protection.
+- **Steps**: `control-step` (holders → judge → fronts), `program-step`, `stop`, `owed-control-write?` (aggregate).
+
+**The REPL wiring** — control step in `step-all` right after `repl.dht/step` (before the refusal/admission branches, so it runs during hydration and past refusal); program step after `driver/repl-step`, before `serve/step`, guarded on `:running?` with the stop latch in its place; `moved?` gains `custody-owed?`; the new `shutdown-tick` (latch + control step + endpoint drain) is what all three host loops now call. No new thread, timer, or step owner.
+
+## Evidence (exact counts)
+
+| Lane | Result |
+|---|---|
+| JVM compose-test | 5 tests / 49 assertions, 0 fail |
+| JVM main-test | 41 tests / 339 assertions, 0 fail |
+| JVM full fast lane | **3752 / 239203, 0 failures, 0 errors** |
+| Node full lane | **3606 / 103557, 0 failures, 0 errors** |
+| Dart (both namespaces) | All tests passed (38) |
+| kondo / cljstyle / `git diff --check` | 0/0, clean, clean |
+
+Red evidence: the first cut failed the whole-handoff row on a real race (fronts-before-judge let the program half's binding check see the release lapse before the carriage reply — the order is now judge-then-fronts and documented); both suites red against HEAD src; a one-line mutation red (removing the control-step call → 6 failures) proves the wiring rows detect its absence.
+
+Two things to note honestly: the tests were written after the composition implementation (stated in the report; red/green is iteration-based, not per-row pre-implementation), and **one file outside the named diff changed** — `store_write_audit_test.clj` gained one allowlist entry for compose.cljc's three `:store`-keyed carrier maps (the `yin.repl.link/composition` precedent; the driver's assembly key couldn't be renamed). It's flagged in the report for the reviewer. No git writes were made.

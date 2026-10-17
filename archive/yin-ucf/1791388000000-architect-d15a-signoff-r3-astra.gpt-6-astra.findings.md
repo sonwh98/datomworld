@@ -1,0 +1,4 @@
+Completed-GMT: 2026-10-08 12:17:10 GMT
+Completed-Local: 2026-10-08 19:17:10 Asia/Ho_Chi_Minh
+
+SIGN-OFF (ready to land). D15a satisfies the availability ruling: authenticated control renewal and cleanup continue despite unavailable inboxes, program work remains blocked, unacknowledged renewals retain their identity and reading without extending tenure, and expiry establishes durable release cleanup without revival. The regression rows cover both lanes, recovery before/after the bound, journal uncertainty and combined stepping. D15a is already committed as `2cf99c13`; the current uncommitted changes concern D15 and are outside this confirmation. No files edited or suites run.

@@ -1,0 +1,29 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+The push wasn't delivered (Remote Control inactive), so here is the full report:
+
+## Resolution complete and verified — but the two git commands are permission-blocked
+
+**The merge design** (all 7 conflict regions in `src/cljc/yin/repl/main.cljc`):
+
+- **`stop-tick`** — master's rewrite kept verbatim: 3-arity `[state server now]`, steps the head board (`repl.dht/step`) and the endpoint, returns `[state server lines stopped?]` with `stopped?` = endpoint stopped AND `repl.dht/stopped?`, nil-server safe (which subsumes D15's absent-endpoint branch).
+- **`shutdown-tick`** — D15's custody wrapper around master's tick: `custody-control-step (custody-stop state)` then `stop-tick`. Exactly one custody control tick per drain tick, preserving the pinned `stop-ticks + 2` attempt counts.
+- **`shutdown-enter?` / `shutdown-drained?`** — D15's contracts, with the head board folded into the same bounded drain per rule (3): entry adds "a head board that still owes its stop-and-drain" (`(get-in state [:repl :dht])`, nil for non-DHT shells so all pinned test rows are unchanged); exit adds `(repl.dht/stopped? (:repl state))`. Without the board term, master's board-drain contract would have been silently dropped for DHT shells without `--port`/custody — that was the one place the two sides genuinely overlapped, and it composes rather than conflicts.
+- **clj lane** — master's `drain!` (name, state-answering contract, board ask at entry) + D15's `shutdown-enter?` gate, `shutdown-tick` stepping, and `shutdown-drained?` exit; `poll-loop!` keeps master's drained-state binding.
+- **node/dart lanes** — D15's public `exit!` seam (tests drive the 4-arity) and drain shape, plus master's `repl.dht/stop!` board ask at drain entry and box threading.
+- **`step-all`** — D15's placement untouched by the conflict: custody control step after the dht step, before the refusal/admission branches (rule 2 ✓); custody program step after the driver step, stop latch otherwise; custody-aware `moved?`.
+- **`close-index-store!`** — D15's `custody-of` + `compose/close!` body with master's board-drained docstring sentence.
+
+**One deliberate deviation from rule (4):** I did **not** keep the `head.ws` require. Master commit `9b435060` removed `yin.vm.linker.head.ws` entirely (absorbed into `yin.vm.linker.head.board` over `dao.stream.remote-channel`); its only use here became `remote-channel/loopback-literal?`. Keeping the require would be a broken namespace reference — kondo, compilation, and the tests would all fail. The requires keep master's head-track addition (`remote-channel`) **and** `compose`, which is both sides' intent.
+
+**Verification (all green, run firsthand):**
+- `clj -M:kondo --lint src/cljc/yin/vm/ucf/compose.cljc src/cljc/yin/repl/main.cljc` → 0 errors, 0 warnings
+- `cljstyle check` (via `mise exec`) → clean, after fixing one whitespace-only indent in the `poll-loop!` tail
+- `clojure -M:test -n yin.vm.ucf.compose-test -n yin.repl.main-test` → **57 tests, 505 assertions, 0 failures, 0 errors** (both namespaces ran; includes the pinned drain-entry/exit, control-tick-count, journal-close, and JVM/Node/Dart loop tests)
+
+**Blocked:** `git add src/cljc/yin/repl/main.cljc` and `git rebase --continue` were denied by this session's permission layer on every variant (plain, sandbox-disabled, editor-safe forms) — the worktree's git index lives outside this session's allowed directory. I did not force it. The rebase is still stopped at the pick of `5c224c99`; the file is fully resolved in the working tree (no markers, unstaged). To finish, approve those commands or run:
+
+```
+git add src/cljc/yin/repl/main.cljc && git rebase --continue
+```
+
+After that, `git log --oneline -3` / `git status` will confirm — I could not produce them, so treat the rebase as incomplete until you've run it.

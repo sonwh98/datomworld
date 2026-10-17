@@ -1,0 +1,55 @@
+Completed-GMT: 2026-10-07 20:48:00 GMT
+Completed-Local: 2026-10-08 03:48:00 +07
+
+The D16-prep rows are written and pass on the JVM. The Node and Dart lanes were not run, and the harness found six production defects. Each defect is pinned as a "canary": an assertion that the defect is still there, so it fails on the day the defect is fixed. The full report is in `collab/1791370000000-vm-engineer-ucf-d16prep.findings.md`.
+
+**What was built** (all changes are under `test/yin/vm/ucf/`; no production files, `compose.cljc` or `yin/repl/*` touched):
+- **`safepoint_harness_test.cljc` (new): the 7.4.1 harness.**
+  - Four program shapes run into every liftable row: explicit park, read, write, sent and retained FFI, ordinary and tail calls of `require` and `stream/next!`, and halt.
+  - Every row runs on version 0 (semantic) and version 2 (all four profiles).
+  - Each case is compared with a separately built reference run on result and effect trace, and lifting the lowered machine again must give the same body.
+  - Beside the matrix: one pc reached by two activations and handed off at each, a nonempty ready queue, an FFI response cursor shared by two waiters, and a real held `:observe` entry, which refuses export.
+- **`fencing_rows_test.cljc` (new): 14.2.4 rows 2, 4 and 5, plus clause 4.** Every tenure lowers real version-1 checkpoint bytes and runs the landed writer, reader and export against the real authority and front.
+- **`handoff_v1_test.cljc`: six new tests** for the audit gaps in clauses 1, 2, 4, 5 and 9.
+- **Small refactor:** `stream-blind` and `run-beside` moved from `handoff_v2_test` into `v2_support`.
+
+**Results (JVM):**
+
+| Run | Tests | Assertions | Failures | Errors |
+|---|---|---|---|---|
+| harness | 8 | 1981 | 0 | 0 |
+| fencing rows | 4 | 121 | 0 | 0 |
+| `handoff-v1` | 27 | 464 | 0 | 0 |
+| `handoff-v2` | 10 | 276 | 0 | 0 |
+| every `yin.vm.ucf.*` namespace | 601 | 10150 | 0 | 1 |
+
+The one error is already on master: `handoff_v2_census_test` reads `test/resources/yin/vm/ucf/handoff-v2.txt`, which commit 2cf99c13 never added.
+
+The harness went red before green: 205, then 47, 24, 9 failures, then 0, each remaining red traced to a defect below. The fencing rows and new clause rows passed on the first run, so I broke their expectations on purpose. That gave 4 and 12 failures, and the files were restored.
+
+**Production defects found** (outside the permitted diff, so reported rather than fixed):
+- **D0, register profile:** resuming any wait while a host function like `conj` sits in a live register throws `:continuation-registers`, even with no handoff. The harness programs combine values through a closure instead, so the register profile still gets evidence.
+- **D1, semantic profile:** calls into the `stream` module can't be lifted; export refuses `:incomplete` because that module has no manifest address.
+- **D2:** lifting a lowered, retained FFI request again records the receiver's own call-out position as its response cell (semantic, stack, register). Likely cause is `handoff.cljc` ~3656, which rebinds the call pair only for fenced or walker lowers.
+- **D3, stack and register:** a lowered, retained FFI request never completes, because the retry waits on the receiver's own call-out instead of the carried response cell.
+- **D4, all four profiles:** a lowered blocked writer finishes as soon as the reflection accepts the append outbound. If the source target is still full, the value is silently lost, which contradicts 14.1.1. The existing `handoff_test` write test only passes because its reference run had already put the value into the shared stream.
+- **D5, clause 5:** install responses aren't verified. A wrong module name, a wrong link id or a refused status all lower `:ok`, and a response without its image throws an exception instead of returning a refusal. This one has no canary.
+
+There is also one design question for the Architect, Q1: a link-response wait whose continuation calls the required module refuses to lift as `:incomplete`. Whether it should is not settled.
+
+**Not done or blocked:**
+- **Node and Dart lanes:** not run. The shell has Java 17 and no dart or flutter, and `mise trust` and `npm ci` both need approval here. The three-lane gate still has to run after those two commands in this worktree.
+- **cljstyle:** blocked (needs approval).
+- **Full JVM suite:** stops at load because the generated Python lexer classes (`gen:python-antlr`) aren't built in this worktree. Every file that loads my changes is inside the UCF run above.
+- **kondo:** clean.
+- **Remaining audit gaps** need production seams or fixtures that don't exist yet:
+  - counting zero proposals;
+  - a reader that speaks only version 0;
+  - an explicitly parked child;
+  - a `:parked` body with frames at version 1;
+  - a runnable child refused through a version-1 lift;
+  - the version-0 "no rerun" check through `resume-task`.
+- **Clause 4:** the second FFI waiter is hand-built from the real one.
+- **Canaries:** each fix of D0–D4 must delete its `open-defects` entry in the same commit, or its canary will fail.
+
+Also, three claude.ai connectors (Gmail, Google Calendar, Google Drive) need authorizing in your claude.ai connector settings; they stay unavailable until then.

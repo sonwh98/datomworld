@@ -1,0 +1,27 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+Task complete. Report written to `collab/1791377000000-compiler-engineer-ucf-d16-f1-rename.findings.md`.
+
+## What I did
+
+Renamed the load-bearing flag in `src/cljc/yin/vm/ucf/handoff.cljc` (only file changed, 26 insertions / 22 deletions, 19 lines, 23 identifier occurrences):
+
+- `v1?` → **`jing-codec?`** (export-task local, `export-installs` local, `portable-response?` param)
+- `::v1` opt key → `::jing-codec`, `:v1` `found`-map key → `:jing-codec` — the flag's two private carriers
+- Added a 4-line comment at the derivation site so the next reader can't re-derive the conflation
+
+**Rejected `exclusive-lift?`**: in this codebase's own vocabulary "exclusive lift" means the *header-present* v2 body (`:1431`), but the flag is also true for the headerless v2 **fork** — that name would have introduced the same class of defect F1 names. Left alone: `v2?`, `:v2`, `handoff-version`, all `:yin.k/version` logic.
+
+## Verification
+
+- **Decisive**: reverting the new spellings and deleting the comment yields a file whitespace-insensitively identical to HEAD (flat lengths 126677 = 126677, `:equal true`, 0 residual `jing-codec`). The +24 raw chars are exactly the re-indentation. Pure rename, provably.
+- **JVM A/B, whole `yin.vm.ucf` surface** (38 namespaces): 601 tests / 10150 assertions / 0 failures / **1 error** — identical before and after, same error.
+- **JVM A/B, the 12 handoff v0/v1/v2 suites**: 96 tests / 2574 assertions — identical.
+- **Broad JVM lane**: 205 namespaces, 3369 tests, 201182 assertions, 1 error; the 169 namespaces it shares with the pre-change lane were clean in both.
+- clj-kondo 0/0; cljstyle clean; CLJS build 166 files, **0 warnings**.
+- The one error is pre-existing and not mine: `handoff-v2.txt` fixture missing — that's the separate **F2** condition.
+
+## What I could not verify (stated plainly in the report)
+
+**The Node v2 shard did not execute** — the CLJS compile succeeds, but `node target/node-tests.js` dies on a missing `node_modules` (`@noble/hashes`), and `npm ci` was permission-blocked. Likewise the full `bb test:clj` lane: `bb` isn't installed, `clojure -M:antlr-gen` was permission-blocked, `target/yin-repl.js` was never built, and the DHT end-to-end namespace hangs in this sandbox. Dart wasn't run either.
+
+**Main residual concern**: `version-one?` (`handoff.cljc:3523`) is the read-side twin of the same defect — `(or (= 1 (:yin.k/version body)) (and v2? (not tree-fork?)))`, true for v2 non-fork bodies. I left it as the brief puts `:yin.k/version` checks out of scope, but it's the strongest remaining instance of the hazard F1 was raised to close.

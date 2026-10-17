@@ -1,0 +1,4 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+That was the last leftover polling waiter completing — no new information. All background tasks are now finished or stopped; nothing is pending.
+
+The round stands as reported: full JVM fast lane green (3762 tests / 239298 assertions, 0 failures, 0 errors), focused suites 56/482, kondo and cljstyle clean, findings report updated in place, no git writes. The one thing awaiting your decision remains the duplicate-dispatched deepseek session (`ucf-d15-fix2`) — safe to kill either way now that the work is reconciled.

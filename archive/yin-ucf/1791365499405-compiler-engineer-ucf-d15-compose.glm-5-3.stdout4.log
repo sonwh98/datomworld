@@ -1,0 +1,25 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+D15 fix round 3 is complete. Summary:
+
+**The gap (Astra signoff r2):** `exclusive-journals-refusal` validated only the substrate map's *declared* durability at open; `substrate-journal` then opened whatever each supplier answered without checking the backend's own durability — a substrate declaring file/process-crash could supply memory-backed reply or progress storage and still activate a holder.
+
+**The fix** (src/cljc/yin/vm/ucf/compose.cljc only):
+- `backend-durability` reads a backend's own `:dao.stream.journal/durability` seam as data — total; a backend declaring nothing answers nil, which is never capable (the map gate's own rule).
+- `substrate-journal` takes `required` (the exclusive failure model, nil for fork) and validates the answered backend right after the open, via the same `journal-substrate-capable?` rule the open gate uses. On mismatch it releases the backend it just opened (`close-backend!`, never-throw) *then* refuses with `:journals-uncapable` assembly ex-data carrying the backend's own declaration.
+- `holder-media` passes the failure model and, when the reply open refuses, releases the already-opened progress backend before rethrowing — a refused addition leaves no directory lock. Both backends are validated before driver construction (progress first, so a weaker progress backend refuses before the reply supplier is even called). Fork is untouched.
+- `close-backend!` moved above the assembly it now also serves; `close!` unchanged; docstrings updated.
+
+**Test-first:** the new row against pre-fix source — 1 test, 15 assertions, **9 failures + 1 error**: additions sailed into driver assembly and the progress directory stayed locked. Post-fix, green.
+
+**The pin:** `an-exclusive-composition-refuses-backends-weaker-than-their-substrates-declaration-test` — each supplier independently under a lying file declaration: memory progress backend (backend's own `:memory`/`:none` travels with the refusal, reply supplier never called, no holder activated); memory reply backend beneath a real file progress backend (progress directory reopens `:ok` — the leaked lock, pinned released); absent durability seam (nil never capable).
+
+**Validation, exact:**
+- Focused JVM (compose-test + main-test): **57 tests, 500 assertions, 0 failures, 0 errors** (compose-test 14/143, main-test 43/357); re-run green after cljstyle's reindent
+- store-write-audit: **3 tests, 129 assertions, 0 failures, 0 errors**
+- Full JVM fast lane (`clojure -M:test -e :slow`): **3763 tests, 239314 assertions, 0 failures, 0 errors** (`collab/logs/d15fix3-jvm-full.log`)
+- Dart focused lane (bonus, round 2's command): **All tests passed, 51** (up from 50 by this row)
+- clj-kondo: 0 errors, 0 warnings; cljstyle: clean
+
+**Scope:** no git writes (HEAD still `2cf99c13`, tracked mods are rounds 1–2's, untouched); round-3 source/test diff confined to compose.cljc + compose_test.cljc. Findings report updated in place — Round 3 appended to `collab/1791366000000-compiler-engineer-ucf-d15-fix-continue.findings.md`.
+
+Two disclosures: the signoff r2 file itself is in the main tree, outside this session's readable scope — the round was driven by your dispatch's precise restatement of its finding (noted in the report); and the Node lane was not re-run (round 2's green run stands; noted in the report as the orchestrator's three-lane gate item).

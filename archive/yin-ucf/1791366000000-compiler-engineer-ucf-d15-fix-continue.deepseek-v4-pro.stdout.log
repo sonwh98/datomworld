@@ -1,0 +1,37 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+The task is complete. Here's the summary of what I did and found.
+
+## What I found
+
+The prior (glm-5.3) session had actually completed the **code and tests** for all five fixes before dying — the "partial diff" was already in a working, green state. My job was to verify, run the lanes the prior session left unrun, and write the final findings.
+
+## The five fixes — all confirmed implemented and pinned
+
+1. **Durable holder storage** — reopenable `:journals` substrate (`file-journals`/`memory-journals`), `restart`/`add-holder` reopen by identity via `driver/reopen` (never mints a fresh reply journal).
+2. **Shutdown drain independent of endpoint** — `shutdown-enter?`/`shutdown-drained?`/`shutdown-tick`, all three host loops drain on owed custody alone.
+3. **Journal close before exit** — `close-index-store!` calls `compose/close!` on every host's exit path.
+4. **Composition stop latch** — `add-holder` stops late holders; `program-step` no-op after stop.
+5. **Fork cannot run exclusive export** — `arbitration-of` refuses `:arbitration` under `:mode :fork`.
+
+## Validation (all green)
+
+| Lane | Result |
+|---|---|
+| Focused JVM (compose + main) | 54 tests, 444 assertions, 0 failures |
+| store-write-audit | 3 tests, 129 assertions |
+| Full JVM fast lane | **3760 tests**, 239257 assertions, 0 failures |
+| Node lane | **3616 tests**, 103624 assertions, 0 failures |
+| Dart focused lane | All passed (48 tests) |
+| clj-kondo / cljstyle / `git diff --check` | clean (fixed 3 cljstyle defects) |
+
+## Things I resolved along the way
+
+- The **full JVM lane** needed >10 min (killed once at the background limit, re-run green with a 1h limit).
+- The **Node compile** failed with `UnsupportedClassVersionError` — the default `clj` runs Java 17, but shadow-cljs needs **Java 21**; fixed via `mise exec java@21`.
+- **clj-kondo/cljstyle** aren't on the default PATH but are reachable through `mise`.
+
+## One thing to report (out-of-scope)
+
+`test/resources/yin/vm/ucf/handoff-v2.txt` is **untracked** and outside the permitted diff. It's required by a D15a-landed test (`handoff-v2-census-test`, which reads it as a golden body), but it was never committed in any commit — the D15a session already flagged it as "unrelated, author unknown." It's correct for the current lift (census test passes), so it's a D15a/master staging gap, not a D15 defect. It needs the orchestrator's decision (commit it, or that test fails on a clean checkout).
+
+Findings written to `collab/1791366000000-compiler-engineer-ucf-d15-fix-continue.findings.md`. No git writes were made.

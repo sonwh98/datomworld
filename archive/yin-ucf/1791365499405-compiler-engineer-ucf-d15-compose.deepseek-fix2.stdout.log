@@ -1,0 +1,2 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+The Node compile already completed successfully earlier (3618 tests, 103662 assertions, 0 failures — reported above); this notification is just the stale monitor expiring because its `"Compilation of"` pattern never matched shadow-cljs's `"Build completed"` output. No further action needed — the round-2 work is complete and all lanes are green.

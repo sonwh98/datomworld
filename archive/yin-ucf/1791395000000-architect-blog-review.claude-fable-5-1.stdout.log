@@ -1,0 +1,14 @@
+Review written to `collab/1791395000000-architect-blog-review.claude-fable-5-1.findings.md`.
+
+**Verdict: REVISE before publishing.** The thesis matches the master architecture, but about half the concrete claims describe designs that have not landed as if they run today.
+
+Blocking findings, each verified against the tree:
+
+- **The "40 primitives" is a usage count, not a surface count.** The three modules export 55 names (cell 3, data 26, integer 26). The Python prelude calls 40 of them, and also leans on the 22-entry core primitive registry. Per-module counts in the post (15, 22) are the prelude's usage, and "UTF-16 code point" conflates the module's unit and code-point operations.
+- **Section 3 (preludes on the DHT) is present tense for pending work.** Section 8.5.6 of yang.antlr.md says only F1 has landed and that publish refuses the prelude today because it binds host-module names. The upgrade and reproducibility bullets also need the ruling 11 and "Addresses" qualifications.
+- **Section 5 (Virtual POSIX) presents a six-line future plan as the current model.** Two of the four mappings name the wrong thing: dao.space.store is the code-index directory, not a filesystem, and remote-channel is a table serve/dial, not a socket API. The "serialize a running Python process and resume elsewhere" claim is blocked on heap lift, which has not landed.
+- **Small factual slips.** The symbol is `py/truthy`, not `py/truthy?`. Classes take a single base, so there is no MRO. The AST walker bullet mentions macros, which contradicts the invariant that no evaluator knows macros exist. C4's name "The Linked Runtime" is invented.
+
+Non-blocking: section 4 should state the symmetric-ignorance invariant from the master design, since that is the actual argument for composability. The post has no rows example, unlike every neighbouring series post. Lists should use `[:ul.bulleted` like 80 of 105 posts. A tone pass should remove the intensifiers.
+
+The report includes a line-by-line patch table. One Writer round should close it, and I can do a short second pass on the revised draft.
