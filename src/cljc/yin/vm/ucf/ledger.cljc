@@ -274,7 +274,7 @@
                 (some? (:yin.k/medium fact))
                 (map? b)
                 (= o (:yin.k/occurrence b))
-                (contains? #{:blocked :parked} (:yin.k/kind b))))
+                (contains? #{:running :blocked :parked} (:yin.k/kind b))))
       :malformed-fact
       (not= (:arbitration projection)
             (get-in b [:yin.k/arbitration :dao.stream/identity]))

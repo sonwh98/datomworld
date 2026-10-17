@@ -1039,21 +1039,7 @@ together with the body's install entry for the same name:
   5 and 9): the image is well formed, hashes to the address it is
   delivered under, and is the image the manifest names. A failure is
   `:yin.k/undecodable` naming the entry's response.
-- A live install entry carries phase `:running` or `:parked`. Its
-  child independently satisfies the handoff grammar and the
-  quiescence requirements, with kind `:blocked`, `:parked`, or
-  `:halted`. The phase records scheduler progress; it does not
-  substitute for validation of the child's actual machine state,
-  and no phase requires or forbids a kind: a `:running` phase with
-  a blocked child is valid. A runnable, non-quiescent child refuses
-  export. Lower preserves both fields, and the scheduler continues
-  from the restored child without rerunning initialization. Other
-  install phases are not exportable live-child entries, and any
-  other phase value is `:yin.k/undecodable`. No stricter relation
-  between phase and kind is introduced until a scheduler
-  normalization invariant is specified and proved; M-next D tests
-  every combination of the two phases and three kinds, explicit
-  park included.
+- A live install entry carries phase `:running` with a `:running` child, or phase `:parked` with a `:blocked` child. The child independently satisfies the complete task-product grammar, including ordered completed outcomes. The engine links a halted child in the sweep it halts in. No ready-queue quiescence requirement applies. Lower preserves the carried child without rerunning initialization; receiver module admission remains required before attachment.
 - The resumer restores the child's carried state into the fresh
   child before the scheduler may step it. The fresh child is a
   template for the receiver's coordinates only: it does not run the
@@ -1901,25 +1887,18 @@ UCF therefore defines an explicit **exporting** transition that precedes
 any publication, and the lift driver performs it as one step over the
 machine value:
 
-1. **Quiesce**: the ready-queue must be empty (§7.6.3).
+1. **Retain the completed outcomes.** Enter the exporting gate and move the ordered ready queue into the retained export record. The live scheduler queue is empty. Preserve every outcome value, status, completion descriptor, cursor update and raised-refusal value. No queued operation is executed, discarded or reissued by this transition.
 2. **Detach the wait set**: every wait entry moves from the machine's
    wait-set into the export record. The machine's wait-set is now empty,
    so *there is nothing to poll* — no poll, no append, no effect. The
    entries are not lost: the export record retains them verbatim; they are
    the source of the `:yin.k/pending` variants of §7.4.3.
-3. **Neutralize control**: the record's control and K are already absent
-   (the machine is parked or blocked); direct `:resume` resolves against
-   `:parked`, and the parked records referenced by reachable code travel
-   inside the export record — a local `:resume` against them is refused
-   while exporting (the restore function observes the exporting machine
-   and declines), because the parked id now names a checkpoint that may be
-   granted elsewhere.
+3. **Neutralize control:** a parked or blocked machine has no control; a machine between instructions (root kind `:running`) keeps its `:control`, `:window`, `:env` and `:k` as the state the lift reads. The semantic execution entries refuse an exporting or ended machine before instruction, scheduler or bridge execution. This guard ships with running fenced restoration in 6d-a and remains outside the instruction loop. Direct `:resume` resolves against the parked records in the retained export record and is refused while exporting.
 4. **Publish, then offer**: append segments and the value body; record
    `:yin.k/offered` on the arbitration medium. Only now do readers exist,
    and the source was fenced before any of them did.
 
-The exporting machine is pure data with an empty wait-set and a retained
-export record — no engine change, no callback, no timer; the drivers of the
+The exporting machine is pure data with its wait set, ready queue and parked records moved into the retained export record — one engine change at the kernel’s entry (the gate guard), no change to the instruction loop, no callback, no timer; the drivers of the
 world observe the state as they observe `ready-for-ingress?` (§3.1), and a
 driver that polls an exporting machine's wait set anyway is a host assembly
 defect of the same kind as wiring a refusing deposit destination.
@@ -1936,7 +1915,7 @@ the emitter itself* (after); there is no third.
 
 (M-next D8/D9, as built.) The exporting machine carries one gate key,
 `:yin.k/gate`, with the modes `:running`, `:exporting` and `:ended`:
-under `:running` internal computation proceeds and stream observations
+under `:running` internal computation proceeds for the holder’s fuel budget per program tick (`driver/run-cycle`, `:fuel`), so a long computation is preempted at an instruction boundary and may be exported there. A holder whose tenure ends receives the latest completed state through stage-local failure handling, retains it for inspection, and offers nothing. Recovery remains the last durable checkpoint. Progress since the last durable checkpoint is lost on expiry; fuel makes the computation interruptible, exporting before the bound is what preserves it (continuation design §7.3). Stream observations
 and effects are deferred to the driver; under `:exporting` and `:ended`
 nothing is observed, no install child is advanced, a direct resume is
 refused, and every public apply refuses a late result. The root's mode
@@ -1947,8 +1926,7 @@ cursor cell carrying `:yin.k/held`, a cursor cell carrying `:yin.k/unminted`,
 a machine with a nonempty `:yin.k/closes` queue, and a
 `:link-request` entry without `:cursor` -- as `:yin.k/non-portable`,
 kind `:reason-mismatch`, with the holding task's path; the lift
-refuses the same holds on its own behalf. A task is not at a liftable
-safepoint while it holds any of these.
+refuses the same holds on its own behalf. A task holding one of these incomplete driver transitions is not export-ready. Resolution may require repeated driver cycles, external acknowledgement or relief from backpressure; no fixed cycle count is promised.
 
 **Amended after 7 (2026-10-14)** — Reason: the holder now exports rows with a local header and source index.
 The lift's custody input is one **header** argument -- supplied to
@@ -2037,12 +2015,12 @@ Reopened holders do not regain tenure from persisted clock readings:
 they reconcile, release and re-enter candidacy, never resume execution.
 
 **Amended after 7 (2026-10-14)** — Reason: custody is checked on the abstract row task, not by re-reading legacy bytes.
-Kind and header agree at lift: blocked/parked exclusive roots carry
+Kind and header agree at lift: running/blocked/parked exclusive roots carry
 policy, occurrence, arbitration, counter and optional origin; halted
 exclusive roots carry origin only and a header-bearing halt without
 origin refuses. Forks and all children carry nil. After walking and frame
 validation, `rows/lift-task` checks exhaustion at 2^52-1 on a
-blocked/parked exclusive root and protection across all retained
+running/blocked/parked exclusive root and protection across all retained
 put/FFI-request/link-request waits, then runs `custody-baseline` before
 emit. Enrolled writes without an id refuse `:unprotected-pending`; an id
 on an unenrolled target refuses `:yin.k/unsatisfied` naming the stream.
@@ -2167,7 +2145,7 @@ duties*: a judge whose durability matches the resource).
 
 ### 7.7.6 Successors and chains
 
-A resumed continuation runs to its next safepoint and either halts or parks
+A resumed continuation runs to its next park, halt, or fuel boundary
 again. Either way it produces a successor value — a `:yin.k/continuation`
 or a `:yin.k/result` — whose `:yin.k/origin` carries the predecessor's
 `:yin.k/occurrence` and the lease it ran under. Each park is a **new
@@ -2624,16 +2602,15 @@ than waiting forever. The repair is prospective: no retroactive standalone
 closure transaction over such old history is authorized. Repeated reopen neither
 duplicates an edge nor advances an already-reclaimed lease's epoch again.
 
-## §7.8 Lifecycle: lift on park, lower on resume
+## §7.8 Lifecycle: lift at a boundary, lower on resume
 
 **Lift** (emitter side; composition-driven, never automatic on every park):
 
-1. The machine is parked or blocked with a local record `r`, and its
-   ready-queue is empty, else `:yin.k/not-quiescent`.
+1. The machine is parked, blocked, halted or between instructions (`:running`), with a local record `r`, and holds no observation in flight, else `:yin.k/non-portable :reason-mismatch`.
 2. **Enter exporting** (§7.7.4): detach the wait set into the export
    record, neutralize direct `:resume`. From here the source is fenced; no
    poll, retry, or local resume can perform an effect.
-3. `lift(export-record)`: confirm the record is at a safepoint (§7.4.1),
+3. `lift(export-record)`: confirm every pc is a pc of A (§7.4.1),
    else `:yin.k/not-at-safepoint`; canonicalize every referenced segment and
    compute its address (§7.3.2), else the refusal; encode (§7.5), else the
    refusal; compute `:yin.k/requires` and `:yin.k/store` by the fixed point
@@ -2679,7 +2656,7 @@ duplicates an edge nor advances an already-reclaimed lease's epoch again.
 8. `lower(frame, layout)` into engine registers; re-mint every pending wait
    in the local wait set; seed `:id-counter` per §7.6.3; run — through a
    fenced writer under `:exclusive` (§7.7.5).
-9. At the next safepoint or halt, produce the successor occurrence
+9. At the next park, halt, or fuel boundary, produce the successor occurrence
    (§7.7.6), record `:yin.k/resumed`, release.
 
 Neither sequence contains a callback. Each is a step function a
@@ -2844,10 +2821,10 @@ independently (7.11).
 | Invariant | How UCF honors it |
 |---|---|
 | No hidden global state | Every dependency is declared in `:yin.k/requires` — *as computed by the declared fixed point, with its completeness stated* (`:yin.k/discovery`); the store travels as an explicit slice restored into an isolated store; fresh-name state and parked records travel explicitly; custody is facts on a named, possessed medium. |
-| No implicit control flow | Resume happens only at a safepoint the machine's parking transitions define; the successor chain is explicit `:yin.k/origin` links; the exporting state is an observed data state, never a notification. |
+| No implicit control flow | Resume happens only at an instruction boundary the canonical vector defines (a parking transition, or the boundary a holder’s fuel budget stopped at); the successor chain is explicit `:yin.k/origin` links; the exporting state is an observed data state, never a notification. |
 | No callbacks | Lift and lower are step functions; custody is observed, never notified; a lapsed holder stops at its own bound; an unanswered proposal is a step status, not a wait. |
 | No shared mutable state | A UCF value is content-addressed and immutable; occurrence identity separates content variants from the one leased computation; two resumers of one value under `:fork` diverge into distinct incarnations; the isolated execution store shares nothing with the resumer's tasks. |
-| No layer collapsing | Canonicalize, encode, discover, arbitrate, load, restore, execute are separate functions with data between them. The engine's hot loop is untouched: lifting is a pure function over the blocked machine's value, and the exporting state is that value with an emptied wait-set and a retained record — driver discipline, not engine machinery. |
+| No layer collapsing | Canonicalize, encode, discover, arbitrate, load, restore, execute are separate functions with data between them. The engine’s instruction loop is untouched: lifting is a pure function over the machine’s value at any boundary, the one engine change is a gate check at the kernel’s entry, and the exporting state is that value with its waits, queue and parked records moved into a retained record — driver discipline, not engine machinery. |
 | No assumed graphs | Sharing is an explicit value table keyed by address; cursor aliasing is an explicit cursor-cell graph, not inferred from positions; code refs are pcs relative to an addressed vector; nothing is resolved by pointer; foreign engines reconstruct dynamic state from the frame, never from layouts they assume. |
 
 And the axioms — each claim conditioned on the obligation it depends on: the
@@ -2938,14 +2915,13 @@ the review's named architectural obligations; they are blockers to
   store contains exactly the slice and the resumer's pair, and that a
   receiver-side binding of a name in the slice's name set cannot change
   resolution.
-- **Safepoint conformance harness.** A test that runs every corpus segment
-  on the reference machine to each safepoint of the complete §7.4.1 table —
-  effect-producing calls included — lifts, lowers into a fresh VM, and
+- **Continuation conformance harness.** A test that runs every corpus segment
+  on the reference machine to **every boundary of the stepping driver** (continuation design §5.7), the complete §7.4.1 table’s parking transitions included, lifts, lowers into a fresh VM, and
   checks the parity suite's result; the same harness is what a foreign
   engine runs to claim conformance, including `lift ∘ lower = id` on
   canonical frames, the static `def`/`use`/`live` and
   `lexically-required` checks, the frame validator on every frame, and
-  **cross-engine canonical equality**: one program at one safepoint lifts
+  **cross-engine canonical equality**: one program at one aligned instruction boundary lifts
   to row sets with equal root ids after the harness's specified
   re-emission (`yin.vm.semantic.continuation.md` §5.5) from
   the canonical semantic kernel and from the stack and register backends
@@ -3109,14 +3085,13 @@ claim that all five blockers have closed.
 
 **Safepoint reconstruction (7.4; blocker 1).**
 
-- Invariant: At every declared parking transition, lifting and lowering
-  preserve the next observable step and its wait, while other pcs refuse.
+- Invariant: At every instruction boundary, lifting and lowering preserve the next observable step (and, at a parking transition, its wait; with a non-empty queue, its order); a pc outside every body refuses.
 - Setup: Run the corpus to every 7.4.1 row: explicit park, blocked
   stream read, blocked write, sent FFI, retained FFI, ordinary and tail
   effectful calls, and halt; also exercise M4's `:link-request`,
   `:link-response`, and `:install` pending variants (linker section 11
   item 12). Exercise distinct activation depths and captured environments
-  at one pc, a nonempty ready queue, a nonsafepoint pc, and a kept response
+  at one pc, a nonempty ready queue, a `:push` pc of the stack image (relabels) and a body-start pc (lifts), and a kept response
   cursor shared by two waiters. Omit the portable cursor profile for the
   refusal case.
   **Amended after 7 (2026-10-14)** — Reason: cross-engine conformance covers the documented backend fragment.
@@ -3136,8 +3111,7 @@ claim that all five blockers have closed.
   outcome determine `:yin.k/reason` and `:yin.k/pending`, never the
   static kind alone.
   Test both FFI states and each call effect. `lift(lower(frame))` must
-  reproduce the canonical frame. An undeclared pc gives
-  `:yin.k/not-at-safepoint`; queued work gives `:yin.k/not-quiescent`.
+  reproduce the canonical frame. A pc outside every body gives `:yin.k/not-at-safepoint`; every pc of A lifts as a `run` state when the machine is between instructions; queued work travels as `:ready` rows and resumes in order.
   Insufficient pending evidence refuses before publication, as does a
   missing portable cursor profile. Halt yields a result, not a frame.
 - Reflection acceptance (`dao.stream.remote.implementation-plan.md`, slice 8): Park a

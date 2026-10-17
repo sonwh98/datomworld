@@ -1967,8 +1967,8 @@
    its own link), the image the manifest names (continuation §11 Q3: the
    manifest's :yin.semantic/code derivation record is the response's
    :derivation, from the manifest's tree to the image's A), and a child
-   that is blocked: the engine links a halted child in the sweep it
-   halts in."
+   that is blocked at phase :parked or running at phase :running: the
+   engine links a halted child in the sweep it halts in."
   [recv inst]
   (let [[mn phase parent response child] (:slots inst)
         manifest (when (map? response) (:manifest response))

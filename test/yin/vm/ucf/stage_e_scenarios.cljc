@@ -182,7 +182,7 @@
                 ;; the attempted successor's candidate competes from the
                 ;; start; the regranted origin hands off on its activation
                 ;; tick (one tick later its machine holds an unapplied
-                ;; observation and is no liftable safepoint, UCF 7.4.1)
+                ;; observation and holds a driver transition, UCF 7.7.4)
                 [[:at-open]
                  [:source "h1"]
                  [:candidate "h5" {:kind :successor :of "h1"}]
@@ -1309,9 +1309,77 @@
        (is (not= :open (:status inspection)) "the lost ledger opens for no one")))})
 
 
+(defn running-handoff
+  [cut]
+  {:id [:running-handoff cut]
+   :holders ["h1" "h2"]
+   :lives
+   [(fn [_]
+      {:on :src :kind :running :cut cut
+       :ops [[:source "h1"] [:until "h1" :running 60]
+             [:ticks 2 :program] [:snapshot :boundary]
+             [:hand-off "h1"] [:until "h1" :exited 90]]})
+    (fn [results]
+      (when (:killed? (peek results))
+        {:on :rcv :kind :running
+         :ops [[:source "h1"] [:until "h1" :running 90]
+               [:snapshot :recovered] [:hand-off "h1"] [:until "h1" :exited 90]]}))
+    (fn [_]
+      {:on :rcv :kind :running
+       :ops [[:candidate "h2" {:kind :successor :of "h1"}]
+             [:until "h2" :running 60] [:snapshot :successor]
+             [:until "h2" :exited 180]]})]
+   :check
+   (fn [results _inspection]
+     (let [first-life (first results)
+           boundary (get-in first-life [:report :snapshots :boundary :holders "h1"])
+           ;; Crashed lives emit the snapshot before the kill instead of returning it.
+           boundary (or boundary (get-in (first (filter #(= :boundary (:key %)) (:events first-life)))
+                                         [:snapshot :holders "h1"]))
+           last-life (peek results)
+           successor (get-in last-life [:report :snapshots :successor :holders "h2"])]
+       (is (true? (get-in boundary [:detail :yin.k/at-boundary])))
+       (is (pos? (get-in boundary [:machine :control :pc])))
+       (is (= :running (:phase successor)))
+       (is (some? (get-in successor [:machine :control])))
+       (is (= {:serves 0 :attaches 0 :observations 0}
+              (get-in last-life [:report :final :work])))
+       (is (= :exited (:phase (holder last-life "h2"))))
+       (is (= 4950 (get-in (holder last-life "h2") [:machine :value])))))})
+
+
+(def running-expiry
+  {:id [:running-expiry]
+   :holders ["h1" "h2"]
+   :lives [(fn [_]
+             {:on :src :kind :running
+              :ops [[:source "h1"] [:until "h1" :running 60]
+                    [:ticks 2 :program] [:snapshot :boundary]
+                    [:clock 100] [:ticks 1 :program] [:snapshot :ended]
+                    [:candidate "h2" {:kind :fence :of "h1"}]
+                    [:until "h2" :running 90] [:snapshot :recovered]]})]
+   :check (fn [results _]
+            (let [r (first results)
+                  before (get-in r [:report :snapshots :boundary :holders "h1" :machine])
+                  ended (get-in r [:report :snapshots :ended :holders "h1"])
+                  recovered (get-in r [:report :snapshots :recovered :holders "h2"])]
+              (is (= (assoc before :yin.k/gate :ended) (:machine ended)))
+              (is (= {:serves 0 :attaches 0 :observations 0}
+                     (get-in r [:report :snapshots :ended :work])))
+              (is (some? (:yin.k/retained-boundary ended)))
+              (is (empty? (filter #(contains? #{:yin.k/input :yin.k/admit} (:yin.k/request %))
+                                  (get-in r [:report :snapshots :ended :inbound "h1"]))))
+              (is (empty? (get-in r [:report :snapshots :ended :side])))
+              (is (empty? (get-in r [:report :snapshots :ended :targets])))
+              (is (pos? (get-in before [:control :pc])))
+              (is (= 0 (get-in recovered [:machine :control :pc])))
+              (is (= :running (:phase recovered)))))})
+
+
 (def all-scenarios
   "Every scenario, in run order."
-  (concat [fork-row]
+  (concat [fork-row running-expiry]
+          (map running-handoff [nil :running/before-offer :row7/after-successor-append])
           (map row7 row7-cuts)
           [row7-failure-lower row7-lost-authority]
           (map row4 row4-cuts)

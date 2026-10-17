@@ -10,6 +10,8 @@
             [dao.stream.remote :as remote]
             [dao.stream.ringbuffer :as ringbuffer]
             [yin.vm.ucf.authority :as authority]
+            [yin.vm.ucf.rows :as rows]
+            [yin.vm.ucf.rows-support :as support]
             [yin.vm.ucf.authority.completion :as completion]
             [yin.vm.ucf.authority.grant :as grant]
             [yin.vm.ucf.rows-checkpoint-fixtures :as fx]
@@ -525,3 +527,18 @@
              (custody/binding-evidence
                arb (mapv (fn [[_ r]] ["mallory" r]) read) "lease-1")))
         "the same records attributed to another author prove nothing")))
+
+
+(deftest running-root-is-offerable-test
+  (let [frames (fresh-frames)
+        a (auth frames)
+        store (mem/create-content-mem)
+        machine (support/load-ast (support/new-machine) (support/lit 42))
+        header {:yin.k/occurrence occ
+                :yin.k/arbitration {:dao.stream/identity arb :dao.stream/descriptor {}}
+                :yin.k/next-op-seq 0 :yin.k/enrolled #{}}
+        wire (rows/lift-task machine nil {:header header :source-index @support/source-index})
+        {:keys [address bytes]} (bytes-of wire)]
+    (is (= :running (:yin.k/kind (checkpoint/inspect address bytes))))
+    (is (= :committed (:yin.k/status (grant/offer! a store address bytes "carrier"))))
+    (is (= :running (get-in (authority/projection a) [:occurrences occ :yin.k/baseline :yin.k/kind])))))

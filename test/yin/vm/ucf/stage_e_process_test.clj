@@ -310,3 +310,8 @@
   (run-pairs! (concat (map #(sc/journal-row {:cut %}) sc/journal-cuts)
                       (map #(sc/journal-row {:fail %}) sc/uncertain-retentions))
               pairs))
+
+
+(deftest ^:slow running-boundary-handoff-and-expiry-across-processes-test
+  (run-pairs! (concat (map sc/running-handoff [nil :running/before-offer :row7/after-successor-append])
+                      [sc/running-expiry]) pairs))

@@ -299,6 +299,12 @@
    {:site :tick
     :match (fn [c] (= :running (get-in c [:holders "h1" :phase])))}
 
+   :running/before-offer
+   {:site :tick
+    :match (fn [c]
+             (and (some? (get-in c [:holders "h1" :exit :address]))
+                  (nil? (get-in c [:holders "h1" :exit :offer]))))}
+
    ;; ---- row 4 and clause 8: around the atomic effect commitment (the
    ;; ledger transaction that records the admitted effect)
    :row4/before-commit
@@ -806,8 +812,8 @@
   "The holder table and protection of the life's world kind."
   [w]
   (case (:kind w)
-    :parked {:table (if (= :none (:attach w)) {} {prog-id (:prog w)})
-             :protection {prog-id :at-least-once}}
+    (:parked :running) {:table (if (= :none (:attach w)) {} {prog-id (:prog w)})
+                        :protection {prog-id :at-least-once}}
     :rows {:table (cond-> {source-id (:source w) side-id (:side w)}
                     (:target w) (assoc (:target w) (:reader w)))
            :protection (cond-> {source-id :at-least-once side-id :at-least-once}
@@ -816,22 +822,30 @@
 
 (defn- holder-seams
   [ctx w]
-  (let [{:keys [table protection]} (world-table w)]
+  (let [{:keys [table protection]} (world-table w)
+        counted (fn [kind f]
+                  (fn [& args]
+                    (swap! (:work w) update kind (fnil inc 0))
+                    (apply f args)))]
     {:protection protection
+     :fuel (when (= :running (:kind w)) 1)
      :receiver (s/new-machine)
-     :attach! (attach-over ctx table)
-     :observe! (observe-over ctx)
-     :serve! (if (= :parked (:kind w))
-               (fn [_h]
-                 {:dao.stream/identity prog-id
-                  :dao.stream/channel {:dao.stream/type :dao.stream.test/channel
-                                       :dao.stream/identity prog-id}})
-               (same-id-server))}))
+     :attach! (counted :attaches (attach-over ctx table))
+     :observe! (counted :observations (observe-over ctx))
+     :serve! (counted :serves
+                      (if (contains? #{:parked :running} (:kind w))
+                        (fn [_h]
+                          {:dao.stream/identity prog-id
+                           :dao.stream/channel {:dao.stream/type :dao.stream.test/channel
+                                                :dao.stream/identity prog-id}})
+                        (same-id-server)))}))
 
 
 (defn- source-machine
   [w]
   (case (:kind w)
+    :running (s/load-ast (s/new-machine)
+                         (apply s/app (s/v '+) (map s/lit (range 100))))
     :parked (parked-reader-over (scenario-stream prog-id [] 0))
     :rows (reading-writer (:source w) (:reader w) (:side w))))
 
@@ -865,6 +879,7 @@
         side (when side-backend
                (journal-stream side-id (:dao.stream/handle (journal/open! side-backend nil))))
         w {:root root
+           :work (atom {:serves 0 :attaches 0 :observations 0})
            :kind kind
            :mode mode
            :attach (:attach spec)
@@ -945,11 +960,12 @@
 
 (defn holder-summary
   [st]
-  (->data (merge (select-keys st [:phase :status :detail :occurrence :lease])
+  (->data (merge (select-keys st [:phase :status :detail :occurrence :lease :yin.k/retained-boundary])
                  {:epoch (get-in st [:evidence :yin.k/binding :yin.k/epoch])
                   :next-op-seq (get-in st [:machine :yin.k/custody :yin.k/next-op-seq])
                   :stopped? (:stopped? st)
-                  :machine? (some? (:machine st))})))
+                  :machine? (some? (:machine st))
+                  :machine (when (:fuel st) (->data (:machine st)))})))
 
 
 (defn snapshot
@@ -957,7 +973,8 @@
   [ctx w]
   (let [c (:c w)
         hs (sort (keys (:holders c)))]
-    {:holders (into {} (map (fn [h] [h (holder-summary (get-in c [:holders h]))])) hs)
+    {:work @(:work w)
+     :holders (into {} (map (fn [h] [h (holder-summary (get-in c [:holders h]))])) hs)
      :policy (:yin.k/policy c)
      :projection (->data (projection-of c))
      :journals (into {} (map (fn [h] [h (->data (journal-records-of c h))])) hs)
