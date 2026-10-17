@@ -60,7 +60,7 @@ Each is closed by a lift of section 17 or by a dated amendment of
 +----+------------------------------------+------------------------------------+
 | D3 | the installed-binding shape landed | dated amendment: F1 and F2 landed; |
 |    | in F2 (`{:parse :lower             | 3.2 is the long-form contract the  |
-|    | :lower-session :display :probe     | binding map abbreviates            |
+|    | :lower-session :render :probe      | binding map abbreviates            |
 |    | :input}`) is undocumented;         |                                    |
 |    | `yang.antlr.md` 3.2 still says     |                                    |
 |    | none of its protocol exists, and   |                                    |
@@ -1105,7 +1105,8 @@ slice at a time, each with a declaration unit.
 ### 11.9 The REPL binding
 
 Installed like Python's F3: parse (JVM) plus `lower`/`lower-session`,
-`:display :output`, and `:primitives` (for example `js-report`) once D2 is
+`:render` (the loop prints the value of the submission's last top-level
+bare expression statement through it), and `:primitives` (for example `js-report`) once D2 is
 fixed. The persistent session keeps the script-goal global object and the
 global declarative environment (section 3.7).
 

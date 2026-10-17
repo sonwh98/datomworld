@@ -68,7 +68,7 @@
    Runtime state is allocated by `py/init!`, once per task, under the slot
    `py.rt/state` (the literal `:py/uninit` until `py/init!` flips it to
    `:py/ready` as its last write; a second call allocates nothing): the
-   three cells below, the builtin classes and functions as `py.b/*` keys,
+   four cells below, the builtin classes and functions as `py.b/*` keys,
    and the builtins namespace dict `py.b/builtins`, which `py/global-get`
    falls back to. All of it is reached through the store (`yin/def`
    appears only in the prelude):
@@ -3501,7 +3501,7 @@
 
 
 (defn- init-form
-  "`py/init!`'s body: the three runtime cells, every builtin class,
+  "`py/init!`'s body: the four runtime cells, every builtin class,
    function and method implementation, then the builtins dict seeded from
    the tables, then sys.modules with the runtime-synthesized modules
    `py/init!` pre-seeds (8.5.6 resolution step 2), then the ready flag,
@@ -3607,7 +3607,7 @@
 
 
 (def runtime-keys
-  "Every key `py/init!` allocates, the ready flag aside, sorted: the three
+  "Every key `py/init!` allocates, the ready flag aside, sorted: the four
    runtime cells, the builtin classes, functions and method
    implementations, the builtins dict, and sys.modules with its three
    pre-seeded module objects. Read from the same tables `init-form` reads."

@@ -1,7 +1,8 @@
 (ns yin.repl.python-antlr-test
   "Slice F3 (docs/design/yang.antlr.md section 8.5.6): the Python ANTLR
    frontend at the REPL. State persists across submissions, the shell
-   shows what a submission printed and not its value, a failed round
+   shows what a submission printed and then the value of its last
+   top-level bare expression, a failed round
    keeps the session's runtime state as it was, a round parked on a
    require commits its frontend session only when it completes, and
    `(reset)` and `(vm ...)` start a new process.
@@ -21,7 +22,7 @@
     [dao.stream.ringbuffer :as ring]
     [yang.clojure :as yang.clojure]
     [yang.frontend :as frontend]
-    [yang.python.antlr.c3-programs :refer [asg call e ex lit op st tc tx vr]]
+    [yang.python.antlr.c3-programs :refer [asg at call e ex lit op st tc tx vr]]
     [yang.python.antlr.lower-portable-test :refer [packet]]
     [yang.python.antlr.repl :as python.repl]
     #?@(:cljd [] :clj [[yang.python.antlr.parser :as parser]
@@ -48,7 +49,53 @@
    "x = 5" (module (st (asg (tc (vr "x")) (tc (lit "5"))))),
    "print(x)" (module (st (ex (tc (call "print" (tc (vr "x"))))))),
    "x" (module (st (ex (tc (vr "x"))))),
-   "1/0" (module (st (ex (tx (op (e (lit "1")) "/" (e (lit "0")))))))})
+   "1/0" (module (st (ex (tx (op (e (lit "1")) "/" (e (lit "0")))))))
+   "even_squares = [x * x for x in range(1, 11) if x % 2 == 0]"
+   (module
+     (st
+       (asg
+         (tc (vr "even_squares"))
+         (tc
+           [:atom_expr
+            [:atom
+             ["OPEN_BRACK" "["]
+             [:testlist_comp
+              (tx (op (e (vr "x")) "*" (e (vr "x"))))
+              [:comp_for
+               ["FOR" "for"]
+               [:exprlist (e (vr "x"))]
+               ["IN" "in"]
+               [:or_test
+                [:and_test
+                 [:not_test
+                  [:comparison
+                   [:expr
+                    (call "range" (tc (lit "1")) (tc (lit "11")))]]]]]
+               [:comp_iter
+                [:comp_if
+                 ["IF" "if"]
+                 [:test_nocond
+                  [:or_test
+                   [:and_test
+                    [:not_test
+                     [:comparison
+                      (op (e (vr "x")) "%" (e (lit "2")))
+                      [:comp_op ["EQUALS" "=="]]
+                      (e (lit "0"))]]]]]]]]]
+             ["CLOSE_BRACK" "]"]]]))))
+   "even_squares" (module (st (ex (tc (vr "even_squares")))))
+   "None" (module (st (ex (tc (at ["NONE" "None"])))))
+   "1 + 2" (module (st (ex (tx (op (e (lit "1")) "+" (e (lit "2")))))))
+   "\"hi\"" (module (st (ex (tc (at ["STRING" "\"hi\""])))))
+   "x = 1; x" (packet
+                [:file_input
+                 [:stmt
+                  [:simple_stmts
+                   [:simple_stmt (asg (tc (vr "x")) (tc (lit "1")))]
+                   ["SEMI_COLON" ";"]
+                   [:simple_stmt (ex (tc (vr "x")))]
+                   ["NEWLINE" "\n"]]]
+                 ["EOF" "<EOF>"]])})
 
 
 ;; =============================================================================
@@ -135,7 +182,16 @@
         (is (= ["" "1"] (texts (session lang) ["x = 1" "x"])))
         (is (= [""] (texts (session lang) ["x = 1"])))
         (is (= ["" "" "1\n"]
-               (texts (session lang) ["x = 1" "x = 1" "print(x)"])))))))
+               (texts (session lang) ["x = 1" "x = 1" "print(x)"])))
+        (is (= ["" "[4, 16, 36, 64, 100]"]
+               (texts (session lang)
+                      ["even_squares = [x * x for x in range(1, 11) if x % 2 == 0]"
+                       "even_squares"])))
+        (is (= [""] (texts (session lang) ["None"])))
+        (is (= ["3"] (texts (session lang) ["1 + 2"])))
+        (is (= ["'hi'"] (texts (session lang) ["\"hi\""])))
+        (is (= ["1"] (texts (session lang) ["x = 1; x"])))
+        (is (= ["" "1" ""] (texts (session lang) ["x = 1" "x" "x = 5"])))))))
 
 
 (deftest ^:slow an-exception-keeps-the-session-test

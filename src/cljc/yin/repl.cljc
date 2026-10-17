@@ -1885,7 +1885,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
 
 (defn- eval-compiled
   "Evaluate a program `compile-input` or `compile-source` lowered.  What
-   its lowering left (`::frontend`: the session and the display policy) is
+   its lowering left (`::frontend`: the session and the `:render` hook) is
    staged on the round and committed only where the round's VM state
    survives: when the program halts, now or when its parked require
    completes (`finalize-eval`).  A round that fails, rolls back, or is
