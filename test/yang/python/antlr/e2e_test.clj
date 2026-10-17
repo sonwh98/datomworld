@@ -922,8 +922,13 @@
 
 
 (defn- node-shape
+  "A node's identity for comparison. A DEDENT is fabricated by the indentation
+   helper, so its text is the policy's canonical text (\"\"), not the source's;
+   packets written before that policy carry the raw \"<EOF>\", so the text of
+   a DEDENT is left out."
   [node]
-  (select-keys node [:id :kind :type :text :rule :children]))
+  (cond-> (select-keys node [:id :kind :type :text :rule :children])
+    (= "DEDENT" (:type node)) (dissoc :text)))
 
 
 (deftest portable-packets-are-the-parsers-test
