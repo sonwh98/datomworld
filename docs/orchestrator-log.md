@@ -11886,3 +11886,21 @@ Remaining C3 work: the completion gate (ruling 14: the twelve-lane matrix, cross
 Next: the antlr M0-M2 (sonnet, running) -> gates -> land; the value-display r3-restricted (sonnet,
   running) -> gates -> land; the C3-S2 gate for the safe... no — C3-S2 is closed. The safepoint s3
   (tracing) continues; C4 I7 after C3-S2's surface settles.
+
+## 2026-10-18 00:4x +07 — the scanner-golden `:pysp` regen landed (37db44da); fable's provenance correction
+The r3 regen (sonnet, scangold worktree) moved the `:c4 :pysp` pins 76→77 applications, 33→34 free
+  names. Dispatched the fable (claude-cloud) review per the known-gaps rule. Her READY carried a
+  correction: the movement is NOT the safepoint s1/s2 hooks (both ancestors of the I6 regen) — it is
+  C4 I1 aad451c5e (the hook prelude's appended require of py), exactly one application + one free
+  name; the landing commit cites aad451c5e. Her landing steps applied: the two stale docstrings fixed
+  (goldens ns + generator header), the deferred ratchet narrowed to #{:pysp} (a group left in the set
+  has its movement absorbed silently), the strict-gate rerun byte-identical, the scan-test namespace
+  green (12 tests / 716 assertions), kondo 0/0, cljstyle clean. Standing rule added to the generator
+  header and the goldens docstring: any slice touching the prelude, safepoint, lowering or import
+  programs runs the generator in the same slice. Landed scangold-regen:master = 37db44da; the
+  known-gaps row notes the recurrence.
+Validated within hours: the deepseek value-display gate v3 returned REQUEST CHANGES with a P1 that is
+  exactly this failure mode — the value-display prelude change (py/result! + py.rt/value) moves the py
+  manifest and leaves float_address_test, linked_safepoint_test's pysp golden and the scanner `:py`
+  entry stale. Value-display r4 dispatched to sonnet (c4fix) with the v3 findings; sequencing: land
+  r4, then the safepoint s3 surface reconciles on top.
