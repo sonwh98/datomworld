@@ -11817,3 +11817,37 @@ Decisions: the orchestrator's wrong root-cause hypothesis was recorded as a labe
   brief (per the owner's role-boundary correction); codex's delegated diagnosis disproved it.
 Next: the main.cljc prompt-fix round; I1/I6/goldens all landed; S3v2 lanes in flight; C3-S2 landing queued;
   safepoint s3 next dispatch.
+
+## 2026-10-17 16:30:00 +07 — yang.typescript + yang.php specs LANDED c71065ed (nine-round loop, codex READY)
+Completed-GMT: 2026-10-17 09:30:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@c71065ed == origin/master
+Done: The nine-round TS+PHP design loop CONVERGED and both specs LANDED. Loop record: fable (claude-cloud,
+  session 93cda4c1) authored both designs -> codex r1 REQUEST CHANGES (5 P1s) -> fable r2 (all accepted) ->
+  fresh-thread codex (the r1 thread's rollout was lost; r1 findings preserved) REQUEST CHANGES (3 P1s + P2:
+  the copy/remove asymmetry, ES cycle-commit timing, claims x SCC) -> fable r3 (ONE lifecycle mechanism) ->
+  codex RC (the copy/remove asymmetry + 2 P1s) -> fable r4 (EXHAUSTIVE transition tables, per the seat's
+  instruction to stop patching corners) -> codex RC (6 row-level findings, verified against Zend source and
+  in-memory Node probes) -> fable r5 (re-derived from Zend's ACTUAL opcode handlers: zval kinds, GC_ADDREF/
+  DELREF, SEPARATE_ARRAY, zend_reference, FETCH_*_W, CV destruction; fixtures from php-src's tests) -> codex
+  RC (the next stratum: 5 P1s) -> fable r6 (5 fixed + clone + the CONVERGENCE MECHANISM: the Known
+  engine-fidelity corners subsection, claimed-row blocking rule adopted) -> codex RC (3 P1s in claimed rows
+  + the meta-rule; the reviewer confirmed the corners support convergence) -> fable r7 (3 P1s + the
+  classification) -> codex RC (4 row fixes + the oracle demand) -> ORACLE ROUND: the orchestrator ran the
+  four fixtures against real PHP 8.3 (php:8.3-cli docker on shiva: F1 "10,20,99,"; F2 fatal-before-side-
+  effects; F3 readonly reinit=2) -> fable r8 (oracle-grounded fixes) -> codex r9-ROUND: the oracle stands,
+  3 generalization corrections -> fable r9 -> codex READY (sign-off granted: "ready to land with its
+  declared supported fragment and tracked corners"). Writer claude opus consolidated the nine rounds into
+  docs/design/yang.typescript.md (1,706 lines, 21 sections incl. the type layer, claims/watermark/evidence,
+  L1-L4 + T0-T10 slices, the yang.core lift, A12.1-A12.15) and yang.php.md (2,343 lines incl. the
+  oracle-derived reference table with per-row fixtures, the legacy migration, P0-P9 slices). Gate: subagent
+  transcription-fidelity review READY (traced every spot-check to the converged rulings; zero invented
+  statements; caught that MY brief undercounted round-1's P1s — 8 actual; the docs are right). Landed
+  c71065ed, pushed. The loop's collab artifacts (22 files) remain in collab/ pending the step-11 archive.
+Also: the new docs routing adopted (routing-status 2026-10-17 01:0x: implementation -> claude/codex;
+  architectural review -> claude-cloud/fable or agy/argon; GLM reserved for orchestration 12:25 entry —
+  this seat is a glm-5.3-flash orchestrator, the reservation's own use).
+Next: archive the TS+PHP loop artifacts into archive/yang-python/ (committed per step 11); C3-S2 landing;
+  the L1-L4 lifts + D1/D2 fixes dispatch; C2-S3... landed already (see the correction entry); safepoint
+  s3/s4; I7; C2-S4/S5 REMOVED from the queue (landed by the interim seats).
