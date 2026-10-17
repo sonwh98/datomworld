@@ -148,6 +148,23 @@
                              {:line 2, :column 0, :span [6 10]})))
 
 
+(deftest helper-token-error-coordinates-test
+  (testing "an unexpected NEWLINE: the span is the newline's bytes on every
+            host, but the line and column are each helper's own. The [line
+            column] is [3 0] on the JVM and Node and [2 7] on Dart."
+    (conformance/check-error parser/parse-source "if x:\n    x =\n"
+                             {:line #?(:cljd 2 :default 3),
+                              :column #?(:cljd 7 :default 0),
+                              :span [13 14]}))
+  (testing "an unexpected DEDENT: a zero-width span at the dedented line.
+            The [line column] is [2 0] on the JVM, [3 0] on Node and [2 6]
+            on Dart."
+    (conformance/check-error parser/parse-source "if x:\n    @d\ny = 1\n"
+                             {:line #?(:clj 2 :cljs 3 :cljd 2),
+                              :column #?(:cljd 6 :default 0),
+                              :span [13 13]})))
+
+
 (deftest packets-keep-the-synthetic-policy-test
   (testing "helper tokens carry their type's canonical text"
     (let [pk (parser/parse-source "if x:\n    y = 1\nz = 2\n")
