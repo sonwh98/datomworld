@@ -1,0 +1,68 @@
+Loading initial Timbre config from: :default
+[:test] Compiling ...
+========= Running Tests =======================
+
+Testing yang.python.antlr.int-ops-test
+CPython batch 0
+CPython batch 1
+CPython batch 2
+CPython batch 3
+CPython batch 4
+CPython batch 5
+CPython batch 6
+CPython batch 7
+CPython batch 8
+CPython batch 9
+CPython batch 10
+CPython batch 11
+CPython batch 12
+CPython batch 13
+CPython batch 14
+CPython batch 15
+CPython batch 16
+CPython batch 0
+CPython batch 1
+CPython batch 2
+CPython batch 3
+CPython batch 4
+CPython batch 5
+CPython batch 6
+CPython batch 7
+CPython batch 8
+CPython batch 9
+CPython batch 10
+CPython batch 11
+CPython batch 12
+CPython batch 13
+CPython batch 14
+CPython batch 15
+CPython batch 16
+CPython batch 17
+CPython batch 18
+CPython batch 19
+CPython batch 20
+CPython batch 21
+CPython batch 22
+CPython batch 23
+CPython batch 24
+CPython batch 25
+CPython batch 26
+CPython batch 27
+CPython batch 28
+CPython batch 29
+CPython batch 30
+CPython batch 31
+
+Testing yang.python.antlr.prelude-parity-test
+
+Testing yin.vm.semantic.load-paths-test
+
+ERROR in (float64-literal-beyond-2-53-loads-on-every-host) (Error:NaN:NaN)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #error {:message "dao.jing.cbor refused: unsupported-value (unsafe integral JavaScript number; pass a BigInt or float64)", :data {:dao.jing.cbor/refusal :unsupported-value, :detail "unsafe integral JavaScript number; pass a BigInt or float64"}}
+
+Ran 55 tests containing 657 assertions.
+0 failures, 1 errors.
+===============================================
+[:test] Build completed. (148 files, 5 compiled, 0 warnings, 1274.69s)
