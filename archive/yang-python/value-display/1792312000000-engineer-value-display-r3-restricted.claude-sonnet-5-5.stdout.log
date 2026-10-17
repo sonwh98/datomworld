@@ -1,0 +1,38 @@
+Completed-GMT: 2026-10-17 (time not recorded)
+Completed-Local: 2026-10-17 (time not recorded)
+
+Value display now runs through the REPL loop for every frontend. The e2e, linked-prelude and frontend-catalog lanes had not finished when I wrote this. They were still running in the background after passing the 600s foreground limit (task b95li3gqm). I haven't seen their results, and cljstyle never ran because the command needed approval.
+
+**Mechanism**
+- **Capture (eval side):** the REPL-mode lowering wraps the last top-level bare expression statement in `py/result!` (`lower.cljc`). That records the value in a new runtime cell, `py.rt/value` (`prelude.cljc`). It snapshots the value and applies the same digit check as `print`. `py/run-session` resets the cell to None at the start and returns the value as `:py/value`. The in-band marker is gone: it never reached `prelude.cljc` or `render.cljc` in this tree, and nothing goes through `py/print` now. Assignments produce no value.
+- **Print (loop side):** `finalize-eval` in `src/cljc/yin/repl.cljc` formats the value. The binding's `:display :output` policy is replaced by an optional `:render` function. If a frontend has one, the loop uses it. Otherwise it uses `format-value`, which is the Clojure path and is unchanged, so nothing prints twice.
+- **Python render:** `python.antlr.repl/display-value` returns the Python repr, and an empty string for None. `frontends.cljc` registers it as `:render`. The runner still prints `print` output and exceptions itself, then returns the value.
+
+**Tests**
+- `yin.repl.python-antlr-test`, `yin.repl.main-test` and `yang.python.antlr.lower-portable-test` ran together: 68 tests, 542 assertions, 0 failures.
+- `yin.repl.frontend-catalog-test` is in the pending batch above, though it passed in the earlier pair run.
+- I added `the-loop-prints-the-last-expression-value-test`. It checks `x = 1` then `x` shows `1`, an assignment alone shows nothing, and a trailing `print(x)` still gives `1\n` with no extra `None` line.
+- I changed the test catalog to use `:render`.
+- The `even_squares` case itself is untested; I only covered `x = 1` then `x`.
+
+**Behavioral notes**
+- Adding `py.rt/value` changes the set of keys `py/init!` allocates (I added it to the key list).
+- The Python path is JVM-only today, because the ANTLR parser only runs there. The loop-level `:render` hook is portable code, so cljs and cljd should work unchanged, but I haven't built or run them.
+- Kondo reports one error, `Invalid require` in `src/cljc/yin/repl/host.cljc:15`. That file isn't one I touched.
+- Nothing is committed. The prior round's unrelated `repl.cljc` and `lower.cljc` edits are still in the working tree, now reworked.
+
+The first report was premature. The follow-up lanes found two failures, both caused by my change, and I've fixed one of them.
+
+- **Fixed:** the runtime-key count pin in `linked_prelude_test.cljc` is now 70, because I added the `py.rt/value` cell.
+- **Fixed in the test, not re-run:** the manifest golden address in the same file. The prelude changed, so the address moved to `blake3-093fc404…cf73b`. I edited it to that value, but the lane has not been re-run since.
+- **Still open:** the signed fixture `test/resources/yang/python/dht-import-v1.edn` pins the old address, so the DHT-import tests will fail until it is regenerated. The regeneration command needs approval in this session, so it isn't done. To regenerate it, run this from the repo root:
+
+  ```
+  clojure -Sdeps '{:aliases {:t {:extra-paths ["test"]}}}' -M:t test/resources/yang/python/dht-import-v1.generate.clj
+  ```
+
+  I haven't confirmed that `dht-import-test` is the only test that reads the fixture.
+- **Not confirmed green:** the `yang.python.antlr.e2e-test` and `yin.repl.frontend-catalog-test` results got cut off in the truncated output, so I haven't seen them cleanly. Please re-run them after regenerating the fixture.
+- **Not run:** cljstyle, because its command needed approval.
+
+Passing as of my last runs: `yin.repl.python-antlr-test`, `yin.repl.main-test`, `yang.python.antlr.lower-portable-test`, and the key-count test in `linked_prelude_test.cljc`. The mechanism is unchanged from my earlier report: `py/result!` captures the value, and the loop prints it through the binding's `:render`.

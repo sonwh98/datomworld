@@ -69,8 +69,16 @@ with no parser for this host answers
 where its parser runs, so on Node and Dart `(lang :yang.python/antlr)`
 fails this way while `(lang :python)` selects the legacy frontend.
 
-The ANTLR frontend displays what the program prints, not the program's
-value, and it keeps a frontend session across submissions (cleared with
+The ANTLR frontend displays what the program prints, then the value of the
+submission's last top-level bare expression statement (`x = 1; x` shows
+`1`; an assignment, `print(...)` returning `None`, or a lone `None` shows
+nothing; the value is rendered as Python's `repr`). The display has three
+recorded edges: a bare expression inside a top-level compound statement
+(`if`/`for` bodies) does not display, where CPython's interactive mode
+would; a value captured before a later statement raises is printed after
+the error text, where CPython prints it before the traceback; and string
+`repr` escapes only code units below 32 and 127, so a raw C1 control such
+as `'\x80'` reaches the prompt unescaped. The frontend also keeps a frontend session across submissions (cleared with
 the VM, as with `(reset)` and `(vm ...)`). The generated parser must exist
 before the JVM REPL starts: `yin.repl.frontends` loads the parser
 namespace on the JVM, so on a fresh clone run `clj -M:antlr-gen` once, or

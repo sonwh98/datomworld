@@ -11886,3 +11886,61 @@ Remaining C3 work: the completion gate (ruling 14: the twelve-lane matrix, cross
 Next: the antlr M0-M2 (sonnet, running) -> gates -> land; the value-display r3-restricted (sonnet,
   running) -> gates -> land; the C3-S2 gate for the safe... no — C3-S2 is closed. The safepoint s3
   (tracing) continues; C4 I7 after C3-S2's surface settles.
+
+## 2026-10-18 00:4x +07 — the scanner-golden `:pysp` regen landed (37db44da); fable's provenance correction
+The r3 regen (sonnet, scangold worktree) moved the `:c4 :pysp` pins 76→77 applications, 33→34 free
+  names. Dispatched the fable (claude-cloud) review per the known-gaps rule. Her READY carried a
+  correction: the movement is NOT the safepoint s1/s2 hooks (both ancestors of the I6 regen) — it is
+  C4 I1 aad451c5e (the hook prelude's appended require of py), exactly one application + one free
+  name; the landing commit cites aad451c5e. Her landing steps applied: the two stale docstrings fixed
+  (goldens ns + generator header), the deferred ratchet narrowed to #{:pysp} (a group left in the set
+  has its movement absorbed silently), the strict-gate rerun byte-identical, the scan-test namespace
+  green (12 tests / 716 assertions), kondo 0/0, cljstyle clean. Standing rule added to the generator
+  header and the goldens docstring: any slice touching the prelude, safepoint, lowering or import
+  programs runs the generator in the same slice. Landed scangold-regen:master = 37db44da; the
+  known-gaps row notes the recurrence.
+Validated within hours: the deepseek value-display gate v3 returned REQUEST CHANGES with a P1 that is
+  exactly this failure mode — the value-display prelude change (py/result! + py.rt/value) moves the py
+  manifest and leaves float_address_test, linked_safepoint_test's pysp golden and the scanner `:py`
+  entry stale. Value-display r4 dispatched to sonnet (c4fix) with the v3 findings; sequencing: land
+  r4, then the safepoint s3 surface reconciles on top.
+
+## 2026-10-18 00:12:16 +0700 — semantic-register-vm seat: any-pc epic review loop CLOSED — argon ratified all five accumulated judgment calls post-merge
+Completed-GMT: 2026-10-17 17:12:16 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: sess_607c1129-1dcd-49ba-9b34-58565f4f42e4 (interactive seat)
+Tree: origin/master @ a53762b2d (the other seat's C3-S2 closure landed on top of 3552a224; no yin.vm changes).
+Done: argy Gemini-4-argon (same conversation as its 6d-b/6e gates, 6ca9e8c6-86b3-420e-8420-08f3c610a69d) ratified the five accumulated judgment calls/deviations post-merge, file:line-verified against the merged master: GATE-FOLLOWUP: RATIFIED — (1) steps-since-checkpoint = holder slices; (2) the strengthened bare-effect tenure test; (3) the hand-built-vector deviation (item 6's single-consumption discipline makes the literal vector unimplementable; hand-built layout + executed multiplicity pinning is exact and complete); (4) row 4's state-based backend obstruction; (5) region-window's live-only canonicalization. Combined-merge consistency confirmed; residual for Fable: none. Promoted to collab/1792240000000-architect-gate-followup.agy-argon.findings.md. First followup dispatch failed on a removed-worktree cd (the cleanup had deleted srvm-6d-b minutes earlier) — redispatched from a fresh scratch at master; scratch removed after.
+Decisions: per the owner's challenge ("argon queued? why? its available"), confirmations no longer queue for a specific reviewer — the available architectural destination ratifies immediately.
+Verification: argon's file:line checks in its findings; master's tip carries all merged slice content.
+Delegates: agy gemini-4-argon.
+Next: the yin.vm.semantic track has NO open engineering work — the any-pc epic is landed and its review loop closed. Remaining items are owner-scheduled product work (REPL export command, composition-level fetch loop) and Fable's claude-cloud reservation (until Tuesday) for any future security-capable sign-off. The other seat's C3/TS/PHP work continues independently on master.
+
+## 2026-10-18 11:2x +07 — the loop-level value display LANDED (06065e42); the four-round arc closed
+The owner ruled the semantics ("match Clojure's — print the last expression evaluated", REPL-loop
+  level, not frontend-level). Rounds: the sonnet draft (killed mid-level; preserved as prior art), r2
+  (sonnet, the loop print), the deepseek gate v2 (P2: last-statement is not CPython's — the owner
+  ratified last-only anyway), r3-restricted (sonnet), the gate v3 (REQUEST CHANGES: the P1 stale
+  dependents — exactly the in-slice-generator failure mode fable's rule now prevents), r4 (sonnet:
+  every dependent re-pinned mechanically, the acceptance rows incl. the owner's even_squares in the
+  shared packets, the edges documented), the gate v4 (deepseek: READY, its own evidence run green).
+  Lanes: JVM 10 namespaces green, Node 4061/149759/0, Dart 4009 all passed (orchestrator-run),
+  cljstyle rc=0, kondo 0/0. Landed value-display-r2:master = 06065e42 (the docs-only master merge
+  folded in). The gate's non-blocking notes ride the safepoint-s3 round: the float_address/
+  linked_prelude/scanner_goldens provenance docstrings (which s3's own pin moves will re-date), the
+  py/run-session comment, the yang.typescript.md line width. The C1-control edge gets its known-gaps
+  row with this commit.
+Next: the safepoint-s3 finish round (unblocked by this landing; its pins re-stale against the new py
+  manifest), then the antlr M0-M2 (m012d implementing the codex gate's three P1s), then the C3
+  completion gate over the final head.
+
+## 2026-10-18 01:42:56 +0700 — semantic-register-vm seat: REPL export/import via dao.jing — DESIGNED IN CONVERSATION, PARKED FOR TUESDAY (owner)
+Completed-GMT: 2026-10-17 18:42:56 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: sess_607c1129-1dcd-49ba-9b34-58565f4f42e4 (interactive seat)
+Tree: origin/master @ 8b84437b+ (log-only pushes; the other seat's C3/TS/PHP work continues independently). No code changed this unit.
+Done: The owner asked what the queued product work is; after explanation, the owner proposed the shape for the REPL export/import command: **save the CESK state to dao.jing** (content-addressed store) rather than a local file — making an exported running state a BLAKE3-addressed, durable, fetchable object. Design status: discussed; PARKED FOR TUESDAY (2026-10-20) by the owner. The design as discussed: (a) export = force a durable checkpoint of the running task and publish the canonical pack into dao.jing (address = BLAKE3 of the pack; the architecture composes with landed work — 6d's carrier encoding, 6d-b's recover-from-last-durable-checkpoint semantics, module-pins admission on the resume side); (b) import = fetch by address, verify, admit (module pins), lower, resume; (c) command surface likely wants both save-and-continue and save-and-stop variants. FOUR DESIGN QUESTIONS the Tuesday loop must settle: (1) custody/split-brain — a published CESK state is durable and addressable; who may resume it, and what prevents two hosts resuming the same pack concurrently (occurrence/successor/arbitration vocabulary exists; the policy is new authority); (2) save-and-continue vs save-and-stop custody consequences; (3) privacy — dao.jing is public-by-address and a CESK state exposes the full live state (registers, stores, pending datoms): encryption-at-rest vs address-capability as the access model; (4) size — stores make packs large: dao.jing chunking/large-blob path and the DHT transport story. Process proposal (owner to confirm Tuesday): architect design loop (Fable via claude-cloud — her subscription resets Tuesday, or agy/argon) producing a short spec, then implementation to claude/codex/agy by capability (~4-6 days incl. tests; the file-based thin version was 2-3 days but skips dao.jing publication and custody). Also still queued from the argon gates: the module-export lift-refusal hole (lift module exports by module coordinate via host-export profiles — known-gaps row exists) as a small companion design/implementation item.
+Decisions: nothing dispatched; the owner explicitly parked the design until Tuesday. This entry is the pickup point.
+Verification: none needed (design conversation only).
+Delegates: none.
+Next (Tuesday, or on owner request): run the architect design loop on the four questions + command surface; then the implementation slice per routing. Also Tuesday: Fable's subscription resets (the claude-cloud reservation ends).

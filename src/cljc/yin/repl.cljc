@@ -1072,11 +1072,11 @@
    evaluator answers once per halted program, after its prints.  A missing
    or foreign-round result is loss, reported with the append outcome the
    runner recorded.  The program halted, so its VM state survives and a
-   frontend's staged session is committed; a frontend whose display
-   policy is `:output` shows what the program wrote and not its value."
+   frontend's staged session is committed; a frontend with a `:render`
+   shows its value as that renders it, the loop printing for every language."
   [state state' vm']
   (let [append (::result-append vm')
-        display (:display (::frontend state'))
+        render (:render (::frontend state'))
         [state'' output-text results]
         (drain-output (commit-frontend
                         (assoc state' :vm (dissoc vm' ::result-append))))
@@ -1086,7 +1086,8 @@
       (let [value (:value (peek current))]
         [(record-last-value state state'' value)
          (str output-text
-              (when-not (= :output display)
+              (if render
+                (render value)
                 (format-value value (host-fn-namer (:vm state'')))))])
       [state''
        (str output-text "Error: " result-loss-text
@@ -1712,11 +1713,11 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
   "Lower `parsed` through `binding`.  A binding with a `:lower-session`
    stage lowers against the frontend session the shell keeps
    (`:frontend-session`, cleared with the VM) and leaves the session it
-   answers, with the binding's `:display` policy, in the program's
+   answers, with the binding's `:render`, in the program's
    `::frontend` metadata, for `eval-compiled` to stage."
   [state binding parsed]
   (let [staged (cond-> {}
-                 (:display binding) (assoc :display (:display binding)))]
+                 (:render binding) (assoc :render (:render binding)))]
     (if-let [lower-session (:lower-session binding)]
       (let [[ast session] (lower-session parsed (:frontend-session state))]
         (vary-meta ast assoc ::frontend (assoc staged :session session)))
@@ -1884,7 +1885,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
 
 (defn- eval-compiled
   "Evaluate a program `compile-input` or `compile-source` lowered.  What
-   its lowering left (`::frontend`: the session and the display policy) is
+   its lowering left (`::frontend`: the session and the `:render` hook) is
    staged on the round and committed only where the round's VM state
    survives: when the program halts, now or when its parked require
    completes (`finalize-eval`).  A round that fails, rolls back, or is

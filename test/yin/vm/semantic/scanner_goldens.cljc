@@ -3,8 +3,11 @@
    Only :c4/:py was regenerated after C4 I2/I3 on e6337294; reproduce with
    collab/1792570000000-engineer-p7m-scan-golden.clj. Only :c4/:py and
    :c4/:t were regenerated after C4 I4-a/I5/I6 (branch c4-i6-r4);
-   reproduce with
-   test/resources/yin/vm/semantic/scanner-golden-c4.generate.clj.")
+   only :c4/:pysp was regenerated after C4 I1 (aad451c5e, the hook
+   prelude's appended require of py); reproduce with
+   test/resources/yin/vm/semantic/scanner-golden-c4.generate.clj.
+   Any slice touching the prelude, safepoint, lowering or import
+   programs runs the generator in the same slice.")
 
 
 (def scanner-goldens
@@ -625,6 +628,7 @@
         py.b/print
         py.b/KeyboardInterrupt
         py.b/dict-items
+        py.rt/value
         py.b/GeneratorExit
         set-add
         <=
@@ -1846,6 +1850,7 @@
        [check-print true]
        [get true]
        [check-print-all true]
+       [check-print true]
        [= true]
        [= true]
        [= true]
@@ -2668,6 +2673,9 @@
        [cell/get true]
        [py.rt/out true]
        [snapshot-all true]
+       [cell/set! true]
+       [py.rt/value true]
+       [snapshot true]
        [= true]
        [get true]
        [cell/get true]
@@ -2840,6 +2848,8 @@
        [cell/set! true]
        [py.rt/ctx true]
        [ctx true]
+       [cell/set! true]
+       [py.rt/value true]
        [modules-put! true]
        [str true]
        [py.rt/importlib true]
@@ -2888,6 +2898,7 @@
        [make-function true]
        [make-function true]
        [make-class true]
+       [cell/new true]
        [cell/new true]
        [cell/new true]
        [raise true]
@@ -4348,8 +4359,11 @@
        [raise true]
        [assoc true]
        [assoc true]
+       [assoc true]
        [cell/get true]
        [py.rt/out true]
+       [cell/get true]
+       [py.rt/value true]
        [= true]
        [snapshot-exc true]
        [globals-fn true]
@@ -4545,6 +4559,7 @@
        [py.rt/modules false]
        [py.rt/out false]
        [py.rt/sys false]
+       [py.rt/value false]
        [cell? false]
        [str? false]
        [str false]
@@ -4803,6 +4818,7 @@
        [check-print-all false]
        [check-print false]
        [print false]
+       [result! false]
        [type-name false]
        [type-text false]
        [index-type-error false]
@@ -4873,6 +4889,7 @@
        [py.b/import-module true]
        [py.b/len true]
        [py.b/object true]
+       [py.rt/value true]
        [py.rt/out true]
        [py.rt/limit true]
        [py.b/gen-iter true]
@@ -4933,7 +4950,7 @@
        [py.b/GeneratorExit true]
        [py.b/KeyboardInterrupt true]
        [py.b/BaseException true]],
-      :application-count 3957,
+      :application-count 3968,
       :requirements
       {:store-keys
        #{rt-limit
@@ -5045,6 +5062,7 @@
          py.b/print
          py.b/KeyboardInterrupt
          py.b/dict-items
+         py.rt/value
          py.b/GeneratorExit
          global-del
          set-add
@@ -5145,6 +5163,7 @@
          range-has-float?
          range-size
          pow
+         result!
          snapshot-exc
          py.b/gen-throw
          gen-start
@@ -6290,6 +6309,7 @@
         [cell/set! true]
         [conj true]
         [cell/get true]
+        [cell/set! true]
         [= true]
         [get true]
         [cell/get true]
@@ -6411,6 +6431,8 @@
         [cell/set! true]
         [cell/set! true]
         [cell/set! true]
+        [cell/set! true]
+        [cell/new true]
         [cell/new true]
         [cell/new true]
         [get true]
@@ -7133,6 +7155,8 @@
         [= true]
         [assoc true]
         [assoc true]
+        [assoc true]
+        [cell/get true]
         [cell/get true]
         [= true]
         [get true]
@@ -7241,6 +7265,7 @@
         py/dict-new
         data/str-concat
         -
+        require
         nil?
         py/str
         cursor
@@ -7257,7 +7282,8 @@
         assoc
         cell/set!},
       :occurrences
-      [[cell/set! true]
+      [[require false]
+       [cell/set! true]
        [handler true]
        [py/global-get true]
        [py/dict-new true]
@@ -7339,7 +7365,7 @@
        [attach! false]
        [handler true]
        [cursor true]],
-      :application-count 76,
+      :application-count 77,
       :requirements
       {:store-keys
        #{handler
@@ -7361,7 +7387,8 @@
       :join
       {:status :ok,
        :obligations
-       [[cell/set! true]
+       [[require false]
+        [cell/set! true]
         [py/global-get true]
         [py/dict-new true]
         [cell/get true]

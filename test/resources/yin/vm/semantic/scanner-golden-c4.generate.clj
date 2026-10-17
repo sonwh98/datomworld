@@ -1,10 +1,12 @@
-;; Generator of the :c4/:py and :c4/:t entries in
+;; Generator of the :c4/:py, :c4/:t and :c4/:pysp entries in
 ;; test/yin/vm/semantic/scanner_goldens.cljc.
 ;;
 ;; Provenance: the JVM scanner answers of the C4 modules after the
 ;; I4-a/I5/I6 prelude, lowering and reload moves — the deferred
 ;; regeneration of the "C4 scanner pins" row in docs/agents/known-gaps.md
-;; (branch c4-i6-r4). Run from the repository root on the JVM, with the
+;; (branch c4-i6-r4) — and after C4 I1 (aad451c5e, the hook prelude's
+;; appended require of py, which moved :pysp only). Run from the
+;; repository root on the JVM, with the
 ;; test paths on the classpath, to rewrite the entries:
 ;;
 ;;   clojure -Sdeps '{:aliases {:t {:extra-paths ["test"]}}}' -M:t \
@@ -14,8 +16,9 @@
 ;;
 ;; It rebuilds the module specs exactly as
 ;; yin.vm.semantic.scan-test/c4-specs does, prints the live new-answer of
-;; the two deferred groups (:py — the prelude module; :t — the reload
-;; test module), and rewrites their pins through the file's own
+;; the deferred groups (:py — the prelude module; :t — the reload test
+;; module; :pysp — the linked-safepoint test module), and rewrites their
+;; pins through the file's own
 ;; generation pipeline: (pprint scanner-goldens) indented three columns
 ;; under (def scanner-goldens '). Every other group — the six untouched
 ;; :c4 modules plus :b0 and :register — is recomputed from the live
@@ -23,9 +26,13 @@
 ;; aborts before anything is written, because that would be a behavior
 ;; change, not a pin move. Nothing is hand-authored and pprint is
 ;; deterministic, so a rerun on an unchanged tree rewrites the same
-;; bytes. Rerun it (and widen `deferred`) whenever the prelude, the
-;; lowering or the import programs move the scanner answers;
-;; yin.vm.semantic.scan-test fails until they are.
+;; bytes. Rerun it (setting `deferred` to exactly the groups expected to
+;; move — a group left in the set has its movement absorbed silently)
+;; whenever the prelude, the safepoint, the lowering or the import
+;; programs move the scanner answers; yin.vm.semantic.scan-test fails
+;; until they are. Any slice touching those programs runs this generator
+;; in the same slice — a slice that moves the prelude without
+;; regenerating leaves the slow scan-test lane red on master.
 
 (require '[clojure.pprint :as pp]
          '[clojure.string :as str]
@@ -36,7 +43,7 @@
 
 (def path "test/yin/vm/semantic/scanner_goldens.cljc")
 
-(def deferred #{:py :t})
+(def deferred #{:pysp})
 
 
 (def specs (scan-test/c4-specs))
@@ -79,7 +86,7 @@
            "; added" added "removed" removed "free names"))
 
 
-(doseq [group [:py :t]]
+(doseq [group [:py :pysp :t]]
   (println)
   (println "=== :c4" (name group) "new answer ===")
   (binding [*print-length* nil *print-level* nil]
@@ -87,8 +94,9 @@
 
 
 (def intended
-  (assoc-in (assoc-in goldens/scanner-goldens [:c4 :py] (:py answers))
-            [:c4 :t] (:t answers)))
+  (reduce (fn [pins group] (assoc-in pins [:c4 group] (get answers group)))
+          goldens/scanner-goldens
+          deferred))
 
 
 (def def-form
