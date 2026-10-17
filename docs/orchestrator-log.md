@@ -11791,3 +11791,29 @@ Verification status of the round: codex reports the owner's exact line completin
 Next: codex round completes -> orchestrator runs the focused verification (step 6 only) -> gate -> land.
   Also in flight: opus S3v2 lanes. Landed and pushed: I6 19e7e879, goldens 42aa4bcf, I1 aad451c5, archives,
   the log entries through the correction above.
+
+## 2026-10-17 15:05:00 +07 — comprehension-hang fix LANDED fa91caa3 (owner's prompt bug); the main.cljc prompt defect reported for a follow-up
+Completed-GMT: 2026-10-17 08:05:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@fa91caa3 == origin/master
+Done: The owner's prompt bug FIXED and LANDED fa91caa3: blen's unhinted (alength bs) in
+  src/cljc/dao/jing/cbor.cljc compiled to a reflective JVM lookup; the owner's filtered-comprehension
+  submission hit it during CBOR decode in the REPL's automatic code-index publication, spinning a thread at
+  100% CPU. The fix: a ^bytes type hint (the sibling functions already hinted). The comprehension itself
+  always terminated correctly — the orchestrator's initial hypothesis (infinite realization) was WRONG; the
+  delegated diagnosis found the reflective lookup. The owner's exact line now completes in ~6s producing
+  [4, 16, 36, 64, 100]. Regressions: filtered-range-comprehension-test (every-vm bisect variants) and
+  filtered-range-comprehension-repl-test (the REPL-facing publication path under a future/deref-timeout so
+  a recurrence fails the suite instead of hanging it).
+Verification: engineer lanes JVM quick 4,094/269,336/0, focused slow 78/1,161, CPython 3.9.6 comparisons,
+  kondo 0/0; MY step-6 run: e2e-test focused 42/714/0 including the new ^:slow regressions; gate sonnet-5.5
+  (session in the prompt artifact) READY — the fix verified correct for every blen caller, complete for
+  encode+decode, no sibling reflective pattern in the file, regressions non-vacuous (one Low: the 30s deref
+  timeout is machine-dependent, clean failure mode).
+SEPARATE finding (reported, not fixed): yin/repl/main.cljc:1270 — silent assignments suppress the next
+  prompt, even after evaluation finishes. Dispatched as a follow-up fix round (small).
+Decisions: the orchestrator's wrong root-cause hypothesis was recorded as a labeled guess in the engineer's
+  brief (per the owner's role-boundary correction); codex's delegated diagnosis disproved it.
+Next: the main.cljc prompt-fix round; I1/I6/goldens all landed; S3v2 lanes in flight; C3-S2 landing queued;
+  safepoint s3 next dispatch.
