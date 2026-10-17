@@ -1106,8 +1106,8 @@ slice at a time, each with a declaration unit.
 
 Installed like Python's F3: parse (JVM) plus `lower`/`lower-session`,
 `:render` (the loop prints the value of the submission's last top-level
-bare expression statement through it), and `:primitives` (for example `js-report`) once D2 is
-fixed. The persistent session keeps the script-goal global object and the
+bare expression statement through it), and `:primitives` (for example
+`js-report`) once D2 is fixed. The persistent session keeps the script-goal global object and the
 global declarative environment (section 3.7).
 
 ## 12. Claims and declaration units

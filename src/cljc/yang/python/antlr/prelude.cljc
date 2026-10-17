@@ -3275,9 +3275,10 @@
     [py/run-session
      ;; one REPL submission (ruling 18): `body` runs against the
      ;; persistent __main__ of sys.modules, made by the first submission,
-     ;; so a name one submission binds is read by the next; the value is
-     ;; run-main's. The bundled REPL runner calls it, so the runner names
-     ;; no runtime key
+     ;; so a name one submission binds is read by the next; it answers
+     ;; the output, the exception and :py/value (the last bare expression
+     ;; statement's value). The bundled REPL runner calls it, so the
+     ;; runner names no runtime key
      (fn [body]
        (do (cell/set! py.rt/out [])
            (cell/set! py.rt/value :py/None)

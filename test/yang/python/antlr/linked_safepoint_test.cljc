@@ -22,6 +22,7 @@
             [yang.python.antlr.render :as render]
             [yang.python.antlr.safepoint :as hooks]
             [yang.python.antlr.safepoint-programs :as programs]
+            [yang.python.antlr.trace-programs :as trace]
             [yang.python.antlr.uast :as u]
             [yang.safepoint :as safepoint]
             [yin.vm :as vm]
@@ -255,7 +256,7 @@
    delivers its pinned base prelude after defining hooks. The loop-level
    value display (py/result!, py.rt/value) moves the py address again."
   (keyword (str "segment/blake3-"
-                "fa373f02a01ec41338f0a3084aba7adce4982387a10f39fd664bc9ef2618d2fc")))
+                "97aba7f734fa7e599df846984bf02cfb04659c78cd24589708d2d47ddfe49f4c")))
 
 
 (defn- pysp-manifest-address
@@ -340,10 +341,11 @@
 
 
 (defn- derived-ast
-  "`A'` for `pk` under the linked profile."
-  [pk]
-  (vm/semantic-bytecode->ast
-    (tree-of (:derived (derive* pk hooks/linked-profile)))))
+  "`A'` for `pk` under the linked profile, or under `profile`."
+  ([pk] (derived-ast pk hooks/linked-profile))
+  ([pk profile]
+   (vm/semantic-bytecode->ast
+     (tree-of (:derived (derive* pk profile))))))
 
 
 (defn- on-every-vm
@@ -374,6 +376,16 @@
   (on-every-vm (hooks/linked-program (derived-ast pk)) signals))
 
 
+(defn- linked-traced-run
+  "The wrapped derived program of `pk` under the linked tracing profile."
+  [pk signals]
+  (on-every-vm
+    (hooks/linked-program
+      (u/then (u/sexp->uast '(pysp/install-sys! true))
+              (derived-ast pk hooks/linked-tracing-profile)))
+    signals))
+
+
 (defn- limited-run
   "The wrapped derived program of `pk` under recursion limit `n`."
   [pk n signals]
@@ -382,6 +394,21 @@
       (u/then (u/sexp->uast (list 'pysp/set-recursion-limit! n))
               (derived-ast pk)))
     signals))
+
+
+(defn- linked-tracing
+  []
+  (testing "the linked tracing profile through the module boundary: the
+            trace function sees the same call/line/return events the
+            bundled lane prints"
+    (every= [true false {:py/out ["call f 7" "line f 8" "call g 5" "line g 6"
+                                  "return g 6" "line f 9" "return f 9"],
+                         :py/exception nil}]
+            (linked-traced-run trace/trace-basic []))))
+
+
+(deftest ^:slow linked-tracing-profile-test
+  (slow/guard "linked-tracing-profile-test" linked-tracing))
 
 
 (defn- fail-closed
