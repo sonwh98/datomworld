@@ -1,0 +1,24 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Completed-GMT: 2026-10-17 19:57:22 GMT
+Completed-Local: 2026-10-18 02:57:22 +07 (+0700)
+
+# safepoint-s3 re-gate — REQUEST CHANGES
+
+Four of the five findings are resolved. The P2 rewrap rider is **not done at all**: `docs/design/yang.typescript.md` is byte-identical between `e2bc7592` and `874dbf6a` (blob `5e9677ac…` both sides), so the fix commit and the fix report both repeat the previous round's false claim.
+
+## Remaining finding
+
+**1. [P2 — repeat] The `yang.typescript.md` §11.9 rewrap is still not done** — `docs/design/yang.typescript.md:1110`.
+The paragraph is still 69/71/69/**97**/45 columns. Line 1110 is the **only** line over 80 in the whole file (625 lines sit at exactly 80; nothing else is 81–96), and `git blame` still attributes it to `bb3976f8`, not to the fix commit. `git diff e2bc7592 874dbf6a -- docs/` is empty. The commit subject ("typescript rewrap") and the fix report ("I rewrapped the whole paragraph, so every line is now at or under the doc's wrap width") are both false. Fix: rewrap 1107–1111 to ≤80 columns, e.g. break after "keeps the script-goal" and let "global object and the global declarative environment (section 3.7)." close the paragraph. Nothing else in the fix needs to change.
+
+## Verified resolved
+
+1. **`newline-lines` (P2 bug)** — `lower.cljc:222-239`. Code-checked, not taken from the claim: one `inc` iff a `NEWLINE` token's text contains `\n`, `\r` or `\f`. CRLF (`"\r\n"`) is one token containing both and advances **1**; alone `"\r"` advances 1; `"\f"` advances 1; the start-of-input `SPACES` alternative contains none of the three and advances **0**. The grammar's second alternative admits exactly one break sequence (`'\r'? '\n' | '\r' | '\f'`), so "one per token" is exactly "the line breaks", matching `yang.antlr.md:1714`. `manifest.edn` confirms the patched lexer base pins NEWLINE's span to the newline characters, so the token text really is `"\r\n"` / `"\f"`. The docstring now states the rule correctly.
+2. **Fixtures and test** — `trace_programs.cljc:1230-1250`: `with-newline` rewrites every NEWLINE token text, preserving ids; `trace-basic-crlf` and `trace-basic-ff` each carry the matching source as their docstring. `e2e_test.clj:937-938` adds both to the packet-versus-parser check (`node-shape` includes `:text`, so the comparison is real). `safepoint_test.cljc:821-833`: `trace-basic-newlines-test` is `^:slow`, follows the existing `slow/guard` pattern, runs both fixtures through `traced`/`hooked`/`on-every-vm` (all four VMs), and asserts the exact LF event list including the printed `f_lineno` (7/8/5/6/9). The parse-vs-packet identity holds for CRLF and FF under the patched lexer base. The mutation evidence is consistent with the code (2 fixtures × 4 VMs = the reported 8 failures) and was not redone.
+3. **Pins** — no golden or manifest address moved. The whole diff is seven source/test files; no hash, `segment/blake3-*`, `manifest.edn` or golden changed, and the `pysp` keyword `97aba7f7…` is untouched context in the one test file that names it. The new fixtures are parser-checked, not address-pinned.
+4. **Docstring riders** — `python/antlr/safepoint.cljc` ns (`:40`), `state-definitions` (`:355-357`) and `runtime-keys` (`:408-410`) now all say handler cell + cursor + trace cell, matching the three entries in `state-definitions` and `attach!`'s three definitions. `yang/safepoint.cljc` `site-set` (`:71-72`) and `insert` (`:190-196`) now describe `[path mark]` / `{path mark}` with `[kind datum ...]` marks and `{kind hook}` entries whose value may be a symbol or `{:hook sym :operands true}` — matching `entry-hook` and the real `hooks/tracing-profile` (`{:hook 'py.sp/tcall, :operands true}`). `linked_safepoint_test.cljc:254-259` adds the s3 tracing clause to the `pysp` manifest provenance, consistent with the value-display sentence above it.
+
+*Static re-gate only: the lanes were not rerun here, per the brief; the orchestrator's green run, mutation evidence and `cljstyle rc=0` are taken as given.*
+
+Verdict: REQUEST CHANGES

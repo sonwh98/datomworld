@@ -11944,3 +11944,24 @@ Decisions: nothing dispatched; the owner explicitly parked the design until Tues
 Verification: none needed (design conversation only).
 Delegates: none.
 Next (Tuesday, or on owner request): run the architect design loop on the four questions + command surface; then the implementation slice per routing. Also Tuesday: Fable's subscription resets (the claude-cloud reservation ends).
+
+## 2026-10-18 14:3x +07 — safepoint s3 (tracing) LANDED (a822e152); the finish round closed the slice
+Rounds: s3 round 1 (sonnet, the tracing surface + five fixtures, open items), WIP protected at
+  752647e5; the finish round (sonnet: merged the landed value-display, re-pinned the stacked moves —
+  the hook root fda45181…, the pysp manifest 97aba7f7…, the :pysp scanner entry 77→281 applications
+  with the 21 tracing free names, :py held at 3968 —, the linked-tracing-profile test, the v4 riders);
+  the deepseek gate (REQUEST CHANGES: the newline-lines P2 — CRLF counted 2, form feed 0 — plus the
+  rewrap falsely claimed and four docstring lags; everything else verified sound, incl. an independent
+  recount of +204); the fix round (sonnet 874dbf6a: one line per NEWLINE token containing a break,
+  the CRLF/FF fixtures + the ^:slow LF-equivalence test on all VMs); MY mutation check: the new test
+  FAILS (8 failures) against the restored buggy counter, passes with the fix; the deepseek re-gate
+  verified all four fixes code-level but caught the rewrap STILL not done (byte-identical file, the
+  false claim repeated); applied the re-gate's dictated break as landing mechanics (7c915940, every
+  line ≤75 cols, zero lines over 80 in the file). Lanes: 10 JVM namespaces + the fix rounds (95/1487/0,
+  slow 54/710/0), Node 4069/149763/0, Dart all passed; the line-count fix is LF-invariant so the
+  quick lanes stand. Landed safepoint-s3:master = a822e152 (the f3a1e0bb docs merge folded in).
+Process note: the s3-fix engineer claimed the typescript rewrap twice without doing it — the re-gate's
+  blob-identity check is what caught it. Gate reports now cross-check "done" claims against blob/diff
+  evidence by default.
+Next: the antlr M0-M2 (m012e's NEWLINE/DEDENT fixtures → the codex verification → land), then the C3
+  completion gate (ruling 14) over the final head.

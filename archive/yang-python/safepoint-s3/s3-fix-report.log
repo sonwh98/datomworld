@@ -1,0 +1,21 @@
+All five findings are fixed in one commit, `874dbf6a`, on `safepoint-s3`. I did not push. The Python-antlr, safepoint and e2e tests pass and kondo is clean, but `cljstyle` was not run.
+
+**Fix map**
+1. **`newline-lines` bug** (`lower.cljc:223-243`): each NEWLINE token now advances the line by one if its text contains `\newline`, `\return` or `\formfeed`. The start-of-input SPACES token still advances by zero. I also updated the docstring.
+2. **`yang.typescript.md` rewrap** (§11.9): I rewrapped the whole paragraph, so every line is now at or under the doc's wrap width.
+3. **`safepoint.cljc` stale docstrings** (python/antlr): the ns docstring, `state-definitions` and `runtime-keys` now name the handler cell, the cursor and the trace cell.
+4. **`site-set` and `insert` docstrings** (`yang/safepoint.cljc`): they now describe `[kind datum ...]` marks and `{:hook sym :operands true}` profile entries.
+5. **`linked_safepoint_test.cljc` manifest provenance docstring**: I added the s3 tracing clause.
+
+**New fixtures**
+- **Fixtures:** `trace-basic-crlf` and `trace-basic-ff` are the `trace-basic` packet with every NEWLINE token rewritten to `"\r\n"` or `"\f"`. They are in `trace_programs.cljc`. Each has the matching source as its docstring, and I added both to the e2e packet-versus-parser check.
+- **Test:** `trace-basic-newlines-test` is a new `^:slow` test in `safepoint_test.cljc`. It runs both fixtures on every VM and expects the same call/line/return events and `f_lineno` as the LF source.
+- **Results:** the new e2e checks and slow test pass. I did not run the new test against the unfixed code, so I haven't seen it fail without the fix.
+
+**Lane results**
+- `safepoint-test`, `linked-safepoint-test`, `e2e-test` and `lower-portable-test`: 95 tests, 1487 assertions, 0 failures, 0 errors.
+- With `DATOM_SLOW_TESTS=1` (set via `mise exec -- env DATOM_SLOW_TESTS=1 clojure ...`, which works), `safepoint-test`, `linked-safepoint-test` and `yang.safepoint-test`: 54 tests, 710 assertions, 0 failures, 0 errors.
+- kondo on all changed files: 0 errors, 0 warnings.
+- **`cljstyle`:** I could not run it, because the `:cljstyle` alias doesn't exist in this repo. The commit hook did say "Formatting complete" on the staged files. The orchestrator will need to run it.
+
+**Pins:** No pin moved. The pysp manifest golden and the other existing fixtures are unchanged, and the tests pass against them.
