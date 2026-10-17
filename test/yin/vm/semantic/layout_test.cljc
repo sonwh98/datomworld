@@ -167,7 +167,7 @@
   [m]
   (if (= :semantic (h/lane-of m))
     (:wait-set m)
-    (:wait-set (layout/canonical-task m (h/kernel-space m) (h/on-lane :semantic h/machine)))))
+    (:wait-set (layout/canonical-task m (h/kernel-space m) (h/on-lane :semantic h/machine) {}))))
 
 
 (deftest register-rd-from-a
@@ -344,7 +344,7 @@
   (let [waits (lifted-waits m)
         parked (if (= :semantic (h/lane-of m))
                  (vals (:parked m))
-                 (vals (:parked (layout/canonical-task m (h/kernel-space m) (h/on-lane :semantic h/machine)))))]
+                 (vals (:parked (layout/canonical-task m (h/kernel-space m) (h/on-lane :semantic h/machine) {}))))]
     (h/normalize (mapv (fn [p] (conj (mapv :env (:k p)) (:env p))) (concat waits (sort-by :id parked))))))
 
 
@@ -811,3 +811,214 @@
           ;; register ((+ x x) is [:var 2 x] [:var 3 x] [:call 0 1 [2 3]]), so
           ;; no projected program repeats one; a repeat would fail here loudly.
           (is (zero? @repeated)))))))
+
+
+;; =============================================================================
+;; 6e, item 6: tail residuals — the dead-prefix rule
+;; =============================================================================
+
+(defn case-vectors
+  "The A vectors a lane case's own world projects (its scope alone)."
+  [build]
+  (h/scoped (fn [] [(h/on-lane :semantic build) (vals @h/*projected*)])))
+
+
+(defn lane-fragment-vectors
+  "Every vector the lane fragment projects: 61 cases, distinct."
+  []
+  (distinct (mapcat (fn [c] (second (case-vectors (nth c 3)))) (h/lane-cases))))
+
+
+(deftest lane-tail-calls-have-no-ambient-layout
+  ;; item 6's static half: no lane-fragment case has a tail call with a
+  ;; non-empty ambient layout — no natural dead prefix exists, and the
+  ;; rule is pinned on the hand-built vectors below instead
+  (let [checked (atom 0)]
+    (doseq [v (lane-fragment-vectors)]
+      (let [sg (layout/segment v)]
+        (doseq [p (sort (reachable-pcs v))
+                :when (code/tail-call? (nth v p))]
+          (is (= [] (layout/stack-layout sg p))
+              (str "the tail call at pc " p " has no ambient layout"))
+          (swap! checked inc))))
+    (is (pos? @checked) "the fragment executes tail calls")
+    (is (= 5 @checked) "pinned: five distinct reachable tail-call pcs over the fragment's vectors")))
+
+
+(def operand-tail-ast h/operand-tail-ast)
+
+
+(defn kernel-at-pc
+  "The first state kernel k reaches whose boundary A pc is `p`, or nil."
+  [k p]
+  (loop [k k n 0]
+    (cond (> n 1000) nil
+          (and (h/kernel-active? k) (= p (h/boundary-pc k))) k
+          (or (h/kernel-active? k) (seq (:ready-queue k))) (recur (h/kernel-tick k) (inc n))
+          :else nil)))
+
+
+;; :cljd first — the observing drive needs with-redefs, which
+;; ClojureDart lacks; cljd keeps the transfer and window pins below via
+;; kernel-at-pc's own stepping
+#?(:cljd nil
+   :default
+   (deftest a-dead-prefix-is-dropped-recorded-and-unobservable
+     ;; the rule exercised end to end on a real kernel: inside the callee of
+     ;; an operand-position tail call the region carries the abandoned
+     ;; operator below the layout; the lift drops it and records the count
+     ;; in its diagnostics, the lower produces none, the relift is
+     ;; byte-equal, and the run answers the reference
+     (h/scoped
+       (fn []
+         (let [diagnostics (atom [])
+               run-world (fn [] (h/on-lane :stack #(h/load-program (h/machine) operand-tail-ast)))
+               ref (vm/run (run-world))
+               observed (atom 0)
+               observe (fn [k]
+                         (when (h/kernel-active? k)
+                           (let [cx (assoc (layout/lift-context k (h/kernel-space k) (:owner k))
+                                           :diagnostics diagnostics)]
+                             (layout/lift-running
+                               cx (select-keys k [:pc :stack :frames :continuation :store-of]))
+                             (swap! observed inc)))
+                         k)
+               _ (with-redefs [vm/run #(h/lane-drive % observe)] (vm/run (run-world)))]
+           (is (= 1 (vm/value ref)) "the operand tail call's value is the answer")
+           (is (pos? @observed) "the callee's boundaries were observed")
+           (is (= [{:yin.k/dead-prefix 1, :yin.k/pc 11} {:yin.k/dead-prefix 1, :yin.k/pc 12}]
+                  (mapv #(select-keys % [:yin.k/dead-prefix :yin.k/pc]) @diagnostics))
+               "every lift inside the callee reports exactly one dead value, never in the frame")
+           (testing "the canonical form never held it"
+             (let [k (kernel-at-pc (run-world) 12)
+                   {:keys [wire relift recv]} (h/lane-direct-transfer k :stack)
+                   run (first (h/slot (rows/decode wire) 17))
+                   window (:window (layout/lift-running
+                                     (layout/lift-context k (h/kernel-space k) (:owner k))
+                                     (select-keys k [:pc :stack :frames :continuation :store-of])))]
+               (is (map? k) "a boundary inside the callee was reached")
+               (is (= wire relift) "law 2: immediate relift, no prefix in the canonical form")
+               (is (= 12 (nth (:slots run) 1)))
+               (is (= 1 (count window)) "the window is the callee's own live register")
+               (is (= 2 (count (:stack k)))
+                   "the region: the dead operator below the callee's own value")
+               (is (= 1 (count (:stack recv)))
+                   "the lower produces no prefix: the receiver's region is the live value alone")))
+           (testing "the dead value itself is never walked"
+             (let [k (kernel-at-pc (run-world) 12)
+                   ;; a positional closure whose entry lies in no image:
+                   ;; walking it refuses :unknown-image
+                   foreign (values/closure (:owner k) {:type :closure :arity 1 :body-pc 99999 :frames []})
+                   tampered (update k :stack (fn [st] (assoc (vec st) 0 foreign)))
+                   base (s/serve-table)
+                   serve! (fn [h2] (base h2))
+                   plain (h/lane-lift k serve!)
+                   dropped (h/lane-lift tampered serve!)]
+               (is (values/closure? foreign))
+               (is (= [:yin.k/non-portable :unknown-image]
+                      ((juxt :yin.k/status :yin.k/kind)
+                       (h/error #(h/lane-lift (update k :stack (fn [st] (assoc (vec st) 1 foreign))) serve!))))
+                   "the same value in the live region is walked and refuses")
+               (is (= plain dropped)
+                   "a foreign value in the dead prefix changes nothing: it is dropped, not walked")))
+           (testing "a dead-ambient layout value is never walked either"
+             ;; pc 6 of operand-tail-ast, inside the application the tail
+             ;; call at 7 abandons: layout(6) = [1 3], and register 1 (the
+             ;; abandoned operator) is outside L(6); the reference lane's
+             ;; window never walks it, so the stack lift must not either
+             (let [k (kernel-at-pc (run-world) 6)
+                   sg (layout/segment (h/project operand-tail-ast))
+                   foreign (values/closure (:owner k) {:type :closure :arity 1 :body-pc 99999 :frames []})
+                   base (s/serve-table)
+                   serve! (fn [h2] (base h2))]
+               (is (= [1 3] (layout/stack-layout sg 6)))
+               (is (not (contains? (analysis/live (:analysis sg) 6) 1)) "register 1 is dead-ambient at 6")
+               (is (= 2 (count (:stack k))) "the region is the layout alone")
+               (is (= (h/lane-lift k serve!)
+                      (h/lane-lift (update k :stack (fn [st] (assoc (vec st) 0 foreign))) serve!))
+                   "an unwalkable dead-ambient value changes nothing")
+               (is (= [:yin.k/non-portable :unknown-image]
+                      ((juxt :yin.k/status :yin.k/kind)
+                       (h/error #(h/lane-lift (update k :stack (fn [st] (assoc (vec st) 1 foreign))) serve!))))
+                   "the same value in the live layout position refuses")))
+           (testing "a dead prefix in a return frame's slice"
+             (let [frame-diagnostics (atom [])
+                   frame-world #(h/on-lane :stack (fn [] (h/load-program (h/machine) h/operand-tail-frame-ast)))
+                   observe (fn [k]
+                             (when (h/kernel-active? k)
+                               (layout/lift-running
+                                 (assoc (layout/lift-context k (h/kernel-space k) (:owner k))
+                                        :diagnostics frame-diagnostics)
+                                 (select-keys k [:pc :stack :frames :continuation :store-of])))
+                             k)
+                   done (with-redefs [vm/run #(h/lane-drive % observe)] (vm/run (frame-world)))]
+               (is (= 1 (vm/value done)) "the inner call's value is the answer")
+               ;; the callee is body 11-14, the inner (fn [w] w) body
+               ;; 15-16: pcs 11-13 are the callee's own region; then pc
+               ;; 14 twice as the return frame's slice (its resume pc,
+               ;; lifted at the inner boundaries 15 and 16: the prefix
+               ;; dropped from K, not the region), and once more as the
+               ;; callee's own region at its :return
+               (is (= [{:yin.k/dead-prefix 1 :yin.k/pc 11} {:yin.k/dead-prefix 1 :yin.k/pc 12}
+                       {:yin.k/dead-prefix 1 :yin.k/pc 13} {:yin.k/dead-prefix 1 :yin.k/pc 14}
+                       {:yin.k/dead-prefix 1 :yin.k/pc 14} {:yin.k/dead-prefix 1 :yin.k/pc 14}]
+                      (mapv #(select-keys % [:yin.k/dead-prefix :yin.k/pc]) @frame-diagnostics))))))))))
+
+
+(def repeated-operand-base
+  "A hand-built, well-formed A whose call reads registers 2 and 3; the
+   repeated-operand shape is built on its segment by a hand-written
+   layout entry (see the test below)."
+  [[:var 1 'f] [:var 2 'x] [:var 3 'x] [:call 0 1 [2 3] false] [:halt 0]])
+
+
+(deftest a-repeated-operand-agrees-and-a-divergence-refuses
+  ;; the architect's item-6 line. No well-formed A repeats one register
+  ;; in layout(p) ++ uses(p) — the ruling's literal `[:call r f [x x]]`
+  ;; is refused by §3.4 item 6 (:not-expression-structured; item 10's
+  ;; operands rule alone does not admit the vector), and linearize gives
+  ;; every operand a fresh register — so the executed agreement and the
+  ;; lift's refusal are pinned on a hand-built layout over a well-formed
+  ;; vector, with the exclusion itself pinned first
+  (is (= {:rule :not-expression-structured, :pc 2}
+         (code/well-formed? [[:var 1 'f] [:var 2 'x] [:call 0 1 [2 2] false] [:halt 0]]))
+      "the ruling's literal repeated-operand vector is not expression-structured")
+  (h/scoped
+    (fn []
+      (let [v repeated-operand-base
+            base (layout/segment v)
+            ;; a hand-written layout entry: an ambient push of register 2
+            ;; beside the call's own operands, so the sequence reads
+            ;; register 2 twice
+            sg (assoc base :layouts (assoc (:layouts base) 3 [2]))
+            sp (layout/space [v])
+            f (fn [a b] [a b])
+            k0 (layout/attach-space (h/on-lane :stack h/machine) (layout/space [v]))
+            k (assoc k0 :free-env {'f f 'x 42}
+                     :pc (+ (layout/offset :stack k0 base) (nth (:a->h base) 3))
+                     :frames [] :continuation []
+                     :stack [42 f 42 7] :halted? false :blocked? false :value nil)
+            hand-space (assoc-in sp [:segments (:address sg)] sg)
+            cx (assoc (layout/lift-context k sp (:owner k)) :diagnostics (atom [])
+                      :space hand-space)
+            fields (select-keys k [:pc :stack :frames :continuation :store-of])
+            agreeing (layout/lift-running cx fields)
+            ;; the reconstruction half: one window entry for register 2
+            ;; re-emitted at both of its sequence positions
+            lowered (layout/lower-running (layout/lower-context k hand-space) agreeing)
+            relifted (layout/lift-running cx (merge fields (select-keys lowered (keys fields))))
+            divergent (try (layout/lift-running cx (assoc-in fields [:stack 2] :divergent))
+                           nil
+                           (catch #?(:cljd Object :clj Throwable :cljs :default) e (ex-data e)))]
+        (is (nil? (code/well-formed? v)) "the base vector is well-formed")
+        (is (= [2 1 2 3] (into (get (:layouts sg) 3) (code/uses (nth v 3))))
+            "the hand-built sequence reads register 2 twice")
+        (is (= {1 f 2 42 3 7} (h/normalize (:window agreeing)))
+            "agreeing positions decode to one window entry")
+        (is (= [42 f 42 7] (:stack lowered))
+            "the lower re-emits the repeated register at both positions: the receiver region is the source's")
+        (is (= (:pc k) (:pc lowered)) "the lower stops at the source's pc")
+        (is (= agreeing relifted) "the immediate relift equals the lift")
+        (is (= [:yin.k/non-portable :stack-layout] [(:yin.k/status divergent) (:yin.k/kind divergent)])
+            (pr-str divergent))
+        (is (= 2 (:yin.k/register divergent)) "the repeated register, named")))))
