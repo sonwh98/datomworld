@@ -1,0 +1,60 @@
+Completed-GMT: 2026-10-17 09:11:40 GMT
+Completed-Local: 2026-10-17 16:11:40 +0700
+
+I've written the two docs, `docs/design/yang.typescript.md` (1,706 lines) and `docs/design/yang.php.md` (2,343 lines). Nothing else in the worktree changed, and nothing is staged or committed. Both files are ASCII only, have no em dashes, stay within 80 columns, and use box tables. A script checked the width and ASCII rules. Both are marked "Designed 2026-10-17, implementation pending", and both link `yang.antlr.md` and each other.
+
+**`yang.typescript.md` structure:**
+1. Scope
+2. Prerequisites shared by both frontends: the D1 to D7 defect table, the shared rulings, the lifecycle design rules, and the ADR 0004 dependency
+3. Paradigm specification: the compilation profile, undefined/null/TDZ, numbers, two-form strings, property keys, objects, script-goal globals, for-in, jobs
+4. Type layer: the erase, claims and checking profiles; strictNullChecks; type surface per slice; `const enum` and type-only imports; the boundary story; the erasure law
+5. Grammar route: the `ts-g4-1` patch set, its fixture gate, and the dialect predicate
+6. CST to UAST, including canonical `%` renaming
+7. Scope analysis
+8. Lowering arms
+9. Prelude inventory
+10. Value encoding and paradigm rows
+11. Modules: compiled shape, module record, link, SCC evaluation, operation matrix, dynamic import as a job, publication, refusals, REPL
+12. Claims: owning root, path vocabulary, binder table, declaration units, watermark, evidence record and rechecks
+13. Safepoints and the job interpreter
+14. Diagnostics
+15. Differential corpus
+16. Slices L1 to L4 and T0 to T10 with acceptance contracts
+17. `yang.core` lift enumeration
+18. Tracked-fragment statement
+19. Owner decisions A12.1 to A12.15
+20. Acceptance matrix
+21. Design provenance
+
+**`yang.php.md` structure:**
+1. Scope and the Phase 3 exit criteria
+2. Prerequisites (points to TS section 2)
+3. Paradigm specification: arrays, scope, request context, coercion, classes, warnings and `@`, generators, HTML mode, eval
+4. Lifecycle model: the Zend operations, substrate mapping, primitive procedures, and the full final transition table (rows 1 to 68 in seven groups), oracle facts F1 to F3, anchor programs, fixture derivation, the oracle checks required before landing, cost
+5. Legacy migration
+6. Grammar
+7. CST to UAST and scope
+8. Lowering arms
+9. Prelude
+10. Value encoding and paradigm rows
+11. include/require, autoload, and the two-stage missing include
+12. Safepoints, including the P7-a/P7-b split
+13. Diagnostics
+14. Corpus
+15. Slices P0 to P9 plus P4-b and P4-c
+16. Lift enumeration
+17. Support profile, corners C1 to C23, and the blocking rule
+18. Owner decisions B8.1 to B8.13
+19. Acceptance matrix
+20. Provenance, plus a consolidation note
+
+**Rulings I could not consolidate cleanly:**
+1. **Round-1 P1 count.** Your brief says five P1s, but the round-1 review has eight (round 2 also notes this). Both docs say eight.
+2. **Which review gave the sign-off.** Your brief says "round-2-fresh READY". In the main checkout, the r2-fresh review (`1792212000000`) actually returned REQUEST CHANGES. The READY verdict with sign-off is in `1792230000000-reviewer-ts-php-r9`, which exists only as a `.stdout.log`, with no findings file. The provenance cites that one.
+3. **Missing rounds.** This worktree's `collab/` lacks architect rounds 4, 6 and 7 and the intermediate reviews. I read them from the main checkout's `collab/`, because rows 22 to 59, the corner table and the blocking rule exist only there.
+4. **TS has no corner table in the converged text.** TS section 18 assembles a tracked-fragment statement from the scattered refusals, departures and deferrals. It adds no new rulings, but it is my synthesis, not a reviewed artifact.
+5. **Round-3 lifecycle rules.** Round 3's "a copy never adds a holder" and "scope exit releases nothing" were later contradicted for PHP by round 5's engine model. So TS section 2.3 states only the two rules that still hold, and it applies them to TS only.
+6. **Slice ordering for typed-property rows.** Round 6 assigns rows 41 to 47 and 59 to P3, but classes land in P4. The converged text never orders the two. I recorded this as a consolidation note for the Engineer's slice plan rather than making a ruling.
+7. **Fixture name clash.** Round 8's `oracle-2026-10-17/C1..C4` constructor fixtures share names with corners C1 to C23. The doc tells them apart explicitly but keeps the loop's names.
+8. **Open sub-question kept open.** Round 7 asked whether the owner must accept every reclassification under the blocking rule, or only those touching an exit criterion. It was never ruled, so it stays open under B8.13.
+9. **ADR 0004 links.** ADR 0004 isn't on this branch, so both docs cite it by name without a link.
