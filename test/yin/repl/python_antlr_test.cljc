@@ -47,6 +47,7 @@
   {"x = 1" (module (st (asg (tc (vr "x")) (tc (lit "1"))))),
    "x = 5" (module (st (asg (tc (vr "x")) (tc (lit "5"))))),
    "print(x)" (module (st (ex (tc (call "print" (tc (vr "x"))))))),
+   "x" (module (st (ex (tc (vr "x"))))),
    "1/0" (module (st (ex (tx (op (e (lit "1")) "/" (e (lit "0")))))))})
 
 
@@ -77,7 +78,7 @@
                     {:parse (fn [source] (get packets source)),
                      :lower python.repl/lower,
                      :lower-session python.repl/lower-session,
-                     :display :output}))
+                     :render python.repl/display-value}))
 
 
 (defn- session
@@ -124,6 +125,17 @@
             (is (= lang (:lang (session lang))))
             (is (= ["" "1\n"] [t1 t2]))
             (is (= :primed (:frontend-session assigned)))))))))
+
+
+(deftest ^:slow the-loop-prints-the-last-expression-value-test
+  (slow/guard
+    "the-loop-prints-the-last-expression-value-test"
+    (fn []
+      (doseq [lang langs]
+        (is (= ["" "1"] (texts (session lang) ["x = 1" "x"])))
+        (is (= [""] (texts (session lang) ["x = 1"])))
+        (is (= ["" "" "1\n"]
+               (texts (session lang) ["x = 1" "x = 1" "print(x)"])))))))
 
 
 (deftest ^:slow an-exception-keeps-the-session-test

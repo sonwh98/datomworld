@@ -15,6 +15,11 @@
    session marker `:primed`; later lowerings of the same session omit it. The
    shell keeps the marker (`:frontend-session`) and clears it with the VM.
 
+   The evaluation's value is the last top-level bare expression statement the
+   submission ran (`py/result!`, None when none ran); the REPL loop prints it
+   through the binding's `display-value` (repr, None shows nothing), as it
+   prints any frontend's value. An assignment alone has no value.
+
    Printed lines and an uncaught exception are rendered by the host
    primitive `py-report` (`report`) and written with the shell's own
    `println`, so they arrive on the output medium in order."
@@ -51,10 +56,19 @@
   {report-primitive report})
 
 
+(defn display-value
+  "The text the loop prints for one submission's value: the Python repr,
+   nothing for None."
+  [value]
+  (if (or (nil? value) (= :py/None value)) "" (render/repr value)))
+
+
 (def ^:private run-form
   '(let [r (py/run-session %repl-body)
          text (py-report (get r :py/out) (get r :py/exception))]
-     (if (= text "") nil (println text))))
+     (if (= text "")
+       (get r :py/value)
+       (do (println text) (get r :py/value)))))
 
 
 (defn- ok-packet!
@@ -78,7 +92,7 @@
                  (not (contains? packet :yang.python.antlr/max-digits))
                  (assoc :yang.python.antlr/max-digits 4300))
         _ (p/validate! packet)
-        body (lower/lower-module-body packet)
+        body (lower/lower-module-body packet nil true)
         main (u/let1 '%repl-body
                      (u/lam [lower/globals-sym lower/globals-fn-sym] body)
                      (u/sexp->uast run-form))
