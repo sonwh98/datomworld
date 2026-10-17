@@ -1,4 +1,5 @@
-(ns yang.python.antlr.prelude
+(ns ^{:clj-kondo/config '{:lint-as {yang.python.antlr.prelude/defquoted clojure.core/def}}}
+ yang.python.antlr.prelude
   "The Python runtime profile, written as Universal AST
    (docs/design/yang.antlr.md §8.1, §8.2, §9.3). Python semantics for
    operators, truthiness, equality, objects, exceptions and escapes live
@@ -175,12 +176,26 @@
    Host names the prelude depends on and does not define: `host-names`
    (the cell module from yin.vm.module, the integer module from
    yin.vm.integer, the rest from yin.vm.data)."
+  #?(:cljs (:require-macros [yang.python.antlr.prelude :refer [defquoted]]))
   (:require
+    #?(:cljd [clojure.edn :as edn])
     [clojure.walk :as walk]
     [yang.python.antlr.uast :as u]
     [yin.vm :as vm]
     [yin.vm.integer :as integer]
     [yin.vm.module :as module]))
+
+
+#?(:clj
+   (defmacro defquoted
+     "`def` of the quoted data `form`.  ClojureDart compiles quoted data to
+      straight-line Dart (this prelude is about 65,000 lines of it), which the
+      Dart AOT compiler cannot take as one initializer, so there the data is
+      one EDN string read back at load."
+     [name doc form]
+     (if (find-ns 'cljd.compiler)
+       (list 'def name doc (list 'edn/read-string (pr-str (second form))))
+       (list 'def name doc form))))
 
 
 (def host-names
@@ -198,7 +213,7 @@
      data/substring data/max-items})
 
 
-(def ^:private core-definitions
+(defquoted ^:private core-definitions
   "Pure definitions: lambdas only, so defining them runs nothing."
   '[;; ---------------------------------------------------------------- kinds
     [py/cell? (fn [x] (= (get x :type) :cell-ref))]
@@ -3321,7 +3336,7 @@
    ["StopIteration" 'py.b/StopIteration 'py.b/Exception]])
 
 
-(def builtin-functions
+(defquoted builtin-functions
   "The Python-visible builtin functions, `[name store-key form]`. Builtin
    functions are function objects like any guest function, so they can be
    passed, stored, called with keywords and checked for arity through
@@ -3426,7 +3441,7 @@
                        (fn [args] (py/iter (py/arg args 0))))]])
 
 
-(def ^:private method-implementations
+(defquoted ^:private method-implementations
   "The function objects `py/getattr` and `py/gen-attr` hand out for a
    method, `[store-key form]`: not Python names, so never seeded into the
    builtins dict."

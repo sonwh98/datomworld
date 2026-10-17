@@ -1,20 +1,22 @@
 (ns yang-antlr-gen
-  "Build-time generation of the grammars-v4 Python3 parser for the JVM host
+  "Build-time generation of the grammars-v4 parsers for every host target
    (docs/design/yang.antlr.md §4.2). Reproducible from clean:
 
-     clj -M:antlr-gen            ; or: bb gen:python-antlr
+     clj -M:antlr-gen [--grammar g] [--target java|javascript|dart]
+                                 ; or: bb gen:antlr
 
-   1. Read the vendored grammars (antlr/python3/*.g4, MIT, committed) and
+   1. Read the vendored grammars (antlr/<grammar>/*.g4, MIT, committed) and
       fetch the remaining pinned files at the manifest's revision (cached
       under build/, re-fetched only when absent); refuse any digest mismatch.
-   2. Apply the recorded patch: the upstream Java base helpers carry no
-      package clause; the generated recognizers are put in
-      `yang.python.antlr.gen`, so the helpers get that one line prepended.
-   3. Run the pinned ANTLR tool (-Dlanguage=Java, no listener, no visitor).
-   4. Compile with the host javac into build/antlr/python3/classes, which
-      deps.edn puts on the classpath.
-   5. Digest every generated .java file and compare with the manifest's
-      recorded generated digests; a mismatch fails the build.
+   2. For each manifest :targets entry (:java, :javascript, :dart), stage the
+      grammars and that target's helpers, applying the recorded patches (the
+      Java helpers also get their package clause prepended).
+   3. Run the pinned ANTLR tool with the target's flags, then apply the
+      target's recorded :output-patches to the files it wrote.
+   4. Java only: compile with the host javac into build/antlr/<g>/classes,
+      which deps.edn puts on the classpath.
+   5. Digest every generated source file of the target and compare with the
+      target's recorded :generated digests; a mismatch fails the build.
 
    `clj -M:antlr-gen discover` prints the head commit of the grammar path, for
    deliberately moving the pin. Nothing here runs at admission time."
@@ -37,9 +39,17 @@
       ToolProvider)))
 
 
-(def manifest-path "antlr/python3/manifest.edn")
+(def ^:dynamic *grammar* "python3")
 
-(def build-dir "build/antlr/python3")
+
+(defn- manifest-path
+  []
+  (str "antlr/" *grammar* "/manifest.edn"))
+
+
+(defn- build-dir
+  []
+  (str "build/antlr/" *grammar*))
 
 
 (defn- blake3
@@ -65,7 +75,7 @@
 
 (defn- read-manifest
   []
-  (edn/read-string (slurp manifest-path)))
+  (edn/read-string (slurp (manifest-path))))
 
 
 (defn- raw-url
@@ -97,7 +107,7 @@
    must also be ASCII (§4.5). A mismatching fetched file leaves the cache; a
    vendored file is never deleted."
   [{:keys [grammar]}]
-  (let [src-dir (io/file build-dir "upstream")]
+  (let [src-dir (io/file (build-dir) "upstream")]
     (.mkdirs src-dir)
     (let [mismatches
           (vec (for [[file {expected :blake3, :as entry}]
@@ -137,18 +147,34 @@
     (str/replace text old new)))
 
 
+(defn- helper-ext
+  [{:keys [helpers]}]
+  (let [base (last (str/split (first helpers) #"/"))]
+    (subs base (str/last-index-of base "."))))
+
+
+(defn- target-dir
+  "Where a target's generated files (and copied helpers) land."
+  ^java.io.File [{:keys [out package]}]
+  (if package
+    (io/file out (str/replace package "." "/"))
+    (io/file out)))
+
+
 (defn- stage-sources!
-  "Copy grammars and helpers into one generation directory, applying the
-   recorded patches: the package clause for the Java helpers, then the
-   manifest's exact-text replacements."
-  [{:keys [grammar package patches]} src-dir]
-  (let [gen-in (io/file build-dir "grammar")]
+  "Copy the grammars and the target's helpers into one generation directory,
+   applying the recorded patches: the package clause for the Java helpers,
+   then the target's exact-text replacements."
+  [{:keys [grammar]} {:keys [package patches helpers]} src-dir]
+  (let [gen-in (io/file (build-dir) "grammar")]
     (delete-tree! gen-in)
     (.mkdirs gen-in)
-    (doseq [file (sort (keys (:files grammar)))]
+    (doseq [file (sort (concat (filter #(not (str/includes? % "/"))
+                                       (keys (:files grammar)))
+                               helpers))]
       (let [text (slurp (io/file src-dir (str/replace file "/" "__")))
             base (last (str/split file #"/"))
-            text (if (str/ends-with? base ".java")
+            text (if (and package (str/ends-with? base ".java"))
                    (str "package " package ";\n" text)
                    text)
             text (reduce (partial apply-patch file)
@@ -159,50 +185,54 @@
 
 
 (defn- run-antlr!
-  [{:keys [package grammar]} gen-in]
-  (let [java-out (io/file build-dir "java")
-        pkg-dir (io/file java-out (str/replace package "." "/"))]
-    (delete-tree! java-out)
-    (.mkdirs pkg-dir)
+  [{:keys [grammar]} {:keys [flags helpers output-patches] :as target} gen-in]
+  (let [out (target-dir target)
+        ext (helper-ext target)]
+    (delete-tree! (io/file (:out target)))
+    (.mkdirs out)
     (let [tool (org.antlr.v4.Tool.
                  (into-array String
-                             (concat ["-Dlanguage=Java" "-package" package
-                                      "-no-listener" "-no-visitor"
-                                      "-Xexact-output-dir" "-o"
-                                      (.getPath pkg-dir) "-lib"
-                                      (.getPath gen-in)]
+                             (concat flags
+                                     ["-Xexact-output-dir" "-o" (.getPath out)
+                                      "-lib" (.getPath gen-in)]
                                      (map #(.getPath (io/file gen-in %))
                                           (:generate grammar)))))]
       (.processGrammarsOnCommandLine tool)
       (when (pos? (.getNumErrors tool))
         (throw (ex-info "ANTLR generation failed"
                         {:errors (.getNumErrors tool)}))))
-    (doseq [f (.listFiles gen-in)
-            :when (str/ends-with? (.getName f) ".java")]
-      (io/copy f (io/file pkg-dir (.getName f))))
-    pkg-dir))
+    (doseq [[file ps] output-patches
+            :let [f (io/file out file)]]
+      (spit f (reduce (partial apply-patch file) (slurp f) ps)))
+    (doseq [h helpers
+            :let [f (io/file gen-in (last (str/split h #"/")))]]
+      (io/copy f (io/file out (.getName f))))
+    (doseq [f (.listFiles out)
+            :when (not (str/ends-with? (.getName f) ext))]
+      (.delete f))
+    out))
 
 
 (defn- generated-digests
-  [pkg-dir]
+  [out ext]
   (into (sorted-map)
-        (for [f (.listFiles (io/file pkg-dir))
-              :when (str/ends-with? (.getName f) ".java")]
+        (for [f (.listFiles (io/file out))
+              :when (str/ends-with? (.getName f) ext)]
           [(.getName f)
            (blake3 (java.nio.file.Files/readAllBytes (.toPath f)))])))
 
 
 (defn- non-ascii-files
   "§4.5: generated textual sources stay ASCII."
-  [pkg-dir]
-  (vec (for [f (.listFiles (io/file pkg-dir))
+  [out]
+  (vec (for [f (.listFiles (io/file out))
              :when (some #(> (int %) 127) (slurp f))]
          (.getName f))))
 
 
 (defn- compile-java!
   [pkg-dir]
-  (let [classes (io/file build-dir "classes")
+  (let [classes (io/file (build-dir) "classes")
         compiler (ToolProvider/getSystemJavaCompiler)
         sources (sort (map #(.getPath %)
                            (filter #(str/ends-with? (.getName %) ".java")
@@ -222,28 +252,35 @@
     classes))
 
 
-(defn generate!
-  []
-  (let [m (read-manifest)
-        src-dir (fetch-grammar! m)
-        gen-in (stage-sources! m src-dir)
-        pkg-dir (run-antlr! m gen-in)
-        digests (generated-digests pkg-dir)
-        non-ascii (non-ascii-files pkg-dir)]
-    (spit (io/file build-dir "generated-digests.edn")
+(defn- generate-target!
+  [m src-dir [tname target]]
+  (let [gen-in (stage-sources! m target src-dir)
+        out (run-antlr! m target gen-in)
+        digests (generated-digests out (helper-ext target))
+        non-ascii (non-ascii-files out)]
+    (spit (io/file out "generated-digests.edn")
           (with-out-str (pprint/pprint digests)))
     (when (seq non-ascii)
-      (throw (ex-info "Non-ASCII generated source" {:files non-ascii})))
-    (when-let [expected (:generated m)]
+      (throw (ex-info "Non-ASCII generated source" {:target tname
+                                                    :files non-ascii})))
+    (when-let [expected (:generated target)]
       (when-not (= expected digests)
         (throw (ex-info "Generated sources differ from the recorded digests"
-                        {:expected expected, :actual digests}))))
-    (compile-java! pkg-dir)
-    (println "generated" (count digests) "java files; classes in"
-             (str build-dir "/classes"))
-    (when-not (:generated m)
-      (println "no :generated digests recorded yet; record these:")
+                        {:target tname, :expected expected, :actual digests}))))
+    (when (= :java tname) (compile-java! out))
+    (println "generated" (count digests) (name tname) "files in" (.getPath out))
+    (when-not (:generated target)
+      (println "no :generated digests recorded yet for" tname "; record these:")
       (pprint/pprint digests))))
+
+
+(defn generate!
+  [only-target]
+  (let [m (read-manifest)
+        src-dir (fetch-grammar! m)]
+    (doseq [t (sort-by key (:targets m))
+            :when (or (nil? only-target) (= only-target (name (key t))))]
+      (generate-target! m src-dir t))))
 
 
 (defn discover!
@@ -264,9 +301,20 @@
                                           listing)))))))
 
 
+(defn- arg-value
+  [args flag]
+  (second (drop-while #(not= flag %) args)))
+
+
 (defn -main
   [& args]
-  (case (first args)
-    "discover" (discover!)
-    (generate!))
+  (let [only-target (arg-value args "--target")
+        grammars (if-let [g (arg-value args "--grammar")]
+                   [g]
+                   (sort (for [d (.listFiles (io/file "antlr"))
+                               :when (.exists (io/file d "manifest.edn"))]
+                           (.getName d))))]
+    (doseq [g grammars]
+      (binding [*grammar* g]
+        (if (= "discover" (first args)) (discover!) (generate! only-target)))))
   (shutdown-agents))

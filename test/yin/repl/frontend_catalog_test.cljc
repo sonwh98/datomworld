@@ -111,14 +111,11 @@
         (is (str/includes? result "unavailable-parser"))))))
 
 
-(deftest the-antlr-id-is-installed-only-where-its-parser-runs-test
-  (let [jvm? #?(:cljd false :clj true :cljs false)
-        [state answer] (run (repl.frontends/create-state)
+(deftest the-antlr-id-is-installed-on-every-host-test
+  (let [[state answer] (run (repl.frontends/create-state)
                             "(lang :yang.python/antlr)")]
-    (if jvm?
-      (is (= :yang.python/antlr (:lang state)))
-      (do (is (str/includes? answer "unavailable-parser"))
-          (is (= :clojure (:lang state)))))))
+    (is (= :yang.python/antlr (:lang state)))
+    (is (not (str/includes? answer "unavailable-parser")))))
 
 
 (deftest a-core-session-with-no-catalog-has-no-frontend-test

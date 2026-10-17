@@ -1,6 +1,7 @@
 (ns yang.python.antlr.repl-probe
   "The Python ANTLR frontend's completeness probe (docs/design/yang.antlr.md
-   section 8.5.6, slice F3; JVM only, as the parser is). `probe` answers
+   section 8.5.6, slice F3; portable: the lexical scan is pure and the one
+   parser question goes through `yang.antlr.cst/first-failure`). `probe` answers
    whether the text typed so far is a whole submission:
 
    - `:complete`: the text parses, or it is wrong in a way more lines cannot
@@ -24,22 +25,8 @@
    a block."
   (:require
     [clojure.string :as str]
-    [yang.python.antlr.parser :as parser])
-  (:import
-    (org.antlr.v4.runtime
-      ANTLRErrorListener
-      BaseErrorListener
-      CharStreams
-      CommonTokenStream
-      Lexer
-      NoViableAltException
-      Parser
-      Token)
-    (org.antlr.v4.runtime.atn
-      ATN
-      LexerATNSimulator
-      ParserATNSimulator
-      PredictionContextCache)))
+    [yang.antlr.cst :as cst]
+    [yang.python.antlr.parser :as parser]))
 
 
 ;; =============================================================================
@@ -50,22 +37,37 @@
   {\) \(, \] \[, \} \{})
 
 
+(defn- char-at
+  [text i]
+  #?(:cljd (subs text i (inc i))
+     :clj (.charAt ^String text (int i))
+     :cljs (.charAt text i)))
+
+
+(defn- starts-at?
+  [text prefix i]
+  (= prefix (subs text i (min (count text) (+ i (count prefix))))))
+
+
+(def ^:private blanks #{" " "\t" "\f" "\r"})
+
+
 (defn- string-end
   "The index just past the string literal whose body starts at `i`, quoted
    by `q`, tripled when `triple?`: `:open` when more lines can still close
    it (a triple string, or a short string whose line ends in a backslash),
    `:broken` when a short string's line ends without one. A backslash
    escapes the next character, a newline included, in raw strings too."
-  [^String text i q triple?]
+  [text i q triple?]
   (let [n (count text)
         closer (if triple? (str q q q) (str q))]
     (loop [i i]
       (if (>= i n)
         (if triple? :open :broken)
-        (let [c (.charAt text i)]
+        (let [c (char-at text i)]
           (cond
             (= \\ c) (if (< (inc i) n) (recur (+ i 2)) :open)
-            (.startsWith text closer (int i)) (+ i (count closer))
+            (starts-at? text closer i) (+ i (count closer))
             (and (not triple?) (= \newline c)) :broken
             :else (recur (inc i))))))))
 
@@ -81,7 +83,7 @@
    true` when it ends on an explicit backslash continuation, or `:error`
    (`:bracket`, `:string`) for a closer with no matching opener or a short
    string broken by a newline; the scan stops there."
-  [^String text]
+  [text]
   (let [n (count text)]
     ;; line-begin: where the current logical line's physical line began;
     ;; line?: no code yet on the current logical line
@@ -95,7 +97,7 @@
                    [stack (if line? (> i line-begin) block?)])]
         (if (>= i n)
           state
-          (let [c (.charAt text i)]
+          (let [c (char-at text i)]
             (cond
               (= \# c)
               (let [eol (str/index-of text "\n" i)]
@@ -107,7 +109,7 @@
                 (recur (inc i) stack line-begin line? block?))
 
               (or (= \" c) (= \' c))
-              (let [triple? (.startsWith text (str c c c) (int i))
+              (let [triple? (starts-at? text (str c c c) i)
                     end (string-end text (+ i (if triple? 3 1)) c triple?)
                     [stack block?] (code stack)]
                 (case end
@@ -118,7 +120,7 @@
               (= \\ c)
               (cond
                 (= (inc i) n) (assoc state :continued true)
-                (= \newline (.charAt text (inc i)))
+                (= \newline (char-at text (inc i)))
                 (recur (+ i 2) stack line-begin line? block?)
                 :else (let [[stack block?] (code stack)]
                         (recur (inc i) stack line-begin false block?)))
@@ -133,83 +135,12 @@
                   (recur (inc i) (pop stack) line-begin false block?))
                 (assoc state :error :bracket))
 
-              (contains? #{\space \tab \formfeed \return} c)
+              (contains? blanks (str c))
               (recur (inc i) stack line-begin line? block?)
 
               :else
               (let [[stack block?] (code stack)]
                 (recur (inc i) stack line-begin false block?)))))))))
-
-
-;; =============================================================================
-;; Parse: where the first error failed
-;; =============================================================================
-
-(defn- first-failure
-  "Parse `source` and answer nil when it parses, `:end` when its first
-   error failed on an end-of-input token, else `:early`.
-
-   The failing token is the offending token of a mismatch; a
-   no-viable-alternative error names the token its prediction began at,
-   so for it the failing token is the furthest one the parser had read
-   when the error was reported. End-of-input tokens are EOF and the
-   zero-width ones after the last token with source text (the lexer's
-   EOF can carry a span, so it is excluded by type). A lexer error has no
-   token and is `:early`."
-  [^String source]
-  (let [{:keys [profile lexer-atn lexer-dfa lexer-cache parser-atn
-                parser-dfa parser-cache]}
-        (parser/make-worker)
-        far (volatile! -1)
-        failure (volatile! nil)
-        lexer ^Lexer ((:make-lexer profile) (CharStreams/fromString source))
-        tokens (proxy [CommonTokenStream] [lexer]
-                 (LT
-                   [k]
-                   (let [^Token t (proxy-super LT k)]
-                     (when t (vswap! far max (.getTokenIndex t)))
-                     t)))
-        listener (proxy [BaseErrorListener] []
-                   (syntaxError
-                     [_recognizer offending _line _column _msg e]
-                     (when-not @failure
-                       (vreset! failure
-                                (cond
-                                  (not (instance? Token offending)) :lexical
-                                  (instance? NoViableAltException e) @far
-                                  :else (.getTokenIndex ^Token offending))))))
-        _ (.setInterpreter
-            lexer
-            (LexerATNSimulator.
-              lexer
-              ^ATN lexer-atn
-              ^"[Lorg.antlr.v4.runtime.dfa.DFA;" lexer-dfa
-              ^PredictionContextCache lexer-cache))
-        _ (.removeErrorListeners lexer)
-        _ (.addErrorListener lexer ^ANTLRErrorListener listener)
-        parser ^Parser ((:make-parser profile) tokens)
-        _ (.setInterpreter
-            parser
-            (ParserATNSimulator.
-              parser
-              ^ATN parser-atn
-              ^"[Lorg.antlr.v4.runtime.dfa.DFA;" parser-dfa
-              ^PredictionContextCache parser-cache))
-        _ (.removeErrorListeners parser)
-        _ (.addErrorListener parser ^ANTLRErrorListener listener)]
-    ((:start profile) parser)
-    (let [index @failure
-          last-real (->> (.getTokens ^CommonTokenStream tokens)
-                         (keep (fn [^Token t]
-                                 (when (and (not= Token/EOF (.getType t))
-                                            (<= (.getStartIndex t)
-                                                (.getStopIndex t)))
-                                   (.getTokenIndex t))))
-                         (reduce max -1))]
-      (cond
-        (nil? index) nil
-        (and (int? index) (> index last-real)) :end
-        :else :early))))
 
 
 ;; =============================================================================
@@ -229,12 +160,12 @@
       error :complete
       ;; the open string stands as an empty one: an error on it or before
       ;; it is not mended by more lines
-      string (if (= :early (first-failure (str (subs text 0 string-at)
-                                               "''\n")))
+      string (if (= :early (cst/first-failure (parser/make-worker) (str (subs text 0 string-at)
+                                                                        "''\n")))
                :complete
                :incomplete)
       (and (not open?) (last-line-blank? text)) :complete
-      :else (case (first-failure (str text "\n"))
+      :else (case (cst/first-failure (parser/make-worker) (str text "\n"))
               nil (if (or open? block?) :incomplete :complete)
               :end :incomplete
               :early :complete))))

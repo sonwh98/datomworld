@@ -104,8 +104,10 @@ Each is closed by a lift of section 17 or by a dated amendment of
   mandatory on the JavaScript host for every float-kind value (`yang.antlr.md`
   8.5.5). Neither language tags floats a second time the way Python's
   `{:py/float}` does: neither needs Python's type-versus-kind split.
-- **Portability**: the ANTLR parser is JVM-only for both. Node and Dart
-  consume CST packets and rows, as Python does today. Prelude-level and
+- **Portability** (amended 2026-10-17): per-target helper availability
+  decides the host matrix (`yang.antlr.md` 4.2); TypeScript has Java-only
+  helpers upstream, so for TypeScript Node and Dart consume CST packets and
+  rows. (Python now has a generated parser on all three hosts.) Prelude-level and
   packet-level tests run on every evaluator on JVM, Node and Dart;
   source-level tests run on the JVM. The recorded ClojureDart traps
   (reader-conditional ordering, `for` over chunked seqs, multi-key `assoc` on
@@ -506,8 +508,10 @@ The parser uses six base-class methods (`notLineTerminator`, `n`, `p`,
 `closeBrace`); the lexer base tracks template-string depth and the
 regex-versus-division context. These are internal library execution
 (`yang.antlr.md` 4.3), not callbacks. Upstream provides Java, C# and C++ bases
-only, so the local parser is JVM-only and Node and Dart go through packets or
-a configured service (`yang.antlr.md` 4.1).
+only, so the local parser is JVM-only until a JavaScript or Dart helper is
+ported, and Node and Dart go through packets or a configured service
+(`yang.antlr.md` 4.1; amended 2026-10-17: helper availability decides the
+host matrix, not the architecture).
 
 `a<b>(c)` cannot be resolved by alternative order. The generated parser takes
 a **dialect flag on the worker**, read by a semantic predicate in the pinned

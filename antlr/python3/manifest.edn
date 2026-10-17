@@ -2,8 +2,8 @@
            :path "python/python3",
            :revision "8af0d4c26c796ea27c15c3d85418f2d0f77c3adb",
            ;; The two MIT grammars are vendored verbatim beside this manifest
-           ;; (owner decision "Vendor .g4 only"); the two Java helpers, whose
-           ;; licence is unresolved, are still fetched at the pinned revision.
+           ;; (owner decision "Vendor .g4 only"); the Java, JavaScript and Dart
+           ;; helpers, whose licence is unresolved, are still fetched at the pinned revision.
            ;; Every file is digest-checked either way.
            :files {"Python3Lexer.g4"
                    {:blake3 "407a5312b637ebe386eabaceca758a5714f1d3e26b1f058b96e43dca3ec02662",
@@ -14,50 +14,132 @@
                    "Java/Python3LexerBase.java"
                    {:blake3 "5212b67286df5ec7f8818876cbb2bb178e80fcdc5b3daae69e225edd5f68d385"},
                    "Java/Python3ParserBase.java"
-                   {:blake3 "f29fa8fc257027885afdd9c778add55a1128c83b0f888035904d952be0e5222d"}},
+                   {:blake3 "f29fa8fc257027885afdd9c778add55a1128c83b0f888035904d952be0e5222d"},
+                   "JavaScript/Python3LexerBase.js" {:blake3 "25f008c2ee815b3c21af0b037e6dd99aa4b91d54f9f92720f218d542e731262f"},
+                   "JavaScript/Python3ParserBase.js" {:blake3 "e106d38dbd2dff1cc036b70ddc2829b733aa207f1adb2d987e358d3edd316e84"},
+                   "Dart/Python3LexerBase.dart" {:blake3 "45022cf97972b104313464d80e923ff2fca50b9d5a3d00502067bc569bc218f4"},
+                   "Dart/Python3ParserBase.dart" {:blake3 "e4c4693a640e53b971d37088809c74539cc0f1dda7d9c6a3cdd9beb7ce40a87d"}},
            :generate ["Python3Lexer.g4" "Python3Parser.g4"]},
- :tool {:antlr "4.13.2", :runtime "org.antlr/antlr4-runtime 4.13.2"},
- :target :java,
- :package "yang.python.antlr.gen",
- :flags ["-Dlanguage=Java" "-package" "yang.python.antlr.gen" "-no-listener"
-         "-no-visitor"],
- ;; Every Java helper gets `package yang.python.antlr.gen;` prepended.
- ;; Exact-text replacements, applied in order after that. Upstream builds
- ;; NEWLINE and DEDENT with CommonToken(start, stop) at the end of the
- ;; newline-plus-indentation lexeme and never sets their text, so ANTLR reads
- ;; their text back from whatever source sits there: a NEWLINE before an
- ;; INDENT reads a space, and a DEDENT reads the newline it follows. The patch
- ;; puts NEWLINE on its newline characters and makes DEDENT zero-width
- ;; (stop = start - 1), so every token's span is the source it came from.
- :patches
- {"Java/Python3LexerBase.java"
-  [["            emit(commonToken(Python3Lexer.NEWLINE, newLine));"
-    "            emit(positionedToken(Python3Lexer.NEWLINE, this._tokenStartCharIndex, this._tokenStartCharIndex + newLine.length() - 1));"]
-   ["        CommonToken dedent = commonToken(Python3Lexer.DEDENT, \"\");"
-    "        CommonToken dedent = positionedToken(Python3Lexer.DEDENT, this.getCharIndex(), this.getCharIndex() - 1);"]
-   ["            this.emit(commonToken(Python3Lexer.NEWLINE, \"\\n\"));"
-    "            this.emit(positionedToken(Python3Lexer.NEWLINE, this.getCharIndex(), this.getCharIndex() - 1));"]
-   ["    private CommonToken commonToken(int type, String text) {"
-    "    private CommonToken positionedToken(int type, int start, int stop) {\n        return new CommonToken(this._tokenFactorySourcePair, type, DEFAULT_TOKEN_CHANNEL, start, stop);\n    }\n\n    private CommonToken commonToken(int type, String text) {"]]},
- ;; BLAKE3 of every generated/patched .java file; generation fails on drift
- :generated {"Python3Lexer.java"
-             "bb61a463af3d2c5d3f58778c0b10e082f1b3c88fd793102646e632087a540848",
-             "Python3LexerBase.java"
-             "1c8ac0a2bd1cc1499b842e251eea74a13cf7b6e984ece6cb5b55ff69403b354e",
-             "Python3Parser.java"
-             "8ba1f2398e52994e8ead1d68768c723bed6dbd4b5eccd48d57d585d1684f13d7",
-             "Python3ParserBase.java"
-             "332745797ab6423d234c796e80103823d718bc9da0a73643682a43d0c42c45be"},
+ :tool {:antlr "4.13.2"},
+ ;; One entry per host target; all runtimes are the pinned tool release
+ ;; (a bump regenerates and re-pins every target together). Each target
+ ;; lists its helper files, flags, output directory, exact-text patches and
+ ;; the BLAKE3 of every generated/patched source file (generation fails on
+ ;; drift).
+ :targets
+ {:java
+  {:runtime "org.antlr/antlr4-runtime 4.13.2",
+   :package "yang.python.antlr.gen",
+   :flags ["-Dlanguage=Java" "-package" "yang.python.antlr.gen" "-no-listener"
+           "-no-visitor"],
+   :helpers ["Java/Python3LexerBase.java" "Java/Python3ParserBase.java"],
+   :out "build/antlr/python3/java",
+   ;; Every Java helper gets `package yang.python.antlr.gen;` prepended.
+   ;; Exact-text replacements, applied in order after that. Upstream builds
+   ;; NEWLINE and DEDENT with CommonToken(start, stop) at the end of the
+   ;; newline-plus-indentation lexeme and never sets their text, so ANTLR reads
+   ;; their text back from whatever source sits there: a NEWLINE before an
+   ;; INDENT reads a space, and a DEDENT reads the newline it follows. The patch
+   ;; puts NEWLINE on its newline characters and makes DEDENT zero-width
+   ;; (stop = start - 1), so every token's span is the source it came from.
+   :patches
+   {"Java/Python3LexerBase.java"
+    [["            emit(commonToken(Python3Lexer.NEWLINE, newLine));"
+      "            emit(positionedToken(Python3Lexer.NEWLINE, this._tokenStartCharIndex, this._tokenStartCharIndex + newLine.length() - 1));"]
+     ["        CommonToken dedent = commonToken(Python3Lexer.DEDENT, \"\");"
+      "        CommonToken dedent = positionedToken(Python3Lexer.DEDENT, this.getCharIndex(), this.getCharIndex() - 1);"]
+     ["            this.emit(commonToken(Python3Lexer.NEWLINE, \"\\n\"));"
+      "            this.emit(positionedToken(Python3Lexer.NEWLINE, this.getCharIndex(), this.getCharIndex() - 1));"]
+     ["    private CommonToken commonToken(int type, String text) {"
+      "    private CommonToken positionedToken(int type, int start, int stop) {\n        return new CommonToken(this._tokenFactorySourcePair, type, DEFAULT_TOKEN_CHANNEL, start, stop);\n    }\n\n    private CommonToken commonToken(int type, String text) {"]]},
+   :generated {"Python3Lexer.java"
+               "bb61a463af3d2c5d3f58778c0b10e082f1b3c88fd793102646e632087a540848",
+               "Python3LexerBase.java"
+               "1c8ac0a2bd1cc1499b842e251eea74a13cf7b6e984ece6cb5b55ff69403b354e",
+               "Python3Parser.java"
+               "8ba1f2398e52994e8ead1d68768c723bed6dbd4b5eccd48d57d585d1684f13d7",
+               "Python3ParserBase.java"
+               "332745797ab6423d234c796e80103823d718bc9da0a73643682a43d0c42c45be"}},
+
+  ;; The JavaScript and Dart helpers build NEWLINE and DEDENT the same way as
+  ;; the Java one (commonToken at the end of the lexeme), so the same
+  ;; positioned-token patch is ported to each runtime's token API.
+  :javascript
+  {:runtime "antlr4 4.13.2 (npm)",
+   :flags ["-Dlanguage=JavaScript" "-no-listener" "-no-visitor"],
+   :helpers ["JavaScript/Python3LexerBase.js" "JavaScript/Python3ParserBase.js"],
+   :out "build/antlr/python3/js/yang/antlr/gen/python3",
+   :patches
+   {"JavaScript/Python3ParserBase.js" [["import antlr4 from 'antlr4';"
+      "import antlr4Module from 'antlr4';\nconst antlr4 = antlr4Module.default || antlr4Module;"]],
+    "JavaScript/Python3LexerBase.js"
+    [["import antlr4 from 'antlr4';"
+      "import antlr4Module from 'antlr4';\nconst antlr4 = antlr4Module.default || antlr4Module;"]
+     ["            this.emitToken(this.commonToken(Python3Parser.NEWLINE, newLine));"
+      "            this.emitToken(this.positionedToken(Python3Parser.NEWLINE, this._tokenStartCharIndex, this._tokenStartCharIndex + newLine.length - 1));"]
+     ["        return this.commonToken(Python3Parser.DEDENT, \"\");"
+      "        return this.positionedToken(Python3Parser.DEDENT, this.getCharIndex(), this.getCharIndex() - 1);"]
+     ["            this.emitToken(this.commonToken(Python3Parser.NEWLINE, \"\\n\"));"
+      "            this.emitToken(this.positionedToken(Python3Parser.NEWLINE, this.getCharIndex(), this.getCharIndex() - 1));"]
+     ["    commonToken(type, text) {"
+      "    positionedToken(type, start, stop) {\n        return new antlr4.CommonToken(this._tokenFactorySourcePair, type, antlr4.Lexer.DEFAULT_TOKEN_CHANNEL, start, stop);\n    }\n\n    commonToken(type, text) {"]
+     ;; Upstream declares getIndentationCount twice, identically; Closure
+     ;; (the shadow-cljs release/test compile) rejects the duplicate member.
+     ["    getIndentationCount(whitespace) {\n        let count = 0;\n        for (let i = 0; i < whitespace.length; i++) {\n            if (whitespace[i] === '\\t') {\n                count += 8 - count % 8;\n            } else {\n                count++;\n            }\n        }\n        return count;\n    }\n\n    getIndentationCount(whitespace) {"
+      "    getIndentationCount(whitespace) {"]]},
+   ;; Output patches: the tool's own import line, same reason as above.
+   :output-patches {"Python3Lexer.js" [["import antlr4 from 'antlr4';"
+      "import antlr4Module from 'antlr4';\nconst antlr4 = antlr4Module.default || antlr4Module;"]],
+                    "Python3Parser.js" [["import antlr4 from 'antlr4';"
+      "import antlr4Module from 'antlr4';\nconst antlr4 = antlr4Module.default || antlr4Module;"]]},
+   :generated {"Python3Lexer.js"
+               "855f47de669d2f042839efded7e2468e102091b55097f3e403a24a0e3485b860",
+               "Python3LexerBase.js"
+               "4724a9da8856cf081c9f31c7a6974458829124f77bb19a7fd7790b80a567c206",
+               "Python3Parser.js"
+               "37f27bdb7036ae9907b231aade8401ab50f81b4061db16c926ba70fe12067972",
+               "Python3ParserBase.js"
+               "a569e60fdf199334f96147bf1d4b1ed028a4b99f70a9f85c88eb3871a47b7a58"}},
+
+  :dart
+  {:runtime "antlr4 4.13.2 (pub)",
+   :flags ["-Dlanguage=Dart" "-no-listener" "-no-visitor"],
+   :helpers ["Dart/Python3LexerBase.dart" "Dart/Python3ParserBase.dart"],
+   :out "lib/antlr/python3",
+   :patches
+   {"Dart/Python3LexerBase.dart"
+    [["      this.emitToken(MakeCommonToken(Python3Lexer.TOKEN_NEWLINE, newLine));"
+      "      this.emitToken(PositionedToken(Python3Lexer.TOKEN_NEWLINE, tokenStartCharIndex, tokenStartCharIndex + newLine.length - 1));"]
+     ["        var dedent = MakeCommonToken(Python3Parser.TOKEN_DEDENT, \"\");"
+      "        var dedent = PositionedToken(Python3Parser.TOKEN_DEDENT, charIndex, charIndex - 1);"]
+     ["            this.emitToken(MakeCommonToken(Python3Parser.TOKEN_NEWLINE, \"\\n\"));"
+      "            this.emitToken(PositionedToken(Python3Parser.TOKEN_NEWLINE, charIndex, charIndex - 1));"]
+     ["    Token MakeCommonToken(int type, String text)"
+      "    Token PositionedToken(int type, int start, int stop)\n    {\n        return tokenFactory.create(type, null, Pair<TokenSource?, CharStream?>(this, this.inputStream), channel, start, stop, tokenStartLine, tokenStartCharPositionInLine);\n    }\n\n    Token MakeCommonToken(int type, String text)"]]},
+   :generated {"Python3Lexer.dart"
+               "a29f3f8cceb6ec2b76185bf563d0e186bfb3d2f39cad2129c57dc31603bdb23b",
+               "Python3LexerBase.dart"
+               "e3b11f882d64f64d843d8ab10a133a09cb076452dc3397a6c1fc708c3c026bd5",
+               "Python3Parser.dart"
+               "fa00271187b2ba976be61c81acd3309b9ea8d19d458ce4a13a5ba1ed971ccf70",
+               "Python3ParserBase.dart"
+               "e4c4693a640e53b971d37088809c74539cc0f1dda7d9c6a3cdd9beb7ce40a87d"}}},
  ;; §4.5 license review
  :license {"Python3Lexer.g4" "MIT (header: Copyright (c) 2014 Bart Kiers); vendored with its notice verbatim",
            "Python3Parser.g4" "MIT (header: Copyright (c) 2014 Bart Kiers); vendored with its notice verbatim",
            "Java/Python3LexerBase.java" "no notice in file; UNRESOLVED: not vendored, fetched by pinned digest",
            "Java/Python3ParserBase.java" "no notice in file; UNRESOLVED: not vendored, fetched by pinned digest",
-           "antlr4-runtime 4.13.2" "BSD-3-Clause"},
+           "JavaScript/Python3LexerBase.js" "no notice in file; UNRESOLVED: not vendored, fetched by pinned digest",
+           "JavaScript/Python3ParserBase.js" "no notice in file; UNRESOLVED: not vendored, fetched by pinned digest",
+           "Dart/Python3LexerBase.dart" "no notice in file; UNRESOLVED: not vendored, fetched by pinned digest",
+           "Dart/Python3ParserBase.dart" "no notice in file; UNRESOLVED: not vendored, fetched by pinned digest",
+           "antlr4-runtime 4.13.2" "BSD-3-Clause",
+           "antlr4 4.13.2 (npm)" "BSD-3-Clause",
+           "antlr4 4.13.2 (pub)" "BSD-3-Clause"},
  ;; Generated artifacts include code derived from the two helpers, so their
  ;; provenance must be resolved before any generated artifact is distributed.
  :redistribution {:vendored-sources ["antlr/python3/Python3Lexer.g4"
                                      "antlr/python3/Python3Parser.g4"],
                   :generated-artifacts :none,
-                  :blocked-until "Java helper provenance and licence resolved"}}
+                  :blocked-until "Java, JavaScript and Dart helper provenance and licence resolved"}}
 

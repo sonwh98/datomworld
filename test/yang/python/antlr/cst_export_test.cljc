@@ -1,31 +1,21 @@
 (ns yang.python.antlr.cst-export-test
-  "The parser interpreter: CST packet goldens (rule names, byte spans,
-   synthetic tokens), syntax errors as records with no nodes, the source
-   protocol, and chunk invariance."
+  "The parser interpreter on every host: CST packet goldens (rule names, byte
+   spans, synthetic tokens) through the language-free conformance oracle,
+   syntax errors as records with no nodes, the source protocol, and chunk
+   invariance."
   (:require
     [clojure.test :refer [deftest is testing]]
     [dao.stream :as stream]
+    [yang.antlr.conformance :as conformance :refer [shape]]
     [yang.antlr.cst :as cst]
     [yang.antlr.packet :as packet]
     [yang.python.antlr.parser :as parser]
-    [yin.vm.test-utils :as tu])
-  (:import
-    (yang.python.antlr.gen
-      Python3Parser)))
-
-
-(defn- shape
-  "A packet's nodes as [rule-or-token-type span] pairs in preorder."
-  [pk]
-  (mapv (fn [n]
-          (if (= :rule (:kind n))
-            [(:rule n) (:span n)]
-            [(:type n) (:text n) (:span n)]))
-        (:yang.cst/nodes pk)))
+    [yin.vm.test-utils :as tu]))
 
 
 (deftest golden-assignment-test
   (let [pk (parser/parse-source "x = 1\n")]
+    (conformance/check-ok parser/parse-source "x = 1\n")
     (is (= :yang.cst/ok (:yang.cst/outcome pk)))
     (is (= parser/grammar-id (:yang.cst/grammar pk)))
     (is (true? (:yang.cst/complete pk)))
@@ -75,6 +65,7 @@
     (let [src "s = 'é𝄞'\nt = 2\n"
           pk (parser/parse-source src)
           tok (fn [text] (first (filter #(= text (:text %)) (:yang.cst/nodes pk))))]
+      (conformance/check-ok parser/parse-source src)
       (is (= [4 12] (:span (tok "'é𝄞'"))))
       (is (= [13 14] (:span (tok "t"))))
       (is (= (cst/utf8-bytes src) (second (:span (packet/root pk))))))))
@@ -143,7 +134,7 @@
 
 (deftest every-grammar-rule-name-is-exported-by-name-test
   (testing "rule records use the grammar's rule names"
-    (let [names (set (seq Python3Parser/ruleNames))
+    (let [names (set parser/rule-names)
           pk (parser/parse-source
                "class A(B):\n    def m(self, *a):\n        while x: pass\n")]
       (is (every? #(contains? names (:rule %))

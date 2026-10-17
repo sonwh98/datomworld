@@ -513,10 +513,11 @@ The proposed deployment policy is:
 |               | in a worker; TypeScript       | service                  |
 |               | compiled at build             |                          |
 +---------------+-------------------------------+--------------------------+
-| Dart / CLJD   | Optional generated Dart       | Sidecar where supported, |
-|               | parser in an isolate          | or a remote service;     |
-|               |                               | otherwise unsupported    |
-|               |                               | outcome                  |
+| Dart / CLJD   | Generated Dart parser (the    | Sidecar where supported, |
+|               | local implementation for      | or a remote service;     |
+|               | Python since 2026-10-17; a    | otherwise unsupported    |
+|               | grammar without a Dart helper | outcome                  |
+|               | answers `unavailable-parser`) |                          |
 +---------------+-------------------------------+--------------------------+
 ```
 
@@ -754,6 +755,13 @@ The syntax exporter emits a versioned packet containing:
 - Source spans and token vocabulary names.
 - Explicit recovery/error records where applicable.
 - A completion record identifying the complete packet.
+
+Amended 2026-10-17: `src/cljc/yang/antlr/packet.cljc` owns the v1 packet
+shape (the normative statement and `packet/conform`, the per-target
+conformance check over the invariants), and `yang.antlr.cst` has one
+exporter per host (JVM, Node, Dart) over the same profile contract; the
+packet is the target-neutral parse-tree IR every exporter produces and every
+language's CST-to-UAST converter consumes.
 
 CST identifiers are deterministic within a packet, for example preorder
 ordinals. They are not ANTLR object identities.
@@ -3128,17 +3136,22 @@ Linker prerequisites, the linker seat's to build:
 +-------+----------------------------------------------------------------------+
 ```
 
-Acceptance, each on all three hosts unless stated (Node and Dart consume
-precompiled CST packets or rows, since the parser is JVM-only):
+Acceptance, each on all three hosts unless stated (amended 2026-10-17: the
+Python parser is generated for all three hosts, so the session scenarios run
+through the installed parser on each, and the precompiled packets are checked
+against it by the packet-parity test; per-target helper availability, 4.2,
+decides the host matrix of any other grammar):
 
 - F1: two revisions of one id installed into an empty catalog are both
   selectable and the original catalog is unchanged; a manifest holding a
   function is rejected with a qualified outcome.
 - F2: a toy frontend defined in a test namespace installs, is selected,
   and evaluates on every VM with no `src` edit; a newer revision
-  installed under a live session leaves it unchanged; on Node and Dart
-  with no parser or configured service, the ANTLR id answers
-  unavailable-parser with no legacy fallback.
+  installed under a live session leaves it unchanged; a host with no
+  generated parser for a grammar, and no configured service, answers
+  unavailable-parser for that grammar's id with no legacy fallback (amended
+  2026-10-17: the Python grammar is generated for JVM, Node and Dart, so
+  `:yang.python/antlr` is installed on every host).
 - P1: the full corpus output is unchanged on every VM and host; a
   composition with no cell module halts ok on `functions-uast`;
   `py/init!` twice yields one set of class cells; shadowing then
