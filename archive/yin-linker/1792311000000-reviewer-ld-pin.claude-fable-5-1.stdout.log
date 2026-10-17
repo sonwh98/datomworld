@@ -1,0 +1,40 @@
+# Review: L-d engine dependency-pin check
+
+**Verdict: APPROVE-WITH-NITS.** No P0 or P1 findings. The guard is placed correctly, uses the right lookup and the same address representation as the pins, is deterministic, and refuses nothing a valid install can produce. The findings file was not written to collab/ because this session ran in plan mode. The full text is at `/Users/sto/.claude/plans/read-collab-1792311000000-reviewer-ld-pi-lazy-hopper.md` and can be copied to `collab/1792311000000-reviewer-ld-pin.claude-fable-5-1.findings.md`.
+
+## Placement, lookup, representation
+
+`link-install` is the only path into `linked`. The lift, the registry update and `receive-module` have no other engine callers, apart from `spawn-child` copying entries the parent already linked. The mismatch is computed before the `cond` at `src/cljc/yin/vm/engine.cljc:1364`, and the refusal branch hands `refuse-install` the untouched parent state. Nothing is lifted or published first, and the catch in `advance-install` still wraps the guard.
+
+All three arrival paths end in the child's registry: inherited entries via `spawn-child`, fresh ones via the child's own nested link, and absent ones as nil from `module-entry`. The inner map is what `module-entry` documents. Pins are minted by `materialize!` and entries by `segment-key`, both on the manifest with the default algorithm, so they are the same `:segment/<algo>-<digest>` value.
+
+## Order and precedence
+
+String-sorted keys with `some` give the first mismatch host-independently. The ordering test inserts `z` before `bar` into an array-map, so dropping the sort would fail it. Export-missing first is fine since neither refusal publishes.
+
+## False refusals
+
+None found.
+
+- **Host entries** have a nil address. A pinned name shadowed by a host module never links the pinned code, so refusing is right.
+- **Different local name** cannot happen. `settle` refuses `:module-name-mismatch`, and the registry is keyed by manifest name, so registry key equals require name equals pin key.
+- **Re-exports** are unaffected since only `:address` is read.
+- **Diamonds** work because each level checks its own view and acts 3/4 skip entries already held.
+- **Design note**: a pin never linked at load time refuses as absent. That is what the brief and the dht spec demand, and the Clojure publisher pins only module-level requires. yang.python must pin only load-time imports.
+
+## Tests
+
+All new tests are portable and run on all five constructors, or on the existing stack-only fault harness. The mutation table is credible. The Python-shaped fixture is honest where it matters: the real scanners prove no bar-qualified free name is retained on four backends.
+
+## Findings
+
+- **P3-1** `src/cljc/yin/vm/engine.cljc:1364`. The mismatch is computed even when exports are missing. Pure and cheap, but a short-circuit would be clearer. Optional.
+- **P3-2** `src/cljc/yin/vm/engine.cljc:1368`. A host entry under a pinned name refuses with `:linked nil`, indistinguishable from absent. Consider `:linked :host` if the owner wants the distinction.
+- **P3-3** `docs/design/yin.vm.linker.md:700`. The table row cites 7.3/7.4, but this document's 7.4 says nothing about the check. The 7.4 meant is the dht spec. The row's cell widths also do not match the table.
+- **P3-4** `docs/design/yin.vm.linker.md:1278`. The state diagram's refused label omits the new reason. One-line change, optional.
+- **P3-5** `test/yin/vm/linker_require_test.cljc:1140`. The empty-obligations assertion is tautological because the stub constructor hard-codes an empty vector. The scanner assertion on the next line is the real one.
+- **P3-6** `test/yin/vm/linker_require_test.cljc:1178`. The second waiter is forged from a copy of the root's link-request entry rather than joining through `settle`. It still exercises the wake filter under test. A comment marking it synthetic would help.
+
+## Open gates
+
+Node, Dart and the slow tier were not run, per the brief. The new tests use only constructs already proven portable in this namespace. Run the full three-host lane once at landing.

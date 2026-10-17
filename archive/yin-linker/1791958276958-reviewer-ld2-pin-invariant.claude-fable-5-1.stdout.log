@@ -1,0 +1,21 @@
+Review done. Verdict: **APPROVE-WITH-NITS**, no blocking findings.
+
+The full findings text is staged in the plan file at `/Users/sto/.claude/plans/you-are-the-adversarial-iridescent-knuth.md`. Plan mode blocked writing it to the collab path, and the ExitPlanMode tool is not available in this build, so writing `collab/1791958276958-reviewer-ld2-pin-invariant.claude-fable-5-1.findings.md` is the one step left once plan mode is lifted.
+
+**What I verified on the worktree**
+- Focused JVM lanes pass as the engineer claimed: 52 tests, 1211 assertions, 0 failures.
+- Kondo on the four changed Clojure files: 0 errors, 0 warnings.
+
+**Checklist outcome**
+- `pin-conflict` implements both cases (a) and (b) purely from registry manifests, sorts conflicts on string keys of symbols and segment-key keywords, so selection is host-stable. Refusal shape matches the brief.
+- `receive-module` throws before any attachment, lowering, store instantiation, or registry write. All three callers (child spawn, act 3, act 4) sit inside the existing catch sites, which stamp `:loading` or `:linked` and refuse from the round's starting state.
+- `link-install` now refuses present-and-unequal only. The check is not redundant with receive, since it runs against the halted child's registry where a self-required dependency can sit at the wrong address before the module's own pin exists anywhere.
+- The Q4 hole stays closed: a deferred pin followed by a require at another address is caught at the parent's act 3 receive, tested for both `require` and `try-require` with registry and stores asserted unchanged.
+- Tests are portable: no `with-redefs`, no host interop, `doseq` not `for`, maps start from `{}`.
+- Invariants hold: language-blind, A is the only identity, derive-don't-persist.
+
+**Nits (all P3, none in claimed acceptance)**
+- Ledger row 17 in `docs/agents/known-gaps.md` still says a host entry under a pinned name refuses "same as absent". Absent is now permitted, so the wording is stale.
+- The new 7.4 bullet says "no linked module", but case (b) also refuses a held host entry with a nil address. The doc is narrower than the code.
+- The pinning owner is computed for the sort and then dropped, and `error-refusal` overwrites `:module` with the installing module. An act 4 conflict therefore names neither the manifest that pinned. Shape is per brief, so ledger it for a later `:pinned-by` amendment.
+- Inheritance runs the check once per linked entry with a full registry walk each time, quadratic per spawn. Negligible today.

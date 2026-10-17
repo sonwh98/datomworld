@@ -1,0 +1,24 @@
+Review complete. The findings file could not be written: this session is in plan mode, which only allows edits to the plan file, so the full report is saved at `/Users/sto/.claude/plans/you-are-the-adversarial-tingly-tide.md` and reproduced below. Copying its body to `collab/1791962253872-reviewer-ld3-dht-deferred.claude-fable-5-1.findings.md` is the one step left.
+
+Completed-GMT: 2026-10-14 07:23:47 GMT
+Completed-Local: 2026-10-14 14:23:47 +07
+Coding-Agent: claude
+Session-ID: pending (provider-generated)
+
+**Verdict: APPROVE-WITH-NITS.** No P0, P1, or P2. The slice matches the scoping design §2.1/§2.4 and acceptance row L-d-3.
+
+**What checked out**
+
+- The new `yin.vm.linker.requirements/eager` is a bounded worklist with the same semantics as the old private scan, and it breaks the publish/closure cycle cleanly. `yin.vm` does not require any linker namespace, so the new `closure` → `yin.vm` edge is acyclic.
+- The walker's row projection is correct. Blobs at row addresses are bodies `[tag & slots]`, operands are address vectors, literal values stay symbols, so the row path and the AST path classify identically.
+- Deferred pins are never read or descended into; eager absent pins still end `:missing`. The end-to-end test proves the dependency stays absent from the reader's store after the dependent links.
+- `dependency-bindings` filters by `:eager?` without changing entry shape, so the exact-equality assertions in the yin.repl process test still hold.
+- Invariants hold: no Python words, manifest unchanged, eagerness derived from rows already read, no `with-redefs`, portable constructs only. Docs §4.2 and §7.4 are consistent with the design.
+
+**Findings**
+
+- P3 | `src/cljc/yin/vm/linker/requirements.cljc:26` | Vector require specs like `(require '[base :as b])` are accepted by the `require` primitive and used in REPL tests, but the eager test demands a bare symbol, so an unconditional require of that form is classified deferred. Inherited from the old scan and design-declared safe. Fix: accept a vector whose first element is a symbol, plus one test assertion.
+- P3 | `src/cljc/yin/vm/linker/closure.cljc:197` | The whole tree is scanned even when `:yin.module/requires` is empty. Fix: skip the scan when there are no pins.
+- P3 | process | Only `bb test:sub:clj yin.vm` was run; no `yin.repl.*` namespace appears in the lane log, although the yin.repl DHT tests consume the changed binding check through the interpreter. I read the fixtures and expect them green, but they are unrun. Fix: run the quick tier, or `bb test:sub:clj yin.repl` with the slow flag, before landing.
+
+**Not verified by me:** the engineer's test and lint results were quoted from the report, not rerun, because plan mode blocked side-effecting commands.

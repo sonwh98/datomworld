@@ -1,0 +1,57 @@
+# Archived 2026-10-17 (owner-requested sweep of landed-track collab artifacts)
+# Criterion: linker slices (ld*, admission rounds) landed; track archived at archive/yin-linker and archive/linker-l-f; admission-ad2 merged.
+# Files NOT moved when cited by living docs (docs/src/test) — those stay in collab/.
+# Manifest may lag the log: docs/orchestrator-log.md citations of collab/ paths are historical.
+1791950875733-engineer-ld1-try-require.findings.md
+1791950875733-engineer-ld1-try-require.gpt-6.1-sol.stdout.log
+1791950875733-engineer-ld1-try-require.prompt.md
+1791951608555-reviewer-ld1-try-require.claude-fable-5-1.findings.md
+1791951608555-reviewer-ld1-try-require.claude-fable-5-1.prompt.md
+1791951608555-reviewer-ld1-try-require.claude-fable-5-1.stdout.log
+1791953766188-architect-ld1-review.claude-fable-5-1.findings.md
+1791953766188-architect-ld1-review.claude-fable-5-1.prompt.md
+1791953766188-architect-ld1-review.claude-fable-5-1.stdout.log
+1791957103921-engineer-ld2-pin-invariant.findings.md
+1791957103921-engineer-ld2-pin-invariant.gpt-6.1-sol.stdout.log
+1791957103921-engineer-ld2-pin-invariant.prompt.md
+1791958276958-reviewer-ld2-pin-invariant.claude-fable-5-1.findings.md
+1791958276958-reviewer-ld2-pin-invariant.claude-fable-5-1.stdout.log
+1791958276958-reviewer-ld2-pin-invariant.prompt.md
+1791961569446-engineer-ld3-dht-deferred.findings.md
+1791961569446-engineer-ld3-dht-deferred.gpt-6.1-sol.stdout.log
+1791961569446-engineer-ld3-dht-deferred.prompt.md
+1791962253872-reviewer-ld3-dht-deferred.claude-fable-5-1.findings.md
+1791962253872-reviewer-ld3-dht-deferred.claude-fable-5-1.stdout.log
+1791962253872-reviewer-ld3-dht-deferred.prompt.md
+1792230000000-architect-admission-stream.claude-fable-5-1.findings.md
+1792230000000-architect-admission-stream.prompt.md
+1792231000000-reviewer-admission-stream.findings.md
+1792231000000-reviewer-admission-stream.gpt-6.1-sol.stdout.log
+1792231000000-reviewer-admission-stream.prompt.md
+1792232000000-architect-admission-stream-r2.claude-fable-5-1.findings.md
+1792232000000-architect-admission-stream-r2.prompt.md
+1792233000000-reviewer-admission-stream-r2.findings.md
+1792233000000-reviewer-admission-stream-r2.gpt-6.1-sol.stdout.log
+1792233000000-reviewer-admission-stream-r2.prompt.md
+1792235000000-reviewer-admission-stream-r3.findings.md
+1792235000000-reviewer-admission-stream-r3.gpt-6.1-sol.stdout.log
+1792235000000-reviewer-admission-stream-r3.prompt.md
+1792260000000-architect-admission-in-linker.claude-fable-5-1.findings.md
+1792260000000-architect-admission-in-linker.prompt.md
+1792261000000-reviewer-admission-in-linker.findings.md
+1792261000000-reviewer-admission-in-linker.gpt-6.1-sol.stdout.log
+1792261000000-reviewer-admission-in-linker.prompt.md
+1792310000000-engineer-ld-pin.findings.md
+1792310000000-engineer-ld-pin.gpt-6.1-sol.stdout.log
+1792310000000-engineer-ld-pin.prompt.md
+1792311000000-reviewer-ld-pin.claude-fable-5-1.stdout.log
+1792311000000-reviewer-ld-pin.prompt.md
+
+# --- 2026-10-17 pass 2 (exact-citation exemptions only; siblings without living-doc citations moved) ---
+1791809519945-reviewer-admission-in-linker-r2-confirm.gpt-6.1-sol.stdout.log
+1791809519945-reviewer-admission-in-linker-r2-confirm.prompt.md
+1792234000000-architect-admission-stream-r3.prompt.md
+1792262000000-architect-admission-in-linker-r2.prompt.md
+1792263000000-reviewer-admission-in-linker-r2.gpt-6.1-sol.findings.md
+1792263000000-reviewer-admission-in-linker-r2.gpt-6.1-sol.stdout.log
+1792263000000-reviewer-admission-in-linker-r2.prompt.md

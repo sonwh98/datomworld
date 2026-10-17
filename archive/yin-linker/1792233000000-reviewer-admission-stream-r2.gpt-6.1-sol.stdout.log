@@ -1,0 +1,2552 @@
+Reading additional input from stdin...
+OpenAI Codex v0.159.3
+--------
+workdir: /Users/sto/workspace/datomworld
+model: gpt-6.1-sol
+provider: openai
+approval: on-request
+sandbox: read-only
+reasoning effort: low
+reasoning summaries: none
+session id: 01a12ea5-7860-7251-a7fe-7e35a555d2bf
+--------
+user
+Created-GMT: 2026-10-12 07:10:00 GMT
+Coding-Agent: codex (gpt-6.1-sol)
+# Task: re-review the REVISED admission stream design (read-only, architectural)
+Your round 1 verdict was REJECT (3 P1, 2 P2): collab/1792231000000-reviewer-admission-stream.findings.md. The revised design (fable-5.1): collab/1792232000000-architect-admission-stream-r2.claude-fable-5-1.findings.md; the original: collab/1792230000000-architect-admission-stream.claude-fable-5-1.findings.md; the brief and owner direction: collab/1792230000000-architect-admission-stream.prompt.md. For each of F1..F5 state FIXED / NOT FIXED / PARTIAL with evidence in the revised design AND in the source it relies on (src/cljc/yin/repl/link.cljc, src/cljc/yin/repl.cljc, yin.vm.module, engine, dao.shibi.md): is the mechanism sound, minimal, implementable from the design alone, and covered by an acceptance line that would fail if it regressed. Then one last adversarial pass for NEW defects introduced by the revision (retirement path races, correlation-id reuse, a stale retained entry, polling load, drive-continuation loops, fail-closed behavior, anything that leaks capability vocabulary into the linker). Scope contract: block only on an in-scope P0/P1 (an unsound guard or a defect that makes a stated acceptance impossible); list everything else as non-blocking with an owner. Do not edit or run suites. Output: verdict (APPROVE / APPROVE-WITH-NITS / REJECT) first; if none, write "No open in-scope P0/P1"; numbered findings with severity and exact fix. FINAL MESSAGE must contain the complete review beginning with Completed-GMT / Completed-Local lines.
+codex
+I’ll check F1–F5 against the revised design and its source dependencies, then look for new defects under the stated P0/P1 blocking rule. I’ll use the code-review skill; all work will remain read-only, with no suites run.
+exec
+/bin/zsh -lc 'cat /Users/sto/workspace/datomworld/.agents/skills/code-review-pr/SKILL.md' in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+---
+name: code-review-pr
+description: >-
+  Performs comprehensive, high-quality code reviews on Git pull requests, branches, commit ranges, or local working tree diffs. Analyzes code correctness, security, architecture, test coverage, and performance using automated diff analysis and structured review checklists.
+---
+
+# Code Review PR Skill
+
+## Overview
+
+The `code-review-pr` skill provides an end-to-end framework for conducting rigorous, actionable code reviews on Git pull requests, feature branches, commit ranges, or working tree diffs. It combines automated diff scanning via `scripts/pr_reviewer.py` with structured review checklists across security, correctness, architecture, performance, and testing.
+
+Use this skill whenever asked to:
+- Review a pull request or feature branch (`git diff main...HEAD`).
+- Review recent commits (`git diff HEAD~1` or commit range).
+- Review uncommitted local changes (`git diff` or staged changes).
+- Perform a security, quality, or architecture audit of proposed code changes.
+
+---
+
+## Quick Start
+
+Run the automated PR reviewer script to generate an initial risk assessment, churn metrics, and automated smell scan:
+
+```bash
+# 1. Review branch changes against main (Default PR review)
+python3 .agents/skills/code-review-pr/scripts/pr_reviewer.py analyze --target main...HEAD
+
+# 2. Review last commit
+python3 .agents/skills/code-review-pr/scripts/pr_reviewer.py analyze --target HEAD~1
+
+# 3. Review uncommitted working tree changes
+python3 .agents/skills/code-review-pr/scripts/pr_reviewer.py analyze --target working
+
+# 4. Save review report to file
+python3 .agents/skills/code-review-pr/scripts/pr_reviewer.py analyze --target main...HEAD --output review_report.md
+```
+
+---
+
+## Code Review Workflow
+
+Follow this step-by-step process when executing a code review:
+
+### Step 1: Run Automated Diff Analysis
+Execute `scripts/pr_reviewer.py analyze` for the target Git ref/range. Review the output to determine:
+- Total lines added/deleted and file churn distribution.
+- High-risk modified files (e.g., Security/Auth, Database/Schema, Infrastructure, API Contracts).
+- Test-to-source additions ratio.
+- Automated static findings (hardcoded secrets, debug leftovers, swallowed exceptions, SQL injection risks).
+
+### Step 2: Deep-Dive Code Inspection
+Inspect the diffs for high-risk files using `git diff <target> -- <path>` or `view_file`. Focus on:
+1. **Logic & Edge Cases**:
+   - Boundary checks, null/nil handling, empty collections, zero division.
+   - Resource leaks (unclosed streams, file handles, DB connections).
+   - Race conditions, shared state mutation, concurrency locks.
+2. **Security & Credentials**:
+   - No hardcoded API keys, passwords, or tokens.
+   - Input validation before execution or query interpolation.
+   - Proper authorization checks on new or updated endpoints.
+3. **Architecture & Contracts**:
+   - Preserving backward compatibility on existing API functions/endpoints.
+   - Proper module separation and clean interface boundaries.
+4. **Test Coverage & Quality**:
+   - Ensuring new source logic is accompanied by unit/integration tests.
+   - Verifying tests validate actual assertions rather than just non-crashing execution.
+
+### Step 3: Reference Checklist & Severity Taxonomy
+Consult [references/review_checklist.md](references/review_checklist.md) to classify findings:
+- **P0 (Critical / Blocker)**: Security breaches, data loss risks, severe crashes, hardcoded credentials.
+- **P1 (High / Must Address)**: Logic bugs, broken API contracts, swallowed exceptions, missing critical tests.
+- **P2 (Medium / Recommended)**: Performance bottlenecks, code duplication, missing parameter validation.
+- **P3 (Low / Suggestion)**: Minor formatting, naming improvements, leftover comments/TODOs.
+
+### Step 4: Formulate Structured Review Report
+Present findings to the user using the following template:
+
+```markdown
+# 🔍 Code Review Report
+
+## Executive Summary
+- **Target:** `<git-ref>`
+- **Verdict:** `[ APPROVED | REQUEST CHANGES | COMMENT ]`
+- **Overall Risk:** `[ LOW | MEDIUM | HIGH ]`
+- **Metrics:** `X files changed, +Y / -Z lines`
+
+## 🚨 Critical Findings (P0 / P1)
+- **[Severity]** `path/to/file.ext:L123` - Short issue description.
+  ```diff
+  - problematic code
+  + suggested fix
+  ```
+
+## 💡 Improvements & Suggestions (P2 / P3)
+- **[Severity]** `path/to/file.ext` - Recommendation details.
+
+## 🧪 Test Coverage & Quality Assessment
+- Evaluation of test ratio and edge case coverage.
+
+## 🌟 Positive Highlights
+- Clean implementations, thorough documentation, or well-structured refactoring.
+```
+
+---
+
+## Utility Script Reference
+
+The bundled helper script `scripts/pr_reviewer.py` supports the following options:
+
+| Parameter | Type | Default | Description |
+| :--- | :--- | :--- | :--- |
+| `--target` | String | `main...HEAD` | Git range/ref (`main...HEAD`, `HEAD~1`, `staged`, `working`) |
+| `--output` | String | None | File path to write report output |
+| `--format` | String | `markdown` | Output format (`markdown` or `json`) |
+| `--repo-dir` | String | Current Dir | Path to the target Git repository |
+
+---
+
+## Common Review Pitfalls
+
+1. **Nit Tunnel Vision**: Focusing heavily on formatting or naming while missing underlying logic bugs or edge-case crashes.
+2. **Ignoring Test Ratio**: Approving large source code changes without verifying corresponding test coverage additions.
+3. **Swallowing Symptoms**: Suggesting `try/except` wrappers around failing code rather than addressing root cause invalid inputs or broken state.
+
+exec
+/bin/zsh -lc 'cat docs/design/datom.world.md' in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+---
+description: Core philosophy, foundational axioms, invariants, primitives (tuples, streams, host boundaries), architectural commitments, design principles, code style, and development workflow for datom.world
+---
+
+# DATOM.WORLD ARCHITECTURAL FOUNDATIONS & DEVELOPMENT RULES
+
+## Core Philosophy
+
+Everything is data.
+Interpretation > abstraction.
+Explicit causality > implicit assumptions.
+Restrictions are a feature.
+
+### Foundational Axioms
+
+1. **Everything is a Stream**: All IO and data flow through append-only streams.
+2. **Interpretation Creates Semantics**: Data is syntax; semantics only emerge through interpretation (one truth, many perspectives).
+   At system scale, a "system" is an emergent property of interpreters of
+   pure data, not an object, service, or stored artifact. Find the
+   interpreters and the data they share to find the system.
+3. **Code and State are Datoms**: Code (Universal AST) and runtime execution state are structured datoms, enabling syntax independence and structural reflection.
+4. **Everything is a Continuation**: Computation is modeled as serializable, portable continuations that can pause, travel across streams, and resume anywhere.
+
+## Non-Negotiable Invariants
+
+- Do not introduce hidden global state.
+- Do not introduce implicit control flow.
+- Do not introduce callbacks; every callback is an event on a stream.
+- Do not introduce shared mutable state.
+- Do not collapse interpretation and execution into the same layer.
+- Do not assume graphs: graphs must be constructed explicitly from tuples.
+- Do not lose information (unitarity): streams are append-only and no datom is destroyed, only reinterpreted. The Universal AST is never lost: it is always retrievable wherever code is lowered, by address or by a query over its datoms. Every derived form (semantic vector, native images, indexes) is an interpretation of it and may drop facts only because the AST remains.
+
+## Tuples and Datoms
+
+Tuples are elements in an open moduli space, graded by dimension $n$. A tuple can be any dimension/size.
+A datom is the canonical persistent tuple `[e a v t m]` (entity, attribute, value, transaction, metadata). Persistent facts are immutable datoms.
+Source scope belongs to the interpreter, never to an appended tuple slot. Queries keep physical sources as separate db-values and express union or joins explicitly.
+
+See [`docs/design/datom.md`](./datom.md) for full specification.
+
+## Streams
+
+All IO is modeled as a stream. Functions consume streams and produce streams.
+No direct function-to-function coupling without a stream boundary.
+Side effects must appear as stream emissions.
+Streams are values that can be sent through streams.
+Streams carry whatever values the consumer needs: no datom requirement, no privileged payload shape.
+
+A stream has no privileged reader, and its meaning is not in it. Any number
+of interpreters may observe the same medium, and each constructs its own
+semantics from the same batches: a `yin.vm` evaluator observing a program
+stream constructs CESK state and executes it; `dao.space.index` observing
+the very same stream materializes covered indexes, so `dao.space.query/q`
+answers Datalog over the program as it grows. Neither knows the other
+exists. The medium is their only coupling, and each observer's ignorance of
+the other is load-bearing: the evaluator never consults an index to run,
+and the index never evaluates a form to index it. This is how axiom 2
+becomes architecture: one stream, many interpretations, none of them
+the stream's own.
+
+Functions can take anything and return anything.
+Agents are functions, closures, or continuations in `yin.vm` that communicate with the outside world through `dao.stream`. Agent behavior is specified entirely through stream effects.
+
+See [`docs/design/dao.stream.md`](./dao.stream.md) for full stream specification.
+See [`docs/design/yin.vm.streams-all-the-way-down.md`](./yin.vm.streams-all-the-way-down.md) for VM architecture.
+
+### Host Boundaries
+
+A host boundary is a stream boundary, never a function call. The one
+sanctioned function-shaped contact is a `dao.stream` handle operation, whose
+exhaustive outcome map is stream protocol, not an application callback.
+
+**Effects out.** Portable code appends an effect value describing what must
+happen. A host interpreter consumes that stream, performs the operation, and
+appends the outcome. Portable code reads the outcome. Correlation is by
+identity in the data; neither side holds a reference to the other. A host with
+no implementation for an effect emits a qualified unsupported result. That is a
+correct outcome, not a gap to be filled.
+
+**Events in.** When the host initiates (a socket receives, a connection drops,
+a timer fires) the adapter appends one plain-data event and returns. It invokes
+nothing. An interpreter reads that stream and decides what the event means.
+Constructively: **a callback is replaced by a function that transforms an event
+to data on a stream.** The host's demand for a callback stops at that function.
+
+**Adapters.** An adapter is a map of those transform functions. That is all an
+adapter is. It is a value, not a namespace, and it is general: sockets, files,
+timers and windows all deliver events by calling something, and an adapter is
+what they call. Each entry takes the host's arguments and returns one value;
+the append is the adapter's, not the entry's, so an entry cannot return a value
+to the host and cannot invoke application code. The adapter is handed only the
+deposit operation and its own host resource. If its deposit channel fails, it
+may close that resource to make the boundary observably gone; this is teardown,
+not an upward callback.
+
+Host types are classified into plain data in the transform: it is the last
+place holding a host error object, and no host type crosses onto the stream. A
+transport may use a qualified envelope to preserve correlation, lifecycle, and
+additive evolution; that envelope remains plain data and creates no separate
+event mechanism. A composition may likewise define its own qualified vocabulary
+for facts it owns.
+
+Which stream an adapter writes to is the caller's composition, never the
+adapter's knowledge. An adapter cannot tell whether it deposits into one
+transport's private stream or into a medium many interpreters read. This keeps
+the layering one-way: a boundary depends on nothing above it, because whoever
+constructs the adapter supplies the stream.
+
+A transform deposits every event admitted by the boundary protocol and judges
+none of them semantically. Wire framing, decoding, and protocol validation
+happen below the transform: malformed wire input is transport machinery, not an
+event. Once the transport has produced a valid host event, data is syntax
+(axiom 2): an event that is noise to one interpreter is signal to another that
+does not exist yet, and filtering at the depositing layer destroys perspectives
+not yet taken. Retention is the medium's operational policy; meaning is
+interpretation. Neither is the depositor's decision.
+
+Two things are not adapters. One that exposes a function for portable code to
+call isolates the host library but keeps the coupling, and the effect never
+appears as an emission. One that takes a function to invoke has relocated the
+callback, not removed it, even when every value it passes is plain data; if
+that callback has a meaningful return value, it is a synchronous call in both
+directions wearing the shape of an event.
+
+## Architectural Commitments
+
+- **`dao.jing` is syntax, agents are semantics**: the content-addressed encoding stays passive and payload-agnostic.
+- **Macros are stream topology**: an evaluator knows nothing about macro expansion; expansion happens on the syntax side of a medium boundary, upstream of any evaluator.
+- **Peer observers, one stream**: a generic evaluator and `dao.space` independently observe the same stream topic, as described under Streams. This is not a claim about any two consumers regardless of what they consume.
+- **Observers are independent and optional**: nothing requires a medium to have any particular set of consumers. Which observers exist for a stream is a per-composition choice, not a design-time commitment.
+
+## Design Principles
+
+Code quality is measured by malleability: how cheaply can changes adapt without breaking promises?
+Stigmergic coordination emerges from sharing data across streams.
+
+**Systems emerge from interpreters of pure data.** Streams are the
+composition medium; each interpreter gives the same data a perspective
+without collapsing interpretation into execution or owning the truth.
+
+- `dao.space` emerges from `dao.space.index` and `dao.space.query` over
+  ordinary streams.
+- ShiBi capability, metering, and budget emerge from different
+  interpreters over the same tuples; no token object is stored.
+- The four VMs interpret one Universal AST; many syntaxes feed that AST.
+- The semantic AST in `dao.space` is queryable facts projected by the
+  auto-index observer.
+- Client and server are roles in one stigmergic behavior implemented by
+  interpreters, not distinct kinds of nodes.
+
+**Derive, don't persist.** Before adding a tag, slot, or field to any
+canonical content-hashed structure (an AST grammar, a datom schema, a row
+shape), check whether a correctly scoped Datalog query over
+`dao.space.query/q` can already compute the fact. If it can, it belongs as a
+query or projection: new persisted structure migrates every downstream
+consumer and duplicates authority over a fact a query derives fresh. The
+retired `:global` tag in
+[`docs/design/yin.vm.code-as-tuples.md`](./yin.vm.code-as-tuples.md) is the
+case study, including the scoping bug that a naive query introduced.
+
+See [`docs/agents/malleability.md`](../agents/malleability.md) for complete design guidance (cohesion, coupling, bounded complexity, evolution, testing strategy).
+See [`docs/agents/vocabulary.md`](../agents/vocabulary.md) for domain vocabulary reference (biology, economics, physics, philosophy).
+
+## Code Style
+
+- Prefer simple data over rich types.
+- Prefer total functions over partial ones.
+- Prefer declarative pipelines over imperative logic.
+- Avoid cleverness.
+- Name things after what they do to streams.
+
+## Development Workflow
+
+- Do not invent abstractions that hide streams.
+- Do not suggest mainstream frameworks unless explicitly asked.
+- Do not optimize prematurely.
+- When uncertain, ask at the architectural level, not the implementation level.
+- Explanations should align with Plan 9 / Datomic / Lisp lineage.
+- Program store writes go through `engine/store-put`; any other store write
+  the store-write audit (`test/yin/vm/store_write_audit_test.clj`)
+  detects must be on its allowlist; its docstring states the residual it
+  leaves to review.
+
+### Problem Decomposition
+
+If a problem appears complex:
+1. Decompose it into streams.
+2. Identify invariants.
+3. Restrict degrees of freedom.
+4. Make causality explicit.
+5. Let structure emerge from constraints.
+
+## Operational & Specialized Guides
+
+- **Advanced Concepts**: See [`docs/agents/advanced-concepts.md`](../agents/advanced-concepts.md) for parallel transport, capability tokens, and entanglement.
+- **Build & Test**: See [`docs/agents/build-n-test.md`](../agents/build-n-test.md) for build, lint, and test commands and TDD guidelines.
+- **Engineering Team Roster**: See [`docs/agents/team.md`](../agents/team.md) for engineering team roles and LLM model assignments.
+- **Agent Delegation**: See [`docs/agents/roles/orchestrator.md`](../agents/roles/orchestrator.md) for collaboration protocols and delegating tasks or reviews through `agy`, `cmd`, `glm`, `deepseek`, and `codex`; the orchestrator's append-only work log is [`docs/orchestrator-log.md`](../orchestrator-log.md).
+- **Website & Content**: See [`docs/agents/format.md`](../agents/format.md) for `.chp` and `.blog` EDN/Hiccup file specifications.
+
+exec
+/bin/zsh -lc 'nl -ba collab/1792231000000-reviewer-admission-stream.findings.md; nl -ba collab/1792232000000-architect-admission-stream-r2.claude-fable-5-1.findings.md; nl -ba collab/1792230000000-architect-admission-stream.prompt.md' in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+     1	Completed-GMT: 2026-10-12 05:39:05 GMT
+     2	Completed-Local: 2026-10-12 12:39:05 +07 (Asia/Ho_Chi_Minh)
+     3	
+     4	**REJECT**
+     5	
+     6	1. **P1 — An allow is not bound to the resolution it authorized.**  
+     7	   Design `collab/1792230000000-architect-admission-stream.claude-fable-5-1.findings.md:32` stores answers by link id, then re-attempts resolution. Currently, `src/cljc/yin/repl/link.cljc:393` resolves the name afresh each round. While admission waits, a head update can change its address or asserters. An allow for manifest M1 can consequently authorize fetching M2 under the same request id.
+     8	
+     9	   **Exact fix:** Retain the complete question and resolved entry as pending state. Apply its answer only to that entry and pass its retained address to `dht-attempt`. If resolution must be refreshed, retire the old question and mint a new admission correlation id. Test a head change between question and answer.
+    10	
+    11	2. **P1 — Abandonment does not release the admission queue.**  
+    12	   Design line 32 says abandonment ends admission and late answers are skipped. However, `src/cljc/yin/repl.cljc:1398` explicitly leaves the linker unaware of abandonment, while `src/cljc/yin/repl/link.cljc:472` retains its cursor at the first unanswered request. With an indefinitely unanswered admission question, `(abandon)` clears the VM wait but leaves that request blocking every subsequent require on the surviving pair. This persists after the user abandons the supposedly blocking work.
+    13	
+    14	   **Exact fix:** Specify an explicit retirement path carrying abandoned link/admission ids to the serving composition. Advance past retired requests, discard their retained questions and answers, and ignore later answers without reactivating them. Test unanswered admission → abandon → successful unrelated require on the same pair.
+    15	
+    16	3. **P1 — Late admission answers have no specified automatic resume path.**  
+    17	   Design lines 32 and 41 specify interpreter placement but omit admission readiness from host driving. `src/cljc/yin/repl.cljc:1943–1964` rechecks only matching load or head events. Admission occurs before loading, so a late answer produces neither event. Additionally, `drive-links` at line 1340 continues only when an existing interpreter reports progress; admission progress must participate in that decision.
+    18	
+    19	   **Exact fix:** Include question publication and admission-interpreter progress in drive continuation. Add bounded polling/rechecking of admission responses to the host drive, with correlation to pending admission ids. Preserve no-deadline semantics. Test an answer arriving after the initial drive has stopped, with no input line or DHT load event.
+    20	
+    21	4. **P2 — The claimed ShiBi adapter contract is different from the documented contract.**  
+    22	   Design line 30 calls `(verify decision question)` “exactly” the existing seam. `docs/design/dao.shibi.md:40–45` requires decision, context, and request; lines 53–62 also require bounded synchronous verification and defined handling of absent/ended decision snapshots. The proposed importer map contains format and contract, not an authorization subject, and the optional session field does not define one.
+    23	
+    24	   **Exact fix:** Define `(verify decision context question)`, with explicit composition-owned subject/session context and defined absent/ended snapshot behavior. Keep authorization vocabulary in the interpreter’s context and policy, outside linker data. Document this request/answer interpreter as an additional attachment, consistent with ShiBi’s explicit non-goal at lines 65–70.
+    25	
+    26	5. **P2 — AD-1/AD-2 omit the portable test driver changes needed to answer admission.**  
+    27	   Design lines 39 and 47–48 change `source` and refusal assertions, but `test/yang/python/antlr/dht_import_test.cljc:300–304` drives only `link/serve` and the mesh. Merely composing an admission pair supplies no interpreter round; trusted imports will remain pending. This cannot wait for AD-3’s production REPL wiring.
+    28	
+    29	   **Exact fix:** In AD-1, expose the admission pair’s successor state and update portable composition drivers to run and retain both interpreters. Update `run-over-dht` in AD-2 accordingly. Cover unsupported conditions, duplicate/late answers, abandonment, and resolution changes alongside the listed acceptance cases. The published DHT artifact can remain unchanged.
+    30	
+    31	The original cross-frontend P1 bypass **is closed by a uniformly enforced session policy**, provided every DHT link in that session uses it. The cache return at `module.cljc:552–554` and `(lang ...)` preserving the registry then reuse a prior session authorization. The exposure explanation nevertheless overstates task isolation: install children inherit registry entries (`engine.cljc:1289–1307`), and parents receive dependencies installed by children (`engine.cljc:1396–1403`). Authorization therefore follows the session and inherited registry, rather than requiring a fresh answer for each task.
+    32	
+    33	“Untrust is not retroactive” means cached requires, inherited entries, existing closures, and installed code remain usable; it affects later unanswered/new admission questions. Reset must establish a fresh registry.
+    34	
+    35	The separation from safety is sound: primitive/profile and exact dependency-pin discharge remain independent (`linker.cljc:1020–1075`), as do export-origin checks (`engine.cljc:1347–1383`). Empty conditions in v1 are appropriate. The proposal introduces no additional code identity, fetch deadline, privileged P2P node, or observer-to-observer dependency.
+    36	
+    37	Read-only review completed; no files edited or suites run.
+     1	Completed-GMT: 2026-10-12 06:58:00 GMT
+     2	Completed-Local: 2026-10-12 13:58:00 +07 (Asia/Bangkok)
+     3	
+     4	**Verdict.** The admission pair stands: two ring media beside the link pair, a question as plain data, one interpreter answering, neutral vocabulary, reserved-empty conditions, trust separate from safety, session-wide exposure. Five things change. The question now binds the resolution it was asked about and the allow applies to that address only. Abandonment reaches the serving composition through one new function the REPL's abandon calls. A late answer wakes the host through a new recheck hook, and admission progress drives the link loop. The ShiBi contract is the three-argument `verify` with a composition-owned context, and this interpreter is an addition beside the gate, not the gate. The portable test driver runs both interpreters. This replaces the earlier design in full.
+     5	
+     6	## 1. The datums
+     7	
+     8	The question carries the link id for correlation and its own id for binding. The admission id is `[link-id serial]`, `serial` a per-composition counter that is never reused, so a retired question and any later question for the same link can never share an id.
+     9	
+    10	```clojure
+    11	;; question, appended to the admission request medium at resolution
+    12	{:yin.admit/id         [[:t0 7] 3]
+    13	 :yin.link/id          [:t0 7]
+    14	 :yin.admit/name       'pym.m
+    15	 :yin.admit/address    :segment/blake3-...   ; the resolved manifest address, retained
+    16	 :yin.admit/asserters  ["ed25519:<hex>" ...] ; every asserter of that entry (R8)
+    17	 :yin.admit/provenance {...}                 ; the entry's :yin.link/provenance verbatim
+    18	 :yin.link/format      f                     ; the request's own words, no subject
+    19	 :yin.link/contract    "b2"}
+    20	
+    21	;; answers, appended to the admission response medium
+    22	{:yin.admit/id [[:t0 7] 3] :yin.admit/decision :allow  :yin.admit/conditions {}}
+    23	{:yin.admit/id [[:t0 7] 3] :yin.admit/decision :refuse
+    24	 :yin.admit/reason :yin.admit/untrusted-principal :yin.admit/asserters [...]}
+    25	```
+    26	
+    27	No session or subject travels in the question. The subject is the interpreter's context (section 4). Direct `:name-env` entries, provenance `:composition`, are not asked. Non-DHT sources have no pair. The link response on allow gains `:yin.admit/id`, `:yin.admit/decision :allow`, `:yin.admit/asserters` and `:yin.admit/address`, the address the allow authorized. A refusal copies into the section 9 shape with the answer's reason and open keys. A malformed answer refuses `:yin.admit/malformed-answer`; non-empty conditions refuse `:yin.admit/unsupported-condition`; both are final for that link.
+    28	
+    29	## 2. The admission state and the serve round (F1)
+    30	
+    31	The serving composition carries an admission state value in and out of every round. `link/serve` takes `{:pair :source :dht :admission}` and returns `{:pair :pending :progress? :dht :admission}`.
+    32	
+    33	```clojure
+    34	{:pair    {:questions q-medium :answers a-medium :cursor c}  ; c: interpreter's answer cursor
+    35	 :asked   {[:t0 7] question}        ; the retained question, at most one per pair in v1
+    36	 :answers {[[:t0 7] 3] answer}      ; drained, keyed by admission id, first answer wins
+    37	 :serial  4}
+    38	```
+    39	
+    40	The dht branch of `answer` (link.cljc 392-405) becomes three cases, in this order, replacing the `:admit` call at 397-399:
+    41	
+    42	1. **Asked and unanswered.** `(get-in admission [:asked link-id])` exists and `:answers` has nothing under its id: `::pending`, reported with `:admission <id>` in the pending entry beside `:name` and `:yin.link/id`. No re-resolution.
+    43	2. **Asked and answered.** An allow runs `(dht-attempt node declared request (:yin.admit/address asked))` with the retained address, never a fresh `resolve-name`. A refuse is the body. When the response lands, serve drops the asked entry and its answer.
+    44	3. **Not asked.** `resolve-name` as today. `:ok` mints the question from the entry with the next serial, appends it to the question medium, records it under `:asked`, and reports `::pending` with `:admission`. A question append counts as `:progress? true` even though no response landed (F3 depends on this). A refused append leaves nothing asked and reports no progress, like a refused response today.
+    45	
+    46	Draining: at the start of each round serve reads the answer medium from the pair's cursor, at most `serve-budget` elements, and keeps an answer only if its id is under `:asked` and not already under `:answers`. Duplicates and answers for unknown or retired ids are consumed and dropped. The cursor advances past everything read.
+    47	
+    48	**Ruling: a question-bound link is never refreshed.** Serve stops at the first pending request (link.cljc 451-472), so at most one question is open per pair, and it stays bound to the entry it was minted from until an answer lands or the request is retired. If the retained address fails to load after an allow, the link is refused as today and the asked entry goes with it. The user re-requires, and the new link id gets a new question over the head as it then is. `serial` exists so that a retire-and-re-ask, or a later refresh policy, cannot collide ids. The authorized address rides on the response, so the registry records what was allowed.
+    49	
+    50	**F1 test.** Publish M1 for `pym.m` under principal B. Import on a reader that declares B but trusts nobody in process, so the question stays open. Publish a new head of B moving `pym.m` to M2 and step the world until the follower installs it. Append an allow for the open admission id. Drive. Assert the response's `:yin.admit/address` and `:manifest` are M1, the node holds a module record for M1 and none for M2, and the pending entry's `:admission` id never changed.
+    51	
+    52	## 3. Retirement (F2)
+    53	
+    54	New `link/retire`, `(retire {:pair :admission} run)` returns `{:pair :admission :retired [ids]}`. `run` is `{:origin :t0 :after n :origins #{:t0.4 :t0.5}}`. Walking with `stream/next` from the pair's cursor, a request is retired when its `:yin.link/id` is `[o k]` with `o` = `:origin` and `k > :after`, or `o`'s name has one of `:origins` as prefix (children of children are `:t0.4.0`). Each retired request advances the cursor. The first request that is not retired stops the walk, so an id outside the run is never skipped. Retire clears `:asked` entries whose link id was retired and every `:answers` entry under them. A later answer for a retired id correlates to nothing and the drain drops it, so it cannot reactivate anything. No response is appended for a retired request: the engine already retired the id (`engine/abandon-link`, 1668-1687), and a response would be `:late` anyway.
+    55	
+    56	The run descriptor is derivable from counters the REPL already keeps. `carry-link-identity` (repl.cljc 1217-1229) holds the base and parked `:id-counter` and `:origins`, and engine 1287-1288 mints child origins as `:t0.<n>` from the counter. So `:after` is the base VM's `:id-counter`, and `:origins` is `#{:t0.n | base :origins <= n < parked :origins}`.
+    57	
+    58	**Smallest REPL change.** `abandon-pending` (1391-1432) computes that descriptor from `(:base parked)` and the parked VM, calls `link/retire` on `:link-pair` and `:admission`, and assocs the two results on the state it returns, beside the existing `query/discard-answers`. The docstring's "the linker side learns nothing" sentence at 1398 is replaced by "the linker side retires the run's requests". Three expressions and one docstring. The link policy's abandon runs the same function.
+    59	
+    60	**F2 test.** Open question for `pym.e` on a pair, drive stops. `(abandon)`. Then require `pym.m`, trusted, on the same session: it completes, and the response medium holds no response for the retired id. Append a late allow for the retired id, drive again: nothing is loaded, nothing printed, the pending set stays empty.
+    61	
+    62	## 4. Late answers and host driving (F3)
+    63	
+    64	Three pieces, all without a clock.
+    65	
+    66	- **In-drive.** `drive-links` (1296-1351) runs `admission/serve` right after `link/serve`, assocs its `:admission` on the state, and the continuation test at 1340 becomes `(or (:progress? served) (:progress? admitted) (:progress? answered))`. With the default in-process interpreter one require costs two extra rounds: question, answer, then the attempt. With no in-process interpreter the question round reports progress, the next round finds the question unanswered, reports none, and the drive ends with the link pending. Bounded by `link-round-budget` as today.
+    67	- **Host recheck.** New public `recheck-on-answers [state]`, a sibling of `recheck-on-load-events` (1943-1964): it peeks the answer medium from the admission pair's cursor without storing the successor, at most `serve-budget` elements, and calls `recheck-pending` once iff some answer's `:yin.admit/id` is in the pending admission ids, read from `(:links parked)` entries' `:admission`. Otherwise `[state nil]`, no `:checks` increment. The host ticker calls it beside `recheck-on-load-events`. `recheck-on-load-events` itself is unchanged.
+    68	- **The command path.** `(trust p)` rebuilds the session decision and, when a run is pending, calls `recheck-pending` once, so a user who answers the prompt by trusting sees the import complete without typing anything else.
+    69	
+    70	No deadline is added: an unanswered question survives any number of rechecks and ends only by retire. `:checks` counts rechecks that moved nothing, so the session link policy keeps its existing say.
+    71	
+    72	**F3 test.** Session composed with an external admission interpreter (none in process). Require `pym.m`; the initial drive ends pending with `:admission` on the pending entry. `recheck-on-load-events` with unrelated events answers `[state nil]`. Append an allow on the answer medium. `recheck-on-answers` returns text, the next drive loads and links, no input line was typed, no load event preceded the recheck.
+    73	
+    74	## 5. The ShiBi contract (F4)
+    75	
+    76	The interpreter, `yin.repl.admission`, is composed from a policy `{:trusted #{...} :verify f :decision d :decision-medium m}` and answers with `(verify decision context question)`, nil allows, a reason map refuses. That is the three-argument adapter dao.shibi.md 40-45 fixes. The context is composition-owned and built by `admission/context` from the session: `{:yin.admit/subject "ed25519:<hex>" | nil, :yin.admit/session <shell token now, [id revision] once the REPL F2 slice lands>}`. Authorization vocabulary stays in context and policy; the question and the linker carry none.
+    77	
+    78	The decision snapshot is the static `:decision` value, or the newest value on a capacity-1 `:decision-medium` when composed with one, read once per round. Absent snapshot: the interpreter does not answer and the question stays pending, because a link may wait and a wrong refusal is final. Ended snapshot: refuse `:yin.admit/decision-ended`. `verify` opens, fetches and waits for nothing. The default policy is membership: `decision` is `#{own principal} ∪ :trusted`, `verify` allows when some asserter is in it, else `:yin.admit/untrusted-principal` naming the asserters. Policies compose as verify functions in Clojure, first reason wins. One interpreter writes the answer medium.
+    79	
+    80	**Corrected claim.** This is not the existing seam. It reuses the `verify` signature and the decision-medium snapshot, but a request read off a stream and answered one decision per request is the path dao.shibi.md 65-70 names as a non-goal for the gate, to be added beside `verify` if needed. This design is that addition, outside the middleware gate: the gate may not wait, a link already does. The sentence in section 7.5 and in dao.shibi.md says exactly this.
+    81	
+    82	## 6. Exposure, restated
+    83	
+    84	Admission governs entry into a session's module registry, and the registry follows the session. The cache hit at module.cljc 552-554 answers a require from the registry without a question. An install child inherits the parent's registry entries (engine.cljc 1289-1307), and a parent receives the dependencies a child installed (1396-1403). So one allow in a session authorizes every later require of that module in that session and in every task that inherits the registry; a new session asks anew. "Untrust is not retroactive" means cached requires, inherited entries, existing closures and installed code stay usable; untrust changes only answers to later questions. `(reset)` and `(vm ...)` establish a fresh registry and a fresh admission state. The shell owns that boundary because it owns registry lifetime. Whether `(lang ...)` preserves the registry is taken from the review and not verified here.
+    85	
+    86	## 7. Trust versus safety
+    87	
+    88	Unchanged from the accepted design. The interpreter sees names, addresses, asserters and provenance, never bytes. The linker and L-e verify closure origin, store ownership, dependency pins and the primitives profile whatever the answer says. Conditions are reserved and must be empty.
+    89	
+    90	## 8. The edit
+    91	
+    92	- **(a) Python policy.** Delete `principal-admission` from publication.cljc with the ruling 19 paragraph of its docstring. The policy becomes the default of `yin.repl.admission`, answering `:yin.admit/untrusted-principal` with `:yin.admit/asserters`. The `:admit` option and the `admit` paragraph leave `link/composition` (link.cljc 147-153, 166).
+    93	- **(b) Tests.** `foreign-principals-are-refused-until-l-e-test` (dht_import_test.cljc 111-136) moves to `test/yin/repl/admission_test.cljc` as `an-untrusted-principal-is-refused-by-the-default-interpreter-test`, asserting the answer map. `foreign-principal-is-refused` (454-474) becomes `an-untrusted-principal-is-refused-on-every-vm` asserting the neutral refusal; an allow case trusts B. `run-over-dht` (281-311) mints `(admission/make-state)` beside `make-pair`, passes `:admission` to `link/serve`, runs `admission/serve` on the result with the source's policy, and carries both successors. `source` (314-320) composes `:admission {:trusted #{pa}}` and nothing else.
+    94	- **(c) Docs.** yang.antlr.md 8.5.6: ruling 19 keeps its safety text plus one sentence that trust is the admission interpreter's; the L-e row blocks "exposure of untrusted-origin closures"; the I3 landing note's `principal-admission` sentence and the gap paragraph point to section 7.5. yin.vm.linker.dht.md: the 7.4 sentence stays with the mob Q4 fix; 8.2 gains the `recheck-on-answers` hook beside R11.
+    95	- **(d) REPL.** `make-session` mints the admission state beside the link pair; `create-state` takes `:admission` beside `:link-policy` and defaults it to the own key from `:dht-key`; `drive-links`, `abandon-pending`, `recheck-on-answers`, `(trust p)`, `(untrust p)`, `(trusted)`. The REPL F2 slice supplies the `[id revision]` session key to `admission/context` later; nothing in the question waits on it.
+    96	- **(e) Spec home.** New section 7.5 "Admission: the trust question" in yin.vm.linker.dht.md: both datums, the state value, the binding rule, retire, the recheck hook, the fail-closed rules. One cross-reference paragraph in dao.shibi.md after line 70 naming this interpreter as the addition beside `verify`.
+    97	
+    98	## 9. Slices
+    99	
+   100	The parked linked-REPL tests are lost: `collab/1792201000000-parked-linked-repl-tests.cljc.txt` is not on disk and was never committed. AD-3 rewrites them from the acceptance lines below.
+   101	
+   102	- **AD-0 docs.** Section 7.5, the (c) and (e) edits. Architect or writer seat. Acceptance: the section states both datum shapes, the `[link-id serial]` binding rule, the retire walk rule, the absent and ended snapshot rules, and the two fail-closed reasons.
+   103	- **AD-1 seam.** `yin.repl.admission` with `make-state`, `context`, `serve`; the admission state through `link/serve`; the drain; `link/retire`; `:admit` removed; `make-session` minting the default state so no REPL path is ever unconfigured; a nil `:admission` on a DHT source refuses `:yin.admit/unconfigured`. Linker engineer. Tests portable on three hosts in `admission_test.cljc` using hand-made questions on media where no DHT is needed. Acceptance: a trusted asserter's module imports on every VM with the admission record and address in the registry; an untrusted one is refused with no load started; a question append reports progress; an unanswered question survives sixty-four rounds with no change; a duplicate allow is dropped and the first stands; an answer for an unknown id is consumed and dropped; non-empty conditions refuse `:yin.admit/unsupported-condition`; a malformed answer refuses `:yin.admit/malformed-answer`; `retire` with the F2 descriptor advances past the run's requests and stops at the first other request; the F1 head-change test passes.
+   104	- **AD-2 Python.** (a) and (b). Compiler engineer, coordinated with the yang.python orchestrator through collab. Acceptance: no `:yang.python.antlr/foreign-principal` remains; `run-over-dht` runs both interpreters; the published DHT artifact is unchanged; the F1 test lives here because it needs a second head.
+   105	- **AD-3 REPL.** (d), the F3 hook, the trust commands, the rewritten linked-REPL tests in `test/yin/repl/admission_repl_test.cljc`. VM engineer. Acceptance: `(trust p)` then an import of p's module completes in the same session; `(untrust p)` refuses the next question of a new session and leaves the cached module usable; the F2 abandon test; the F3 late-answer test; `(trusted)` prints own plus trusted; `(reset)` drops the trusted set unless given in `create-state`.
+   106	
+   107	Order: AD-1, then AD-2 and AD-3 in either order. Nothing lands before L-e that claims untrusted-origin imports are safe, defaults to anything but own principals, or honors a non-empty condition. The register-VM cutover is unaffected.
+   108	
+   109	## 10. What I would not do
+   110	
+   111	No refresh of a bound question in v1. No retired-id set kept beyond the drain, since discarding `:asked` already makes late answers inert. No timer, poll loop or deadline in `recheck-on-answers`. No admission on the content pair or in any frontend.
+   112	
+   113	## Unverified
+   114	
+   115	- The parked tests file is absent; I could not read it.
+   116	- Whether `(lang ...)` preserves the registry, and the review's linker.cljc 1020-1075 and engine.cljc 1347-1383 citations, were not re-read.
+   117	- The provenance key set beyond `:yin.module/asserted-by` (authority.cljc 246-247).
+   118	- Which head event the follower emits when an already installed principal's head moves; the F1 test may need `:confirmed` or `:installed` stepping until the fold changes.
+   119	- That `(:installs vm)` holds no child origin the counter rule would miss; the rule relies on engine.cljc 1287-1288 alone.
+     1	Created-GMT: 2026-10-12 02:30:00 GMT
+     2	Coding-Agent: claude (fable-5-1)
+     3	# Task: design the admission stream boundary for module imports (read-only Architect)
+     4	Role: Architect. Produce a binding, brief-ready design; decisive rulings, not a survey. Read-only: edit no repo files; your FINAL MESSAGE is the design, beginning with Completed-GMT / Completed-Local lines.
+     5	OWNER DIRECTION (verbatim, 2026-10-12): "a module published by other principal should not automatically be refused. it should be a configurable policy. the user of that module can choose to trust that principal. This should be the domain of shibi capability tokens" and "the shibi capability system is only at a conceptual level not a design spec, but since it adheres to 'everything is a stream' and shibi is just an interpreter of that stream, it is an abstraction boundary that already has a shape". Memory of the invariants to respect: docs/design/yin.vm.linker.dht.md (principal = Ed25519 public key `ed25519:<key>`, sections 6.1-6.3, R8 declared-principal resolution near line 345), A is the only code identity, dao.stream is the complexity boundary (below it swappable plumbing), peer observers on one stream with symmetric ignorance (docs/design/ for dao.stream), dao.stream P2P with no privileged node, fetch has no deadline and liveness belongs to dao.lease, ShiBi is a tuple space emerging from index and query interpreters (docs/design for ShiBi if any; the capability system is conceptual only).
+     6	CURRENT STATE (master 544e99e1+): the DHT link source has an optional `:admit` function `(admit name entry)` in src/cljc/yin/repl/link.cljc (~lines 147-166 and 390-399): nil admits, a refusal body refuses the request before any load or link; src/cljc/yang/python/antlr/publication.cljc `principal-admission` (~137-148) is the Python policy: it refuses a name asserted by no OWN principal with `:yang.python.antlr/foreign-principal ... :requires :L-e`; only the DHT import tests pass it; no production REPL path passes it (the linked REPL profile was dropped in I3 option B; parked tests collab/1792201000000-parked-linked-repl-tests.cljc.txt). docs/design/yang.antlr.md 8.5.6 ruling 19 and the L-e table describe foreign-principal refusal as the interim "until L-e". L-e (D7 slice B) is the closure origin and store-ownership check (safety), separate from trust. Mob record: collab/1792200000000-mob-consolidation.md (Q2). I3 gaps in the I3 landing note of 8.5.6.
+     7	DESIGN QUESTIONS (ruling per question; reasoning at most 8 lines; risks; what you would NOT do):
+     8	1. THE BOUNDARY: replace the function hook `:admit` by an admission STREAM boundary: when the linker resolves a name it emits an admission question as plain data onto a stream, an interpreter answers. Give the exact datum shapes (question: asserter principal, name, resolved address/manifest, importer's identity/session, optional provenance; answer: allow | refuse with a neutral reason and optional conditions, e.g. scoped to names) in the repo's tuple/datom vocabulary (dao.jing/dao.space conventions: check how existing linker/ucf events are modeled and match them); namespaced keywords; no capability vocabulary in the linker or Python code.
+     9	2. INTERPRETERS: the default interpreter ("own principals only", i.e. today's principal-admission as a stream interpreter) and how a ShiBi capability-token interpreter later replaces or composes with it without touching the linker; composition of several interpreters; where interpreter configuration lives (per session? per composition?); how the user "chooses to trust a principal" at the REPL or in a composition without a ShiBi spec.
+    10	3. SYNC/ASYNC: a link request must wait for the answer. Does the fetch park? With no deadline (liveness is dao.lease's)? What do cached/already-installed modules do (the P1 bypass: admission must govern EXPOSURE of cached executable values, not only link-time resolution; say where the question is asked: at resolution, at install, or at exposure into a task, and who owns that decision)? Interaction with deferred discharge and L-d (try-require).
+    11	4. TRUST vs SAFETY: confirm the separation (trust = which principals the user accepts, decided by the interpreter; safety = L-e closure-origin and store-ownership verification, enforced by the linker regardless of the answer). Can an answer's conditions bound what a trusted module may touch (primitive/effect admission from ruling 19's remainder)? Say what belongs to the admission answer and what stays in the linker/L-e.
+    12	5. THE EDIT (include as a concrete change list, to be implemented by an engineer after this design): (a) the refusal datum of the Python policy: replace `:yang.python.antlr/foreign-principal :requires :L-e` by the neutral admission-answer reason from Q1; (b) rename/reword `foreign-principals-are-refused-until-l-e-test` and its assertions; (c) the doc edits: ruling 19, the L-e table row, the I3 landing note and gaps text in docs/design/yang.antlr.md 8.5.6, and the "7.4" sentence in yin.vm.linker.dht.md if admission belongs there; (d) the parked REPL tests and F2: where the admission stream is wired in the REPL (F2 owns per-[id revision] session state), what F2 must provide for it; (e) the stream's place in docs/design (which file hosts the spec; propose a section number).
+    13	6. SLICING: smallest sound sequence of slices (design doc, linker seam, Python policy rewrite, REPL wiring with F2), which seat owns each, which tests (portable, three hosts), acceptance lines in the style of the C4 acceptance bullets, and what must NOT land before L-e. Note the semantic-register-VM cutover (collab/1791520000000-orchestrator-note-c4-vs-semantic-register-vm.md): keep this AST-level / not instruction-shape dependent.
+    14	Read: docs/design/yin.vm.linker.dht.md, docs/design/yin.vm.linker.md, docs/design/yang.antlr.md 8.5.6, the linker source under src/cljc/yin/vm/linker*, src/cljc/yin/repl/link.cljc, src/cljc/yang/python/antlr/publication.cljc, and any existing ShiBi or capability text (grep docs/ for "ShiBi", "capability"). State facts you could not verify.
+
+exec
+/bin/zsh -lc "sed -n '1,100p' docs/design/dao.shibi.md; nl -ba src/cljc/yin/repl/link.cljc | sed -n '130,190p;330,490p'; nl -ba src/cljc/yin/repl.cljc | sed -n '1190,1445p;1900,1985p'" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+# ShiBi
+
+Status: stub. ShiBi is not specified and not implemented
+(`docs/bootstrap.md`, Capability Engine). This page records only what other
+documents may rely on and what ShiBi must supply. It designs nothing.
+
+## What it is
+
+ShiBi is the capability system of datom.world: authentication and
+authorization are its job and no other document's. Owner direction
+(2026-09-28): ShiBi is pure data -- the capability is an emergent
+property of interpreters of pure data, exactly as dao.space is the
+emergent property of dao.space.index and dao.space.query. There is no
+token object to mint and no capability stored anywhere: grant,
+attenuation, revocation and budget are patterns of interpretation over
+tuples, and different interpreters over the same tuples can realize a
+capability system, a metering system, or something else entirely. It
+is built the way `dao.space` is built, as a tuple space that emerges
+from two interpreters over ordinary streams, one that indexes and one
+that queries, neither knowing the other exists (`datom.world.md`,
+Streams). Earlier Macaroon-style token framing
+(`dao.space.security.md`) is superseded by this direction: tokens
+would be one interpreter's emission, not ShiBi's substance.
+
+## How it plugs in
+
+ShiBi integrates through the middleware seam of
+[`dao.stream.middleware.md`](./dao.stream.middleware.md) and the attachment
+points of [`dao.stream.remote.md`](./dao.stream.remote.md) section 7, which
+are fixed and which ShiBi must not change. The fit to two interpreters is
+this, and it is the one path this version chooses:
+
+- **Its index interpreter** observes ShiBi's fact streams (grants,
+  caveats, revocations, emitted decisions) with its own cursors,
+  materializes them as `dao.space.index` materializes covered indexes, and
+  publishes the resulting immutable query value, a relation value or an
+  opened published index, as the decision onto the gate's capacity-1
+  decision medium (`dao.stream.middleware.md`, gate). The value published
+  is the tuple space's state at that moment.
+- **Its query interpreter is `verify`**, and `verify` is the required
+  adapter contract: a pure function of one immutable query value, the
+  context and the request, evaluating ShiBi's authorization rules as a
+  Datalog query with the request as bindings, the shape
+  `dao.space.query/q` already has (a query over immutable inputs, opening
+  nothing), and answering nil or a reason.
+- **A `present`**, a pure function of context and request that produces
+  the value carried in `:dao.stream.remote/credential`.
+- **A reason vocabulary** under its own namespace for
+  `:dao.stream.middleware/reason`.
+- **Where use is metered**, the decision facts the gate emits, which the
+  index observes like any other fact stream.
+
+**Limits of the adapter contract**, stated precisely. `verify` runs
+synchronously inside one operation on one snapshot: its cost per operation
+is bounded by the composition, and a query over an opened published index
+resolves only what is already local, because `verify` opens, fetches and
+waits for nothing; a rule that would need a remote read is a rule the index
+must have materialized. Its input is the latest published snapshot, so a
+grant or revocation is effective only once the index has observed and
+published it: staleness is bounded by the index's cadence and the medium's
+eviction, and a policy that must fail closed does so on the `none` marker
+and the `ended` marker. A decision is per call and is not itself a fact
+unless the gate emits it.
+
+**Non-goal in this version.** Request-specific decisions published through
+ordinary streams, the query interpreter reading requests off a stream and
+appending one decision per request for the gate to await, are not
+specified: a gate awaiting a per-request answer would wait, and no
+operation waits. If a later ShiBi needs that path it is an addition beside
+`verify`, not a change to it.
+
+The contract's refusal outcome is `:dao.stream/refused` and is
+capability-free (`dao.stream.md`, Result Convention). Lease attribution
+rests on per-author media and does not depend on ShiBi
+(`dao.stream.remote.md`, section 6; `yin.repl.link-policy.md`).
+
+## What blocks it being load-bearing
+
+`dao.stream.discovery.md`, The ShiBi precondition: ShiBi is a capability
+token in one place and a fungible currency in another, and a currency needs
+double-spend resolution, which is global consensus. Until that decision is
+made, no design may depend on ShiBi for anything beyond the seam above, and
+gating in this repository is an allow-list or a pre-shared value.
+   130	   node each serve round is handed, holds nothing here, and is refused
+   131	   together with either content source.
+   132	
+   133	   `principals` are the public keys (64 lowercase hex) whose signed name
+   134	   assertions the reader honors (yin.vm.linker.dht.md 7.1), and `key`
+   135	   the node's own publisher key, whose principal is declared too (6.5):
+   136	   a node resolves the names it published.  Only the public half is
+   137	   kept here.  `follow` are the principal ids (`ed25519:<hex>`) whose
+   138	   published heads the DHT source follows (yin.vm.linker.dht.head.md
+   139	   5.6): a name that is `:absent` while one of them has no installed head
+   140	   is pending on it, not refused.
+   141	
+   142	   `derivation` is the composition's derivation policy (section 8.1) for
+   143	   the manifest links it serves from a content source: `:verifying`, the
+   144	   default, or `:trusted`, which only a composition that is its own
+   145	   publisher asks for. The response names the trust it applied.
+   146	
+   147	   `admit`, optional, is a language runtime's admission of each name the
+   148	   DHT source resolves, `(admit name entry)` with the `names` entry: nil
+   149	   admits, a refusal body refuses the request before any load or link
+   150	   (a Python source's foreign-principal refusal, yang.antlr.md 8.5.6
+   151	   ruling 19)."
+   152	  [{:keys [name-env content-store content-client dht? principals key
+   153	           follow derivation admit]}]
+   154	  (when (and content-store content-client)
+   155	    (throw (ex-info "content-store and content-client are exclusive"
+   156	                    {:content-store content-store})))
+   157	  (when (and dht? (or content-store content-client))
+   158	    (throw (ex-info (str "a dht:<dir> index store is the link source; "
+   159	                         "content-store and content-client are refused with it")
+   160	                    {:dht? dht?})))
+   161	  {:name-env (or name-env {})
+   162	   :principals (vec (distinct (cond-> (vec principals)
+   163	                                key (conj (:public key)))))
+   164	   :follow (vec follow)
+   165	   :derivation (or derivation :verifying)
+   166	   :admit admit
+   167	   :content (cond
+   168	              dht? {:kind :dht}
+   169	
+   170	              content-store
+   171	              {:kind :local
+   172	               :store content-store
+   173	               :requests (medium content-capacity)
+   174	               :responses (medium content-capacity)}
+   175	
+   176	              content-client
+   177	              {:kind :remote, :client content-client}
+   178	
+   179	              :else nil)})
+   180	
+   181	
+   182	(defn authority
+   183	  "The reader's authority of a link source (yin.vm.linker.dht.md 7.1):
+   184	   its declared principals and its direct name entries, as the plain
+   185	   `yin.vm.linker.dht/authority` composes them."
+   186	  [source]
+   187	  (linker.dht/authority (select-keys source [:principals :name-env])))
+   188	
+   189	
+   190	;; =============================================================================
+   330	  [node authority request address]
+   331	  (let [status (linker.dht/module-status node address)]
+   332	    (cond
+   333	      (nil? status) {:node (linker.dht/load-module node address)
+   334	                     :body ::pending
+   335	                     :waits address}
+   336	
+   337	      (not= linker.dht/module-kind (:kind status))
+   338	      {:node node
+   339	       :body {:status :refused
+   340	              :reason :dao.space.dht/kind-conflict
+   341	              :address address
+   342	              :recorded (:kind status)}}
+   343	
+   344	      (= :loading (:status status)) {:node node, :body ::pending, :waits address}
+   345	
+   346	      (= :failed (:status status)) {:node (dht/forget node address)
+   347	                                    :body (linker.dht/load-refusal status)}
+   348	
+   349	      :else
+   350	      (let [bindings (linker.dht/dependency-bindings node authority address)
+   351	            unbound (if (map? bindings)
+   352	                      bindings
+   353	                      (some (fn [b]
+   354	                              (when-not (= :ok (:binding b))
+   355	                                (merge {:status :refused
+   356	                                        :reason :yin.link.dht/dependency-binding}
+   357	                                       b)))
+   358	                            bindings))]
+   359	        {:node node
+   360	         :body (or unbound (dht-link node request address))}))))
+   361	
+   362	
+   363	(defn- awaited-heads
+   364	  "The followed principals of `source` with no installed head on `node`:
+   365	   a name absent now may be asserted by the first head of one of them."
+   366	  [source node]
+   367	  (let [installed (linker.dht/installed-heads node)]
+   368	    (vec (remove #(contains? installed %) (:follow source)))))
+   369	
+   370	
+   371	(defn- answer
+   372	  "The response body for one link request under `:body`, or `::pending`
+   373	   when nothing this round can answer it: no content source, an attempt
+   374	   that spent its budget, a DHT closure load not yet ended (its
+   375	   manifest under `:waits`), or a name `:absent` while a followed
+   376	   principal has no installed head (those principals under `:heads`,
+   377	   yin.vm.linker.dht.head.md 5.6).  `:node` is the shell's DHT node after the
+   378	   answer.  A request that is not by name is refused: the interpreter
+   379	   serves what the shell's own VMs send, the by-name manifest requests
+   380	   of section 7.2, and nothing else."
+   381	  [source node request]
+   382	  (let [name (:yin.link/name request)
+   383	        dht? (= :dht (get-in source [:content :kind]))]
+   384	    (cond
+   385	      (nil? (:content source)) {:node node, :body ::pending}
+   386	
+   387	      (nil? name)
+   388	      {:node node
+   389	       :body {:status :refused, :reason :invalid-request,
+   390	              :defect :yin.repl/name-required}}
+   391	
+   392	      dht?
+   393	      (let [declared (authority source)
+   394	            entry (linker.dht/resolve-name node declared name)]
+   395	        (cond
+   396	          (= :ok (:status entry))
+   397	          (if-some [refusal (when-some [admit (:admit source)]
+   398	                              (admit name entry))]
+   399	            {:node node, :body refusal}
+   400	            (dht-attempt node declared request (:address entry)))
+   401	
+   402	          (and (= :absent (:reason entry)) (seq (awaited-heads source node)))
+   403	          {:node node, :body ::pending, :heads (awaited-heads source node)}
+   404	
+   405	          :else {:node node, :body entry}))
+   406	
+   407	      :else
+   408	      {:node node
+   409	       :body (if-let [address (get (:name-env source) name)]
+   410	               (attempt source request address)
+   411	               {:status :refused, :reason :absent, :name name})})))
+   412	
+   413	
+   414	(defn- respond!
+   415	  "Append `body` under the request's id on the response stream.  Returns
+   416	   true when it landed, so the interpreter's cursor advances past the
+   417	   request only then; a refused append leaves it to be re-read."
+   418	  [pair request body]
+   419	  (let [o (stream/append! (:responses pair)
+   420	                          (assoc body :yin.link/id (:yin.link/id request)))]
+   421	    (= :dao.stream/ok (:dao.stream/outcome o))))
+   422	
+   423	
+   424	(defn serve
+   425	  "One serve round of the interpreter over the link pair: read every
+   426	   request `pair`'s cursor has not yet consumed and answer each in
+   427	   request order, at most `budget` of them.  The first request nothing
+   428	   can answer yet stops the round -- the requests behind it keep their
+   429	   order -- and is reported under `:pending`; its cursor stays, so a
+   430	   later round re-reads and re-attempts it.  A response the response
+   431	   medium refuses reports its request pending the same way, and the
+   432	   round reports no progress.  A content source links each manifest under
+   433	   the composition's `:derivation` policy (`composition`'s option,
+   434	   `:verifying` unless the composition asked for `:trusted`), and an
+   435	   `:ok` response of a lowered format names its `:trust`.  `dht` is the
+   436	   shell's DHT node, which a DHT source reads and advances.  Returns
+   437	   `{:pair pair :pending pending :progress? bool :dht node}`,
+   438	   `:progress?` true when at least one response was appended, so the
+   439	   shell knows the round moved something; a pending entry a DHT load
+   440	   holds names that load's manifest under `:manifest`, and one awaiting
+   441	   a first head names those principals under `:principals`."
+   442	  ([comp] (serve comp serve-budget))
+   443	  ([{:keys [pair source dht]} budget]
+   444	   (loop [pair pair
+   445	          node dht
+   446	          remaining budget
+   447	          pending []
+   448	          progress? false]
+   449	     (if (zero? remaining)
+   450	       {:pair pair, :pending pending, :progress? progress?, :dht node}
+   451	       (let [r (stream/next (:requests pair) (:cursor pair))]
+   452	         (if-not (= :dao.stream/ok (:dao.stream/outcome r))
+   453	           ;; blocked, or a gap: nothing more is answerable this round
+   454	           {:pair pair, :pending pending, :progress? progress?, :dht node}
+   455	           (let [request (:dao.stream/value r)
+   456	                 {:keys [node body waits heads]} (answer source node request)
+   457	                 answered? (and (not= ::pending body)
+   458	                                (respond! pair request body))]
+   459	             (if answered?
+   460	               (recur (assoc pair :cursor (:dao.stream/cursor r))
+   461	                      node
+   462	                      (dec remaining)
+   463	                      pending
+   464	                      true)
+   465	               {:pair pair
+   466	                :pending (conj pending
+   467	                               (cond-> {:name (:yin.link/name request)
+   468	                                        :yin.link/id (:yin.link/id request)}
+   469	                                 waits (assoc :manifest waits)
+   470	                                 heads (assoc :principals heads)))
+   471	                :progress? progress?
+   472	                :dht node}))))))))
+  1190	  [{:keys [load-program output-stream] :as state}]
+  1191	  (let [{:keys [observer] vm :consumer}
+  1192	        (observer/run-on-stream {:observer (:row-observer state),
+  1193	                                 :consumer (:vm state)}
+  1194	                                engine/ready-for-ingress?
+  1195	                                load-program
+  1196	                                (make-runner output-stream (round-id state)))]
+  1197	    (assoc state :row-observer observer :vm vm)))
+  1198	
+  1199	
+  1200	(defn- format-expansion-errors
+  1201	  [errors]
+  1202	  (str/join "\n" (map #(str "Error: Macro expansion failed: " (format-value %))
+  1203	                      errors)))
+  1204	
+  1205	
+  1206	(defn- link-waiting?
+  1207	  "True while `vm` parks on a link wait: the two link states `require`
+  1208	   parks in, or the install it waits on (yin.vm.linker.md section 7.2).
+  1209	   These are the reasons the shell's interpreter can move, so they are
+  1210	   the ones a round drives before reporting the VM wedged."
+  1211	  [vm]
+  1212	  (boolean (some #(contains? #{:link-request :link-response :install}
+  1213	                             (:reason %))
+  1214	                 (:wait-set vm))))
+  1215	
+  1216	
+  1217	(defn- carry-link-identity
+  1218	  "The round's base VM with the link identity `used` has already minted
+  1219	   carried forward: link ids `[origin counter]` and install-child origin
+  1220	   tags are minted once and never reused on a pair (yin.vm.linker.md
+  1221	   section 7.2), and the shell's rollback to the round's base -- whose
+  1222	   counters never advanced -- must not let a later require or install
+  1223	   mint an identity the pair has already answered."
+  1224	  [base used]
+  1225	  (let [n (max (or (:id-counter base) 0) (or (:id-counter used) 0))
+  1226	        o (max (or (:origins base) 0) (or (:origins used) 0))]
+  1227	    (cond-> base
+  1228	      (pos? n) (assoc :id-counter n)
+  1229	      (pos? o) (assoc :origins o))))
+  1230	
+  1231	
+  1232	(defn- link-raise
+  1233	  "The raise of a resumed link wait, carrying the identity the parked
+  1234	   evaluation has minted so far -- the counters of the VM the raise
+  1235	   interrupted, whose every earlier run is in them -- so a rollback
+  1236	   cannot reuse it.  It carries the query interpreter's pair too: the
+  1237	   requests it has answered stay answered when the shell rolls back."
+  1238	  [error vm state]
+  1239	  (ex-info (or (ex-message error) "Link failed")
+  1240	           (assoc (or (ex-data error) {})
+  1241	                  ::link-counter (:id-counter vm)
+  1242	                  ::link-origins (:origins vm)
+  1243	                  ::query-pair (:query-pair state)
+  1244	                  ::link-pair (:link-pair state)
+  1245	                  ::dht (:dht state)
+  1246	                  ::indexer (:indexer state))))
+  1247	
+  1248	
+  1249	(defn- carry-served
+  1250	  "`state` rolled back by a link raise, keeping what the interpreters
+  1251	   already concluded: the query pair, the link pair past every request
+  1252	   answered, the DHT node a load started or forgot on, and the indexer
+  1253	   a `yin.link/publish` committed its name envelopes through."
+  1254	  [state d]
+  1255	  (cond-> state
+  1256	    (::query-pair d) (assoc :query-pair (::query-pair d))
+  1257	    (::link-pair d) (assoc :link-pair (::link-pair d))
+  1258	    (contains? d ::dht) (assoc :dht (::dht d))
+  1259	    (::indexer d) (assoc :indexer (::indexer d))))
+  1260	
+  1261	
+  1262	(defn- link-context
+  1263	  "What a `yin.link` call is answered under (yin.repl.query/serve): the
+  1264	   reader's authority, the publisher's key, and the requesting VM's
+  1265	   primitives and module registry -- the modules it linked are derived
+  1266	   from it, never recorded -- and the round."
+  1267	  [state vm]
+  1268	  {:authority (link/authority (:link-source state))
+  1269	   :key (:dht-key state)
+  1270	   :primitives (:primitives vm)
+  1271	   :modules (:modules vm)
+  1272	   :round (:round state)})
+  1273	
+  1274	
+  1275	(defn- drive-links
+  1276	  "Serve the linker interpreter and run the parked VM alternately, at most
+  1277	   `link-round-budget` rounds, while `vm` waits on a link.  A round that
+  1278	   moves nothing ends the drive: a link whose content source cannot
+  1279	   answer will not answer by waiting longer.  Returns
+  1280	   `[state vm pending progress?]`, `pending` the links the interpreter
+  1281	   reported `:pending`, and `progress?` true when a round moved
+  1282	   something -- advanced a serve cursor, delivered a response or
+  1283	   completed an install -- the fact the pending run's `:checks` resets
+  1284	   on (yin.repl.link-policy.md section 3.1).  A refused or lost link
+  1285	   raises as the VM's own, carrying the interrupted VM's minted
+  1286	   identity.
+  1287	
+  1288	   A VM waiting on a `dao.space.query/q` call is driven the same way: the
+  1289	   query interpreter (`yin.repl.query/serve`) answers from the session's
+  1290	   indexer and the VM runs on.  Only a round the VM spends waiting on a
+  1291	   link counts against `link-round-budget`; a query is answered in the
+  1292	   round it is asked, so its rounds are bounded by `query-drive-budget`
+  1293	   calls instead: a VM still waiting on a call once the drive has
+  1294	   answered that many raises `query-call-limit-text` as its own error,
+  1295	   the unanswered request abandoned with it."
+  1296	  [state vm]
+  1297	  (loop [i 0
+  1298	         calls 0
+  1299	         vm vm
+  1300	         state state
+  1301	         pending []
+  1302	         progress? false]
+  1303	    (let [link? (link-waiting? vm)
+  1304	          query? (query/waiting? vm)]
+  1305	      (cond
+  1306	        (or (vm/halted? vm) (not (or link? query?)) (>= i link-round-budget))
+  1307	        [state vm pending progress?]
+  1308	
+  1309	        (and query? (>= calls query-drive-budget))
+  1310	        (throw (link-raise (ex-info query-call-limit-text
+  1311	                                    {:reason :yin.repl.query/call-limit
+  1312	                                     :limit query-drive-budget})
+  1313	                           vm
+  1314	                           (update state :query-pair query/abandon-requests)))
+  1315	
+  1316	        :else
+  1317	        (let [served (when link?
+  1318	                       (link/serve {:pair (:link-pair state)
+  1319	                                    :source (:link-source state)
+  1320	                                    :dht (:dht state)}))
+  1321	              state (cond-> state
+  1322	                      served (assoc :link-pair (:pair served)
+  1323	                                    :dht (:dht served)))
+  1324	              answered (when query?
+  1325	                         (query/serve {:pair (:query-pair state)
+  1326	                                       :indexer (:indexer state)
+  1327	                                       :ast-indexer (:ast-indexer state)
+  1328	                                       :dht (:dht state)
+  1329	                                       :link (link-context state vm)
+  1330	                                       :limits {:row-limit query-row-limit
+  1331	                                                :byte-limit query-byte-limit}
+  1332	                                       :budget (min query-serve-budget
+  1333	                                                    (- query-drive-budget
+  1334	                                                       calls))}))
+  1335	              state (cond-> state
+  1336	                      answered (assoc :query-pair (:pair answered)
+  1337	                                      :dht (:dht answered)
+  1338	                                      :indexer (:indexer answered)))
+  1339	              pending (if (seq (:pending served)) (:pending served) pending)]
+  1340	          (if (or (:progress? served) (:progress? answered))
+  1341	            (let [vm' (try (vm/run vm)
+  1342	                           (catch #?(:cljd Object :clj Exception :cljs js/Error)
+  1343	                                  error
+  1344	                             (throw (link-raise error vm state))))]
+  1345	              (recur (if link? (inc i) i)
+  1346	                     (+ calls (:answered answered 0))
+  1347	                     vm'
+  1348	                     state
+  1349	                     pending
+  1350	                     true))
+  1351	            [state vm pending progress?]))))))
+  1352	
+  1353	
+  1354	(defn- tokenize
+  1355	  "Answer the halted VM's value on the output medium under `state`'s
+  1356	   round, as the evaluator runner does for a program it runs itself.  A
+  1357	   resumed require halts outside the observer loop, so the shell emits
+  1358	   its token here."
+  1359	  [state vm]
+  1360	  ((make-runner (:output-stream state) (round-id state)) vm))
+  1361	
+  1362	
+  1363	(defn- pending-text
+  1364	  [pending]
+  1365	  (if (seq pending)
+  1366	    (str ";; require pending: "
+  1367	         (str/join ", " (map (fn [p]
+  1368	                               (str (pr-str (:name p))
+  1369	                                    " (link " (pr-str (:yin.link/id p)) ")"))
+  1370	                             pending))
+  1371	         "); lines typed meanwhile run when it completes, (abandon) gives"
+  1372	         " up\n")
+  1373	    (str ";; require still pending; lines typed meanwhile run when it"
+  1374	         " completes, (abandon) gives up\n")))
+  1375	
+  1376	
+  1377	(defn- dropped-lines-text
+  1378	  [n]
+  1379	  (when (pos? n)
+  1380	    (str ";; dropped " n " line" (when (> n 1) "s")
+  1381	         " typed while the require was pending\n")))
+  1382	
+  1383	
+  1384	(def ^:private policy-abandon-text
+  1385	  "The message a policy-driven abandon prints, in the shape of the
+  1386	   `(abandon)` notice, so a policy abandon is never mistaken for a
+  1387	   user's (yin.repl.link-policy.md section 3.3)."
+  1388	  ";; the session link policy ended the require\n")
+  1389	
+  1390	
+  1391	(defn- abandon-pending
+  1392	  "Give up the shell's `:pending-run` (section 7.2, step 7, the abandoned
+  1393	   case): every install in flight is dropped through the engine's own
+  1394	   `refused`, every link wait entry is retired with the reason raised as
+  1395	   the require's error, and the shell returns to the round the require
+  1396	   began in, whose store and value history the parked evaluation never
+  1397	   wrote.  Lines typed while the require was pending are dropped with
+  1398	   it, and said so.  The linker side learns nothing: no response was
+  1399	   ever promised, and one that still arrives is skipped as late.  The
+  1400	   identity the parked evaluation minted -- link ids and child origins
+  1401	   -- is carried onto the base, so nothing is minted twice on the
+  1402	   surviving pair.  The `(abandon)` command retires with
+  1403	   `:yin.repl/abandoned` and no message of its own; the session link
+  1404	   policy retires with the reason it answered and prints
+  1405	   `policy-abandon-text`, so a policy abandon is never mistaken for a
+  1406	   user's."
+  1407	  ([state] (abandon-pending state :yin.repl/abandoned nil))
+  1408	  ([state reason ended-text]
+  1409	   (if-let [parked (:pending-run state)]
+  1410	     (let [[state' text] (drain-output state)
+  1411	           ;; installs first: their waiters leave the wait set with the
+  1412	           ;; refusal queued, then every remaining link entry retires
+  1413	           vm (engine/abandon-installs (:vm parked) reason)
+  1414	           error (try
+  1415	                   (vm/run (reduce (fn [vm e]
+  1416	                                     (engine/abandon-link vm (:link-id e)
+  1417	                                                          reason))
+  1418	                                   vm
+  1419	                                   (:wait-set vm)))
+  1420	                   nil
+  1421	                   (catch #?(:cljd Object :clj Exception :cljs js/Error) e
+  1422	                     e))]
+  1423	       [(assoc state'
+  1424	               :vm (query/discard-answers
+  1425	                     (carry-link-identity (:base parked) vm)
+  1426	                     (:query-pair state'))
+  1427	               :pending-run nil)
+  1428	        (str text
+  1429	             ended-text
+  1430	             (if error (format-error error) "")
+  1431	             (dropped-lines-text (count (:pending-lines parked))))])
+  1432	     [state "Nothing is pending"])))
+  1433	
+  1434	
+  1435	(defn- consult-link-policy
+  1436	  "Consult the shell's `:link-policy` over a run that is still pending --
+  1437	   when the require parks, and after each re-check that leaves it so;
+  1438	   never on a re-check that completes it (yin.repl.link-policy.md
+  1439	   section 3.2).  `text` is what the round printed so far and
+  1440	   `kept-text` what a kept run reports.  `:manual` is never consulted
+  1441	   and keeps the run; a function's `:keep` keeps it; `:abandon` or
+  1442	   `{:abandon reason}` runs the same abandon path as `(abandon)`, the
+  1443	   reason defaulting to `:yin.repl/link-policy`; a throw or a return
+  1444	   outside the contract is a `:keep` for this consult plus one shell
+  1445	   error line -- never a silent abandon, never session death (section
+  1900	                                       :vm vm'
+  1901	                                       :links pending
+  1902	                                       :checks checks)
+  1903	                          input (update :pending-lines
+  1904	                                        (fnil conj []) input))
+  1905	                [st text] (drain-output (assoc state'
+  1906	                                               :vm vm'
+  1907	                                               :pending-run parked'))]
+  1908	            (consult-link-policy st text (pending-text pending)))))
+  1909	      (catch #?(:cljd Object :clj Exception :cljs js/Error) error
+  1910	        (let [[st text] (drain-output state)
+  1911	              d (ex-data error)]
+  1912	          (fold-queued
+  1913	            [(carry-served (assoc st
+  1914	                                  :vm (query/discard-answers
+  1915	                                        (carry-link-identity
+  1916	                                          (:base parked)
+  1917	                                          {:id-counter (::link-counter d)
+  1918	                                           :origins (::link-origins d)})
+  1919	                                        (:query-pair st))
+  1920	                                  :pending-run nil)
+  1921	                           d)
+  1922	             (str text
+  1923	                  (format-error error)
+  1924	                  (dropped-lines-text (count (:pending-lines parked))))]
+  1925	            (cond-> [] input (conj input))))))))
+  1926	
+  1927	
+  1928	(defn recheck-pending
+  1929	  "One re-check of the shell's `:pending-run` without an input line --
+  1930	   the step an unattended host drives at its own cadence
+  1931	   (yin.repl.link-policy.md section 4): serve the interpreter, run the
+  1932	   parked VM, and consult the link policy when the run is still
+  1933	   pending.  A re-check that completes the run folds the retained lines
+  1934	   exactly as a typed line's completion does.  Returns `[state text]`,
+  1935	   `text` nil when nothing is pending.  It reads no clock and takes no
+  1936	   callback; the host decides when to call it."
+  1937	  [state]
+  1938	  (if (:pending-run state)
+  1939	    (recheck-pending* state nil)
+  1940	    [state nil]))
+  1941	
+  1942	
+  1943	(defn recheck-on-load-events
+  1944	  "The host ticker's re-check of a pending run over a DHT link source
+  1945	   (yin.vm.linker.dht.md 8.2): `recheck-pending`, once, if and only if
+  1946	   `events` -- one tick's `dao.space.dht/step` events and head follower
+  1947	   events -- hold a `:loaded` or `:load-failed` event for a manifest a
+  1948	   pending link waits on, or an `:installed` head of a principal a
+  1949	   pending link awaits (yin.vm.linker.dht.head.md 5.6, first contact).
+  1950	   Any other event, and any event while nothing waits on it, answers
+  1951	   `[state nil]` with `state` itself: no re-check, no `:checks`."
+  1952	  [state events]
+  1953	  (let [links (get-in state [:pending-run :links])
+  1954	        waits (set (keep :manifest links))
+  1955	        heads (set (mapcat :principals links))]
+  1956	    (if (some (fn [e]
+  1957	                (or (and (contains? #{:loaded :load-failed}
+  1958	                                    (:dao.space.dht/event e))
+  1959	                         (contains? waits (:manifest e)))
+  1960	                    (and (= :installed (:yin.head/event e))
+  1961	                         (contains? heads (:principal e)))))
+  1962	              events)
+  1963	      (recheck-pending state)
+  1964	      [state nil])))
+  1965	
+  1966	
+  1967	(defn- resume-pending
+  1968	  "One bounded re-check of the shell's `:pending-run` behind a typed
+  1969	   line: while the run stays pending the line is retained -- the parked
+  1970	   VM owns the store a new evaluation would fork -- and it evaluates,
+  1971	   in typing order and exactly once, when the link completes."
+  1972	  [state trimmed parsed]
+  1973	  (recheck-pending* state {:trimmed trimmed, :parsed parsed}))
+  1974	
+  1975	
+  1976	(defn- command-line?
+  1977	  [parsed]
+  1978	  (let [forms (:forms parsed)
+  1979	        form (when (= 1 (count forms)) (first forms))]
+  1980	    (and form (command-form? form))))
+  1981	
+  1982	
+  1983	(defn- eval-parsed
+  1984	  [state trimmed parsed]
+  1985	  (if (and (:pending-run state) (not (command-line? parsed)))
+
+exec
+/bin/zsh -lc "rg -n 'abandon-link|origins|id-counter|manifest|registry|recheck-on-load|ticker' src/cljc/yin/vm/engine.cljc src/cljc/yin/vm/module.cljc src/cljc/yin/repl.cljc src test/yang/python/antlr/dht_import_test.cljc | head -110; cat collab/1792230000000-architect-admission-stream.claude-fable-5-1.findings.md" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+src/cljc/yin/repl.cljc:617:   `stream` module registered in its registry.  No telemetry stream is
+src/cljc/yin/repl.cljc:631:   call-out cursor; with it the registry carries the query bridge, so
+src/cljc/yin/repl.cljc:646:             :modules (cond-> (-> (module/default-registry)
+src/cljc/yin/repl.cljc:816:   content) and `name-env` (module name -> manifest address) compose the
+src/cljc/yin/repl.cljc:844:   `{:manifest <address or nil> :datoms <the validated snapshot or nil>}`
+src/cljc/yin/repl.cljc:855:   from the host's ticker; a round publishes against the local store and
+src/cljc/yin/repl.cljc:951:                            {:manifest nil :datoms nil})
+src/cljc/yin/repl.cljc:1225:  (let [n (max (or (:id-counter base) 0) (or (:id-counter used) 0))
+src/cljc/yin/repl.cljc:1226:        o (max (or (:origins base) 0) (or (:origins used) 0))]
+src/cljc/yin/repl.cljc:1228:      (pos? n) (assoc :id-counter n)
+src/cljc/yin/repl.cljc:1229:      (pos? o) (assoc :origins o))))
+src/cljc/yin/repl.cljc:1241:                  ::link-counter (:id-counter vm)
+src/cljc/yin/repl.cljc:1242:                  ::link-origins (:origins vm)
+src/cljc/yin/repl.cljc:1265:   primitives and module registry -- the modules it linked are derived
+src/cljc/yin/repl.cljc:1400:   identity the parked evaluation minted -- link ids and child origins
+src/cljc/yin/repl.cljc:1416:                                     (engine/abandon-link vm (:link-id e)
+src/cljc/yin/repl.cljc:1567:                   (if (or (::link-counter d) (::link-origins d))
+src/cljc/yin/repl.cljc:1570:                       {:id-counter (::link-counter d)
+src/cljc/yin/repl.cljc:1571:                        :origins (::link-origins d)})
+src/cljc/yin/repl.cljc:1635:  "The ids in `catalog` whose manifest language is `language`."
+src/cljc/yin/repl.cljc:1639:               (when (= language (:yang.frontend/language (:manifest entry)))
+src/cljc/yin/repl.cljc:1761:   published manifest (`yin.repl.index/carry-over`), so a rebuild never
+src/cljc/yin/repl.cljc:1917:                                          {:id-counter (::link-counter d)
+src/cljc/yin/repl.cljc:1918:                                           :origins (::link-origins d)})
+src/cljc/yin/repl.cljc:1943:(defn recheck-on-load-events
+src/cljc/yin/repl.cljc:1944:  "The host ticker's re-check of a pending run over a DHT link source
+src/cljc/yin/repl.cljc:1947:   events -- hold a `:loaded` or `:load-failed` event for a manifest a
+src/cljc/yin/repl.cljc:1954:        waits (set (keep :manifest links))
+src/cljc/yin/repl.cljc:1959:                         (contains? waits (:manifest e)))
+test/yang/python/antlr/dht_import_test.cljc:14:   the JVM by its generator script -- the guest blobs, manifest addresses
+test/yang/python/antlr/dht_import_test.cljc:20:   `py` is the runtime every node has installed, one manifest address on
+test/yang/python/antlr/dht_import_test.cljc:24:   One reader, handed `A`'s index manifest and declaring `A`, imports
+test/yang/python/antlr/dht_import_test.cljc:88:               store (h/registry) stand-in-address
+test/yang/python/antlr/dht_import_test.cljc:93:               store (h/registry) stand-in-address
+test/yang/python/antlr/dht_import_test.cljc:106:           (publication/publish-units! store (h/registry) stand-in-address
+test/yang/python/antlr/dht_import_test.cljc:199:  [manifest]
+test/yang/python/antlr/dht_import_test.cljc:201:    (some #(and (= :published (::dht/event %)) (= manifest (:manifest %)))
+test/yang/python/antlr/dht_import_test.cljc:207:   index transaction through `node` and announce it: its manifest."
+test/yang/python/antlr/dht_import_test.cljc:220:   reported, and load it onto the reader: `[w manifest]`."
+test/yang/python/antlr/dht_import_test.cljc:251:   compares by its text whatever symbol value a kernel's registry
+test/yang/python/antlr/dht_import_test.cljc:268:   :children (or (:origins task) 0)})
+test/yang/python/antlr/dht_import_test.cljc:284:              (h/composition (h/registry) pair))
+test/yang/python/antlr/dht_import_test.cljc:357:            JVM's artifact: same manifests, blobs and envelopes"
+src/cljc/yin/vm/module.cljc:5:   time. A registry is a value here: an ordinary map carried in VM state and
+src/cljc/yin/vm/module.cljc:8:     (-> (empty-registry)
+src/cljc/yin/vm/module.cljc:27:(defn empty-registry
+src/cljc/yin/vm/module.cljc:28:  "An empty module registry value."
+src/cljc/yin/vm/module.cljc:41:  "Descend a registry's :modules map along path, a sequence of symbols.
+src/cljc/yin/vm/module.cljc:44:   module entry (a map carrying :manifest); the remaining segments read
+src/cljc/yin/vm/module.cljc:51:    (if (and (map? node) (contains? node :manifest))
+src/cljc/yin/vm/module.cljc:60:  "The registry entry of module `module-name` in `modules` (a registry's
+src/cljc/yin/vm/module.cljc:66:    (when (and (map? node) (contains? node :manifest)) node)))
+src/cljc/yin/vm/module.cljc:70:  "Return registry with `entry` installed as module `module-name`."
+src/cljc/yin/vm/module.cljc:71:  [registry module-name entry]
+src/cljc/yin/vm/module.cljc:72:  (assoc-in (or registry (empty-registry))
+src/cljc/yin/vm/module.cljc:78:  "The `linked` transition's registry update (yin.vm.linker.md sections
+src/cljc/yin/vm/module.cljc:79:   7.3 and 8.3): `registry` gains the module `manifest` names as the
+src/cljc/yin/vm/module.cljc:80:   portable encoding of acts 1 to 3 -- `{:manifest m :address a
+src/cljc/yin/vm/module.cljc:83:   is the manifest's own address; `lifted` is the act-1 lift, `{:slice
+src/cljc/yin/vm/module.cljc:88:  [registry manifest derivation lifted]
+src/cljc/yin/vm/module.cljc:89:  (assoc-module registry
+src/cljc/yin/vm/module.cljc:90:                (:yin.module/name manifest)
+src/cljc/yin/vm/module.cljc:91:                {:manifest manifest,
+src/cljc/yin/vm/module.cljc:92:                 :address (jing/segment-key manifest),
+src/cljc/yin/vm/module.cljc:101:  "Every `[name entry]` a registry value holds, the module name read back
+src/cljc/yin/vm/module.cljc:102:   from each entry's manifest."
+src/cljc/yin/vm/module.cljc:103:  [registry]
+src/cljc/yin/vm/module.cljc:107:              (if (contains? node :manifest)
+src/cljc/yin/vm/module.cljc:108:                [[(:yin.module/name (:manifest node)) node]]
+src/cljc/yin/vm/module.cljc:110:    (vec (walk (:modules registry)))))
+src/cljc/yin/vm/module.cljc:114:  "Get a value from a registry value by dotted symbol path.
+src/cljc/yin/vm/module.cljc:115:   (resolve-module r 'io)                    → the 'io registry entry
+src/cljc/yin/vm/module.cljc:117:  [registry sym]
+src/cljc/yin/vm/module.cljc:118:  (walk-path (:modules registry) (symbol->path sym)))
+src/cljc/yin/vm/module.cljc:122:  "Return registry with handler-fn installed for effect keyword kw.
+src/cljc/yin/vm/module.cljc:124:  [registry kw handler-fn]
+src/cljc/yin/vm/module.cljc:125:  (assoc-in (or registry (empty-registry)) [:effect-handlers kw] handler-fn))
+src/cljc/yin/vm/module.cljc:130:  [registry kw]
+src/cljc/yin/vm/module.cljc:131:  (get (:effect-handlers registry) kw))
+src/cljc/yin/vm/module.cljc:135:  "List the top-level module names in a registry value."
+src/cljc/yin/vm/module.cljc:136:  [registry]
+src/cljc/yin/vm/module.cljc:137:  (keys (:modules registry)))
+src/cljc/yin/vm/module.cljc:192:  "Return registry with host module `module-name` installed from `fns`
+src/cljc/yin/vm/module.cljc:203:   Each export's declared effect set is also entered in the registry's
+src/cljc/yin/vm/module.cljc:207:   The module is entered as an already-linked manifest with
+src/cljc/yin/vm/module.cljc:213:  [registry module-name fns profiles]
+src/cljc/yin/vm/module.cljc:216:  (-> (or registry (empty-registry))
+src/cljc/yin/vm/module.cljc:221:                {:manifest {:yin.module/name module-name,
+src/cljc/yin/vm/module.cljc:236:   `qualified-sym` is `ns/name` and `registry` holds `ns` as a
+src/cljc/yin/vm/module.cljc:239:   `:yin.module/primitives` of a fetched manifest are the primitives that
+src/cljc/yin/vm/module.cljc:241:  [registry qualified-sym]
+src/cljc/yin/vm/module.cljc:243:    (let [entry (module-entry (:modules registry)
+src/cljc/yin/vm/module.cljc:246:        (get-in entry [:manifest :yin.module/primitives
+src/cljc/yin/vm/module.cljc:335:  "Return registry with the v2 `stream` module registered.
+src/cljc/yin/vm/module.cljc:338:  [registry]
+src/cljc/yin/vm/module.cljc:339:  (register-host-module registry 'stream stream-module stream-profiles))
+src/cljc/yin/vm/module.cljc:382:  "Return registry with the `cell` module registered."
+src/cljc/yin/vm/module.cljc:383:  [registry]
+src/cljc/yin/vm/module.cljc:384:  (register-host-module registry 'cell cell-module cell-profiles))
+src/cljc/yin/vm/module.cljc:496:  (let [counter (or (:id-counter state) 0)]
+src/cljc/yin/vm/module.cljc:498:     (assoc state :id-counter (inc counter))]))
+src/cljc/yin/vm/module.cljc:526:   A module already in the registry value -- a host module, or one linked
+src/cljc/yin/vm/module.cljc:566:      (throw (ex-info "Module is not in this VM's registry"
+src/cljc/yin/vm/module.cljc:596:(defn default-registry
+src/cljc/yin/vm/module.cljc:597:  "A registry with the built-in effect handlers and no modules."
+src/cljc/yin/vm/module.cljc:599:  (-> (empty-registry)
+src/cljc/yin/vm/engine.cljc:23:   - **The module registry is a value** carried in VM state, so effect
+src/cljc/yin/vm/engine.cljc:24:     dispatch and `resolve-var` read a supplied registry rather than a global.
+src/cljc/yin/vm/engine.cljc:116:  "Look up a variable name: env -> store -> primitives -> module registry.
+src/cljc/yin/vm/engine.cljc:120:   registry can give it a meaning. Every executing variable lookup of
+Completed-GMT: 2026-10-12 05:35:00 GMT
+Completed-Local: 2026-10-12 12:35:00 +07 (Asia/Bangkok)
+
+**Verdict.** Replace the `:admit` function hook with an admission pair on the DHT link source: two ring media beside the link pair, a question as plain data, one interpreter answering. The default interpreter allows the session's trusted principals, which is the importer's own keys unless the user adds more. ShiBi later supplies a different `verify` and a published decision medium, and the linker and Python code never change. The Python namespace loses its admission policy entirely. Trust is decided by the interpreter; safety stays L-e's and the linker's.
+
+## Rulings
+
+**Q1 The boundary.** The DHT link source asks after `resolve-name` answers `:ok` and before any load. Key sets are closed, values are scalars, keywords, symbols, addresses, the id vector, and maps or vectors of those, as the link pair already requires. Direct `:name-env` entries carry provenance `:composition` and are not asked about: the composition is the asserter. Non-DHT sources have no pair.
+
+```clojure
+;; question, on the admission request medium
+{:yin.admit/id         [:t0 7]              ; the link request's :yin.link/id
+ :yin.admit/name       'pym.m
+ :yin.admit/address    :segment/blake3-...  ; the resolved manifest address
+ :yin.admit/asserters  ["ed25519:<hex>" ...] ; every asserter, R8
+ :yin.admit/provenance {...}                ; the entry's :yin.link/provenance verbatim
+ :yin.admit/importer   {:yin.link/format f :yin.link/contract "b2"}
+ :yin.admit/session    "<shell token or [id revision]>"} ; composition data, optional
+
+;; answers, on the admission response medium
+{:yin.admit/id [:t0 7] :yin.admit/decision :allow
+ :yin.admit/conditions {}}                  ; reserved; must be empty in v1
+{:yin.admit/id [:t0 7] :yin.admit/decision :refuse
+ :yin.admit/reason :yin.admit/untrusted-principal
+ :yin.admit/asserters ["ed25519:<hex>"]}
+```
+
+The link response copies a refusal into the section 9 shape with the answer's reason and open keys. An `:ok` response gains the admission record, `:yin.admit/decision :allow` and `:yin.admit/asserters`. A malformed answer, or one with non-empty conditions, is refused fail-closed as `:yin.admit/malformed-answer` or `:yin.admit/unsupported-condition`. Nothing in the vocabulary says foreign, capability, or L-e.
+
+**Q2 Interpreters.** One interpreter per pair, one writer per medium. It lives in a new `yin.repl.admission` namespace, a sibling of `yin.repl.link`, so `yin.vm.linker*` is untouched. Its contract is the middleware gate's: `(serve {:pair p :verify f :decision d})` reads each unconsumed question, calls `(verify decision question)`, nil allows and a reason map refuses, appends the answer, and returns the advanced pair and a progress flag. The default `verify` is membership: some asserter is in the decision's trusted set. The default decision is the session's own principal plus an explicit `:trusted` set. ShiBi later replaces the static decision value with the newest value on a capacity-1 decision medium its index interpreter publishes, and replaces `verify` with its Datalog query. That is exactly the shape dao.shibi.md already fixes, and the question map is the request ShiBi binds. Composition of policies happens inside one interpreter by composing verify functions in Clojure, first reason wins. Several interpreters writing one answer medium is refused by design. Configuration is per session, never per frontend: `link/composition` takes `:admission {:trusted #{...} :verify f}` for the plain Clojure path, and `create-state` takes the same `:admission` beside `:link-policy` so reset and `(vm ...)` keep it. At the REPL the user runs `(trust "ed25519:<hex>")`, `(untrust ...)`, and `(trusted)`, which rebuild the session's decision value for later questions. Petnames stay local and never travel.
+
+**Q3 Sync and async.** The question is asked at resolution so no bytes of an untrusted module are fetched. The link parks `::pending` naming `:admission [:t0 7]`, which `serve` reports beside `:manifest` and `:principals`. Each later round drains the answer medium into a per-pair map keyed by id before re-attempting, and the answered link proceeds to `dht-attempt`. There is no deadline. The link policy and `(abandon)` end it as they end any pending link, and a late answer is skipped like a late response. In the REPL, `drive-links` runs the interpreter right after `link/serve` in the same drive, so one extra round answers. On exposure: the only path into a task's module registry is the link response, and the install child copies the admission record into the registry entry. The step-2 cache hit is per registry, so a module admitted into one session is exposed only there, and a new session asks a new question. Untrust is not retroactive inside a task, and `(reset)` drops the registry. The shell owns that decision because it owns registry lifetime. The linker owns only the question. Deferred discharge is unchanged, and under L-d a refusal answer is an ordinary refusal while a pending answer stays pending.
+
+**Q4 Trust versus safety.** Confirmed as two layers. The interpreter decides which principals the importer accepts and sees only names, addresses, asserters, and provenance, never bytes. The linker and L-e verify closure origin, store ownership, dependency pins, and the primitives profile at step 5b whatever the answer says. An allow never relaxes L-e. Conditions that bound what a trusted module may touch belong to the answer shape in principle, but v1 reserves the slot empty. Primitive and effect admission stay in L-a's profile match and ruling 19's remainder, because the linker already has that machinery and the interpreter has none.
+
+## The edit
+
+- **(a) Python policy.** Delete `principal-admission` from `publication.cljc` and the ruling 19 paragraph of its docstring. The policy becomes `yin.repl.admission/trusted-principals`, answering `:yin.admit/untrusted-principal` with `:yin.admit/asserters`.
+- **(b) Tests.** Move the unit test to `test/yin/repl/admission_test.cljc` as `an-untrusted-principal-is-refused-by-the-default-interpreter-test`, asserting the answer map. In `dht_import_test.cljc`, `source` composes `:admission` and the existing `foreign-principal-is-refused` test asserts the neutral refusal on every VM, renamed `an-untrusted-principal-is-refused-on-every-vm-test`. Add an allow case where the reader trusts the publisher.
+- **(c) Docs.** In yang.antlr.md 8.5.6: the ruling 19 paragraph keeps its safety text and gains one sentence that trust is the admission interpreter's. The L-e row loses "foreign-principal imports" as what it blocks and reads "exposure of untrusted-origin closures". The I3 landing note replaces the `principal-admission` sentence and the gap paragraph with a pointer to the admission section. In yin.vm.linker.dht.md the 7.4 sentence stays with the mob Q4 fix, because admission is not 7.4.
+- **(d) F2.** The REPL mints the admission pair in `create-state` beside the link pair and stamps `:yin.admit/session`. F2 must provide the `[id revision]` session key and keep the module registry per session. The parked tests return as `admission_repl_test.cljc` once F2 lands.
+- **(e) Spec home.** New section 7.5 "Admission: the trust question" in yin.vm.linker.dht.md, with a cross-reference paragraph in dao.shibi.md naming it ShiBi's first consumer shape.
+
+## Slices and risks
+
+- **AD-0** docs: section 7.5, the (c) edits. Architect or writer seat. Acceptance: the section names both shapes and the fail-closed rules.
+- **AD-1** seam: `yin.repl.admission`, the pair in `composition`, `serve` parking and draining, default interpreter. Linker engineer. Tests portable on three hosts. Acceptance: a trusted publisher's module imports on every VM with the admission record in the registry; an untrusted one is refused with no load started; an unanswered question survives any number of rounds and ends only by abandon; a malformed answer refuses.
+- **AD-2** Python: delete `principal-admission`, re-point the DHT import tests. Compiler engineer, coordinated with the yang.python orchestrator through collab, since that file is its track. Acceptance: no `:yang.python.antlr/foreign-principal` remains and the DHT import artifact is unchanged.
+- **AD-3** REPL wiring after F2: `:admission` option, trust commands, parked tests. VM engineer. Acceptance: `(trust p)` then an import of p's module succeeds and `(untrust p)` refuses the next import in a new session.
+
+What must not land before L-e: any claim that untrusted-origin imports are safe, any default other than own principals, and any non-empty condition. The register-VM cutover is unaffected: the design handles names, manifest addresses, and provenance only.
+
+Risks: a pending question blocks the requests behind it in the serve round, as a pending load does today. Trust and declared authority (`:principals`) are now two sets, which users can confuse; the `(trusted)` command exists to show the difference.
+
+I would not use a middleware gate on the content pair, because a gate may not wait and admission is about names, not bytes. I would not build a trust fact stream in v1, add retroactive revocation, or put admission in any frontend.
+
+Unverified: `collab/1792201000000-parked-linked-repl-tests.cljc.txt` is not on disk, so I could not read the parked tests. I did not confirm the exact key set inside `:yin.link/provenance` beyond `:yin.module/asserted-by`.
+
+exec
+/bin/zsh -lc "nl -ba src/cljc/yin/repl.cljc | sed -n '1290,1435p;1880,1966p'; nl -ba src/cljc/yin/vm/engine.cljc | sed -n '1255,1325p;1340,1420p;1660,1700p'; nl -ba src/cljc/yin/vm/module.cljc | sed -n '490,565p'; rg -n 'recheck-on-load-events|rebuild|lang-command|:modules' src/clj/yin src/cljs/yin src/cljc/yin/repl.cljc | tail -45" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+  1290	   indexer and the VM runs on.  Only a round the VM spends waiting on a
+  1291	   link counts against `link-round-budget`; a query is answered in the
+  1292	   round it is asked, so its rounds are bounded by `query-drive-budget`
+  1293	   calls instead: a VM still waiting on a call once the drive has
+  1294	   answered that many raises `query-call-limit-text` as its own error,
+  1295	   the unanswered request abandoned with it."
+  1296	  [state vm]
+  1297	  (loop [i 0
+  1298	         calls 0
+  1299	         vm vm
+  1300	         state state
+  1301	         pending []
+  1302	         progress? false]
+  1303	    (let [link? (link-waiting? vm)
+  1304	          query? (query/waiting? vm)]
+  1305	      (cond
+  1306	        (or (vm/halted? vm) (not (or link? query?)) (>= i link-round-budget))
+  1307	        [state vm pending progress?]
+  1308	
+  1309	        (and query? (>= calls query-drive-budget))
+  1310	        (throw (link-raise (ex-info query-call-limit-text
+  1311	                                    {:reason :yin.repl.query/call-limit
+  1312	                                     :limit query-drive-budget})
+  1313	                           vm
+  1314	                           (update state :query-pair query/abandon-requests)))
+  1315	
+  1316	        :else
+  1317	        (let [served (when link?
+  1318	                       (link/serve {:pair (:link-pair state)
+  1319	                                    :source (:link-source state)
+  1320	                                    :dht (:dht state)}))
+  1321	              state (cond-> state
+  1322	                      served (assoc :link-pair (:pair served)
+  1323	                                    :dht (:dht served)))
+  1324	              answered (when query?
+  1325	                         (query/serve {:pair (:query-pair state)
+  1326	                                       :indexer (:indexer state)
+  1327	                                       :ast-indexer (:ast-indexer state)
+  1328	                                       :dht (:dht state)
+  1329	                                       :link (link-context state vm)
+  1330	                                       :limits {:row-limit query-row-limit
+  1331	                                                :byte-limit query-byte-limit}
+  1332	                                       :budget (min query-serve-budget
+  1333	                                                    (- query-drive-budget
+  1334	                                                       calls))}))
+  1335	              state (cond-> state
+  1336	                      answered (assoc :query-pair (:pair answered)
+  1337	                                      :dht (:dht answered)
+  1338	                                      :indexer (:indexer answered)))
+  1339	              pending (if (seq (:pending served)) (:pending served) pending)]
+  1340	          (if (or (:progress? served) (:progress? answered))
+  1341	            (let [vm' (try (vm/run vm)
+  1342	                           (catch #?(:cljd Object :clj Exception :cljs js/Error)
+  1343	                                  error
+  1344	                             (throw (link-raise error vm state))))]
+  1345	              (recur (if link? (inc i) i)
+  1346	                     (+ calls (:answered answered 0))
+  1347	                     vm'
+  1348	                     state
+  1349	                     pending
+  1350	                     true))
+  1351	            [state vm pending progress?]))))))
+  1352	
+  1353	
+  1354	(defn- tokenize
+  1355	  "Answer the halted VM's value on the output medium under `state`'s
+  1356	   round, as the evaluator runner does for a program it runs itself.  A
+  1357	   resumed require halts outside the observer loop, so the shell emits
+  1358	   its token here."
+  1359	  [state vm]
+  1360	  ((make-runner (:output-stream state) (round-id state)) vm))
+  1361	
+  1362	
+  1363	(defn- pending-text
+  1364	  [pending]
+  1365	  (if (seq pending)
+  1366	    (str ";; require pending: "
+  1367	         (str/join ", " (map (fn [p]
+  1368	                               (str (pr-str (:name p))
+  1369	                                    " (link " (pr-str (:yin.link/id p)) ")"))
+  1370	                             pending))
+  1371	         "); lines typed meanwhile run when it completes, (abandon) gives"
+  1372	         " up\n")
+  1373	    (str ";; require still pending; lines typed meanwhile run when it"
+  1374	         " completes, (abandon) gives up\n")))
+  1375	
+  1376	
+  1377	(defn- dropped-lines-text
+  1378	  [n]
+  1379	  (when (pos? n)
+  1380	    (str ";; dropped " n " line" (when (> n 1) "s")
+  1381	         " typed while the require was pending\n")))
+  1382	
+  1383	
+  1384	(def ^:private policy-abandon-text
+  1385	  "The message a policy-driven abandon prints, in the shape of the
+  1386	   `(abandon)` notice, so a policy abandon is never mistaken for a
+  1387	   user's (yin.repl.link-policy.md section 3.3)."
+  1388	  ";; the session link policy ended the require\n")
+  1389	
+  1390	
+  1391	(defn- abandon-pending
+  1392	  "Give up the shell's `:pending-run` (section 7.2, step 7, the abandoned
+  1393	   case): every install in flight is dropped through the engine's own
+  1394	   `refused`, every link wait entry is retired with the reason raised as
+  1395	   the require's error, and the shell returns to the round the require
+  1396	   began in, whose store and value history the parked evaluation never
+  1397	   wrote.  Lines typed while the require was pending are dropped with
+  1398	   it, and said so.  The linker side learns nothing: no response was
+  1399	   ever promised, and one that still arrives is skipped as late.  The
+  1400	   identity the parked evaluation minted -- link ids and child origins
+  1401	   -- is carried onto the base, so nothing is minted twice on the
+  1402	   surviving pair.  The `(abandon)` command retires with
+  1403	   `:yin.repl/abandoned` and no message of its own; the session link
+  1404	   policy retires with the reason it answered and prints
+  1405	   `policy-abandon-text`, so a policy abandon is never mistaken for a
+  1406	   user's."
+  1407	  ([state] (abandon-pending state :yin.repl/abandoned nil))
+  1408	  ([state reason ended-text]
+  1409	   (if-let [parked (:pending-run state)]
+  1410	     (let [[state' text] (drain-output state)
+  1411	           ;; installs first: their waiters leave the wait set with the
+  1412	           ;; refusal queued, then every remaining link entry retires
+  1413	           vm (engine/abandon-installs (:vm parked) reason)
+  1414	           error (try
+  1415	                   (vm/run (reduce (fn [vm e]
+  1416	                                     (engine/abandon-link vm (:link-id e)
+  1417	                                                          reason))
+  1418	                                   vm
+  1419	                                   (:wait-set vm)))
+  1420	                   nil
+  1421	                   (catch #?(:cljd Object :clj Exception :cljs js/Error) e
+  1422	                     e))]
+  1423	       [(assoc state'
+  1424	               :vm (query/discard-answers
+  1425	                     (carry-link-identity (:base parked) vm)
+  1426	                     (:query-pair state'))
+  1427	               :pending-run nil)
+  1428	        (str text
+  1429	             ended-text
+  1430	             (if error (format-error error) "")
+  1431	             (dropped-lines-text (count (:pending-lines parked))))])
+  1432	     [state "Nothing is pending"])))
+  1433	
+  1434	
+  1435	(defn- consult-link-policy
+  1880	   refusal, return the shell to the round's base with the error as text
+  1881	   and evaluate `input` there.  `input` is nil for the host's
+  1882	   `recheck-pending`, which evaluates no line of its own."
+  1883	  [state input]
+  1884	  (let [parked (:pending-run state)]
+  1885	    (try
+  1886	      (let [[state' vm' pending progress?] (drive-links state (:vm parked))]
+  1887	        (if (vm/halted? vm')
+  1888	          (let [vm'' (engine/restore-initial-env (:env (:base parked)) vm')
+  1889	                [st text] (finalize-eval state
+  1890	                                         (cond-> (assoc state' :vm vm'')
+  1891	                                           (:frontend parked)
+  1892	                                           (assoc ::frontend
+  1893	                                                  (:frontend parked)))
+  1894	                                         (tokenize state' vm''))]
+  1895	            (fold-queued [(assoc st :vm vm'' :pending-run nil) text]
+  1896	                         (cond-> (vec (:pending-lines parked))
+  1897	                           input (conj input))))
+  1898	          (let [checks (if progress? 0 (inc (or (:checks parked) 0)))
+  1899	                parked' (cond-> (assoc parked
+  1900	                                       :vm vm'
+  1901	                                       :links pending
+  1902	                                       :checks checks)
+  1903	                          input (update :pending-lines
+  1904	                                        (fnil conj []) input))
+  1905	                [st text] (drain-output (assoc state'
+  1906	                                               :vm vm'
+  1907	                                               :pending-run parked'))]
+  1908	            (consult-link-policy st text (pending-text pending)))))
+  1909	      (catch #?(:cljd Object :clj Exception :cljs js/Error) error
+  1910	        (let [[st text] (drain-output state)
+  1911	              d (ex-data error)]
+  1912	          (fold-queued
+  1913	            [(carry-served (assoc st
+  1914	                                  :vm (query/discard-answers
+  1915	                                        (carry-link-identity
+  1916	                                          (:base parked)
+  1917	                                          {:id-counter (::link-counter d)
+  1918	                                           :origins (::link-origins d)})
+  1919	                                        (:query-pair st))
+  1920	                                  :pending-run nil)
+  1921	                           d)
+  1922	             (str text
+  1923	                  (format-error error)
+  1924	                  (dropped-lines-text (count (:pending-lines parked))))]
+  1925	            (cond-> [] input (conj input))))))))
+  1926	
+  1927	
+  1928	(defn recheck-pending
+  1929	  "One re-check of the shell's `:pending-run` without an input line --
+  1930	   the step an unattended host drives at its own cadence
+  1931	   (yin.repl.link-policy.md section 4): serve the interpreter, run the
+  1932	   parked VM, and consult the link policy when the run is still
+  1933	   pending.  A re-check that completes the run folds the retained lines
+  1934	   exactly as a typed line's completion does.  Returns `[state text]`,
+  1935	   `text` nil when nothing is pending.  It reads no clock and takes no
+  1936	   callback; the host decides when to call it."
+  1937	  [state]
+  1938	  (if (:pending-run state)
+  1939	    (recheck-pending* state nil)
+  1940	    [state nil]))
+  1941	
+  1942	
+  1943	(defn recheck-on-load-events
+  1944	  "The host ticker's re-check of a pending run over a DHT link source
+  1945	   (yin.vm.linker.dht.md 8.2): `recheck-pending`, once, if and only if
+  1946	   `events` -- one tick's `dao.space.dht/step` events and head follower
+  1947	   events -- hold a `:loaded` or `:load-failed` event for a manifest a
+  1948	   pending link waits on, or an `:installed` head of a principal a
+  1949	   pending link awaits (yin.vm.linker.dht.head.md 5.6, first contact).
+  1950	   Any other event, and any event while nothing waits on it, answers
+  1951	   `[state nil]` with `state` itself: no re-check, no `:checks`."
+  1952	  [state events]
+  1953	  (let [links (get-in state [:pending-run :links])
+  1954	        waits (set (keep :manifest links))
+  1955	        heads (set (mapcat :principals links))]
+  1956	    (if (some (fn [e]
+  1957	                (or (and (contains? #{:loaded :load-failed}
+  1958	                                    (:dao.space.dht/event e))
+  1959	                         (contains? waits (:manifest e)))
+  1960	                    (and (= :installed (:yin.head/event e))
+  1961	                         (contains? heads (:principal e)))))
+  1962	              events)
+  1963	      (recheck-pending state)
+  1964	      [state nil])))
+  1965	
+  1966	
+  1255	  "The `[name entry]` pairs of a registry that were linked, not
+  1256	   host-registered: they carry a manifest address."
+  1257	  [registry]
+  1258	  (filterv (fn [[_ entry]] (some? (:address entry)))
+  1259	           (module/module-entries registry)))
+  1260	
+  1261	
+  1262	(defn- manifest-address
+  1263	  "The manifest's address: a manifest is content named by its address."
+  1264	  [response]
+  1265	  (jing/segment-key (:manifest response)))
+  1266	
+  1267	
+  1268	(defn- stamp-gate
+  1269	  "`child` carrying the root's custody gate `mode` and nothing else of
+  1270	   the root's custody: the mode only. An ungated root leaves it as is."
+  1271	  [child mode]
+  1272	  (cond-> child
+  1273	    (some? mode) (assoc :yin.k/gate mode)))
+  1274	
+  1275	
+  1276	(defn- spawn-child
+  1277	  "`loading` (section 7.3): a fresh child of the parent's backend over the
+  1278	   verified image, under a fresh origin tag, its install ancestry the
+  1279	   parent's plus this module, and a module view of its own: each linked
+  1280	   entry the parent holds is attached and lowered into the child's
+  1281	   coordinates here, never the parent's lowered values reused. The
+  1282	   child's capability secret comes from the composition's
+  1283	   `:secret-source`, a function of the child's origin tag; a composition
+  1284	   that supplies none gives the child no secret, so the child can issue
+  1285	   no resource reference (fail closed)."
+  1286	  [state module-name response]
+  1287	  (let [n (or (:origins state) 0)
+  1288	        origin (keyword (str (name (or (:origin state) :t0)) "." n))
+  1289	        registry (reduce (fn [r [m entry]]
+  1290	                           (module/assoc-module r m (dissoc entry :bindings)))
+  1291	                         (:modules state)
+  1292	                         (linked-entries (:modules state)))
+  1293	        source (:secret-source state)
+  1294	        child (module/spawn-module state
+  1295	                                   (:value (:image response))
+  1296	                                   {:modules registry,
+  1297	                                    :origin origin,
+  1298	                                    :ancestry (conj (vec (:ancestry state))
+  1299	                                                    module-name),
+  1300	                                    ;; the composition mints each task's
+  1301	                                    ;; secret (r10); without a source the
+  1302	                                    ;; child can issue no reference
+  1303	                                    :capability-secret
+  1304	                                    (when (fn? source) (source origin))})
+  1305	        child (reduce (fn [c [m entry]] (receive-module c m entry))
+  1306	                      child
+  1307	                      (linked-entries registry))]
+  1308	    [(stamp-gate child (vm/gate-mode state)) (assoc state :origins (inc n))]))
+  1309	
+  1310	
+  1311	(defn- wake-installed
+  1312	  "Move every `:install` wait entry naming `module-name` to the ready
+  1313	   queue, woken with `value`, or with `refusal` raised."
+  1314	  [state module-name value refusal]
+  1315	  (let [waiter? (fn [e]
+  1316	                  (and (= :install (:reason e)) (= module-name (:name e))))
+  1317	        waiters (filter waiter? (:wait-set state))]
+  1318	    (-> state
+  1319	        (update :wait-set (fn [ws] (filterv (complement waiter?) ws)))
+  1320	        (update :ready-queue (fnil into [])
+  1321	                (map (fn [e]
+  1322	                       (if refusal (refused-entry e refusal) (ready e value))))
+  1323	                waiters))))
+  1324	
+  1325	
+  1340	  [state child response]
+  1341	  (into [(:value (:image response))]
+  1342	        (mapcat (fn [[_ entry]] (vals (:images entry))))
+  1343	        (concat (linked-entries (:modules child))
+  1344	                (linked-entries (:modules state)))))
+  1345	
+  1346	
+  1347	(defn- link-install
+  1348	  "`validated` then `linked` (section 7.3): the child reached halt; every
+  1349	   export must be a key of its store (`:export-missing`); the slice is
+  1350	   lifted (act 1) and its origins checked against the images this
+  1351	   scheduler verified (act 2, `:foreign-image`); the receiving task then
+  1352	   receives, first, the entry -- its store snapshots win over the plain
+  1353	   registry snapshot of a dependency, since the child's mutations are
+  1354	   what the slice carries -- and then every module the child linked that
+  1355	   it lacks (acts 3 and 4), and every waiter is restored with the name."
+  1356	  [state module-name {:keys [vm response]}]
+  1357	  (let [manifest (:manifest response)
+  1358	        address (manifest-address response)
+  1359	        exports (sort-by str (:yin.module/exports manifest))
+  1360	        missing (vec (remove #(contains? (:store vm) %) exports))]
+  1361	    (if (seq missing)
+  1362	      (refuse-install state module-name
+  1363	                      {:status :refused,
+  1364	                       :reason :export-missing,
+  1365	                       :module module-name,
+  1366	                       :names missing})
+  1367	      (let [lifted (try (lift-slice vm address exports)
+  1368	                        (catch #?(:cljd Object :clj Throwable :cljs :default) e
+  1369	                          {:refusal (error-refusal module-name e)}))]
+  1370	        (if-let [refusal (:refusal lifted)]
+  1371	          (refuse-install state module-name refusal)
+  1372	          (let [verified (verified-images state vm response)
+  1373	                origin-of (fn [seg]
+  1374	                            (some #(when (module/image-holds? vm % seg) %)
+  1375	                                  verified))
+  1376	                foreign (first (remove origin-of
+  1377	                                       (sort-by str (:origins lifted))))]
+  1378	            (if (some? foreign)
+  1379	              (refuse-install state module-name
+  1380	                              {:status :refused,
+  1381	                               :reason :foreign-image,
+  1382	                               :module module-name,
+  1383	                               :segment foreign})
+  1384	              (let [images (into {}
+  1385	                                 (map (fn [seg]
+  1386	                                        (let [img (origin-of seg)]
+  1387	                                          [(module/image-identity vm img)
+  1388	                                           img])))
+  1389	                                 (:origins lifted))
+  1390	                    entry (module/module-entry
+  1391	                            (:modules (module/link-module
+  1392	                                        nil manifest (:derivation response)
+  1393	                                        (assoc lifted :images images)))
+  1394	                            module-name)
+  1395	                    received (receive-module state module-name entry)
+  1396	                    received (reduce
+  1397	                               (fn [s [m dep]]
+  1398	                                 (if (some? (module/module-entry
+  1399	                                              (:modules (:modules s)) m))
+  1400	                                   s
+  1401	                                   (receive-module s m (dissoc dep :bindings))))
+  1402	                               received
+  1403	                               (linked-entries (:modules vm)))]
+  1404	                (-> received
+  1405	                    (update :installs dissoc module-name)
+  1406	                    (wake-installed module-name module-name nil))))))))))
+  1407	
+  1408	
+  1409	(defn- advance-install
+  1410	  "Step the install child of `module-name` in this round, beside every
+  1411	   other task (section 7.3): `running` runs it until it halts or parks.
+  1412	   A parked child stays `parked`; a halted one goes on to `validated`; an
+  1413	   error refuses the install. An error while publishing -- attaching an
+  1414	   origin image, lowering the slice or a store snapshot, or receiving a
+  1415	   dependency -- refuses it too, at phase `:linked`, from the state the
+  1416	   round started with: nothing half-published survives, every waiter is
+  1417	   restored with the refusal, and no throw leaves the round.
+  1418	
+  1419	   Under a custody gate the child is stamped with the root's mode before
+  1420	   it runs; in `:exporting` and `:ended` it does not run."
+  1660	        ws (:wait-set state')]
+  1661	    (-> state'
+  1662	        (assoc :wait-set (if waiting
+  1663	                           (assoc ws i waiting)
+  1664	                           (into (subvec ws 0 i) (subvec ws (inc i)))))
+  1665	        (update :ready-queue (fnil into []) (when woken [woken])))))
+  1666	
+  1667	
+  1668	(defn abandon-link
+  1669	  "A composition gives up on link `link-id` (section 7.2, step 7): the
+  1670	   entry leaves the wait set and is restored with `reason` raised as the
+  1671	   effect's error; the id is retired, so a response arriving later is
+  1672	   `:late`. The linker side's `abandon` is the composition's call. An id
+  1673	   no entry holds leaves the state unchanged."
+  1674	  [state link-id reason]
+  1675	  (let [held? (fn [e]
+  1676	                (and (contains? #{:link-request :link-response} (:reason e))
+  1677	                     (= link-id (:link-id e))))]
+  1678	    (if-let [entry (first (filter held? (:wait-set state)))]
+  1679	      (-> state
+  1680	          (update :wait-set (fn [ws] (filterv (complement held?) ws)))
+  1681	          (retire link-id :abandoned)
+  1682	          (update :ready-queue (fnil conj [])
+  1683	                  (refused-entry entry
+  1684	                                 {:status :lost,
+  1685	                                  :reason reason,
+  1686	                                  :link-id link-id})))
+  1687	      state)))
+  1688	
+  1689	
+  1690	(defn abandon-installs
+  1691	  "A composition gives up on every install in flight (the abandoned case
+  1692	   of section 7.2, step 7, reaching section 7.3's `refused`): each child
+  1693	   is dropped -- nothing from its store is published -- and every
+  1694	   `:install` waiter is restored with the reason as the require's error,
+  1695	   so the install entry is removed and a later require may try again. A
+  1696	   state with no installs is unchanged. The dropped children's own link
+  1697	   ids are never minted again by a state that carries `:origins` forward
+  1698	   past them."
+  1699	  [state reason]
+  1700	  (reduce (fn [state module-name]
+   490	
+   491	
+   492	(defn- mint-link-id
+   493	  "The next link id `[origin counter]` of this task (section 7.2, step 3):
+   494	   the task's origin tag beside its own engine counter."
+   495	  [state]
+   496	  (let [counter (or (:id-counter state) 0)]
+   497	    [[(or (:origin state) :t0) counter]
+   498	     (assoc state :id-counter (inc counter))]))
+   499	
+   500	
+   501	(defn append-link-request
+   502	  "Append `entry`'s retained envelope on the link request stream. `ok`
+   503	   moves the entry to the `:link-response` state; `full` keeps it in
+   504	   `:link-request`, envelope verbatim, for the next poll; the terminal
+   505	   outcomes throw, naming the outcome and the link id. Under a custody
+   506	   gate (`gate`, the machine's `yin.vm/gate-mode`) nothing is appended:
+   507	   the entry is returned as `full` would leave it."
+   508	  ([resources entry] (append-link-request resources entry nil))
+   509	  ([resources entry gate]
+   510	   (if (some? gate)
+   511	     entry
+   512	     (let [writer (get resources link-request-resource)
+   513	           o (:dao.stream/outcome (stream/append! writer (:envelope entry)))]
+   514	       (case o
+   515	         :dao.stream/ok (-> entry
+   516	                            (dissoc :envelope)
+   517	                            (assoc :reason :link-response))
+   518	         :dao.stream/full entry
+   519	         (throw (ex-info "Link request could not be appended"
+   520	                         {:outcome o, :link-id (:link-id entry)})))))))
+   521	
+   522	
+   523	(defn require-handler
+   524	  "Resolve `:module/require` (yin.vm.linker.md sections 7.2 and 8.3).
+   525	
+   526	   A module already in the registry value -- a host module, or one linked
+   527	   earlier and lowered into this task -- answers now. A module installing
+   528	   in this scheduler (section 7.3) is neither linked nor absent: the
+   529	   requiring continuation joins that install's waiters as an `:install`
+   530	   entry. Anything else is a miss, and a miss never throws for absence:
+   531	   it mints a `:dao.stream/newest` cursor on the link response stream,
+   532	   THEN builds the `:link-request` wait entry -- cursor before append, so
+   533	   a response that lands before the entry is first polled is not skipped
+   534	   -- and appends the envelope under the link id `[origin counter]`. On
+   535	   `ok` the entry waits in `:link-response`; on `full` it stays in
+   536	   `:link-request` and the poll retries it. Under a custody gate the mint
+   537	   and the append are the driver's: the entry is built without `:cursor`
+   538	   and parks in `:link-request` with nothing sent. The entry is the kernel's
+   539	   registers plus the link fields: resource ids and plain data, never a
+   540	   handle.
+   541	
+   542	   A module already on this task's install ancestry is `:require-cycle`
+   543	   naming the chain (section 7.4): the child that asked is refused. A VM
+   544	   composed without a link pair cannot link, so its miss fails as v1's
+   545	   did, naming the modules it has."
+   546	  [state effect {:keys [park-entry-fns]}]
+   547	  (let [module-name (:module effect)
+   548	        build (get park-entry-fns :module/require)
+   549	        registers #(if build (build state effect nil) {})
+   550	        resources (:resources state)
+   551	        response (get resources link-response-resource)]
+   552	    (cond
+   553	      (some? (resolve-module (:modules state) module-name))
+   554	      {:value module-name, :state state, :blocked? false}
+   555	
+   556	      (some #{module-name} (:ancestry state))
+   557	      (throw (ex-info "Require cycle"
+   558	                      {:reason :require-cycle,
+   559	                       :module module-name,
+   560	                       :chain (conj (vec (:ancestry state)) module-name)}))
+   561	
+   562	      (installing? state module-name)
+   563	      (block-on state (assoc (registers) :reason :install :name module-name))
+   564	
+   565	      (not (and response (get resources link-request-resource)))
+src/cljc/yin/repl.cljc:304:        exports (for [[module-name entry] (module/module-entries (:modules vm))
+src/cljc/yin/repl.cljc:646:             :modules (cond-> (-> (module/default-registry)
+src/cljc/yin/repl.cljc:754:   a session rebuild.
+src/cljc/yin/repl.cljc:812:   rebuild — `(reset)`, `(vm …)` — installs it again.
+src/cljc/yin/repl.cljc:831:   outlives a session rebuild, and defaults to a fresh in-memory store.
+src/cljc/yin/repl.cljc:849:   carry the index across the rebuild; with the memory store they start
+src/cljc/yin/repl.cljc:1271:   :modules (:modules vm)
+src/cljc/yin/repl.cljc:1751:(defn- rebuild-session
+src/cljc/yin/repl.cljc:1761:   published manifest (`yin.repl.index/carry-over`), so a rebuild never
+src/cljc/yin/repl.cljc:1791:             [(rebuild-session state vm-type)
+src/cljc/yin/repl.cljc:1808:      reset [(rebuild-session state (:vm-type state))
+src/cljc/yin/repl.cljc:1943:(defn recheck-on-load-events
+
+codex
+The revision binds each allow to the original resolved address and corrects the ShiBi contract. I found two likely blockers in the new mechanics: retirement excludes the first id minted after the base counter, and the answer recheck can repeatedly scan irrelevant answers without reaching a valid answer behind them. I’m checking those against the stream cursor behavior and rollback paths.
+exec
+/bin/zsh -lc "rg -n 'serve-budget|capacity|defn make-pair' src/cljc/yin/repl/link.cljc; nl -ba src/cljc/yin/repl.cljc | sed -n '1525,1585p;1750,1815p'; nl -ba src/cljc/yin/vm/module.cljc | sed -n '78,99p'; rg -n ':gap|dao.stream/gap|defn next|:none|:ended' src/cljc/dao/stream.cljc src/cljc/dao/stream/ring.cljc; nl -ba test/yang/python/antlr/dht_import_test.cljc | sed -n '278,323p'; nl -ba src/cljc/yin/vm/linker.cljc | sed -n '1020,1078p'; rg -n 'yin.link/provenance|asserted-by' src/cljc/yin/vm/linker/dht/authority.cljc" in /Users/sto/workspace/datomworld
+ exited 2 in 0ms:
+43:(def pair-capacity
+44:  "Declared capacity of each link-pair medium, in elements.  The shell
+52:(def content-capacity
+53:  "Declared capacity of each content-pair medium, in elements.  One
+74:(def serve-budget
+94:  [capacity]
+97:                   ring/capacity-key capacity})))
+105:(defn make-pair
+110:  (let [requests (medium pair-capacity)
+111:        responses (medium pair-capacity)]
+173:               :requests (medium content-capacity)
+174:               :responses (medium content-capacity)}
+442:  ([comp] (serve comp serve-budget))
+  1525	(defn- run-evaluation
+  1526	  "The evaluator half of a round whose expander forwarded a program: run
+  1527	   it, then either finalize the value, drive its require to a conclusion,
+  1528	   or park it as `:pending-run`.  `state` is the round's starting state;
+  1529	   `expanded` already carries the expander's progress, which a failing
+  1530	   evaluation keeps."
+  1531	  [state expanded]
+  1532	  (try
+  1533	    (let [gaps-before (ingress-gaps expanded)
+  1534	          evaluated (run-evaluator-stage expanded)
+  1535	          vm (:vm evaluated)]
+  1536	      (cond
+  1537	        (> (ingress-gaps evaluated) gaps-before)
+  1538	        [(assoc evaluated :ingress-loss? true)
+  1539	         (str "Error: " ingress-loss-text)]
+  1540	
+  1541	        (vm/halted? vm)
+  1542	        (finalize-eval state evaluated
+  1543	                       (engine/restore-initial-env (:env (:vm expanded)) vm))
+  1544	
+  1545	        (or (link-waiting? vm) (query/waiting? vm))
+  1546	        (let [[state' vm' pending] (drive-links evaluated vm)]
+  1547	          (cond
+  1548	            (vm/halted? vm')
+  1549	            (finalize-eval state
+  1550	                           (assoc state' :vm vm')
+  1551	                           (tokenize state'
+  1552	                                     (engine/restore-initial-env
+  1553	                                       (:env (:vm expanded)) vm')))
+  1554	
+  1555	            (link-waiting? vm')
+  1556	            (pending-eval state state' vm' pending)
+  1557	
+  1558	            :else (throw (wedged-program state))))
+  1559	
+  1560	        :else (throw (wedged-program state))))
+  1561	    (catch #?(:cljd Object :clj Exception :cljs js/Error) error
+  1562	      ;; a link raise rolls the shell back to the round's base; the
+  1563	      ;; identity the interrupted VM had minted rides on it, so nothing
+  1564	      ;; is minted twice on the surviving pair
+  1565	      (let [d (ex-data error)
+  1566	            base (query/discard-answers
+  1567	                   (if (or (::link-counter d) (::link-origins d))
+  1568	                     (carry-link-identity
+  1569	                       (:vm state)
+  1570	                       {:id-counter (::link-counter d)
+  1571	                        :origins (::link-origins d)})
+  1572	                     (:vm state))
+  1573	                   (:query-pair expanded))]
+  1574	        (consume-failed-round (carry-served (assoc expanded :vm base) d)
+  1575	                              error)))))
+  1576	
+  1577	
+  1578	(defn- eval-program
+  1579	  "Evaluate one frontend program — the map AST the compilers emit or a
+  1580	   datom-literal program — through the §10.1 composition.  The encoder
+  1581	   projects it to an input batch of canonical rows with its harvest and
+  1582	   declaration rows; the shell appends that batch to `program-in`, drives
+  1583	   the expander, drains its summary, and drives the code and AST indexers and then
+  1584	   the evaluator only when a program was forwarded.  An expansion failure is reported as data: its
+  1585	   batch is consumed, the store keeps its previous macros, and the next
+  1750	
+  1751	(defn- rebuild-session
+  1752	  "Replace the VM, the expander, and their media, attachments, and
+  1753	   observers.  The value history is cleared with them: a closure in `*1`
+  1754	   names a code segment the old VM held, which the new one does not.  The
+  1755	   new expander holds only the standard forms.  A require still pending
+  1756	   on the old VM is dropped with it: its link pair is the session's, and
+  1757	   the new session answers from its own.
+  1758	
+  1759	   Over a durable store the code index is not the session's to drop: the
+  1760	   new indexer continues the old one's log, entity allocation, and
+  1761	   published manifest (`yin.repl.index/carry-over`), so a rebuild never
+  1762	   resets `t`.  Over the memory store it starts empty, as it always has."
+  1763	  [state vm-type]
+  1764	  (merge state
+  1765	         (cond-> (make-session vm-type (:output-stream state)
+  1766	                               (:extra-primitives state)
+  1767	                               (:shell-token state)
+  1768	                               (:index-store state))
+  1769	           (store/durable? (:index-store state))
+  1770	           (update :indexer index/carry-over (:indexer state)))
+  1771	         {:vm-type vm-type
+  1772	          :ingress-loss? false
+  1773	          :last-value nil
+  1774	          :last-value-2 nil
+  1775	          :last-value-3 nil
+  1776	          :frontend-session nil
+  1777	          :pending-run nil}))
+  1778	
+  1779	
+  1780	(declare repl-state)
+  1781	
+  1782	
+  1783	(defn handle-command
+  1784	  "Answer one shell command.  Unsupported arguments are answered as text, not
+  1785	   thrown, so a mistyped command cannot end a step."
+  1786	  [state form]
+  1787	  (let [[command & args] form]
+  1788	    (case command
+  1789	      vm (let [vm-type (first args)]
+  1790	           (if (contains? vm-constructors vm-type)
+  1791	             [(rebuild-session state vm-type)
+  1792	              (str "Switched to " (get vm-labels vm-type)
+  1793	                   (if (store/durable? (:index-store state))
+  1794	                     " (VM store cleared; durable code index kept)"
+  1795	                     " (store cleared)"))]
+  1796	             [state (str "Error: Unknown Yin REPL VM type " (pr-str vm-type)
+  1797	                         "; supported: "
+  1798	                         (pr-str (vec (keys vm-constructors))))]))
+  1799	      lang (let [lang (first args)]
+  1800	             (if (usable-binding (select-frontend (:frontends state) lang))
+  1801	               [(assoc state :lang lang)
+  1802	                (str "Switched to " (get lang-labels lang (str lang)))]
+  1803	               [state (str "Error: unavailable-parser: Yin REPL language "
+  1804	                           (pr-str lang) " is not in the frontend catalog")]))
+  1805	      compile [state (render-compile-output
+  1806	                       state
+  1807	                       (compile-command-ast state (first args)))]
+  1808	      reset [(rebuild-session state (:vm-type state))
+  1809	             (str (get vm-labels (:vm-type state)) " reset")]
+  1810	      abandon (abandon-pending state)
+  1811	      help [state help-text]
+  1812	      repl-state [state (format-value (repl-state state))]
+  1813	      quit [(assoc state :running? false) "Bye"]
+  1814	      telemetry [state telemetry-text]
+  1815	      [state (str "Error: Unknown Yin REPL command " (pr-str command))])))
+    78	  "The `linked` transition's registry update (yin.vm.linker.md sections
+    79	   7.3 and 8.3): `registry` gains the module `manifest` names as the
+    80	   portable encoding of acts 1 to 3 -- `{:manifest m :address a
+    81	   :derivation d :slice {sym encoded} :stores {address snapshot} :cells
+    82	   {cell-id cell} :images {identity image}}` -- never lowered values. `a`
+    83	   is the manifest's own address; `lifted` is the act-1 lift, `{:slice
+    84	   :stores :cells :images}`, the cells being the logical cursor cells its
+    85	   references name (r9) and the images the verified origin images a
+    86	   receiving task attaches.
+    87	   Each receiving task lowers the entry into its own `:bindings`."
+    88	  [registry manifest derivation lifted]
+    89	  (assoc-module registry
+    90	                (:yin.module/name manifest)
+    91	                {:manifest manifest,
+    92	                 :address (jing/segment-key manifest),
+    93	                 :derivation derivation,
+    94	                 :slice (:slice lifted),
+    95	                 :stores (:stores lifted),
+    96	                 :cells (:cells lifted),
+    97	                 :images (:images lifted)}))
+    98	
+    99	
+rg: src/cljc/dao/stream/ring.cljc: No such file or directory (os error 2)
+src/cljc/dao/stream.cljc:83:    :dao.stream/gap
+src/cljc/dao/stream.cljc:121:   [:next :dao.stream/gap] #{:dao.stream/cursor}})
+   278	   the raise: a refused link raises at its resume, before anything
+   279	   else runs."
+   280	  [w backend pk src]
+   281	  (let [pair (link/make-pair)
+   282	        task ((get h/backends backend)
+   283	              (lower/lower-packet pk {:prelude :linked})
+   284	              (h/composition (h/registry) pair))
+   285	        limit (+ (:now w) 1200000)
+   286	        run (fn [task]
+   287	              (try (vm/run task)
+   288	                   (catch #?(:cljd Object :clj Exception :cljs :default) e
+   289	                     {::thrown (ex-message e), ::resumed task})))]
+   290	    (loop [w w
+   291	           task (run task)
+   292	           pair pair]
+   293	      (let [response (dissoc (peek (mesh/values (:responses pair)))
+   294	                             :yin.link/id :image)]
+   295	        (cond
+   296	          (::thrown task)
+   297	          [w [:thrown (::thrown task)] response (observed (::resumed task))]
+   298	
+   299	          (and (vm/blocked? task) (< (:now w) limit))
+   300	          (let [{:keys [pair dht]} (link/serve {:pair pair,
+   301	                                                :source src,
+   302	                                                :dht (:reader w)})
+   303	                w (step-world (assoc w :reader dht))]
+   304	            (recur w (run task) pair))
+   305	
+   306	          :else
+   307	          [w
+   308	           [(vm/halted? task) (vm/blocked? task)
+   309	            (render/output (vm/value task))]
+   310	           response
+   311	           (observed task)])))))
+   312	
+   313	
+   314	(defn- source
+   315	  "The reader's DHT link source declaring the public keys `publics`, its
+   316	   Python admission naming `own`."
+   317	  [publics own]
+   318	  (link/composition {:dht? true,
+   319	                     :principals publics,
+   320	                     :admit (publication/principal-admission own)}))
+   321	
+   322	
+   323	(defn- on-every-vm
+  1020	(defn- declared-discharge
+  1021	  "Step 5b for a manifest-declared obligation (section 4.2): a primitive
+  1022	   obligation is discharged only by a primitive of equal profile address
+  1023	   -- the receiver's own, or a host module export of the qualified name
+  1024	   (`module/host-export-profile`) -- a module obligation only by a linked
+  1025	   module of equal manifest address.
+  1026	   Anything else the receiver holds under the name -- same name, other
+  1027	   profile; same name, other manifest -- resolves nothing, and neither
+  1028	   does an obligation with no address (two absent addresses are not
+  1029	   equal ones)."
+  1030	  [{:keys [primitives modules]} obligation]
+  1031	  (case (:kind obligation)
+  1032	    :primitive
+  1033	    (let [entry (get primitives (:name obligation))
+  1034	          profile (:profile obligation)]
+  1035	      (when-not (and (some? profile)
+  1036	                     (or (and (map? entry)
+  1037	                              (= profile (:yin.k/profile entry)))
+  1038	                         (= profile (module/host-export-profile
+  1039	                                      modules (:name obligation)))))
+  1040	        (refused :unresolved-free
+  1041	                 {:name (:name obligation), :kind :primitive})))
+  1042	    :module
+  1043	    (let [entry (module/resolve-module modules (:module obligation))]
+  1044	      (when-not (and (map? entry)
+  1045	                     (some? (:manifest obligation))
+  1046	                     (= (:manifest obligation) (:manifest entry)))
+  1047	        (refused :unresolved-free
+  1048	                 {:name (:name obligation), :kind :module})))
+  1049	    (refused :unresolved-free
+  1050	             {:name (:name obligation), :kind (:kind obligation)})))
+  1051	
+  1052	
+  1053	(defn discharge
+  1054	  "Step 5b, pure (section 6.4): the first refusal for the obligations
+  1055	   `obligations` against `receiver` (`{:free-env :store :primitives
+  1056	   :modules}`, every key optional), or nil when every obligation binds in
+  1057	   the receiver identically. An obligation is a section 4.1 record; a
+  1058	   bare name is accepted for compositions that scan names themselves.
+  1059	   The registry
+  1060	   discharges an obligation under its own entry -- a composition that
+  1061	   derives its registry from the same scan keys the records -- or under
+  1062	   the bare name. A manifest-declared obligation (section 8.1: a record
+  1063	   carrying `:kind` `:primitive` or `:module`) is checked first by name
+  1064	   against the free env and store, then only by equal profile address or
+  1065	   equal manifest address -- never by presence alone."
+  1066	  [receiver obligations]
+  1067	  (some (fn [obligation]
+  1068	          (or (when (shadowed? receiver obligation)
+  1069	                (refused :shadowed-free
+  1070	                         {:name (obligation-name obligation)}))
+  1071	              (if (and (map? obligation) (contains? obligation :kind))
+  1072	                (declared-discharge receiver obligation)
+  1073	                (when (not (resolvable? receiver obligation))
+  1074	                  (refused :unresolved-free
+  1075	                           {:name (obligation-name obligation)})))))
+  1076	        obligations))
+  1077	
+  1078	
+rg: src/cljc/yin/vm/linker/dht/authority.cljc: IO error for operation on src/cljc/yin/vm/linker/dht/authority.cljc: No such file or directory (os error 2)
+
+exec
+/bin/zsh -lc "sed -n '35,120p' src/cljc/yin/repl/link.cljc; rg --files src | rg '(ring|authority)'; nl -ba src/cljc/dao/stream.cljc | sed -n '65,92p'; rg -n 'defn- receive-module|defn receive-module' src/cljc/yin/vm/engine.cljc; rg -n 'capacity|gap|cursor' src/cljc/dao/stream/*ring*" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+  (:require [dao.jing.content :as content]
+            [dao.space.dht :as dht]
+            [dao.stream :as stream]
+            [dao.stream.ringbuffer :as ring]
+            [yin.vm.linker :as linker]
+            [yin.vm.linker.dht :as linker.dht]))
+
+
+(def pair-capacity
+  "Declared capacity of each link-pair medium, in elements.  The shell
+   appends one request per require, and a response medium a receiver
+   never drains answers `gap` (an evicted request is never re-read), so
+   the bound is generous and the eviction it guards against is a host
+   assembly defect, not an operating condition."
+  1024)
+
+
+(def content-capacity
+  "Declared capacity of each content-pair medium, in elements.  One
+   attempt's traffic is a handful of requests; the media persist across
+   attempts and every attempt mints its cursors at their newest end, so
+   an old element is never read again."
+  1024)
+
+
+(def attempt-budget
+  "Drive rounds one link attempt may spend before it reports `:pending`.
+   A local pair answers within a few rounds per content request, so the
+   budget is reached only by a content source that never answers."
+  64)
+
+
+(def serve-steps
+  "Server advances one drive round performs at most.  Each answers at
+   least one waiting content request, so a local pair drains in a bound
+   number of rounds."
+  32)
+
+
+(def serve-budget
+  "Link requests one serve round answers, in request order.  It exceeds
+   what one evaluation's requires can enqueue, so a round that spends it
+   is answering a queue the shell did not write."
+  64)
+
+
+(def formats
+  "The seven format records a serving composition holds (sections 5 and
+   8.1): the five execution formats a requesting kernel names, and the
+   two the manifest flow fetches internally."
+  (into {}
+        (map (fn [r] [(:format r) r]))
+        [linker/ast-format linker/semantic-format linker/semantic-register-format
+         linker/stack-format
+         linker/register-format linker/manifest-format
+         linker/record-format]))
+
+
+(defn- medium
+  [capacity]
+  (:dao.stream/handle
+    (ring/create! {:dao.stream/type ring/transport-type
+                   ring/capacity-key capacity})))
+
+
+(defn- newest
+  [handle]
+  (:dao.stream/cursor (stream/cursor handle stream/anchor-newest)))
+
+
+(defn make-pair
+  "The link pair of one session (section 6.1): the request and response
+   media, and the interpreter's own request cursor, minted before any
+   request exists."
+  []
+  (let [requests (medium pair-capacity)
+        responses (medium pair-capacity)]
+    {:requests requests
+     :responses responses
+     :cursor (:dao.stream/cursor
+               (stream/cursor requests stream/anchor-oldest))}))
+
+
+(defn composition
+  "The content side of the shell's link composition, from the host's
+   creation options.  `content-store` is a `dao.jing` byte-store handle
+src/cljc/dao/postgraphics/lowering.cljc
+src/cljc/dao/stream/ringbuffer.cljc
+src/cljc/dao/stream/cbor/boring.cljc
+src/cljc/dao/jing/cbor/boring.cljc
+src/cljc/yin/vm/linker/authority.cljc
+src/cljc/yin/vm/ucf/authority.cljc
+src/cljc/yin/vm/ucf/authority/grant.cljc
+src/cljc/yin/vm/ucf/authority/seam.cljc
+src/cljc/yin/vm/ucf/authority/input.cljc
+src/cljc/yin/vm/ucf/authority/front.cljc
+src/cljc/yin/vm/ucf/authority/completion.cljc
+src/cljc/yin/vm/ucf/authority/admission.cljc
+    65	
+    66	
+    67	(def outcomes-descriptor
+    68	  #{:dao.stream/ok})
+    69	
+    70	
+    71	(def outcomes-cursor
+    72	  #{:dao.stream/ok
+    73	    :dao.stream/invalid-anchor
+    74	    :dao.stream/closed
+    75	    :dao.stream/refused
+    76	    :dao.stream/transport-error})
+    77	
+    78	
+    79	(def outcomes-next
+    80	  #{:dao.stream/ok
+    81	    :dao.stream/blocked
+    82	    :dao.stream/end
+    83	    :dao.stream/gap
+    84	    :dao.stream/cursor-mismatch
+    85	    :dao.stream/invalid-cursor
+    86	    :dao.stream/refused
+    87	    :dao.stream/transport-error})
+    88	
+    89	
+    90	(def outcomes-append
+    91	  #{:dao.stream/ok
+    92	    :dao.stream/full
+1090:(defn receive-module
+2:  "Fixed-capacity, evict-oldest DaoStream v2 reference transport."
+7:(def capacity-key :dao.stream.ringbuffer/capacity)
+19:       (integer? (get spec capacity-key))
+20:       (pos? (get spec capacity-key))))
+24:  [capacity]
+25:  ;; The logical identity is carried in descriptors and cursors.  It therefore
+28:         :capacity capacity
+55:  (cursor
+62:                                    :dao.stream/cursor
+66:                                    :dao.stream/cursor
+73:    [_ cursor-value]
+76:        (not (map? cursor-value)) (result :dao.stream/invalid-cursor)
+77:        (not (contains? cursor-value :dao.stream.ringbuffer/identity))
+78:        (result :dao.stream/invalid-cursor)
+79:        (not= (:identity s) (:dao.stream.ringbuffer/identity cursor-value))
+80:        (result :dao.stream/cursor-mismatch)
+81:        (not (integer? (:dao.stream.ringbuffer/position cursor-value)))
+82:        (result :dao.stream/invalid-cursor)
+84:        (let [pos (:dao.stream.ringbuffer/position cursor-value)
+89:            (assoc (result :dao.stream/gap)
+90:                   :dao.stream/cursor
+96:                    ;; handed its own tail back and re-gap forever.  Recovering
+104:             :dao.stream/cursor {:dao.stream.ringbuffer/identity (:identity s)
+125:                       first' (max (:first s) (- n (:capacity s)))]
+157:    (let [state (fresh-state (get spec capacity-key))]
+
+exec
+/bin/zsh -lc "nl -ba src/cljc/dao/stream/ringbuffer.cljc | sed -n '84,109p'; nl -ba src/cljc/yin/vm/linker/authority.cljc | sed -n '225,260p'; nl -ba src/cljc/yin/vm/engine.cljc | sed -n '1090,1125p'; nl -ba docs/design/dao.shibi.md | sed -n '38,72p'" in /Users/sto/workspace/datomworld
+ succeeded in 0ms:
+    84	        (let [pos (:dao.stream.ringbuffer/position cursor-value)
+    85	              frozen (when-not owner? (get-in s [:attachments attachment-id :tail]))
+    86	              visible-tail (if (some? frozen) frozen (:tail s))]
+    87	          (cond
+    88	            (< pos (:first s))
+    89	            (assoc (result :dao.stream/gap)
+    90	                   :dao.stream/cursor
+    91	                   {:dao.stream.ringbuffer/identity (:identity s)
+    92	                    ;; The contract's recovery position is the earliest retained
+    93	                    ;; position, which equals the tail when nothing is retained.
+    94	                    ;; It must never be an evicted position: a frozen attachment
+    95	                    ;; whose visible history is fully evicted would otherwise be
+    96	                    ;; handed its own tail back and re-gap forever.  Recovering
+    97	                    ;; past that tail is correct; the next read answers `end`.
+    98	                    :dao.stream.ringbuffer/position (:first s)})
+    99	            (< pos visible-tail)
+   100	            ;; `:first`, `:tail`, and `:values` are updated as one state value;
+   101	            ;; positions in this interval are always retained by the transport.
+   102	            {:dao.stream/outcome :dao.stream/ok
+   103	             :dao.stream/value (get (:values s) pos)
+   104	             :dao.stream/cursor {:dao.stream.ringbuffer/identity (:identity s)
+   105	                                 :dao.stream.ringbuffer/position (inc pos)}}
+   106	            (or (:closed? s) (some? frozen)) (result :dao.stream/end)
+   107	            :else (result :dao.stream/blocked))))))
+   108	
+   109	
+   225	
+   226	(defn- name-entry
+   227	  "The outcome for one name: :absent for zero remaining assertions, a
+   228	   successful resolution with provenance for exactly one distinct
+   229	   manifest address, :ambiguous-name naming every remaining address
+   230	   and asserter for more than one. Entries are ordered by address, so
+   231	   the outcome never depends on carrier order, recency, or sequence."
+   232	  [decls snapshot cands]
+   233	  (let [entries (sort-by (fn [e] (str (:address e) " " (:asserter e)))
+   234	                         (distinct
+   235	                           (map (fn [cand]
+   236	                                  {:address (get (:env cand)
+   237	                                                 :yin.module/manifest)
+   238	                                   :asserter (:principal cand)})
+   239	                                cands)))
+   240	        addresses (distinct (map :address entries))
+   241	        asserters (distinct (map :asserter entries))]
+   242	    (case (count addresses)
+   243	      0 {:status :refused :reason :absent}
+   244	      1 {:status :ok
+   245	         :address (first addresses)
+   246	         :yin.link/provenance
+   247	         {:yin.module/asserted-by (vec asserters)
+   248	          :yin.link/proof-kind
+   249	          (vec (distinct (map (fn [p] (get (get decls p) :proof))
+   250	                              asserters)))
+   251	          :yin.link/snapshot snapshot}}
+   252	      {:status :refused
+   253	       :reason :ambiguous-name
+   254	       :addresses (vec addresses)
+   255	       :asserters (vec asserters)})))
+   256	
+   257	
+   258	(defn name-environment
+   259	  "Fold `events` under `authority` into the name-environment snapshot
+   260	   of section 8.2.
+  1090	(defn receive-module
+  1091	  "Acts 3 and 4 of `linked` for one receiving task (yin.vm.linker.md
+  1092	   section 7.3): attach every origin image of `entry` the kernel does not
+  1093	   yet hold, non-destructively; lower the resources the slice and the
+  1094	   snapshots it instantiates reference into the task's private
+  1095	   `:resources` (r9); lower the slice against this task's own
+  1096	   coordinates into the entry's `:bindings`, every reference re-sealed
+  1097	   under this task's secret (r10); and instantiate each store snapshot
+  1098	   into `:module-stores` unless the task already holds that module's
+  1099	   store -- first link wins, a live instance is never overwritten.
+  1100	   Nothing is written into the task's own `:store`."
+  1101	  [state module-name entry]
+  1102	  (let [attached (reduce module/attach-module state
+  1103	                         (map val (sort-by key (:images entry))))
+  1104	        held (or (:module-stores attached) {})
+  1105	        fresh (into {} (remove #(contains? held (key %))) (:stores entry))
+  1106	        [attached streams cells]
+  1107	        (lower-resources attached
+  1108	                         (concat (vals (:slice entry)) (vals fresh))
+  1109	                         (:cells entry))
+  1110	        decode (decoder attached streams cells)
+  1111	        bindings (into {}
+  1112	                       (map (fn [[k v]] [k (decode v)]))
+  1113	                       (:slice entry))
+  1114	        stores (into held
+  1115	                     (map (fn [[m snapshot]]
+  1116	                            [m (decode-store decode snapshot)]))
+  1117	                     fresh)]
+  1118	    (-> attached
+  1119	        (assoc :module-stores stores)
+  1120	        (update :modules module/assoc-module module-name
+  1121	                (assoc entry :bindings bindings)))))
+  1122	
+  1123	
+  1124	;; =============================================================================
+  1125	;; Link waits and the install child (yin.vm.linker.md sections 7.2 to 7.4)
+    38	  decision medium (`dao.stream.middleware.md`, gate). The value published
+    39	  is the tuple space's state at that moment.
+    40	- **Its query interpreter is `verify`**, and `verify` is the required
+    41	  adapter contract: a pure function of one immutable query value, the
+    42	  context and the request, evaluating ShiBi's authorization rules as a
+    43	  Datalog query with the request as bindings, the shape
+    44	  `dao.space.query/q` already has (a query over immutable inputs, opening
+    45	  nothing), and answering nil or a reason.
+    46	- **A `present`**, a pure function of context and request that produces
+    47	  the value carried in `:dao.stream.remote/credential`.
+    48	- **A reason vocabulary** under its own namespace for
+    49	  `:dao.stream.middleware/reason`.
+    50	- **Where use is metered**, the decision facts the gate emits, which the
+    51	  index observes like any other fact stream.
+    52	
+    53	**Limits of the adapter contract**, stated precisely. `verify` runs
+    54	synchronously inside one operation on one snapshot: its cost per operation
+    55	is bounded by the composition, and a query over an opened published index
+    56	resolves only what is already local, because `verify` opens, fetches and
+    57	waits for nothing; a rule that would need a remote read is a rule the index
+    58	must have materialized. Its input is the latest published snapshot, so a
+    59	grant or revocation is effective only once the index has observed and
+    60	published it: staleness is bounded by the index's cadence and the medium's
+    61	eviction, and a policy that must fail closed does so on the `none` marker
+    62	and the `ended` marker. A decision is per call and is not itself a fact
+    63	unless the gate emits it.
+    64	
+    65	**Non-goal in this version.** Request-specific decisions published through
+    66	ordinary streams, the query interpreter reading requests off a stream and
+    67	appending one decision per request for the gate to await, are not
+    68	specified: a gate awaiting a per-request answer would wait, and no
+    69	operation waits. If a later ShiBi needs that path it is an addition beside
+    70	`verify`, not a change to it.
+    71	
+    72	The contract's refusal outcome is `:dao.stream/refused` and is
+
+codex
+Completed-GMT: 2026-10-12 05:47:18 GMT
+Completed-Local: 2026-10-12 12:47:18 +07 (Asia/Ho_Chi_Minh)
+
+**REJECT**
+
+Two open in-scope P1 defects remain: the retirement predicate misses the first request of a run, and the host answer recheck can starve a valid answer behind irrelevant answers. Everything else below is non-blocking.
+
+References to **R2** mean [the revised design](/Users/sto/workspace/datomworld/collab/1792232000000-architect-admission-stream-r2.claude-fable-5-1.findings.md).
+
+**Round-1 disposition**
+
+| Finding | Status | Mechanism, source evidence, and regression acceptance |
+|---|---|---|
+| **F1 — Resolution binding** | **FIXED** | R2:42–50 retains the question, prohibits re-resolution, and passes its address to `dht-attempt`. That function already accepts an explicit address ([link.cljc:330](/Users/sto/workspace/datomworld/src/cljc/yin/repl/link.cljc:330)); resolution supplies the address and asserter provenance ([authority.cljc:244](/Users/sto/workspace/datomworld/src/cljc/yin/vm/linker/authority.cljc:244)). This is sound, minimal, and implementable. The head-change test at R2:50, required by AD-1/AD-2, fails if an allow fetches the replacement head. Registry propagation still needs the concrete edit in finding 4. |
+| **F2 — Abandonment releases the queue** | **NOT FIXED** | R2:54–58 adds the right retirement boundary, but its counter predicate is wrong for the source’s minting convention. The F2 test at R2:60/105 would fail for the first root request. See finding 1. |
+| **F3 — Automatic resume** | **PARTIAL** | R2:66 correctly adds question publication and admission-interpreter progress to the existing continuation test ([repl.cljc:1340](/Users/sto/workspace/datomworld/src/cljc/yin/repl.cljc:1340)). R2:67 adds the missing host hook beside the existing load/head hook ([repl.cljc:1943](/Users/sto/workspace/datomworld/src/cljc/yin/repl.cljc:1943)). The single-answer acceptance at R2:72/105 covers the basic resume path, but the bounded, non-consuming peek can starve it. See finding 2. |
+| **F4 — ShiBi contract** | **PARTIAL** | R2:76–80 fixes the three-argument signature, composition-owned context, absent/ended behavior, and “addition beside the gate” claim. These match [dao.shibi.md:40](/Users/sto/workspace/datomworld/docs/design/dao.shibi.md:40), [its synchronous limits](/Users/sto/workspace/datomworld/docs/design/dao.shibi.md:53), and [its non-goal](/Users/sto/workspace/datomworld/docs/design/dao.shibi.md:65). Pending on an absent snapshot grants nothing and is fail-closed for a waiting link. However, the composition’s verification-cost bound is omitted, and AD-0 checks documentation rather than executable behavior. See finding 5. |
+| **F5 — Portable driver wiring** | **FIXED** | R2:93 explicitly changes `run-over-dht` to create, drive, and retain both interpreter states, replacing the current link-only loop ([dht_import_test.cljc:281](/Users/sto/workspace/datomworld/test/yang/python/antlr/dht_import_test.cljc:281)). R2:103–104 requires portable imports on every VM and both interpreters in the driver. The mechanism is minimal and implementable; those acceptances fail if admission is never driven. |
+
+**Numbered findings**
+
+1. **P1 — Retirement excludes the first root request. Owner: linker engineer and VM engineer.**
+
+   R2:54 retires root ids when `k > :after`; R2:56 sets `:after` to the base VM’s `:id-counter`. But [mint-link-id](/Users/sto/workspace/datomworld/src/cljc/yin/vm/module.cljc:492) emits the **current** counter and then increments it. With base counter zero, the first request is `[:t0 0]`, which the proposed predicate does not retire.
+
+   Consequently, abandon leaves the unanswered question and link cursor in place. The next unrelated require remains blocked at that request, exactly the original F2 failure. The current server stops at the first pending request ([link.cljc:451](/Users/sto/workspace/datomworld/src/cljc/yin/repl/link.cljc:451)).
+
+   **Exact fix:** Define the root interval as `base-counter <= k < parked-counter`, with missing counters normalized to zero. Include the upper bound in the run descriptor. Match descendant origins by exact origin or `origin + "."` prefix, rather than raw prefix matching. Keep the existing stop-at-first-unrelated-request rule.
+
+   **Acceptance:** Start with an absent/zero counter; first require opens unanswered admission; abandon; unrelated trusted require completes on the same pair. Repeat with a nonzero base counter and nested install origins. Assert that an unrelated origin such as `:t0.10` does not match descendant root `:t0.1`.
+
+2. **P1 — The answer recheck can permanently miss a valid retained answer. Owner: VM engineer.**
+
+   R2:67 scans at most `serve-budget` answers **without retaining the successor cursor**, and invokes the consuming drive only if that window contains a pending id. Put 64 unknown or retired answers before a valid answer: every tick scans the same 64 irrelevant values and returns unchanged state. The valid answer never reaches the drain described at R2:46.
+
+   This is realistic within the proposed duplicate/late-answer protocol: the existing budget is 64, while the link ring capacity is 1024 ([link.cljc:43](/Users/sto/workspace/datomworld/src/cljc/yin/repl/link.cljc:43), [link.cljc:74](/Users/sto/workspace/datomworld/src/cljc/yin/repl/link.cljc:74)). Stream reads advance only through returned successor cursors ([ringbuffer.cljc:99](/Users/sto/workspace/datomworld/src/cljc/dao/stream/ringbuffer.cljc:99)).
+
+   **Exact fix:** Make the hook perform a bounded consuming drain, persist its cursor and matching answers, then recheck when the retained answer map contains a pending id. Irrelevant answers must advance the cursor without incrementing `:checks`. Specify gap recovery using the stream’s recovery cursor.
+
+   **Acceptance:** After the initial drive stops, append `serve-budget` irrelevant answers and then the valid allow. Host ticks alone must complete the require. Add a gap-recovery case and assert no recheck-count increment for irrelevant traffic.
+
+3. **P2, non-blocking — Admission successor state is omitted from error rollback. Owner: VM engineer.**
+
+   R2 threads `:admission` through ordinary driving but does not update [link-raise](/Users/sto/workspace/datomworld/src/cljc/yin/repl.cljc:1232) and [carry-served](/Users/sto/workspace/datomworld/src/cljc/yin/repl.cljc:1249). Both error paths restore an earlier shell state while preserving the advanced link pair. Admission cleanup, cursors, answers, and serial allocation can therefore roll back independently, leaving stale retained entries or replaying answered questions.
+
+   **Exact fix:** Carry the full admission successor through the exception data and restore it alongside the link pair. Add acceptance for allow → install error → subsequent require, asserting monotone serial allocation, no stale `:asked` entry, and no replay-generated progress.
+
+4. **P2, non-blocking — Registry admission metadata needs an explicit installation edit. Owner: VM engineer.**
+
+   R2:27/48 promises an admission record in the registry, and AD-1 requires it, but the edit list does not identify its propagation point. [engine/link-install](/Users/sto/workspace/datomworld/src/cljc/yin/vm/engine.cljc:1390) reconstructs entries through [module/link-module](/Users/sto/workspace/datomworld/src/cljc/yin/vm/module.cljc:88), whose fixed map drops admission keys from the response.
+
+   **Exact fix:** Specify copying the validated admission record from the successful response into the registry entry before `receive-module`. Retain it through child inheritance and dependency transfer. Extend AD-1 to inspect the installed entry and inherited entry.
+
+   Also clarify R2:50: the response’s `:manifest` is a manifest value; compare its content address to M1, or compare it to M1’s manifest value.
+
+5. **P2, non-blocking — Verification limits and snapshot behavior lack executable acceptance. Owner: admission interpreter engineer.**
+
+   R2:78 prohibits opening, fetching, and waiting, but omits ShiBi’s composition-bounded verification cost. AD-0 requires prose about absent/ended snapshots; no acceptance exercises those branches or the three supplied arguments.
+
+   **Exact fix:** State the composition-owned cost bound. Add portable assertions that `verify` receives the exact snapshot, context, and question; absent snapshot leaves admission unanswered; ended snapshot refuses without loading; and authorization context never enters linker question data.
+
+The remaining adversarial checks support the architecture. Retaining the original address across head changes is deliberate authorization binding. `[link-id serial]` separates questions on a surviving pair, provided rollback preserves state; reset creates fresh media. Drive continuation remains bounded by the existing round budget. Neutral admission vocabulary stays outside capability semantics, and malformed/non-empty-condition refusals remain fail-closed.
+
+Session-wide cache exposure is consistent with [module’s cache return](/Users/sto/workspace/datomworld/src/cljc/yin/vm/module.cljc:552), [child inheritance](/Users/sto/workspace/datomworld/src/cljc/yin/vm/engine.cljc:1289), and [dependency transfer](/Users/sto/workspace/datomworld/src/cljc/yin/vm/engine.cljc:1396). `(lang ...)` preserves that registry ([repl.cljc:1799](/Users/sto/workspace/datomworld/src/cljc/yin/repl.cljc:1799)). Trust does not weaken [profile/dependency discharge](/Users/sto/workspace/datomworld/src/cljc/yin/vm/linker.cljc:1020) or [export-origin validation](/Users/sto/workspace/datomworld/src/cljc/yin/vm/engine.cljc:1347).
+
+Read-only review completed. No files edited or suites run.
+tokens used
+64,189
+Completed-GMT: 2026-10-12 05:47:18 GMT
+Completed-Local: 2026-10-12 12:47:18 +07 (Asia/Ho_Chi_Minh)
+
+**REJECT**
+
+Two open in-scope P1 defects remain: the retirement predicate misses the first request of a run, and the host answer recheck can starve a valid answer behind irrelevant answers. Everything else below is non-blocking.
+
+References to **R2** mean [the revised design](/Users/sto/workspace/datomworld/collab/1792232000000-architect-admission-stream-r2.claude-fable-5-1.findings.md).
+
+**Round-1 disposition**
+
+| Finding | Status | Mechanism, source evidence, and regression acceptance |
+|---|---|---|
+| **F1 — Resolution binding** | **FIXED** | R2:42–50 retains the question, prohibits re-resolution, and passes its address to `dht-attempt`. That function already accepts an explicit address ([link.cljc:330](/Users/sto/workspace/datomworld/src/cljc/yin/repl/link.cljc:330)); resolution supplies the address and asserter provenance ([authority.cljc:244](/Users/sto/workspace/datomworld/src/cljc/yin/vm/linker/authority.cljc:244)). This is sound, minimal, and implementable. The head-change test at R2:50, required by AD-1/AD-2, fails if an allow fetches the replacement head. Registry propagation still needs the concrete edit in finding 4. |
+| **F2 — Abandonment releases the queue** | **NOT FIXED** | R2:54–58 adds the right retirement boundary, but its counter predicate is wrong for the source’s minting convention. The F2 test at R2:60/105 would fail for the first root request. See finding 1. |
+| **F3 — Automatic resume** | **PARTIAL** | R2:66 correctly adds question publication and admission-interpreter progress to the existing continuation test ([repl.cljc:1340](/Users/sto/workspace/datomworld/src/cljc/yin/repl.cljc:1340)). R2:67 adds the missing host hook beside the existing load/head hook ([repl.cljc:1943](/Users/sto/workspace/datomworld/src/cljc/yin/repl.cljc:1943)). The single-answer acceptance at R2:72/105 covers the basic resume path, but the bounded, non-consuming peek can starve it. See finding 2. |
+| **F4 — ShiBi contract** | **PARTIAL** | R2:76–80 fixes the three-argument signature, composition-owned context, absent/ended behavior, and “addition beside the gate” claim. These match [dao.shibi.md:40](/Users/sto/workspace/datomworld/docs/design/dao.shibi.md:40), [its synchronous limits](/Users/sto/workspace/datomworld/docs/design/dao.shibi.md:53), and [its non-goal](/Users/sto/workspace/datomworld/docs/design/dao.shibi.md:65). Pending on an absent snapshot grants nothing and is fail-closed for a waiting link. However, the composition’s verification-cost bound is omitted, and AD-0 checks documentation rather than executable behavior. See finding 5. |
+| **F5 — Portable driver wiring** | **FIXED** | R2:93 explicitly changes `run-over-dht` to create, drive, and retain both interpreter states, replacing the current link-only loop ([dht_import_test.cljc:281](/Users/sto/workspace/datomworld/test/yang/python/antlr/dht_import_test.cljc:281)). R2:103–104 requires portable imports on every VM and both interpreters in the driver. The mechanism is minimal and implementable; those acceptances fail if admission is never driven. |
+
+**Numbered findings**
+
+1. **P1 — Retirement excludes the first root request. Owner: linker engineer and VM engineer.**
+
+   R2:54 retires root ids when `k > :after`; R2:56 sets `:after` to the base VM’s `:id-counter`. But [mint-link-id](/Users/sto/workspace/datomworld/src/cljc/yin/vm/module.cljc:492) emits the **current** counter and then increments it. With base counter zero, the first request is `[:t0 0]`, which the proposed predicate does not retire.
+
+   Consequently, abandon leaves the unanswered question and link cursor in place. The next unrelated require remains blocked at that request, exactly the original F2 failure. The current server stops at the first pending request ([link.cljc:451](/Users/sto/workspace/datomworld/src/cljc/yin/repl/link.cljc:451)).
+
+   **Exact fix:** Define the root interval as `base-counter <= k < parked-counter`, with missing counters normalized to zero. Include the upper bound in the run descriptor. Match descendant origins by exact origin or `origin + "."` prefix, rather than raw prefix matching. Keep the existing stop-at-first-unrelated-request rule.
+
+   **Acceptance:** Start with an absent/zero counter; first require opens unanswered admission; abandon; unrelated trusted require completes on the same pair. Repeat with a nonzero base counter and nested install origins. Assert that an unrelated origin such as `:t0.10` does not match descendant root `:t0.1`.
+
+2. **P1 — The answer recheck can permanently miss a valid retained answer. Owner: VM engineer.**
+
+   R2:67 scans at most `serve-budget` answers **without retaining the successor cursor**, and invokes the consuming drive only if that window contains a pending id. Put 64 unknown or retired answers before a valid answer: every tick scans the same 64 irrelevant values and returns unchanged state. The valid answer never reaches the drain described at R2:46.
+
+   This is realistic within the proposed duplicate/late-answer protocol: the existing budget is 64, while the link ring capacity is 1024 ([link.cljc:43](/Users/sto/workspace/datomworld/src/cljc/yin/repl/link.cljc:43), [link.cljc:74](/Users/sto/workspace/datomworld/src/cljc/yin/repl/link.cljc:74)). Stream reads advance only through returned successor cursors ([ringbuffer.cljc:99](/Users/sto/workspace/datomworld/src/cljc/dao/stream/ringbuffer.cljc:99)).
+
+   **Exact fix:** Make the hook perform a bounded consuming drain, persist its cursor and matching answers, then recheck when the retained answer map contains a pending id. Irrelevant answers must advance the cursor without incrementing `:checks`. Specify gap recovery using the stream’s recovery cursor.
+
+   **Acceptance:** After the initial drive stops, append `serve-budget` irrelevant answers and then the valid allow. Host ticks alone must complete the require. Add a gap-recovery case and assert no recheck-count increment for irrelevant traffic.
+
+3. **P2, non-blocking — Admission successor state is omitted from error rollback. Owner: VM engineer.**
+
+   R2 threads `:admission` through ordinary driving but does not update [link-raise](/Users/sto/workspace/datomworld/src/cljc/yin/repl.cljc:1232) and [carry-served](/Users/sto/workspace/datomworld/src/cljc/yin/repl.cljc:1249). Both error paths restore an earlier shell state while preserving the advanced link pair. Admission cleanup, cursors, answers, and serial allocation can therefore roll back independently, leaving stale retained entries or replaying answered questions.
+
+   **Exact fix:** Carry the full admission successor through the exception data and restore it alongside the link pair. Add acceptance for allow → install error → subsequent require, asserting monotone serial allocation, no stale `:asked` entry, and no replay-generated progress.
+
+4. **P2, non-blocking — Registry admission metadata needs an explicit installation edit. Owner: VM engineer.**
+
+   R2:27/48 promises an admission record in the registry, and AD-1 requires it, but the edit list does not identify its propagation point. [engine/link-install](/Users/sto/workspace/datomworld/src/cljc/yin/vm/engine.cljc:1390) reconstructs entries through [module/link-module](/Users/sto/workspace/datomworld/src/cljc/yin/vm/module.cljc:88), whose fixed map drops admission keys from the response.
+
+   **Exact fix:** Specify copying the validated admission record from the successful response into the registry entry before `receive-module`. Retain it through child inheritance and dependency transfer. Extend AD-1 to inspect the installed entry and inherited entry.
+
+   Also clarify R2:50: the response’s `:manifest` is a manifest value; compare its content address to M1, or compare it to M1’s manifest value.
+
+5. **P2, non-blocking — Verification limits and snapshot behavior lack executable acceptance. Owner: admission interpreter engineer.**
+
+   R2:78 prohibits opening, fetching, and waiting, but omits ShiBi’s composition-bounded verification cost. AD-0 requires prose about absent/ended snapshots; no acceptance exercises those branches or the three supplied arguments.
+
+   **Exact fix:** State the composition-owned cost bound. Add portable assertions that `verify` receives the exact snapshot, context, and question; absent snapshot leaves admission unanswered; ended snapshot refuses without loading; and authorization context never enters linker question data.
+
+The remaining adversarial checks support the architecture. Retaining the original address across head changes is deliberate authorization binding. `[link-id serial]` separates questions on a surviving pair, provided rollback preserves state; reset creates fresh media. Drive continuation remains bounded by the existing round budget. Neutral admission vocabulary stays outside capability semantics, and malformed/non-empty-condition refusals remain fail-closed.
+
+Session-wide cache exposure is consistent with [module’s cache return](/Users/sto/workspace/datomworld/src/cljc/yin/vm/module.cljc:552), [child inheritance](/Users/sto/workspace/datomworld/src/cljc/yin/vm/engine.cljc:1289), and [dependency transfer](/Users/sto/workspace/datomworld/src/cljc/yin/vm/engine.cljc:1396). `(lang ...)` preserves that registry ([repl.cljc:1799](/Users/sto/workspace/datomworld/src/cljc/yin/repl.cljc:1799)). Trust does not weaken [profile/dependency discharge](/Users/sto/workspace/datomworld/src/cljc/yin/vm/linker.cljc:1020) or [export-origin validation](/Users/sto/workspace/datomworld/src/cljc/yin/vm/engine.cljc:1347).
+
+Read-only review completed. No files edited or suites run.
