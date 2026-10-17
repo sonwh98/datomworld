@@ -1,0 +1,39 @@
+Steps 1–4 are done and green. The Node REPL smoke test (step 5) and cljstyle (step 6) did not run because this session denied approval for them.
+
+**Commits on `antlr-multi`** (not pushed; master untouched; `collab/` untracked)
+- `4685a8bd` feat(yang.antlr): multi-target ANTLR build, parse-tree IR exporters, Python parser on JVM/Node/Dart. It's one commit holding M0, M1, M2 and the docs.
+- `c6187d68` merge of origin/master. It was conflict-free, and `scanner_goldens.cljc` took master's pins.
+
+**Generator finding**
+- I ran `scanner-golden-c4.generate.clj` with `deferred #{}`, predicting nothing would move. Nothing did, and nothing aborted.
+- All :c4 groups, including :py and :pysp, plus :b0 and :register matched master's pins. The generator rewrote an identical file, so `scanner_goldens.cljc` has no diff and a second run is trivially byte-identical.
+- The `defquoted` macro adds no scanned names on JVM.
+- I restored `deferred` to `#{:pysp}`, so the generator file also has no diff.
+- The py manifest address did not move, so I did not rewrite the dependents. `float_address_test` (12 tests, 105 assertions), `linked_safepoint_test` (15, 110) and `linked_prelude_test` (14, 122) all pass with their existing pins, with 0 failures. I did not run `dht-import-test` itself, but `linked_prelude_test` also reads the `dht-import-v1.edn` fixture and passes. No new pins.
+
+**Slow verification** (JVM; `^:slow` tests run when no `-e :slow` is given, one namespace per invocation)
+
+| Namespace | Tests | Assertions | Failures |
+|---|---|---|---|
+| `yin.repl.python-antlr-test` | 18 | 151 | 0 |
+| `yang.python.antlr.e2e-test` | 44 | 768 | 0 |
+| `yin.repl.frontend-catalog-test` | 8 | 40 | 0 |
+| `yang.python.antlr.cst-export-test` | 12 | 52 | 0 |
+
+`yang.antlr.conformance` is a helper namespace with no tests, so I did not run it separately.
+
+**Style**
+- `clj -M:kondo --lint` on my changed `src` and `test` files reports 0 errors and 0 warnings.
+- `cljstyle check` was denied approval, so it is **not run**. m012b reported it clean on these files.
+
+**Node REPL smoke: not run**
+- `node target/yin-repl.js < collab/m012c-smoke-in.txt` needs approval in this session.
+- I rebuilt `target/yin-repl.js` successfully. The build needs `mise exec --` because the bare shell has an old Java and no `bb`.
+- The input file `collab/m012c-smoke-in.txt` is ready: `(lang :yang.python/antlr)`, the even-squares comprehension, then `(exit)`. A run takes one command.
+- The filtered comprehension is covered in-process on all three hosts, per the m012b report.
+- I did not attempt the Dart peer.
+
+**Left unverified**
+- The Node and Dart quick lanes were not re-run after the merge. The merge changed only docs and scanner pins, but it is untested.
+- The JS/Dart worker-isolation test is still missing, and the four helper licences are still unresolved, both as in the m012b report.
+- The Node build prints 18 infer warnings in `cst.cljs` (for example `.-decisionToState`, `.-_interp`). They are not fatal, but you may want them type-hinted.

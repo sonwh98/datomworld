@@ -1,0 +1,58 @@
+All four findings are resolved and committed on `antlr-multi` as `25a908fb`. I did not push, did not touch master, and `collab/` stays untracked. The JVM, Node and Dart quick lanes pass. Kondo reports 0 errors and 0 warnings on the changed files, and `cljstyle check` printed nothing.
+
+## Resolution map
+
+**P1-1, validator.**
+- **`packet.cljc`:** `validate!` and `conform` now share one `violations` function. `validate!` is structural by default and source-aware with `{:source …}`. `conform [packet source opts]` is source-aware and also accepts `:rule-names`.
+- **Structural checks:** a single preorder walk rejects duplicate edges, out-of-order children, non-forward edges and unreachable nodes. Metadata checks cover version, unit, grammar name and completion. Outcome contracts distinguish ok packets from error packets, and error records are checked for kind, message, line, column and span.
+- **Source checks:** token text must equal the source, and spans must be in range and on UTF-8 boundaries. Terminals must be in order, rule extents must cover real children, and synthetic tokens must follow the policy.
+
+**P1-2, synthetic policy.**
+- **Policy:** `packet/synthetic-policy` is keyed on token type. DEDENT and EOF are always synthetic, NEWLINE only at the end of the source, and every other type never.
+- **Exporter:** `export.cljc` decides by type. A NEWLINE is synthetic only when the source disagrees with the helper and it sits at the end. Synthetic tokens get canonical text and a zero-width span.
+- **Result:** a collapsed synthetic NAME now fails validation and conform.
+- **Canonical text:** I chose DEDENT `""`, NEWLINE `"\n"` and EOF `"<EOF>"`. The helper's own text varied, for example `"y = 1"` and `"  # c"` on EOF.
+
+**P1-3, corpus.**
+- **`conformance.cljc`:** `shape` now includes child edges and synthetic flags. `check-error` checks columns and validates the error packet.
+- **Mutations:** `check-mutations` runs 14 mutations, which are your twelve plus two extras, a real EOF and a mid-file synthetic NEWLINE. Each must be refused by both `validate!` and `conform`, and the unmutated packet must conform. It runs on `"s = 'é𝄞'\nt = 2\n"`.
+- **Error-coordinate pins:** two helper-token disagreements are pinned, using the source `"  x = 1\n"`.
+- **Golden:** the golden test now asserts children and synthetic flags.
+- **`python_antlr_test`:** it used to run `conform` on hand-built packets with zero spans, which the strict oracle now rejects. It now conforms the parser's packet and still compares node shapes.
+
+**P2, design doc.** §4.6 now documents the duplicate `getIndentationCount` removal, the `:output-patches` import rewrite and the antlr4-default fallback, with manifest and file pointers and no collab references. It also notes that helper-token error coordinates are pinned per host.
+
+## Tests
+
+| Host | Result |
+|---|---|
+| JVM | `cst-export-test` went from 12 tests / 52 assertions to 15 / 151. The `python-antlr`, `lower-portable` and `scope` namespaces also pass. |
+| Node | No failures. The log prints no counts, but "Testing yang.python.antlr.cst-export-test" appears. |
+| Dart | `+4025: All tests passed!`. |
+
+The `[4 99]` span probe was already in the earlier Dart run. The 14-mutation corpus now runs in all three lanes.
+
+## Probe cases now refused
+
+All four are covered by the mutation corpus above:
+- Duplicate child edges.
+- Wrong token text.
+- A collapsed synthetic NAME.
+- A span ending inside `é`.
+
+Non-DFS child ordering is refused too, through the "children out of preorder" mutation.
+
+## Finding to review
+
+The helper-token error coordinates differ by host, which I did not expect. I pinned them per host instead of asserting one value:
+
+| Error | JVM | Node | Dart |
+|---|---|---|---|
+| INDENT error column | 2 | 2 | 0 |
+| EOF error [line column] | [1 0] | [2 0] | [1 7] |
+
+The byte spans agree on all three hosts. This matches §4.6's "not required to agree", but it means the Node and Dart helpers differ from the JVM's. You may want that recorded as known debt.
+
+## Left open
+
+- The token-ordering check requires a synthetic token to start at or after the previous real token's end. It held on every fixture here, but I have not tried it against more sources.

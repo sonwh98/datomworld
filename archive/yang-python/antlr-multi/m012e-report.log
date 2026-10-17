@@ -1,0 +1,32 @@
+The Node lane is still running and a background waiter will notify me when it ends; I'll wait for that notification.
+
+I added the NEWLINE and DEDENT error-coordinate fixtures to `test/yang/python/antlr/cst_export_test.cljc`, and they pass on the JVM, Node and Dart. The commit on `antlr-multi` is `a18666fb`. I did not push and did not touch master.
+
+The new test is `helper-token-error-coordinates-test`. Each case uses the strict `conformance/check-error` oracle, so the error packet is checked for conformance on each host. The coordinates are pinned per host from each host's own failing probe, not copied across.
+
+**Fixture sources**
+- NEWLINE: `"if x:\n    x =\n"`. This is the re-gate's probe source.
+- DEDENT: `"if x:\n    @d\ny = 1\n"`. A decorator with no definition followed by a dedent puts the error on the DEDENT token. I tried inconsistent-dedent sources first, but the JVM accepted them with no error.
+
+**Pinned coordinates**
+
+| fixture | host | line | column | byte span |
+|---|---|---|---|---|
+| NEWLINE | JVM | 3 | 0 | [13 14] |
+| NEWLINE | Node | 3 | 0 | [13 14] |
+| NEWLINE | Dart | 2 | 7 | [13 14] |
+| DEDENT | JVM | 2 | 0 | [13 13] |
+| DEDENT | Node | 3 | 0 | [13 13] |
+| DEDENT | Dart | 2 | 6 | [13 13] |
+
+The byte span agrees on every host. Only line and column differ, because each target's indentation helper reports its own.
+
+**Lane results**
+- **JVM:** `cst-export-test` ran 16 tests with 173 assertions and 0 failures. I did not run `python-antlr-test` on the JVM: no such namespace exists, and the wildcard run (`-r 'yang.python.antlr.*'`) hit the time limit and was stopped.
+- **Node (`bb test:cljs`):** 4078 tests, 0 failures, and `cst-export-test` ran.
+- **Dart (`bb test:cljd`):** all tests passed, and `cst-export-test` ran.
+- **Lint and format:** kondo reports 0 errors and 0 warnings on the changed file. `cljstyle check` produced no complaints, and the commit hook's formatter also ran.
+
+Nothing is open. I did not hit the "Patch does not apply" error. The Node lane takes more than 10 minutes, so I ran it in the background. The logs `collab/m012e-{jvm,node,dart}.log` are untracked, like the other collab files.
+
+That was the last background waiter finishing. It matches the Node result I already reported: 4078 tests, 0 failures. There's nothing new to act on, and the work is complete as in my report above (commit `a18666fb`, not pushed).

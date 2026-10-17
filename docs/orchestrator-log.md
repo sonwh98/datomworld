@@ -11965,3 +11965,31 @@ Process note: the s3-fix engineer claimed the typescript rewrap twice without do
   evidence by default.
 Next: the antlr M0-M2 (m012e's NEWLINE/DEDENT fixtures → the codex verification → land), then the C3
   completion gate (ruling 14) over the final head.
+
+## 2026-10-18 17:0x +07 — the ANTLR multi-target M0-M2 LANDED (b0b49c11); one grammar, three hosts
+The arc: the fable-authored plan (codex adversarial review, three rounds to READY) -> m012b (sonnet:
+  M0 the build — Java digests byte-identical, JS/Dart generated + digest-pinned, three justified M0
+  additions incl. the Dart AOT OOM fix via the defquoted EDN-string prelude; M1 the packet v1 IR +
+  conformance oracle, the CST-parity evidence incl. the [4 99] Dart-only mutation proving the Dart lane
+  really executes; M2 the parser on every host, JVM 4104/285465/0, Node 4074/0, Dart 4022/0) ->
+  m012c (the commits, the master merge, the generator with deferred #{} — NOTHING moved, even the py
+  manifest held) -> the codex gate REQUEST CHANGES (3 P1s: M1 did not implement the strengthened
+  contract the READY'd plan promised — the validator accepted duplicate edges/wrong text/spans ending
+  inside é, proved by codex probes) -> m012d (the strengthened validator: structural + source-aware,
+  the single preorder walk, the type-keyed synthetic policy with canonical text, the 14-mutation
+  corpus on three hosts) -> the re-gate (one item: the corpus pinned INDENT/EOF where the READY'd
+  review required NEWLINE/DEDENT; codex supplied the reproducing source) -> m012e (the fixtures,
+  pinned per host, byte spans agreeing) -> the final check (an evidence gap: a stale JVM log; my
+  corrected runs: the identical 16/173 namespace on all three hosts, Dart naming the new test) ->
+  READY -> m012f (the landing merge: the every-host binding WITH :render; the per-host harness WITH
+  the acceptance rows; the generator clean at the merged head) -> my ruling: master's stored packets
+  followed the runtime's DEDENT text; the canonical text IS the cross-host identity contract, so
+  m012g regenerated the 14 DEDENT literals and restored the strict comparison (the weakening commit
+  fefec6d4 reverted) -> my final-head runs: e2e 44/775/0, python-antlr 19/183/0; Node 4088/149962/0,
+  Dart all passed. Landed antlr-multi:master = b0b49c11.
+The owner's hold ("don't remove legacy until antlr works for JS and dart too") is now LIFTED by the
+  landing: the antlr Python frontend parses on JVM, Node and Dart. M3 (the legacy retirement) is
+  queued as its own gated round. The C3 completion gate (ruling 14) dispatches over this head.
+Process lessons recorded: gates cross-check "done" claims against blob/diff evidence (the s3 rewrap);
+evidence must be captured AT the claimed head (the stale m012e-jvm.log); canonical synthetic text is
+  the packet-identity contract (the DEDENT regen ruling).
