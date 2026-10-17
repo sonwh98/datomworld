@@ -1,0 +1,34 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.linker-require-test
+
+FAIL in (try-require-success-and-registry-hit-test) (linker_require_test.cljc:1609)
+semantic-register
+expected: (= [{:status :ok, :module (quote foo)} 42] (vm/value done))
+  actual: (not (= [{:status :ok, :module foo} 42] [foo 42]))
+
+FAIL in (try-require-success-and-registry-hit-test) (linker_require_test.cljc:1609)
+stack
+expected: (= [{:status :ok, :module (quote foo)} 42] (vm/value done))
+  actual: (not (= [{:status :ok, :module foo} 42] [foo 42]))
+
+FAIL in (try-require-success-and-registry-hit-test) (linker_require_test.cljc:1609)
+register
+expected: (= [{:status :ok, :module (quote foo)} 42] (vm/value done))
+  actual: (not (= [{:status :ok, :module foo} 42] [foo 42]))
+
+FAIL in (try-require-success-and-registry-hit-test) (linker_require_test.cljc:1609)
+semantic
+expected: (= [{:status :ok, :module (quote foo)} 42] (vm/value done))
+  actual: (not (= [{:status :ok, :module foo} 42] [foo 42]))
+
+FAIL in (try-require-success-and-registry-hit-test) (linker_require_test.cljc:1609)
+walker
+expected: (= [{:status :ok, :module (quote foo)} 42] (vm/value done))
+  actual: (not (= [{:status :ok, :module foo} 42] [foo 42]))
+
+Ran 38 tests containing 1017 assertions.
+5 failures, 0 errors.

@@ -1,0 +1,303 @@
+[
+ {
+  "id": "R30",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "carried code well-formedness unchecked",
+  "test": "yin.vm.ucf.rows-test/task-root-checks-carried-code-and-frame",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/task-root-checks-carried-code-and-frame"
+  ],
+  "exit": 1,
+  "seconds": 8.6,
+  "tests": 1,
+  "assertions": 6,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (task-root-checks-carried-code-and-frame) (rows_test.cljc:279)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ },
+ {
+  "id": "R33",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "non-portable literal accepted",
+  "test": "yin.vm.ucf.rows-test/schema-and-literal-canonicality",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/schema-and-literal-canonicality"
+  ],
+  "exit": 1,
+  "seconds": 8.6,
+  "tests": 1,
+  "assertions": 12,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (schema-and-literal-canonicality) (rows_test.cljc:226)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ },
+ {
+  "id": "R35",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "decoded-equality duplicate key unchecked",
+  "test": "yin.vm.ucf.rows-test/schema-and-literal-canonicality",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/schema-and-literal-canonicality"
+  ],
+  "exit": 0,
+  "seconds": 8.9,
+  "tests": 1,
+  "assertions": 12,
+  "failures": 0,
+  "errors": 0,
+  "fail_lines": [],
+  "status": "SURVIVED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ },
+ {
+  "id": "R45",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "row hash equality unchecked on decode",
+  "test": "yin.vm.ucf.rows-test/gates-and-graph-before-hashes",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/gates-and-graph-before-hashes"
+  ],
+  "exit": 1,
+  "seconds": 8.1,
+  "tests": 1,
+  "assertions": 13,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (gates-and-graph-before-hashes) (rows_test.cljc:195)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ },
+ {
+  "id": "R46",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "structural reference kind unchecked",
+  "test": "yin.vm.ucf.rows-test/gates-and-graph-before-hashes",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/gates-and-graph-before-hashes"
+  ],
+  "exit": 1,
+  "seconds": 10.7,
+  "tests": 1,
+  "assertions": 13,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (gates-and-graph-before-hashes) (rows_test.cljc:194)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ },
+ {
+  "id": "F2a",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "finding 2: census key spelling not validated",
+  "test": "yin.vm.ucf.rows-test/schema-and-literal-canonicality",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/schema-and-literal-canonicality"
+  ],
+  "exit": 1,
+  "seconds": 9.3,
+  "tests": 1,
+  "assertions": 12,
+  "failures": 5,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (schema-and-literal-canonicality) (rows_test.cljc:234)",
+   "FAIL in (schema-and-literal-canonicality) (rows_test.cljc:234)",
+   "FAIL in (schema-and-literal-canonicality) (rows_test.cljc:234)",
+   "FAIL in (schema-and-literal-canonicality) (rows_test.cljc:234)",
+   "FAIL in (schema-and-literal-canonicality) (rows_test.cljc:235)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ },
+ {
+  "id": "F2b",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "finding 2/8: census sorted by key spelling, not by n",
+  "test": "yin.vm.ucf.rows-test/census-is-numeric-from-ten-cells",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/census-is-numeric-from-ten-cells"
+  ],
+  "exit": 1,
+  "seconds": 7.6,
+  "tests": 1,
+  "assertions": 2,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (census-is-numeric-from-ten-cells) (rows_test.cljc:334)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ },
+ {
+  "id": "F3",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "finding 3: gate reads an unvalidated installs slot",
+  "test": "yin.vm.ucf.rows-test/gates-and-graph-before-hashes",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/gates-and-graph-before-hashes"
+  ],
+  "exit": 1,
+  "seconds": 7.7,
+  "tests": 1,
+  "assertions": 13,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (gates-and-graph-before-hashes) (rows_test.cljc:193)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ },
+ {
+  "id": "F6a",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "finding 6: malformed marker-shaped map encoded as a literal",
+  "test": "yin.vm.ucf.rows-test/marker-shaped-guest-maps-are-not-portable",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/marker-shaped-guest-maps-are-not-portable"
+  ],
+  "exit": 1,
+  "seconds": 7.6,
+  "tests": 1,
+  "assertions": 5,
+  "failures": 2,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (marker-shaped-guest-maps-are-not-portable) (rows_test.cljc:340)",
+   "FAIL in (marker-shaped-guest-maps-are-not-portable) (rows_test.cljc:340)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ },
+ {
+  "id": "F6b",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "finding 6: marker-shaped [:lit] decoded",
+  "test": "yin.vm.ucf.rows-test/marker-shaped-guest-maps-are-not-portable",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/marker-shaped-guest-maps-are-not-portable"
+  ],
+  "exit": 1,
+  "seconds": 7.3,
+  "tests": 1,
+  "assertions": 5,
+  "failures": 2,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (marker-shaped-guest-maps-are-not-portable) (rows_test.cljc:347)",
+   "FAIL in (marker-shaped-guest-maps-are-not-portable) (rows_test.cljc:347)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ },
+ {
+  "id": "F7",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "finding 7: present nil store-of accepted",
+  "test": "yin.vm.semantic-register.frame-test/rule-boundaries-refuse-their-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/rule-boundaries-refuse-their-tamper"
+  ],
+  "exit": 1,
+  "seconds": 7.1,
+  "tests": 1,
+  "assertions": 9,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (rule-boundaries-refuse-their-tamper) (frame_test.cljc:287)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ }
+]

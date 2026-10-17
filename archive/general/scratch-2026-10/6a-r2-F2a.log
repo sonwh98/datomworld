@@ -1,0 +1,30 @@
+clojure -M:test -n yin.vm.ucf.rows-test -v yin.vm.ucf.rows-test/schema-and-literal-canonicality
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (schema-and-literal-canonicality) (rows_test.cljc:234)
+expected: (= :slot-kind (:yin.k/kind (error (fn* [] (rows/decode (replace-row wire (first census) [:cells k (nth census 3)]))))))
+  actual: (not (= :slot-kind :missing-cell))
+
+FAIL in (schema-and-literal-canonicality) (rows_test.cljc:234)
+expected: (= :slot-kind (:yin.k/kind (error (fn* [] (rows/decode (replace-row wire (first census) [:cells k (nth census 3)]))))))
+  actual: (not (= :slot-kind :missing-cell))
+
+FAIL in (schema-and-literal-canonicality) (rows_test.cljc:234)
+expected: (= :slot-kind (:yin.k/kind (error (fn* [] (rows/decode (replace-row wire (first census) [:cells k (nth census 3)]))))))
+  actual: (not (= :slot-kind :missing-cell))
+
+FAIL in (schema-and-literal-canonicality) (rows_test.cljc:234)
+expected: (= :slot-kind (:yin.k/kind (error (fn* [] (rows/decode (replace-row wire (first census) [:cells k (nth census 3)]))))))
+  actual: (not (= :slot-kind :missing-cell))
+
+FAIL in (schema-and-literal-canonicality) (rows_test.cljc:235)
+expected: (= :slot-kind (:yin.k/kind (error (fn* [] (rows/decode (rows/emit-numbered task {}))))))
+  actual: (not (= :slot-kind :noncanonical-cells))
+
+Ran 1 tests containing 12 assertions.
+5 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

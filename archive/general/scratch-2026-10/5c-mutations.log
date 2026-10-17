@@ -1,0 +1,85 @@
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+FAIL in (free-occurrences-use-the-owner-tree) (scan_test.cljc:156)
+expected: (= expected (mapv (juxt :name :in-body?) (scan/free-occurrences (fixture n))))
+  actual: (not (= [[+ true]] [[+ true] [a true] [b true]]))
+
+FAIL in (free-occurrences-use-the-owner-tree) (scan_test.cljc:156)
+expected: (= expected (mapv (juxt :name :in-body?) (scan/free-occurrences (fixture n))))
+  actual: (not (= [] [[p true] [r true] [q true]]))
+
+FAIL in (free-occurrences-use-the-owner-tree) (scan_test.cljc:156)
+expected: (= expected (mapv (juxt :name :in-body?) (scan/free-occurrences (fixture n))))
+  actual: (not (= [] [[x true] [y true] [z true]]))
+
+FAIL in (free-occurrences-use-the-owner-tree) (scan_test.cljc:156)
+expected: (= expected (mapv (juxt :name :in-body?) (scan/free-occurrences (fixture n))))
+  actual: (not (= [[inc false] [n false] [list true]] [[inc false] [n false] [list true] [a true] [b true]]))
+
+FAIL in (free-occurrences-use-the-owner-tree) (scan_test.cljc:156)
+expected: (= expected (mapv (juxt :name :in-body?) (scan/free-occurrences (fixture n))))
+  actual: (not (= [[< true] [loop true] [- true]] [[< true] [n true] [loop true] [- true] [n true]]))
+
+FAIL in (free-occurrences-use-the-owner-tree) (scan_test.cljc:157)
+expected: (= [3 4 8] (mapv :at (scan/free-occurrences (fixture :define-then-call))))
+  actual: (not (= [3 4 8] [3 4 8 9 10]))
+MUTATION M1 lexical owner chain TEST free-occurrences-use-the-owner-tree COUNTS {:test 1, :pass 0, :fail 6, :error 0} RESULT :killed
+RESTORED M1 lexical owner chain cmp=0 git-diff-quiet=0
+
+FAIL in (free-occurrences-use-the-owner-tree) (scan_test.cljc:156)
+expected: (= expected (mapv (juxt :name :in-body?) (scan/free-occurrences (fixture n))))
+  actual: (not (= [[+ true]] [[+ false]]))
+
+FAIL in (free-occurrences-use-the-owner-tree) (scan_test.cljc:156)
+expected: (= expected (mapv (juxt :name :in-body?) (scan/free-occurrences (fixture n))))
+  actual: (not (= [[inc false] [n false] [list true]] [[inc false] [n false] [list false]]))
+
+FAIL in (free-occurrences-use-the-owner-tree) (scan_test.cljc:156)
+expected: (= expected (mapv (juxt :name :in-body?) (scan/free-occurrences (fixture n))))
+  actual: (not (= [[< true] [loop true] [- true]] [[< false] [loop false] [- false]]))
+MUTATION M2 body enclosure TEST free-occurrences-use-the-owner-tree COUNTS {:test 1, :pass 3, :fail 3, :error 0} RESULT :killed
+RESTORED M2 body enclosure cmp=0 git-diff-quiet=0
+
+FAIL in (definitions-respect-conditional-ranges) (scan_test.cljc:177)
+expected: (= [[:test false] [nil true] [(quote inside) true]] (mapv (juxt :name :conditional?) (scan/definition-occurrences vector)))
+  actual: (not (= [[:test false] [nil true] [inside true]] [[:test false] [nil false] [inside true]]))
+MUTATION M3 conditional ranges TEST definitions-respect-conditional-ranges COUNTS {:test 1, :pass 1, :fail 1, :error 0} RESULT :killed
+RESTORED M3 conditional ranges cmp=0 git-diff-quiet=0
+
+FAIL in (positions-are-the-v4-table) (scan_test.cljc:141)
+expected: (= #{7 :n (quote k)} (:store-keys (scan/requirements (fixture :store-ops))))
+  actual: (not (= #{7 :n k} #{:n 3 k 5}))
+MUTATION M4 store operand position TEST positions-are-the-v4-table COUNTS {:test 1, :pass 5, :fail 1, :error 0} RESULT :killed
+RESTORED M4 store operand position cmp=0 git-diff-quiet=0
+
+FAIL in (positions-are-the-v4-table) (scan_test.cljc:143)
+expected: (= #{:op/echo} (:ffi-ops (scan/requirements (fixture :ffi-call))))
+  actual: (not (= #{:op/echo} #{0}))
+MUTATION M5 ffi operand position TEST positions-are-the-v4-table COUNTS {:test 1, :pass 5, :fail 1, :error 0} RESULT :killed
+RESTORED M5 ffi operand position cmp=0 git-diff-quiet=0
+
+FAIL in (positions-are-the-v4-table) (scan_test.cljc:144)
+expected: (= #{:p} (:parked-ids (scan/requirements (fixture :resume-body))))
+  actual: (not (= #{:p} #{1}))
+MUTATION M6 parked operand position TEST positions-are-the-v4-table COUNTS {:test 1, :pass 5, :fail 1, :error 0} RESULT :killed
+RESTORED M6 parked operand position cmp=0 git-diff-quiet=0
+
+FAIL in (definitions-and-sites) (scan_test.cljc:168)
+:ffi-call
+expected: (= pcs (mapv :at (scan/application-sites (fixture n))))
+  actual: (not (= [2] []))
+MUTATION M7 ffi application site TEST definitions-and-sites COUNTS {:test 1, :pass 10, :fail 1, :error 0} RESULT :killed
+RESTORED M7 ffi application site cmp=0 git-diff-quiet=0
+
+FAIL in (positions-are-the-v4-table) (scan_test.cljc:145)
+expected: (= #{:stream/make :stream/cursor :stream/close :stream/next :stream/put} (:effects (scan/requirements (fixture :streams))))
+  actual: (not (= #{:stream/make :stream/cursor :stream/close :stream/next :stream/put} #{:stream/make :stream/cursor :stream/next :stream/put}))
+MUTATION M8 stream effect normalization TEST positions-are-the-v4-table COUNTS {:test 1, :pass 5, :fail 1, :error 0} RESULT :killed
+RESTORED M8 stream effect normalization cmp=0 git-diff-quiet=0
+
+FAIL in (segment-rows-carry-a-and-pc) (scan_test.cljc:184)
+expected: (= (mapv (fn [pc tuple] (into [a pc] tuple)) (range) vector) (scan/segment-rows vector))
+  actual: (not (= [[:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 0 :closure 2 [a] 6] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 1 :const 3 1] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 2 :call 1 2 [3] false] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 3 :const 4 2] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 4 :call 0 1 [4] false] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 5 :halt 0] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 6 :closure 0 [b] 8] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 7 :return 0] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 8 :var 1 +] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 9 :var 2 a] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 10 :var 3 b] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 11 :call 0 1 [2 3] true] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 12 :return 0]] [[:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 1 :closure 2 [a] 6] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 2 :const 3 1] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 3 :call 1 2 [3] false] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 4 :const 4 2] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 5 :call 0 1 [4] false] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 6 :halt 0] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 7 :closure 0 [b] 8] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 8 :return 0] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 9 :var 1 +] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 10 :var 2 a] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 11 :var 3 b] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 12 :call 0 1 [2 3] true] [:segment/blake3-d96ebbca00670ef9340379723f3fdd911a5c6b0d7b817077d9e12b0d567e9275 13 :return 0]]))
+MUTATION M9 segment pc TEST segment-rows-carry-a-and-pc COUNTS {:test 1, :pass 0, :fail 1, :error 0} RESULT :killed
+RESTORED M9 segment pc cmp=0 git-diff-quiet=0

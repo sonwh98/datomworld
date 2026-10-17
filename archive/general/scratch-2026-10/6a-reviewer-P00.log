@@ -1,0 +1,90 @@
+clojure -M:test -n yin.vm.ucf.rows-test -v yin.vm.ucf.rows-test/row-ids-are-jing-default
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+RVPROBE === worked-example vector ===
+RVPROBE 0 [:var 1 f]
+RVPROBE 1 [:var 3 g]
+RVPROBE 2 [:var 4 x]
+RVPROBE 3 [:call 2 3 [4] false]
+RVPROBE 4 [:var 5 y]
+RVPROBE 5 [:call 0 1 [2 5] false]
+RVPROBE 6 [:halt 0]
+RVPROBE address :segment/blake3-4102d6c838757d8ceeb175ae09abea2033fe12eb9bc9e8c48d8b689fd8fbf70f
+RVPROBE === row 22 bare: frame, nil window, hand Merkle ===
+RVPROBE state :act pc 8 deliver #:yin.k{:deliver :rd, :rd 3} k-count 1
+RVPROBE window keys->type {1 class yin.vm.values.Closure, 2 nil}
+RVPROBE bindings keys (cat) store-of nil
+RVPROBE inst at pc-1 [:stream-next 3 4] body registers 5
+RVPROBE saved #{1 2}
+RVPROBE k frames [[3 0 () ()]]
+RVPROBE defect nil
+RVPROBE opaque frame roundtrip equal? true
+RVPROBE hand window body [:window 1 [:lit :v] 2 [:lit nil]]
+RVPROBE hand window id in wire? true :segment/blake3-169e5b7aa55911b007a4d45d5791328d53211b3ac1c4117ec5a035af0aef050f
+RVPROBE wire window rows ([:segment/blake3-60baa0537bd11165c5a520e6b251cf277fccc575dcb7d692eae65249d90bda9b :window] [:segment/blake3-169e5b7aa55911b007a4d45d5791328d53211b3ac1c4117ec5a035af0aef050f :window 1 [:lit :v] 2 [:lit nil]])
+RVPROBE hand act id in wire? true
+RVPROBE hand root :segment/blake3-8c14cb536dd98a1c62cd00c3b577f11c23ed936d0d599186857d43fa3fb329d2
+RVPROBE wire root :segment/blake3-8c14cb536dd98a1c62cd00c3b577f11c23ed936d0d599186857d43fa3fb329d2 equal? true
+RVPROBE row count 11 kinds {:window 2, :bindings 2, :wait 1, :env 2, :kframe 1, :pending 1, :k 1, :act 1}
+RVPROBE === row 21 bare: E and lexical chain ===
+RVPROBE bindings {cat {:type :closure}, f {:type :closure}, x 1, y 7}
+RVPROBE free-env {x 99, y 7}
+RVPROBE pc 22 inst pc-1 [:stream-next 2 3]
+RVPROBE lexical-names (impl) #{x cat f}
+RVPROBE body-ranges [{:start 0, :end 4, :owner nil} {:start 4, :end 8, :owner 0} {:start 8, :end 13, :owner 1} {:start 13, :end 17, :owner 4} {:start 17, :end 19, :owner 5} {:start 19, :end 24, :owner 13}]
+RVPROBE 0 [:closure 1 [cat] 4]
+RVPROBE 1 [:closure 2 [p q] 8]
+RVPROBE 2 [:call 0 1 [2] false]
+RVPROBE 3 [:halt 0]
+RVPROBE 4 [:closure 1 [f] 13]
+RVPROBE 5 [:closure 2 [] 17]
+RVPROBE 6 [:call 0 1 [2] false]
+RVPROBE 7 [:return 0]
+RVPROBE 8 [:var 1 conj]
+RVPROBE 9 [:var 2 p]
+RVPROBE 10 [:var 3 q]
+RVPROBE 11 [:call 0 1 [2 3] false]
+RVPROBE 12 [:return 0]
+RVPROBE 13 [:closure 1 [x] 19]
+RVPROBE 14 [:const 2 1]
+RVPROBE 15 [:call 0 1 [2] false]
+RVPROBE 16 [:return 0]
+RVPROBE 17 [:var 0 x]
+RVPROBE 18 [:return 0]
+RVPROBE 19 [:var 1 f]
+RVPROBE 20 [:var 3 c]
+RVPROBE 21 [:stream-next 2 3]
+RVPROBE 22 [:call 0 1 [2] false]
+RVPROBE 23 [:return 0]
+RVPROBE === probes ===
+RVPROBE pc 0 act: #:yin.k{:kind :pc-bounds, :path [:yin.k/pc]}
+RVPROBE k nil: #:yin.k{:kind :k-shape, :path [:yin.k/k]}
+RVPROBE k return pc 0: #:yin.k{:kind :pc-bounds, :path [:yin.k/k 0 :yin.k/pc]}
+RVPROBE window {3 :x} extra+missing: #:yin.k{:kind :window-extra, :path [:yin.k/window]}
+RVPROBE pending not a map: #:yin.k{:kind :reason-mismatch, :path [:yin.k/pending :yin.k/reason]}
+RVPROBE segment not a string: #:yin.k{:kind :segment, :path [:yin.k/segment]}
+RVPROBE deliver rd nil (park-like): #:yin.k{:kind :destination, :path [:yin.k/deliver :yin.k/rd]}
+RVPROBE store-of nil explicit roundtrip: false
+RVPROBE window value {:yin.k/row 1} literal roundtrip: #:yin.k{:status :yin.k/undecodable, :kind :row-shape, :path [:segment/blake3-71f6f034a32428273b74de13476b4b7b1b71d7c180479d4ff048da3f887da456]}
+RVPROBE extra wire key: #:yin.k{:status :yin.k/undecodable, :kind :row-shape, :path [:yin.k/rows]}
+RVPROBE installs slot = 5: class java.lang.IllegalArgumentException Don't know how to create ISeq from: java.lang.Long
+RVPROBE frames slot = 5: #:yin.k{:status :yin.k/undecodable, :kind :slot-kind, :path [:segment/blake3-190c01e0f0cb248e757f0cffe7ed19dcb7304155998ddf87745a63fb21231b8e 13]}
+RVPROBE root not in rows: #:yin.k{:status :yin.k/undecodable, :kind :root, :path [:yin.k/root]}
+RVPROBE version float64 3: #:yin.k{:status :yin.k/profile-mismatch, :kind :version, :path [:yin.k/version]}
+RVPROBE rows not vector: #:yin.k{:status :yin.k/undecodable, :kind :row-shape, :path [:yin.k/rows]}
+RVPROBE cells row [:segment/blake3-6c36f53a35c083aea6a21694df7ad3eb33eb2c7254e840bc9f15ce2acf089838 :cells :yin.k/c-1 :segment/blake3-ae0676e62ac7f3ee11258f0e7930ebd638abcd30f5d2ed2148defe50ce8dd117 :yin.k/c-2 :segment/blake3-3bfb6e36f1b9cac2a8c3c4a19b3275220a9694ace76c65a6acf80a95af01cc1f]
+RVPROBE cells row with non c-N key :x: class java.lang.StringIndexOutOfBoundsException Range [2, 1) out of bounds for length 1
+RVPROBE wrong-numbering emit-numbered: class java.lang.StringIndexOutOfBoundsException Range [2, 1) out of bounds for length 1
+RVPROBE canonical numbering fixture: {:x :yin.k/c-1, :y :yin.k/c-2}
+RVPROBE canonical numbering fixture swapped names: {:y :yin.k/c-1, :x :yin.k/c-2}
+RVPROBE root fixture :s1 :s2 :x :y = :segment/blake3-be82d50b14804bb7a69103631b9c45759b49b67dbb3cebe75a1259fed6b4a937
+RVPROBE root fixture :s1 :s2 :y :x = :segment/blake3-be82d50b14804bb7a69103631b9c45759b49b67dbb3cebe75a1259fed6b4a937
+RVPROBE root worked-frame frame->rows = :segment/blake3-c4a7c7e6de3b44400efec5930bc3d85d86b29153b4b2d548acba630bfbc3da7d
+RVPROBE ten cells numbering order: [{:kind :task, :slots [3 {:yin.code/contract v4, :yin.k/version 1} :halted :root 0 {:kind :bindings, :slots []} {:kind :store, :slots []} [] {:kind :parked-table, :slots []} {:kind :cells, :slots [:yin.k/c-1 {:kind :cell-body, :slots [{:kind :stream, :slots [:s {:peer :s}]} 0]} :yin.k/c-2 {:kind :cell-body, :slots [{:kind :stream, :slots [:s {:peer :s}]} 1]} :yin.k/c-3 {:kind :cell-body, :slots [{:kind :stream, :slots [:s {:peer :s}]} 2]} :yin.k/c-4 {:kind :cell-body, :slots [{:kind :stream, :slots [:s {:peer :s}]} 3]} :yin.k/c-5 {:kind :cell-body, :slots [{:kind :stream, :slots [:s {:peer :s}]} 4]} :yin.k/c-6 {:kind :cell-body, :slots [{:kind :stream, :slots [:s {:peer :s}]} 5]} :yin.k/c-7 {:kind :cell-body, :slots [{:kind :stream, :slots [:s {:peer :s}]} 6]} :yin.k/c-8 {:kind :cell-body, :slots [{:kind :stream, :slots [:s {:peer :s}]} 7]} :yin.k/c-9 {:kind :cell-body, :slots [{:kind :stream, :slots [:s {:peer :s}]} 8]} :yin.k/c-10 {:kind :cell-body, :slots [{:kind :stream, :slots [:s {:peer :s}]} 9]}]} {} {} [] [] nil [:row {:kind :vec, :slots [[:cell :yin.k/c-1] [:cell :yin.k/c-2] [:cell :yin.k/c-3] [:cell :yin.k/c-4] [:cell :yin.k/c-5] [:cell :yin.k/c-6] [:cell :yin.k/c-7] [:cell :yin.k/c-8] [:cell :yin.k/c-9] [:cell :yin.k/c-10]]}] nil]} [:segment/blake3-4a937dfa13441575a97a43a9e2702d429920d3f360ef97db5146920516801ca4 :cells :yin.k/c-1 :segment/blake3-957db8f0097b30126b8728906c91e2308755e6bb0ebc50a408ad71226e0c83f3 :yin.k/c-2 :segment/blake3-e0775163f1f6ac15bc4099960ea23e9b7ee16f223cee1ad73b372ef4f5a019a9 :yin.k/c-3 :segment/blake3-93f47f83fb5dbef7a918457006c53317f0c978b29c39dfbfe979ded778598cf8 :yin.k/c-4 :segment/blake3-583b98e245d43db057f37978bec7f80271bf06b92b2a2266e5efbc2e10bd7a8f :yin.k/c-5 :segment/blake3-cde7a96a8a4cec82baa74c43d47288aaa87db5f748b6805442a5712919ade153 :yin.k/c-6 :segment/blake3-1405e1397d633834f752bd7cc5bec1cbed051eaa2cc5746a1feba4434869a9a6 :yin.k/c-7 :segment/blake3-19d3fffce22e837dc3662f294cfd57cb18ad2e02ed12bd47b595983a29c05aac :yin.k/c-8 :segment/blake3-fee9f8da4a515a0b0160ab73694932ca0467fbcec770189595a43465e1a315f6 :yin.k/c-9 :segment/blake3-3ab49b39fdd1fd9c4780ec672497bcc1657d7c406f089c98d8820e1c6500cbed :yin.k/c-10 :segment/blake3-1d1f26a56db76b94116256191fce1ff5811847745c76f29c11ba09d30da69310]]
+
+Testing yin.vm.ucf.rows-test
+
+Ran 1 tests containing 27 assertions.
+0 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

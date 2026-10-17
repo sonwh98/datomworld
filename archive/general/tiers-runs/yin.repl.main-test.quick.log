@@ -1,0 +1,14 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.repl.main-test
+;; SKIPPED a-dart-client-attaches-to-this-jvm-server: build/yin-repl-peer is absent — run bb build:yin-repl-peer (or bb test) first
+Bye
+
+Bye
+
+
+Ran 37 tests containing 298 assertions.
+0 failures, 0 errors.

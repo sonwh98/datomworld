@@ -1,0 +1,50 @@
+clojure -M:test -n yin.vm.ucf.rows-test -v yin.vm.ucf.rows-test/row-ids-are-jing-default
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/blake3-ae506c87336755a73f4ebb1cf29791853eab291bc559190430aa5917de9cc460 :segment/blake3-baf3535a541e7cf13ba4f8701754d576d9d0a0538ff8f6b26a276e819cf71a15))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/blake3-0aadf9301d4c7a7f68cae2b8da463623c9aee3a0d18d633a66bb5fbbe2da4b75 :segment/blake3-0ea79af98bd11a1a0312980e058f5f4e856bade7ec6b60f65ba87d1f739c9bad))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/blake3-a879885a403e1612321a876e2d3b893fdf52cab06410782b5f09e001a457eab3 :segment/blake3-5eb170f9dac459bff2479a710fc57ad149ce7d42f5ffa1d8863f701246dafb31))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/blake3-0b840e1115870678652de3035970b0149a6b662470242e79ef757aecb3befc4e :segment/blake3-f613178dd68c92c11396813e90e6870f6c2d32b5f9355ca52f760cb733d31032))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/blake3-c6dc79803ad4600ddccf6c0243086c51b0abad5a88cec6c929bd2efccb32f88f :segment/blake3-d447d576bcc82343217b6a049018d185289d6bd2c513e559ccf2fe792929121a))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/blake3-82148591d5a55d308937e7374aee58a6f9a8297b9200f5fcdb8bf9f9f1880f30 :segment/blake3-5aafba61c3c0975c7971149b570662da38b08105e85bb4d4df56578a4a49ce8e))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/blake3-c534d4078ce599ee185a1accdfb1f5189578e5b08904e6852c8ea49ba2486006 :segment/blake3-c4dd5e94b311b3a34178e9148b84c956ed057b9a8f7ac1976bff653afc1e21f9))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/blake3-4505b1a0e3c609afcf96810b0d56587ed985ee33a6f08280c52aeac38a8c3392 :segment/blake3-3275298018f706cc5f8665e54c64c111573ebab8dd402e6b61f34fc350b64f31))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/blake3-84b064a2e20ce2f066bb9cb6865bff27eb21e7774220b2f53fb8a15f9e7a65b8 :segment/blake3-b78097360d9163520c38351d40ba9f1ada4881c7db0a734f9f928e9124703af7))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/blake3-51597bd4770779b1d1c9a1b4823fdf945df410ff0d7aa3df0b08bf0b1406bda0 :segment/blake3-50bbd4b29fe6d0c37234e5ffc3c21cd6c17d6857b593ca90ff40ef313dfdb939))
+
+Ran 1 tests containing 25 assertions.
+10 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

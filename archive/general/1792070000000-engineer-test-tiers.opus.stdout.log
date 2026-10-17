@@ -1,0 +1,51 @@
+The JVM quick and slow runs for all 22 namespaces are in progress, one JVM at a time. The Node compile and the long `yin.repl.python-antlr-test` slow run follow once that batch finishes.
+
+The JVM batch is still running. The first 9 runs all pass.
+
+All 30 runs so far pass. Two quick parts are still slow: `e2e-c2-test` at 69 s and `prelude-parity-test` at 40 s. I'll look into both after the batch.
+
+The JVM tiers pass for all 22 namespaces, and on Node the guarded bodies print SKIP with no failures. The last run, the `yin.repl.python-antlr-test` slow tier (about 39 min on jupiter), is going in the background. I'll write the report when it finishes.
+
+I tagged all 63 deftests from the list, and both tiers pass on the JVM and on Node. However, cljstyle was not run: it needed a permission approval this session couldn't get, so please run `cljstyle check` on the 22 files before landing. Nothing is staged or committed.
+
+**What changed (22 test files):**
+- **Tags:** every listed deftest now has `^:slow`.
+- **Guards:** 37 deftests in `.cljc` files also have their body wrapped in `slow/guard`, using the layout already in `int_conv_test.cljc`.
+- **Tag only:** 26 deftests have `^:slow` alone. 20 are in `.clj` files. The other 6 sit in `:clj`-only reader conditionals, so they never exist on Node or Dart, which is how `main_test` already handles such tests. Those 6 are 2 in `main-test` and the 4 `probe-*` tests in `python-antlr-test`.
+- **Require:** I added `[dao.test-slow :as slow]` to the 9 files that lacked it.
+- **No logic changes:** no test logic, assertions or order changed. Inside the guards, lines shift 4 columns to the right; multi-line strings are untouched.
+- **Python track:** 10 of the 22 files belong to it (`yang.python.antlr.*` and `python_antlr_test.cljc`); the report lists them separately for conflict checks.
+
+**JVM runs (laptop, one JVM at a time):**
+- All 22 namespaces passed both the quick run (`-e :slow`) and the slow run (`-i :slow`), with 0 failures and 0 errors.
+- `yin.repl.python-antlr-test`: the quick part took 6.5 s (7 tests). The slow part ran once, last, and took 1581.5 s for its 10 tests.
+- Five quick parts are still over about 20 s:
+
+| namespace | quick part |
+|---|---|
+| `e2e-c2` | 69 s |
+| `prelude-parity` | 40 s |
+| `holder.driver` | 34.5 s |
+| `compose-rows` | 31 s |
+| `int-ops` | 25 s |
+
+- The cause in those five isn't shared setup: none has fixtures, `defonce` or `delay`, and the time is spread over many tests each under 5 s. I didn't measure per-test times inside them.
+- The parser-load worry didn't materialise: with `zero-division-test` tagged, `e2e-test`'s quick part is 5.1 s.
+- `e2e-c2` would shrink if Python e2e tests used the 3.0 s cut that `build-n-test.md` names for them. That's a decision for the owner or Architect.
+
+**Node:** 596 tests, 41,926 assertions, 0 failures. All 37 new guards printed SKIP. I didn't run the guarded bodies with `DATOM_SLOW_TESTS=1`.
+
+**kondo:** 0 errors, 0 warnings on the 22 files.
+
+**Not done:**
+- **cljstyle:** the check above is still needed.
+- **Dart:** the orchestrator runs it.
+- **`build-n-test.md`:** its "Python slow set" counts are now out of date; I didn't edit them.
+- **Setup:** I had to run `bb gen:python-antlr` and `bb build:yin-repl-node` in this worktree first.
+
+The report's timestamps come from this machine's clock, which reads earlier than the brief's Created header.
+
+Files are in `collab/`:
+- 1792070000000-engineer-test-tiers.report.md
+- tiers-runs/ — summary.tsv, per-run logs, node.log
+- tag_slow.clj, add_slow_require.clj, tiers_run.clj — helper scripts, not for landing

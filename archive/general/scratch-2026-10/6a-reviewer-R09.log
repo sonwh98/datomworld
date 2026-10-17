@@ -1,0 +1,14 @@
+clojure -M:test -n yin.vm.semantic-register.frame-test -v yin.vm.semantic-register.frame-test/worked-example-saved
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.semantic-register.frame-test
+
+FAIL in (worked-example-saved) (frame_test.cljc:197)
+expected: (= :window-self (kind (assoc worked-frame :yin.k/window {1 :f, 2 :x}) worked-code :wait task))
+  actual: (not (= :window-self :window-extra))
+
+Ran 1 tests containing 5 assertions.
+1 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

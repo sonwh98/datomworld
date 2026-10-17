@@ -1,0 +1,38 @@
+Loading initial Timbre config from: :default
+[:test] Compiling ...
+========= Running Tests =======================
+
+Testing yin.vm.parity-test
+
+Testing yin.vm.semantic-register.analysis-test
+
+Testing yin.vm.semantic-register.code-test
+
+Testing yin.vm.semantic-register.effects-test
+
+Testing yin.vm.semantic-register.frame-test
+
+Testing yin.vm.semantic-register.linearize-test
+
+Testing yin.vm.semantic-register.link-test
+
+Testing yin.vm.semantic-register.load-paths-test
+
+Testing yin.vm.semantic-register.parity-test
+
+Testing yin.vm.semantic-register.vm-test
+
+Testing yin.vm.semantic-register.walker-trace-test
+
+Testing yin.vm.ucf-test
+
+Testing yin.vm.ucf.handoff-test
+
+Testing yin.vm.ucf.rows-test
+
+Testing yin.vm.ucf.safepoint-harness-test
+
+Ran 186 tests containing 4707 assertions.
+0 failures, 0 errors.
+===============================================
+[:test] Build completed. (178 files, 177 compiled, 0 warnings, 29.50s)

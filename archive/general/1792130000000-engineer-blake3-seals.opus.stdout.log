@@ -1,0 +1,45 @@
+The capability seal, the owner tag and the profile digest all use BLAKE3 now. JVM and Node pass on the affected namespaces; Dart has not been run and is yours on shiva. Nothing is staged or committed.
+
+**The three changes**
+- **Seal** (`src/cljc/yin/vm/engine.cljc:302`): every seal is computed in one place, the private `seal-of`. `issue-ref` mints seals and `authentic-ref?` / `check-ref!` recompute them to verify. Cell refs and the v2 handoff only compare stored seals or call `issue-ref`, so they follow automatically. No fixture or golden file holds a seal string.
+- **Owner tag** (`src/cljc/yin/vm/values.cljc:130`): its only caller is `vm/empty-state`. No test pinned an owner value.
+- **Profile digest** (`src/cljc/yin/vm.cljc:351-352`): BLAKE3, and the keyword now reads `yin.k.pp/blake3-…`. No pinned hash anywhere depended on it.
+
+I wrote `{:algorithm :blake3}` explicitly rather than relying on Jing's default, so these identities won't move if the default ever changes.
+
+**New tests, each confirmed by a mutant.** For each site I put `:sha256` back, saw a named test fail, then restored the file byte for byte:
+- `yin.vm.engine-test/seal-is-blake3-test`: 2 failures under the mutant.
+- `yin.vm.engine-test/owner-tag-is-blake3-test`: 2 failures.
+- A new check in `yin.vm-test/standard-primitives-publish-portable-profiles`: 22 failures, one per primitive.
+
+I also renamed two deliberately wrong profile values in tests from `sha256-` to `blake3-` (`linker_require_test.cljc:576,578` and `linker_manifest_test.cljc:642`). Their value doesn't matter to the tests; it only keeps the old spelling out of them.
+
+**64-hex assumptions:** one, in `test/yang/clojure/stream_eval_test.cljc:429`, where a regex masks seals as 64 hex characters. BLAKE3 here is also 32 bytes (64 hex), so it still holds and needed no change.
+
+**Design docs that still say SHA-256 (reported, not edited):**
+- `docs/design/dao.jing.hash-registry.md:366-384`
+- `docs/design/dao.jing.call-site-classification.md:50`
+- `docs/design/yin.vm.universal-continuation-format.md:1285`
+- `docs/design/yin.vm.linker.md:1729`
+
+No design doc names the hash algorithm for seals or owner tags.
+
+**Test runs**
+| Lane | Result |
+|---|---|
+| JVM, 21 namespaces | 451 tests, 8255 assertions, 0 failures, 0 errors |
+| Node, the same 21 plus 5 they pull in | 485 tests, 8703 assertions, 0 failures, 0 errors |
+| kondo | 0 errors; 4 warnings, all on lines this change doesn't touch |
+| cljstyle | clean |
+
+The JVM lane needed `bb gen:python-antlr` first because the new worktree had no generated parser classes. `yin.vm.values-test` doesn't exist, so the owner-tag test lives in `yin.vm.engine-test`.
+
+The machine's clock reads 2026-10-11 19:42 GMT, which is earlier than the brief's 2026-10-12 11:00 GMT. I used the clock's time in the report header and noted the mismatch there.
+
+Files are in `collab/`:
+- 1792130000000-engineer-blake3-seals.report.md
+- blake3-jvm.log
+- blake3-node.log
+- bak-engine.cljc
+- bak-values.cljc
+- bak-vm.cljc

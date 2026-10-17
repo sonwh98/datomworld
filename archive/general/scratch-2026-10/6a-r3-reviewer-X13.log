@@ -1,0 +1,11 @@
+# X13: decode-side marker loop removed only (emit side kept)
+$ clojure -J-Xmx256m -M:test -n yin.vm.ucf.rows-test -v yin.vm.ucf.rows-test/every-literal-context-refuses-markers
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.ucf.rows-test
+
+Ran 1 tests containing 20 assertions.
+0 failures, 0 errors.

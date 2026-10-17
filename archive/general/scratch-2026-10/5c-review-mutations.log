@@ -1,0 +1,38 @@
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+WARNING: source already refers to: #'clojure.repl/source in namespace: shadow.user, being replaced by: #'shadow.user/source
+BASELINE {:test 9, :pass 508, :fail 0, :error 0}
+MUTANT R1 store-put key read as rd => KILLED by [[positions-are-the-v4-table {:fail 1, :error 0}] [definitions-respect-conditional-ranges {:fail 1, :error 0}] [scanners-agree-on-b0 {:fail 3, :error 0}] [scanners-agree-on-the-register-corpus {:fail 3, :error 0}]]
+RESTORED R1 store-put key read as rd cmp=0
+MUTANT R2 define key read as rd => KILLED by [[positions-are-the-v4-table {:fail 1, :error 0}] [definitions-respect-conditional-ranges {:fail 1, :error 0}] [scanners-agree-on-b0 {:fail 3, :error 0}] [scanners-agree-on-the-register-corpus {:fail 9, :error 0}]]
+RESTORED R2 define key read as rd cmp=0
+MUTANT R3 resume pid read as value reg => KILLED by [[positions-are-the-v4-table {:fail 1, :error 0}] [scanners-agree-on-the-register-corpus {:fail 15, :error 0}]]
+RESTORED R3 resume pid read as value reg cmp=0
+MUTANT R4 free-occurrence order reversed => COMPILE-ERROR Syntax error reading source at (/Users/sto/workspace/datomworld-srvm-p5c/src/cljc/yin/vm/semantic_register/scan.cljc:96:1).
+RESTORED R4 free-occurrence order reversed cmp=0
+MUTANT R5 owner chain stops at immediate owner => KILLED by [[free-occurrences-use-the-owner-tree {:fail 1, :error 0}] [scanners-agree-on-the-register-corpus {:fail 5, :error 0}]]
+RESTORED R5 owner chain stops at immediate owner cmp=0
+MUTANT R6 var name read from slot 1 (register id) => KILLED by [[free-occurrences-use-the-owner-tree {:fail 6, :error 0}]]
+RESTORED R6 var name read from slot 1 (register id) cmp=0
+MUTANT R7 define counted as application site => KILLED by [[definitions-and-sites {:fail 2, :error 0}]]
+RESTORED R7 define counted as application site cmp=0
+MUTANT R8 yin/def guard removed => SURVIVED
+RESTORED R8 yin/def guard removed cmp=0
+MUTANT R9 footprint table without the :push dissoc => KILLED by [[footprint-mnemonics-is-the-v3-table-minus-push {:fail 2, :error 0}]]
+RESTORED R9 footprint table without the :push dissoc cmp=0
+MUTANT R10 definition position pinned to 0 (use-before-definition not refused) => KILLED by [[definitions-and-sites {:fail 1, :error 0}]]
+RESTORED R10 definition position pinned to 0 (use-before-definition not refused) cmp=0
+MUTANT R11 free-occurrence pc off by one => KILLED by [[free-occurrences-use-the-owner-tree {:fail 1, :error 0}]]
+RESTORED R11 free-occurrence pc off by one cmp=0
+MUTANT R12 segment rows swap A and pc => KILLED by [[segment-rows-carry-a-and-pc {:fail 1, :error 0}]]
+RESTORED R12 segment rows swap A and pc cmp=0
+MUTANT R13 in-body? inverted => KILLED by [[free-occurrences-use-the-owner-tree {:fail 3, :error 0}]]
+RESTORED R13 in-body? inverted cmp=0
+MUTANT R14 conditional? ignores body index => KILLED by [[definitions-respect-conditional-ranges {:fail 1, :error 0}]]
+RESTORED R14 conditional? ignores body index cmp=0
+MUTANT R15 store-put dropped from definitions => KILLED by [[definitions-and-sites {:fail 1, :error 0}] [definitions-respect-conditional-ranges {:fail 1, :error 0}]]
+RESTORED R15 store-put dropped from definitions cmp=0
+MUTANT R16 malformed check removed from bodies => KILLED by [[malformed-vectors-throw {:fail 4, :error 0}]]
+RESTORED R16 malformed check removed from bodies cmp=0
+FINAL git diff --quiet HEAD -- src/: 0
+nil

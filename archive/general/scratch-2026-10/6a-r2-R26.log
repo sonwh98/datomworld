@@ -1,0 +1,18 @@
+clojure -M:test -n yin.vm.ucf.rows-test -v yin.vm.ucf.rows-test/unordered-containers-are-order-free
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (unordered-containers-are-order-free) (rows_test.cljc:300)
+expected: (= (:yin.k/root (rows/emit a)) (:yin.k/root (rows/emit b)))
+  actual: (not (= :segment/blake3-35ace9696cf300e295127517089e63931df6d6ba4bfc62d371aa1d93931df1d0 :segment/blake3-22905bfdd025d6c160c9c550eada137ff5e244d09769aa0a1f276926dfc7c649))
+
+FAIL in (unordered-containers-are-order-free) (rows_test.cljc:301)
+expected: (= (:yin.k/root (rows/canonical-under (rows/emit a) ident)) (:yin.k/root (rows/canonical-under (rows/emit b) ident)))
+  actual: (not (= :segment/blake3-07e26d2d8e49cab67ecd35e379676d0b1bbbf9a58cdeba02eb93cbdd77cacf33 :segment/blake3-75471801799e23f5879aa05e038e495d2f205b5307777b9f63f94f08e1d52e9f))
+
+Ran 1 tests containing 3 assertions.
+2 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

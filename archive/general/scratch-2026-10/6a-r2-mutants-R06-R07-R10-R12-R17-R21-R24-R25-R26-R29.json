@@ -1,0 +1,276 @@
+[
+ {
+  "id": "R06",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "S2 non-vector K accepted",
+  "test": "yin.vm.semantic-register.frame-test/rule-boundaries-refuse-their-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/rule-boundaries-refuse-their-tamper"
+  ],
+  "exit": 1,
+  "seconds": 11.9,
+  "tests": 1,
+  "assertions": 9,
+  "failures": 2,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (rule-boundaries-refuse-their-tamper) (frame_test.cljc:287)",
+   "FAIL in (rule-boundaries-refuse-their-tamper) (frame_test.cljc:287)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ },
+ {
+  "id": "R07",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "C2 pc>0 lower bound dropped",
+  "test": "yin.vm.semantic-register.frame-test/rule-boundaries-refuse-their-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/rule-boundaries-refuse-their-tamper"
+  ],
+  "exit": 1,
+  "seconds": 8.1,
+  "tests": 1,
+  "assertions": 9,
+  "failures": 0,
+  "errors": 1,
+  "fail_lines": [
+   "ERROR in (rule-boundaries-refuse-their-tamper) (PersistentVector.java:162)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ },
+ {
+  "id": "R10",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "A5/A6 order swapped",
+  "test": "yin.vm.semantic-register.frame-test/rule-boundaries-refuse-their-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/rule-boundaries-refuse-their-tamper"
+  ],
+  "exit": 1,
+  "seconds": 8.5,
+  "tests": 1,
+  "assertions": 9,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (rule-boundaries-refuse-their-tamper) (frame_test.cljc:287)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ },
+ {
+  "id": "R12",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "P2 :park/:current-continuation admit :next",
+  "test": "yin.vm.semantic-register.frame-test/rule-boundaries-refuse-their-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/rule-boundaries-refuse-their-tamper"
+  ],
+  "exit": 1,
+  "seconds": 8.9,
+  "tests": 1,
+  "assertions": 9,
+  "failures": 2,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (rule-boundaries-refuse-their-tamper) (frame_test.cljc:287)",
+   "FAIL in (rule-boundaries-refuse-their-tamper) (frame_test.cljc:287)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ },
+ {
+  "id": "R17",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "search keeps first leaf (input-order tie break)",
+  "test": "yin.vm.ucf.rows-test/canonical-roots-are-pinned",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/canonical-roots-are-pinned"
+  ],
+  "exit": 1,
+  "seconds": 7.1,
+  "tests": 1,
+  "assertions": 7,
+  "failures": 2,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (canonical-roots-are-pinned) (rows_test.cljc:323)",
+   "FAIL in (canonical-roots-are-pinned) (rows_test.cljc:325)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ },
+ {
+  "id": "R21",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "numbering reversed (two cells swapped)",
+  "test": "yin.vm.ucf.rows-test/canonical-roots-are-pinned",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/canonical-roots-are-pinned"
+  ],
+  "exit": 1,
+  "seconds": 7.5,
+  "tests": 1,
+  "assertions": 7,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (canonical-roots-are-pinned) (rows_test.cljc:306)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ },
+ {
+  "id": "R24",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "wire extra key accepted",
+  "test": "yin.vm.ucf.rows-test/gates-and-graph-before-hashes",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/gates-and-graph-before-hashes"
+  ],
+  "exit": 1,
+  "seconds": 8.4,
+  "tests": 1,
+  "assertions": 13,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (gates-and-graph-before-hashes) (rows_test.cljc:187)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ },
+ {
+  "id": "R25",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "X1 judged after waits",
+  "test": "yin.vm.ucf.rows-test/task-root-checks-carried-code-and-frame",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/task-root-checks-carried-code-and-frame"
+  ],
+  "exit": 1,
+  "seconds": 9.4,
+  "tests": 1,
+  "assertions": 6,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (task-root-checks-carried-code-and-frame) (rows_test.cljc:277)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ },
+ {
+  "id": "R26",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "set slots not sorted on emit",
+  "test": "yin.vm.ucf.rows-test/unordered-containers-are-order-free",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/unordered-containers-are-order-free"
+  ],
+  "exit": 1,
+  "seconds": 10.1,
+  "tests": 1,
+  "assertions": 3,
+  "failures": 2,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (unordered-containers-are-order-free) (rows_test.cljc:300)",
+   "FAIL in (unordered-containers-are-order-free) (rows_test.cljc:301)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ },
+ {
+  "id": "R29",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "gate cycle check removed",
+  "test": "yin.vm.ucf.rows-test/gates-and-graph-before-hashes",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/gates-and-graph-before-hashes"
+  ],
+  "exit": 1,
+  "seconds": 9.0,
+  "tests": 1,
+  "assertions": 13,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (gates-and-graph-before-hashes) (rows_test.cljc:203)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ }
+]

@@ -1,0 +1,20 @@
+Loading initial Timbre config from: :default
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+try-require-abandon-install-is-data-test
+"Elapsed time: 93.007458 msecs"
+try-require-abandon-link-is-data-test
+"Elapsed time: 8.014458 msecs"
+try-require-absent-continues-test
+"Elapsed time: 13.667208 msecs"
+try-require-and-require-co-waiters-test
+"Elapsed time: 31.308875 msecs"
+try-require-cycle-is-data-test
+"Elapsed time: 5.321292 msecs"
+try-require-host-hit-test
+"Elapsed time: 6.532625 msecs"
+try-require-linked-meanwhile-test
+"Elapsed time: 9.899041 msecs"
+try-require-profile-test
+"Elapsed time: 0.370167 msecs"
+try-require-success-and-registry-hit-test
+"Elapsed time: 29.513 msecs"

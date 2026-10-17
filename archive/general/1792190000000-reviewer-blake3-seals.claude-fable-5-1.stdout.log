@@ -1,0 +1,13 @@
+Review complete. Findings are in `collab/1792190000000-reviewer-blake3-seals.claude-fable-5-1.findings.md`.
+
+**Verdict: READY_TO_MERGE.**
+
+What I checked and found:
+
+- **Mint and verify sites.** The three changed lines are the only places a seal, owner tag or profile name is computed. Every consumer compares with `=` and never recomputes, including the v2 handoff, which re-issues refs under the receiver. No fixture or source file pins a SHA-256 seal, owner or profile keyword outside `archive/` and the docs.
+- **64-hex and keyword parsing.** The one seal regex in the stream-eval test still matches only because both digests are 32 bytes. No code parses the `blake3-` prefix of a profile keyword.
+- **Mutants.** Eleven applied on the JVM, each reverted and confirmed byte-identical with `cmp`. Ten killed, each by the named test it targets. The one survivor drops the explicit algorithm option in favour of Jing's default, which is BLAKE3 today, so it is an equivalent mutant rather than a coverage gap.
+- **Cross-host.** JVM, Node and Dart BLAKE3 branches exist in `dao.jing` with their dependencies declared. I did not run Node or Dart; the author's Node log shows both touched namespaces green, and Dart remains unrun by anyone.
+- **Scope and docs.** The diff is exactly the ruled scope. One extra docs site the author's list missed: `docs/design/dao.jing.hash-registry.md:599` still says the profile digest is SHA-256, so it belongs in the orchestrator's docs batch.
+
+Nothing was staged or committed. My three byte backups remain in `collab/` as `rev-bak-*.cljc`; the scratch mutant script I created was removed. The Dart lane for `yin.vm.engine-test` and `yin.vm-test` is the only remaining pre-merge run.

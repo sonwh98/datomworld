@@ -1,0 +1,8 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing dao.space.dht-test
+
+Ran 2 tests containing 858 assertions.
+0 failures, 0 errors.

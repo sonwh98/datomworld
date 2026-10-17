@@ -1,0 +1,8 @@
+
+Testing yin.vm.semantic-register.scan-test
+SKIP slow test scanners-agree-on-the-c4-modules (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test goldens-match (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test verify-outcomes-agree (set DATOM_SLOW_TESTS=1 to run)
+
+Ran 13 tests containing 567 assertions.
+0 failures, 0 errors.

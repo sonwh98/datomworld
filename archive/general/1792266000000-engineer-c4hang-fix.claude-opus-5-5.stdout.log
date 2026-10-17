@@ -1,0 +1,40 @@
+Completed-GMT: 2026-10-17 10:56:36 GMT
+Completed-Local: 2026-10-17 17:56:36 +0700
+
+The regression test now passes, but the linker spin from the owner's thread dump is not what made it fail, and I couldn't reproduce that spin at all. On this branch the owner's exact submission runs in about 16s of CPU, prints `[4, 16, 36, 64, 100]`, and leaves the process idle. The test failed for a different reason: the REPL killed itself about 5 seconds after stdin closed, while its lines were still evaluating. That is fixed with a one-line change in `main.cljc`. Nothing is staged or committed.
+
+## Why the test failed
+- When stdin hits end-of-input, `read-loop!` queues a `(quit)`. Then `-main` waits for the worker thread for only `stop-join-millis` (25 ms × 202 ≈ 5 s) and halts the process unconditionally (`src/cljc/yin/repl/main.cljc:1345-1346`).
+- The Python lang switch and first submission take about 16 s, so both test processes were killed before printing anything. Run unchanged, the control session's "Switched to" assertion failed. The bug session "exited" without ever evaluating its lines.
+- As written, the test could never show a hang, because that halt always fires within about 5 s. I couldn't confirm the earlier "CONFIRMED RED: never exits" report.
+- Real-world effect: piping a script into the REPL (`yin-repl < script`) lost all slow work.
+
+## Fix
+- `main.cljc:1349`: `(.join poller ^long stop-join-millis)` became `(.join poller)`, plus a comment. The worker thread already ends the process itself after a shutdown drain limited by `stop-ticks`, and the headless path already waits this way. `stop-join-millis` is still used by the headless shutdown hook.
+- I made one change to the test, which makes it stricter, so please check it's acceptable. The last assertion used `#"[4, 16, 36, 64, 100]"`, which is a regex character class: it matched the space in `"yin> "`, so it passed without checking anything. I escaped it to `#"\[4, 16, 36, 64, 100\]"` and added a `print(even_squares)` line, because the assignment alone prints nothing. I also corrected the test's docstring and ran cljstyle over the appended block.
+
+## Why I didn't change the linker
+I found nowhere that `undischarged` grows without bound. I checked:
+- **The owner's scenario, run as a real process:** no spin under the mem, `file:` and `dht:` index stores, nor under the semantic, register, stack and ast-walker VMs. Thread dumps showed no linker frames. Run in-process, `undischarged` was never called.
+- **Its heaviest real input:** verifying the `py` prelude module (3576 in-body occurrences, 387 unconditional definitions, ~4000 call sites) takes 5–226 ms per call.
+- **Code changes since the owner's build (fa91caa3):** only `src/cljc/yin/vm/semantic/layout.cljc`, which this path doesn't use.
+
+The dump probably came from a different session, for example one that had already imported modules. That still needs the owner's exact steps.
+
+## Likely cause of "never returns to the prompt"
+A silent assignment doesn't reprint the `yin> ` prompt (`poll-loop!`, main.cljc:1270). I saw this in every probe: the prompt stays missing after the assignment even though the work has finished. An earlier round's `prompt-owed?` fix for this never landed, so it's still a separate open item.
+
+## The other red: `a-reader-follows-the-publisher-s-head-across-processes`
+It doesn't reproduce: it passed in the full namespace run (40 assertions) and again alone. Both ce76c846 (srvm-module-pins) and the I5/I6 slices are in this branch's history, so neither causes it reliably. This round's change doesn't touch it, since that test keeps stdin open. Most likely it was noise in the earlier killed run. I'm leaving it for the owner/srvm seat; no fix applied.
+
+## Test results (foreground, one at a time)
+| Lane | Result |
+|---|---|
+| Regression test alone (`-i :slow -v`) | 1 test, 4 assertions, 0 failures |
+| `clj -M:test -i :slow -n yin.repl.dht-process-test` | 4 tests, 135 assertions, 0 failures, 0 errors (Node leg ran) |
+| Reader-follows test alone | 1 test, 40 assertions, 0 failures |
+| `bb test:clj` | 4102 tests, 285401 assertions, 0 failures, 0 errors |
+| `clj -M:kondo` on both touched files | 0 errors, 0 warnings |
+| `cljstyle check` on both files | clean |
+
+The Node build (`target/yin-repl.js`) is from today and `bb test:clj` regenerates the parser, so I didn't run `bb gen:python-antlr` or `bb build:yin-repl-node` separately. The throwaway probe namespace I used is deleted.

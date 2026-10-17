@@ -1,0 +1,42 @@
+$ clojure -Sdeps {:aliases {:probe {:extra-paths ["test"]}}} -M:probe collab/1792110000000-rename-equivalence.clj
+Loading initial Timbre config from: :default
+:fixture-s1-s2-x-y 
+  new root :segment/blake3-fab223d9b3540fdce0ccf2132f8a4041917a158a32295470a4936754742d3ac4 
+  old root :segment/blake3-be82d50b14804bb7a69103631b9c45759b49b67dbb3cebe75a1259fed6b4a937 
+  numbering identical (cc-N<->c-N): true numbering {:x :yin.k/cc-1, :y :yin.k/cc-2} 
+  respelled new wire root = old root: true rows equal: true 
+  old decode of old wire ok: true new decode of new wire ok: true
+:fixture-lane-a 
+  new root :segment/blake3-b307e36cc9b23bdccebc372805b81b812f42a422be208ae541b53ee6bb51401d 
+  old root :segment/blake3-8245d25a140980b1304bc0d1f11c2b61fa18af09d161da6f21a6307501490db0 
+  numbering identical (cc-N<->c-N): true numbering #:source{:x :yin.k/cc-1, :y :yin.k/cc-2} 
+  respelled new wire root = old root: true rows equal: true 
+  old decode of old wire ok: true new decode of new wire ok: true
+:fixture-reversed 
+  new root :segment/blake3-38d4e92a5092c5b2bdedc365112653e6ca468345c4d1831a958d6a960cd97c73 
+  old root :segment/blake3-f23036e5ac1f0652305eb95ac147f5d7140f4a4012a8c4a4f61ca7928c580b84 
+  numbering identical (cc-N<->c-N): true numbering #:other{:x :yin.k/cc-1, :y :yin.k/cc-2} 
+  respelled new wire root = old root: true rows equal: true 
+  old decode of old wire ok: true new decode of new wire ok: true
+:loop-plus-2-cycle 
+  new root :segment/blake3-55ff168e6b5a37028fb5ecd99ab21dc58f6a4e2b9c95dbe570ccec65b15a63c0 
+  old root :segment/blake3-8899f95d330a174ee098e10f16ecf2d017d5aae67d4f50d8369222342e6d36e9 
+  numbering identical (cc-N<->c-N): true numbering {:a :yin.k/cc-2, :b :yin.k/cc-1, :l :yin.k/cc-3} 
+  respelled new wire root = old root: true rows equal: true 
+  old decode of old wire ok: true new decode of new wire ok: true
+:ten-cursors 
+  new root :segment/blake3-6e7c7a6b0674c41c21e33d9630d4aaf7fc92e4b30234a9c2a1b8c7bae7792f88 
+  old root :segment/blake3-8714f89344928c72442ea4dc15c3132f41a4393ff782e014330f0c32d933fbee 
+  numbering identical (cc-N<->c-N): true numbering #:src{:x0 :yin.k/cc-1, :x1 :yin.k/cc-2, :x2 :yin.k/cc-3, :x3 :yin.k/cc-4, :x4 :yin.k/cc-5, :x5 :yin.k/cc-6, :x6 :yin.k/cc-7, :x7 :yin.k/cc-8, :x8 :yin.k/cc-9, :x9 :yin.k/cc-10} 
+  respelled new wire root = old root: true rows equal: true 
+  old decode of old wire ok: true new decode of new wire ok: true
+:child-scope 
+  new root :segment/blake3-a31c0530cca258dd119db75a0f8e5b4ed9737d85a3092d9a8a1bd05c5119602f 
+  old root :segment/blake3-b46120be7f1acc83b257e5ad8e04e945815d564a59f6734178f9edf043993684 
+  numbering identical (cc-N<->c-N): true numbering {:x :yin.k/cc-1} 
+  respelled new wire root = old root: true rows equal: true 
+  old decode of old wire ok: true new decode of new wire ok: true
+:worked-frame root :segment/blake3-c4a7c7e6de3b44400efec5930bc3d85d86b29153b4b2d548acba630bfbc3da7d respelled = itself: true
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+exit 0

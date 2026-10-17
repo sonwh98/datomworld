@@ -1,0 +1,158 @@
+diff --git a/src/cljc/yin/vm/ucf/rows.cljc b/src/cljc/yin/vm/ucf/rows.cljc
+index 0c328176..f06ea074 100644
+--- a/src/cljc/yin/vm/ucf/rows.cljc
++++ b/src/cljc/yin/vm/ucf/rows.cljc
+@@ -2076,7 +2076,9 @@
+                                    {:modules registry :origin origin
+                                     :ancestry (conj (vec (:ancestry recv)) mn)
+                                     :capability-secret (when (fn? source) (source origin))})]
+-    [(cond-> child fenced? (assoc :make-stream (:make-stream recv)))
++    [(cond-> (dissoc child :yin.k/closes :yin.k/issued :yin.k/gate :yin.k/custody
++                       :yin.k/recovery-waits :yin.k/recovery-parked :yin.k/recovery-cell-ids)
++       fenced? (assoc :make-stream (:make-stream recv)))
+      (assoc recv :origins (inc n))]))
+ 
+ 
+@@ -2088,7 +2090,9 @@
+   (let [[_ _ kind _ id-counter free-env store module-stores parked census _ code installs waits parked-id result]
+         (:slots task)
+         base (reduce (fn [r [_ v]] (module/attach-module r v))
+-                     (assoc recv :code {} :code-aliases {} :program nil)
++                     (assoc (dissoc recv :yin.k/closes :yin.k/issued :yin.k/gate :yin.k/custody
++                                    :yin.k/recovery-waits :yin.k/recovery-parked :yin.k/recovery-cell-ids)
++                            :code {} :code-aliases {} :program nil)
+                      (sort-by #(str (key %)) code))
+         aliases (:code-aliases base)
+         used (atom (into fixed-resource-keys (keys (:resources base))))
+diff --git a/test/yin/vm/ucf/rows_test.cljc b/test/yin/vm/ucf/rows_test.cljc
+index aaf432c5..cc2307a7 100644
+--- a/test/yin/vm/ucf/rows_test.cljc
++++ b/test/yin/vm/ucf/rows_test.cljc
+@@ -6,6 +6,7 @@
+             [dao.jing.cbor-fixtures :as fx]
+             [yang.python.antlr.int-contract-fixtures :as ints]
+             [yin.vm :as vm]
++            [yin.vm.module :as module]
+             [yin.vm.ucf.rows-support :as support]
+             [dao.test-slow :as slow]
+             [yin.vm.semantic-register.frame-test :as ft]
+@@ -1086,6 +1087,20 @@
+         (is (= (ints/column fixture n "cbor") (encoded (ints/value n))) n)))))
+ 
+ 
++(def receiver-custody-keys
++  [:yin.k/closes :yin.k/issued :yin.k/gate :yin.k/custody
++   :yin.k/recovery-waits :yin.k/recovery-parked :yin.k/recovery-cell-ids])
++
++
++(defn poison-receiver-custody
++  [m]
++  (assoc m :yin.k/closes [{:stream-id :yin.k/k-9 :yin.k/issue 5}]
++         :yin.k/issued 99 :yin.k/gate :ended :yin.k/custody {:receiver-only true}
++         :yin.k/recovery-waits [{:receiver-only true}]
++         :yin.k/recovery-parked (assoc {} :receiver-only :wrong)
++         :yin.k/recovery-cell-ids (assoc {} :receiver-only :wrong)))
++
++
+ (deftest lowering-isolates-task-state-from-a-populated-receiver
+   (doseq [[label source path expected]
+           [[:reader (vm/run (support/load-ast
+@@ -1109,14 +1124,17 @@
+                                     (swap! handles assoc id h)
+                                     h))]
+                         {:dao.stream/outcome :dao.stream/ok :dao.stream/handle h}))
+-            fresh (support/receiver {:make-stream nil :attach-stream attach!})
++            fresh (update (support/receiver {:make-stream nil :attach-stream attach!})
++                          :modules module/assoc-module 'receiver.mod
++                          {:manifest {:yin.module/name 'receiver.mod} :address :receiver-only})
+             receiver-stream (support/one-slot-stream "receiver-only")
+             ;; A fixed composition key is already reserved by lower-task,
+             ;; so adding it does not rename the task's fresh keys. This
+             ;; permits exact equality of all seven fields, without masking
+             ;; differences behind a relift or a normalization of VM state.
+             resource-key vm/call-in-stream-key
+-            populated (assoc (support/load-ast fresh (support/lit :receiver-only))
++            populated (assoc (poison-receiver-custody
++                               (support/load-ast fresh (support/lit :receiver-only)))
+                              :store (assoc {} 'receiver-only :wrong)
+                              :module-stores (assoc {} 'receiver.mod (assoc {} 'x :wrong))
+                              :parked (assoc {} :receiver-only {:type :parked-continuation})
+@@ -1140,6 +1158,14 @@
+             collision-task (get-in collision path)
+             collision-stream-key (:stream-id (first (:wait-set collision-task)))
+             collision-cursor-key (get-in collision-task [:wait-set 0 :cursor-ref :id])]
++        (doseq [k receiver-custody-keys]
++          (is (contains? populated k) (str k " is poisoned"))
++          (is (not (contains? restored k)) (str k " is receiver-local"))
++          (is (not (contains? restored-task k)) (str k " is absent in the install child too")))
++        (is (= (select-keys clean receiver-custody-keys)
++               (select-keys restored receiver-custody-keys)))
++        (is (some? (module/resolve-module (:modules restored) 'receiver.mod))
++            "the composition's registry is the receiver's")
+         (is (seq (:code populated)) "the receiver already owns code")
+         (doseq [field fields]
+           (is (not= (get populated field) (get clean field))
+@@ -1177,6 +1203,63 @@
+                 "the source read resumes to the same value in every receiver")))))))
+ 
+ 
++(deftest exclusive-and-fenced-lowers-own-their-custody-state
++  (let [wire (support/lift (support/parked-reader) (support/header 0 nil #{}))
++        c (nth (:slots (rows/decode wire)) 16)
++        occurrence (:yin.k/occurrence c)
++        prefix {:yin.k/occurrence occurrence :dao.lease/lease "lease-1"
++                :yin.k/frontier 0 :yin.k/inputs []}
++        ;; Same grant construction as rows-custody-test, through public APIs.
++        grant {:checkpoint (rows/pack-address wire)
++               :dao.lease/lease "lease-1" :dao.lease/holder "holder-a"
++               :tenure {:live true :now 0 :bound 10}
++               :evidence {:yin.k/status :yin.k/ready
++                          :yin.k/binding {:yin.k/occurrence occurrence :dao.lease/lease "lease-1"
++                                          :dao.lease/holder "holder-a" :yin.k/epoch 0
++                                          :yin.k/transaction {:yin.k/arbitration
++                                                              (get-in c [:yin.k/arbitration :dao.stream/identity])}}
++                          :yin.k/prefix prefix :yin.k/enrolled #{}}}
++        identities (into #{} (keep (fn [r] (when (= :stream (second r)) (nth r 2))))
++                         (:yin.k/rows wire))
++        opts {:grant grant :protection (into {} (map (fn [id] [id :at-least-once])) identities)}
++        fresh (support/receiver {:make-stream nil})
++        populated (poison-receiver-custody fresh)
++        {:keys [attach!]} (support/attacher)
++        m (rows/lower-task populated wire attach! opts)]
++    (is (empty? (:yin.k/closes m)))
++    (is (not (contains? m :yin.k/closes)))
++    (is (= 0 (:yin.k/issued m)))
++    (is (= :running (:yin.k/gate m)))
++    (is (= {:yin.k/occurrence occurrence :dao.lease/lease "lease-1" :dao.lease/holder "holder-a"
++            :yin.k/epoch 0 :yin.k/arbitration support/arbitration :yin.k/next-op-seq 0
++            :protection (:protection opts) :input {:next 0 :prefix prefix} :tenure {:bound 10}}
++           (:yin.k/custody m)))
++    (doseq [k [:yin.k/recovery-waits :yin.k/recovery-parked :yin.k/recovery-cell-ids]]
++      (is (not (contains? m k))))
++    (testing "fenced restoration owns recovery data throughout an install tree"
++      (let [pack (support/lift (support/parked-installer) nil)
++            handles (atom {})
++            attach! (fn [d]
++                      (let [id (:dao.stream/identity d)
++                            h (or (get @handles id) (support/one-slot-stream id))]
++                        (swap! handles assoc id h)
++                        {:dao.stream/outcome :dao.stream/ok :dao.stream/handle h}))
++            clean (rows/lower-task fresh pack attach! {:fenced true})
++            restored (rows/lower-task populated pack attach! {:fenced true})]
++        (doseq [path [[] [:installs 'host.mod :vm]]]
++          (let [task (get-in restored path)]
++            (is (= (select-keys (get-in clean path) receiver-custody-keys)
++                   (select-keys task receiver-custody-keys)))
++            (is (= :exporting (:yin.k/gate task)))
++            (is (not (contains? task :yin.k/closes)))
++            (is (not (contains? task :yin.k/custody)))
++            (is (seq (:yin.k/recovery-waits task)))
++            (is (map? (:yin.k/recovery-parked task)))
++            (is (map? (:yin.k/recovery-cell-ids task)))
++            (is (empty? (:wait-set task)))
++            (is (empty? (:parked task)))))))))
++
++
+ (deftest result-only-values-complete-the-census
+   (doseq [[f expected] [[(fn [a _b] [a a]) 1]
+                         [(fn [a b] [a b]) 2]]]

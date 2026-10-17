@@ -1,0 +1,49 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yang.clojure.stream-eval-test
+
+Testing yin.vm.attach-image-test
+
+Testing yin.vm.cell-test
+
+Testing yin.vm.continuation-invoke-test
+
+Testing yin.vm.data-test
+
+Testing yin.vm.engine-test
+
+Testing yin.vm.host-typed-values-test
+
+Testing yin.vm.integer-test
+
+Testing yin.vm.linker-manifest-test
+
+Testing yin.vm.linker-require-test
+
+Testing yin.vm.linker-test
+
+Testing yin.vm.semantic-engine-test
+
+Testing yin.vm.semantic-register.derive-test
+
+Testing yin.vm.semantic-register.effects-test
+
+Testing yin.vm.semantic-register.link-test
+
+Testing yin.vm.semantic-test
+
+Testing yin.vm.ucf.authority-test
+
+Testing yin.vm.ucf.handoff-test
+
+Testing yin.vm.ucf.handoff-v2-holder-test
+
+Testing yin.vm.ucf.holder.reader-test
+
+Testing yin.vm-test
+
+Ran 451 tests containing 8255 assertions.
+0 failures, 0 errors.

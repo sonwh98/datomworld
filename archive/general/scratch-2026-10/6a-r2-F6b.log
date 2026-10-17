@@ -1,0 +1,18 @@
+clojure -M:test -n yin.vm.ucf.rows-test -v yin.vm.ucf.rows-test/marker-shaped-guest-maps-are-not-portable
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (marker-shaped-guest-maps-are-not-portable) (rows_test.cljc:347)
+expected: (= :yin.k/non-portable (:yin.k/status (error (fn* [] (rows/rows->frame (replace-row wire window [:window 1 [:lit v]]))))))
+  actual: (not (= :yin.k/non-portable nil))
+
+FAIL in (marker-shaped-guest-maps-are-not-portable) (rows_test.cljc:347)
+expected: (= :yin.k/non-portable (:yin.k/status (error (fn* [] (rows/rows->frame (replace-row wire window [:window 1 [:lit v]]))))))
+  actual: (not (= :yin.k/non-portable nil))
+
+Ran 1 tests containing 5 assertions.
+2 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

@@ -1,0 +1,14 @@
+clojure -M:test -n yin.vm.ucf.rows-test -v yin.vm.ucf.rows-test/window-sorted-and-unique
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (window-sorted-and-unique) (rows_test.cljc:140)
+expected: (contains? #{:duplicate-key :row-order} (:yin.k/kind d))
+  actual: (not (contains? #{:duplicate-key :row-order} :noncanonical-cells))
+
+Ran 1 tests containing 4 assertions.
+1 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

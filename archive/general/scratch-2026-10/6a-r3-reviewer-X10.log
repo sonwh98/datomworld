@@ -1,0 +1,11 @@
+# X10: remove preflight doseq from checked-sort
+$ clojure -J-Xmx256m -M:test -n yin.vm.ucf.rows-test -v yin.vm.ucf.rows-test/intermediate-label-bytes-are-bounded
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.ucf.rows-test
+
+Ran 1 tests containing 2 assertions.
+0 failures, 0 errors.

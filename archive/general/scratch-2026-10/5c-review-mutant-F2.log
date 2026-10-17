@@ -1,0 +1,81 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.semantic-register.scan-test
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:190)
+[:register :nested-calls]
+expected: (= old new)
+  actual: (not (= {:free-names #{x y k g h f}, :occurrences [[f false] [g false] [h false] [x false] [k false] [y false]], :definitions [], :application-count 4, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [g false] [h false] [x false] [k false] [y false]]}} {:free-names #{x y k g h f}, :occurrences [[f false] [g false] [h false] [k false] [x false] [y false]], :definitions [], :application-count 4, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [g false] [h false] [k false] [x false] [y false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:204)
+[:register :nested-calls]
+expected: (= oracle (select-keys new [:occurrences :definitions :application-count]))
+  actual: (not (= {:occurrences [[f false] [g false] [h false] [x false] [k false] [y false]], :definitions [], :application-count 4} {:occurrences [[f false] [g false] [h false] [k false] [x false] [y false]], :definitions [], :application-count 4}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:205)
+[:register :nested-calls]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= {:free-names #{x y k g h f}, :occurrences [[f false] [g false] [h false] [x false] [k false] [y false]], :definitions [], :application-count 4, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [g false] [h false] [x false] [k false] [y false]]}} {:free-names #{x y k g h f}, :occurrences [[f false] [g false] [h false] [x false] [k false] [y false]], :definitions [], :application-count 4, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [g false] [h false] [x false] [k false] [y false]]}} {:free-names #{x y k g h f}, :occurrences [[f false] [g false] [h false] [k false] [x false] [y false]], :definitions [], :application-count 4, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [g false] [h false] [k false] [x false] [y false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:190)
+[:register :if-operand]
+expected: (= old new)
+  actual: (not (= {:free-names #{y c f}, :occurrences [[f false] [c false] [y false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [c false] [y false]]}} {:free-names #{y c f}, :occurrences [[c false] [f false] [y false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[c false] [f false] [y false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:204)
+[:register :if-operand]
+expected: (= oracle (select-keys new [:occurrences :definitions :application-count]))
+  actual: (not (= {:occurrences [[f false] [c false] [y false]], :definitions [], :application-count 1} {:occurrences [[c false] [f false] [y false]], :definitions [], :application-count 1}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:205)
+[:register :if-operand]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= {:free-names #{y c f}, :occurrences [[f false] [c false] [y false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [c false] [y false]]}} {:free-names #{y c f}, :occurrences [[f false] [c false] [y false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [c false] [y false]]}} {:free-names #{y c f}, :occurrences [[c false] [f false] [y false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[c false] [f false] [y false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:190)
+[:register :if-in-tail]
+expected: (= old new)
+  actual: (not (= {:free-names #{< - loop}, :occurrences [[< true] [loop true] [- true]], :definitions [], :application-count 4, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[< true] [loop true] [- true]]}} {:free-names #{< - loop}, :occurrences [[- true] [< true] [loop true]], :definitions [], :application-count 4, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[- true] [< true] [loop true]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:204)
+[:register :if-in-tail]
+expected: (= oracle (select-keys new [:occurrences :definitions :application-count]))
+  actual: (not (= {:occurrences [[< true] [loop true] [- true]], :definitions [], :application-count 4} {:occurrences [[- true] [< true] [loop true]], :definitions [], :application-count 4}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:205)
+[:register :if-in-tail]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= {:free-names #{< - loop}, :occurrences [[< true] [loop true] [- true]], :definitions [], :application-count 4, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[< true] [loop true] [- true]]}} {:free-names #{< - loop}, :occurrences [[< true] [loop true] [- true]], :definitions [], :application-count 4, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[< true] [loop true] [- true]]}} {:free-names #{< - loop}, :occurrences [[- true] [< true] [loop true]], :definitions [], :application-count 4, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[- true] [< true] [loop true]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:190)
+[:register :define-then-call]
+expected: (= old new)
+  actual: (not (= {:free-names #{n inc list}, :occurrences [[inc false] [n false] [list true]], :definitions [[n false]], :application-count 3, :requirements {:store-keys #{n}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[inc false] [list true]]}} {:free-names #{n inc list}, :occurrences [[inc false] [list true] [n false]], :definitions [[n false]], :application-count 3, :requirements {:store-keys #{n}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[inc false] [list true]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:204)
+[:register :define-then-call]
+expected: (= oracle (select-keys new [:occurrences :definitions :application-count]))
+  actual: (not (= {:occurrences [[inc false] [n false] [list true]], :definitions [[n false]], :application-count 3} {:occurrences [[inc false] [list true] [n false]], :definitions [[n false]], :application-count 3}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:205)
+[:register :define-then-call]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= {:free-names #{n inc list}, :occurrences [[inc false] [n false] [list true]], :definitions [[n false]], :application-count 3, :requirements {:store-keys #{n}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[inc false] [list true]]}} {:free-names #{n inc list}, :occurrences [[inc false] [n false] [list true]], :definitions [[n false]], :application-count 3, :requirements {:store-keys #{n}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[inc false] [list true]]}} {:free-names #{n inc list}, :occurrences [[inc false] [list true] [n false]], :definitions [[n false]], :application-count 3, :requirements {:store-keys #{n}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[inc false] [list true]]}}))
+
+FAIL in (free-occurrences-use-the-owner-tree) (scan_test.cljc:229)
+expected: (= expected (mapv (juxt :name :in-body?) (scan/free-occurrences (fixture n))))
+  actual: (not (= [[inc false] [n false] [list true]] [[inc false] [list true] [n false]]))
+
+FAIL in (free-occurrences-use-the-owner-tree) (scan_test.cljc:229)
+expected: (= expected (mapv (juxt :name :in-body?) (scan/free-occurrences (fixture n))))
+  actual: (not (= [[< true] [loop true] [- true]] [[- true] [< true] [loop true]]))
+
+FAIL in (free-occurrences-use-the-owner-tree) (scan_test.cljc:230)
+expected: (= [3 4 8] (mapv :at (scan/free-occurrences (fixture :define-then-call))))
+  actual: (not (= [3 4 8] [3 8 4]))
+
+Ran 10 tests containing 567 assertions.
+15 failures, 0 errors.

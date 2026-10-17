@@ -1,0 +1,13 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (numbering-precedes-frame-defect) (rows_test.cljc:189)
+expected: (= :noncanonical-cells (:yin.k/kind d))
+  actual: (not (= :noncanonical-cells :reserved-name))
+
+Ran 1 tests containing 2 assertions.
+1 failures, 0 errors.

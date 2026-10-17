@@ -1,0 +1,19 @@
+$ clojure -J-Xmx256m -M:test -n yin.vm.ucf.rows-r3heavy-test
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.ucf.rows-r3heavy-test
+R3PROBE [:in-set 4] [114 :ms nil]
+R3PROBE [:in-set 5] [483 :ms nil]
+R3PROBE [:in-set 6] [3836 :ms nil]
+R3PROBE [:in-set 7] [44457 :ms #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:work]}]
+R3PROBE [:two-cycles 2] [221 :ms nil]
+R3PROBE [:two-cycles 3] [314 :ms #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:label-bytes]}]
+R3PROBE [:keyed-map 4] [56 :ms nil]
+R3PROBE [:keyed-map 6] [3665 :ms nil]
+R3PROBE [:keyed-map 7] [35311 :ms #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:work]}]
+
+Ran 1 tests containing 1 assertions.
+0 failures, 0 errors.

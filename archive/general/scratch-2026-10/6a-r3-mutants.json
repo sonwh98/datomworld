@@ -1,0 +1,62 @@
+[
+  {
+    "name": "guest",
+    "command": [
+      "clojure",
+      "-J-Xmx256m",
+      "-M:test",
+      "-n",
+      "yin.vm.ucf.rows-test",
+      "-v",
+      "yin.vm.ucf.rows-test/well-formed-guest-markers-are-refused"
+    ],
+    "exit": 1,
+    "log": "collab/6a-r3-guest.log",
+    "restored_bytes": true
+  },
+  {
+    "name": "literal-both",
+    "command": [
+      "clojure",
+      "-J-Xmx256m",
+      "-M:test",
+      "-n",
+      "yin.vm.ucf.rows-test",
+      "-v",
+      "yin.vm.ucf.rows-test/every-literal-context-refuses-markers"
+    ],
+    "exit": 1,
+    "log": "collab/6a-r3-literal-both.log",
+    "restored_bytes": true
+  },
+  {
+    "name": "equality",
+    "command": [
+      "clojure",
+      "-J-Xmx256m",
+      "-M:test",
+      "-n",
+      "yin.vm.ucf.rows-test",
+      "-v",
+      "yin.vm.ucf.rows-test/cell-and-identity-shaped-literal-are-distinct"
+    ],
+    "exit": 1,
+    "log": "collab/6a-r3-equality.log",
+    "restored_bytes": true
+  },
+  {
+    "name": "bytes",
+    "command": [
+      "clojure",
+      "-J-Xmx256m",
+      "-M:test",
+      "-n",
+      "yin.vm.ucf.rows-test",
+      "-v",
+      "yin.vm.ucf.rows-test/intermediate-label-bytes-are-bounded"
+    ],
+    "exit": 1,
+    "log": "collab/6a-r3-bytes.log",
+    "restored_bytes": true
+  }
+]

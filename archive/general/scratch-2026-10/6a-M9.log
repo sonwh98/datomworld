@@ -1,0 +1,17 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (refinement-search-preserves-unordered-multiplicity) (rows_test.cljc:171)
+expected: (= :resource-limit (:yin.k/kind (error (fn* [] (rows/emit (make-task :x :y) {:search 1})))))
+  actual: (not (= :resource-limit nil))
+
+FAIL in (refinement-search-preserves-unordered-multiplicity) (rows_test.cljc:172)
+expected: (= :yin.k/unsupported (:yin.k/status (error (fn* [] (rows/emit (make-task :x :y) {:search 1})))))
+  actual: (not (= :yin.k/unsupported nil))
+
+Ran 1 tests containing 4 assertions.
+2 failures, 0 errors.

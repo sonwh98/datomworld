@@ -1,0 +1,70 @@
+{
+ "guest": {
+  "exit": 1,
+  "failing": [
+   "FAIL in (well-formed-guest-markers-are-refused) (rows_test.cljc:356)"
+  ],
+  "summary": [
+   "Ran 21 tests containing 323 assertions.",
+   "2 failures, 0 errors."
+  ],
+  "log": "collab/1792090000000-mutant-guest.log"
+ },
+ "bytes": {
+  "exit": 1,
+  "failing": [
+   "FAIL in (intermediate-label-bytes-are-bounded) (rows_test.cljc:402)",
+   "FAIL in (intermediate-label-bytes-are-bounded) (rows_test.cljc:403)"
+  ],
+  "summary": [
+   "Ran 21 tests containing 323 assertions.",
+   "2 failures, 0 errors."
+  ],
+  "log": "collab/1792090000000-mutant-bytes.log"
+ },
+ "equality": {
+  "exit": 1,
+  "failing": [
+   "ERROR in (cursor-and-identity-shaped-literal-are-distinct) (rows.cljc:69)",
+   "FAIL in (cursor-and-identity-shaped-literal-are-distinct) (rows_test.cljc:388)"
+  ],
+  "summary": [
+   "Ran 21 tests containing 323 assertions.",
+   "1 failures, 1 errors."
+  ],
+  "log": "collab/1792090000000-mutant-equality.log"
+ },
+ "equality-leaf-only": {
+  "exit": 0,
+  "failing": [],
+  "summary": [
+   "Ran 21 tests containing 323 assertions.",
+   "0 failures, 0 errors."
+  ],
+  "log": "collab/1792090000000-mutant-equality-leaf-only.log"
+ },
+ "numbering-order": {
+  "exit": 1,
+  "failing": [
+   "FAIL in (numbering-precedes-frame-defect) (rows_test.cljc:212)"
+  ],
+  "summary": [
+   "Ran 21 tests containing 323 assertions.",
+   "1 failures, 0 errors."
+  ],
+  "log": "collab/1792090000000-mutant-numbering-order.log"
+ },
+ "census-reversed": {
+  "exit": 1,
+  "failing": [
+   "FAIL in (canonical-roots-are-pinned) (rows_test.cljc:308)",
+   "FAIL in (canonical-roots-are-pinned) (rows_test.cljc:325)",
+   "FAIL in (census-is-numeric-from-ten-cursors) (rows_test.cljc:337)"
+  ],
+  "summary": [
+   "Ran 21 tests containing 323 assertions.",
+   "3 failures, 0 errors."
+  ],
+  "log": "collab/1792090000000-mutant-census-reversed.log"
+ }
+}

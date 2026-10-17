@@ -1,0 +1,14 @@
+clojure -M:test -n yin.vm.ucf.rows-test -v yin.vm.ucf.rows-test/schema-and-literal-canonicality
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (schema-and-literal-canonicality) (rows_test.cljc:203)
+expected: (= :reference-free-row (:yin.k/kind (error (fn* [] (rows/decode (rows/emit (task-node [] [:row (rows/node :vec [[:lit 1]])])))))))
+  actual: (not (= :reference-free-row nil))
+
+Ran 1 tests containing 5 assertions.
+1 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

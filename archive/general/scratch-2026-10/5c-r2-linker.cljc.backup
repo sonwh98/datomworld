@@ -1,0 +1,2565 @@
+(ns yin.vm.linker
+  "The code linker (docs/design/yin.vm.linker.md): fetches and verifies
+   code over a DaoStream content pair (section 6). The linker holds no
+   DaoJing handle: every read is a {:jing/request r :jing/get address}
+   request on the content pair -- dao.jing.content's request and response
+   vocabulary (dao.stream.remote.implementation-plan.md section 1) --
+   answered by whatever serves the pair, behind
+   dao.jing.content/serve-step.
+
+   The portable interface is stepped (section 6.3): `link-state`,
+   `request-link`, `step`, and `abandon` are pure functions over explicit
+   state. `fetch` is host policy over a link runtime (section 6.4): it
+   drives one link to its completion and runs step 5b against the
+   receiver. `verify` (steps 3 to 5a) and `discharge` (step 5b) are the
+   pure checks over values already in hand.
+
+   One format-neutral admission-then-six-step pipeline serves every
+   format (sections 4.1-4.2). A format record supplies the contract, the
+   identity mint and match, the row-local validator, the whole-value
+   validator, the three position-bearing scanners of section 4.1
+   (`:obligations-fn`, `:definitions-fn`, `:applications-fn`), and the
+   parts worklist; the five records are `ast-format`, `semantic-format`,
+   `semantic-register-format`, `stack-format`, and `register-format`
+   (section 5). The manifest and
+   derivation record formats of section 8.1 are `manifest-format` and
+   `record-format`, and `link-manifest` is the manifest-delivered image
+   link. Storage
+   addresses (`jing/segment-key`) and VM identities (H, R) are separate
+   preimages for the de Bruijn formats and the same preimage for the
+   storage-derived ones, so step 2 checks the address and step 3 checks
+   the identity; neither subsumes the other (I5).
+
+   The content pair client, the indexes, the format records, and the
+   bounds are linker-local state (section 6.2); the receiver environment
+   is an explicit argument. There is no global loader, registry,
+   callback, or cache here, and every outcome -- success or refusal --
+   is a returned plain data map (section 4.3)."
+  (:require #?@(:cljd [["dart:typed_data" :as typed]])
+            [dao.jing :as jing]
+            [dao.jing.content :as jing-content]
+            [dao.jing.cbor :as cbor]
+            [dao.stream :as stream]
+            [dao.stream.ringbuffer :as ring]
+            [yin.vm :as vm]
+            [yin.vm.code :as code]
+            [yin.vm.semantic-register.code :as sr-code]
+            [yin.vm.semantic-register.scan :as scan]
+            [yin.vm.debruijn-code :as debruijn-code]
+            [yin.vm.debruijn-linearize :as linearize]
+            [yin.vm.debruijn-register-code :as debruijn-register-code]
+            [yin.vm.debruijn-register-compile :as register-compile]
+            [yin.vm.debruijn-resolve :as resolve]
+            [yin.vm.ledger :as ledger]
+            [yin.vm.module :as module]))
+
+
+;; =============================================================================
+;; Refusal vocabulary (section 4.3)
+;; =============================================================================
+
+(def refusal-reasons
+  "Every reason a linker refusal may carry."
+  #{:invalid-request :absent :address-mismatch :hash-mismatch
+    :descriptor-defect :parts-limit :contract-mismatch :use-before-definition
+    :unresolved-free :shadowed-free :unsupported-format :pairing-mismatch
+    :undeclared-free :module-name-mismatch :derivation-mismatch
+    :unverified-derivation})
+
+
+(defn refused
+  "A qualified refusal: `{:status :refused, :reason reason}` merged with
+   the step's own evidence `data`."
+  ([reason] (refused reason {}))
+  ([reason data]
+   (merge data {:status :refused, :reason reason})))
+
+
+(defn refused?
+  "True when `res` is a linker refusal."
+  [res]
+  (and (map? res) (= :refused (:status res))))
+
+
+(defn ok?
+  "True when `res` is a verified linker outcome."
+  [res]
+  (and (map? res) (= :ok (:status res))))
+
+
+;; =============================================================================
+;; Free-name scanners (sections 5.1, 5.2)
+;; =============================================================================
+
+(defn- distinct-names
+  [names]
+  (vec (distinct names)))
+
+
+(defn stack-free-names
+  "Every `:load-free` name in a canonical stack instruction vector, in pc
+   order of first appearance."
+  [instruction-vector]
+  (distinct-names
+    (keep (fn [t] (when (= :load-free (nth t 0)) (nth t 1)))
+          instruction-vector)))
+
+
+(defn register-free-names
+  "Every `:load-free` name across all bodies of a register image map, in
+   pc order of first appearance. A register `:load-free` is
+   `[:load-free rd name]`."
+  [register-image-map]
+  (distinct-names
+    (keep (fn [t] (when (= :load-free (nth t 0)) (nth t 2)))
+          (:instructions register-image-map))))
+
+
+(defn- all-var-names
+  "The conservative fallback for a vector whose layout the scope walk
+   cannot read: every `:var` name, all free. Over-approximating
+   obligations is always admissible."
+  [v]
+  (set (keep (fn [t]
+               (when (and (vector? t)
+                          (= :var (nth t 0))
+                          (< 1 (count t)))
+                 (nth t 1)))
+             v)))
+
+
+(defn- closure-spans
+  "`[[c body r] ...]` for every `:closure` of canonical vector `v`: the
+   body of the closure at pc `c` is `[body r]`, `r` the first `:return`
+   at or after `body` (the out-of-line bodies of UCF section 7.3.2); nil
+   `r` when there is none."
+  [v]
+  (let [n (count v)]
+    (keep (fn [c]
+            (let [t (nth v c)]
+              (when (and (vector? t)
+                         (= :closure (nth t 0))
+                         (< 2 (count t)))
+                (let [body (nth t 2)]
+                  [c body
+                   (first (filter (fn [pc]
+                                    (let [u (nth v pc)]
+                                      (and (vector? u)
+                                           (= :return (nth u 0)))))
+                                  (range body n)))]))))
+          (range n))))
+
+
+(defn- spans-conform?
+  "Whether `spans` is the closed, off-pc-0, pairwise-disjoint body layout
+   the scope walk reads; anything else rules every `:var` free."
+  [spans]
+  (let [pairs (map (fn [[_ b r]] [b r]) spans)]
+    (and (every? (fn [[b r]] (and r (pos? b))) pairs)
+         (= (count pairs) (count (distinct pairs)))
+         (every? (fn [[[b1 r1] [b2 r2]]] (or (< r1 b2) (< r2 b1)))
+                 (for [x pairs, y pairs :when (neg? (compare x y))]
+                   [x y])))))
+
+
+(defn- vector-layout
+  "The closure body spans of canonical vector `v` when they are the
+   closed, off-pc-0, pairwise-disjoint layout the scope walk reads, else
+   nil -- every scanner then degrades (section 4.1)."
+  [v]
+  (let [spans (closure-spans v)]
+    (when (spans-conform? spans) spans)))
+
+
+(defn- safe-layout
+  "Like `vector-layout`, but a vector the walk cannot read at all (an
+   operand that throws) degrades too."
+  [v]
+  (try (vector-layout v)
+       (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))
+
+
+(defn- in-body-pc?
+  "Whether pc `p` lies in one of the closure body spans `spans`."
+  [spans p]
+  (boolean (some (fn [[_ b r]] (<= b p r)) spans)))
+
+
+(defn- conditional-ranges
+  "The pcs a conditional target range covers in canonical vector `v`
+   (section 4.1): for every `:jump` or `:branch-false` at pc b with
+   target t, the pcs strictly between b and t, either direction -- the
+   fall-through a taken branch skips, and a backward jump's body."
+  [v]
+  (into #{}
+        (mapcat (fn [[b t]]
+                  (when (and (integer? t) (not= b t))
+                    (range (inc (min b t)) (max b t)))))
+        (keep (fn [pc]
+                (let [t (nth v pc)]
+                  (when (and (vector? t)
+                             (contains? #{:jump :branch-false}
+                                        (nth t 0)))
+                    [pc (nth t 1)])))
+              (range (count v)))))
+
+
+(defn- degraded-occurrences
+  "The conservative degradation's own occurrence records (section 4.1):
+   every name retained at no position, inside a body -- a scanner that
+   cannot read positions retains every occurrence and discharges
+   nothing."
+  [names]
+  (vec (sort-by (comp str :name)
+                (map (fn [n] {:name n, :at nil, :in-body? true}) names))))
+
+
+(defn- degraded-definitions
+  "The conservative degradation's own definition records (section 4.1):
+   every key retained at no position, conditional -- a definition whose
+   position is unknown discharges nothing."
+  [names]
+  (vec (sort-by (comp str :name)
+                (map (fn [n] {:name n, :at nil, :conditional? true})
+                     names))))
+
+
+(defn semantic-free-occurrences
+  "Every free `:var` occurrence of canonical vector `v` as a section 4.1
+   record `{:name sym :at pc :in-body? b}`, in pc order (UCF section
+   7.3.2): a `:var` at pc `p` is bound iff `p` lies in the body of a
+   `:closure` whose params hold the name, transitively through the body
+   holding that closure's own pc. Over a vector whose body spans are not
+   closed, off pc 0, and pairwise disjoint -- anything but the
+   ast-to-bytecode layout -- every `:var` name degrades to a record with
+   no position: over-approximating obligations is always admissible."
+  [v]
+  (try
+    (if-let [spans (vector-layout v)]
+      (let [params (into {}
+                         (keep (fn [c]
+                                 (let [t (nth v c)]
+                                   (when (and (vector? t)
+                                              (= :closure (nth t 0)))
+                                     [c (nth t 1)]))))
+                         (range (count v)))
+            owner (fn [pc]
+                    (some (fn [[c b r]] (when (<= b pc r) c)) spans))
+            bound? (fn bound?
+                     [pc sym]
+                     (when-let [c (owner pc)]
+                       (or (some #(= % sym) (get params c))
+                           (bound? c sym))))]
+        (vec (keep (fn [pc]
+                     (let [t (nth v pc)]
+                       (when (and (vector? t)
+                                  (= :var (nth t 0))
+                                  (< 1 (count t))
+                                  (not (bound? pc (nth t 1))))
+                         {:name (nth t 1), :at pc,
+                          :in-body? (in-body-pc? spans pc)})))
+                   (range (count v)))))
+      (degraded-occurrences (all-var-names v)))
+    (catch #?(:cljd Object :clj Throwable :cljs :default) _
+      (degraded-occurrences (all-var-names v)))))
+
+
+(defn semantic-free-names
+  "Every `:var` name free at some pc of canonical vector `v` (UCF
+   section 7.3.2): the names of `semantic-free-occurrences`' records,
+   which carry the scope walk and the degradation."
+  [v]
+  (into #{} (map :name) (semantic-free-occurrences v)))
+
+
+(defn- step-order
+  "The execution order of two occurrence-path steps of one row (section
+   6.1): a `:node` slot's step is its row position, a `:nodes` slot's
+   the pair `[position i]`. A bare position evaluates before the
+   operands of the `:nodes` slot that follows it."
+  [a b]
+  (cond
+    (and (integer? a) (integer? b)) (compare a b)
+    (integer? a) -1
+    (integer? b) 1
+    :else (let [n (min (count a) (count b))]
+            (loop [i 0]
+              (if (= i n)
+                (compare (count a) (count b))
+                (let [c (compare (nth a i) (nth b i))]
+                  (if (zero? c) (recur (inc i)) c)))))))
+
+
+(defn- path-order
+  "The execution order of two occurrence paths from one root (section
+   4.1's tree order): slot order at the first step where they diverge."
+  [a b]
+  (let [n (min (count a) (count b))]
+    (loop [i 0]
+      (if (= i n)
+        (compare (count a) (count b))
+        (let [c (step-order (nth a i) (nth b i))]
+          (if (zero? c) (recur (inc i)) c))))))
+
+
+(defn- path-before?
+  "True when occurrence path `d` executes before occurrence path `u`."
+  [d u]
+  (neg? (path-order d u)))
+
+
+(defn- tree-child-places
+  "`[[step child-id] ...]` for every `:node` and `:nodes` slot of `row`,
+   in slot order, enumerated from `vm/semantic-bytecode-grammar` exactly
+   as `vm/occurrences` enumerates them: a `:node` slot's step is its row
+   position, a `:nodes` slot's the pair `[position i]` (section 6.1)."
+  [row]
+  (let [slots (get vm/semantic-bytecode-grammar (nth row 1))
+        n (min (count slots) (- (count row) 2))]
+    (loop [j 0, places []]
+      (if (>= j n)
+        places
+        (let [pos (+ j 2)
+              x (nth row pos)]
+          (recur (inc j)
+                 (case (nth (nth slots j) 1)
+                   :node (if (some? x) (conj places [pos x]) places)
+                   :nodes (into places
+                                (map-indexed (fn [i cid] [[pos i] cid]) x))
+                   places)))))))
+
+
+(defn- tree-places
+  "Every occurrence of the tree `{:root root :rows {id row}}` that names
+   a row, as `[path row bound in-body? conditional?]`, in no particular
+   order: the occurrence relation of `vm/occurrences` (section 6.1),
+   computed by one walk from the root that threads each path's enclosing
+   context down it. `bound` is the set of names the `:lambda` binders on
+   the path hold, a binder's params joining it on entering its body
+   (slot 3), exactly the binders `vm/occurrence-rules` finds at a proper
+   prefix of the path; `in-body?` is whether a lambda body encloses the
+   occurrence, and `conditional?` whether a lambda body or an `:if`
+   branch (slots 3 and 4) does -- section 4.1's enclosing tags, the
+   section 2.3 grammar's own positions. Each occurrence is classified by
+   its own path, never by its row: a structurally shared row yields one
+   entry per place."
+  [{:keys [root rows]}]
+  (loop [frontier [[[] root #{} false false]]
+         acc (transient [])]
+    (if (empty? frontier)
+      (persistent! acc)
+      (let [[path id bound in-body? conditional?] (peek frontier)
+            frontier (pop frontier)
+            row (get rows id)]
+        (if (nil? row)
+          (recur frontier acc)
+          (let [tag (nth row 1)
+                body-bound (when (= :lambda tag) (into bound (nth row 2)))]
+            (recur (into frontier
+                         (map (fn [[step cid]]
+                                (let [path' (conj path step)]
+                                  (cond
+                                    (and body-bound (= 3 step))
+                                    [path' cid body-bound true true]
+
+                                    (and (= :if tag) (or (= 3 step) (= 4 step)))
+                                    [path' cid bound in-body? true]
+
+                                    :else
+                                    [path' cid bound in-body? conditional?]))))
+                         (tree-child-places row))
+                   (conj! acc [path row bound in-body? conditional?]))))))))
+
+
+(defn- path-sorted
+  "`records` in the tree's own path order (section 4.1)."
+  [records]
+  (vec (sort-by (comp second :at) path-order records)))
+
+
+(defn- tree-free-name-occurrences
+  "Every free `:variable` occurrence of the tree `{:root root :rows {id
+   row}}` as a section 4.1 record `{:name sym :at [root path] :in-body?
+   b}`, in the tree's own path order: `vm/free-names`' occurrence
+   relation (`vm/occurrence-rules`), computed by `tree-places`' walk
+   instead of the rules' query -- a `:variable` occurrence is free when
+   no binder on its own path holds its name. Occurrence-scoped, never
+   row-scoped, so a structurally shared `:variable` row bound at one
+   place and free at another yields one record, at the free place.
+   Linear in the occurrences, where the rules' `not` clause is quadratic
+   under today's planner; the rules stay the normative definition, and a
+   conformance test holds this scanner equal to them. The definition
+   operator is syntax, never a name (Rule R): the validator admits it
+   only as a definition's operator, so it is never an occurrence."
+  [tree]
+  (let [root (:root tree)]
+    (path-sorted
+      (keep (fn [[path row bound in-body?]]
+              (when (= :variable (nth row 1))
+                (let [sym (nth row 2)]
+                  (when-not (or (contains? bound sym) (vm/reserved-name? sym))
+                    {:name sym, :at [root path], :in-body? in-body?}))))
+            (tree-places tree)))))
+
+
+(defn- tree-binding
+  "`[key step]` for a row that binds a constant store key, else nil: a
+   `:vm/store-put` row binds its key at its own position (`step` nil),
+   and a definition form -- an application of the definition operator
+   with exactly two operands, the first a literal -- binds the literal's
+   value at its invocation position, one `step` past its operands (the
+   store-key query behind `vm/ast-requirements`, section 4.1)."
+  [rows row]
+  (case (nth row 1)
+    :vm/store-put [(nth row 2) nil]
+    :application
+    (let [op (get rows (nth row 2))
+          operands (nth row 3)
+          key-row (when (and op
+                             (= :variable (nth op 1))
+                             (= vm/definition-operator (nth op 2))
+                             (= 2 (count operands)))
+                    (get rows (nth operands 0)))]
+      (when (and key-row (= :literal (nth key-row 1)))
+        [(nth key-row 2) [3 2]]))
+    nil))
+
+
+(defn- tree-definition-occurrences
+  "Every constant store key the tree binds at module level as a section
+   4.1 record `{:name key :at [root path] :conditional? b}`: the
+   `:vm/store-put` rows and definition forms of `vm/ast-requirements`'
+   store-key query, found over `tree-places`' walk, each binding carried
+   with its enclosing tags (section 4.1). A definition's binding is
+   recorded at its invocation position -- the application row's own path
+   extended one step past its two operands, where the engine writes the
+   key only after the value operand has run -- so a read inside the
+   value operand precedes the definition and keeps its obligation,
+   exactly as for application sites (a `:vm/store-put` row binds at its
+   own execution position and keeps its own path). The definition
+   operator is syntax, never a name (Rule R): the validator has refused
+   every tree that could rebind or alias it, and no engine resolves it,
+   so every definition form is a store. A conformance test holds this
+   scanner equal to the store-key query."
+  [tree]
+  (let [{:keys [root rows]} tree]
+    (path-sorted
+      (keep (fn [[path row _ _ conditional?]]
+              (when-let [[key step] (tree-binding rows row)]
+                {:name key,
+                 :at [root (if step (conj path step) path)],
+                 :conditional? conditional?}))
+            (tree-places tree)))))
+
+
+(defn- tree-application-sites
+  "Every application occurrence of the tree as a section 4.1 record
+   `{:at [root path]}` -- one application site at its invocation
+   position: the occurrence's own path extended one step past its
+   operands, the position at which the walker applies the operator after
+   evaluating them (section 4.1), so a definition inside an operand
+   dominates an application of the enclosing form. Found over
+   `tree-places`' walk; a conformance test holds it equal to the
+   application-row query over the occurrence relation."
+  [tree]
+  (let [root (:root tree)]
+    (path-sorted
+      (keep (fn [[path row]]
+              (when (= :application (nth row 1))
+                {:at [root (conj path [3 (count (nth row 3))])]}))
+            (tree-places tree)))))
+
+
+(defn- stack-free-occurrences
+  "Every `:load-free` occurrence of a canonical stack instruction vector
+   as a section 4.1 record `{:name sym :at pc :in-body? b}`, in pc
+   order. Over a vector whose closure body spans the scope walk cannot
+   read, every `:load-free` name degrades to a record with no position
+   (section 4.1)."
+  [v]
+  (if-let [spans (safe-layout v)]
+    (vec (keep-indexed
+           (fn [pc t]
+             (when (and (vector? t) (= :load-free (nth t 0)))
+               {:name (nth t 1), :at pc,
+                :in-body? (in-body-pc? spans pc)}))
+           v))
+    (degraded-occurrences (stack-free-names v))))
+
+
+(defn- binding-key
+  "The key a vector-format instruction `t` binds, or nil: a `:store-put`
+   or `:define` carries it at `slot`."
+  [t slot]
+  (when (and (vector? t)
+             (contains? #{:store-put :define} (nth t 0))
+             (< slot (count t)))
+    (nth t slot)))
+
+
+(defn- vector-definition-occurrences
+  "Every `:store-put` and `:define` key the canonical instruction vector
+   `v` binds, as a section 4.1 record `{:name key :at pc :conditional?
+   b}`: conditional when a jump target range or a closure body encloses
+   the pc (section 4.1). Degrades to records with no position over a
+   vector whose body spans the scope walk cannot read."
+  [v]
+  (if-let [spans (safe-layout v)]
+    (let [ranges (conditional-ranges v)]
+      (vec (keep-indexed
+             (fn [pc t]
+               (when-let [k (binding-key t 1)]
+                 {:name k, :at pc,
+                  :conditional? (or (contains? ranges pc)
+                                    (in-body-pc? spans pc))}))
+             v)))
+    (degraded-definitions (keep (fn [t] (binding-key t 1)) v))))
+
+
+(defn- vector-application-sites
+  "Every application site of the canonical instruction vector `v` as a
+   section 4.1 record `{:at pc}`: a `:call` or `:ffi-call` pc -- a
+   direct call, a call of an imported name, or a call of a primitive
+   that receives a function argument, the callee possibly applying what
+   it is handed (section 4.1). Degrades to records with no position over
+   a vector whose body spans the scope walk cannot read."
+  [v]
+  (let [call? (fn [t]
+                (and (vector? t)
+                     (contains? #{:call :ffi-call} (nth t 0))))]
+    (if (safe-layout v)
+      (vec (keep-indexed (fn [pc t] (when (call? t) {:at pc})) v))
+      (vec (keep (fn [t] (when (call? t) {:at nil})) v)))))
+
+
+(defn- register-body-at
+  "The index of the declared body of register image map `image` whose pc
+   range covers `p`, or nil: body 0 is the main program, every other
+   body a lambda's."
+  [image p]
+  (some (fn [i]
+          (let [b (nth (:bodies image) i)]
+            (when (and (integer? (:start b)) (integer? (:end b))
+                       (<= (:start b) p (:end b)))
+              i)))
+        (range (count (:bodies image)))))
+
+
+(defn- register-in-body?
+  "Whether pc `p` of register image map `image` lies in a lambda body
+   rather than the main program (section 4.1)."
+  [image p]
+  (let [i (register-body-at image p)]
+    (boolean (and i (pos? i)))))
+
+
+(defn- register-conditional-ranges
+  "The conditional target range pcs of a register image's instructions
+   (section 4.1): a `:jump`'s target is its first operand, a
+   `:branch-false`'s its second."
+  [image]
+  (into #{}
+        (mapcat (fn [[b t]]
+                  (when (and (integer? t) (not= b t))
+                    (range (inc (min b t)) (max b t)))))
+        (keep-indexed
+          (fn [pc t]
+            (when (vector? t)
+              (case (nth t 0)
+                :jump [pc (nth t 1)]
+                :branch-false [pc (nth t 2)]
+                nil)))
+          (:instructions image))))
+
+
+(defn- register-free-occurrences
+  "Every `:load-free` occurrence across all bodies of a register image
+   map as a section 4.1 record `{:name sym :at pc :in-body? b}`, in pc
+   order. A register `:load-free` is `[:load-free rd name]`."
+  [image]
+  (vec (keep-indexed
+         (fn [pc t]
+           (when (and (vector? t) (= :load-free (nth t 0)))
+             {:name (nth t 2), :at pc,
+              :in-body? (register-in-body? image pc)}))
+         (:instructions image))))
+
+
+(defn- register-definition-occurrences
+  "Every `:store-put` and `:define` key the register image binds, as a
+   section 4.1 record `{:name key :at pc :conditional? b}`: conditional
+   when a jump target range or a lambda body encloses the pc (section
+   4.1). A register `:store-put` is `[:store-put rd key value]`, a
+   `:define` `[:define rd key rs]`."
+  [image]
+  (let [ranges (register-conditional-ranges image)]
+    (vec (keep-indexed
+           (fn [pc t]
+             (when-let [k (binding-key t 2)]
+               {:name k, :at pc,
+                :conditional? (or (contains? ranges pc)
+                                  (register-in-body? image pc))}))
+           (:instructions image)))))
+
+
+(defn- register-application-sites
+  "Every application site of the register image as a section 4.1 record
+   `{:at pc}`: a `:call` or `:ffi-call` pc (section 4.1)."
+  [image]
+  (vec (keep-indexed
+         (fn [pc t]
+           (when (and (vector? t)
+                      (contains? #{:call :ffi-call} (nth t 0)))
+             {:at pc}))
+         (:instructions image))))
+
+
+;; =============================================================================
+;; Row-local validation and the parts worklist (sections 5.1, 4.2 step 2)
+;; =============================================================================
+
+(defn row-local-defect
+  "The section 7.4 row-local rules -- `:tag`, `:arity`, `:slot-kind`,
+   `:saturation` -- over one row body `[tag & slots]`, nil when the body
+   is locally well formed. The whole-tree rules (`:id-resolves`,
+   `:acyclic`, `:root-reachable`) cannot run over one body and are never
+   reported here: a locally well-formed body's child ids resolve in
+   step 2's worklist. A malformed row's slots are never followed
+   (section 5.1). A body that is not a vector is a `:tag` defect: only a
+   vector can be a row."
+  [body]
+  (let [row (if (vector? body) (into [::root] body) [::root body])
+        res (vm/validate-rows {:root ::root, :rows {::root row}})]
+    (when (contains? #{:tag :arity :slot-kind :saturation} (:rule res))
+      res)))
+
+
+(defn- body-child-ids
+  "The child row ids of one fetched body's `node`/`nodes` slots, by the
+   grammar's own positions. Only valid segment addresses are followed: a
+   slot holding something else stays in the row for `validate-rows` to
+   name as its `:slot-kind` defect, exactly as it would in a
+   hand-supplied row set."
+  [body]
+  (let [slots (get vm/semantic-bytecode-grammar (first body))]
+    (when (and slots (= (count slots) (dec (count body))))
+      (mapcat (fn [[_field kind] v]
+                (case kind
+                  :node (when (jing/segment-address? v) [v])
+                  :nodes (filter jing/segment-address? v)
+                  nil))
+              slots (rest body)))))
+
+
+;; =============================================================================
+;; Format records (section 5)
+;; =============================================================================
+
+(def stack-format
+  "The `:yin.debruijn.code` format record: stack images identified by H
+   under the \"b2\" contract (`vm/stack-contract`), one canonical vector
+   per image. Free names are `:load-free` operands, definitions
+   `:store-put` and `:define` operands, application sites the call
+   opcodes -- all position-bearing by pc (section 5.3)."
+  {:format              :yin.debruijn.code,
+   :contract            vm/stack-contract,
+   :identity-fn         debruijn-code/image-hash,
+   :identity-matches-fn (fn [H v] (= H (debruijn-code/image-hash v))),
+   :row-defect-fn       debruijn-code/image-defect,
+   :validate-fn         debruijn-code/image-defect,
+   :obligations-fn      stack-free-occurrences,
+   :definitions-fn      vector-definition-occurrences,
+   :applications-fn     vector-application-sites,
+   :parts-fn            (constantly nil)})
+
+
+(def register-format
+  "The `:yin.debruijn.register` format record: register images identified
+   by R under the \"r2\" contract (`vm/register-contract`), one image
+   map per image. Free names are `[:load-free rd name]` operands across
+   all bodies, definitions the `:store-put` and `:define` keys,
+   application sites the call opcodes (section 5.4)."
+  {:format              :yin.debruijn.register,
+   :contract            vm/register-contract,
+   :identity-fn         debruijn-register-code/register-hash,
+   :identity-matches-fn (fn [R v]
+                          (= R (debruijn-register-code/register-hash v))),
+   :row-defect-fn       debruijn-register-code/register-image-defect,
+   :validate-fn         debruijn-register-code/register-image-defect,
+   :obligations-fn      register-free-occurrences,
+   :definitions-fn      register-definition-occurrences,
+   :applications-fn     register-application-sites,
+   :parts-fn            (constantly nil)})
+
+
+(def semantic-format
+  "The `:yin.semantic/code` format record: the canonical positional
+   instruction vector stored as the exact payload at its own
+   `segment-key` (UCF section 7.3.4), under the \"v3\" contract
+   (`vm/semantic-contract`). Identity and address are one preimage; step
+   3 still runs, because it is the only check that the index did not
+   point the identity at a different, correctly stored payload (section
+   4.2). Free names are `:var`
+   operands, definitions `:store-put` and `:define` operands,
+   application sites the call opcodes (section 5.2)."
+  {:format              :yin.semantic/code,
+   :contract            vm/semantic-contract,
+   :identity-fn         jing/segment-key,
+   :identity-matches-fn jing/segment-matches?,
+   :row-defect-fn       code/well-formed-vector?,
+   :validate-fn         code/well-formed-vector?,
+   :obligations-fn      semantic-free-occurrences,
+   :definitions-fn      vector-definition-occurrences,
+   :applications-fn     vector-application-sites,
+   :parts-fn            (constantly nil)})
+
+
+(def semantic-register-format
+  "The production v4 semantic register vector format record."
+  {:format :yin.semantic-register/code
+   :contract sr-code/contract
+   :identity-fn jing/segment-key
+   :identity-matches-fn jing/segment-matches?
+   :row-defect-fn sr-code/well-formed?
+   :validate-fn sr-code/well-formed?
+   :obligations-fn scan/free-occurrences
+   :definitions-fn scan/definition-occurrences
+   :applications-fn scan/application-sites
+   :parts-fn (constantly nil)})
+
+
+(def ast-format
+  "The `:yin.ast/code` format record: one row body `[tag & slots]` per
+   address (D3), the root row's id the tree's identity, under the \"v3\"
+   contract (`vm/ast-contract`). Step 2 is a bounded worklist over the
+   grammar's `node`/`nodes` slots; the whole tree is assembled for step
+   4 by prepending each part's address, the shape `validate-rows` takes.
+   All three scanners are Datalog over the rows, position-bearing by
+   occurrence path (section 5.1)."
+  {:format              :yin.ast/code,
+   :contract            vm/ast-contract,
+   :identity-fn         jing/segment-key,
+   :identity-matches-fn jing/segment-matches?,
+   :row-defect-fn       row-local-defect,
+   :validate-fn         vm/validate-rows,
+   :obligations-fn      tree-free-name-occurrences,
+   :definitions-fn      tree-definition-occurrences,
+   :applications-fn     tree-application-sites,
+   :parts-fn            body-child-ids})
+
+
+;; =============================================================================
+;; The manifest and derivation record formats (section 8.1)
+;; =============================================================================
+
+(def manifest-schema
+  "The one module-manifest schema version this linker implements (section
+   8.1): which keys exist and what they mean. The manifest record's
+   validator implements exactly this version; a manifest of another
+   version is a `:schema` defect, never migrated."
+  1)
+
+
+(def ^:private manifest-keys
+  "The closed key set of a schema-1 manifest: every key of section 8.1's
+   example, the index alone optional."
+  #{:yin.module/name :yin.module/schema :yin.module/contracts
+    :yin.module/tree :yin.module/derivations :yin.module/index
+    :yin.module/exports :yin.module/requires :yin.module/primitives
+    :yin.module/footprint})
+
+
+(def ^:private derivation-formats
+  "The formats a manifest carries derivation records for. The tree itself
+   is the manifest's one canonical tree and needs no record."
+  #{:yin.semantic/code :yin.debruijn.code :yin.debruijn.register})
+
+
+(defn manifest-defect
+  "The schema-1 manifest validator (section 8.1): one schema version, the
+   closed key set, and each key's own shape -- the name is a symbol, the
+   contracts map formats to revision strings, the tree and every record
+   and declaration address is a Jing address, the declarations are
+   symbol-keyed, and every format named under `:yin.module/derivations`
+   is named under `:yin.module/contracts`. A declared name may never be
+   the definition operator (Rule R). Returns the defect map or nil."
+  [manifest]
+  (let [address? jing/segment-address?
+        shape (fn [k] {:rule :manifest-shape, :key k})
+        name-map? (fn [m k p]
+                    (let [v (get m k)]
+                      (and (map? v)
+                           (every? (fn [entry]
+                                     (and (symbol? (key entry))
+                                          (p (val entry))))
+                                   v))))
+        declared-names (fn [manifest]
+                         (concat (keys (:yin.module/requires manifest))
+                                 (keys (:yin.module/primitives manifest))
+                                 (:yin.module/exports manifest)))]
+    (if-not (map? manifest)
+      {:rule :manifest-shape}
+      (or (when (not= manifest-schema (:yin.module/schema manifest))
+            {:rule :schema})
+          (some (fn [k]
+                  (when-not (contains? manifest-keys k)
+                    (shape k)))
+                (keys manifest))
+          (some (fn [k]
+                  (when (or (not (contains? manifest k))
+                            (nil? (get manifest k)))
+                    (assoc (shape k) :missing true)))
+                (disj manifest-keys :yin.module/index))
+          (when-not (symbol? (:yin.module/name manifest))
+            (shape :yin.module/name))
+          (when (vm/reserved-name? (:yin.module/name manifest))
+            {:rule :reserved-name, :name (:yin.module/name manifest),
+             :role :declaration})
+          (when-not (and (map? (:yin.module/contracts manifest))
+                         (every? (fn [e]
+                                   (and (keyword? (key e))
+                                        (string? (val e))))
+                                 (:yin.module/contracts manifest)))
+            (shape :yin.module/contracts))
+          (when-not (address? (:yin.module/tree manifest))
+            (shape :yin.module/tree))
+          (when-not (and (map? (:yin.module/derivations manifest))
+                         (every? (fn [e]
+                                   (and (contains? derivation-formats (key e))
+                                        (address? (val e))))
+                                 (:yin.module/derivations manifest)))
+            (shape :yin.module/derivations))
+          (some (fn [f]
+                  (when-not (contains? (:yin.module/contracts manifest) f)
+                    {:rule :contract-missing, :format f}))
+                (keys (:yin.module/derivations manifest)))
+          ;; optional, but when present a map: vals of anything else throws
+          (let [index (:yin.module/index manifest)]
+            (when (or (and (some? index) (not (map? index)))
+                      (some (fn [v] (not (address? v))) (vals index)))
+              (shape :yin.module/index)))
+          (when-not (and (set? (:yin.module/exports manifest))
+                         (every? (fn [n] (symbol? n))
+                                 (:yin.module/exports manifest)))
+            (shape :yin.module/exports))
+          (when-not (name-map? manifest :yin.module/requires address?)
+            (shape :yin.module/requires))
+          (when-not (name-map? manifest :yin.module/primitives keyword?)
+            (shape :yin.module/primitives))
+          (when-not (and (map? (:yin.module/footprint manifest))
+                         (set? (get-in manifest
+                                       [:yin.module/footprint :store-keys]))
+                         (set? (get-in manifest
+                                       [:yin.module/footprint :effects])))
+            (shape :yin.module/footprint))
+          (some (fn [n]
+                  (when (vm/reserved-name? n)
+                    {:rule :reserved-name, :name n,
+                     :role :declaration}))
+                (declared-names manifest))))))
+
+
+(def ^:private record-keys
+  "The closed key set of a derivation record: exactly the keys
+   `yin.vm.ledger/derive-record` mints."
+  #{:yin.ledger/op :yin.ledger/input :yin.ledger/output
+    :yin.ledger/function :yin.ledger/profile})
+
+
+(defn record-defect
+  "The derivation-record validator (section 8.1): a record is exactly
+   `yin.vm.ledger/derive-record`'s shape -- one `:derive` op, the tree's
+   Jing address as input, the lowered image's identity as output (a
+   segment address for the vector format, a contract-pinned hash for
+   the two de Bruijn formats), a function name, and the structured
+   profile map, no more and no less. Returns the defect map or nil."
+  [record]
+  (let [address? jing/segment-address?
+        shape (fn [k] {:rule :record-shape, :key k})
+        output? (fn [o] (or (string? o) (keyword? o)))]
+    (cond
+      (not (map? record)) {:rule :record-shape}
+      (not= record-keys (set (keys record))) {:rule :record-shape}
+      (not= :derive (:yin.ledger/op record))
+      {:rule :op, :op (:yin.ledger/op record)}
+      (not (address? (:yin.ledger/input record)))
+      (shape :yin.ledger/input)
+      (not (output? (:yin.ledger/output record)))
+      (shape :yin.ledger/output)
+      (not (keyword? (:yin.ledger/function record)))
+      (shape :yin.ledger/function)
+      (not (map? (:yin.ledger/profile record)))
+      (shape :yin.ledger/profile)
+      :else nil)))
+
+
+(def manifest-format
+  "The `:yin.module/manifest` format record (section 8.1): a manifest is
+   one map, content-addressed at its own segment address and identified
+   by it, its contract this record's one schema version. No parts, no
+   obligations: a manifest is a declaration, not an image."
+  {:format              :yin.module/manifest,
+   :contract            manifest-schema,
+   :identity-fn         jing/segment-key,
+   :identity-matches-fn jing/segment-matches?,
+   :row-defect-fn       manifest-defect,
+   :validate-fn         manifest-defect,
+   :obligations-fn      (constantly []),
+   :definitions-fn      (constantly []),
+   :applications-fn     (constantly []),
+   :parts-fn            (constantly nil)})
+
+
+(def record-format
+  "The `:yin.ledger/record` format record (section 8.1): a derivation
+   record minted by `yin.vm.ledger/derive-record`, fetched through the
+   pipeline so the record itself passes steps 2 to 4 before the linker
+   believes its claim."
+  {:format              :yin.ledger/record,
+   :contract            :derive,
+   :identity-fn         jing/segment-key,
+   :identity-matches-fn jing/segment-matches?,
+   :row-defect-fn       record-defect,
+   :validate-fn         record-defect,
+   :obligations-fn      (constantly []),
+   :definitions-fn      (constantly []),
+   :applications-fn     (constantly []),
+   :parts-fn            (constantly nil)})
+
+
+(def stack-lowering-profile
+  "The lowering profile this linker implements for
+   `:yin.debruijn.code` (section 8.1): the stack lowering --
+   `resolve`, then `lower-stack` -- over the datom lane, the row-lane
+   tree reconstructed first. A derivation record naming this profile
+   verbatim is one this linker recomputes; any other is never trusted
+   under `:verifying`."
+  {:yin.lower/profile "stack-lowering",
+   :yin.code/contract vm/stack-contract,
+   :yin.k/version 0})
+
+
+(def register-lowering-profile
+  "The lowering profile this linker implements for
+   `:yin.debruijn.register` (section 8.1): the register lowering --
+   `resolve`, then `lower-register` -- over the datom lane, the row-lane
+   tree reconstructed first."
+  {:yin.lower/profile "register-lowering",
+   :yin.code/contract vm/register-contract,
+   :yin.k/version 0})
+
+
+(def ^:private implemented-profiles
+  "The one profile per lowered format this linker recomputes under the
+   `:verifying` policy (section 8.1); the semantic format's is
+   `yin.vm.ledger`'s published profile."
+  {:yin.semantic/code ledger/lowering-profile,
+   :yin.debruijn.code stack-lowering-profile,
+   :yin.debruijn.register register-lowering-profile})
+
+
+;; =============================================================================
+;; The H and R indexes (section 6)
+;; =============================================================================
+
+(defn address-attribute
+  "The index attribute a format's identities are published under:
+   `:yin.debruijn.code/address` or `:yin.debruijn.register/address`."
+  [format]
+  (keyword (name (:format format)) "address"))
+
+
+(defn index-from-datoms
+  "A plain identity -> address map read from index datoms
+   `[identity attribute address]`, keeping only the attribute `format`
+   publishes under. The index is composition data; an entry is a claim,
+   not a proof (step 3 checks it)."
+  [format datoms]
+  (let [attr (address-attribute format)]
+    (into {}
+          (keep (fn [[e a v]] (when (= attr a) [e v])))
+          datoms)))
+
+
+;; =============================================================================
+;; The receiver environment (step 5)
+;; =============================================================================
+;; The receiver binds a free name in the order
+;; `yin.vm.engine/resolve-var` uses: free env -> store -> primitives ->
+;; module registry. A name the image publisher meant as a primitive or a
+;; module binding must resolve there; a receiver whose free env or store
+;; also binds it would bind it differently, so that is refused as
+;; shadowed rather than executed (D11).
+
+(defn- obligation-name
+  "The name an obligation carries: a section 4.1 record's `:name`, or
+   the bare name itself."
+  [obligation]
+  (if (map? obligation) (:name obligation) obligation))
+
+
+(defn- shadowed?
+  [{:keys [free-env store]} obligation]
+  (let [sym (obligation-name obligation)]
+    (or (contains? free-env sym) (contains? store sym))))
+
+
+(defn- resolvable?
+  [{:keys [primitives modules]} obligation]
+  (let [sym (obligation-name obligation)]
+    (or (contains? primitives sym)
+        (some (fn [k] (and (map? k) (= sym (:name k))))
+              (keys primitives))
+        (and (symbol? sym)
+             (some? (namespace sym))
+             (some? (module/resolve-module
+                      modules
+                      (symbol (str (namespace sym) "." (name sym)))))))))
+
+
+(defn- declared-discharge
+  "Step 5b for a manifest-declared obligation (section 4.2): a primitive
+   obligation is discharged only by a primitive of equal profile address
+   -- the receiver's own, or a host module export of the qualified name
+   (`module/host-export-profile`) -- a module obligation only by a linked
+   module of equal manifest address.
+   Anything else the receiver holds under the name -- same name, other
+   profile; same name, other manifest -- resolves nothing, and neither
+   does an obligation with no address (two absent addresses are not
+   equal ones)."
+  [{:keys [primitives modules]} obligation]
+  (case (:kind obligation)
+    :primitive
+    (let [entry (get primitives (:name obligation))
+          profile (:profile obligation)]
+      (when-not (and (some? profile)
+                     (or (and (map? entry)
+                              (= profile (:yin.k/profile entry)))
+                         (= profile (module/host-export-profile
+                                      modules (:name obligation)))))
+        (refused :unresolved-free
+                 {:name (:name obligation), :kind :primitive})))
+    :module
+    (let [entry (module/resolve-module modules (:module obligation))]
+      (when-not (and (map? entry)
+                     (some? (:manifest obligation))
+                     (= (:manifest obligation) (:manifest entry)))
+        (refused :unresolved-free
+                 {:name (:name obligation), :kind :module})))
+    (refused :unresolved-free
+             {:name (:name obligation), :kind (:kind obligation)})))
+
+
+(defn discharge
+  "Step 5b, pure (section 6.4): the first refusal for the obligations
+   `obligations` against `receiver` (`{:free-env :store :primitives
+   :modules}`, every key optional), or nil when every obligation binds in
+   the receiver identically. An obligation is a section 4.1 record; a
+   bare name is accepted for compositions that scan names themselves.
+   The registry
+   discharges an obligation under its own entry -- a composition that
+   derives its registry from the same scan keys the records -- or under
+   the bare name. A manifest-declared obligation (section 8.1: a record
+   carrying `:kind` `:primitive` or `:module`) is checked first by name
+   against the free env and store, then only by equal profile address or
+   equal manifest address -- never by presence alone."
+  [receiver obligations]
+  (some (fn [obligation]
+          (or (when (shadowed? receiver obligation)
+                (refused :shadowed-free
+                         {:name (obligation-name obligation)}))
+              (if (and (map? obligation) (contains? obligation :kind))
+                (declared-discharge receiver obligation)
+                (when (not (resolvable? receiver obligation))
+                  (refused :unresolved-free
+                           {:name (obligation-name obligation)})))))
+        obligations))
+
+
+;; =============================================================================
+;; Step 5a: the occurrence/definition join (section 4.2)
+;; =============================================================================
+
+(defn- precedes?
+  "True when position `d` executes before position `u` under the
+   position's own order (section 4.1): a pc for the vector formats, the
+   tree's slot order for an occurrence path `[root path]`. Positions of
+   different shapes, or of different roots, never discharge each other."
+  [d u]
+  (cond
+    (and (integer? d) (integer? u)) (< d u)
+    (and (vector? d) (vector? u)
+         (= 2 (count d)) (= 2 (count u))
+         (= (nth d 0) (nth u 0)))
+    (path-before? (nth d 1) (nth u 1))
+    :else false))
+
+
+(defn- scanned
+  "The records `slot`'s scanner yields for `value`, or nil when the slot
+   is missing or the scanner cannot run -- step 5a then falls under the
+   conservative degradation (section 4.1)."
+  [format slot value]
+  (try (when-let [f (get format slot)] (f value))
+       (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))
+
+
+(defn- undischarged
+  "Step 5a's join: the free-name occurrences the scanners yielded,
+   against the definitions and the application sites. A definition
+   discharges an occurrence by defined-before-use under control-flow
+   dominance -- an unconditional definition whose position precedes the
+   occurrence's (section 4.1's order rules). A main-sequence occurrence
+   whose every definition is later is `:use-before-definition`; one
+   whose only definitions are conditional and earlier keeps its
+   obligation. A lambda-body occurrence is discharged only by an
+   unconditional definition that precedes every application site; an
+   image with no application site discharges a body occurrence against
+   every unconditional definition; with no usable application positions
+   nothing inside a body is discharged at all. A position the scanners
+   could not compute retains its occurrence and never discharges.
+   Returns `{:obligations [...]}` -- the retained records, in scan
+   order -- or a `:use-before-definition` refusal naming the
+   occurrence."
+  [occurrences definitions applications]
+  (let [sites (vec applications)
+        usable-sites? (and (sequential? applications)
+                           (every? (fn [s] (some? (:at s))) sites))
+        by-name (group-by :name definitions)
+        unconditional (fn [defs]
+                        (filter (fn [d]
+                                  (and (some? (:at d))
+                                       (false? (:conditional? d))))
+                                defs))
+        verdict
+        (fn [occ]
+          (let [at (:at occ)]
+            (if (nil? at)
+              :retained
+              (let [defs (get by-name (:name occ))]
+                (if-not (:in-body? occ)
+                  (let [dominating (filter (fn [d]
+                                             (precedes? (:at d) at))
+                                           (unconditional defs))]
+                    (cond
+                      (seq dominating) :discharged
+                      (and (seq defs)
+                           (every? (fn [d]
+                                     (and (some? (:at d))
+                                          (precedes? at (:at d))))
+                                   defs))
+                      :use-before-definition
+                      :else :retained))
+                  (cond
+                    (not usable-sites?) :retained
+                    (empty? sites)
+                    (if (seq (unconditional defs))
+                      :discharged
+                      :retained)
+                    :else
+                    (if (seq (filter (fn [d]
+                                       (every? (fn [s]
+                                                 (precedes? (:at d)
+                                                            (:at s)))
+                                               sites))
+                                     (unconditional defs)))
+                      :discharged
+                      :retained)))))))]
+    (reduce (fn [acc occ]
+              (case (verdict occ)
+                :discharged acc
+                :retained (update acc :obligations conj occ)
+                :use-before-definition
+                (reduced {:obligations []
+                          :defect (refused :use-before-definition
+                                           {:name (:name occ),
+                                            :at (:at occ)})})))
+            {:obligations []}
+            occurrences)))
+
+
+;; =============================================================================
+;; Step 2's reads over the content pair (sections 4.2, 6.1)
+;; =============================================================================
+
+(def ^:private missing
+  "Opaque per-host sentinel for a read that carried no payload, never a
+   keyword: a keyword sentinel could collide with a genuinely stored
+   payload, and on cljs each keyword literal site is its own object."
+  #?(:cljd (Object.)
+     :clj (Object.)
+     :cljs (js-obj)))
+
+
+(defn- answer-text
+  "Step 2's read: the Base64 reply text one content-pair answer carries,
+   or `missing` when it carries none -- not found, or a value that is
+   not the exact reply envelope the client vocabulary answers a read
+   with, {:jing/request r :jing/found? true :jing/bytes b64}: the three
+   keys present and no others (the shape content/step's get-answer?
+   demands). A failing read has no payload for this link, so it fails
+   closed as `:absent`, never as execution. Nothing is decoded here, so
+   that step 2's byte cap runs before the text is."
+  [answer]
+  (if (and (map? answer)
+           (= #{:jing/request :jing/found? :jing/bytes}
+              (set (keys answer)))
+           (true? (get answer :jing/found?))
+           (string? (get answer :jing/bytes)))
+    (get answer :jing/bytes)
+    missing))
+
+
+(defn- least-decoded-length
+  "The fewest bytes Base64 text of `text`'s length can decode to: strict
+   padded Base64 of n characters is 3n/4 bytes less at most two of
+   padding. Text over the budget by this measure is over it however it
+   decodes, so it is refused without being decoded; text within it is
+   decoded and meets the exact decoded-length cap."
+  [text]
+  (- (* 3 (quot (count text) 4)) 2))
+
+
+(defn- ingress!
+  "The one ingress check, dao.jing/accept-bytes!, guarded: the canonical
+   bytes the answer text carries for `address`, or a refusal mapping the
+   check's reason onto step 2's closed refusal set. Text that is not
+   strict Base64 has no payload (:absent); bytes that do not hash to the
+   address, or that do not decode as exactly one canonical payload, are
+   not the content the address names (:address-mismatch)."
+  [address text]
+  (try
+    {:bytes (jing/accept-bytes! address text)}
+    (catch #?(:cljd Object :clj Throwable :cljs :default) e
+      (case (get (ex-data e) :reason)
+        :base64 {:refusal (refused :absent {:address address})}
+        {:refusal (refused :address-mismatch
+                           (cond-> {:address address}
+                             (= :non-canonical (get (ex-data e) :reason))
+                             (assoc :value nil)))}))))
+
+
+(defn- decoded
+  "The value of canonical bytes bs, or nil when they do not decode."
+  [bs]
+  (try (cbor/decode bs)
+       (catch #?(:cljd Object :clj Throwable :cljs :default) _
+         nil)))
+
+
+(defn- byte-count
+  "The length of host bytes bs, for the `:max-bytes` bound."
+  [bs]
+  #?(:clj (alength ^bytes bs)
+     :cljs (.-length bs)
+     :cljd (.-length ^typed/Uint8List bs)))
+
+
+(defn- identity-of
+  "The identity `value` mints under the format, or nil when it cannot be
+   minted at all (a malformed payload mints no identity). Used by
+   `publish!` and for refusal evidence, never by verification: step 3 is
+   `:identity-matches-fn`, directed by the identity the request carries
+   (I5)."
+  [format value]
+  (try ((:identity-fn format) value)
+       (catch #?(:cljd Object :clj Throwable :cljs :default) _
+         nil)))
+
+
+(defn- matches-identity?
+  "Step 3's check, directed by the identity the request carries. False
+   when the payload cannot be matched at all (a malformed payload
+   matches no identity)."
+  [format identity value]
+  (try ((:identity-matches-fn format) identity value)
+       (catch #?(:cljd Object :clj Throwable :cljs :default) _ false)))
+
+
+(defn- row-defect
+  "Step 2's per-part check, or nil when the part is locally well formed.
+   A `:row-defect-fn` that throws refuses like a validator."
+  [format value]
+  (try ((:row-defect-fn format) value)
+       (catch #?(:cljd Object :clj Throwable :cljs :default) _
+         {:rule :validator-refused})))
+
+
+(defn- validation-defect
+  [format value]
+  (try ((:validate-fn format) value)
+       (catch #?(:cljd Object :clj Throwable :cljs :default) _
+         {:rule :validator-refused})))
+
+
+(defn- checked-part
+  "One worklist visit over the Base64 reply `text` the content pair
+   answered for `address`: bound the text against the byte `budget`
+   remaining before it is decoded at all, admit it through the one
+   ingress check, check the admitted size against the budget, then
+   validate the part row-locally -- in that order, so an oversized
+   reply is refused before its text is decoded, text that is not strict
+   Base64 or bytes that fail the ingress check are refused before the
+   row is seen, and a malformed row is refused before anything it
+   references is decoded or enqueued. The order is total: no reply
+   (`:absent`), then the text bound (`:parts-limit`), then the ingress
+   refusal (`:absent` or `:address-mismatch`), then the decoded bound
+   (`:parts-limit`). Returns `{:value v :bytes n}` or a refusal."
+  [format identity address text budget]
+  (cond
+    (identical? missing text)
+    (refused :absent {:address address})
+
+    (and budget (> (least-decoded-length text) budget))
+    (refused :parts-limit {:bound :max-bytes, :address address})
+
+    :else
+    (let [ingress (ingress! address text)]
+      (if-some [refusal (:refusal ingress)]
+        refusal
+        (let [bs (:bytes ingress)]
+          (if (and budget (> (byte-count bs) budget))
+            (refused :parts-limit {:bound :max-bytes, :address address})
+            (let [value (decoded bs)]
+              (if (nil? value)
+                (refused :address-mismatch {:address address, :value nil})
+                (if-let [defect (row-defect format value)]
+                  (refused :descriptor-defect
+                           {:identity identity, :address address,
+                            :defect defect})
+                  {:value value, :bytes (byte-count bs)})))))))))
+
+
+(def default-bounds
+  "The safe finite composition bounds a fetch falls back to where the
+   caller supplies none (section 4.2 step 2): generous for every honest
+   image the compositions hold, finite for a hostile one, so no fetch
+   path walks an unbounded worklist. The parts figure is set by the
+   honest image of a prelude-sized module, one tree of about 6000 rows,
+   with room to grow; the byte bound is the envelope that keeps the
+   walk finite against a hostile image whatever its part count, and the
+   depth bound refuses a module laid out as one long chain."
+  {:max-parts 65536, :max-depth 256, :max-bytes 16777216})
+
+
+(defn- bounded
+  "The composition's `bounds` with every bound it left nil (or never
+   named) taking `default-bounds`."
+  [bounds]
+  (into default-bounds
+        (map (fn [[k v]] [k (or v (get default-bounds k))]))
+        (or bounds {})))
+
+
+(defn- enqueue-children
+  "The children of one fetched part that are not already enqueued, each
+   paired with its depth, up to the parts budget: the first child beyond
+   the remaining `max-parts` is refused `:parts-limit`, naming the bound
+   and its own address, before it is fetched (section 4.2). Returns
+   `{:queue [[address depth] ...] :fresh [address ...]}` or a refusal."
+  [child-addrs enqueued depth max-parts]
+  (loop [[child & more] (filter (fn [a] (not (contains? enqueued a)))
+                                (distinct child-addrs))
+         n (count enqueued)
+         acc []]
+    (cond
+      (nil? child)
+      {:queue (mapv (fn [a] [a (inc depth)]) acc), :fresh acc}
+
+      (>= n max-parts)
+      (refused :parts-limit {:bound :max-parts, :address child})
+
+      :else
+      (recur more (inc n) (conj acc child)))))
+
+
+;; =============================================================================
+;; verify: steps 3 to 5a over values in hand (section 6.4)
+;; =============================================================================
+
+(defn verify
+  "Steps 3 to 5a (section 4.2), pure, over values already in hand: the
+   check a link runs the moment step 2 completes, exported so tests and
+   compositions holding a payload can run it without a stream (section
+   6.4). `format` is a format record, `identity` the requested identity,
+   `address` the root's storage address, and `parts` `{address value}`
+   as step 2 fetched them, the root included. Returns the step-6 outcome
+   `{:status :ok :format f :identity i :address a :value v :obligations
+   [...]}`, plus `:parts` for a multi-part format, or a refusal.
+   Discharge against a receiver (5b) is `discharge`'s.
+
+   Whether the format has parts at all is the record's own answer over
+   the root (`:parts-fn` returns nil for a single payload, a sequence --
+   possibly empty -- for a multi-part format); a multi-part whole is the
+   tree assembled by prepending each part's address, the shape
+   `validate-rows` takes (section 5.1).
+
+   With `scan?` false the check stops after step 4: the outcome carries
+   the verified `:value` (and `:parts`) and no `:obligations` key. Only
+   the `:verifying` derivation policy's fetch of a manifest's tree asks
+   for it (section 8.1): that tree's obligations are the walker's,
+   scanned only when the tree is the requested image."
+  ([format identity address parts]
+   (verify format identity address parts true))
+  ([format identity address parts scan?]
+   (let [root-value (get parts address)
+         multi? (some? ((:parts-fn format) root-value))
+         whole (if multi?
+                 {:root identity,
+                  :rows (into {}
+                              (map (fn [[a v]] [a (into [a] v)]))
+                              parts)}
+                 root-value)]
+     (if-not (matches-identity? format identity root-value)
+       (refused :hash-mismatch
+                {:expected identity, :actual (identity-of format root-value)})
+       (if-let [defect (validation-defect format whole)]
+         (refused :descriptor-defect {:identity identity, :defect defect})
+         (let [verified (merge {:status :ok,
+                                :format (:format format),
+                                :identity identity,
+                                :address address,
+                                :value whole}
+                               (when multi? {:parts parts}))]
+           (if-not scan?
+             verified
+             (let [joined (undischarged
+                            ((:obligations-fn format) whole)
+                            (scanned format :definitions-fn whole)
+                            (scanned format :applications-fn whole))]
+               (or (:defect joined)
+                   (assoc verified
+                          :obligations (:obligations joined)))))))))))
+
+
+;; =============================================================================
+;; The stepped core (sections 6.2, 6.3)
+;; =============================================================================
+
+(defn- valid-content!
+  "Throw unless `content` names a content pair the linker can speak
+   (section 6.1): a requests writer, an answers reader, and the reading
+   cursor the composition minted."
+  [content]
+  (when-not (and (map? content)
+                 (stream/writer? (get content :requests))
+                 (stream/reader? (get content :answers))
+                 (contains? content :cursor))
+    (throw (ex-info
+             "the link state's :content needs :requests, :answers and
+              :cursor of the content pair"
+             {:content content})))
+  content)
+
+
+(defn link-state
+  "The linker-local state (section 6.2), constructed once by the
+   composition. `:content` is the linker's client on the content pair
+   (section 6.1): `{:requests w :answers r :cursor c}`, the pair's two
+   handles and the reading cursor the composition minted (an anchor is
+   resolved on the first poll); the client's own bookkeeping -- the one
+   retained unsent request, the losses a refused append filed, the
+   terminal reason -- is linker state the steps maintain. `:formats`
+   maps a format keyword to its record (section 5); `:indexes` maps a
+   format keyword to its index, a map or function from identity to
+   storage address (the identity function for the two storage-derived
+   formats, section 3); `:bounds` is `{:max-parts n :max-depth d
+   :max-bytes b}`, every bound left nil taking `default-bounds`.
+   Functions live here and only here; no socket, atom, or scheduler
+   does. The name environment, authority, derivation, and fallback
+   policies of section 8 are M4's."
+  [{:keys [content formats indexes bounds]}]
+  {:content (-> (valid-content! content)
+                (assoc :unsent nil)
+                (assoc :lost [])
+                (assoc :terminal nil)),
+   :formats (or formats {}),
+   :indexes (or indexes {}),
+   :bounds (bounded bounds),
+   :links {},
+   :order [],
+   :routes {},
+   :outbox [],
+   :next-fetch 0})
+
+
+(def ^:private request-keys
+  "The closed key set of a link request (section 6.3)."
+  #{:yin.link/id :yin.link/format :yin.link/contract :yin.link/name
+    :yin.link/identity :yin.link/scan?})
+
+
+(defn- portable-scalar?
+  "Whether `x` is a value a link request may carry beside its id: a
+   scalar, keyword, symbol, or address -- never a function, handle,
+   collection, or host object (section 6.3)."
+  [x]
+  (or (nil? x) (true? x) (false? x) (number? x) (string? x)
+      (keyword? x) (symbol? x)))
+
+
+(defn- link-id?
+  "Whether `x` is a well-formed link id: the `[origin counter]` pair of
+   section 7.2, two non-nil portable scalars."
+  [x]
+  (and (vector? x)
+       (= 2 (count x))
+       (every? (fn [e] (and (some? e) (portable-scalar? e))) x)))
+
+
+(defn- in-flight?
+  "Whether `id` names a link whose completion is still owed."
+  [state id]
+  (or (contains? (:links state) id)
+      (some (fn [c] (= id (:yin.link/id c))) (:outbox state))))
+
+
+(defn- request-defect
+  "Step 0 (section 4.2) over a map request whose id is well formed: the
+   first admission refusal, or nil. The request's shape first -- the
+   closed key set, portability, a format, one of name or identity
+   (`:invalid-request`) -- then the format record
+   (`:unsupported-format`), then the contract, which is required
+   (`:invalid-request`) and must be the record's (`:contract-mismatch`)
+   -- so no validator ever runs under the wrong table. The evidence names
+   keys, never the offending value: a refusal travels on a stream."
+  [state request]
+  (let [format-kw (:yin.link/format request)
+        record (get (:formats state) format-kw)
+        contract (:yin.link/contract request)]
+    (cond
+      (some (fn [k] (not (contains? request-keys k))) (keys request))
+      (refused :invalid-request {:defect :closed-key-set})
+
+      (some (fn [[k v]]
+              (and (not= :yin.link/id k)
+                   (not (portable-scalar? v))))
+            request)
+      (refused :invalid-request
+               {:defect :non-portable,
+                :key (some (fn [[k v]]
+                             (when (and (not= :yin.link/id k)
+                                        (not (portable-scalar? v)))
+                               k))
+                           request)})
+
+      (nil? format-kw)
+      (refused :invalid-request {:missing :format})
+
+      (= (contains? request :yin.link/name)
+         (contains? request :yin.link/identity))
+      (refused :invalid-request {:defect :exactly-one-of})
+
+      (nil? record)
+      (refused :unsupported-format {:format format-kw})
+
+      (nil? contract)
+      (refused :invalid-request {:missing :contract})
+
+      (not= contract (:contract record))
+      (refused :contract-mismatch
+               {:expected contract, :actual (:contract record)}))))
+
+
+(defn- root-address
+  "Step 1 (section 4.2): the storage address the linker-local index holds
+   for the request's identity, or a refusal -- `:absent` for no entry or
+   an entry that is no Jing address, and `:parts-limit` when a
+   non-positive parts quota refuses the root before it is read. A
+   request by module name resolves through the name environment of
+   section 8, which is M4's; with none observed the name is `:absent`
+   now."
+  [state request]
+  (let [identity (:yin.link/identity request)
+        index (get (:indexes state) (:yin.link/format request))
+        address (when (and index (contains? request :yin.link/identity))
+                  (index identity))]
+    (cond
+      (contains? request :yin.link/name)
+      (refused :absent {:name (:yin.link/name request)})
+
+      (nil? address)
+      (refused :absent {:identity identity})
+
+      (not (jing/segment-address? address))
+      (refused :absent {:address address})
+
+      (not (pos? (:max-parts (:bounds state))))
+      (refused :parts-limit {:bound :max-parts, :address address})
+
+      :else address)))
+
+
+(defn- completion
+  "The completion of link `id` for `outcome` (section 6.3): the verified
+   image under `:image` with its obligations beside it, or the refusal
+   or loss tagged with the id. A link completed at step 4 has no
+   obligations key."
+  [id outcome]
+  (if (ok? outcome)
+    (cond-> {:yin.link/id id,
+             :status :ok,
+             :image (dissoc outcome :status :obligations)}
+      (contains? outcome :obligations)
+      (assoc :obligations (:obligations outcome)))
+    (assoc outcome :yin.link/id id)))
+
+
+(defn- finish
+  "Retire link `id`'s bookkeeping and append its one completion."
+  [state id outcome]
+  (-> state
+      (update :links dissoc id)
+      (update :order (fn [order] (filterv (fn [x] (not= id x)) order)))
+      (update :outbox conj (completion id outcome))))
+
+
+(defn request-link
+  "Admit one link request (section 6.3) and return `[state link-id]`.
+   `request` is plain data: `:yin.link/id`, `:yin.link/format`,
+   `:yin.link/contract`, and exactly one of `:yin.link/name` or
+   `:yin.link/identity`; `:yin.link/scan? false` completes the link at
+   step 4, unscanned (`verify`'s five-arity, section 8.1's derivation
+   tree). Admission (step 0) and the index lookup (step
+   1) touch no stream, so a request they refuse completes at the next
+   `step` under its id -- or under `:yin.link/id nil` when the id is not
+   a well-formed `[origin counter]` pair or already names a link whose
+   completion is owed. Nothing is sent here: `step` issues every content
+   request."
+  [state request]
+  (let [raw-id (when (map? request) (:yin.link/id request))
+        duplicate? (and (link-id? raw-id) (in-flight? state raw-id))
+        id (when (and (link-id? raw-id) (not duplicate?)) raw-id)
+        defect (cond
+                 (not (map? request))
+                 (refused :invalid-request {:defect :not-a-map})
+
+                 duplicate?
+                 (refused :invalid-request {:defect :duplicate-id})
+
+                 (nil? id)
+                 (refused :invalid-request {:defect :id})
+
+                 :else (request-defect state request))
+        address (when-not defect (root-address state request))]
+    (cond
+      defect [(update state :outbox conj (completion id defect)) id]
+      (refused? address) [(update state :outbox conj (completion id address))
+                          id]
+      :else
+      [(-> state
+           (assoc-in [:links id]
+                     {:format (:yin.link/format request),
+                      :identity (:yin.link/identity request),
+                      :address address,
+                      :queue [[address 0]],
+                      :at 0,
+                      :parts {},
+                      :bytes 0,
+                      :enqueued #{address},
+                      :awaiting nil,
+                      :scan? (not (false? (:yin.link/scan? request)))})
+           (update :order conj id))
+       id])))
+
+
+(defn- receive-part
+  "Route the reply `text` answered for link `id`'s current worklist entry
+   through step 2's checks; enqueue the part's children under the parts
+   budget; and, when the worklist is empty, run steps 3 to 5a at once
+   (section 6.3: they never touch a stream)."
+  [state id text]
+  (let [link (get-in state [:links id])
+        {:keys [queue at parts bytes enqueued]} link
+        record (get (:formats state) (:format link))
+        {:keys [max-parts max-bytes]} (:bounds state)
+        [address depth] (nth queue at)
+        res (checked-part record (:identity link) address text
+                          (when max-bytes (- max-bytes bytes)))]
+    (if (refused? res)
+      (finish state id res)
+      (let [value (:value res)
+            enqueued' (enqueue-children ((:parts-fn record) value)
+                                        enqueued depth max-parts)]
+        (if (refused? enqueued')
+          (finish state id enqueued')
+          (let [link' (assoc link
+                             :queue (into queue (:queue enqueued'))
+                             :at (inc at)
+                             :parts (assoc parts address value)
+                             :bytes (+ bytes (:bytes res))
+                             :enqueued (into enqueued (:fresh enqueued'))
+                             :awaiting nil)]
+            (if (= (:at link') (count (:queue link')))
+              (finish state id (verify record (:identity link)
+                                       (:address link) (:parts link')
+                                       (:scan? link)))
+              (assoc-in state [:links id] link'))))))))
+
+
+(defn- mint-request-id
+  "A self-minted random request id (the content vocabulary's r), unique
+   against the ids this client owes, so an answer correlates to the link
+   that asked and callers sharing one answers stream do not collide."
+  [state]
+  (loop []
+    (let [id (str (random-uuid))]
+      (if (or (contains? (:routes state) id)
+              (= id (get-in state [:content :unsent :id])))
+        (recur)
+        id))))
+
+
+(defn- route-answer
+  "Route one content-pair answer to the link awaiting its id: the entry
+   carries the raw answer, or a loss with its reason, and a loss routes
+   exactly as a reply that carried no payload does (checked-part's
+   `missing`). An id no link claims -- the late answer of an abandoned
+   link -- is dropped."
+  [state entry]
+  (let [rid (:id entry)
+        id (get (:routes state) rid)]
+    (if (and (some? id) (contains? (:links state) id))
+      (receive-part (update state :routes dissoc rid)
+                    id (answer-text (:answer entry)))
+      (update state :routes dissoc rid))))
+
+
+(defn- lose-claims
+  "Mark every claim the content client holds lost with `reason`: each
+   id's loss routes on the ordinary path, its route dying there as any
+   answer's does. A terminal reason also ends the client, and the one
+   retained unsent request dies with it: no later step can deliver it."
+  [state reason terminal?]
+  (let [losses (mapv (fn [rid] {:id rid, :lost reason})
+                     (keys (:routes state)))
+        state (cond-> state
+                (and terminal? (get-in state [:content :unsent]))
+                (assoc-in [:content :unsent] nil)
+
+                terminal?
+                (assoc-in [:content :terminal] reason))]
+    [state losses]))
+
+
+(defn- anchor-cursor
+  "Resolve an anchor-keyword cursor through the answers reader: the
+   Linda mint (:dao.stream/newest) on a reflection is answered across
+   the channel, so an answer that is not yet available leaves the anchor
+   in place for the next step. Returns [cursor settled?]."
+  [answers anchor]
+  (let [r (stream/cursor answers anchor)]
+    (if (= :dao.stream/ok (:dao.stream/outcome r))
+      [(:dao.stream/cursor r) true]
+      [anchor false])))
+
+
+(defn- poll-answers
+  "Order 2: read at most `budget` answers, correlating each by its
+   :jing/request id against the claims in :routes. Returns
+   {:state s :routed [...] :diagnostics [...]}: each answer a claim
+   holds is routed under its id; an answer nobody claims, or a value
+   that is not an answer, is a diagnostic and never reaches a link. A
+   blocked read stops the poll; a gap loses every claim without ending
+   the client; a reader that ends or errs ends it, the losses routed
+   with the outcome as their reason."
+  [state budget]
+  (loop [state state, left budget, routed [], diagnostics []]
+    (cond
+      (:terminal (:content state))
+      {:state state, :routed routed, :diagnostics diagnostics}
+
+      (contains? stream/standard-anchors (:cursor (:content state)))
+      (let [[cursor settled?]
+            (anchor-cursor (:answers (:content state))
+                           (:cursor (:content state)))]
+        (if settled?
+          (recur (assoc-in state [:content :cursor] cursor)
+                 left routed diagnostics)
+          {:state state, :routed routed, :diagnostics diagnostics}))
+
+      (zero? left)
+      {:state state, :routed routed, :diagnostics diagnostics}
+
+      :else
+      (let [r (stream/next (:answers (:content state))
+                           (:cursor (:content state)))
+            outcome (:dao.stream/outcome r)]
+        (cond
+          (= :dao.stream/ok outcome)
+          (let [v (:dao.stream/value r)
+                state (assoc-in state [:content :cursor]
+                                (:dao.stream/cursor r))]
+            (if (and (map? v) (contains? v :jing/request))
+              (let [rid (get v :jing/request)]
+                (if (contains? (:routes state) rid)
+                  (recur state (dec left)
+                         (conj routed {:id rid, :answer v}) diagnostics)
+                  (recur state (dec left) routed
+                         (conj diagnostics
+                               {:yin.link/code :yin.link/unsolicited-answer
+                                :yin.link/value v}))))
+              (recur state (dec left) routed
+                     (conj diagnostics
+                           {:yin.link/code :yin.link/malformed-answer
+                            :yin.link/value v}))))
+
+          (= :dao.stream/blocked outcome)
+          {:state state, :routed routed, :diagnostics diagnostics}
+
+          (= :dao.stream/gap outcome)
+          (let [[state losses]
+                (lose-claims
+                  (assoc-in state [:content :cursor] (:dao.stream/cursor r))
+                  :dao.stream/gap false)]
+            (recur state left (into routed losses) diagnostics))
+
+          :else
+          (let [reason (if (keyword? outcome)
+                         outcome
+                         :dao.stream/transport-error)
+                [state losses] (lose-claims state reason true)]
+            (recur state left (into routed losses) diagnostics)))))))
+
+
+(defn- issue-request
+  "Issue link `id`'s next content request, in worklist order, unless one
+   is already awaited. The depth bound is checked before the read; a
+   terminal client has no payload for the link (`:absent`, failing
+   closed); a writer still owing an unsent request issues nothing this
+   step -- the client retains one request, retried by the next step. A
+   writer that refuses the append outright files the loss for the next
+   step's routing, through the claim the issue already holds."
+  [state id]
+  (let [link (get-in state [:links id])
+        content (:content state)]
+    (if (or (nil? link) (some? (:awaiting link)))
+      state
+      (let [[address depth] (nth (:queue link) (:at link))
+            max-depth (:max-depth (:bounds state))]
+        (cond
+          (and max-depth (> depth max-depth))
+          (finish state id
+                  (refused :parts-limit {:bound :max-depth, :address address}))
+
+          (:terminal content)
+          (finish state id (refused :absent {:address address}))
+
+          (:unsent content)
+          state
+
+          :else
+          (let [rid (mint-request-id state)
+                value {:jing/request rid, :jing/get address}
+                outcome (:dao.stream/outcome
+                          (stream/append! (:requests content) value))]
+            (case outcome
+              (:dao.stream/ok :dao.stream/full)
+              (-> state
+                  (cond-> (= :dao.stream/full outcome)
+                    (assoc-in [:content :unsent]
+                              {:id rid, :value value}))
+                  (assoc-in [:links id :awaiting] rid)
+                  (assoc-in [:routes rid] id))
+
+              ;; closed, invalid-value, refused, transport-error: the
+              ;; append never happened, and the loss is filed for the
+              ;; next step's routing under the claim just taken
+              (-> state
+                  (assoc-in [:links id :awaiting] rid)
+                  (assoc-in [:routes rid] id)
+                  (assoc-in [:content :lost] [{:id rid, :lost outcome}])))))))))
+
+
+(defn step
+  "One non-waiting advance of every in-flight link (section 6.3), in a
+   fixed order: re-attempt the unsent content request; poll the content
+   answers medium at most `budget` elements; route each correlated
+   answer to its link and run the verification step it enables; issue
+   the next content request each link's worklist needs; take the
+   completions. Returns `{:state s :completions [...] :diagnostics
+   [...]}`: each completion carries its `:yin.link/id` exactly once; a
+   link with none yet is `:pending`, and the caller steps again when it
+   chooses. Diagnostics are the content client's, taken exactly once.
+
+   This is an interpreter step -- it performs stream operations -- under
+   a single-owner precondition: one caller, one state thread."
+  [state budget]
+  (let [content (:content state)
+        ;; 1. re-attempt the one retained unsent request
+        attempt (when (and (:unsent content) (not (:terminal content)))
+                  (stream/append! (:requests content)
+                                  (:value (:unsent content))))
+        [state unsent-loss]
+        (if (nil? attempt)
+          [state []]
+          (let [rid (get-in state [:content :unsent :id])
+                outcome (:dao.stream/outcome attempt)]
+            (case outcome
+              :dao.stream/ok [(assoc-in state [:content :unsent] nil) []]
+              :dao.stream/full [state []]
+              ;; refused: the delivery is lost on the ordinary path
+              [(assoc-in state [:content :unsent] nil)
+               [{:id rid, :lost outcome}]])))
+        ;; 2 and 3: poll, losing what the medium lost
+        polled (poll-answers state budget)
+        ;; 5 (the routing half): the refused re-attempt, the losses a
+        ;; refused append filed last step, then this step's answers
+        routed (-> unsent-loss
+                   (into (get-in state [:content :lost] []))
+                   (into (:routed polled)))
+        state (assoc-in (:state polled) [:content :lost] [])
+        routed-state (reduce route-answer state routed)
+        ;; 4: the next request each surviving link's worklist needs
+        issued (reduce issue-request routed-state (:order routed-state))]
+    {:state (assoc issued :outbox []),
+     :completions (:outbox issued),
+     :diagnostics (:diagnostics polled)}))
+
+
+(defn abandon
+  "Give up on link `link-id` with `reason` (section 6.3): its
+   bookkeeping is retired and it completes `{:status :lost :reason
+   reason}` at the next `step`, so a caller that gives up still receives
+   exactly one completion. A content request it still owed the writer is
+   dropped with it -- its claim dies here, so its late answer is
+   unsolicited -- and one already on the wire is answered into nothing.
+   An id with no link in flight leaves the state unchanged."
+  [state link-id reason]
+  (if-let [link (get-in state [:links link-id])]
+    (let [rid (:awaiting link)]
+      (-> state
+          (cond-> (and (some? rid)
+                       (= rid (get-in state [:content :unsent :id])))
+            (assoc-in [:content :unsent] nil))
+          (update :routes dissoc rid)
+          (finish link-id {:status :lost, :reason reason})))
+    state))
+
+
+;; =============================================================================
+;; fetch: host policy over a link runtime (section 6.4)
+;; =============================================================================
+
+(def ^:private fetch-budget
+  "How many response-medium elements one `fetch` advance may consume."
+  32)
+
+
+(defn- fetched
+  "The host-policy outcome of one completion: step 5b against `receiver`
+   over a verified image, flattened to the step-6 shape of section 4.2;
+   a refusal or loss as it completed, without its link id."
+  [c receiver]
+  (if (= :ok (:status c))
+    (or (discharge receiver (:obligations c))
+        (merge {:status :ok}
+               (:image c)
+               {:obligations (:obligations c)}))
+    (dissoc c :yin.link/id)))
+
+
+(defn fetch
+  "Fetches and verifies an image by its identity: host policy over an
+   explicit link runtime (section 6.4), one surface for all four
+   formats. Returns the verified image `{:status :ok ...}` or a
+   qualified refusal.
+
+   `runtime` is `{:state link-state :drive (fn [state] state')}`.
+   `:drive` is the composition's driver: it advances whatever serves the
+   content pair (`dao.jing.content/serve-step` over a handle, or nothing
+   when a remote server runs elsewhere) and returns the link state; after
+   each drive `fetch` steps the linker, until the one link completes.
+   `fetch` holds no DaoJing handle and cannot call `jing/get`: the
+   content handle is reachable only from the server side of the pair.
+   The runtime's state is consumed: one runtime serves one fetch, and a
+   composition that links again builds a fresh runtime or holds the
+   stepped interface itself. Liveness is the drive's: a drive that never
+   lets the pair answer never completes, and it may `abandon` instead.
+   `fetch` takes no deadline. A composition that wants one holds a
+   `dao.lease` over the link in its drive, and the judge that lapses it
+   on silence calls `abandon` (docs/design/yin.vm.linker.md section 6.3).
+
+   `format` is a format keyword whose record the state holds; `identity`
+   is H or R, a root row id, or a vector address. `receiver` is the
+   receiving VM's free-name environment `{:free-env :store :primitives
+   :modules}`; an empty receiver accepts only a closed image. `opts`
+   carries the requester's contract `:contract`, which is required: the
+   shorter arities supply none, so they are `:invalid-request`, and
+   every caller names the contract it runs, normally the record's own.
+   No contract stamp is ever assigned here.
+
+   The steps run in strict order (section 4.2), with no format-specific
+   branching:
+     0. the request is admissible                    :invalid-request
+        a record for the format                      :unsupported-format
+        the requested contract equals the record's   :contract-mismatch
+     1. address <- (index identity)                  :absent
+     2. the bounded worklist of :parts-fn, each      :absent,
+        part read over the pair, sized, verified,    :address-mismatch,
+        then row-checked before any child it names   :descriptor-defect,
+        is hashed, decoded, or enqueued              :parts-limit
+     3. ((:identity-matches-fn format) identity root :hash-mismatch
+     4. ((:validate-fn format) whole) is nil         :descriptor-defect
+     5a. the scanners' occurrences join their        :use-before-definition
+         definitions: an unconditional definition
+         that dominates the occurrence discharges
+         it; the rest are retained
+     5b. every retained obligation binds in the      :unresolved-free,
+         receiver                                    :shadowed-free
+     6. the verified image
+
+   For a multi-part format the outcome carries `:parts {address body}`."
+  ([runtime format identity]
+   (fetch runtime format identity {}))
+  ([runtime format identity receiver]
+   (fetch runtime format identity receiver nil))
+  ([runtime format identity receiver opts]
+   (let [{:keys [state drive]} runtime
+         id [::fetch (:next-fetch state)]
+         request (cond-> {:yin.link/id id,
+                          :yin.link/format format,
+                          :yin.link/identity identity}
+                   (contains? opts :contract)
+                   (assoc :yin.link/contract (:contract opts)))
+         [state _] (request-link (update state :next-fetch inc) request)]
+     (loop [state state]
+       (let [r (step (drive state) fetch-budget)]
+         (if-let [c (some (fn [c] (when (= id (:yin.link/id c)) c))
+                          (:completions r))]
+           (fetched c receiver)
+           (recur (:state r))))))))
+
+
+;; =============================================================================
+;; Local content runtime
+;; =============================================================================
+
+(defn local-runtime
+  "Serve a local DaoJing handle over a fresh content pair."
+  ([handle opts] (local-runtime handle opts 64))
+  ([handle opts capacity]
+   (let [medium (fn []
+                  (:dao.stream/handle
+                    (ring/create! {:dao.stream/type ring/transport-type
+                                   ring/capacity-key capacity})))
+         oldest (fn [h]
+                  (:dao.stream/cursor
+                    (stream/cursor h :dao.stream/oldest)))
+         requests (medium)
+         responses (medium)
+         server (atom (oldest requests))]
+     {:state (link-state
+               (assoc opts :content {:requests requests
+                                     :answers responses
+                                     :cursor (oldest responses)}))
+      :drive (fn [state]
+               (swap! server
+                      (fn [cursor]
+                        (loop [cursor cursor]
+                          (let [next (jing-content/serve-step
+                                       handle requests cursor responses 32)]
+                            (if (= next cursor) cursor (recur next))))))
+               state)
+      :requests requests
+      :responses responses})))
+
+
+;; =============================================================================
+;; Publishing (the mint-side counterpart the tests and compositions use)
+;; =============================================================================
+
+(defn publish!
+  "Store `image` in `handle` and return its index datom
+   `[identity attribute address]`. The address is the store's own
+   `segment-key`; the identity is the format's own mint. The caller owns
+   the index: nothing is recorded here. The two storage-derived formats
+   mint through `yin.vm/materialize-tree!` and
+   `yin.vm.code/materialize-vector!` instead (section 9)."
+  [handle format image]
+  (let [address (jing/materialize! handle image)]
+    [((:identity-fn format) image) (address-attribute format) address]))
+
+
+;; =============================================================================
+;; Manifest-delivered images (section 8.1)
+;; =============================================================================
+
+(defn- declared-obligation
+  "The manifest's declaration of a retained free name, as the obligation
+   record that travels with the image (section 4.2 step 5a): a name
+   under `:yin.module/primitives` becomes a primitive obligation
+   carrying the profile address; a name under `:yin.module/requires` --
+   the required module itself, or a name qualified by it -- becomes a
+   module obligation carrying the required manifest's address. Nil when
+   the manifest declares the name nowhere."
+  [manifest obligation]
+  (let [sym (obligation-name obligation)
+        primitives (:yin.module/primitives manifest)
+        requires (:yin.module/requires manifest)
+        module (or (when (and (symbol? sym) (namespace sym))
+                     (let [m (symbol (namespace sym))]
+                       (when (contains? requires m) m)))
+                   (when (contains? requires sym) sym))]
+    (cond
+      (contains? primitives sym)
+      {:name sym, :kind :primitive, :profile (get primitives sym)}
+      (some? module)
+      {:name sym, :kind :module, :module module,
+       :manifest (get requires module)}
+      :else nil)))
+
+
+(defn- manifest-join
+  "Step 5a's manifest half (section 4.2): every retained occurrence is
+   joined with the manifest that delivered the image and becomes its
+   declaration's own obligation record. A name the manifest declares
+   nowhere is `:undeclared-free`: the publisher did not say what the
+   name means, so no receiver can bind it identically."
+  [manifest obligations]
+  (or (some (fn [obligation]
+              (when-not (declared-obligation manifest obligation)
+                (refused :undeclared-free
+                         {:name (obligation-name obligation)})))
+            obligations)
+      (mapv (fn [obligation]
+              (declared-obligation manifest obligation))
+            obligations)))
+
+
+(defn- with-identity-indexes
+  "Seed the linker-local indexes of the storage-derived formats a
+   manifest link reads -- the manifest, the record, the tree, the
+   vector -- with the identity function (section 3): each one's identity
+   is its own address. A composition's own entries are left alone."
+  [state]
+  (reduce (fn [state format-kw]
+            (update-in state [:indexes format-kw]
+                       (fn [index] (or index identity))))
+          state
+          [(:format manifest-format) (:format record-format)
+           (:format ast-format) (:format semantic-format)]))
+
+
+(defn- with-manifest-index
+  "Merge a verified manifest's `:yin.module/index` into the linker-local
+   index of `format` (section 8.1) for the rest of this link: the
+   manifest is verified content, so its entries are composition data
+   for this link's fetches, never read from the wire again. The merge
+   is link-local -- the caller's state is not updated. A function index
+   is composition policy and is left alone."
+  [state format-kw manifest]
+  (let [entries (:yin.module/index manifest)]
+    (if (or (empty? entries)
+            (fn? (get-in state [:indexes format-kw])))
+      state
+      (update-in state [:indexes format-kw] (fnil into {}) entries))))
+
+
+(defn- relowered
+  "The identity the verified row-lane tree mints under one of the two de
+   Bruijn lowerings (section 8.1): the tree is reconstructed to the
+   datom lane -- `semantic-bytecode->ast`, then `ast->datoms`, lossless
+   for everything the lowerings read -- resolved, and lowered. Nil when
+   the tree cannot be re-lowered at all: a lowering the linker cannot
+   run verifies nothing."
+  [format-kw tree]
+  (try
+    (case format-kw
+      :yin.debruijn.code
+      (debruijn-code/image-hash
+        (:image (linearize/adapt
+                  (vm/ast->datoms (vm/semantic-bytecode->ast tree)))))
+      :yin.debruijn.register
+      (debruijn-register-code/register-hash
+        (:image (register-compile/adapt
+                  (vm/ast->datoms (vm/semantic-bytecode->ast tree))))))
+    (catch #?(:cljd Object :clj Throwable :cljs :default) _ nil)))
+
+
+(defn- drive-link
+  "One by-identity link over the stepped core, threading the runtime
+   state (section 6.4's host policy): admission to completion, nothing
+   discharged -- the manifest flow owns the receiver half. Returns
+   `[state completion]`, the completion carrying the verified image
+   under `:image` with its obligations beside it, or the refusal under
+   its id. With `scan?` false the link completes at step 4, the image
+   unscanned and no obligations beside it."
+  ([state drive format-kw identity contract]
+   (drive-link state drive format-kw identity contract true))
+  ([state drive format-kw identity contract scan?]
+   (let [id [::manifest (:next-fetch state)]
+         request (cond-> {:yin.link/id id,
+                          :yin.link/format format-kw,
+                          :yin.link/contract contract,
+                          :yin.link/identity identity}
+                   (not scan?) (assoc :yin.link/scan? false))
+         [state _] (request-link (update state :next-fetch inc) request)]
+     (loop [state state]
+       (let [r (step (drive state) fetch-budget)]
+         (if-let [c (some (fn [c] (when (= id (:yin.link/id c)) c))
+                          (:completions r))]
+           [(:state r) c]
+           (recur (:state r))))))))
+
+
+(defn- verified-policy-outcome
+  "The `:verifying` policy's checks once the record's addresses hold
+   (section 8.1): the profile the record names must be the one this
+   linker implements for the format; the manifest's tree is fetched and
+   verified through `ast-format` at steps 2 to 4 and no further -- its
+   obligations are the walker's, scanned only when the tree is the
+   requested image; and the two de Bruijn formats'
+   recomputed identity must equal the record's output. The semantic
+   format's recomputation runs in `linked-image`, against the fetched
+   image, through `yin.vm.ledger`'s own check. Returns `[state
+   outcome]`, the outcome `{:derivation r :output o :tree t :trust
+   :verified}` or a refusal."
+  [state drive format-kw derivation tree-addr]
+  (let [profile (:yin.ledger/profile derivation)
+        implemented (get implemented-profiles format-kw)]
+    (if (not= profile implemented)
+      [state (refused :unverified-derivation
+                      {:format format-kw, :profile profile,
+                       :implemented implemented, :missing :profile})]
+      (let [[state tc] (drive-link state drive :yin.ast/code tree-addr
+                                   vm/ast-contract false)]
+        (if (refused? tc)
+          [state (refused :unverified-derivation
+                          {:format format-kw, :profile profile,
+                           :missing (:reason tc)})]
+          (let [tree (get-in tc [:image :value])
+                output (:yin.ledger/output derivation)]
+            (if (= :yin.semantic/code format-kw)
+              [state {:derivation derivation, :output output,
+                      :tree tree, :trust :verified}]
+              (let [actual (relowered format-kw tree)]
+                (cond
+                  (nil? actual)
+                  [state (refused :unverified-derivation
+                                  {:format format-kw, :profile profile,
+                                   :missing :relowering})]
+
+                  (not= output actual)
+                  [state (refused :derivation-mismatch
+                                  {:format format-kw, :output output,
+                                   :actual actual})]
+
+                  :else [state {:derivation derivation, :output output,
+                                :tree tree, :trust :verified}])))))))))
+
+
+(defn- checked-derivation
+  "The derivation half of a manifest link (section 8.1): fetch the
+   format's record through `record-format`, check its two addresses --
+   the record's input is the manifest's tree, its output is the identity
+   the image is then fetched at -- and apply the policy, `:trusted`
+   stopping at the addresses, `:verifying` recomputing. Returns `[state
+   outcome]`, the outcome of `verified-policy-outcome`'s shape with
+   `:trust :composition` under `:trusted`, or a refusal. A manifest
+   with no record for the format is `:unsupported-format`."
+  [state drive format-kw manifest policy]
+  (let [tree-addr (:yin.module/tree manifest)
+        derivation-addr (get (:yin.module/derivations manifest) format-kw)]
+    (if (nil? derivation-addr)
+      [state (refused :unsupported-format {:format format-kw})]
+      (let [[state c] (drive-link state drive :yin.ledger/record
+                                  derivation-addr
+                                  (:contract record-format))]
+        (if (refused? c)
+          [state (dissoc c :yin.link/id)]
+          (let [derivation (get-in c [:image :value])]
+            (if (not= tree-addr (:yin.ledger/input derivation))
+              [state (refused :derivation-mismatch
+                              {:format format-kw, :expected tree-addr,
+                               :actual (:yin.ledger/input derivation)})]
+              (if (= :trusted policy)
+                [state {:derivation derivation,
+                        :output (:yin.ledger/output derivation),
+                        :trust :composition}]
+                (verified-policy-outcome state drive format-kw derivation
+                                         tree-addr)))))))))
+
+
+(defn- linked-image
+  "The image half of a manifest link (section 8.1): fetch the image at
+   `identity` through the format record -- the six steps, obligations
+   included -- verify the semantic derivation against the fetched image
+   when the `:verifying` policy fetched the tree (`yin.vm.ledger`'s own
+   content-and-derivation check; the de Bruijn formats' recomputation
+   ran before the image, needing none), join every retained obligation
+   with the manifest's declarations, and discharge against `receiver` --
+   unless `defer?`, the serving composition's choice (section 7.2 steps 6
+   and 7): the obligations then travel for the receiving task's own step
+   5b, which runs against its live state. `derivation` is
+   `checked-derivation`'s outcome, nil for the tree format. Returns
+   `[state outcome]`, `fetch`'s outcome shape plus `:manifest` and, for a
+   lowered format, `:derivation` and `:trust`."
+  [state drive record identity manifest derivation receiver defer?]
+  (let [[state c] (drive-link state drive (:format record) identity
+                              (:contract record))]
+    (if (refused? c)
+      [state (dissoc c :yin.link/id)]
+      (if-let [verdict
+               (and (= :yin.semantic/code (:format record))
+                    (:tree derivation)
+                    (ledger/verify-derivation
+                      (:tree derivation)
+                      (get-in c [:image :value])
+                      (:derivation derivation)
+                      (get implemented-profiles :yin.semantic/code)))]
+        [state (refused (if (= :yin.k/profile-mismatch (:kind verdict))
+                          :unverified-derivation
+                          :derivation-mismatch)
+                        (assoc verdict :format (:format record)))]
+        (let [declared (manifest-join manifest (:obligations c))]
+          (if (refused? declared)
+            [state declared]
+            (let [outcome (merge {:status :ok}
+                                 (:image c)
+                                 {:obligations declared,
+                                  :manifest manifest}
+                                 (when (:derivation derivation)
+                                   {:derivation (:derivation derivation),
+                                    :trust (:trust derivation)}))]
+              [state (if defer?
+                       outcome
+                       (or (discharge receiver declared) outcome))])))))))
+
+
+(defn link-manifest
+  "Link one format's image through a module manifest (section 8.1): the
+   manifest-delivered image flow of section 7.2 step 5, as host policy
+   over a link runtime. `manifest-address` is the manifest's own content
+   address -- the composition resolved the name itself, through its
+   name environment or the section 8.2 authority policy, and names the
+   resolution in `opts` as `:name`. `receiver` is `fetch`'s receiver.
+   `opts` carries the requester's `:contract` (required), the
+   `:derivation` policy (`:verifying`, the default, or `:trusted`), the
+   resolution `:name`, and `:defer-discharge`: a serving composition
+   (section 7.2) sets it true, and step 8 -- the linker-side 5b -- is
+   skipped, the obligations travelling for the receiving task's own step
+   5b against its live state (section 7.2, step 7).
+
+   The order is fixed (sections 4.2 and 8.1):
+     0. the format record; the requester's contract    :unsupported-format,
+        against it                                     :contract-mismatch
+     1. the manifest fetch: steps 1 to 4 through        :absent,
+        `manifest-format`, so the manifest itself is   :address-mismatch,
+        verified content                              :descriptor-defect
+     2. the manifest's contract entry for the format    :contract-mismatch
+        against the format record's, before the name
+        check and before any derivation or image
+     3. `:yin.module/name` against `opts`'s `:name`     :module-name-mismatch
+     4. the derivation record fetch and its two         :unsupported-format,
+        address checks: input = the manifest's tree,   :derivation-mismatch
+        output = the identity the image is fetched at
+     5. under `:verifying`: the profile is implemented, :unverified-derivation,
+        the tree is verified content, and the          :derivation-mismatch
+        recomputed identity is the record's output;
+        under `:trusted` the addresses are everything
+     6. the image fetch: the six steps through the      fetch's refusals
+        format record
+     7. every retained obligation is declared           :undeclared-free
+     8. discharge (5b) against `receiver`, unless       :unresolved-free,
+        `:defer-discharge`                              :shadowed-free
+
+   The manifest's `:yin.module/index` is merged into the linker-local
+   index of the requested format the moment the manifest is verified.
+   The outcome is `fetch`'s plus `:manifest`, and for a lowered format
+   `:derivation` and `:trust` (`:verified` or `:composition`: a trusted
+   link never reports a verification it did not perform). The tree
+   format needs no derivation under either policy; it is the tree,
+   verified by content. No contract stamp is ever assigned to external
+   input."
+  ([runtime manifest-address format-kw receiver]
+   (link-manifest runtime manifest-address format-kw receiver nil))
+  ([runtime manifest-address format-kw receiver opts]
+   (let [{:keys [state drive]} runtime
+         record (get (:formats state) format-kw)
+         contract (:contract opts)
+         policy (or (:derivation opts) :verifying)
+         defer? (boolean (:defer-discharge opts))]
+     (cond
+       (nil? record)
+       (refused :unsupported-format {:format format-kw})
+
+       (nil? contract)
+       (refused :invalid-request {:missing :contract})
+
+       (not= contract (:contract record))
+       (refused :contract-mismatch
+                {:expected contract, :actual (:contract record)})
+
+       :else
+       (let [state (with-identity-indexes state)
+             [state mc] (drive-link state drive :yin.module/manifest
+                                    manifest-address
+                                    (:contract manifest-format))]
+         (if (refused? mc)
+           (dissoc mc :yin.link/id)
+           (let [manifest (get-in mc [:image :value])
+                 entry (get (:yin.module/contracts manifest) format-kw)]
+             (if (not= entry (:contract record))
+               (refused :contract-mismatch
+                        {:expected contract, :actual entry})
+               (let [resolved (:name opts)]
+                 (if (and (some? resolved)
+                          (not= (:yin.module/name manifest) resolved))
+                   (refused :module-name-mismatch
+                            {:name resolved,
+                             :declared (:yin.module/name manifest)})
+                   (let [state (with-manifest-index state format-kw
+                                 manifest)]
+                     (if (= :yin.ast/code format-kw)
+                       (let [[_ outcome]
+                             (linked-image
+                               state drive record
+                               (:yin.module/tree manifest)
+                               manifest nil receiver defer?)]
+                         outcome)
+                       (let [[_ derivation]
+                             (checked-derivation state drive format-kw
+                                                 manifest policy)]
+                         (if (refused? derivation)
+                           derivation
+                           (let [[_ outcome]
+                                 (linked-image
+                                   state drive record
+                                   (:output derivation)
+                                   manifest derivation receiver defer?)]
+                             outcome)))))))))))))))
+
+
+;; =============================================================================
+;; Same-root pairing (section 7)
+;; =============================================================================
+
+(defn pairing-datoms
+  "The mint-time pairing datoms recorded beside a named root."
+  [root H R]
+  [[root :yin.debruijn.code/hash H]
+   [root :yin.debruijn.register/hash R]])
+
+
+(defn root-pairing
+  "`{:root root :H H :R R}` read from pairing datoms, or nil when either
+   half is missing."
+  [root datoms]
+  (let [value-of (fn [attr]
+                   (some (fn [[e a v]] (when (and (= root e) (= attr a)) v))
+                         datoms))
+        H (value-of :yin.debruijn.code/hash)
+        R (value-of :yin.debruijn.register/hash)]
+    (when (and H R) {:root root, :H H, :R R})))
+
+
+(defn- relowered-hashes
+  [source-datoms]
+  (try
+    (let [resolved (resolve/resolve source-datoms)]
+      {:H (debruijn-code/image-hash
+            (:image (linearize/lower-stack resolved))),
+       :R (debruijn-register-code/register-hash
+            (:image (register-compile/lower-register resolved)))})
+    (catch #?(:cljd Object :clj Throwable :cljs :default) _
+      {:H nil, :R nil})))
+
+
+(defn verify-same-root-pairing
+  "Re-lowers the named `source-datoms` locally (`resolve`, then
+   `lower-stack` for H and `lower-register` for R) and confirms both
+   recomputed identities equal the claimed pair. Returns `{:status :ok
+   :root root :H H :R R}` or a `:pairing-mismatch` refusal carrying the
+   expected and actual pairs."
+  [root H R source-datoms]
+  (let [actual (relowered-hashes source-datoms)]
+    (if (and (= H (:H actual)) (= R (:R actual)))
+      {:status :ok, :root root, :H H, :R R}
+      (refused :pairing-mismatch
+               {:root root, :expected {:H H, :R R}, :actual actual}))))
+
+
+(defn- fallback-fetch
+  [runtime pairing receiver trust]
+  (let [res (fetch runtime (:format stack-format) (:H pairing) receiver
+                   {:contract (:contract stack-format)})]
+    (if (ok? res)
+      (assoc res
+             :trust trust
+             :fallback {:root (:root pairing), :from (:R pairing)})
+      res)))
+
+
+(defn- as-pairing
+  "A `:derivation-mismatch` raised during a fallback keeps B6's name
+   `:pairing-mismatch` (section 5.5)."
+  [res]
+  (if (= :derivation-mismatch (:reason res))
+    (assoc res :reason :pairing-mismatch)
+    res))
+
+
+(defn- fallback-selection
+  "The selection a manifest fallback reports (section 5.5): the stack
+   image chosen in place of the unsupported register image, out of the
+   manifest at `address` whose tree is the root."
+  [res manifest-address]
+  {:root (get-in res [:manifest :yin.module/tree]),
+   :manifest manifest-address,
+   :from :yin.debruijn.register})
+
+
+(defn trusted-fallback
+  "3-arity (section 5.5, M4): the `:trusted` derivation policy applied
+   to the stack image the manifest at `manifest-address` selects in
+   place of an unsupported register image. The manifest is fetched and
+   verified through `manifest-format`, its stack derivation supplies
+   the identity, and the outcome names its trust as `:trust
+   :composition` and its selection under `:fallback`. A manifest with
+   no stack derivation is `:unsupported-format`; a derivation mismatch
+   raised here keeps B6's name `:pairing-mismatch`.
+
+   4-arity (B6, unchanged): the same fallback over mint-time pairing
+   datoms, the identities read from `root`'s pairing. A root without a
+   recorded pairing is `:absent`."
+  ([runtime manifest-address receiver]
+   (let [res (link-manifest runtime manifest-address :yin.debruijn.code
+                            receiver
+                            {:derivation :trusted,
+                             :contract vm/stack-contract})]
+     (if (ok? res)
+       (assoc res :fallback (fallback-selection res manifest-address))
+       (as-pairing res))))
+  ([runtime root pairing-datoms receiver]
+   (if-let [pairing (root-pairing root pairing-datoms)]
+     (fallback-fetch runtime pairing receiver :composition)
+     (refused :absent {:root root}))))
+
+
+(defn verifying-fallback
+  "3-arity (section 5.5, M4): the `:verifying` derivation policy applied
+   to the stack image the manifest at `manifest-address` selects in
+   place of an unsupported register image: the manifest is verified, the
+   derivation record's addresses are checked, the tree is fetched and
+   re-lowered, and the outcome names its trust as `:trust :verified`
+   and its selection under `:fallback`.
+
+   5-arity (B6, unchanged): the same fallback that re-lowers the root's
+   named `source-datoms` and refuses `:pairing-mismatch` unless both
+   recomputed identities match."
+  ([runtime manifest-address receiver]
+   (let [res (link-manifest runtime manifest-address :yin.debruijn.code
+                            receiver
+                            {:derivation :verifying,
+                             :contract vm/stack-contract})]
+     (if (ok? res)
+       (assoc res :fallback (fallback-selection res manifest-address))
+       (as-pairing res))))
+  ([runtime root pairing-datoms source-datoms receiver]
+   (if-let [{:keys [H R], :as pairing} (root-pairing root pairing-datoms)]
+     (let [verdict (verify-same-root-pairing root H R source-datoms)]
+       (if (refused? verdict)
+         verdict
+         (fallback-fetch runtime pairing receiver :verified)))
+     (refused :absent {:root root}))))

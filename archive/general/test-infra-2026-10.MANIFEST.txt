@@ -1,0 +1,11 @@
+# Archived 2026-10-17 (owner-requested sweep of landed-track collab artifacts)
+# Criterion: tier-timing/test-tier rounds completed — slow tiers green per orchestrator log; tiers-slow-tags merged.
+# Files NOT moved when cited by living docs (docs/src/test) — those stay in collab/.
+# Manifest may lag the log: docs/orchestrator-log.md citations of collab/ paths are historical.
+1792087076294-engineer-node-slow-c4.report.md
+1793330000000-architect-node-slow-c4.fable.stdout.log
+1793330000000-architect-node-slow-c4.prompt.md
+1793330000000-architect-node-slow-c4.report.md
+1793340000000-engineer-node-slow-c4.gpt-6.1-sol.stdout.log
+1793340000000-engineer-node-slow-c4.prompt.md
+tiers-runs/ (dir, moved from scratch bucket: dao.space DHT + node tier-run logs)

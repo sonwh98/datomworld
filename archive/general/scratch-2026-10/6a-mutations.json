@@ -1,0 +1,164 @@
+[
+  {
+    "id": "M1",
+    "path": "src/cljc/yin/vm/semantic_register/frame.cljc",
+    "test": "yin.vm.semantic-register.frame-test/nil-valued-register-is-a-member",
+    "exit": 1,
+    "named_failure": true,
+    "command": [
+      "clojure",
+      "-M:test",
+      "-n",
+      "yin.vm.semantic-register.frame-test",
+      "-v",
+      "yin.vm.semantic-register.frame-test/nil-valued-register-is-a-member"
+    ],
+    "log": "collab/6a-M1.log",
+    "cmp": 0,
+    "git_diff_quiet": 0
+  },
+  {
+    "id": "M2",
+    "path": "src/cljc/yin/vm/semantic_register/frame.cljc",
+    "test": "yin.vm.semantic-register.frame-test/free-env-mismatch",
+    "exit": 1,
+    "named_failure": true,
+    "command": [
+      "clojure",
+      "-M:test",
+      "-n",
+      "yin.vm.semantic-register.frame-test",
+      "-v",
+      "yin.vm.semantic-register.frame-test/free-env-mismatch"
+    ],
+    "log": "collab/6a-M2.log",
+    "cmp": 0,
+    "git_diff_quiet": 0
+  },
+  {
+    "id": "M3",
+    "path": "src/cljc/yin/vm/semantic_register/frame.cljc",
+    "test": "yin.vm.semantic-register.frame-test/free-env-mismatch",
+    "exit": 1,
+    "named_failure": true,
+    "command": [
+      "clojure",
+      "-M:test",
+      "-n",
+      "yin.vm.semantic-register.frame-test",
+      "-v",
+      "yin.vm.semantic-register.frame-test/free-env-mismatch"
+    ],
+    "log": "collab/6a-M3.log",
+    "cmp": 0,
+    "git_diff_quiet": 0
+  },
+  {
+    "id": "M4",
+    "path": "src/cljc/yin/vm/semantic_register/frame.cljc",
+    "test": "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper",
+    "exit": 1,
+    "named_failure": true,
+    "command": [
+      "clojure",
+      "-M:test",
+      "-n",
+      "yin.vm.semantic-register.frame-test",
+      "-v",
+      "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper"
+    ],
+    "log": "collab/6a-M4.log",
+    "cmp": 0,
+    "git_diff_quiet": 0
+  },
+  {
+    "id": "M5",
+    "path": "src/cljc/yin/vm/semantic_register/frame.cljc",
+    "test": "yin.vm.semantic-register.frame-test/worked-example-saved",
+    "exit": 1,
+    "named_failure": true,
+    "command": [
+      "clojure",
+      "-M:test",
+      "-n",
+      "yin.vm.semantic-register.frame-test",
+      "-v",
+      "yin.vm.semantic-register.frame-test/worked-example-saved"
+    ],
+    "log": "collab/6a-M5.log",
+    "cmp": 0,
+    "git_diff_quiet": 0
+  },
+  {
+    "id": "M6",
+    "path": "src/cljc/yin/vm/semantic_register/frame.cljc",
+    "test": "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper",
+    "exit": 1,
+    "named_failure": true,
+    "command": [
+      "clojure",
+      "-M:test",
+      "-n",
+      "yin.vm.semantic-register.frame-test",
+      "-v",
+      "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper"
+    ],
+    "log": "collab/6a-M6.log",
+    "cmp": 0,
+    "git_diff_quiet": 0
+  },
+  {
+    "id": "M7",
+    "path": "src/cljc/yin/vm/ucf/rows.cljc",
+    "test": "yin.vm.ucf.rows-test/numbering-precedes-frame-defect",
+    "exit": 1,
+    "named_failure": true,
+    "command": [
+      "clojure",
+      "-M:test",
+      "-n",
+      "yin.vm.ucf.rows-test",
+      "-v",
+      "yin.vm.ucf.rows-test/numbering-precedes-frame-defect"
+    ],
+    "log": "collab/6a-M7.log",
+    "cmp": 0,
+    "git_diff_quiet": 0
+  },
+  {
+    "id": "M8",
+    "path": "src/cljc/yin/vm/ucf/rows.cljc",
+    "test": "yin.vm.ucf.rows-test/canonical-under-is-renaming-invariant",
+    "exit": 1,
+    "named_failure": true,
+    "command": [
+      "clojure",
+      "-M:test",
+      "-n",
+      "yin.vm.ucf.rows-test",
+      "-v",
+      "yin.vm.ucf.rows-test/canonical-under-is-renaming-invariant"
+    ],
+    "log": "collab/6a-M8.log",
+    "cmp": 0,
+    "git_diff_quiet": 0
+  },
+  {
+    "id": "M9",
+    "path": "src/cljc/yin/vm/ucf/rows.cljc",
+    "test": "yin.vm.ucf.rows-test/refinement-search-preserves-unordered-multiplicity",
+    "exit": 1,
+    "named_failure": true,
+    "command": [
+      "clojure",
+      "-M:test",
+      "-n",
+      "yin.vm.ucf.rows-test",
+      "-v",
+      "yin.vm.ucf.rows-test/refinement-search-preserves-unordered-multiplicity"
+    ],
+    "log": "collab/6a-M9.log",
+    "cmp": 0,
+    "git_diff_quiet": 0
+  }
+]

@@ -1,0 +1,10 @@
+Created-GMT: 2026-10-16 08:00:00 GMT
+Created-Local: 2026-10-16 15:00:00 +07
+Coding-Agent: codex
+Session-ID: pending (provider-generated)
+# Task: Node slow-C4 fix: float64 payloads in the prelude float-mod rows + a portable load pin (uncommitted)
+Role: VM Runtime
+Implementers:
+- Model: gpt-6.1-sol | Assigned: 2026-10-16 15:00 +07 | Status: active | Rationale: codex implements; Fable reviews
+
+Worktree /Users/sto/workspace/datomworld-srvm-p8nodefix (branch srvm-node-slow-c4-floats @ origin/srvm-phase8 47249651). Read ./collab/1793330000000-architect-node-slow-c4.report.md (Architect ruling RULING-READY). EXECUTE steps 1-4 EXACTLY: F1 in test/yang/python/antlr/prelude_parity_test.cljc (the three py/float-mod rows become py/mod over {:py/float ...} payloads with {:py/float ...} expectations; drop the float-mod special case in prelude-semantics-on-every-vm so every row goes through (ops/exact-literals (with-float64 f))); F2 in test/yin/vm/semantic/load_paths_test.cljc (the new deftest float64-literal-beyond-2-53-loads-on-every-host with the cljs clause via #?(:cljs ... :default nil), add the dao.jing.cbor require; verify the pinned address on the JVM and re-pin from the JVM value ONLY if the vector differs, saying so). The ten C4 files may be edited under the owner freeze (prelude_parity_test is one); NOTHING else under test/yang or src/yang; no src/ edits; no docs. Optional: trim the stale exact-literals docstring sentence in int_ops_test.cljc ONLY if trivial. No Node/Dart (orchestrator runs them), no commit/stage. Foreground: kondo on changed files (0 new); `clojure -M:test -n yin.vm.semantic.load-paths-test`; `DATOM_SLOW_TESTS=1 clojure -M:test -e :slow -n yang.python.antlr.prelude-parity-test` (or the form that enables the guarded slow body: check docs/agents/build-n-test.md; the deftest is ^:slow so use `-i :slow` if needed) expecting green on all four VMs, report exact counts. Report ./collab/<ms>-engineer-node-slow-c4.report.md with Completed-GMT/Completed-Local/Coding-Agent/Session-ID, diff summary, counts, truthful. End READY or BLOCKED.

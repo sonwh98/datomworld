@@ -1,0 +1,11 @@
+Loading initial Timbre config from: :default
+[:test] Compiling ...
+========= Running Tests =======================
+
+Testing yang.python.antlr.lower-portable-test
+
+Testing yin.vm.parity-test
+
+Testing yin.vm.semantic-register.scan-test
+C4 scanner oracle: :py
+C4 tree free names complete: :py

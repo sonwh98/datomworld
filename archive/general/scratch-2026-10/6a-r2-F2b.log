@@ -1,0 +1,14 @@
+clojure -M:test -n yin.vm.ucf.rows-test -v yin.vm.ucf.rows-test/census-is-numeric-from-ten-cells
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (census-is-numeric-from-ten-cells) (rows_test.cljc:334)
+expected: (= (mapv (fn* [p1__22055#] (keyword "yin.k" (str "c-" p1__22055#))) (range 1 11)) (vec (take-nth 2 (drop 2 census))))
+  actual: (not (= [:yin.k/c-1 :yin.k/c-2 :yin.k/c-3 :yin.k/c-4 :yin.k/c-5 :yin.k/c-6 :yin.k/c-7 :yin.k/c-8 :yin.k/c-9 :yin.k/c-10] [:yin.k/c-1 :yin.k/c-10 :yin.k/c-2 :yin.k/c-3 :yin.k/c-4 :yin.k/c-5 :yin.k/c-6 :yin.k/c-7 :yin.k/c-8 :yin.k/c-9]))
+
+Ran 1 tests containing 2 assertions.
+1 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

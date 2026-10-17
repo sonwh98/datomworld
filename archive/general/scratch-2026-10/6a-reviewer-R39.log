@@ -1,0 +1,15 @@
+clojure -M:test -n yin.vm.semantic-register.frame-test -v yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.semantic-register.frame-test
+
+FAIL in (each-rule-refuses-its-tamper) (frame_test.cljc:265)
+T1
+expected: (= expected (:yin.k/kind d))
+  actual: (not (= :site :reason-mismatch))
+
+Ran 1 tests containing 50 assertions.
+1 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

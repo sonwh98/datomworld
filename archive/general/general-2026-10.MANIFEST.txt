@@ -1,0 +1,47 @@
+# Archived 2026-10-17 (owner-requested sweep of landed-track collab artifacts)
+# Criterion: blake3-seals 492ff50b, cursor-cell numbering 7a6d7cc9, comprehension-hang fix fa91caa3, c2-s5 — all in master; note exchanges closed.
+# Files NOT moved when cited by living docs (docs/src/test) — those stay in collab/.
+# Manifest may lag the log: docs/orchestrator-log.md citations of collab/ paths are historical.
+1791520000000-orchestrator-note-c4-vs-semantic-register-vm.md
+1791543046263-compiler-engineer-c2-s5.claude-sonnet-5-5.findings.md
+1791543046263-compiler-engineer-c2-s5.claude-sonnet-5-5.stdout.log
+1791543046263-compiler-engineer-c2-s5.prompt.md
+1791545602774-reviewer-c2-s5.gpt-6.1-sol.findings.md
+1791545602774-reviewer-c2-s5.gpt-6.1-sol.stdout.log
+1791545602774-reviewer-c2-s5.prompt.md
+1792080000000-architect-rename-cursor-docs.claude-fable-5-1.stdout.log
+1792080000000-architect-rename-cursor-docs.prompt.md
+1792080000000-architect-rename-cursor-docs.report.md
+1792090000000-engineer-rename-cursor-code.opus.stdout.log
+1792090000000-engineer-rename-cursor-code.prompt.md
+1792090000000-engineer-rename-cursor-code.report.md
+1792090000000-rename-cursor.py
+1792090000000-rename-equivalence.clj
+1792090000000-rename-mutants.json
+1792090000000-rename-mutants.py
+1792104215620-orchestrator-note-srvm-track-reply.md
+1792106523000-orchestrator-note-srvm-track-reply2.md
+1792107000000-orchestrator-note-srvm-track-ack3.md
+1792110000000-rename-equivalence.clj
+1792110000000-rename-equivalence.log
+1792110000000-rename-mutants.json
+1792110000000-rename-mutants.py
+1792130000000-engineer-blake3-seals.opus.stdout.log
+1792130000000-engineer-blake3-seals.prompt.md
+1792130000000-engineer-blake3-seals.report.md
+1792190000000-reviewer-blake3-seals.claude-fable-5-1.findings.md
+1792190000000-reviewer-blake3-seals.claude-fable-5-1.stdout.log
+1792190000000-reviewer-blake3-seals.prompt.md
+1792210000000-architect-cursor-cell-numbering-review-r3.gpt-6.1-sol.findings.md
+1792210000000-architect-cursor-cell-numbering-review-r3.gpt-6.1-sol.stdout.log
+1792210000000-architect-cursor-cell-numbering-review-r3.prompt.md
+1792230000000-architect-cursor-cell-numbering-review-r4.gpt-6.1-sol.findings.md
+1792230000000-architect-cursor-cell-numbering-review-r4.gpt-6.1-sol.stdout.log
+1792230000000-architect-cursor-cell-numbering-review-r4.prompt.md
+1792266000000-engineer-c4hang-fix.claude-opus-5-5.stdout.log
+1792266000000-engineer-c4hang-fix.prompt.md
+1792272000000-reviewer-c4hang-gate.gemini-3-8-flash.stdout.log
+1792680000000-orchestrator-note-c4-freeze.md
+
+# --- 2026-10-17 pass 2 (exact-citation exemptions only; siblings without living-doc citations moved) ---
+1792240000000-engineer-c4hang-fix.brief-DRAFT.md

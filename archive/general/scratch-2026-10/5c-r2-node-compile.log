@@ -1,0 +1,24 @@
+Loading initial Timbre config from: :default
+[:test] Compiling ...
+========= Running Tests =======================
+
+Testing yang.python.antlr.lower-portable-test
+
+Testing yin.vm-test
+
+Testing yin.vm.debruijn-vm-contract-test
+
+Testing yin.vm.linker-test
+SKIP slow test a-prelude-sized-module-publishes-under-default-bounds (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yin.vm.parity-test
+
+Testing yin.vm.semantic-register.scan-test
+SKIP slow test scanners-agree-on-the-c4-modules (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test goldens-match (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test verify-outcomes-agree (set DATOM_SLOW_TESTS=1 to run)
+
+Ran 129 tests containing 1759 assertions.
+0 failures, 0 errors.
+===============================================
+[:test] Build completed. (188 files, 20 compiled, 0 warnings, 7.95s)

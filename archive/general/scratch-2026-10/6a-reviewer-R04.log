@@ -1,0 +1,14 @@
+clojure -M:test -n yin.vm.semantic-register.frame-test -v yin.vm.semantic-register.frame-test/free-env-mismatch
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.semantic-register.frame-test
+
+FAIL in (free-env-mismatch) (frame_test.cljc:220)
+expected: (= :reserved-name (:yin.k/kind (frame/task-defect {:free-env {(quote yin/def) 1}})))
+  actual: (not (= :reserved-name nil))
+
+Ran 1 tests containing 7 assertions.
+1 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

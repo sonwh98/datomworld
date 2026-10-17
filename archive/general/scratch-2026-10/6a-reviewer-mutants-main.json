@@ -1,0 +1,1131 @@
+[
+ {
+  "id": "R01",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "A6 window-missing dropped",
+  "test": "yin.vm.semantic-register.frame-test/nil-valued-register-is-a-member",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/nil-valued-register-is-a-member"
+  ],
+  "exit": 1,
+  "seconds": 5.0,
+  "tests": 1,
+  "assertions": 3,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (nil-valued-register-is-a-member) (frame_test.cljc:208)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R02",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "S2 and S3 reordered (window before K)",
+  "test": "yin.vm.semantic-register.frame-test/first-defect-is-structural",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/first-defect-is-structural"
+  ],
+  "exit": 1,
+  "seconds": 4.6,
+  "tests": 1,
+  "assertions": 1,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (first-defect-is-structural) (frame_test.cljc:224)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R03",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "E2 lexical presence not required",
+  "test": "yin.vm.semantic-register.frame-test/free-env-mismatch",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/free-env-mismatch"
+  ],
+  "exit": 1,
+  "seconds": 4.9,
+  "tests": 1,
+  "assertions": 7,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (free-env-mismatch) (frame_test.cljc:218)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R04",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "X1 reserved names unchecked",
+  "test": "yin.vm.semantic-register.frame-test/free-env-mismatch",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/free-env-mismatch"
+  ],
+  "exit": 1,
+  "seconds": 5.0,
+  "tests": 1,
+  "assertions": 7,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (free-env-mismatch) (frame_test.cljc:220)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R05",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "P4 bookkeeping key membership dropped",
+  "test": "yin.vm.semantic-register.frame-test/tail-bookkeeping-and-delivery",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/tail-bookkeeping-and-delivery"
+  ],
+  "exit": 1,
+  "seconds": 4.9,
+  "tests": 1,
+  "assertions": 4,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (tail-bookkeeping-and-delivery) (frame_test.cljc:274)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R06",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "S2 non-vector K accepted",
+  "test": "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper"
+  ],
+  "exit": 0,
+  "seconds": 4.7,
+  "tests": 1,
+  "assertions": 50,
+  "failures": 0,
+  "errors": 0,
+  "fail_lines": [],
+  "status": "SURVIVED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R07",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "C2 pc>0 lower bound dropped",
+  "test": "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper"
+  ],
+  "exit": 0,
+  "seconds": 4.7,
+  "tests": 1,
+  "assertions": 50,
+  "failures": 0,
+  "errors": 0,
+  "fail_lines": [],
+  "status": "SURVIVED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R08",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "C3 pc-body unchecked",
+  "test": "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper"
+  ],
+  "exit": 1,
+  "seconds": 4.7,
+  "tests": 1,
+  "assertions": 50,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (each-rule-refuses-its-tamper) (frame_test.cljc:265)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R09",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "A4 window-self dropped",
+  "test": "yin.vm.semantic-register.frame-test/worked-example-saved",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/worked-example-saved"
+  ],
+  "exit": 1,
+  "seconds": 4.6,
+  "tests": 1,
+  "assertions": 5,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (worked-example-saved) (frame_test.cljc:197)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R10",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "A5/A6 order swapped",
+  "test": "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper"
+  ],
+  "exit": 0,
+  "seconds": 4.6,
+  "tests": 1,
+  "assertions": 50,
+  "failures": 0,
+  "errors": 0,
+  "fail_lines": [],
+  "status": "SURVIVED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R11",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "E1 reserved binding unchecked",
+  "test": "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper"
+  ],
+  "exit": 1,
+  "seconds": 4.7,
+  "tests": 1,
+  "assertions": 50,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (each-rule-refuses-its-tamper) (frame_test.cljc:265)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R12",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "P2 :park/:current-continuation admit :next",
+  "test": "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper"
+  ],
+  "exit": 0,
+  "seconds": 4.7,
+  "tests": 1,
+  "assertions": 50,
+  "failures": 0,
+  "errors": 0,
+  "fail_lines": [],
+  "status": "SURVIVED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R13",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "A2 destination equality dropped",
+  "test": "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper"
+  ],
+  "exit": 1,
+  "seconds": 4.7,
+  "tests": 1,
+  "assertions": 50,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (each-rule-refuses-its-tamper) (frame_test.cljc:265)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R14",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "K1 return-site unchecked",
+  "test": "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper"
+  ],
+  "exit": 1,
+  "seconds": 4.7,
+  "tests": 1,
+  "assertions": 50,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (each-rule-refuses-its-tamper) (frame_test.cljc:265)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R15",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "row id hashed without its first child slot",
+  "test": "yin.vm.ucf.rows-test/row-ids-are-jing-default",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/row-ids-are-jing-default"
+  ],
+  "exit": 1,
+  "seconds": 4.7,
+  "tests": 1,
+  "assertions": 25,
+  "failures": 10,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)",
+   "FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)",
+   "FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)",
+   "FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)",
+   "FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)",
+   "FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R16",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "census extra cell not refused",
+  "test": "yin.vm.ucf.rows-test/schema-and-literal-canonicality",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/schema-and-literal-canonicality"
+  ],
+  "exit": 1,
+  "seconds": 4.8,
+  "tests": 1,
+  "assertions": 5,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (schema-and-literal-canonicality) (rows_test.cljc:202)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R17",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "search keeps first leaf (input-order tie break)",
+  "test": "yin.vm.ucf.rows-test/canonical-under-is-renaming-invariant",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/canonical-under-is-renaming-invariant"
+  ],
+  "exit": 0,
+  "seconds": 4.9,
+  "tests": 1,
+  "assertions": 4,
+  "failures": 0,
+  "errors": 0,
+  "fail_lines": [],
+  "status": "SURVIVED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R19",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "window nil-valued key dropped on encode",
+  "test": "yin.vm.ucf.rows-test/bijection",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/bijection"
+  ],
+  "exit": 1,
+  "seconds": 5.5,
+  "tests": 1,
+  "assertions": 194,
+  "failures": 4,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (bijection) (rows_test.cljc:100)",
+   "FAIL in (bijection) (rows_test.cljc:100)",
+   "FAIL in (bijection) (rows_test.cljc:100)",
+   "FAIL in (bijection) (rows_test.cljc:100)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R21",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "numbering reversed (two cells swapped)",
+  "test": "yin.vm.ucf.rows-test/canonical-under-is-renaming-invariant",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/canonical-under-is-renaming-invariant"
+  ],
+  "exit": 0,
+  "seconds": 4.7,
+  "tests": 1,
+  "assertions": 4,
+  "failures": 0,
+  "errors": 0,
+  "fail_lines": [],
+  "status": "SURVIVED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R22",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "rows budget charge removed",
+  "test": "yin.vm.ucf.rows-test/schema-and-literal-canonicality",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/schema-and-literal-canonicality"
+  ],
+  "exit": 1,
+  "seconds": 4.7,
+  "tests": 1,
+  "assertions": 5,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (schema-and-literal-canonicality) (rows_test.cljc:208)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R23",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "digest changed to sha256",
+  "test": "yin.vm.ucf.rows-test/row-ids-are-jing-default",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/row-ids-are-jing-default"
+  ],
+  "exit": 0,
+  "seconds": 4.7,
+  "tests": 1,
+  "assertions": 27,
+  "failures": 0,
+  "errors": 0,
+  "fail_lines": [],
+  "status": "SURVIVED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R24",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "wire extra key accepted",
+  "test": "yin.vm.ucf.rows-test/gates-and-graph-before-hashes",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/gates-and-graph-before-hashes"
+  ],
+  "exit": 0,
+  "seconds": 4.7,
+  "tests": 1,
+  "assertions": 7,
+  "failures": 0,
+  "errors": 0,
+  "fail_lines": [],
+  "status": "SURVIVED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R25",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "X1 judged after waits",
+  "test": "yin.vm.ucf.rows-test/numbering-precedes-frame-defect",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/numbering-precedes-frame-defect"
+  ],
+  "exit": 0,
+  "seconds": 5.5,
+  "tests": 1,
+  "assertions": 2,
+  "failures": 0,
+  "errors": 0,
+  "fail_lines": [],
+  "status": "SURVIVED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R26",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "set slots not sorted on emit",
+  "test": "yin.vm.ucf.rows-test/canonical-under-is-renaming-invariant",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/canonical-under-is-renaming-invariant"
+  ],
+  "exit": 0,
+  "seconds": 5.3,
+  "tests": 1,
+  "assertions": 4,
+  "failures": 0,
+  "errors": 0,
+  "fail_lines": [],
+  "status": "SURVIVED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R27",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "row-order check removed",
+  "test": "yin.vm.ucf.rows-test/window-sorted-and-unique",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/window-sorted-and-unique"
+  ],
+  "exit": 1,
+  "seconds": 5.3,
+  "tests": 1,
+  "assertions": 4,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (window-sorted-and-unique) (rows_test.cljc:140)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R28",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "noncanonical-cells comparison removed",
+  "test": "yin.vm.ucf.rows-test/numbering-precedes-frame-defect",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/numbering-precedes-frame-defect"
+  ],
+  "exit": 1,
+  "seconds": 5.3,
+  "tests": 1,
+  "assertions": 2,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (numbering-precedes-frame-defect) (rows_test.cljc:195)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R29",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "gate cycle check removed",
+  "test": "yin.vm.ucf.rows-test/child-scope-and-shared-child-dag",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/child-scope-and-shared-child-dag"
+  ],
+  "exit": 0,
+  "seconds": 5.5,
+  "tests": 1,
+  "assertions": 3,
+  "failures": 0,
+  "errors": 0,
+  "fail_lines": [],
+  "status": "SURVIVED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R30",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "carried code well-formedness unchecked",
+  "test": "yin.vm.ucf.rows-test/task-root-checks-carried-code-and-frame",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/task-root-checks-carried-code-and-frame"
+  ],
+  "exit": 0,
+  "seconds": 5.0,
+  "tests": 1,
+  "assertions": 4,
+  "failures": 0,
+  "errors": 0,
+  "fail_lines": [],
+  "status": "SURVIVED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R31",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "[:lit nil] decoded as absence (key dropped)",
+  "test": "yin.vm.ucf.rows-test/bijection",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/bijection"
+  ],
+  "exit": 1,
+  "seconds": 5.7,
+  "tests": 1,
+  "assertions": 194,
+  "failures": 8,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (bijection) (rows_test.cljc:100)",
+   "FAIL in (bijection) (rows_test.cljc:101)",
+   "FAIL in (bijection) (rows_test.cljc:100)",
+   "FAIL in (bijection) (rows_test.cljc:101)",
+   "FAIL in (bijection) (rows_test.cljc:100)",
+   "FAIL in (bijection) (rows_test.cljc:101)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R32",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "search bound removed",
+  "test": "yin.vm.ucf.rows-test/refinement-search-preserves-unordered-multiplicity",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/refinement-search-preserves-unordered-multiplicity"
+  ],
+  "exit": 1,
+  "seconds": 5.3,
+  "tests": 1,
+  "assertions": 4,
+  "failures": 2,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (refinement-search-preserves-unordered-multiplicity) (rows_test.cljc:177)",
+   "FAIL in (refinement-search-preserves-unordered-multiplicity) (rows_test.cljc:178)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R33",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "non-portable literal accepted",
+  "test": "yin.vm.ucf.rows-test/schema-and-literal-canonicality",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/schema-and-literal-canonicality"
+  ],
+  "exit": 0,
+  "seconds": 5.0,
+  "tests": 1,
+  "assertions": 5,
+  "failures": 0,
+  "errors": 0,
+  "fail_lines": [],
+  "status": "SURVIVED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R34",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "reference-free collection row accepted",
+  "test": "yin.vm.ucf.rows-test/schema-and-literal-canonicality",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/schema-and-literal-canonicality"
+  ],
+  "exit": 1,
+  "seconds": 5.2,
+  "tests": 1,
+  "assertions": 5,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (schema-and-literal-canonicality) (rows_test.cljc:203)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R35",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "decoded-equality duplicate key unchecked",
+  "test": "yin.vm.ucf.rows-test/schema-and-literal-canonicality",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/schema-and-literal-canonicality"
+  ],
+  "exit": 0,
+  "seconds": 5.0,
+  "tests": 1,
+  "assertions": 5,
+  "failures": 0,
+  "errors": 0,
+  "fail_lines": [],
+  "status": "SURVIVED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R36",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "missing stream correspondence guessed",
+  "test": "yin.vm.ucf.rows-test/canonical-under-is-renaming-invariant",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/canonical-under-is-renaming-invariant"
+  ],
+  "exit": 1,
+  "seconds": 5.6,
+  "tests": 1,
+  "assertions": 4,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (canonical-under-is-renaming-invariant) (rows_test.cljc:155)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R37",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "P3 captured-site unchecked",
+  "test": "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper"
+  ],
+  "exit": 1,
+  "seconds": 5.1,
+  "tests": 1,
+  "assertions": 50,
+  "failures": 2,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (each-rule-refuses-its-tamper) (frame_test.cljc:265)",
+   "FAIL in (each-rule-refuses-its-tamper) (frame_test.cljc:265)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R38",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "P1 pending presence unchecked",
+  "test": "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper"
+  ],
+  "exit": 1,
+  "seconds": 5.5,
+  "tests": 1,
+  "assertions": 50,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (each-rule-refuses-its-tamper) (frame_test.cljc:265)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R39",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "T1 tail site unchecked",
+  "test": "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper"
+  ],
+  "exit": 1,
+  "seconds": 5.0,
+  "tests": 1,
+  "assertions": 50,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (each-rule-refuses-its-tamper) (frame_test.cljc:265)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R40",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "S1 closed key set unchecked",
+  "test": "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper"
+  ],
+  "exit": 1,
+  "seconds": 4.9,
+  "tests": 1,
+  "assertions": 50,
+  "failures": 2,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (each-rule-refuses-its-tamper) (frame_test.cljc:265)",
+   "FAIL in (each-rule-refuses-its-tamper) (frame_test.cljc:265)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R41",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "K3 return window unchecked",
+  "test": "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper"
+  ],
+  "exit": 1,
+  "seconds": 4.9,
+  "tests": 1,
+  "assertions": 50,
+  "failures": 2,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (each-rule-refuses-its-tamper) (frame_test.cljc:265)",
+   "FAIL in (each-rule-refuses-its-tamper) (frame_test.cljc:265)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R42",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "K2 return destination unchecked",
+  "test": "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper"
+  ],
+  "exit": 1,
+  "seconds": 5.4,
+  "tests": 1,
+  "assertions": 50,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (each-rule-refuses-its-tamper) (frame_test.cljc:265)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R43",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "C1 segment membership unchecked",
+  "test": "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper"
+  ],
+  "exit": 1,
+  "seconds": 5.1,
+  "tests": 1,
+  "assertions": 50,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (each-rule-refuses-its-tamper) (frame_test.cljc:265)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R44",
+  "file": "src/cljc/yin/vm/semantic_register/frame.cljc",
+  "description": "S3 window keys not required to be registers",
+  "test": "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.semantic-register.frame-test",
+   "-v",
+   "yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper"
+  ],
+  "exit": 1,
+  "seconds": 4.9,
+  "tests": 1,
+  "assertions": 50,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (each-rule-refuses-its-tamper) (frame_test.cljc:265)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R45",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "row hash equality unchecked on decode",
+  "test": "yin.vm.ucf.rows-test/window-sorted-and-unique",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/window-sorted-and-unique"
+  ],
+  "exit": 0,
+  "seconds": 4.9,
+  "tests": 1,
+  "assertions": 4,
+  "failures": 0,
+  "errors": 0,
+  "fail_lines": [],
+  "status": "SURVIVED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ },
+ {
+  "id": "R46",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "structural reference kind unchecked",
+  "test": "yin.vm.ucf.rows-test/schema-and-literal-canonicality",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/schema-and-literal-canonicality"
+  ],
+  "exit": 0,
+  "seconds": 5.0,
+  "tests": 1,
+  "assertions": 5,
+  "failures": 0,
+  "errors": 0,
+  "fail_lines": [],
+  "status": "SURVIVED",
+  "restore_cmp": 0,
+  "restore_git_diff": 0
+ }
+]

@@ -1,0 +1,27 @@
+# X04: skip marker refusal inside nested collections
+$ clojure -J-Xmx256m -M:test -n yin.vm.ucf.rows-test -v yin.vm.ucf.rows-test/every-literal-context-refuses-markers
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (every-literal-context-refuses-markers) (rows_test.cljc:370)
+expected: (= :yin.k/non-portable (:yin.k/status (error (fn* [] (rows/emit task)))))
+  actual: (not (= :yin.k/non-portable nil))
+
+FAIL in (every-literal-context-refuses-markers) (rows_test.cljc:380)
+expected: (= :yin.k/non-portable (:yin.k/status (error (fn* [] (rows/decode (replace-row wire id body))))))
+  actual: (not (= :yin.k/non-portable nil))
+
+FAIL in (every-literal-context-refuses-markers) (rows_test.cljc:370)
+expected: (= :yin.k/non-portable (:yin.k/status (error (fn* [] (rows/emit task)))))
+  actual: (not (= :yin.k/non-portable nil))
+
+FAIL in (every-literal-context-refuses-markers) (rows_test.cljc:380)
+expected: (= :yin.k/non-portable (:yin.k/status (error (fn* [] (rows/decode (replace-row wire id body))))))
+  actual: (not (= :yin.k/non-portable nil))
+
+Ran 1 tests containing 20 assertions.
+4 failures, 0 errors.

@@ -1,0 +1,14 @@
+clojure -M:test -n yin.vm.ucf.rows-test -v yin.vm.ucf.rows-test/gates-and-graph-before-hashes
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (gates-and-graph-before-hashes) (rows_test.cljc:193)
+expected: (= :task-shape (:yin.k/kind (error (fn* [] (rows/decode (forge 14 5))))))
+  actual: (not (= :task-shape nil))
+
+Ran 1 tests containing 13 assertions.
+1 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

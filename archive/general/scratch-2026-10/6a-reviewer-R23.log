@@ -1,0 +1,114 @@
+clojure -M:test -n yin.vm.ucf.rows-test -v yin.vm.ucf.rows-test/row-ids-are-jing-default
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/sha256-788e917ca5438180d3a5615d5ef93c83aecfb89a3ca6908d5e300a70f0017458 :segment/blake3-499a0ad9f4843fbe7f69adb46407fe30dae22c1eb8214ba3fe98fa4e2aff4f0d))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:109)
+expected: (= :blake3 (:algorithm (jing/parse-segment-address id)))
+  actual: (not (= :blake3 :sha256))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/sha256-565f76736e19954f87b0b8d65674f8fb8b7f9068cb9a7bb3f04d4a1e7991b6d8 :segment/blake3-e4154ea1d71e1a922de088c1953c7c964c80057c82000c3b7e46e62d531576f9))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:109)
+expected: (= :blake3 (:algorithm (jing/parse-segment-address id)))
+  actual: (not (= :blake3 :sha256))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/sha256-d9b41f083739e3967e3fbd8f5a8b23793077a272de166f674cfc97823a7f4f83 :segment/blake3-9eb61420c15a40b6c3c11a680ff38f0b0fc6e2bb0c2312c97b8607d9fff6fc04))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:109)
+expected: (= :blake3 (:algorithm (jing/parse-segment-address id)))
+  actual: (not (= :blake3 :sha256))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/sha256-e41edba0381e6acee25ff1de987ee6ec18f76812c908b839fe74b1f8a4f5435d :segment/blake3-5eb170f9dac459bff2479a710fc57ad149ce7d42f5ffa1d8863f701246dafb31))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:109)
+expected: (= :blake3 (:algorithm (jing/parse-segment-address id)))
+  actual: (not (= :blake3 :sha256))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/sha256-c759e96b607dee9d197d4b489df871a3d987882f4eef3def7d316f5aa8c8c5e3 :segment/blake3-f25f14b5cc7be4ea5832ff0d11fbc42bae8726a70e606bdf20baffb0b432d8af))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:109)
+expected: (= :blake3 (:algorithm (jing/parse-segment-address id)))
+  actual: (not (= :blake3 :sha256))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/sha256-c06afa013ce8cf9d2522e0882dd733aae8963b27f03e6f3ae60ec4aa3bd59e1f :segment/blake3-b78097360d9163520c38351d40ba9f1ada4881c7db0a734f9f928e9124703af7))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:109)
+expected: (= :blake3 (:algorithm (jing/parse-segment-address id)))
+  actual: (not (= :blake3 :sha256))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/sha256-3f67a014b689688ffc83baf17adb4741c39443ab1792110eed679958050becf2 :segment/blake3-baf3535a541e7cf13ba4f8701754d576d9d0a0538ff8f6b26a276e819cf71a15))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:109)
+expected: (= :blake3 (:algorithm (jing/parse-segment-address id)))
+  actual: (not (= :blake3 :sha256))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/sha256-216702da61ed3f17f4d2ecd508662638a5c655e2627a956a6081d144523d3fe5 :segment/blake3-5aafba61c3c0975c7971149b570662da38b08105e85bb4d4df56578a4a49ce8e))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:109)
+expected: (= :blake3 (:algorithm (jing/parse-segment-address id)))
+  actual: (not (= :blake3 :sha256))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/sha256-024efab88853f489260dd64f9f7058116b0259b8483e4c50465222cd994cad60 :segment/blake3-0bc470262d56cbc0f8d956e0f9d12057c9ee4b388cacd1d3201f3a83cf31b600))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:109)
+expected: (= :blake3 (:algorithm (jing/parse-segment-address id)))
+  actual: (not (= :blake3 :sha256))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/sha256-93d2f04440622559213cbafa4fdedcc79aca6ddf54be3d269ac71cf8413acf86 :segment/blake3-5944caf87ae735e2920cabb96dd88a63c9e098c67ea1d7bdd837715845f1a4c5))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:109)
+expected: (= :blake3 (:algorithm (jing/parse-segment-address id)))
+  actual: (not (= :blake3 :sha256))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/sha256-a44a3bc9f042cb22e9c5dfb43267530cf6ab0f46c367d62a00c5ba56aa61a4e5 :segment/blake3-1f7497fee771598a7d4509e0c57c3739f533753c8ceaaf209f711b60aba3f07f))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:109)
+expected: (= :blake3 (:algorithm (jing/parse-segment-address id)))
+  actual: (not (= :blake3 :sha256))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/sha256-8e309874b5890b23ff3d0355ced76b3afac2d66bb2698cf6551bc93088ac6e22 :segment/blake3-6dfd65fa0895e2319f8530883f7839c5ba5af67176cbef54f769a0219ea71f8e))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:109)
+expected: (= :blake3 (:algorithm (jing/parse-segment-address id)))
+  actual: (not (= :blake3 :sha256))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:108)
+expected: (= id (jing/segment-key (vec body)))
+  actual: (not (= :segment/sha256-ab28a3ae57d3ff5c453e46a3f452b4cbbefce8dfd47d345477bda5f2ea4559b8 :segment/blake3-041baa2f1998742640489e15e3ba9bab7e27257d117b62dc81016aeaf5538632))
+
+FAIL in (row-ids-are-jing-default) (rows_test.cljc:109)
+expected: (= :blake3 (:algorithm (jing/parse-segment-address id)))
+  actual: (not (= :blake3 :sha256))
+
+Ran 1 tests containing 27 assertions.
+26 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

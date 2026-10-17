@@ -1,0 +1,41 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (every-literal-context-refuses-markers) (rows_test.cljc:369)
+expected: (= :yin.k/non-portable (:yin.k/status (error (fn* [] (rows/emit task)))))
+  actual: (not (= :yin.k/non-portable nil))
+
+FAIL in (every-literal-context-refuses-markers) (rows_test.cljc:369)
+expected: (= :yin.k/non-portable (:yin.k/status (error (fn* [] (rows/emit task)))))
+  actual: (not (= :yin.k/non-portable nil))
+
+FAIL in (every-literal-context-refuses-markers) (rows_test.cljc:369)
+expected: (= :yin.k/non-portable (:yin.k/status (error (fn* [] (rows/emit task)))))
+  actual: (not (= :yin.k/non-portable nil))
+
+FAIL in (every-literal-context-refuses-markers) (rows_test.cljc:369)
+expected: (= :yin.k/non-portable (:yin.k/status (error (fn* [] (rows/emit task)))))
+  actual: (not (= :yin.k/non-portable nil))
+
+FAIL in (every-literal-context-refuses-markers) (rows_test.cljc:369)
+expected: (= :yin.k/non-portable (:yin.k/status (error (fn* [] (rows/emit task)))))
+  actual: (not (= :yin.k/non-portable nil))
+
+FAIL in (every-literal-context-refuses-markers) (rows_test.cljc:369)
+expected: (= :yin.k/non-portable (:yin.k/status (error (fn* [] (rows/emit task)))))
+  actual: (not (= :yin.k/non-portable nil))
+
+FAIL in (every-literal-context-refuses-markers) (rows_test.cljc:369)
+expected: (= :yin.k/non-portable (:yin.k/status (error (fn* [] (rows/emit task)))))
+  actual: (not (= :yin.k/non-portable nil))
+
+FAIL in (every-literal-context-refuses-markers) (rows_test.cljc:369)
+expected: (= :yin.k/non-portable (:yin.k/status (error (fn* [] (rows/emit task)))))
+  actual: (not (= :yin.k/non-portable nil))
+
+Ran 1 tests containing 16 assertions.
+8 failures, 0 errors.

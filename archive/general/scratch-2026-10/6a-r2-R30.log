@@ -1,0 +1,14 @@
+clojure -M:test -n yin.vm.ucf.rows-test -v yin.vm.ucf.rows-test/task-root-checks-carried-code-and-frame
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (task-root-checks-carried-code-and-frame) (rows_test.cljc:279)
+expected: (= :code (:yin.k/kind (error (fn* [] (rows/decode (rows/emit (rows/node :task (assoc (:slots task) 11 {(jing/segment-key bad-code) bad-code}))))))))
+  actual: (not (= :code :segment))
+
+Ran 1 tests containing 6 assertions.
+1 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

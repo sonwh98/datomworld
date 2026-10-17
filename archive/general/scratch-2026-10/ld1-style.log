@@ -1,0 +1,1315 @@
+mise WARN  failed to write cache file: /Users/sto/Library/Caches/mise/android-sdk/23.0/exec_env_f9003207cf9e4d4c-6a722.msgpack.z Operation not permitted (os error 1)
+--- a/shadow-cljs.edn
++++ b/shadow-cljs.edn
+[036m@@ -24,5 +24,5 @@[0m
+                      :output-to "target/vm-bench.js"}
+ 
+           :yin-repl {:target :node-script
+[031m-                        :main yin.repl.main/-main[0m
+[031m-                        :output-to "target/yin-repl.js"}}}[0m
+[032m+                     :main yin.repl.main/-main[0m
+[032m+                     :output-to "target/yin-repl.js"}}}[0m
+--- a/bb.edn
++++ b/bb.edn
+[036m@@ -169,5 +169,4 @@[0m
+                            (:exit (apply shell {:continue true}
+                                          "bb" "src/dev/affected.clj"
+                                          "--list"
+[031m-                                         (concat sub-args flags)))))}[0m
+[031m-  }}[0m
+[032m+                                         (concat sub-args flags)))))}}}[0m
+--- a/deps.edn
++++ b/deps.edn
+[036m@@ -55,8 +55,7 @@[0m
+            ;; clj -M:clojuredart:cljd ..., clj -M:clojuredart:cljd-yin-repl-build ...
+            :clojuredart {:extra-deps {sonwh98/clojuredart
+                                       {:git/url "https://github.com/sonwh98/ClojureDart.git"
+[031m-                                       :sha "7d00ee2aa7fa9d990581e78ebc4a66b93cb70a31"}[0m
+[031m-                                      }}[0m
+[032m+                                       :sha "7d00ee2aa7fa9d990581e78ebc4a66b93cb70a31"}}}[0m
+            :cljd {:extra-paths ["test"]
+                   :main-opts ["-m" "cljd.build"]
+                   :cljd/opts {:kind :flutter :main datomworld.demo.main}}
+--- a/public/chp/faq.chp
++++ b/public/chp/faq.chp
+[036m@@ -304,7 +304,7 @@[0m
+             [:p
+              "The JVM hides runtime state behind bytecode. The EVM prices computation but limits introspection. Yin reifies continuations as data. "
+              "That single change is the basis for distributed execution, dynamic transformation, and queries over the running program itself; zero-copy cross-device migration is the UCF design target rather than a completed feature."]]]
+[031m-          [0m
+[032m+[0m
+           [:details.faq
+            [:summary "If a running program (a continuation) is saved to the database and moved to a completely different machine, do the internal memory IDs clash? Do I have to manually rewrite them ('parallel transport')?"]
+            [:div
+--- a/antlr/python3/manifest.edn
++++ b/antlr/python3/manifest.edn
+[036m@@ -60,3 +60,4 @@[0m
+                                      "antlr/python3/Python3Parser.g4"],
+                   :generated-artifacts :none,
+                   :blocked-until "Java helper provenance and licence resolved"}}
+[031m-[0m
+--- a/public/chp/dao-lease.chp
++++ b/public/chp/dao-lease.chp
+[036m@@ -25,102 +25,102 @@[0m
+           "and the judge is a step function embedded in the process that possesses the resource, "
+           "driven by that process's own loop. Anyone may reach a conclusion about a lease. "
+           "Only the possessor's conclusion has effect, because only the possessor can actually take the resource back."]]
+[031m-       [:section#how.section-dark[0m
+[031m-        [:div.section-inner[0m
+[031m-         [:h2 "How a lease lives and dies"][0m
+[031m-         [:p[0m
+[031m-          "A holder that has not observed a grantor-authored grant holds nothing. "[0m
+[031m-          "Once it has, it renews at strictly less than half the granted duration, "[0m
+[031m-          "measured against readings on its own tick stream. A renewal is an append that answers ok; "[0m
+[031m-          "any other outcome advances no bound. The holder stops acting at its bound whether or not anything has been heard, "[0m
+[031m-          "and releases when done, which spares the grantor a full duration of waiting."][0m
+[031m-         [:p[0m
+[031m-          "The judge keeps a private ledger of live grants and runs a pass at a declared cadence. "[0m
+[031m-          "Each pass drains its tick cursor (that reading is now, never a clock call), drains the lease-fact cursors, "[0m
+[031m-          "answers proposals, classifies every lease by the first cause that holds, reclaims, and only then records. "[0m
+[031m-          "The record follows the act: an absent :lapsed fact is never evidence of tenure. "[0m
+[031m-          "A lease is due for reclaim by the first cause that holds, in this order:"][0m
+[031m-         [:table.principles-table[0m
+[031m-          [:thead[0m
+[031m-           [:tr[0m
+[031m-            [:th "Cause"][0m
+[031m-            [:th "Meaning"]]][0m
+[031m-          [:tbody[0m
+[031m-           [:tr[0m
+[031m-            [:td ":release"][0m
+[031m-            [:td "The holder said it was done. The reclaim is still the grantor's act; the release just spares everyone a duration of waiting."]][0m
+[031m-           [:tr[0m
+[031m-            [:td ":silence"][0m
+[031m-            [:td "No eligible renewal was observed within duration plus tolerance, over a window the judge actually observed."]][0m
+[031m-           [:tr[0m
+[031m-            [:td ":cap"][0m
+[031m-            [:td "Total tenure passed the grant's maximum. Renewals cannot help: a hostile or wedged holder cannot squat forever."]][0m
+[031m-           [:tr[0m
+[031m-            [:td ":policy"][0m
+[031m-            [:td "The grantor's own reason to end it early. A policy may end a lease, but it may not be implemented by declining to count eligible evidence."]]]][0m
+[031m-         [:p[0m
+[031m-          "The four causes are ordered: a lease already pending its reclaim keeps its cause, "[0m
+[031m-          "a release wins before the cap, the cap before policy, and silence comes last. "[0m
+[031m-          "Reclamation is bounded by duration plus tolerance plus cadence plus the cost of the reclaim itself."]]][0m
+[031m-       [:section#authority.section-dark[0m
+[031m-        [:div.section-inner[0m
+[031m-         [:h2 "Facts can be forged. Leases cannot."][0m
+[031m-         [:p[0m
+[031m-          "A lease fact is an unauthenticated map, and anyone who can append to a medium can write one. "[0m
+[031m-          "So the security never rests on the fact. It rests on three gates the fact cannot cross by forgery:"][0m
+[031m-         [:p[0m
+[031m-          "Attribution first: every fact passes through a composition-supplied resolver bound to the medium it was read from, "[0m
+[031m-          "and only facts the resolver attributes to the right party count. "[0m
+[031m-          "A forged renewal in the holder's name counts for nothing: silence is measured as though it never arrived. "[0m
+[031m-          "A forged release establishes nothing, and cannot pre-empt the genuine holder's later one. "[0m
+[031m-          "A forged grant seeds no tenure: only the judge's own grants do that."][0m
+[031m-         [:p[0m
+[031m-          "Registration second: a lease connects to a medium only through an authoritative fact, "[0m
+[031m-          "so an attacker's own noisy medium cannot be attached to someone else's lease, "[0m
+[031m-          "and flooding it manufactures no evidence."][0m
+[031m-         [:p[0m
+[031m-          "Possession third: a forged :lapsed records nothing, because recording follows a successful reclaim, "[0m
+[031m-          "and only the possessor can perform the reclaim. "[0m
+[031m-          "The resource itself is the ground truth: a remote holder learns of a reclaim by observing it, "[0m
+[031m-          "not by trusting anyone's broadcast."][0m
+[031m-         [:p[0m
+[031m-          "And when the medium breaks its promise, by evicting facts before the judge read them, "[0m
+[031m-          "the judge does not guess. The lease's evidence state becomes unknown, "[0m
+[031m-          "and the judge demands a full clean duration of observation before silence counts again. "[0m
+[031m-          "Weaker evidence may delay a conclusion. It must never accelerate one."]]][0m
+[031m-       [:section#uses.section-dark[0m
+[031m-        [:div.section-inner[0m
+[031m-         [:h2 "Three uses, and the refusals"][0m
+[031m-         [:p[0m
+[031m-          "The vocabulary is scoped to three sanctioned uses: "[0m
+[031m-          "the pause a reader holds over a forwarder, the lifetime of a served connection, "[0m
+[031m-          "and the claim an agent leaves on shared work. "[0m
+[031m-          "It is deliberately silent about everything else:"][0m
+[031m-         [:ul[0m
+[031m-          [:li "No delegated renewal: a renewal is evidence about its own author. Delegation is a chain of ordinary leases, each with its own judge."][0m
+[031m-          [:li "No transfer between holders: renegotiate instead."][0m
+[031m-          [:li "No absolute time in any fact: durations cross boundaries, moments never do."][0m
+[031m-          [:li "No access enforcement: the bound bounds attention, not access. A holder needing real exclusion obtains it from the resource, through fencing."]][0m
+[031m-         [:p[0m
+[031m-          "Sizing is stated as relations and the values belong to compositions: "[0m
+[031m-          "the granted duration exceeds twice the renewal interval, "[0m
+[031m-          "the tolerance covers flight time and clock skew, "[0m
+[031m-          "the renewal interval plus one tick period stays below half the duration, "[0m
+[031m-          "and a medium's retention window exceeds the judge's lag. "[0m
+[031m-          "The contract, the rationale, and the implementation are on GitHub: "[0m
+[031m-          [:a {:href "https://github.com/sonwh98/datomworld/blob/master/docs/design/dao.lease.md" :target "_blank" :rel "noopener noreferrer"} "dao.lease.md"] ", "[0m
+[031m-          [:a {:href "https://github.com/sonwh98/datomworld/blob/master/docs/design/dao.lease.rationale.md" :target "_blank" :rel "noopener noreferrer"} "dao.lease.rationale.md"] ", "[0m
+[031m-          "and the implementation under "[0m
+[031m-          [:a {:href "https://github.com/sonwh98/datomworld/tree/master/src/cljc/dao" :target "_blank" :rel "noopener noreferrer"} "src/cljc/dao"] "."][0m
+[031m-         [:p[0m
+[031m-          "The deeper lineage is written down too. The judge is a garbage collector for claims: "[0m
+[031m-          "it reclaims what a silent holder no longer proves it wants, the way a collector reclaims what the "[0m
+[031m-          "execution log no longer reaches. That unification, where JIT, GC, and this judge become three "[0m
+[031m-          "interpreters of the same stream, is the subject of "[0m
+[031m-          [:a {:href "/blog/unification-of-jit-and-gc.blog"} "The Unification of JIT and GC"] "."][0m
+[031m-         [:p[0m
+[031m-          "DaoLease pairs with the rest of the stack: "[0m
+[031m-          [:a {:href "/dao-stream.chp"} "DaoStream"] " carries the facts, "[0m
+[031m-          [:a {:href "/dao-space.chp"} "DaoSpace"] " makes them queryable, "[0m
+[031m-          [:a {:href "/shibi.chp"} "Shibi"] " confines untrusted computation, "[0m
+[031m-          "and DaoLease decides whose turn it is."]]]])} template))[0m
+[032m+        [:section#how.section-dark[0m
+[032m+         [:div.section-inner[0m
+[032m+          [:h2 "How a lease lives and dies"][0m
+[032m+          [:p[0m
+[032m+           "A holder that has not observed a grantor-authored grant holds nothing. "[0m
+[032m+           "Once it has, it renews at strictly less than half the granted duration, "[0m
+[032m+           "measured against readings on its own tick stream. A renewal is an append that answers ok; "[0m
+[032m+           "any other outcome advances no bound. The holder stops acting at its bound whether or not anything has been heard, "[0m
+[032m+           "and releases when done, which spares the grantor a full duration of waiting."][0m
+[032m+          [:p[0m
+[032m+           "The judge keeps a private ledger of live grants and runs a pass at a declared cadence. "[0m
+[032m+           "Each pass drains its tick cursor (that reading is now, never a clock call), drains the lease-fact cursors, "[0m
+[032m+           "answers proposals, classifies every lease by the first cause that holds, reclaims, and only then records. "[0m
+[032m+           "The record follows the act: an absent :lapsed fact is never evidence of tenure. "[0m
+[032m+           "A lease is due for reclaim by the first cause that holds, in this order:"][0m
+[032m+          [:table.principles-table[0m
+[032m+           [:thead[0m
+[032m+            [:tr[0m
+[032m+             [:th "Cause"][0m
+[032m+             [:th "Meaning"]]][0m
+[032m+           [:tbody[0m
+[032m+            [:tr[0m
+[032m+             [:td ":release"][0m
+[032m+             [:td "The holder said it was done. The reclaim is still the grantor's act; the release just spares everyone a duration of waiting."]][0m
+[032m+            [:tr[0m
+[032m+             [:td ":silence"][0m
+[032m+             [:td "No eligible renewal was observed within duration plus tolerance, over a window the judge actually observed."]][0m
+[032m+            [:tr[0m
+[032m+             [:td ":cap"][0m
+[032m+             [:td "Total tenure passed the grant's maximum. Renewals cannot help: a hostile or wedged holder cannot squat forever."]][0m
+[032m+            [:tr[0m
+[032m+             [:td ":policy"][0m
+[032m+             [:td "The grantor's own reason to end it early. A policy may end a lease, but it may not be implemented by declining to count eligible evidence."]]]][0m
+[032m+          [:p[0m
+[032m+           "The four causes are ordered: a lease already pending its reclaim keeps its cause, "[0m
+[032m+           "a release wins before the cap, the cap before policy, and silence comes last. "[0m
+[032m+           "Reclamation is bounded by duration plus tolerance plus cadence plus the cost of the reclaim itself."]]][0m
+[032m+        [:section#authority.section-dark[0m
+[032m+         [:div.section-inner[0m
+[032m+          [:h2 "Facts can be forged. Leases cannot."][0m
+[032m+          [:p[0m
+[032m+           "A lease fact is an unauthenticated map, and anyone who can append to a medium can write one. "[0m
+[032m+           "So the security never rests on the fact. It rests on three gates the fact cannot cross by forgery:"][0m
+[032m+          [:p[0m
+[032m+           "Attribution first: every fact passes through a composition-supplied resolver bound to the medium it was read from, "[0m
+[032m+           "and only facts the resolver attributes to the right party count. "[0m
+[032m+           "A forged renewal in the holder's name counts for nothing: silence is measured as though it never arrived. "[0m
+[032m+           "A forged release establishes nothing, and cannot pre-empt the genuine holder's later one. "[0m
+[032m+           "A forged grant seeds no tenure: only the judge's own grants do that."][0m
+[032m+          [:p[0m
+[032m+           "Registration second: a lease connects to a medium only through an authoritative fact, "[0m
+[032m+           "so an attacker's own noisy medium cannot be attached to someone else's lease, "[0m
+[032m+           "and flooding it manufactures no evidence."][0m
+[032m+          [:p[0m
+[032m+           "Possession third: a forged :lapsed records nothing, because recording follows a successful reclaim, "[0m
+[032m+           "and only the possessor can perform the reclaim. "[0m
+[032m+           "The resource itself is the ground truth: a remote holder learns of a reclaim by observing it, "[0m
+[032m+           "not by trusting anyone's broadcast."][0m
+[032m+          [:p[0m
+[032m+           "And when the medium breaks its promise, by evicting facts before the judge read them, "[0m
+[032m+           "the judge does not guess. The lease's evidence state becomes unknown, "[0m
+[032m+           "and the judge demands a full clean duration of observation before silence counts again. "[0m
+[032m+           "Weaker evidence may delay a conclusion. It must never accelerate one."]]][0m
+[032m+        [:section#uses.section-dark[0m
+[032m+         [:div.section-inner[0m
+[032m+          [:h2 "Three uses, and the refusals"][0m
+[032m+          [:p[0m
+[032m+           "The vocabulary is scoped to three sanctioned uses: "[0m
+[032m+           "the pause a reader holds over a forwarder, the lifetime of a served connection, "[0m
+[032m+           "and the claim an agent leaves on shared work. "[0m
+[032m+           "It is deliberately silent about everything else:"][0m
+[032m+          [:ul[0m
+[032m+           [:li "No delegated renewal: a renewal is evidence about its own author. Delegation is a chain of ordinary leases, each with its own judge."][0m
+[032m+           [:li "No transfer between holders: renegotiate instead."][0m
+[032m+           [:li "No absolute time in any fact: durations cross boundaries, moments never do."][0m
+[032m+           [:li "No access enforcement: the bound bounds attention, not access. A holder needing real exclusion obtains it from the resource, through fencing."]][0m
+[032m+          [:p[0m
+[032m+           "Sizing is stated as relations and the values belong to compositions: "[0m
+[032m+           "the granted duration exceeds twice the renewal interval, "[0m
+[032m+           "the tolerance covers flight time and clock skew, "[0m
+[032m+           "the renewal interval plus one tick period stays below half the duration, "[0m
+[032m+           "and a medium's retention window exceeds the judge's lag. "[0m
+[032m+           "The contract, the rationale, and the implementation are on GitHub: "[0m
+[032m+           [:a {:href "https://github.com/sonwh98/datomworld/blob/master/docs/design/dao.lease.md" :target "_blank" :rel "noopener noreferrer"} "dao.lease.md"] ", "[0m
+[032m+           [:a {:href "https://github.com/sonwh98/datomworld/blob/master/docs/design/dao.lease.rationale.md" :target "_blank" :rel "noopener noreferrer"} "dao.lease.rationale.md"] ", "[0m
+[032m+           "and the implementation under "[0m
+[032m+           [:a {:href "https://github.com/sonwh98/datomworld/tree/master/src/cljc/dao" :target "_blank" :rel "noopener noreferrer"} "src/cljc/dao"] "."][0m
+[032m+          [:p[0m
+[032m+           "The deeper lineage is written down too. The judge is a garbage collector for claims: "[0m
+[032m+           "it reclaims what a silent holder no longer proves it wants, the way a collector reclaims what the "[0m
+[032m+           "execution log no longer reaches. That unification, where JIT, GC, and this judge become three "[0m
+[032m+           "interpreters of the same stream, is the subject of "[0m
+[032m+           [:a {:href "/blog/unification-of-jit-and-gc.blog"} "The Unification of JIT and GC"] "."][0m
+[032m+          [:p[0m
+[032m+           "DaoLease pairs with the rest of the stack: "[0m
+[032m+           [:a {:href "/dao-stream.chp"} "DaoStream"] " carries the facts, "[0m
+[032m+           [:a {:href "/dao-space.chp"} "DaoSpace"] " makes them queryable, "[0m
+[032m+           [:a {:href "/shibi.chp"} "Shibi"] " confines untrusted computation, "[0m
+[032m+           "and DaoLease decides whose turn it is."]]]])} template))[0m
+--- a/src/dev/affected.clj
++++ b/src/dev/affected.clj
+[036m@@ -369,6 +369,7 @@[0m
+               test-nses
+               (into #{} (mapcat :tests) (vals reasons)))}))
+ 
+[032m+[0m
+ (def subsystems-config-path "src/dev/subsystems.edn")
+ 
+ 
+--- a/public/chp/blog/universal-ast-vs-assembly.blog
++++ b/public/chp/blog/universal-ast-vs-assembly.blog
+[036m@@ -137,7 +137,7 @@[0m
+            [:code
+             "; Adding two numbers\nMOV R1, #5\nMOV R2, #3\nADD R3, R1, R2\n\n; Adding two other numbers\nMOV R4, #10\nMOV R5, #7\nADD R6, R4, R5"]]
+           [:p
+[031m-           "You cannot easily ask an assembly file: "Find all call sites of addition." You would have to parse raw opcodes, reconstruct control-flow graphs, and guess register lifespans."][0m
+[032m+           "You cannot easily ask an assembly file: " Find all call sites of addition. " You would have to parse raw opcodes, reconstruct control-flow graphs, and guess register lifespans."][0m
+           [:p
+            "Because the Universal AST projects into structured semantic tuples, it is queryable with Datalog in "
+            [:a {:href "/dao-space.chp"} "DaoSpace"]
+[036m@@ -151,7 +151,7 @@[0m
+  [?app :yin/operator ?op]
+  [?op :yin/name +]]
+ 
+[031m-;; Find all variable references to parameter "count"[0m
+[032m+;; Find all variable references to parameter " count "[0m
+ [:find ?node
+  :where
+  [?node :yin/type :variable]
+--- a/public/chp/blog/io-monad-dao-stream.blog
++++ b/public/chp/blog/io-monad-dao-stream.blog
+[036m@@ -6,42 +6,39 @@[0m
+                   [:article
+                    :$blog-title
+                    :$blog-date
+[031m-                   [0m
+[032m+[0m
+                    [:p "In pure functional programming, the IO monad solves a critical problem: how to perform dirty side effects while keeping core logic pure. When a Haskell program returns an IO action, it does not actually execute the network request. It returns a pure, first-class value denoting the effect (well-defined, but not a data structure). The language runtime, acting as the host boundary, takes that value and executes it."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "Conceptually, this is elegant. Practically, standard IO keeps the effect out of the program's reach: an IO value is well-defined, but it is not data. It can be composed or handed to the runtime to be executed; it cannot be taken apart to see the next effect before it runs. For a general action, that description does not even exist until execution computes it. There is no Eq, no Show, no pattern matching: nothing exposes the pending effect as data. The only thing that can run an IO value is the runtime itself (unsafePerformIO is the sanctioned exception)."]
+[031m-                   [0m
+[032m+[0m
+                    [:h2 "IO is Just State Awaiting an Interpreter"]
+[031m-                   [0m
+[032m+[0m
+                    [:p "To understand why this opacity is a limitation, it is necessary to look at the underlying mechanics. Structurally, the IO monad and the State monad are the exact same shape. In Clojure terms, the State monad is just a pure function that takes an immutable value (like a map), and returns a result alongside an updated map. The interpreter lives " [:em "inside"] " the program: evaluating the function allows inspecting the resulting data structure."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "The IO monad operates identically, but the \"state\" it threads is a phantom token representing the physical universe. Because pure functions cannot directly mutate the outside world, the interpreter must live " [:em "outside"] " the language as a privileged host environment. The pure program simply builds a sequence of transitions over this dummy token, and the external host acts as the sole interpreter permitted to execute the actual side-effects. The intent is executed, but the data describing it is swallowed by the runtime."]
+[031m-                   [0m
+[032m+[0m
+                    [:h2 "From Opaque Actions to Transparent Syntax"]
+[031m-                   [0m
+[032m+[0m
+                    [:p "The datom.world architecture rejects opaque abstractions. The core philosophy is that everything is data, and that data is syntax. Semantics only emerge through interpretation."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "In " [:code "yin.vm"] ", the virtual machine for executing portable code, IO is handled using this exact IO Monad pattern, but without the opacity. When a continuation in " [:code "yin.vm"] " needs to interact with the outside world (like writing to a stream or mutating a cell), it does not actually perform the side-effect. As implemented in the VM's source code, pure functions simply return an effect constructor (via " [:code "make-effect"] "). Rather than yielding an opaque runtime type, the continuation emits a literal, inspectable plain-data effect descriptor. The VM engine then acts as the outer interpreter that reads and executes these returned effects."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "Because a host boundary is a stream boundary, never a function call, the agent code completely detaches from the execution. It simply appends its intent to the stream and pauses."]
+[031m-                   [0m
+[032m+[0m
+                    [:h2 "Stigmergic Coordination"]
+[031m-                   [0m
+[032m+[0m
+                    [:p "Forcing side effects to exist as transparent, plain data on a stream unlocks stigmergic coordination. A stream has no privileged reader. Because the intent is just syntax, multiple independent interpreters can observe it simultaneously:"]
+[031m-                   [0m
+[032m+[0m
+                    [:ul
+                     [:li "The host adapter reads the descriptor and performs the actual physical network request."]
+                     [:li "An audit interpreter can read the exact same descriptor and record it for compliance."]
+[031m-                    [:li "A test interpreter intercepts the descriptor and injects a mock response back onto the stream, never touching the physical network."][0m
+[031m-                   ][0m
+[031m-                   [0m
+[032m+                    [:li "A test interpreter intercepts the descriptor and injects a mock response back onto the stream, never touching the physical network."]][0m
+[032m+[0m
+                    [:p "If a traditional opaque IO monad were used, the auditor and the test suite would have to be coupled to the execution layer. Turning the IO monad into transparent data on dao.stream lets the system emerge from independent interpreters of pure data."]
+[031m-                   [0m
+[032m+[0m
+                    [:h2 "Related Articles"]
+[031m-                   [0m
+[032m+[0m
+                    [:ul
+                     [:li [:a {:href "/blog/monads.blog"} "The History and Architecture of Monads: From Category Theory to Clojure"]]
+                     [:li [:a {:href "/blog/the-cesk-machine-control-environment-store-continuation.blog"} "The CESK Machine: Control, Environment, Store, Continuation"]]
+[031m-                    [:li [:a {:href "/blog/stream-vs-interface-architecture.blog"} "Stream vs. Interface Architecture"]][0m
+[031m-                   ][0m
+[031m-                   ]]]}[0m
+[032m+                    [:li [:a {:href "/blog/stream-vs-interface-architecture.blog"} "Stream vs. Interface Architecture"]]]]]]}[0m
+--- a/public/chp/blog/yin-vm-rust-kernel.blog
++++ b/public/chp/blog/yin-vm-rust-kernel.blog
+[036m@@ -51,5 +51,4 @@[0m
+ 
+                    [:p "The worker is node-local because a receiver cannot validate a native artifact short of rebuilding it. A node runs only artifacts its own worker built from images its own validator admitted, so native artifacts never cross between nodes. What crosses is unchanged: images and continuations as data."]
+ 
+[031m-                   [:p "The expected performance gain of this native compilation is bounded and will be measured in a dedicated benchmark phase before any LLVM code is written. A node with no toolchain remains a complete node that interprets, the kernel never waits on the worker, and a native artifact can be dropped at any boundary without changing the outcome."][0m
+[031m-                   ]]]}[0m
+[032m+                   [:p "The expected performance gain of this native compilation is bounded and will be measured in a dedicated benchmark phase before any LLVM code is written. A node with no toolchain remains a complete node that interprets, the kernel never waits on the worker, and a native artifact can be dropped at any boundary without changing the outcome."]]]]}[0m
+--- a/public/chp/blog/yin-vm-vs-unison.blog
++++ b/public/chp/blog/yin-vm-vs-unison.blog
+[036m@@ -110,5 +110,4 @@[0m
+                    [:h2 "Conclusion"]
+                    [:p "Unison hashes a nameless form of each definition, keeps names as separate metadata, and uses that one hash both as identity and as the thing it fetches and runs. " [:code "yin.vm"] " keeps the names in the source AST, derives a coarse semantic fingerprint and two exact peer executable identities from it, and treats the sharing of those images over " [:code "dao.stream"] " as the point of the exercise."]
+ 
+[031m-                   [:p "Today yin.vm has the named source, the semantic VM, the projection and fingerprint, the De Bruijn stack VM through B4, and the register path through R2. The register kernel, the stream linker, confinement, and the typecheck observer are designed and not yet built. Dependency closure and global distribution come after that. Where the two systems agree -- code as a nameless, hash-identified graph -- they agree closely. Where they differ, the difference is always the same one: Unison builds a guarantee into one system; " [:code "datom.world"] " turns it into an observer on a stream and pays for the generality in phases it has not finished."][0m
+[031m-                   ]]]}[0m
+[032m+                   [:p "Today yin.vm has the named source, the semantic VM, the projection and fingerprint, the De Bruijn stack VM through B4, and the register path through R2. The register kernel, the stream linker, confinement, and the typecheck observer are designed and not yet built. Dependency closure and global distribution come after that. Where the two systems agree -- code as a nameless, hash-identified graph -- they agree closely. Where they differ, the difference is always the same one: Unison builds a guarantee into one system; " [:code "datom.world"] " turns it into an observer on a stream and pays for the generality in phases it has not finished."]]]]}[0m
+--- a/public/chp/blog/yin-vm-macros.blog
++++ b/public/chp/blog/yin-vm-macros.blog
+[036m@@ -8,14 +8,14 @@[0m
+                    :$blog-date
+ 
+                    [:p "Macros are the defining superpower of Lisp. They allow developers to bend the language to their will, creating domain-specific abstractions that feel native. But this power comes at a steep architectural cost: compile-time environments bleed into runtime, infinite loops crash compilers, and tracking the provenance of generated code is notoriously difficult."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "In datom.world, the yin.vm runtime takes a radical approach to metaprogramming. It achieves the full power of homoiconic Lisp macros by doing something unthinkable: " [:strong "it hides macros completely from the evaluator."]]
+[031m-                   [0m
+[032m+[0m
+                    [:p "Here is a look at what makes the yin.vm macro system utterly unique, what it can do that other systems cannot, and how it compares to the macro engines of Clojure, Erlang, Rust, Racket, and Unison."]
+ 
+                    [:h2 "1. The Evaluator is Macro-Blind"]
+                    [:p "In almost every Lisp (like Clojure or Common Lisp), macroexpansion is deeply interleaved with the compiler and evaluator. The engine looks at a symbol, checks if it has a special macro flag, and halts evaluation to execute the macro transformation before continuing."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "In yin.vm, " [:strong "the evaluator knows absolutely nothing about macros."] " It has no macro instruction, no expansion ledger, and no macro flag on closures. A lambda can be marked as a macro on the syntax side, but that mark is dropped before code reaches the evaluator. Instead, yin.vm models macroexpansion strictly as a " [:strong "stream topology"] ":"]
+ 
+                    [:pre "Frontend -> (program-in) -> Expander -> (program-out) -> Evaluator"]
+[036m@@ -63,5 +63,4 @@[0m
+                    [:p "While Unison doesn't have a macro system, it shares yin.vm's fundamental philosophy of content-addressed code. Unison stores ASTs in a database by their cryptographic hash rather than in text files, just as yin.vm operates natively on content-addressed row tuples. Unison evaluation never parses text; it evaluates canonical AST structures directly from the store. However, Unison eschews macros entirely, relying on Algebraic Effects for abstraction. yin.vm takes the Unison data-model and proves that you can build a safe, robust macro system on top of it by keeping the transformations confined to the stream layer."]
+ 
+                    [:h2 "Conclusion"]
+[031m-                   [:p "The brilliance of the yin.vm macro system lies in what it refuses to do. By refusing to let the evaluator know about macros, refusing to let macros access I/O, and refusing to invent complex compiler phases, it distills metaprogramming down to its purest essence: a deterministic, safe, and easily distributed stream of data."][0m
+[031m-                   ]]]}[0m
+[032m+                   [:p "The brilliance of the yin.vm macro system lies in what it refuses to do. By refusing to let the evaluator know about macros, refusing to let macros access I/O, and refusing to invent complex compiler phases, it distills metaprogramming down to its purest essence: a deterministic, safe, and easily distributed stream of data."]]]]}[0m
+--- a/public/chp/blog/why-clojure-has-no-linker.blog
++++ b/public/chp/blog/why-clojure-has-no-linker.blog
+[036m@@ -97,5 +97,4 @@[0m
+ 
+                    [:p "And because linking is a stream exchange rather than a build phase, none of this costs the REPL. Images stream in over content-addressed storage; new modules install into the running system as they arrive; the dynamics stay dynamic. What changes is that the system can now say no: to a payload that isn't what its address claims, to a dependency that won't bind identically, to a module whose name is a lie."]
+ 
+[031m-                   [:p "Clojure has no linker because it never stops loading. We think the fix is not to stop; it is to finally check."][0m
+[031m-                  ]]]}[0m
+[032m+                   [:p "Clojure has no linker because it never stops loading. We think the fix is not to stop; it is to finally check."]]]]}[0m
+--- a/public/chp/blog/daostar-vs-datastar-vs-electric-clojure.blog
++++ b/public/chp/blog/daostar-vs-datastar-vs-electric-clojure.blog
+[036m@@ -7,83 +7,82 @@[0m
+                    :$blog-title
+                    :$blog-date
+                    [:p "In the datom.world architecture, strict, unyielding axioms apply: everything is an append-only stream, semantics are created purely by interpreters, and shared mutable state is banished."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "For the backend, these axioms yield incredible malleability and time-traveling determinism. But the browser has always been a notoriously hostile host environment. It is riddled with mutable state, heavy Virtual DOM abstractions, and bloated SPA frameworks that fight the streaming philosophy at every turn."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "Enter " [:a {:href "https://data-star.dev/"} "Datastar"] "."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "Datastar is a remarkably lightweight (12 KiB) hypermedia frontend framework. It champions a \"Bring Your Own Backend\" philosophy, completely discarding client-side state management in favor of Server-Sent Events (SSE)."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "When designing an adapter to bridge datom.world to Datastar, a profound discovery emerged: an adapter is not needed. Datastar is not just compatible with the architecture; it is the perfect native browser manifestation of the core axioms."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "Here is how the concepts map together, and how they gave birth to the new web architecture: DaoStar."]
+[031m-                   [0m
+[032m+[0m
+                    [:h3 "Mapping Datastar to the Axioms"]
+[031m-                   [0m
+[032m+[0m
+                    [:h4 "1. Axiom 1: Everything is a Stream"]
+                    [:p "In datom.world, there is no point-in-time state, only an append-only log of events (dao.stream). Datastar inherently understands this. Instead of fetching static JSON blobs, Datastar relies entirely on text/event-stream (Server-Sent Events). The UI is driven by an append-only stream of declarative patches arriving over an open HTTP socket."]
+[031m-                   [0m
+[032m+[0m
+                    [:h4 "2. Axiom 2: Interpretation Creates Semantics"]
+                    [:p "The principle holds that data is just syntax until a peer observer interprets it. Datastar brilliantly applies this to the browser. It does not parse complex JSON payloads into proprietary client-side models; it just interprets declarative data-on attributes to send events, and interprets incoming SSE strings to morph the DOM. The frontend is stripped of all business logic semantics."]
+[031m-                   [0m
+[032m+[0m
+                    [:h4 "3. Invariant: No Shared Mutable State"]
+                    [:p "By pushing state derivation entirely to the backend, Datastar eliminates the synchronization nightmares of modern web development. The backend evaluates the business logic and projects the new UI state purely as HTML strings. The frontend holds zero shared mutable state, it is simply a projection of the backend's stream."]
+[031m-                   [0m
+[032m+[0m
+                    [:h3 "Echoes of Arc: The Browser as a Dumb Terminal"]
+[031m-                   [0m
+[032m+[0m
+                    [:p "To truly understand how Datastar fits into datom.world, it helps to look back at Paul Graham's vision for web development with the Arc language. When Graham built Hacker News, he used continuations to allow developers to write web applications as if they were synchronous console programs. The frontend held zero state and zero business logic. It was purely an I/O device, a dumb terminal rendering HTML."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "A traditional terminal emulator like dao.postgraphics operates on the same principle. It knows absolutely nothing about the application's database or business logic. It blindly accepts a stream of syntax, like ANSI escape codes or drawing commands, and interprets them to paint pixels. "]
+[031m-                   [0m
+[032m+[0m
+                    [:p [:strong "datastar.js is exactly the same thing, but for the web."]]
+[031m-                   [0m
+[032m+[0m
+                    [:p "It is a terminal renderer for the browser. It accepts a stream of HTML rendering commands and interprets them to paint DOM elements. It does not know why the DOM is changing, it just executes the stream instructions sent by the backend."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "Datastar shares Arc's exact philosophy, but modernizes the transport. While Arc used continuations to suspend call stacks between standard HTTP page loads, Datastar uses Server-Sent Events (SSE) over a continuous stream."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "Interestingly, datom.world with yin.vm supports reified continuations, meaning it can execute the Arc model of web development directly. The divergence lies purely in transparency. In traditional implementations, a continuation captures state as an opaque object hidden in the runtime memory. In datom.world, yin.vm continuations are fully reified as datoms. They are explicit data structures that can be inspected, routed, and queried in real-time using Datalog queries via dao.space.query. The call stack itself is just data on a stream."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "This combination unlocks a remarkable capability: Arc's elegant, sequential developer experience paired with Datastar's lightning-fast, reactive performance. When yin.vm requires user input, it suspends execution and pushes an HTML patch down the Datastar SSE stream. Datastar instantly morphs the DOM without a full page reload. When the user submits a response, Datastar sends a silent background request, instantly waking the yin.vm continuation to pick up exactly where it left off. The backend developer writes simple, linear code, while the user experiences a seamless, dynamic interface."]
+[031m-                   [0m
+[032m+[0m
+                    [:h3 "Enter DaoStar: The Architecture"]
+[031m-                   [0m
+[032m+[0m
+                    [:p "Because Datastar does not invent a proprietary wire protocol or custom transport, it requires zero specialized frontend adapters. It uses standard HTTP requests going in, and standard Server-Sent Events coming out."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "The resulting architecture, DaoStar, perfectly leverages existing generic HTTP boundaries."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "Here is how the data flows:"]
+[031m-                   [0m
+[032m+[0m
+                    [:ol
+                     [:li [:strong "Events In: "] "A user clicks a button in the browser. Datastar fires a standard HTTP request. The generic datom.world HTTP host boundary receives it, assigns a correlation ID (e.g., req-123), and deposits it as a pure, unjudged data tuple into a dao.stream. The boundary does not execute callbacks; it simply holds the HTTP socket open."]
+                     [:li [:strong "Semantics and State: "] "A backend interpreter (like an agent in yin.vm) observes the dao.stream. It reads the request, evaluates the business logic, and derives the new state. Because the design dictates \"Derive, do not persist,\" it projects the new UI state directly into Datastar's SSE string format (e.g., event: datastar-patch-elements, data: <div>...</div>)."]
+                     [:li [:strong "Effects Out: "] "The agent appends this fully-constructed SSE string back to an egress dao.stream as an effect, tagged with req-123."]
+[031m-                    [:li [:strong "Dumb Socket Routing: "] "The generic HTTP boundary observes the egress stream. It matches req-123 to the open HTTP socket and flushes the exact, unmodified string payload over the wire. The browser receives the SSE text and morphs the DOM."][0m
+[031m-                   ][0m
+[031m-                   [0m
+[032m+                    [:li [:strong "Dumb Socket Routing: "] "The generic HTTP boundary observes the egress stream. It matches req-123 to the open HTTP socket and flushes the exact, unmodified string payload over the wire. The browser receives the SSE text and morphs the DOM."]][0m
+[032m+[0m
+                    [:h3 "The Beauty of Doing Nothing"]
+[031m-                   [0m
+[032m+[0m
+                    [:p "The elegance of DaoStar lies in complete host isolation."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "The HTTP boundary is a dumb pipe that knows nothing of Datastar. yin.vm knows nothing of HTTP sockets; it just authors strings and appends tuples. And the browser is a dumb renderer that knows nothing of streams or backend state."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "By resisting the urge to build a specialized abstraction layer, a hypermedia web architecture emerges that flawlessly preserves every single invariant of datom.world."]
+[031m-                   [0m
+[032m+[0m
+                    [:h3 "Beyond the Thin Client"]
+[031m-                   [0m
+[032m+[0m
+                    [:p "While the DaoStar architecture champions the dumb terminal, DaoStar is not strictly locked into this model. Because reified continuations are pure data, yin.vm's continuation format is designed so that a continuation can cross the network boundary. A continuation can suspend on the server, the runtime lifts it onto the wire, and it resumes execution locally in a yin.vm instance running in the browser (alongside, not inside, Datastar). This allows it to act as an SPA-style fat client for low-latency local interaction. It can then migrate back to the server to finish execution."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "Crucially, the \"No Shared Mutable State\" invariant still holds: because custody is exclusive, the state moves to the browser rather than being shared with it. This allows the architecture to mix and match the elegant simplicity of a Datastar thin client with the local responsiveness of a fat client, all without changing the underlying programming model."]
+[031m-                   [0m
+[032m+[0m
+                    [:h3 "The Macro Illusion vs. The Data Reality: Electric Clojure"]
+[031m-                   [0m
+[032m+[0m
+                    [:p "It is tempting to compare this unified execution model to reactive frameworks like Electric Clojure. Both systems allow developers to write unified programs that seamlessly span the client and server. But architecturally, their approaches are diametrically opposed."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "Electric Clojure is an undeniable engineering marvel. It uses a deep macro compiler (via constructs like " [:code "e/defn"] ", " [:code "e/client"] ", and " [:code "e/server"] ") to allow a developer to write a single cohesive Clojure file. The compiler analyzes the code at build time, statically slices it into frontend and backend dependency graphs (DAGs), and automatically wires them together using an invisible, reactive websocket. It provides a truly magical developer experience for building synchronized user interfaces."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "However, this magic comes at a steep architectural cost: it hides the network behind a compiler boundary. Electric creates a tightly coupled, static distributed system. The compiler must know the execution topology at build time, and the network stream itself is treated as a proprietary implementation detail to be hidden. If the websocket drops, the execution state is in jeopardy, because the state exists as ephemeral closures in memory."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "datom.world fundamentally rejects this. Axiom 1 dictates that everything is a stream, and streams must be explicit, visible, and queryable primitives. DaoStar solves the distributed execution problem without compile-time macro magic by solving it dynamically at runtime using pure data."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "In DaoStar, there is no static compiler slicing. When yin.vm needs to cross a boundary, it doesn't rely on a pre-compiled dependency graph. Instead, the interpreter physically suspends the call stack, serializes the entire execution state into a pure datom (using the Universal Continuation Format), and appends it to a " [:code "dao.stream"] ". There is no hidden reactive sync; there is only data moving across explicit boundaries."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "By exposing the network with data instead of hiding it with a compiler, DaoStar continuations gain properties a static framework could never possess. An Electric Clojure DAG cannot be paused on a Tuesday, saved to a database, and resumed on a different device on Thursday. A DaoStar mobile continuation can. Because it is just a datom on a stream, it can be paused for weeks, stored persistently, queried via Datalog to inspect its blocked dependencies, or routed dynamically to a completely different peer device at runtime."]]]]}
+--- a/public/chp/blog/ide-on-datomworld.blog
++++ b/public/chp/blog/ide-on-datomworld.blog
+[036m@@ -18,8 +18,7 @@[0m
+            "Ask a coding assistant today why the payment flow fails for EU users and you watch the same ritual. It greps. It embeds. It retrieves a bag of files that "
+            [:em "look"]
+            " relevant, stuffs them into a context window, and answers with confidence it has not earned. The model is not the bottleneck. "
+[031m-           [:strong "What the model can see and prove is the bottleneck."][0m
+[031m-           ][0m
+[032m+           [:strong "What the model can see and prove is the bottleneck."]][0m
+ 
+           [:p
+            "This post is the third panel of a triptych. "
+[036m@@ -27,8 +26,7 @@[0m
+            " argued that when the Universal AST is canonical code, the human editor becomes a database view. "
+            [:a {:href "/blog/yin-vm-lsp.blog"} "Beyond LSP"]
+            " argued that every IDE feature becomes a query. Both were about humans reading and editing. This one is about the machine in the loop: what an IDE becomes when the entity doing the reasoning is an LLM and the substrate under it is a fact space instead of a folder of text files. The short answer: "
+[031m-           [:strong "the LLM stops guessing."][0m
+[031m-           ][0m
+[032m+           [:strong "the LLM stops guessing."]][0m
+ 
+           [:h2 "What an IDE Actually Is"]
+ 
+[036m@@ -43,16 +41,14 @@[0m
+            "The LLM assistants bolted onto these IDEs inherit the trap. Copilot, Cursor, and Junie retrieve context by embeddings or by grep, both of which are "
+            [:strong "similarity"]
+            " machines. They find text that looks related, not code that is related by logic. Ask for \u201cevery caller of the function whose result is passed to the retry wrapper\u201d and similarity shrugs. Then the model answers anyway, and nothing in the toolchain can check it. Two chronic failures, one substrate: "
+[031m-           [:strong "retrieval by approximation, and unverifiable claims."][0m
+[031m-           ][0m
+[032m+           [:strong "retrieval by approximation, and unverifiable claims."]][0m
+ 
+           [:p
+            [:a {:href "/blog/yin-vm-lsp.blog"} "Beyond LSP"]
+            " made the diagnosis earlier this year: LSP treats the symptom, many IDE-language combinations, but not the disease. The disease is that code is treated as text. Adding an LLM to LSP does not cure the disease. It is still the disease, now with a stochastic patient."]
+ 
+           [:p
+[031m-           [:strong "The IDE's understanding is process state. Process state cannot be queried, cited, or trusted. It can only be restarted."][0m
+[031m-           ][0m
+[032m+           [:strong "The IDE's understanding is process state. Process state cannot be queried, cited, or trusted. It can only be restarted."]][0m
+ 
+           [:h2 "The Substrate: Code as Facts"]
+ 
+[036m@@ -113,8 +109,7 @@[0m
+            " made the point that Datalog is defined by its semantics, not its syntax, and that the restrictions are the point: \u201cEvery Datalog query always terminates. No infinite loops. No non-termination.\u201d That guarantee belongs to the pure fragment: once a query calls host functions, as "
+            [:code "dao.space.query"]
+            " allows for predicates and arithmetic, termination is no longer free. But it is a property the query layer can enforce, by restricting which functions an agent's queries may call. For a human at a REPL, guaranteed termination is a nicety. For an agent in a loop, it is "
+[031m-           [:strong "a safety property of the retrieval layer itself."][0m
+[031m-           ][0m
+[032m+           [:strong "a safety property of the retrieval layer itself."]][0m
+ 
+           [:h3 "Argument 3: logic is the most context-efficient retrieval there is"]
+ 
+[036m@@ -125,8 +120,7 @@[0m
+ 
+           [:p
+            "A store does not make a model honest. It does something better: "
+[031m-           [:strong "it cages what can be hallucinated."][0m
+[031m-           ][0m
+[032m+           [:strong "it cages what can be hallucinated."]][0m
+ 
+           [:p
+            "Today the hallucination surface is the entire programming language. The model can invent APIs, invent callers, invent the semantics of a library, invent a variable that never existed, and nothing in the toolchain distinguishes the invention from the fact. Over a fact space, the facts come from tuples. The model can only be wrong about two things: "
+[036m@@ -138,8 +132,7 @@[0m
+            " already made the boundary argument: invent a predicate like "
+            [:code ":account/magicField"]
+            " and the store rejects it. \u201cThe hallucination dies at the boundary.\u201d The cage is the generalization of that idea, one step earlier: "
+[031m-           [:strong "before the boundary is even reached, the space of things that can be said is finite, structured, and checkable."][0m
+[031m-           ][0m
+[032m+           [:strong "before the boundary is even reached, the space of things that can be said is finite, structured, and checkable."]][0m
+ 
+           [:p
+            "Domain ontologies shrink the cage further. A domain's concepts, payment, consent, customer record, live as ontology datoms with declared relations, not as vibes in a prompt. The LLM composes ontology-backed concepts instead of inventing attribute names, and a claim citing a concept that unifies with no fact is a "
+[036m@@ -155,8 +148,7 @@[0m
+            "Provenance finishes the job. Every claim row carries its minting party in the metadata slot, so a type claim written by an LLM is distinguishable, at the storage layer, from one declared by a programmer. The medium can rank machine claims, quarantine them until checked, or demand that the checker promote them. As the structured-code post put it: \u201cHallucinations become quarantined suggestions, not silently absorbed facts.\u201d"]
+ 
+           [:p
+[031m-           [:strong "The cage does not make the model right. It makes the model refutable."][0m
+[031m-           ][0m
+[032m+           [:strong "The cage does not make the model right. It makes the model refutable."]][0m
+ 
+           [:h2 "The Gate: The LLM Writes Through the Same Door"]
+ 
+[036m@@ -184,8 +176,7 @@[0m
+ 
+           [:p
+            "And because every verdict cites the exact claim rows it consulted, any verdict can be recomputed from evidence. A second observer, or a second model, can audit the first without trusting it. "
+[031m-           [:strong "Multi-agent verification stops being orchestration code and becomes stream wiring."][0m
+[031m-           ][0m
+[032m+           [:strong "Multi-agent verification stops being orchestration code and becomes stream wiring."]][0m
+ 
+           [:p
+            [:a {:href "/blog/russian-dolls-yin-vm-llm-symmetry.blog"} "Russian Dolls"]
+[036m@@ -243,8 +234,7 @@[0m
+            " put it, the editor is \u201ca viewport into the database state.\u201d Nothing about the medium privileges the text view, and nothing privileges the human view either. The LLM assistant is just another driver of the loop, and the IDE is whatever that loop reads, evaluates, and prints next."]
+ 
+           [:p
+[031m-           [:strong "The traditional IDE is an editor with a compiler attached. This IDE is a judge, a reasoner, and a fact space, having a conversation on the record."][0m
+[031m-           ][0m
+[032m+           [:strong "The traditional IDE is an editor with a compiler attached. This IDE is a judge, a reasoner, and a fact space, having a conversation on the record."]][0m
+ 
+           [:h2 "What Exists Today"]
+ 
+[036m@@ -366,6 +356,4 @@[0m
+             " (how code becomes Universal ASTs)"]
+            [:li
+             [:a {:href "/dao-space.chp"} "DaoSpace"]
+[031m-            " (the fact space itself)"]][0m
+[031m-[0m
+[031m-          ]]]}[0m
+[032m+            " (the fact space itself)"]]]]]}[0m
+--- a/public/chp/blog/muse-ai-agent-on-datom-world.blog
++++ b/public/chp/blog/muse-ai-agent-on-datom-world.blog
+[036m@@ -6,48 +6,47 @@[0m
+                   [:article
+                    :$blog-title
+                    :$blog-date
+[031m-                   [0m
+[032m+[0m
+                    [:p "Meta's recently announced Muse AI operates on a fundamental Web2 premise: you give the agent your data, and Meta promises to keep it safe. Muse runs in an opaque 'Secure VM' in the cloud. Technologically, this relies on traditional hardware virtualization (often QEMU/KVM) to run a Linux OS, isolating the agent inside an untrusted " [:code "systemd-nspawn"] " container. To prevent the agent from leaking your data, Meta employs kernel-level eBPF monitoring and a heuristic 'Sentinel' guard to watch its every move."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "This model fundamentally relies on 'legal trust'. Even though Meta plans to introduce Confidential VMs (hardware enclaves) in the future, the agent remains a black box running on Meta's infrastructure. You must trust their Privacy Policy, their hardware vendors, and their promise that your interactions will not be shared with ad networks (even though they are used for AI training by default unless you opt out)."]
+[031m-                   [0m
+[032m+[0m
+                    [:p "But what if we completely rebuilt Muse AI using datom.world's architectural primitives? By migrating from a centralized, hardware-level container to a decentralized, mathematically verifiable model using " [:code "yang.compiler"] ", " [:code "yin.vm"] ", " [:code "dao.space"] ", " [:code "dao.jing"] ", and " [:code "shibi"] ", we shift from 'legal trust' to 'structural trust'."]
+[031m-                   [0m
+[032m+[0m
+                    [:h2 "The Reimagined Architecture"]
+[031m-                   [0m
+[032m+[0m
+                    [:h3 "1. The Request (yang.compiler): Intent as Verifiable Code"]
+                    [:p "Instead of sending a vague text prompt to a remote server, your intent is passed to a local or remote model which uses the " [:code "yang.compiler"] " to compile its execution plan into a Universal AST (Abstract Syntax Tree). This plan is not an opaque binary payload; it is structured data (datoms) detailing exactly what logic the agent intends to execute."]
+[031m-                   [0m
+[032m+[0m
+                    [:h3 "2. The Sandbox (dao.space & shibi): Data Stays Home"]
+                    [:p "Currently, you give Muse OAuth access to pull your Gmail or Spotify data into Meta's QEMU/KVM hypervisor. In the datom.world version, your data never leaves your device. Your local " [:code "dao.space"] " acts as the host. You issue Muse a " [:code "shibi"] " capability token (a cryptographically verifiable Macaroon) with a strict caveat: 'You may read email metadata to find my flight receipt, but you may only return the final flight time; you cannot exfiltrate the email body.'"]
+[031m-                   [0m
+[032m+[0m
+                    [:h3 "3. Execution (yin.vm): Mathematical Confinement"]
+                    [:p "Muse pushes its AST to your machine. Before it runs, your machine executes a deterministic Datalog query over the AST itself. If the code tries to express a command like 'Send raw emails to Meta,' the syntax check rejects it. When approved, it runs locally in " [:code "yin.vm"] " (a CESK machine, not an OS emulator). Unlike Meta's Linux containers that require eBPF fences to block network access, " [:code "yin.vm"] " has zero I/O primitives aside from explicitly wired streams. The agent is physically trapped in a vacuum with your data, computing the answer and returning only the safe, attenuated result over the stream."]
+[031m-                   [0m
+[032m+[0m
+                    [:h3 "4. Memory and Audit (dao.jing): Content-Addressed Continuations"]
+                    [:p "Every step the agent takes, every variable it binds, and every state change is appended as an immutable datom log into " [:code "dao.jing"] ". The agent's 'memory' isn't a hidden neural state inside a systemd container; it is a fully transparent, queryable database of events."]
+[031m-                   [0m
+[032m+[0m
+                    [:h2 "What this enables (That FB's stack cannot do)"]
+[031m-                   [0m
+[032m+[0m
+                    [:h3 "Zero-Trust Deep Delegation"]
+                    [:p "If you want Meta's Muse to analyze your health records, you have to upload that raw data to Meta's servers. Because datom.world uses 'Push-Interpreter-to-Data,' you can let an advanced AI agent analyze your most hyper-sensitive data without the AI's creator ever seeing a single byte of it. The agent is mathematically confined to only return the final aggregate answer."]
+[031m-                   [0m
+[032m+[0m
+                    [:h3 "Time-Travel Debugging & Perfect Auditability"]
+                    [:p "If Muse makes a mistake, its internal reasoning is an opaque black box. In contrast, because execution state in " [:code "yin.vm"] " is a log of datoms, you can run a Datalog query against the agent's exact state at the moment it made an error. You can rewind the execution cursor to the moment before a mistake, fix the variable, and let it resume. The agent leaves a mathematically perfect evidence trail."]
+[031m-                   [0m
+[032m+[0m
+                    [:h3 "Agent Roaming (Continuation Transport)"]
+                    [:p "Meta's Muse runs in a fixed cloud VM; suspending it requires heavy memory snapshots. In datom.world, because the agent's entire execution state (Control, Environment, Store, Continuation) is just data in " [:code "dao.jing"] ", it can roam frictionlessly. The agent could start a complex task on a cloud server, pause execution, serialize its continuation as datoms, sync them to your phone, and resume the exact same computation locally while you are offline."]
+[031m-                   [0m
+[032m+[0m
+                    [:h3 "Decentralized, Multi-Agent Handoffs"]
+                    [:p "Muse acts as a monolithic agent controlled by Meta, where handoffs require cumbersome API calls. In datom.world, an agent written by Meta could compile a sub-task into an AST, attach a scoped " [:code "shibi"] " token, and append it to a stream for a specialized agent written by Google to pick up. Because they both speak Universal AST and datoms, they can seamlessly pass fully-hydrated runtime execution states to one another across the tuple space without custom API integrations."]
+[031m-                   [0m
+[032m+[0m
+                    [:h2 "Summary"]
+                    [:p "Facebook's stack is designed to protect the user from the AI by putting the AI in a heavy, guarded OS container. Reimagining Muse on datom.world flips the paradigm: it protects the data from the AI by forcing the AI to become transparent data itself, executing under the strict laws of physics dictated by the user's local machine."]
+[031m-                   [0m
+[032m+[0m
+                    [:h2 "Related Articles"]
+                    [:ul
+                     [:li [:a {:href "/chp/blog/containing-agent-smith"} "Containing Agent Smith"]]
+                     [:li [:a {:href "/chp/blog/russian-dolls-yin-vm-llm-symmetry"} "Russian Dolls: The Fractal Symmetry of Yin.VM and LLMs (featuring Agent Tzu)"]]
+                     [:li [:a {:href "/chp/blog/agent-smith-needs-to-kill-git"} "Agent Smith Needs to Kill Git"]]
+[031m-                    [:li [:a {:href "/chp/blog/agent-smith-hippocampus"} "Agent Smith's Hippocampus"]]][0m
+[031m-                   ]]]}[0m
+[032m+                    [:li [:a {:href "/chp/blog/agent-smith-hippocampus"} "Agent Smith's Hippocampus"]]]]]]}[0m
+--- a/public/chp/blog/osgi-cordiverse-datomworld.blog
++++ b/public/chp/blog/osgi-cordiverse-datomworld.blog
+[036m@@ -11,7 +11,7 @@[0m
+ 
+           [:p "How do you manage the dynamic lifecycle of components within a single, long-running process without everything collapsing into a tangled mess of state?"]
+ 
+[031m-          [:p "This is one of the hardest problems in software engineering, especially for plugin architectures, extensible servers, and AI agent harnesses. Over the years, three distinct philosophies have emerged to solve it: the imperative pioneer (" [:strong "OSGi"] "), the modern formalization (" [:a {:href "https://github.com/cordiverse/paper"} [:strong "Cordiverse"] ] "), and the paradigm shift (" [:strong "Datom.world"] ")."][0m
+[032m+          [:p "This is one of the hardest problems in software engineering, especially for plugin architectures, extensible servers, and AI agent harnesses. Over the years, three distinct philosophies have emerged to solve it: the imperative pioneer (" [:strong "OSGi"] "), the modern formalization (" [:a {:href "https://github.com/cordiverse/paper"} [:strong "Cordiverse"]] "), and the paradigm shift (" [:strong "Datom.world"] ")."][0m
+ 
+           [:h2 "OSGi: The Imperative Pioneer"]
+ 
+--- a/src/cljc/dao/stream/waitset/cadence.cljc
++++ b/src/cljc/dao/stream/waitset/cadence.cljc
+[036m@@ -14,8 +14,7 @@[0m
+    threads the returned `:cadence-state` into the next call, and sleeps for
+    `:sleep-ms` through its host's wake source (`dao.stream.waitset.driver`).
+    The right cadence for a REPL is not the right cadence for a serving
+[031m-   endpoint; neither is this namespace's to know."[0m
+[031m-  )[0m
+[032m+   endpoint; neither is this namespace's to know.")[0m
+ 
+ 
+ (defn init
+--- a/src/cljc/yin/vm/encoder.cljc
++++ b/src/cljc/yin/vm/encoder.cljc
+[036m@@ -210,7 +210,8 @@[0m
+    in source declaration order. A declared occurrence is one whose value is
+    a lambda the frontend flagged `:macro?`."
+   [ast]
+[031m-  (letfn [(walk [node path][0m
+[032m+  (letfn [(walk[0m
+[032m+            [node path][0m
+             (concat (when (definition-name node)
+                       [{:path path,
+                         :declared? (boolean (:macro? (second (:operands node))))}])
+--- a/test/yin/repl/store_test.cljc
++++ b/test/yin/repl/store_test.cljc
+[036m@@ -1330,7 +1330,7 @@[0m
+                                      (map (fn [[e _a v t m]] [e v t m])))
+                                committed)
+             restarted (repl.frontends/create-state {:index-store-spec {:type :file
+[031m-                                                             :dir dir}})[0m
+[032m+                                                                       :dir dir}})[0m
+             ;; The log is a live stream the later rounds append to: read
+             ;; the restored groups before anything is evaluated.
+             restored-groups (groups (transactions restarted))
+--- a/test/yin/repl_test.cljc
++++ b/test/yin/repl_test.cljc
+[036m@@ -715,7 +715,7 @@[0m
+ 
+ (deftest a-clojure-macro-expands-calls-from-other-languages
+   (let [[state _] (evaluate (repl.frontends/create-state) [unless-source twice-source
+[031m-                                                 "(defn inc2 [x] (+ x 2))"])][0m
+[032m+                                                           "(defn inc2 [x] (+ x 2))"])][0m
+     (testing "Python"
+       (let [[state' texts] (results state ["(lang :python)"
+                                            "unless(False, 1, 2)"
+--- a/test/dao/stream/waitset/driver_test.cljd
++++ b/test/dao/stream/waitset/driver_test.cljd
+[036m@@ -149,8 +149,9 @@[0m
+                  (let [{:keys [waitset store cadence]} @box
+                        _ (swap! polls inc)
+                        result (waitset/check waitset
+[031m-                                             {:resolve (fn [s _e] {:stream (:medium s)[0m
+[031m-                                                                   :cursor (:cursor s)})[0m
+[032m+                                             {:resolve (fn [s _e][0m
+[032m+                                                         {:stream (:medium s)[0m
+[032m+                                                          :cursor (:cursor s)})[0m
+                                               :advance (fn [s _e _c] s)}
+                                              store)
+                        woken (:woken result)
+[036m@@ -203,8 +204,9 @@[0m
+         wake (driver/make-wake
+                (fn []
+                  (let [result (waitset/check @ws
+[031m-                                             {:resolve (fn [s _e] {:stream (:medium s)[0m
+[031m-                                                                   :cursor (:cursor s)})[0m
+[032m+                                             {:resolve (fn [s _e][0m
+[032m+                                                         {:stream (:medium s)[0m
+[032m+                                                          :cursor (:cursor s)})[0m
+                                               :advance (fn [s _e _c] s)}
+                                              @store)
+                        woken (:woken result)
+--- a/test/dao/stream/waitset/driver_test.clj
++++ b/test/dao/stream/waitset/driver_test.clj
+[036m@@ -119,7 +119,7 @@[0m
+                        ;; non-terminal step that still needs observation.
+                        (let [ws'' (if (seq woken)
+                                     (waitset/park {:waiting ws'}
+[031m-                                                 {:reason :next, :probe true})[0m
+[032m+                                                  {:reason :next, :probe true})[0m
+                                     {:waiting ws'})
+                              {:keys [cadence-state sleep-ms]}
+                              (cadence/cadence-step cadence (seq woken))]
+[036m@@ -204,7 +204,7 @@[0m
+         adapter {:deposit! deposit!}
+         owner (future
+                 (loop [ws (waitset/park (waitset/empty-waitset)
+[031m-                                         {:reason :next, :probe true})[0m
+[032m+                                        {:reason :next, :probe true})[0m
+                        store {:medium medium, :cursor (oldest medium)}]
+                   (if @stop
+                     nil
+--- a/test/dao/stream/waitset/driver_test.cljs
++++ b/test/dao/stream/waitset/driver_test.cljs
+[036m@@ -60,77 +60,78 @@[0m
+ 
+ (deftest an-armed-timer-fires-the-tick-and-only-the-tick
+   (async done
+[031m-    (let [ticks (atom 0)[0m
+[031m-          wake-ref (volatile! nil)[0m
+[031m-          wake (driver/make-wake[0m
+[031m-                 (fn [][0m
+[031m-                   (swap! ticks inc)[0m
+[031m-                   ;; The owner re-arms itself; three ticks are enough.[0m
+[031m-                   (when (< @ticks 3)[0m
+[031m-                     (driver/arm! @wake-ref 5))))[0m
+[031m-          start (.now js/Date)][0m
+[031m-      (vreset! wake-ref wake)[0m
+[031m-      (driver/arm! wake 5)[0m
+[031m-      (wait-for #(>= @ticks 3) 2000[0m
+[031m-        (fn [reached][0m
+[031m-          (is (some? reached) "three timer-driven ticks happened")[0m
+[031m-          (is (= 3 @ticks) "the timer fired the composition root's own tick")[0m
+[031m-          (is (<= 10 (- (.now js/Date) start))[0m
+[031m-              "spaced by the armed intervals, not a busy loop: three 5 ms[0m
+[032m+         (let [ticks (atom 0)[0m
+[032m+               wake-ref (volatile! nil)[0m
+[032m+               wake (driver/make-wake[0m
+[032m+                      (fn [][0m
+[032m+                        (swap! ticks inc)[0m
+[032m+                        ;; The owner re-arms itself; three ticks are enough.[0m
+[032m+                        (when (< @ticks 3)[0m
+[032m+                          (driver/arm! @wake-ref 5))))[0m
+[032m+               start (.now js/Date)][0m
+[032m+           (vreset! wake-ref wake)[0m
+[032m+           (driver/arm! wake 5)[0m
+[032m+           (wait-for #(>= @ticks 3) 2000[0m
+[032m+                     (fn [reached][0m
+[032m+                       (is (some? reached) "three timer-driven ticks happened")[0m
+[032m+                       (is (= 3 @ticks) "the timer fired the composition root's own tick")[0m
+[032m+                       (is (<= 10 (- (.now js/Date) start))[0m
+[032m+                           "spaced by the armed intervals, not a busy loop: three 5 ms[0m
+                ticks take at least a few real milliseconds")
+[031m-          (done))))))[0m
+[032m+                       (done))))))[0m
+ 
+ 
+ (deftest a-nudge-beats-the-armed-timer
+   (async done
+[031m-    (let [ticks (atom 0)[0m
+[031m-          fired-at (atom nil)[0m
+[031m-          start (.now js/Date)[0m
+[031m-          wake (driver/make-wake (fn [] (swap! ticks inc)[0m
+[031m-                                         (reset! fired-at (- (.now js/Date) start))))][0m
+[031m-      ;; A long interval is armed; the nudge must end it far sooner.[0m
+[031m-      (driver/arm! wake 300)[0m
+[031m-      (driver/nudge! wake)[0m
+[031m-      (after-ms 50[0m
+[031m-        (fn [][0m
+[031m-          (is (= 1 @ticks) "the nudge ran the tick once, at once")[0m
+[031m-          (is (< @fired-at 100) "far before the 300 ms interval")[0m
+[031m-          (done))))))[0m
+[032m+         (let [ticks (atom 0)[0m
+[032m+               fired-at (atom nil)[0m
+[032m+               start (.now js/Date)[0m
+[032m+               wake (driver/make-wake (fn [][0m
+[032m+                                        (swap! ticks inc)[0m
+[032m+                                        (reset! fired-at (- (.now js/Date) start))))][0m
+[032m+           ;; A long interval is armed; the nudge must end it far sooner.[0m
+[032m+           (driver/arm! wake 300)[0m
+[032m+           (driver/nudge! wake)[0m
+[032m+           (after-ms 50[0m
+[032m+                     (fn [][0m
+[032m+                       (is (= 1 @ticks) "the nudge ran the tick once, at once")[0m
+[032m+                       (is (< @fired-at 100) "far before the 300 ms interval")[0m
+[032m+                       (done))))))[0m
+ 
+ 
+ (deftest repeated-nudges-coalesce-into-one-tick
+   (async done
+[031m-    (let [ticks (atom 0)[0m
+[031m-          wake (driver/make-wake (fn [] (swap! ticks inc)))][0m
+[031m-      (driver/arm! wake 300)[0m
+[031m-      ;; Three nudges land before the armed timer could fire.[0m
+[031m-      (driver/nudge! wake)[0m
+[031m-      (driver/nudge! wake)[0m
+[031m-      (driver/nudge! wake)[0m
+[031m-      (after-ms 50[0m
+[031m-        (fn [][0m
+[031m-          (is (= 1 @ticks) "three nudges bought exactly one tick")[0m
+[031m-          (done))))))[0m
+[032m+         (let [ticks (atom 0)[0m
+[032m+               wake (driver/make-wake (fn [] (swap! ticks inc)))][0m
+[032m+           (driver/arm! wake 300)[0m
+[032m+           ;; Three nudges land before the armed timer could fire.[0m
+[032m+           (driver/nudge! wake)[0m
+[032m+           (driver/nudge! wake)[0m
+[032m+           (driver/nudge! wake)[0m
+[032m+           (after-ms 50[0m
+[032m+                     (fn [][0m
+[032m+                       (is (= 1 @ticks) "three nudges bought exactly one tick")[0m
+[032m+                       (done))))))[0m
+ 
+ 
+ (deftest a-nudge-from-inside-a-tick-does-not-re-enter-it
+   (async done
+[031m-    (let [ticks (atom 0)[0m
+[031m-          wake-ref (volatile! nil)[0m
+[031m-          tick (fn [][0m
+[031m-                 (swap! ticks inc)[0m
+[031m-                 ;; A transition the tick itself caused wants a re-check —[0m
+[031m-                 ;; the one shape that could re-enter if it were allowed to.[0m
+[031m-                 (driver/nudge! @wake-ref))[0m
+[031m-          wake (driver/make-wake tick)][0m
+[031m-      (vreset! wake-ref wake)[0m
+[031m-      (driver/nudge! wake)[0m
+[031m-      (after-ms 50[0m
+[031m-        (fn [][0m
+[031m-          (is (= 1 @ticks)[0m
+[031m-              "the in-tick nudge scheduled nothing: no re-entry, and the tick[0m
+[032m+         (let [ticks (atom 0)[0m
+[032m+               wake-ref (volatile! nil)[0m
+[032m+               tick (fn [][0m
+[032m+                      (swap! ticks inc)[0m
+[032m+                      ;; A transition the tick itself caused wants a re-check —[0m
+[032m+                      ;; the one shape that could re-enter if it were allowed to.[0m
+[032m+                      (driver/nudge! @wake-ref))[0m
+[032m+               wake (driver/make-wake tick)][0m
+[032m+           (vreset! wake-ref wake)[0m
+[032m+           (driver/nudge! wake)[0m
+[032m+           (after-ms 50[0m
+[032m+                     (fn [][0m
+[032m+                       (is (= 1 @ticks)[0m
+[032m+                           "the in-tick nudge scheduled nothing: no re-entry, and the tick[0m
+                never re-armed a second timer beside itself")
+[031m-          (done))))))[0m
+[032m+                       (done))))))[0m
+ 
+ 
+ ;; =============================================================================
+[036m@@ -140,59 +141,60 @@[0m
+ 
+ (deftest a-parked-wait-set-keeps-being-polled-with-no-nudges
+   (async done
+[031m-    (let [medium (buffer 8)[0m
+[031m-          polls (atom 0)[0m
+[031m-          received (atom [])[0m
+[031m-          box (atom {:waitset (waitset/park (waitset/empty-waitset)[0m
+[031m-                                            {:reason :next, :probe true})[0m
+[031m-                     :store {:medium medium, :cursor (oldest medium)}[0m
+[031m-                     :cadence (cadence/init {:poll-ms 5})})[0m
+[031m-          wake-ref (volatile! nil)[0m
+[031m-          wake (driver/make-wake[0m
+[031m-                 (fn [][0m
+[031m-                   (let [{:keys [waitset store cadence]} @box[0m
+[031m-                         _ (swap! polls inc)[0m
+[031m-                         result (waitset/check waitset[0m
+[031m-                                               {:resolve (fn [s _e] {:stream (:medium s)[0m
+[031m-                                                                     :cursor (:cursor s)})[0m
+[031m-                                                :advance (fn [s _e _c] s)}[0m
+[031m-                                               store)[0m
+[031m-                         woken (:woken result)[0m
+[031m-                         ws' (:waiting (:waitset result))[0m
+[031m-                         ;; The consumer's own step adopts the advisory[0m
+[031m-                         ;; cursor; the waitset committed nothing.[0m
+[031m-                         store' (if (seq woken)[0m
+[031m-                                  (assoc (:store result)[0m
+[031m-                                         :cursor (:cursor (last woken)))[0m
+[031m-                                  (:store result))[0m
+[031m-                         ws'' (if (seq woken)[0m
+[031m-                                (waitset/park {:waiting ws'}[0m
+[031m-                                              {:reason :next, :probe true})[0m
+[031m-                                {:waiting ws'})[0m
+[031m-                         {:keys [cadence-state sleep-ms]}[0m
+[031m-                         (cadence/cadence-step cadence (seq woken))][0m
+[031m-                     (doseq [w woken][0m
+[031m-                       (swap! received conj (:value w)))[0m
+[031m-                     (reset! box {:waitset ws''[0m
+[031m-                                  :store store'[0m
+[031m-                                  :cadence cadence-state})[0m
+[031m-                     (driver/arm! @wake-ref sleep-ms))))][0m
+[031m-      (vreset! wake-ref wake)[0m
+[031m-      (driver/arm! wake 5)[0m
+[031m-      ;; Idle first: the parked probe is polled every round, no nudge ever.[0m
+[031m-      (after-ms 120[0m
+[031m-        (fn [][0m
+[031m-          (is (>= @polls 3) "every round polled; nothing but the timer ran it")[0m
+[031m-          (is (= [] @received))[0m
+[031m-          (stream/append! medium :v)[0m
+[031m-          (wait-for #(= [:v] @received) 2000[0m
+[031m-            (fn [arrived][0m
+[031m-              (is (some? arrived)[0m
+[031m-                  "a value appended mid-flight is picked up by the next round's[0m
+[032m+         (let [medium (buffer 8)[0m
+[032m+               polls (atom 0)[0m
+[032m+               received (atom [])[0m
+[032m+               box (atom {:waitset (waitset/park (waitset/empty-waitset)[0m
+[032m+                                                 {:reason :next, :probe true})[0m
+[032m+                          :store {:medium medium, :cursor (oldest medium)}[0m
+[032m+                          :cadence (cadence/init {:poll-ms 5})})[0m
+[032m+               wake-ref (volatile! nil)[0m
+[032m+               wake (driver/make-wake[0m
+[032m+                      (fn [][0m
+[032m+                        (let [{:keys [waitset store cadence]} @box[0m
+[032m+                              _ (swap! polls inc)[0m
+[032m+                              result (waitset/check waitset[0m
+[032m+                                                    {:resolve (fn [s _e][0m
+[032m+                                                                {:stream (:medium s)[0m
+[032m+                                                                 :cursor (:cursor s)})[0m
+[032m+                                                     :advance (fn [s _e _c] s)}[0m
+[032m+                                                    store)[0m
+[032m+                              woken (:woken result)[0m
+[032m+                              ws' (:waiting (:waitset result))[0m
+[032m+                              ;; The consumer's own step adopts the advisory[0m
+[032m+                              ;; cursor; the waitset committed nothing.[0m
+[032m+                              store' (if (seq woken)[0m
+[032m+                                       (assoc (:store result)[0m
+[032m+                                              :cursor (:cursor (last woken)))[0m
+[032m+                                       (:store result))[0m
+[032m+                              ws'' (if (seq woken)[0m
+[032m+                                     (waitset/park {:waiting ws'}[0m
+[032m+                                                   {:reason :next, :probe true})[0m
+[032m+                                     {:waiting ws'})[0m
+[032m+                              {:keys [cadence-state sleep-ms]}[0m
+[032m+                              (cadence/cadence-step cadence (seq woken))][0m
+[032m+                          (doseq [w woken][0m
+[032m+                            (swap! received conj (:value w)))[0m
+[032m+                          (reset! box {:waitset ws''[0m
+[032m+                                       :store store'[0m
+[032m+                                       :cadence cadence-state})[0m
+[032m+                          (driver/arm! @wake-ref sleep-ms))))][0m
+[032m+           (vreset! wake-ref wake)[0m
+[032m+           (driver/arm! wake 5)[0m
+[032m+           ;; Idle first: the parked probe is polled every round, no nudge ever.[0m
+[032m+           (after-ms 120[0m
+[032m+                     (fn [][0m
+[032m+                       (is (>= @polls 3) "every round polled; nothing but the timer ran it")[0m
+[032m+                       (is (= [] @received))[0m
+[032m+                       (stream/append! medium :v)[0m
+[032m+                       (wait-for #(= [:v] @received) 2000[0m
+[032m+                                 (fn [arrived][0m
+[032m+                                   (is (some? arrived)[0m
+[032m+                                       "a value appended mid-flight is picked up by the next round's[0m
+                    own poll, never by a notification")
+[031m-              (is (= [:v] @received))[0m
+[031m-              (driver/disarm! @wake-ref)[0m
+[031m-              (done))))))))[0m
+[032m+                                   (is (= [:v] @received))[0m
+[032m+                                   (driver/disarm! @wake-ref)[0m
+[032m+                                   (done))))))))[0m
+ 
+ 
+ ;; =============================================================================
+[036m@@ -202,56 +204,57 @@[0m
+ 
+ (deftest a-composition-wrapped-deposit-nudges-and-the-adapter-holds-no-driver-reference
+   (async done
+[031m-    (let [medium (buffer 4)[0m
+[031m-          received (atom [])[0m
+[031m-          store (atom {:medium medium, :cursor (oldest medium)})[0m
+[031m-          ws (atom (waitset/park (waitset/empty-waitset)[0m
+[031m-                                 {:reason :next, :probe true}))[0m
+[031m-          wake-ref (volatile! nil)[0m
+[031m-          wake (driver/make-wake[0m
+[031m-                 (fn [][0m
+[031m-                   (let [result (waitset/check @ws[0m
+[031m-                                               {:resolve (fn [s _e] {:stream (:medium s)[0m
+[031m-                                                                     :cursor (:cursor s)})[0m
+[031m-                                                :advance (fn [s _e _c] s)}[0m
+[031m-                                               @store)[0m
+[031m-                         woken (:woken result)[0m
+[031m-                         ws' (:waiting (:waitset result))][0m
+[031m-                     (doseq [w woken][0m
+[031m-                       (swap! received conj (:value w)))[0m
+[031m-                     (when (seq woken)[0m
+[031m-                       (reset! ws (waitset/park {:waiting ws'}[0m
+[031m-                                                {:reason :next, :probe true}))[0m
+[031m-                       (reset! store (assoc @store :cursor (:cursor (last woken))))[0m
+[031m-                       ;; A wake resets the curve; the next idle sleep is the[0m
+[031m-                       ;; base interval again.[0m
+[031m-                       (driver/arm! @wake-ref 25))[0m
+[031m-                     ;; Idle with nothing moving: the backoff ceiling, which[0m
+[031m-                     ;; only a nudge can end early.[0m
+[031m-                     (when (empty? woken)[0m
+[031m-                       (driver/arm! @wake-ref 5000)))))[0m
+[031m-          ;; The composition wraps the deposit operation it hands the adapter[0m
+[031m-          ;; with the nudge; the adapter is handed nothing else.[0m
+[031m-          deposit! (fn [value][0m
+[031m-                     (let [result (stream/append! medium value)][0m
+[031m-                       (driver/nudge! @wake-ref)[0m
+[031m-                       result))[0m
+[031m-          adapter {:deposit! deposit!}][0m
+[031m-      (vreset! wake-ref wake)[0m
+[031m-      ;; The first arm is a long idle interval: only the nudge can end it.[0m
+[031m-      (driver/arm! wake 5000)[0m
+[031m-      ((:deposit! adapter) :hello)[0m
+[031m-      (wait-for #(= [:hello] @received) 2000[0m
+[031m-        (fn [arrived][0m
+[031m-          (is (some? arrived)[0m
+[031m-              "the deposit's nudge ended the idle sleep at once, not at the ceiling")[0m
+[031m-          (is (= [:hello] @received))[0m
+[031m-          (is (= [:deposit!] (keys adapter))[0m
+[031m-              "the adapter holds exactly the wrapped deposit")[0m
+[031m-          (is (not-any? #(= % @wake-ref) (vals adapter))[0m
+[031m-              "and no reference to the wake source or the driver crossed into it")[0m
+[031m-          (driver/disarm! @wake-ref)[0m
+[031m-          (done))))))[0m
+[032m+         (let [medium (buffer 4)[0m
+[032m+               received (atom [])[0m
+[032m+               store (atom {:medium medium, :cursor (oldest medium)})[0m
+[032m+               ws (atom (waitset/park (waitset/empty-waitset)[0m
+[032m+                                      {:reason :next, :probe true}))[0m
+[032m+               wake-ref (volatile! nil)[0m
+[032m+               wake (driver/make-wake[0m
+[032m+                      (fn [][0m
+[032m+                        (let [result (waitset/check @ws[0m
+[032m+                                                    {:resolve (fn [s _e][0m
+[032m+                                                                {:stream (:medium s)[0m
+[032m+                                                                 :cursor (:cursor s)})[0m
+[032m+                                                     :advance (fn [s _e _c] s)}[0m
+[032m+                                                    @store)[0m
+[032m+                              woken (:woken result)[0m
+[032m+                              ws' (:waiting (:waitset result))][0m
+[032m+                          (doseq [w woken][0m
+[032m+                            (swap! received conj (:value w)))[0m
+[032m+                          (when (seq woken)[0m
+[032m+                            (reset! ws (waitset/park {:waiting ws'}[0m
+[032m+                                                     {:reason :next, :probe true}))[0m
+[032m+                            (reset! store (assoc @store :cursor (:cursor (last woken))))[0m
+[032m+                            ;; A wake resets the curve; the next idle sleep is the[0m
+[032m+                            ;; base interval again.[0m
+[032m+                            (driver/arm! @wake-ref 25))[0m
+[032m+                          ;; Idle with nothing moving: the backoff ceiling, which[0m
+[032m+                          ;; only a nudge can end early.[0m
+[032m+                          (when (empty? woken)[0m
+[032m+                            (driver/arm! @wake-ref 5000)))))[0m
+[032m+               ;; The composition wraps the deposit operation it hands the adapter[0m
+[032m+               ;; with the nudge; the adapter is handed nothing else.[0m
+[032m+               deposit! (fn [value][0m
+[032m+                          (let [result (stream/append! medium value)][0m
+[032m+                            (driver/nudge! @wake-ref)[0m
+[032m+                            result))[0m
+[032m+               adapter {:deposit! deposit!}][0m
+[032m+           (vreset! wake-ref wake)[0m
+[032m+           ;; The first arm is a long idle interval: only the nudge can end it.[0m
+[032m+           (driver/arm! wake 5000)[0m
+[032m+           ((:deposit! adapter) :hello)[0m
+[032m+           (wait-for #(= [:hello] @received) 2000[0m
+[032m+                     (fn [arrived][0m
+[032m+                       (is (some? arrived)[0m
+[032m+                           "the deposit's nudge ended the idle sleep at once, not at the ceiling")[0m
+[032m+                       (is (= [:hello] @received))[0m
+[032m+                       (is (= [:deposit!] (keys adapter))[0m
+[032m+                           "the adapter holds exactly the wrapped deposit")[0m
+[032m+                       (is (not-any? #(= % @wake-ref) (vals adapter))[0m
+[032m+                           "and no reference to the wake source or the driver crossed into it")[0m
+[032m+                       (driver/disarm! @wake-ref)[0m
+[032m+                       (done))))))[0m
+ 
+ 
+ ;; =============================================================================
+[036m@@ -261,54 +264,54 @@[0m
+ 
+ (deftest a-tick-whose-body-fails-before-its-own-arm-still-ticks-again
+   (async done
+[031m-    ;; The shell tick's shape (yin.repl's run-node!): arm a fallback first[0m
+[031m-    ;; and let the body's own arm! replace it. A body that fails before its[0m
+[031m-    ;; own arm — the exact state a throw leaves behind — must not kill the[0m
+[031m-    ;; owner: the interval timer this driver replaced fired again whatever[0m
+[031m-    ;; happened, and the fallback is what keeps that promise. (A literal[0m
+[031m-    ;; throw from a timer callback is an uncaughtException on this host, so[0m
+[031m-    ;; the failed body is simulated by arming nothing.)[0m
+[031m-    (let [calls (atom 0)[0m
+[031m-          wake-ref (volatile! nil)[0m
+[031m-          tick (fn [][0m
+[031m-                 (swap! calls inc)[0m
+[031m-                 ;; the shell's guard: the fallback first[0m
+[031m-                 (driver/arm! @wake-ref 5)[0m
+[031m-                 ;; the body: its first round fails before its own arm[0m
+[031m-                 (when (> @calls 1)[0m
+[031m-                   (driver/arm! @wake-ref 20)))[0m
+[031m-          wake (driver/make-wake tick)][0m
+[031m-      (vreset! wake-ref wake)[0m
+[031m-      (driver/arm! wake 5)[0m
+[031m-      (wait-for #(>= @calls 3) 2000[0m
+[031m-        (fn [reached][0m
+[031m-          (is (some? reached) "the failed body did not kill the owner")[0m
+[031m-          (is (>= @calls 3))[0m
+[031m-          (driver/disarm! @wake-ref)[0m
+[031m-          (done))))))[0m
+[032m+         ;; The shell tick's shape (yin.repl's run-node!): arm a fallback first[0m
+[032m+         ;; and let the body's own arm! replace it. A body that fails before its[0m
+[032m+         ;; own arm — the exact state a throw leaves behind — must not kill the[0m
+[032m+         ;; owner: the interval timer this driver replaced fired again whatever[0m
+[032m+         ;; happened, and the fallback is what keeps that promise. (A literal[0m
+[032m+         ;; throw from a timer callback is an uncaughtException on this host, so[0m
+[032m+         ;; the failed body is simulated by arming nothing.)[0m
+[032m+         (let [calls (atom 0)[0m
+[032m+               wake-ref (volatile! nil)[0m
+[032m+               tick (fn [][0m
+[032m+                      (swap! calls inc)[0m
+[032m+                      ;; the shell's guard: the fallback first[0m
+[032m+                      (driver/arm! @wake-ref 5)[0m
+[032m+                      ;; the body: its first round fails before its own arm[0m
+[032m+                      (when (> @calls 1)[0m
+[032m+                        (driver/arm! @wake-ref 20)))[0m
+[032m+               wake (driver/make-wake tick)][0m
+[032m+           (vreset! wake-ref wake)[0m
+[032m+           (driver/arm! wake 5)[0m
+[032m+           (wait-for #(>= @calls 3) 2000[0m
+[032m+                     (fn [reached][0m
+[032m+                       (is (some? reached) "the failed body did not kill the owner")[0m
+[032m+                       (is (>= @calls 3))[0m
+[032m+                       (driver/disarm! @wake-ref)[0m
+[032m+                       (done))))))[0m
+ 
+ 
+ (deftest a-nudge-from-inside-a-tick-leaves-the-timer-it-armed-alone
+   (async done
+[031m-    ;; A composition whose tick arms its next round and then deposits — the[0m
+[031m-    ;; deposit nudging — must not lose the timer the tick just armed: while[0m
+[031m-    ;; the pending flag is up, a nudge touches nothing.[0m
+[031m-    (let [ticks (atom 0)[0m
+[031m-          wake-ref (volatile! nil)[0m
+[031m-          tick (fn [][0m
+[031m-                 (swap! ticks inc)[0m
+[031m-                 (driver/arm! @wake-ref 10)[0m
+[031m-                 (driver/nudge! @wake-ref))[0m
+[031m-          wake (driver/make-wake tick)][0m
+[031m-      (vreset! wake-ref wake)[0m
+[031m-      ;; Start the owner from a nudge, exactly as a deposit would.[0m
+[031m-      (driver/nudge! wake)[0m
+[031m-      (wait-for #(>= @ticks 3) 2000[0m
+[031m-        (fn [reached][0m
+[031m-          (is (some? reached)[0m
+[031m-              "the tick kept its armed round: the in-tick nudge neither[0m
+[032m+         ;; A composition whose tick arms its next round and then deposits — the[0m
+[032m+         ;; deposit nudging — must not lose the timer the tick just armed: while[0m
+[032m+         ;; the pending flag is up, a nudge touches nothing.[0m
+[032m+         (let [ticks (atom 0)[0m
+[032m+               wake-ref (volatile! nil)[0m
+[032m+               tick (fn [][0m
+[032m+                      (swap! ticks inc)[0m
+[032m+                      (driver/arm! @wake-ref 10)[0m
+[032m+                      (driver/nudge! @wake-ref))[0m
+[032m+               wake (driver/make-wake tick)][0m
+[032m+           (vreset! wake-ref wake)[0m
+[032m+           ;; Start the owner from a nudge, exactly as a deposit would.[0m
+[032m+           (driver/nudge! wake)[0m
+[032m+           (wait-for #(>= @ticks 3) 2000[0m
+[032m+                     (fn [reached][0m
+[032m+                       (is (some? reached)[0m
+[032m+                           "the tick kept its armed round: the in-tick nudge neither[0m
+                disarmed it nor stranded the owner with neither timer nor
+                microtask")
+[031m-          (is (>= @ticks 3))[0m
+[031m-          (driver/disarm! @wake-ref)[0m
+[031m-          (done))))))[0m
+[032m+                       (is (>= @ticks 3))[0m
+[032m+                       (driver/disarm! @wake-ref)[0m
+[032m+                       (done))))))[0m
+--- a/test/yin/vm/encoder_test.cljc
++++ b/test/yin/vm/encoder_test.cljc
+[036m@@ -24,7 +24,9 @@[0m
+ 
+ (deftest the-batch-is-canonical-rows-with-a-complete-catalogue
+   (let [ast (program '((def a 1)
+[031m-                       (defmacro m [x] x)[0m
+[032m+                       (defmacro m[0m
+[032m+                         [x][0m
+[032m+                         x)[0m
+                        (if false (def b 2) nil)
+                        (def a 3)))
+         [tag trees run-index decls harvest :as batch] (encoder/program-batch ast)]
+[036m@@ -41,7 +43,9 @@[0m
+ 
+ (deftest macro-ness-is-an-occurrence-declaration-not-row-content
+   (let [plain (encoder/program-batch (yang/compile '(def m (fn [x] x))))
+[031m-        macro (encoder/program-batch (yang/compile '(defmacro m [x] x)))][0m
+[032m+        macro (encoder/program-batch (yang/compile '(defmacro m[0m
+[032m+                                                      [x][0m
+[032m+                                                      x)))][0m
+     (is (= (nth plain 1) (nth macro 1))
+         "the same lambda content projects to the same rows")
+     (is (= [] (nth plain 3)))
+[036m@@ -50,7 +54,9 @@[0m
+ 
+ 
+ (deftest a-datom-member-declares-what-its-map-ast-declares
+[031m-  (let [ast (program '((defmacro m [x] x) (m 1)))][0m
+[032m+  (let [ast (program '((defmacro m[0m
+[032m+                         [x][0m
+[032m+                         x) (m 1)))][0m
+     (is (= (encoder/program-batch ast)
+            (encoder/program-batch (vec (vm/ast->datoms ast))))
+         "the :yin/macro? datom carries the frontend's declaration fact")))
+[036m@@ -58,7 +64,9 @@[0m
+ 
+ (deftest disconnected-members-are-harvested-by-tree-index
+   (let [run (yang/compile '(m 5))
+[031m-        support (yang/compile '(defmacro m [x] x))[0m
+[032m+        support (yang/compile '(defmacro m[0m
+[032m+                                 [x][0m
+[032m+                                 x))[0m
+         batch (encoder/program-batch [run support] 0)]
+     (is (= 2 (count (nth batch 1))))
+     (is (= [[:yin.macro/definition 1 []]] (nth batch 3)))
+[036m@@ -70,4 +78,4 @@[0m
+ 
+ (deftest an-unsupported-member-fails-at-the-boundary
+   (is (thrown? #?(:cljd Object :clj Exception :cljs :default)
+[031m-               (encoder/program-batch 42))))[0m
+[032m+        (encoder/program-batch 42))))[0m
+Slow processing of file test/dao/gui/event/fixtures_corpus.cljc  (8.78 sec)
+25 files formatted incorrectly

@@ -1,0 +1,257 @@
+[
+ {
+  "id": "X01",
+  "desc": "drop guest/explicit distinction: default value-node classifies marker shapes as references (round-2 code)",
+  "test": "well-formed-guest-markers-are-refused",
+  "exit": 1,
+  "counts": [
+   "1",
+   "3",
+   "2",
+   "0"
+  ],
+  "oom": false,
+  "verdict": "KILLED",
+  "seconds": 4.5,
+  "restored_cmp": true,
+  "git_clean": true
+ },
+ {
+  "id": "X02",
+  "desc": "skip marker refusal for :store rows only (encode and decode)",
+  "test": "every-literal-context-refuses-markers",
+  "exit": 1,
+  "counts": [
+   "1",
+   "20",
+   "4",
+   "0"
+  ],
+  "oom": false,
+  "verdict": "KILLED",
+  "seconds": 4.4,
+  "restored_cmp": true,
+  "git_clean": true
+ },
+ {
+  "id": "X03",
+  "desc": "skip marker refusal in metadata",
+  "test": "every-literal-context-refuses-markers",
+  "exit": 1,
+  "counts": [
+   "1",
+   "20",
+   "4",
+   "0"
+  ],
+  "oom": false,
+  "verdict": "KILLED",
+  "seconds": 5.7,
+  "restored_cmp": true,
+  "git_clean": true
+ },
+ {
+  "id": "X04",
+  "desc": "skip marker refusal inside nested collections",
+  "test": "every-literal-context-refuses-markers",
+  "exit": 1,
+  "counts": [
+   "1",
+   "20",
+   "4",
+   "0"
+  ],
+  "oom": false,
+  "verdict": "KILLED",
+  "seconds": 5.0,
+  "restored_cmp": true,
+  "git_clean": true
+ },
+ {
+  "id": "X05",
+  "desc": "skip marker refusal for :optional-D slots (custody) on encode and decode",
+  "test": "every-literal-context-refuses-markers",
+  "exit": 1,
+  "counts": [
+   "1",
+   "20",
+   "4",
+   "0"
+  ],
+  "oom": false,
+  "verdict": "KILLED",
+  "seconds": 4.7,
+  "restored_cmp": true,
+  "git_clean": true
+ },
+ {
+  "id": "X06",
+  "desc": "collapse equality tags: guest literals untagged",
+  "test": "cell-and-identity-shaped-literal-are-distinct",
+  "exit": 1,
+  "counts": [
+   "1",
+   "2",
+   "1",
+   "1"
+  ],
+  "oom": false,
+  "verdict": "KILLED",
+  "seconds": 4.8,
+  "restored_cmp": true,
+  "git_clean": true
+ },
+ {
+  "id": "X07",
+  "desc": "literal vector and literal list tagged differently (breaks the genuine duplicate)",
+  "test": "schema-and-literal-canonicality",
+  "exit": 1,
+  "counts": [
+   "1",
+   "12",
+   "1",
+   "0"
+  ],
+  "oom": false,
+  "verdict": "KILLED",
+  "seconds": 4.6,
+  "restored_cmp": true,
+  "git_clean": true
+ },
+ {
+  "id": "X08",
+  "desc": "remove preflight from checked-encode",
+  "test": "intermediate-label-bytes-are-bounded",
+  "exit": 0,
+  "counts": [
+   "1",
+   "2",
+   "0",
+   "0"
+  ],
+  "oom": false,
+  "verdict": "SURVIVED",
+  "seconds": 8.5,
+  "restored_cmp": true,
+  "git_clean": true
+ },
+ {
+  "id": "X09",
+  "desc": "remove preflight from checked-key",
+  "test": "intermediate-label-bytes-are-bounded",
+  "exit": 0,
+  "counts": [
+   "1",
+   "2",
+   "0",
+   "0"
+  ],
+  "oom": false,
+  "verdict": "SURVIVED",
+  "seconds": 9.4,
+  "restored_cmp": true,
+  "git_clean": true
+ },
+ {
+  "id": "X10",
+  "desc": "remove preflight doseq from checked-sort",
+  "test": "intermediate-label-bytes-are-bounded",
+  "exit": 0,
+  "counts": [
+   "1",
+   "2",
+   "0",
+   "0"
+  ],
+  "oom": false,
+  "verdict": "SURVIVED",
+  "seconds": 9.1,
+  "restored_cmp": true,
+  "git_clean": true
+ },
+ {
+  "id": "X11",
+  "desc": "check-label-bytes! never refuses",
+  "test": "intermediate-label-bytes-are-bounded",
+  "exit": 1,
+  "counts": [
+   "1",
+   "2",
+   "2",
+   "0"
+  ],
+  "oom": false,
+  "verdict": "KILLED",
+  "seconds": 10.3,
+  "restored_cmp": true,
+  "git_clean": true
+ },
+ {
+  "id": "X12",
+  "desc": "default :label-bytes 1",
+  "test": "canonical-roots-are-pinned",
+  "exit": 1,
+  "counts": [
+   "1",
+   "3",
+   "0",
+   "2"
+  ],
+  "oom": false,
+  "verdict": "KILLED",
+  "seconds": 5.3,
+  "restored_cmp": true,
+  "git_clean": true
+ },
+ {
+  "id": "X13",
+  "desc": "decode-side marker loop removed only (emit side kept)",
+  "test": "every-literal-context-refuses-markers",
+  "exit": 0,
+  "counts": [
+   "1",
+   "20",
+   "0",
+   "0"
+  ],
+  "oom": false,
+  "verdict": "SURVIVED",
+  "seconds": 5.1,
+  "restored_cmp": true,
+  "git_clean": true
+ },
+ {
+  "id": "X14",
+  "desc": "emit-side marker check removed only (decode side kept)",
+  "test": "every-literal-context-refuses-markers",
+  "exit": 1,
+  "counts": [
+   "1",
+   "20",
+   "10",
+   "0"
+  ],
+  "oom": false,
+  "verdict": "KILLED",
+  "seconds": 4.6,
+  "restored_cmp": true,
+  "git_clean": true
+ },
+ {
+  "id": "X15",
+  "desc": "decoded-value no longer refuses marker-shaped :lit",
+  "test": "marker-shaped-guest-maps-are-not-portable",
+  "exit": 0,
+  "counts": [
+   "1",
+   "5",
+   "0",
+   "0"
+  ],
+  "oom": false,
+  "verdict": "SURVIVED",
+  "seconds": 4.7,
+  "restored_cmp": true,
+  "git_clean": true
+ }
+]

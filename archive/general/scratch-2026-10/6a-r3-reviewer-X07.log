@@ -1,0 +1,15 @@
+# X07: literal vector and literal list tagged differently (breaks the genuine duplicate)
+$ clojure -J-Xmx256m -M:test -n yin.vm.ucf.rows-test -v yin.vm.ucf.rows-test/schema-and-literal-canonicality
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (schema-and-literal-canonicality) (rows_test.cljc:228)
+expected: (= :duplicate-key (:yin.k/kind (error (fn* [] (rows/decode (rows/emit (task-node [[:x body]] [:row (rows/node :set [[:row (rows/node :vec [[:cell :x] [:lit [1]]])] [:row (rows/node :vec [[:cell :x] [:lit (list 1)]])]])])))))))
+  actual: (not (= :duplicate-key nil))
+
+Ran 1 tests containing 12 assertions.
+1 failures, 0 errors.

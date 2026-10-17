@@ -1,0 +1,144 @@
+Loading initial Timbre config from: :default
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+SLF4J(W): Class path contains SLF4J bindings targeting slf4j-api versions 1.7.x or earlier.
+SLF4J(W): Ignoring binding found at [jar:file:/Users/sto/.m2/repository/org/slf4j/slf4j-simple/1.7.36/slf4j-simple-1.7.36.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J(W): See https://www.slf4j.org/codes.html#ignoredBindings for an explanation.
+Resolving dependencies...
+Downloading packages...
++ _fe_analyzer_shared 67.0.0 (109.0.0 available)
++ analyzer 6.4.1 (14.5.0 available)
++ async 2.13.1
++ collection 1.19.1
++ convert 3.1.2
++ crypto 3.0.7
++ file 7.0.1
++ glob 2.2.0
++ meta 1.19.0
++ package_config 2.2.0 (3.0.0 available)
++ path 1.9.1
++ pub_semver 2.2.1
++ source_span 1.10.2
++ string_scanner 1.4.1
++ term_glyph 1.2.2
++ typed_data 1.4.0
++ watcher 1.2.1
++ yaml 3.1.4
+Changed 18 dependencies!
+3 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+
+=== Compiling cljd.core to Dart 3 ===
+
+=== Compiling to Dart... === @15:45:06
+  yin.vm.semantic-register.frame-test
+  yin.vm.ucf.rows-test
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member length on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 1341, column: 39, file: dao/data/btree.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 49, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 85, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 184, column: 12, file: yin/vm/debruijn_code.cljc
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 243, column: 12, file: yin/vm/debruijn.cljc
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 29, column: 17, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 20, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member tags on target type dynamic of library dart:core  at line: 35, column: 43, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 250, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 254, column: 15, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member value on target type dynamic of library dart:core  at line: 261, column: 22, file: dao/stream/cbor/cljd.cljd
+DYNAMIC WARNING: can't resolve member bytes on target type dynamic of library dart:core  at line: 275, column: 27, file: dao/stream/cbor/cljd.cljd
+Compilation succeeded - Easy peasy! 😎 @15:45:35
+Running 2 test files in 2 shards
+Resolving dependencies...
+Downloading packages...
+  _fe_analyzer_shared 99.0.0 (109.0.0 available)
+  analyzer 12.1.0 (14.5.0 available)
+  clock 1.1.2 (1.1.3 available)
+  frontend_server_client 4.0.0 (4.1.0 available)
+  glob 2.1.3 (2.2.0 available)
+  io 1.0.5 (1.1.0 available)
+  material_color_utilities 0.13.0 (0.13.1 available)
+  mime 2.0.0 (2.1.0 available)
+  package_config 2.2.0 (3.0.0 available)
+  pool 1.5.2 (1.5.3 available)
+  pub_semver 2.2.0 (2.2.1 available)
+  source_maps 0.10.13 (0.10.14 available)
+  stack_trace 1.12.1 (1.12.2 available)
+  test 1.31.1 (1.33.0 available)
+  test_api 0.7.12 (0.7.15 available)
+  test_core 0.6.18 (0.6.21 available)
+  unorm_dart 0.3.1+1 (0.3.3 available)
+  vector_math 2.4.2 (2.4.3 available)
+  vm_service 15.2.0 (15.3.0 available)
+  yaml 3.1.3 (3.1.4 available)
+Got dependencies!
+20 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+00:00 +0: loading /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart
+00:00 +0: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/child-scope-and-shared-child-dag
+00:02 +1: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/child-scope-and-shared-child-dag
+00:02 +2: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/child-scope-and-shared-child-dag
+00:02 +3: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_1_test.dart: null yin.vm.semantic-register.frame-test/free-env-mismatch
+00:07 +4: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/bijection
+00:07 +5: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/bijection
+00:07 +6: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/bijection
+00:08 +7: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/bijection
+00:09 +8: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/bijection
+00:09 +9: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/bijection
+00:11 +10: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/bijection
+00:11 +11: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/gates-and-graph-before-hashes
+00:11 +12: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/refinement-search-preserves-unordered-multiplicity
+00:11 +13: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/window-sorted-and-unique
+00:11 +14: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/pending-envelope-and-nil-literal-are-preserved
+00:11 +15: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/task-root-checks-carried-code-and-frame
+00:11 +15 -1: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/task-root-checks-carried-code-and-frame [E]
+  Expected: (= (:yin.k/root wire) (:yin.k/root (rows/emit (rows/decode wire))))
+    Actual: Result:<has thrown #error {:message "Row codec refused data", :data {:yin.k/status :yin.k/undecodable, :yin.k/kind :extra-cell, :yin.k/path [9]}}>
+     Which: #error {:message "Row codec refused data", :data {:yin.k/status :yin.k/undecodable, :yin.k/kind :extra-cell, :yin.k/path [9]}}
+            #0      refuse$BANG_ (file:///Users/sto/workspace/datomworld-srvm-p6a/lib/cljd-out/yin/vm/ucf/rows.dart:3144:1)
+            #1      bad$BANG_ (file:///Users/sto/workspace/datomworld-srvm-p6a/lib/cljd-out/yin/vm/ucf/rows.dart:14:20)
+            #2      check_abstract$BANG_.<anonymous closure> (file:///Users/sto/workspace/datomworld-srvm-p6a/lib/cljd-out/yin/vm/ucf/rows.dart:504:20)
+            #3      check_abstract$BANG_ (file:///Users/sto/workspace/datomworld-srvm-p6a/lib/cljd-out/yin/vm/ucf/rows.dart:507:20)
+            #4      ifn_decode$STAR__M__18695hm$1.$_invoke$2 (file:///Users/sto/workspace/datomworld-srvm-p6a/lib/cljd-out/yin/vm/ucf/rows.dart:2542:45)
+            #5      ifn_decode_M__18695hm$1.$_invoke$1 (file:///Users/sto/workspace/datomworld-srvm-p6a/lib/cljd-out/yin/vm/ucf/rows.dart:2602:34)
+            #6      task_root_checks_carried_code_and_frame.thunk$13533_$AUTO_$1.maybe_f$1 (file:///Users/sto/workspace/datomworld-srvm-p6a/test/cljd-out/yin/vm/ucf/rows-test_test.dart:4863:262)
+            #7      _rootRun (dart:async/zone_root.dart:35:13)
+            #8      _CustomZone.run (dart:async/zone.dart:810:35)
+            #9      _runZoned (dart:async/zone_api.dart:165:6)
+            #10     runZoned (dart:async/zone_api.dart:91:10)
+            #11     task_root_checks_carried_code_and_frame.thunk$13533_$AUTO_$1 (file:///Users/sto/workspace/datomworld-srvm-p6a/test/cljd-out/yin/vm/ucf/rows-test_test.dart:5157:11)
+            #12     task_root_checks_carried_code_and_frame.<anonymous closure>.<anonymous closure>.maybe_f$2 (file:///Users/sto/workspace/datomworld-srvm-p6a/test/cljd-out/yin/vm/ucf/rows-test_test.dart:5165:8)
+            #13     _rootRun (dart:async/zone_root.dart:35:13)
+            #14     _CustomZone.run (dart:async/zone.dart:810:35)
+            #15     _runZoned (dart:async/zone_api.dart:165:6)
+            #16     runZoned (dart:async/zone_api.dart:91:10)
+            #17     task_root_checks_carried_code_and_frame.<anonymous closure>.<anonymous closure> (file:///Users/sto/workspace/datomworld-srvm-p6a/test/cljd-out/yin/vm/ucf/rows-test_test.dart:5198:11)
+            #18     Declarer.test.<anonymous closure>.<anonymous closure> (package:test_api/src/backend/declarer.dart:253:25)
+            <asynchronous suspension>
+            #19     Declarer.test.<anonymous closure> (package:test_api/src/backend/declarer.dart:250:11)
+            <asynchronous suspension>
+            #20     Invoker._waitForOutstandingCallbacks.<anonymous closure> (package:test_api/src/backend/invoker.dart:318:9)
+            <asynchronous suspension>
+            
+            occured in: yin.vm.ucf.rows-test/task-root-checks-carried-code-and-frame
+            
+  
+  package:matcher                                       expect
+  test/cljd-out/yin/vm/ucf/rows-test_test.dart 4948:9   task_root_checks_carried_code_and_frame.thunk$13533_$AUTO_$1.maybe_f$1
+  dart:async                                            runZoned
+  test/cljd-out/yin/vm/ucf/rows-test_test.dart 5157:11  task_root_checks_carried_code_and_frame.thunk$13533_$AUTO_$1
+  test/cljd-out/yin/vm/ucf/rows-test_test.dart 5165:8   task_root_checks_carried_code_and_frame.<fn>.<fn>.maybe_f$2
+  dart:async                                            runZoned
+  test/cljd-out/yin/vm/ucf/rows-test_test.dart 5198:11  task_root_checks_carried_code_and_frame.<fn>.<fn>
+  
+00:11 +15 -1: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/schema-and-literal-canonicality
+00:12 +16 -1: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/canonical-under-is-renaming-invariant
+00:12 +17 -1: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/numbering-precedes-frame-defect
+00:12 +18 -1: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/row-ids-are-jing-default
+00:12 +19 -1: /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/alias-topology-and-census
+00:12 +20 -1: Some tests failed.
+
+Failing tests:
+  /Users/sto/workspace/datomworld-srvm-p6a/build/cljd-agg/shard_0_test.dart: null yin.vm.ucf.rows-test/task-root-checks-carried-code-and-frame
+exit=1

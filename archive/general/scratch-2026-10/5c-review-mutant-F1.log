@@ -1,0 +1,23 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.semantic-register.scan-test
+
+FAIL in (definitions-and-sites) (scan_test.cljc:242)
+expected: (= [2] (mapv :at (scan/definition-occurrences (fixture :define-then-call))))
+  actual: (not (= [2] [0]))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:190)
+[:b0 :use-before-definition]
+expected: (= old new)
+  actual: (not (= {:free-names #{n list}, :occurrences [[list false] [n false]], :definitions [[n false]], :application-count 1, :requirements {:store-keys #{n}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :refused, :reason :use-before-definition, :name n}} {:free-names #{n list}, :occurrences [[list false] [n false]], :definitions [[n false]], :application-count 1, :requirements {:store-keys #{n}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[list false]]}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:205)
+[:b0 :use-before-definition]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= {:free-names #{n list}, :occurrences [[list false] [n false]], :definitions [[n false]], :application-count 1, :requirements {:store-keys #{n}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :refused, :reason :use-before-definition, :name n}} {:free-names #{n list}, :occurrences [[list false] [n false]], :definitions [[n false]], :application-count 1, :requirements {:store-keys #{n}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :refused, :reason :use-before-definition, :name n}} {:free-names #{n list}, :occurrences [[list false] [n false]], :definitions [[n false]], :application-count 1, :requirements {:store-keys #{n}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[list false]]}}))
+
+Ran 10 tests containing 567 assertions.
+3 failures, 0 errors.

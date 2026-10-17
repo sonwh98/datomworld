@@ -1,0 +1,21 @@
+The full `yang.python.*` run is going in the background with the new goldens; I'll act when it finishes.
+
+Node is running; I'll update the findings file once it finishes.
+
+I addressed all three review findings, and the JVM and Node lanes pass. Dart (`bb test:cljd`) was still not run, and I added no lift-refusal test. Nothing is committed, and `collab/findings.md` is updated (copy under the brief's filename).
+
+1. **PEP 380 boundary handling.** `py/guarded` now returns a `[:raise e]` outcome for any exception other than `StopIteration`, instead of raising from inside the delegate step.
+   - **Where each exception is raised:** `py/delegate` raises it at the `yield from` site, on the outer generator's stack. `py/user-step` and `next` raise it to the caller.
+   - **`close()`:** an error from a delegate's `close()` now replaces `GeneratorExit`, as CPython does.
+   - **New test:** `user-iterator-forwarding-outcomes-test`, with output checked against CPython 3.9.6.
+   - **What it covers:** the yielded `send` result, `StopIteration` values from `send` and `throw`, non-`StopIteration` errors from `send`, `throw` and `close`, and missing `send` and `throw`.
+2. **Heap retention.** `dropped-generators-after-repeated-suspension-test` resumes each generator four times through `yield from`, alternating a function caller and a fresh generator, then drops it. The live graph after a forced collection is identical for 5 and for 40 generators on all four VMs. I kept the original dropped-generator test.
+3. **`<iterator object>`.** `iterator-snapshot-render-test` asserts the renderer output directly and checks `print(iter([1, 2]))` before and after `next`.
+
+The prelude changed again, so the five address goldens in `float_address_test.cljc` moved a second time. The new prelude root is `blake3-3019a138…`.
+
+**Verification**
+- `e2e-c2-test`: 41 tests, 0 failures.
+- JVM `yang.python.*`, fast set: 237 tests, 0 failures.
+- `bb test:cljs`: 3807 tests, 0 failures.
+- kondo on `prelude.cljc` and `e2e_c2_test.clj`: 0 errors, 0 warnings.

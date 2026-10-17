@@ -1,0 +1,21 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.linker-test
+
+FAIL in (format-records-name-their-contract) (linker_test.cljc:565)
+expected: (= "v4" (:contract linker/semantic-register-format))
+  actual: (not (= "v4" "v3"))
+
+FAIL in (semantic-register-scanners-yield-position-bearing-records) (linker_test.cljc:2092)
+expected: (= [{:name (quote x), :in-body? false}] (mapv (fn* [p1__21224#] (select-keys p1__21224# [:name :in-body?])) occs))
+  actual: (not (= [{:name x, :in-body? false}] [{:name x}]))
+
+FAIL in (semantic-register-scanners-yield-position-bearing-records) (linker_test.cljc:2094)
+expected: (< (:at (first defs)) (:at (first occs)))
+  actual: (not (< 1 1))
+
+Ran 62 tests containing 572 assertions.
+3 failures, 0 errors.

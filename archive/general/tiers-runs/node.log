@@ -1,0 +1,143 @@
+
+Testing dao.space.dht-test
+SKIP slow test sustained-rounds-are-each-reported-once-in-order-and-drain (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test rounds-beyond-the-backlog-bound-fail-at-once-then-repair (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yang.clojure.stream-eval-test
+SKIP slow test pure-expressions-and-let-bindings-evaluate-on-every-vm (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test a-stream-is-ingested-transformed-and-emitted-across-rounds (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test every-vm-answers-the-same-stream-script (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yang.python.antlr.int-conv-test
+SKIP slow test sequence-repetition-boundary-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test digit-limit-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test departure-pins-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test cpython-conversion-fixture-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test guest-float-text-fixture-test (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yang.python.antlr.int-literal-test
+SKIP slow test huge-hex-test (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yang.python.antlr.int-ops-test
+SKIP slow test cpython-operator-fixture-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test cpython-s3b-fixture-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test float-power-exponent-limit-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test cpython-s3c-fixture-test (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yang.python.antlr.lower-portable-test
+
+Testing yang.python.antlr.prelude-parity-test
+SKIP slow test prelude-semantics-on-every-vm-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test range-fast-path-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test printed-floats-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test generator-switch-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test generator-throw-non-exception-class-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test delegation-stop-and-sticky-dict-iterator-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test delegation-chain-callers-and-unwinding-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test generator-expression-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test generator-expression-admission-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test integer-bound-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test numeric-keys-hash-and-is-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test float-is-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test big-integer-keys-past-the-digit-limit-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test int-limits-are-catchable-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test failed-key-normalization-leaves-containers-unchanged-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test int-defects-stay-host-failures-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test preserved-key-arms-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test unhashable-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test signed-zero-floats-on-every-host-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test init-is-idempotent-test (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yang.python.antlr.safepoint-test
+SKIP slow test insertion-is-deterministic-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test no-op-hooks-are-transparent-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test interrupt-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test no-park-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test registered-handler-runs-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test fail-closed-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test tail-preservation-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test recursion-error-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test escape-restores-depth-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test generator-depth-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test generator-admission-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test admission-in-every-mode-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test delegation-admission-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test generator-rebase-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test generator-throw-close-depth-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test set-recursion-limit-test (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yin.repl.dht-head-test
+SKIP slow test a-reader-follows-requires-moves-and-restarts-from-heads-edn (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test a-simulated-crash-restarts-at-the-head-heads-edn-holds (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test the-moved-line-names-the-principal-that-moved-each-name (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test a-move-is-reported-once-and-each-name-its-own (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yin.repl.dht-test
+SKIP slow test rounds-larger-than-the-pending-write-bound-are-acknowledged-never-busy (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test with-peers-that-never-accept-twenty-rounds-report-and-the-ticker-idles (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test a-two-principal-dependency-evaluates-or-raises-dependency-binding (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yin.repl.main-test
+;; SKIPPED a-node-client-attaches-to-a-dart-server: build/yin-repl-peer is absent — run bb build:yin-repl-peer (or bb test) first
+SKIP slow test every-vm-is-selectable-and-answers-through-the-streams (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test a-release-held-back-for-the-whole-drain-stays-durable-and-a-restart-sends-it-test (set DATOM_SLOW_TESTS=1 to run)
+Bye
+Bye
+;; the endpoint did not report :stopped; exiting anyway
+
+Testing yin.repl.python-antlr-test
+SKIP slow test assignment-then-print-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test an-exception-keeps-the-session-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test reset-is-a-new-process-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test vm-rebuild-is-a-new-process-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test a-failed-first-round-keeps-the-runtime-uninitialized-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test a-failed-later-round-keeps-the-previous-marker-test (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yin.repl.query-test
+SKIP slow test scalar-in-inputs-bind-beside-the-implicit-index (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test a-failed-round-of-more-calls-than-the-pair-holds-leaves-no-gap (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test a-program-calling-q-without-end-is-stopped-at-the-drive-budget (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test results-over-a-limit-refuse-naming-it (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test ast-and-occ-are-supplied-when-named-in-in (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test ast-results-over-a-limit-refuse-naming-it (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yin.repl.require-test
+
+Testing yin.vm-test
+
+Testing yin.vm.debruijn-vm-contract-test
+
+Testing yin.vm.linker.closure-test
+
+Testing yin.vm.linker.dht-end-to-end-test
+SKIP slow test a-reader-requires-a-published-module-by-name-on-all-four-vms (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test an-empty-export-list-publishes-the-no-op-module-at-the-prompt (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yin.vm.linker.publish-test
+
+Testing yin.vm.parity-test
+
+Testing yin.vm.ucf.compose-rows-test
+SKIP slow test completion-recovery-unknown-policy-transaction-is-reconciled-once-test (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yin.vm.ucf.compose-test
+
+Testing yin.vm.ucf.holder.driver-test
+SKIP slow test exit-journal-cuts-never-restore-execution-test (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yin.vm.ucf.safepoint-harness-test
+SKIP slow test every-corpus-segment-to-every-row-matches-the-reference (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test one-pc-reached-at-two-depths-hands-off-at-each (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yin.vm.ucf.stage-e-rows-test
+SKIP slow test row-7-kills-around-completion-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test row-4-kills-around-result-delivery-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test row-2-export-phases-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test row-2-carrier-failures-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test row-6-partition-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test clause-8-admission-order-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test clause-3-sequence-and-regrant-test (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test inbox-and-journal-cuts-test (set DATOM_SLOW_TESTS=1 to run)
+
+Ran 596 tests containing 41926 assertions.
+0 failures, 0 errors.

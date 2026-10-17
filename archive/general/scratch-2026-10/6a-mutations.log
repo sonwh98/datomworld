@@ -1,0 +1,21 @@
+Verified backup: src/cljc/yin/vm/semantic_register/frame.cljc 30cfb19446e8311b3d15c9f739e22d899ff918835df21f7092c89dc31c4b4ca0
+Verified backup: src/cljc/yin/vm/ucf/rows.cljc 50560bddf8227efdb6c37eb55d8a845fc6de167c619cfbf7e3538fc46c98e2a6
+Running M1 yin.vm.semantic-register.frame-test/nil-valued-register-is-a-member
+M1 exit 1 named failure True
+Running M2 yin.vm.semantic-register.frame-test/free-env-mismatch
+M2 exit 1 named failure True
+Running M3 yin.vm.semantic-register.frame-test/free-env-mismatch
+M3 exit 1 named failure True
+Running M4 yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper
+M4 exit 1 named failure True
+Running M5 yin.vm.semantic-register.frame-test/worked-example-saved
+M5 exit 1 named failure True
+Running M6 yin.vm.semantic-register.frame-test/each-rule-refuses-its-tamper
+M6 exit 1 named failure True
+Running M7 yin.vm.ucf.rows-test/numbering-precedes-frame-defect
+M7 exit 1 named failure True
+Running M8 yin.vm.ucf.rows-test/canonical-under-is-renaming-invariant
+M8 exit 1 named failure True
+Running M9 yin.vm.ucf.rows-test/refinement-search-preserves-unordered-multiplicity
+M9 exit 1 named failure True
+Complete 9 mutants; 9 named failures

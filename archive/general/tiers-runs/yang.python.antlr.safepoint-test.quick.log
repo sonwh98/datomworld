@@ -1,0 +1,9 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yang.python.antlr.safepoint-test
+
+Ran 9 tests containing 419 assertions.
+0 failures, 0 errors.

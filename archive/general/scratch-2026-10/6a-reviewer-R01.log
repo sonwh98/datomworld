@@ -1,0 +1,14 @@
+clojure -M:test -n yin.vm.semantic-register.frame-test -v yin.vm.semantic-register.frame-test/nil-valued-register-is-a-member
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.semantic-register.frame-test
+
+FAIL in (nil-valued-register-is-a-member) (frame_test.cljc:208)
+expected: (= :window-missing (kind (update frame :yin.k/window dissoc nil-key) code context task))
+  actual: (not (= :window-missing nil))
+
+Ran 1 tests containing 3 assertions.
+1 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

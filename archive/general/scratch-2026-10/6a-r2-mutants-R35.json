@@ -1,0 +1,29 @@
+[
+ {
+  "id": "R35",
+  "file": "src/cljc/yin/vm/ucf/rows.cljc",
+  "description": "decoded-equality duplicate key unchecked",
+  "test": "yin.vm.ucf.rows-test/schema-and-literal-canonicality",
+  "argv": [
+   "clojure",
+   "-M:test",
+   "-n",
+   "yin.vm.ucf.rows-test",
+   "-v",
+   "yin.vm.ucf.rows-test/schema-and-literal-canonicality"
+  ],
+  "exit": 1,
+  "seconds": 6.7,
+  "tests": 1,
+  "assertions": 12,
+  "failures": 1,
+  "errors": 0,
+  "fail_lines": [
+   "FAIL in (schema-and-literal-canonicality) (rows_test.cljc:228)"
+  ],
+  "status": "KILLED",
+  "restore_cmp": 0,
+  "restore_src_diff_equals_saved": true,
+  "git_diff_quiet_src": 1
+ }
+]

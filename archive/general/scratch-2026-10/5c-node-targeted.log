@@ -1,0 +1,56 @@
+Loading initial Timbre config from: :default
+[:test] Compiling ...
+========= Running Tests =======================
+
+Testing yang.python.antlr.lower-portable-test
+
+Testing yin.repl.require-test
+
+Testing yin.repl.serve-test
+
+Testing yin.vm-test
+
+Testing yin.vm.code-test
+
+Testing yin.vm.completion-test
+
+Testing yin.vm.debruijn-vm-contract-test
+
+Testing yin.vm.linker-manifest-test
+
+Testing yin.vm.linker-require-test
+
+Testing yin.vm.linker-step-test
+
+Testing yin.vm.linker-test
+SKIP slow test a-prelude-sized-module-publishes-under-default-bounds (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yin.vm.parity-test
+
+Testing yin.vm.semantic-register.analysis-test
+
+Testing yin.vm.semantic-register.code-test
+
+Testing yin.vm.semantic-register.effects-test
+
+Testing yin.vm.semantic-register.linearize-test
+
+Testing yin.vm.semantic-register.link-test
+
+Testing yin.vm.semantic-register.load-paths-test
+
+Testing yin.vm.semantic-register.parity-test
+
+Testing yin.vm.semantic-register.scan-test
+SKIP slow test scanners-agree-on-the-c4-modules (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test goldens-match (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test verify-outcomes-agree (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yin.vm.semantic-register.vm-test
+
+Testing yin.vm.semantic-register.walker-trace-test
+
+Ran 371 tests containing 5095 assertions.
+0 failures, 0 errors.
+===============================================
+[:test] Build completed. (237 files, 40 compiled, 0 warnings, 61.53s)

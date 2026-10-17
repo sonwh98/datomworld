@@ -1,0 +1,33 @@
+$ clojure -J-Xmx256m -M:test -n yin.vm.ucf.rows-r3probe-test
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.ucf.rows-r3probe-test
+R3PROBE :big-root-literal-1-cell #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:label-bytes]}
+R3PROBE :big-root-literal-0-cells nil
+R3PROBE :big-root-custody-1-cell #:yin.k{:status :yin.k/unsupported, :kind :resource-limit, :path [:label-bytes]}
+R3PROBE :decoded-default-value #:yin.k{:row {:kind :prim, :slots [guest/f]}}
+R3PROBE :default-reencode-of-default-decoded #:yin.k{:status :yin.k/non-portable, :kind :marker, :path []}
+R3PROBE :cell-vs-row-shaped-literal nil
+R3PROBE :prim-row-vs-row-shaped-literal nil
+R3PROBE :map-row-vs-map-literal-shaped nil
+R3PROBE :genuine-dup-map-rows #:yin.k{:status :yin.k/undecodable, :kind :duplicate-key, :path [:segment/blake3-531da457e75622144658506b09d8513591894ff50383203c3afcc748e87f507c]}
+R3PROBE :genuine-dup-vec-vs-list-rows #:yin.k{:status :yin.k/undecodable, :kind :duplicate-key, :path [15]}
+R3PROBE :genuine-dup-lit-vec-vs-lit-list-inside-rows #:yin.k{:status :yin.k/undecodable, :kind :duplicate-key, :path [15]}
+R3PROBE :set-literal-vs-set-row nil
+R3PROBE :marker-in-stream-descriptor #:yin.k{:status :yin.k/non-portable, :kind :marker, :path []}
+R3PROBE :marker-nested-in-collection-row-literal #:yin.k{:status :yin.k/non-portable, :kind :marker, :path []}
+R3PROBE :marker-in-set-literal #:yin.k{:status :yin.k/non-portable, :kind :marker, :path []}
+R3PROBE :marker-as-map-key-literal #:yin.k{:status :yin.k/non-portable, :kind :marker, :path []}
+R3PROBE :marker-in-metadata-of-vector #:yin.k{:status :yin.k/non-portable, :kind :marker, :path []}
+R3PROBE :marker-in-bindings-via-frame #:yin.k{:status :yin.k/non-portable, :kind :marker, :path []}
+R3PROBE :marker-in-pending-value-via-frame #:yin.k{:status :yin.k/non-portable, :kind :marker, :path []}
+R3PROBE :marker-in-code-map-constant #:yin.k{:status :yin.k/non-portable, :kind :marker, :path []}
+R3PROBE :two-key-map-still-literal nil
+R3PROBE :empty-map-literal nil
+R3PROBE :bigint-size-estimate nil
+
+Ran 1 tests containing 1 assertions.
+0 failures, 0 errors.

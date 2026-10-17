@@ -1,0 +1,14 @@
+clojure -M:test -n yin.vm.ucf.rows-test -v yin.vm.ucf.rows-test/canonical-roots-are-pinned
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (canonical-roots-are-pinned) (rows_test.cljc:306)
+expected: (= :segment/blake3-be82d50b14804bb7a69103631b9c45759b49b67dbb3cebe75a1259fed6b4a937 (:yin.k/root (rows/emit (fixture :s1 :s2 :x :y))))
+  actual: (not (= :segment/blake3-be82d50b14804bb7a69103631b9c45759b49b67dbb3cebe75a1259fed6b4a937 :segment/blake3-7661e490bc1c6f2c7a8282708109812aabe074bdebeca627bbbb138076088fab))
+
+Ran 1 tests containing 7 assertions.
+1 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

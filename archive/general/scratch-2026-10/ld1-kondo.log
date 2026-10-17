@@ -1,0 +1,152 @@
+Loading initial Timbre config from: :default
+src/clj/dao/stream/waitset/driver.clj:18:1: warning: redefined var #'dao.stream.waitset.driver/make-wake
+src/clj/dao/stream/waitset/driver.clj:25:1: warning: redefined var #'dao.stream.waitset.driver/nudge!
+src/cljc/dao/data/btree.cljc:551:17: warning: unused binding root?
+src/cljc/dao/data/btree.cljc:805:17: warning: unused binding root?
+src/cljc/dao/data/btree.cljc:1031:6: warning: unused binding this
+src/cljc/dao/data/btree.cljc:1228:6: warning: unused binding this
+src/cljc/dao/data/btree.cljc:1245:6: warning: unused binding this
+src/cljc/dao/data/btree.cljc:1349:32: info: Redundant boolean coercion - expression already has type boolean
+src/cljc/dao/data/btree.cljc:1662:32: info: Redundant boolean coercion - expression already has type boolean
+src/cljc/yin/repl/host.cljc:15:4: error: Invalid require: no libs specified to load
+src/cljc/yin/vm.cljc:1339:8: warning: Unused private var yin.vm/semantic-bytecode-child-refs
+src/cljc/yin/vm.cljc:1495:62: warning: unused binding kind
+src/cljc/yin/vm.cljc:1503:47: warning: unused binding row
+src/cljc/yin/vm.cljc:1517:54: warning: unused binding suffix
+src/cljc/yin/vm/ast_walker.cljc:632:8: warning: Unused private var yin.vm.ast-walker/ast-walker-run-active-continuation
+src/cljc/yin/vm/debruijn/stack.cljc:52:29: info: Unused excluded var: eval
+src/cljc/yin/vm/encoder.cljc:268:1: warning: load already refers to #'clojure.core/load
+src/cljd/dao/postgraphics/flutter.cljd:377:16: error: Unresolved symbol: frame*
+src/cljd/dao/postgraphics/flutter.cljd:377:65: error: Unresolved symbol: frame-seq*
+src/cljd/dao/postgraphics/flutter.cljd:378:57: error: Unresolved symbol: rendered-seq*
+src/cljd/dao/postgraphics/flutter.cljd:379:48: error: Unresolved symbol: image-holder
+src/cljd/dao/postgraphics/flutter.cljd:380:39: error: Unresolved symbol: decoding?
+src/cljd/dao/postgraphics/flutter.cljd:381:35: error: Unresolved symbol: binding*
+src/cljd/dao/postgraphics/flutter.cljd:402:35: error: Unresolved symbol: _bound
+src/cljd/dao/postgraphics/flutter.cljd:403:35: error: Unresolved symbol: _ticker
+src/cljd/dao/postgraphics/flutter.cljd:406:16: error: Unresolved symbol: _frame-seq
+src/cljd/dao/postgraphics/flutter.cljd:406:38: error: Unresolved symbol: _image
+src/cljd/dao/postgraphics/flutter/canvas.cljd:2:14: warning: namespace dart:core is required but never used
+src/cljd/dao/postgraphics/flutter/canvas.cljd:20:32: info: Redundant int coercion - expression already has type int
+src/cljd/dao/postgraphics/flutter/canvas.cljd:29:29: info: Redundant int coercion - expression already has type int
+src/cljd/dao/postgraphics/flutter/canvas.cljd:34:29: info: Redundant int coercion - expression already has type int
+src/cljd/dao/postgraphics/flutter/gpu.cljd:274:9: warning: unused binding verts
+src/cljd/dao/postgraphics/flutter/gpu.cljd:319:9: warning: unused binding verts
+src/cljd/dao/stream/cbor/cljd.cljd:75:22: warning: Unresolved namespace dart. Are you missing a require?
+src/cljd/dao/stream/cbor/cljd.cljd:193:4: error: Unresolved symbol: Uint8List.fromList
+src/cljd/dao/stream/transit/cljd.cljd:93:8: warning: Unused private var dao.stream.transit.cljd/tagged-array
+src/cljd/dao/stream/transit/cljd.cljd:155:1: warning: uuid? already refers to #'clojure.core/uuid?
+src/cljd/dao/stream/transit/cljd.cljd:164:8: warning: Unresolved namespace dart. Are you missing a require?
+src/cljd/dao/stream/transit/cljd.cljd:164:27: error: Unresolved symbol: Uri.parse
+src/cljd/dao/stream/transit/cljd.cljd:167:1: warning: uri? already refers to #'clojure.core/uri?
+src/cljd/dao/stream/transit/cljd.cljd:179:1: warning: integer? already refers to #'clojure.core/integer?
+src/cljd/dao/stream/transit/cljd.cljd:185:1: warning: bigint already refers to #'clojure.core/bigint
+src/cljd/dao/stream/transit/cljd.cljd:188:30: error: Unresolved symbol: BigInt.parse
+src/cljd/dao/stream/transit/cljd.cljd:197:1: warning: bigdec already refers to #'clojure.core/bigdec
+src/cljd/dao/stream/transit/cljd.cljd:287:54: warning: Unresolved namespace int. Are you missing a require?
+src/cljd/dao/stream/transit/cljd.cljd:294:17: warning: Unresolved namespace double. Are you missing a require?
+src/cljd/dao/stream/transit/cljd.cljd:358:23: error: Unresolved symbol: parse-node
+src/cljd/dao/stream/transit/cljd.cljd:424:33: error: Unresolved symbol: List
+src/cljd/dao/stream/transit/cljd.cljd:431:30: error: Unresolved symbol: Map
+src/cljd/dao/stream/transit/cljd.cljd:468:4: error: Unresolved symbol: emit-value
+src/cljd/dao/stream/transit/cljd.cljd:487:8: warning: unused binding key?
+src/cljd/datomworld/demo/artifact.cljd:79:13: warning: Redundant let expression.
+src/cljd/datomworld/demo/earth_moon.cljd:41:29: info: Redundant nested call: *
+src/cljd/datomworld/demo/earth_moon.cljd:42:29: info: Redundant nested call: *
+src/cljd/datomworld/demo/earth_moon.cljd:43:32: info: Redundant nested call: *
+src/cljd/datomworld/demo/solar_system.cljd:6:14: warning: namespace dao.postgraphics.flutter.gpu is required but never used
+src/cljd/datomworld/demo/voxel.cljd:8:14: warning: namespace dao.postgraphics.flutter.gpu is required but never used
+src/cljs/datomworld/demo/equation_plotter.cljs:395:24: warning: unused binding asm
+src/dev/psset_fixtures.clj:214:37: warning: unused binding m
+test/dao/data/btree_transients_test.cljc:134:5: warning: Redundant let expression.
+test/dao/gui/compiler_cljd_test.cljc:3:6: warning: namespace cljs.test is required but never used
+test/dao/gui/compiler_cljd_test.cljc:3:6: warning: namespace clojure.test is required but never used
+test/dao/gui/compiler_cljd_test.cljc:3:27: warning: #'cljs.test/deftest is referred but never used
+test/dao/gui/compiler_cljd_test.cljc:3:27: warning: #'clojure.test/deftest is referred but never used
+test/dao/gui/compiler_cljd_test.cljc:3:35: warning: #'cljs.test/is is referred but never used
+test/dao/gui/compiler_cljd_test.cljc:3:35: warning: #'clojure.test/is is referred but never used
+test/dao/gui/compiler_cljd_test.cljc:3:38: warning: #'cljs.test/testing is referred but never used
+test/dao/gui/compiler_cljd_test.cljc:3:38: warning: #'clojure.test/testing is referred but never used
+test/dao/gui/compiler_cljd_test.cljc:4:6: warning: namespace dao.gui.compiler is required but never used
+test/dao/gui/event/bind_test.cljc:480:24: warning: unused binding final
+test/dao/lease_composition_test.cljc:627:11: warning: unused binding traffic
+test/dao/lease_test.cljc:910:13: warning: unused binding system
+test/dao/lease_test.cljc:914:13: warning: unused binding system
+test/dao/postgraphics/v3_compliance_repro_test.cljd:3:6: warning: namespace dart:ui is required but never used
+test/dao/space/transact_test.cljc:145:7: warning: Redundant let expression.
+test/dao/space/transact_test.cljc:157:7: warning: Redundant let expression.
+test/dao/space/transact_test.cljc:171:7: warning: Redundant let expression.
+test/dao/stream/cbor_test.cljd:10:31: warning: Unused import Uint8List
+test/dao/stream/cbor_test.cljd:23:4: error: Unresolved symbol: Uint8List.fromList
+test/dao/stream/middleware_test.cljc:462:26: warning: redundant do
+test/dao/stream/remote_test.cljc:661:13: warning: unused binding peer2
+test/dao/stream/waitset/driver_test.clj:10:46: warning: #'clojure.test/testing is referred but never used
+test/dao/stream/waitset/driver_test.clj:23:1: warning: redefined var #'dao.stream.waitset.driver-test/buffer
+test/dao/stream/waitset/driver_test.clj:30:1: warning: redefined var #'dao.stream.waitset.driver-test/oldest
+test/dao/stream/waitset/driver_test.clj:137:1: warning: redefined var #'dao.stream.waitset.driver-test/a-parked-wait-set-keeps-being-polled-with-no-nudges
+test/dao/stream/waitset/driver_test.clj:193:1: warning: redefined var #'dao.stream.waitset.driver-test/a-composition-wrapped-deposit-nudges-and-the-adapter-holds-no-driver-reference
+test/dao/stream/waitset/driver_test.cljd:72:14: error: dao.stream.waitset.driver/make-wake is called with 1 arg but expects 0
+test/dao/stream/waitset/driver_test.cljd:93:14: error: dao.stream.waitset.driver/make-wake is called with 1 arg but expects 0
+test/dao/stream/waitset/driver_test.cljd:106:14: error: dao.stream.waitset.driver/make-wake is called with 1 arg but expects 0
+test/dao/stream/waitset/driver_test.cljd:124:14: error: dao.stream.waitset.driver/make-wake is called with 1 arg but expects 0
+test/dao/stream/waitset/driver_test.cljd:147:14: error: dao.stream.waitset.driver/make-wake is called with 1 arg but expects 0
+test/dao/stream/waitset/driver_test.cljd:203:14: error: dao.stream.waitset.driver/make-wake is called with 1 arg but expects 0
+test/dao/stream/waitset/driver_test.cljd:268:14: error: dao.stream.waitset.driver/make-wake is called with 1 arg but expects 0
+test/dao/stream/waitset/driver_test.cljd:287:14: error: dao.stream.waitset.driver/make-wake is called with 1 arg but expects 0
+test/dao/stream/waitset_test.cljc:78:21: warning: Missing protocol method(s): cursor
+test/dao/stream/waitset_test.cljc:91:21: warning: Missing protocol method(s): cursor
+test/dao/stream/waitset_test.cljc:137:21: warning: Missing protocol method(s): cursor
+test/dao/stream/ws/jvm_test.clj:501:42: warning: Unresolved namespace org.httpkit.server. Are you missing a require?
+test/yin/vm/debruijn_test.cljc:1048:10: warning: Missing protocol method(s): cursor
+test/yin/vm/encoder_test.cljc:6:46: warning: #'cljs.test/testing is referred but never used
+test/yin/vm/encoder_test.cljc:6:46: warning: #'clojure.test/testing is referred but never used
+test/yin/vm/linearize_test.cljc:621:15: info: Single argument to str already is a string
+test/yin/vm/macro_test.cljc:537:25: warning: unused binding attempt
+test/yin/vm/semantic_register/parity_test.cljc:64:3: info: Var app is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:64:15: info: Var lam is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:69:30: info: Var def! is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:69:46: info: Var lit is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:70:30: info: Var def! is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:70:46: info: Var app is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:70:58: info: Var v is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:70:72: info: Var v is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:70:86: info: Var lit is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:72:11: info: Var def! is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:72:27: info: Var lit is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:72:49: info: Var def! is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:72:65: info: Var lit is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:72:81: info: Var v is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:73:45: info: Var def! is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:73:61: info: Var lit is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:75:11: info: Var def! is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:75:27: info: Var lam is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:75:44: info: Var app is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:75:56: info: Var v is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:75:70: info: Var v is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:75:84: info: Var lit is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:76:17: info: Var def! is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:76:33: info: Var app is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:76:45: info: Var v is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:76:59: info: Var lit is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:76:76: info: Var v is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:77:54: info: Var def! is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:77:70: info: Var lit is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:112:5: info: Var app is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:112:17: info: Var lam is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:113:29: info: Var app is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:113:41: info: Var lam is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:113:58: info: Var v is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:113:73: info: Var lit is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:114:17: info: Var lit is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:117:5: info: Var app is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:117:17: info: Var lam is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:118:29: info: Var app is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:118:41: info: Var v is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:119:41: info: Var app is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:119:53: info: Var lam is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:119:70: info: Var lit is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:119:86: info: Var lit is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:120:41: info: Var v is referred but used via alias: corpus
+test/yin/vm/semantic_register/parity_test.cljc:121:17: info: Var lit is referred but used via alias: corpus
+test/yin/vm/telemetry_test.cljc:447:28: warning: unused binding a
+linting took 28010ms, errors: 27, warnings: 67

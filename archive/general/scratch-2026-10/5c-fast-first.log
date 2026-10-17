@@ -1,0 +1,540 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.semantic-register.scan-test
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :literal]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :variable]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{x}, :occurrences [[x false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[x false]]}} {:free-names #{x}, :occurrences [[x false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[x false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :worked-example]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{x y g f}, :occurrences [[f false] [g false] [x false] [y false]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [g false] [x false] [y false]]}} {:free-names #{x y g f}, :occurrences [[f false] [g false] [x false] [y false]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [g false] [x false] [y false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :zero-arity-call]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{f}, :occurrences [[f false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false]]}} {:free-names #{f}, :occurrences [[f false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :nested-calls]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{x y k g h f}, :occurrences [[f false] [g false] [h false] [x false] [k false] [y false]], :definitions [], :application-count 4, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [g false] [h false] [x false] [k false] [y false]]}} {:free-names #{x y k g h f}, :occurrences [[f false] [g false] [h false] [x false] [k false] [y false]], :definitions [], :application-count 4, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [g false] [h false] [x false] [k false] [y false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :lambda-application]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{+}, :occurrences [[+ true]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ true]]}} {:free-names #{+}, :occurrences [[+ true]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ true]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :nested-lambdas]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{+}, :occurrences [[+ true]], :definitions [], :application-count 3, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ true]]}} {:free-names #{+}, :occurrences [[+ true]], :definitions [], :application-count 3, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ true]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :body-queue-order]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :if]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{c}, :occurrences [[c false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[c false]]}} {:free-names #{c}, :occurrences [[c false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[c false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :if-in-test]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :nested-if-same-rd]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{a c b}, :occurrences [[a false] [b false] [c false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[a false] [b false] [c false]]}} {:free-names #{a c b}, :occurrences [[a false] [b false] [c false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[a false] [b false] [c false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :if-operand]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{y c f}, :occurrences [[f false] [c false] [y false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [c false] [y false]]}} {:free-names #{y c f}, :occurrences [[f false] [c false] [y false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [c false] [y false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :if-in-tail]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{< - loop}, :occurrences [[< true] [loop true] [- true]], :definitions [], :application-count 4, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[< true] [loop true] [- true]]}} {:free-names #{< - loop}, :occurrences [[< true] [loop true] [- true]], :definitions [], :application-count 4, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[< true] [loop true] [- true]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :all-terminal-arms]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{c}, :occurrences [[c false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:q :p}, :effects #{}}, :join {:status :ok, :obligations [[c false]]}} {:free-names #{c}, :occurrences [[c false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:q :p}, :effects #{}}, :join {:status :ok, :obligations [[c false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :all-tail-arms]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{g f}, :occurrences [[f true] [g true]], :definitions [], :application-count 3, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f true] [g true]]}} {:free-names #{g f}, :occurrences [[f true] [g true]], :definitions [], :application-count 3, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f true] [g true]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :define]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [[x false]], :application-count 0, :requirements {:store-keys #{x}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [[x false]], :application-count 0, :requirements {:store-keys #{x}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :define-call]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{+}, :occurrences [[+ false]], :definitions [[y false]], :application-count 1, :requirements {:store-keys #{y}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ false]]}} {:free-names #{+}, :occurrences [[+ false]], :definitions [[y false]], :application-count 1, :requirements {:store-keys #{y}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :streams]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{s}, :occurrences [[s false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{:stream/make :stream/cursor :stream/close :stream/next :stream/put}}, :join {:status :ok, :obligations [[s false]]}} {:free-names #{s}, :occurrences [[s false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{:stream/make :stream/cursor :stream/close :stream/next :stream/put}}, :join {:status :ok, :obligations [[s false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :stream-make-default]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{:stream/make}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{:stream/make}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :ffi-call]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{x}, :occurrences [[x false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{:op/echo}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[x false]]}} {:free-names #{x}, :occurrences [[x false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{:op/echo}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[x false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :ffi-call-no-args]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{:op/ping}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{:op/ping}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :gensym]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{list}, :occurrences [[list false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[list false]]}} {:free-names #{list}, :occurrences [[list false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[list false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :store-ops]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{vector}, :occurrences [[vector false]], :definitions [[k false] [:n false]], :application-count 1, :requirements {:store-keys #{7 :n k}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[vector false]]}} {:free-names #{vector}, :occurrences [[vector false]], :definitions [[k false] [:n false]], :application-count 1, :requirements {:store-keys #{7 :n k}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[vector false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :current-continuation]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{f}, :occurrences [[f false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false]]}} {:free-names #{f}, :occurrences [[f false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :park]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{x f}, :occurrences [[f false] [x false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [x false]]}} {:free-names #{x f}, :occurrences [[f false] [x false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [x false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :resume-body]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:p}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:p}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :resume-arm]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{c}, :occurrences [[c false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:p1}, :effects #{}}, :join {:status :ok, :obligations [[c false]]}} {:free-names #{c}, :occurrences [[c false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:p1}, :effects #{}}, :join {:status :ok, :obligations [[c false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :resume-operand]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{x y f}, :occurrences [[f false] [x false] [y false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:p}, :effects #{}}, :join {:status :ok, :obligations [[f false] [x false] [y false]]}} {:free-names #{x y f}, :occurrences [[f false] [x false] [y false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:p}, :effects #{}}, :join {:status :ok, :obligations [[f false] [x false] [y false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :resume-lambda-body]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:p}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:p}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :closure-in-arm-in-body]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :shared-occurrence]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{g +}, :occurrences [[+ false] [g false] [g false]], :definitions [], :application-count 3, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ false] [g false] [g false]]}} {:free-names #{g +}, :occurrences [[+ false] [g false] [g false]], :definitions [], :application-count 3, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ false] [g false] [g false]]}}))
+
+FAIL in (scanners-agree-on-the-register-corpus) (scan_test.cljc:132)
+[:register :define-then-call]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{n inc list}, :occurrences [[inc false] [n false] [list true]], :definitions [[n false]], :application-count 3, :requirements {:store-keys #{n}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[inc false] [list true]]}} {:free-names #{n inc list}, :occurrences [[inc false] [n false] [list true]], :definitions [[n false]], :application-count 3, :requirements {:store-keys #{n}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[inc false] [list true]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{+}, :occurrences [[+ false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ false]]}} {:free-names #{+}, :occurrences [[+ false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{-}, :occurrences [[- false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[- false]]}} {:free-names #{-}, :occurrences [[- false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[- false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{*}, :occurrences [[* false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[* false]]}} {:free-names #{*}, :occurrences [[* false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[* false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{/}, :occurrences [[/ false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[/ false]]}} {:free-names #{/}, :occurrences [[/ false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[/ false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{=}, :occurrences [[= false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[= false]]}} {:free-names #{=}, :occurrences [[= false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[= false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{=}, :occurrences [[= false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[= false]]}} {:free-names #{=}, :occurrences [[= false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[= false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{<}, :occurrences [[< false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[< false]]}} {:free-names #{<}, :occurrences [[< false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[< false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{>}, :occurrences [[> false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[> false]]}} {:free-names #{>}, :occurrences [[> false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[> false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{+}, :occurrences [[+ false] [+ false]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ false] [+ false]]}} {:free-names #{+}, :occurrences [[+ false] [+ false]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ false] [+ false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{<}, :occurrences [[< false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[< false]]}} {:free-names #{<}, :occurrences [[< false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[< false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{<}, :occurrences [[< false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[< false]]}} {:free-names #{<}, :occurrences [[< false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[< false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{+}, :occurrences [[+ true]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ true]]}} {:free-names #{+}, :occurrences [[+ true]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ true]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{*}, :occurrences [[* true]], :definitions [], :application-count 3, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[* true]]}} {:free-names #{*}, :occurrences [[* true]], :definitions [], :application-count 3, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[* true]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{first}, :occurrences [[first false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[first false]]}} {:free-names #{first}, :occurrences [[first false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[first false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{rest conj}, :occurrences [[conj false] [rest false]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[conj false] [rest false]]}} {:free-names #{rest conj}, :occurrences [[conj false] [rest false]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[conj false] [rest false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [[:parity/k false]], :application-count 0, :requirements {:store-keys #{:parity/k}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [[:parity/k false]], :application-count 0, :requirements {:store-keys #{:parity/k}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{:stream/make}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{:stream/make}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{n list}, :occurrences [[list false] [n false]], :definitions [[n false]], :application-count 1, :requirements {:store-keys #{n}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :refused, :reason :use-before-definition, :name n}} {:free-names #{n list}, :occurrences [[list false] [n false]], :definitions [[n false]], :application-count 1, :requirements {:store-keys #{n}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :refused, :reason :use-before-definition, :name n}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{x}, :occurrences [[x false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[x false]]}} {:free-names #{x}, :occurrences [[x false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[x false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{x y g f}, :occurrences [[f false] [g false] [x false] [y false]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [g false] [x false] [y false]]}} {:free-names #{x y g f}, :occurrences [[f false] [g false] [x false] [y false]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [g false] [x false] [y false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{f}, :occurrences [[f false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false]]}} {:free-names #{f}, :occurrences [[f false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{x y k g h f}, :occurrences [[f false] [g false] [h false] [x false] [k false] [y false]], :definitions [], :application-count 4, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [g false] [h false] [x false] [k false] [y false]]}} {:free-names #{x y k g h f}, :occurrences [[f false] [g false] [h false] [x false] [k false] [y false]], :definitions [], :application-count 4, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [g false] [h false] [x false] [k false] [y false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{+}, :occurrences [[+ true]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ true]]}} {:free-names #{+}, :occurrences [[+ true]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ true]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{+}, :occurrences [[+ true]], :definitions [], :application-count 3, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ true]]}} {:free-names #{+}, :occurrences [[+ true]], :definitions [], :application-count 3, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ true]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{c}, :occurrences [[c false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[c false]]}} {:free-names #{c}, :occurrences [[c false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[c false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{a c b}, :occurrences [[a false] [b false] [c false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[a false] [b false] [c false]]}} {:free-names #{a c b}, :occurrences [[a false] [b false] [c false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[a false] [b false] [c false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{y c f}, :occurrences [[f false] [c false] [y false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [c false] [y false]]}} {:free-names #{y c f}, :occurrences [[f false] [c false] [y false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [c false] [y false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{< - loop}, :occurrences [[< true] [loop true] [- true]], :definitions [], :application-count 4, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[< true] [loop true] [- true]]}} {:free-names #{< - loop}, :occurrences [[< true] [loop true] [- true]], :definitions [], :application-count 4, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[< true] [loop true] [- true]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{c}, :occurrences [[c false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:q :p}, :effects #{}}, :join {:status :ok, :obligations [[c false]]}} {:free-names #{c}, :occurrences [[c false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:q :p}, :effects #{}}, :join {:status :ok, :obligations [[c false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{g f}, :occurrences [[f true] [g true]], :definitions [], :application-count 3, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f true] [g true]]}} {:free-names #{g f}, :occurrences [[f true] [g true]], :definitions [], :application-count 3, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f true] [g true]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [[x false]], :application-count 0, :requirements {:store-keys #{x}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [[x false]], :application-count 0, :requirements {:store-keys #{x}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{+}, :occurrences [[+ false]], :definitions [[y false]], :application-count 1, :requirements {:store-keys #{y}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ false]]}} {:free-names #{+}, :occurrences [[+ false]], :definitions [[y false]], :application-count 1, :requirements {:store-keys #{y}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{s}, :occurrences [[s false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{:stream/make :stream/cursor :stream/close :stream/next :stream/put}}, :join {:status :ok, :obligations [[s false]]}} {:free-names #{s}, :occurrences [[s false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{:stream/make :stream/cursor :stream/close :stream/next :stream/put}}, :join {:status :ok, :obligations [[s false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{:stream/make}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{:stream/make}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{x}, :occurrences [[x false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{:op/echo}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[x false]]}} {:free-names #{x}, :occurrences [[x false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{:op/echo}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[x false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{:op/ping}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{:op/ping}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{list}, :occurrences [[list false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[list false]]}} {:free-names #{list}, :occurrences [[list false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[list false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{vector}, :occurrences [[vector false]], :definitions [[k false] [:n false]], :application-count 1, :requirements {:store-keys #{7 :n k}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[vector false]]}} {:free-names #{vector}, :occurrences [[vector false]], :definitions [[k false] [:n false]], :application-count 1, :requirements {:store-keys #{7 :n k}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[vector false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{f}, :occurrences [[f false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false]]}} {:free-names #{f}, :occurrences [[f false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{x f}, :occurrences [[f false] [x false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [x false]]}} {:free-names #{x f}, :occurrences [[f false] [x false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[f false] [x false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:p}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:p}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{c}, :occurrences [[c false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:p1}, :effects #{}}, :join {:status :ok, :obligations [[c false]]}} {:free-names #{c}, :occurrences [[c false]], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:p1}, :effects #{}}, :join {:status :ok, :obligations [[c false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{x y f}, :occurrences [[f false] [x false] [y false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:p}, :effects #{}}, :join {:status :ok, :obligations [[f false] [x false] [y false]]}} {:free-names #{x y f}, :occurrences [[f false] [x false] [y false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:p}, :effects #{}}, :join {:status :ok, :obligations [[f false] [x false] [y false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:p}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{:p}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{g +}, :occurrences [[+ false] [g false] [g false]], :definitions [], :application-count 3, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ false] [g false] [g false]]}} {:free-names #{g +}, :occurrences [[+ false] [g false] [g false]], :definitions [], :application-count 3, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ false] [g false] [g false]]}}))
+
+FAIL in (goldens-match) (scan_test.cljc:213)
+expected: (= (get-in goldens/scanner-goldens [group n]) (old-answer ast) (new-answer ast))
+  actual: (not (= nil {:free-names #{n inc list}, :occurrences [[inc false] [n false] [list true]], :definitions [[n false]], :application-count 3, :requirements {:store-keys #{n}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[inc false] [list true]]}} {:free-names #{n inc list}, :occurrences [[inc false] [n false] [list true]], :definitions [[n false]], :application-count 3, :requirements {:store-keys #{n}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[inc false] [list true]]}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "literal int"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "literal string"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "literal nil"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "literal vector"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "literal map"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "literal set"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "addition"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{+}, :occurrences [[+ false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ false]]}} {:free-names #{+}, :occurrences [[+ false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ false]]}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "subtraction"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{-}, :occurrences [[- false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[- false]]}} {:free-names #{-}, :occurrences [[- false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[- false]]}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "multiplication"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{*}, :occurrences [[* false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[* false]]}} {:free-names #{*}, :occurrences [[* false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[* false]]}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "division"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{/}, :occurrences [[/ false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[/ false]]}} {:free-names #{/}, :occurrences [[/ false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[/ false]]}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "equality true"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{=}, :occurrences [[= false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[= false]]}} {:free-names #{=}, :occurrences [[= false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[= false]]}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "equality false"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{=}, :occurrences [[= false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[= false]]}} {:free-names #{=}, :occurrences [[= false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[= false]]}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "less than"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{<}, :occurrences [[< false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[< false]]}} {:free-names #{<}, :occurrences [[< false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[< false]]}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "greater than"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{>}, :occurrences [[> false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[> false]]}} {:free-names #{>}, :occurrences [[> false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[> false]]}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "nested application"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{+}, :occurrences [[+ false] [+ false]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ false] [+ false]]}} {:free-names #{+}, :occurrences [[+ false] [+ false]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ false] [+ false]]}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "if true branch"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{<}, :occurrences [[< false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[< false]]}} {:free-names #{<}, :occurrences [[< false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[< false]]}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "if false branch"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{<}, :occurrences [[< false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[< false]]}} {:free-names #{<}, :occurrences [[< false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[< false]]}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "lambda application"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{+}, :occurrences [[+ true]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ true]]}} {:free-names #{+}, :occurrences [[+ true]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[+ true]]}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "closure value"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "arity-0 lambda"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "higher order"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{*}, :occurrences [[* true]], :definitions [], :application-count 3, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[* true]]}} {:free-names #{*}, :occurrences [[* true]], :definitions [], :application-count 3, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[* true]]}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "collection primitives"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{first}, :occurrences [[first false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[first false]]}} {:free-names #{first}, :occurrences [[first false]], :definitions [], :application-count 1, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[first false]]}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "conj onto rest"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{rest conj}, :occurrences [[conj false] [rest false]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[conj false] [rest false]]}} {:free-names #{rest conj}, :occurrences [[conj false] [rest false]], :definitions [], :application-count 2, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations [[conj false] [rest false]]}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "store put then get"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [[:parity/k false]], :application-count 0, :requirements {:store-keys #{:parity/k}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [[:parity/k false]], :application-count 0, :requirements {:store-keys #{:parity/k}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "gensym"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 "stream make"]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{:stream/make}}, :join {:status :ok, :obligations []}} {:free-names #{}, :occurrences [], :definitions [], :application-count 0, :requirements {:store-keys #{}, :ffi-ops #{}, :parked-ids #{}, :effects #{:stream/make}}, :join {:status :ok, :obligations []}}))
+
+FAIL in (scanners-agree-on-b0) (scan_test.cljc:132)
+[:b0 :use-before-definition]
+expected: (= (get-in goldens/scanner-goldens [group n]) old new)
+  actual: (not (= nil {:free-names #{n list}, :occurrences [[list false] [n false]], :definitions [[n false]], :application-count 1, :requirements {:store-keys #{n}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :refused, :reason :use-before-definition, :name n}} {:free-names #{n list}, :occurrences [[list false] [n false]], :definitions [[n false]], :application-count 1, :requirements {:store-keys #{n}, :ffi-ops #{}, :parked-ids #{}, :effects #{}}, :join {:status :refused, :reason :use-before-definition, :name n}}))
+
+Ran 9 tests containing 564 assertions.
+118 failures, 0 errors.

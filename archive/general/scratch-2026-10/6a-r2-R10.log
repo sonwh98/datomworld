@@ -1,0 +1,15 @@
+clojure -M:test -n yin.vm.semantic-register.frame-test -v yin.vm.semantic-register.frame-test/rule-boundaries-refuse-their-tamper
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.semantic-register.frame-test
+
+FAIL in (rule-boundaries-refuse-their-tamper) (frame_test.cljc:287)
+A5 before A6
+expected: (= expected (kind f c :wait task))
+  actual: (not (= :window-extra :window-missing))
+
+Ran 1 tests containing 9 assertions.
+1 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

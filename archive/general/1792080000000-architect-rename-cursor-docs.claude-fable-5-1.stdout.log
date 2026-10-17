@@ -1,0 +1,13 @@
+The rename is done and the report is written at `collab/1792080000000-architect-rename-cursor-docs.report.md`. Nothing staged or committed, no source or test touched.
+
+**What changed.** Nine files under `docs/design/` were edited, 248 insertions and 239 deletions. Every carrier mention of "cell" in the four named documents and five others that use the carrier's term now reads "cursor", with the tags, ids, envelope keys, refusal kinds and wire tags respelled per the table. A terminology note sits at the carrier's first use in the transport-tuples, UCF and continuation documents.
+
+**Remaining "cell" mentions, all justified.** The heap-box sites were kept or reverted after the mechanical pass: the UCF big-integer-in-heap-cell refusal, the v2 amendment's heap-cell payload rule, the evaluator's `:cell/new` effects and GC root, and the linker's scheduler-owned cell. One markdown table cell in the evaluator also stays. The rest are the new terminology notes quoting the old word.
+
+**Decisions to be aware of.**
+- The UCF document's historical body-version 0 to 2 grammar and the linker's reconciliation tables were renamed too, since they are live text. The report lists those hunks so they can be reverted if the owner wants the old grammar frozen.
+- Three code identifiers named in the documents now use the new spelling and the source must follow: the `cursor-body` helper, the `cursors-cref` slot, and the test var ending in `crosses-as-one-cursor`.
+
+**Pinned probes.** No document quotes a concrete root id, checksum or golden, so there was nothing to regenerate in the documents. The report lists the hashed tags that change and points the code owner at the test-suite pins the v2 amendment and continuation design refer to.
+
+One caveat: the host clock read 2026-10-11 18:09 GMT at completion, earlier than the brief's Created stamp, and the report records that discrepancy next to its Completed lines.

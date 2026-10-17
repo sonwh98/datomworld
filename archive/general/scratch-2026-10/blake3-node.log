@@ -1,0 +1,79 @@
+Loading initial Timbre config from: :default
+[:test] Compiling ...
+========= Running Tests =======================
+
+Testing yang.clojure.stream-eval-test
+SKIP slow test pure-expressions-and-let-bindings-evaluate-on-every-vm (set DATOM_SLOW_TESTS=1 to run)
+SKIP slow test every-vm-answers-the-same-stream-script (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yin.vm-test
+
+Testing yin.vm.attach-image-test
+
+Testing yin.vm.cell-test
+
+Testing yin.vm.continuation-invoke-test
+
+Testing yin.vm.data-test
+
+Testing yin.vm.debruijn-register-contract-test
+
+Testing yin.vm.debruijn-vm-contract-test
+
+Testing yin.vm.engine-test
+
+Testing yin.vm.host-typed-values-test
+
+Testing yin.vm.integer-test
+
+Testing yin.vm.linker-manifest-test
+
+Testing yin.vm.linker-require-test
+
+Testing yin.vm.linker-test
+SKIP slow test a-prelude-sized-module-publishes-under-default-bounds (set DATOM_SLOW_TESTS=1 to run)
+
+Testing yin.vm.parity-test
+
+Testing yin.vm.semantic-engine-test
+
+Testing yin.vm.semantic-register.derive-test
+
+Testing yin.vm.semantic-register.effects-test
+
+Testing yin.vm.semantic-register.link-test
+
+Testing yin.vm.semantic-register.parity-test
+
+Testing yin.vm.semantic-register.walker-trace-test
+
+Testing yin.vm.semantic-test
+
+Testing yin.vm.ucf.authority-test
+
+Testing yin.vm.ucf.handoff-test
+
+Testing yin.vm.ucf.handoff-v2-holder-test
+
+Testing yin.vm.ucf.holder.reader-test
+
+Ran 485 tests containing 8703 assertions.
+0 failures, 0 errors.
+===============================================
+[:test] Build completed. (252 files, 251 compiled, 1 warnings, 24.27s)
+
+[1m------ WARNING #1 - :ns-var-clash ----------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-blake3/src/cljc/yin/vm/linker/head.cljc:185:1
+--------------------------------------------------------------------------------
+[2m 182 | ;; The board and the deposit (5.1, 5.2, 5.4)[0m
+[2m 183 | ;; =============================================================================[0m
+[2m 184 | [0m
+[1m 185 | (defn board[0m
+-------^------------------------------------------------------------------------
+ [33;1mNamespace yin.vm.linker.head.board clashes with var yin.vm.linker.head/board[0m
+--------------------------------------------------------------------------------
+[2m 186 |   "A head board: a `dao.stream.ringbuffer` of capacity 1, the latest head[0m
+[2m 187 |    winning.  Answers the ring's handle, which a reader may be handed[0m
+[2m 188 |    directly."[0m
+[2m 189 |   [][0m
+--------------------------------------------------------------------------------

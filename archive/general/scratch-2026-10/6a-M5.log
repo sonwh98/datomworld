@@ -1,0 +1,13 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.semantic-register.frame-test
+
+FAIL in (worked-example-saved) (frame_test.cljc:196)
+expected: (nil? (kind worked-frame worked-code :wait task))
+  actual: (not (nil? :window-missing))
+
+Ran 1 tests containing 5 assertions.
+1 failures, 0 errors.

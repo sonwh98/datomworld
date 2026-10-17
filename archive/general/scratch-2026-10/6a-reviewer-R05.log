@@ -1,0 +1,14 @@
+clojure -M:test -n yin.vm.semantic-register.frame-test -v yin.vm.semantic-register.frame-test/tail-bookkeeping-and-delivery
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.semantic-register.frame-test
+
+FAIL in (tail-bookkeeping-and-delivery) (frame_test.cljc:274)
+expected: (= :parked-site (kind f code :parked (assoc task :parked-key :other :ffi-call-ids #{:call})))
+  actual: (not (= :parked-site nil))
+
+Ran 1 tests containing 4 assertions.
+1 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

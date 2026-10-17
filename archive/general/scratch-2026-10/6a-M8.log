@@ -1,0 +1,13 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (canonical-under-is-renaming-invariant) (rows_test.cljc:149)
+expected: (= :missing-stream-correspondence (:yin.k/kind (error (fn* [] (rows/canonical-under a #:lane-a{:s1 :s1})))))
+  actual: (not (= :missing-stream-correspondence nil))
+
+Ran 1 tests containing 3 assertions.
+1 failures, 0 errors.

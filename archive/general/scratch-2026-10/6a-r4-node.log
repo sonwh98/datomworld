@@ -1,0 +1,16 @@
+Loading initial Timbre config from: :default
+[:test] Compiling ...
+========= Running Tests =======================
+
+Testing yin.vm.parity-test
+
+Testing yin.vm.semantic-register.frame-test
+
+Testing yin.vm.semantic-register.parity-test
+
+Testing yin.vm.ucf.rows-test
+
+Ran 43 tests containing 818 assertions.
+0 failures, 0 errors.
+===============================================
+[:test] Build completed. (157 files, 4 compiled, 0 warnings, 58.74s)

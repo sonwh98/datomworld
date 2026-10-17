@@ -1,0 +1,14 @@
+clojure -M:test -n yin.vm.semantic-register.frame-test -v yin.vm.semantic-register.frame-test/first-defect-is-structural
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing yin.vm.semantic-register.frame-test
+
+FAIL in (first-defect-is-structural) (frame_test.cljc:224)
+expected: (= :k-shape (kind (assoc worked-frame :yin.k/k [nil] :yin.k/window nil) worked-code :wait task))
+  actual: (not (= :k-shape :window-representation))
+
+Ran 1 tests containing 1 assertions.
+1 failures, 0 errors.
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load

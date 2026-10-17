@@ -1,0 +1,129 @@
+Loading initial Timbre config from: :default
+[:test] Compiling ...
+========= Running Tests =======================
+
+Testing yin.vm.parity-test
+
+Testing yin.vm.semantic-register.analysis-test
+
+Testing yin.vm.semantic-register.code-test
+
+Testing yin.vm.semantic-register.effects-test
+
+Testing yin.vm.semantic-register.frame-test
+
+Testing yin.vm.semantic-register.linearize-test
+
+Testing yin.vm.semantic-register.link-test
+
+Testing yin.vm.semantic-register.load-paths-test
+
+Testing yin.vm.semantic-register.parity-test
+
+Testing yin.vm.semantic-register.vm-test
+
+Testing yin.vm.semantic-register.walker-trace-test
+
+Testing yin.vm.ucf-test
+
+Testing yin.vm.ucf.handoff-test
+
+Testing yin.vm.ucf.rows-test
+
+ERROR in (row-ids-are-jing-default) (Error:NaN:131)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #object[Error Error: No protocol method ICounted.-count defined for type object: 131,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,102,115,116,114,101,97,109,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,102,115,116,114,101,97,109,97,97,161,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,100,112,101,101,114,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,102,115,116,114,101,97,109,97,97]
+
+ERROR in (canonical-under-is-renaming-invariant) (Error:NaN:131)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #object[Error Error: No protocol method ICounted.-count defined for type object: 131,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,102,115,116,114,101,97,109,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,102,108,97,110,101,45,97,98,115,49,161,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,100,112,101,101,114,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,102,108,97,110,101,45,97,98,115,49]
+
+ERROR in (alias-topology-and-census) (yin/vm/ucf/rows_test.cljc:164:9)
+expected: (not= (:yin.k/root (rows/emit a)) (:yin.k/root (rows/emit b)))
+  actual: #object[Error Error: No protocol method ICounted.-count defined for type object: 131,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,102,115,116,114,101,97,109,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,97,115,161,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,100,112,101,101,114,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,97,115]
+
+ERROR in (alias-topology-and-census) (yin/vm/ucf/rows_test.cljc:165:9)
+expected: (not= (:yin.k/root (rows/emit a)) (:yin.k/root (rows/emit c)))
+  actual: #object[Error Error: No protocol method ICounted.-count defined for type object: 131,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,102,115,116,114,101,97,109,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,97,115,161,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,100,112,101,101,114,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,97,115]
+
+ERROR in (alias-topology-and-census) (Error:NaN:131)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #object[Error Error: No protocol method ICounted.-count defined for type object: 131,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,102,115,116,114,101,97,109,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,97,115,161,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,100,112,101,101,114,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,97,115]
+
+ERROR in (refinement-search-on-symmetric-cells-is-bounded) (Error:NaN:131)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #object[Error Error: No protocol method ICounted.-count defined for type object: 131,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,102,115,116,114,101,97,109,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,97,115,161,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,100,112,101,101,114,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,97,115]
+
+ERROR in (numbering-precedes-frame-defect) (Error:NaN:131)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #object[Error Error: No protocol method ICounted.-count defined for type object: 131,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,102,115,116,114,101,97,109,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,98,115,49,161,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,100,112,101,101,114,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,98,115,49]
+
+FAIL in (schema-and-literal-canonicality) (yin/vm/ucf/rows_test.cljc:219:9)
+expected: (= :extra-cell (:yin.k/kind (error (fn* [] (rows/decode (rows/emit (task-node [[:x body]] [:lit nil])))))))
+  actual: (not (= :extra-cell nil))
+
+FAIL in (schema-and-literal-canonicality) (yin/vm/ucf/rows_test.cljc:228:9)
+expected: (= :duplicate-key (:yin.k/kind (error (fn* [] (rows/decode (rows/emit (task-node [[:x body]] [:row (rows/node :set [[:row (rows/node :vec [[:cell :x] [:lit [1]]])] [:row (rows/node :vec [[:cell :x] [:lit (list 1)]])]])])))))))
+  actual: (not (= :duplicate-key nil))
+
+ERROR in (schema-and-literal-canonicality) (Error:NaN:131)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #object[Error Error: No protocol method ICounted.-count defined for type object: 131,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,102,115,116,114,101,97,109,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,97,115,161,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,100,112,101,101,114,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,97,115]
+
+ERROR in (child-scope-and-shared-child-dag) (Error:NaN:131)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #object[Error Error: No protocol method ICounted.-count defined for type object: 131,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,102,115,116,114,101,97,109,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,100,114,111,111,116,97,115,161,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,100,112,101,101,114,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,100,114,111,111,116,97,115]
+
+ERROR in (task-root-checks-carried-code-and-frame) (Error:NaN:131)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #object[Error Error: No protocol method ICounted.-count defined for type object: 131,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,102,115,116,114,101,97,109,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,97,115,161,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,100,112,101,101,114,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,97,115]
+
+ERROR in (unordered-containers-are-order-free) (yin/vm/ucf/rows_test.cljc:302:9)
+expected: (= (:yin.k/root (rows/emit a)) (:yin.k/root (rows/emit b)))
+  actual: #object[Error Error: No protocol method ICounted.-count defined for type object: 131,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,102,115,116,114,101,97,109,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,98,115,49,161,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,100,112,101,101,114,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,98,115,49]
+
+ERROR in (unordered-containers-are-order-free) (yin/vm/ucf/rows_test.cljc:303:9)
+expected: (= (:yin.k/root (rows/canonical-under (rows/emit a) ident)) (:yin.k/root (rows/canonical-under (rows/emit b) ident)))
+  actual: #object[Error Error: No protocol method ICounted.-count defined for type object: 131,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,102,115,116,114,101,97,109,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,98,115,49,161,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,100,112,101,101,114,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,98,115,49]
+
+ERROR in (canonical-roots-are-pinned) (yin/vm/ucf/rows_test.cljc:308:7)
+expected: (= :segment/blake3-be82d50b14804bb7a69103631b9c45759b49b67dbb3cebe75a1259fed6b4a937 (:yin.k/root (rows/emit (fixture :s1 :s2 :x :y))))
+  actual: #object[Error Error: No protocol method ICounted.-count defined for type object: 131,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,102,115,116,114,101,97,109,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,98,115,49,161,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,100,112,101,101,114,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,98,115,49]
+
+ERROR in (canonical-roots-are-pinned) (Error:NaN:131)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #object[Error Error: No protocol method ICounted.-count defined for type object: 131,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,102,115,116,114,101,97,109,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,97,115,161,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,100,112,101,101,114,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,97,115]
+
+ERROR in (census-is-numeric-from-ten-cells) (Error:NaN:131)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #object[Error Error: No protocol method ICounted.-count defined for type object: 131,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,102,115,116,114,101,97,109,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,97,115,161,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,100,112,101,101,114,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,97,115]
+
+ERROR in (cell-and-identity-shaped-literal-are-distinct) (Error:NaN:131)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: #object[Error Error: No protocol method ICounted.-count defined for type object: 131,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,102,115,116,114,101,97,109,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,97,115,161,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,100,112,101,101,114,216,27,130,112,100,97,111,46,106,105,110,103,47,107,101,121,119,111,114,100,130,246,97,115]
+
+FAIL in (intermediate-label-bytes-are-bounded) (yin/vm/ucf/rows_test.cljc:400:9)
+expected: (= :resource-limit (:yin.k/kind d))
+  actual: (not (= :resource-limit nil))
+
+FAIL in (intermediate-label-bytes-are-bounded) (yin/vm/ucf/rows_test.cljc:401:9)
+expected: (= [:label-bytes] (:yin.k/path d))
+  actual: (not (= [:label-bytes] nil))
+
+Testing yin.vm.ucf.safepoint-harness-test
+
+Ran 200 tests containing 4773 assertions.
+4 failures, 16 errors.
+===============================================
+[:test] Build completed. (178 files, 4 compiled, 0 warnings, 24.87s)

@@ -1,0 +1,17 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (well-formed-guest-markers-are-refused) (rows_test.cljc:356)
+expected: (= :yin.k/non-portable (:yin.k/status (error (fn* [] (rows/frame->rows (assoc ft/worked-frame :yin.k/window {1 v}))))))
+  actual: (not (= :yin.k/non-portable nil))
+
+FAIL in (well-formed-guest-markers-are-refused) (rows_test.cljc:356)
+expected: (= :yin.k/non-portable (:yin.k/status (error (fn* [] (rows/frame->rows (assoc ft/worked-frame :yin.k/window {1 v}))))))
+  actual: (not (= :yin.k/non-portable nil))
+
+Ran 1 tests containing 3 assertions.
+2 failures, 0 errors.

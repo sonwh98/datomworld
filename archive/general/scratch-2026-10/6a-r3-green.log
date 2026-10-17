@@ -1,0 +1,17 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.ucf.rows-test
+
+FAIL in (every-literal-context-refuses-markers) (rows_test.cljc:379)
+expected: (= :yin.k/non-portable (:yin.k/status (error (fn* [] (rows/decode (replace-row wire root (assoc (subvec row 1) (inc slot) payload)))))))
+  actual: (not (= :yin.k/non-portable nil))
+
+FAIL in (every-literal-context-refuses-markers) (rows_test.cljc:379)
+expected: (= :yin.k/non-portable (:yin.k/status (error (fn* [] (rows/decode (replace-row wire root (assoc (subvec row 1) (inc slot) payload)))))))
+  actual: (not (= :yin.k/non-portable nil))
+
+Ran 4 tests containing 23 assertions.
+2 failures, 0 errors.

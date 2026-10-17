@@ -1,0 +1,13 @@
+mise WARN  failed to write cache file: /Users/sto/Library/Caches/mise/android-sdk/23.0/exec_env_f9003207cf9e4d4c-6a722.msgpack.z Operation not permitted (os error 1)
+--- a/test/yin/vm/ucf/rows_test.cljc
++++ b/test/yin/vm/ucf/rows_test.cljc
+[036m@@ -408,7 +408,7 @@[0m
+         base (task-node [[:x (cell-body :s 0)]] [:lit large])
+         ;; Keep the census cell reachable so decode also validates the carrier.
+         reachable (rows/node :task (assoc (:slots base) 5
+[031m-                                         (rows/node :bindings ['cursor [:cell :x]])))[0m
+[032m+                                          (rows/node :bindings ['cursor [:cell :x]])))[0m
+         custody (rows/node :task (assoc (:slots reachable) 15 [:lit nil]))
+         custody (rows/node :task (assoc (:slots custody) 16 large))]
+     (is (nil? (error #(rows/emit base))))
+1 files formatted incorrectly

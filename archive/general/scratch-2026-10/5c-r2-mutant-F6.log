@@ -1,0 +1,78 @@
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+WARNING: load already refers to: #'clojure.core/load in namespace: yin.vm.encoder, being replaced by: #'yin.vm.encoder/load
+
+Testing yin.vm.linker-test
+
+FAIL in (semantic-register-format-refuses-a-malformed-vector) (linker_test.cljc:2104)
+:v4
+expected: (some? ((:row-defect-fn format) bad))
+  actual: (not (some? nil))
+
+FAIL in (semantic-register-format-refuses-a-malformed-vector) (linker_test.cljc:2105)
+:v4
+expected: (some? ((:validate-fn format) bad))
+  actual: (not (some? nil))
+
+ERROR in (semantic-register-format-refuses-a-malformed-vector) (scan.cljc:13)
+Uncaught exception, not in assertion.
+expected: nil
+  actual: clojure.lang.ExceptionInfo: Cannot scan malformed semantic register vector
+{:rule :target-bounds, :pc 0}
+ at yin.vm.semantic_register.scan$bodies.invokeStatic (scan.cljc:13)
+    yin.vm.semantic_register.scan$bodies.invoke (scan.cljc:10)
+    yin.vm.semantic_register.scan$free_occurrences.invokeStatic (scan.cljc:27)
+    yin.vm.semantic_register.scan$free_occurrences.invoke (scan.cljc:24)
+    yin.vm.linker$verify.invokeStatic (linker.cljc:1427)
+    yin.vm.linker$verify.invoke (linker.cljc:1380)
+    yin.vm.linker$verify.invokeStatic (linker.cljc:1403)
+    yin.vm.linker$verify.invoke (linker.cljc:1380)
+    yin.vm.linker_test$fn__21247$fn__21255.invoke (linker_test.cljc:2106)
+    yin.vm.linker_test$fn__21247.invokeStatic (linker_test.cljc:2101)
+    yin.vm.linker_test/fn (linker_test.cljc:2098)
+    clojure.test$test_var$fn__9898.invoke (test.clj:717)
+    clojure.test$test_var.invokeStatic (test.clj:717)
+    clojure.test$test_var.invoke (test.clj:708)
+    clojure.test$test_vars$fn__9924$fn__9929.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars$fn__9924.invoke (test.clj:735)
+    clojure.test$default_fixture.invokeStatic (test.clj:687)
+    clojure.test$default_fixture.invoke (test.clj:683)
+    clojure.test$test_vars.invokeStatic (test.clj:731)
+    clojure.test$test_all_vars.invokeStatic (test.clj:737)
+    clojure.test$test_ns.invokeStatic (test.clj:758)
+    clojure.test$test_ns.invoke (test.clj:743)
+    clojure.core$map$fn__5956.invoke (core.clj:2772)
+    clojure.lang.LazySeq.force (LazySeq.java:50)
+    clojure.lang.LazySeq.realize (LazySeq.java:87)
+    clojure.lang.LazySeq.seq (LazySeq.java:104)
+    clojure.lang.Cons.next (Cons.java:41)
+    clojure.lang.RT.boundedLength (RT.java:1810)
+    clojure.lang.RestFn.applyTo (RestFn.java:133)
+    clojure.core$apply.invokeStatic (core.clj:669)
+    clojure.test$run_tests.invokeStatic (test.clj:768)
+    clojure.test$run_tests.doInvoke (test.clj:768)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.core$apply.invoke (core.clj:662)
+    cognitect.test_runner$test.invokeStatic (test_runner.clj:74)
+    cognitect.test_runner$test.invoke (test_runner.clj:62)
+    cognitect.test_runner$_main.invokeStatic (test_runner.clj:127)
+    cognitect.test_runner$_main.doInvoke (test_runner.clj:115)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.core$apply.invokeStatic (core.clj:667)
+    clojure.main$main_opt.invokeStatic (main.clj:515)
+    clojure.main$main_opt.invoke (main.clj:511)
+    clojure.main$main.invokeStatic (main.clj:665)
+    clojure.main$main.doInvoke (main.clj:617)
+    clojure.lang.RestFn.applyTo (RestFn.java:140)
+    clojure.lang.Var.applyTo (Var.java:707)
+    clojure.main.main (main.java:40)
+
+Testing yin.vm.semantic-register.scan-test
+
+Ran 73 tests containing 1146 assertions.
+2 failures, 1 errors.
