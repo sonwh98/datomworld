@@ -417,7 +417,7 @@ and `:search`.
   occurrence counts; then the root walk of §1.2 with its queue, the tie
   test, the refusal and the totality assertion, as in the prototype's
   sections "budgets", "cell scans", "runs", "spelling" and "procedure"
-  (`archive/yin-vm/numbering-probe/src/probe/discovery.clj:84-520`), charging as
+  (`archive/yin-vm/numbering-probe/src/probe/discovery.clj:106-543`), charging as
   §1.5 says. The depth scan and the estimator are the only traversals
   that may meet unbounded nesting; both use an explicit stack of lazy
   element sequences, never the host stack, and charge each position
