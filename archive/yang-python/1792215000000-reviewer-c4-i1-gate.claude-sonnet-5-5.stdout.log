@@ -1,0 +1,40 @@
+Completed-GMT: 2026-10-16 20:10:00 GMT
+Completed-Local: 2026-10-17 03:10:00 +07 (+0700)
+
+I reviewed the diff by reading it and checking how `module-uast` is used. I did not re-run any suites, as instructed.
+
+**1. Install/deliver split: sound.**
+- `module-uast` (`safepoint.cljc:249-259`) now conj's `(require (quote py))` after the hook definitions. It is the last operand, so every `def!` still precedes every call, including the `require`. That keeps the sibling-read discharge intact.
+- The install defines hooks and requires `py` only. It never calls `py/init!`.
+- The docstring says the same.
+- `module-spec` derives its free names from `module-uast` (`safepoint.cljc:270-276`), and `:requires` is `{py py-address}` (`safepoint.cljc:~285`), so the require and its pin come from one source.
+- The new `pysp-manifest-address` golden (`cf017bd4…`) moves because the module tree changed. The test docstring records why.
+- The only evidence for the pin being consistent end to end is the manifest-address test and the test runs you already cited.
+
+**2. `safepoint.cljc`: no behavior change beyond the install path.**
+- The diff is one new operand and a rewritten docstring.
+- `module-definitions`, the exports and the hook bodies are untouched.
+- `module-exports` is unaffected because it reads `function-definitions`, not the operands.
+
+**3. New tests: mostly non-vacuous, with one gap.**
+- `hook-install-does-not-initialize-runtime` (`linked_safepoint_test.cljc:~277`) covers the "only installs sees no state" half. It asserts:
+  - the task halts and does not block;
+  - `(:heap task)` is empty;
+  - `py.rt/state` and every `prelude/runtime-keys` entry are `:py/uninit` in the `py` module store;
+  - the hook runtime keys are `:py/uninit` in the `pysp` store.
+- The second half checks that installing `pysp` after the consumer's `py/init!` and `modules-put!` leaves `task-marker` intact and `py/object-class` unchanged. That is a real preservation check.
+- The updated `module-uast` shape test pins the `require` as the last operand with `(dissoc … :tail?)`. It also excludes that operand from the `def-key` checks.
+- **Gap:** no test installs `pysp`, runs `py/init!` and then sees the handlers or cursor, which is the other half of your item 3. Delivery-then-init is only covered indirectly, through the existing linked hook suites.
+
+**4. Design doc +3: accurate.** It matches what landed: an eager require after the definitions, no `py/init!` call, and no hook state allocated. The sentence flows into the existing "the hooks reach the cells…" sentence without breaking it.
+
+**5. Scope: mostly tight.**
+- The `linked_prelude_test.cljc` addition (`runtime-belongs-to-consuming-task`, ~+33) tests `py/init!` idempotence and per-task module writes on the base prelude. It does not exercise the pysp change.
+- It does cover the 8.5.6 consuming-task-owns-state invariant, so it is defensible. It is also the only test that checks `py/init!` is idempotent.
+- The float goldens "re-minted unchanged" do not appear in the diff, which is consistent with them being unchanged.
+
+**Findings**
+- **Low** (`linked_safepoint_test.cljc`): add a delivery-then-init test (install `pysp`, then `py/init!`, then assert handlers or cursor are visible). This is non-blocking, and the existing linked hook suites cover the path indirectly.
+- **Nit** (`linked_prelude_test.cljc:~420`): the new test tests the base prelude, not the pysp change. Keep it, but mention its purpose in the commit body.
+
+Verdict: READY (sign-off granted)
