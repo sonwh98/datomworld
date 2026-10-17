@@ -1075,6 +1075,15 @@
                (and server (serve/moved? server)))))
 
 
+(defn prompt-owed?
+  "True when the operator is owed a fresh prompt after a tick: the tick
+   printed lines, or it consumed input that printed nothing (a silent
+   assignment), which only the input cursor's advance reveals."
+  [state state' lines]
+  (boolean (or (seq lines)
+               (not= (:input-cursor state) (:input-cursor state')))))
+
+
 (defn exit-status
   "The process status a host exits with once the shell stops: 1 when the
    DHT store refused after startup (a failed bind, a hydration that could
@@ -1267,7 +1276,7 @@
             (doseq [line lines]
               (println line))
             (if (:running? state')
-              (do (when (and (seq lines) (not headless?))
+              (do (when (and (not headless?) (prompt-owed? state state' lines))
                     (print-prompt!))
                   (let [{:keys [cadence-state sleep-ms]}
                         (cadence/cadence-step cadence
@@ -1409,7 +1418,8 @@
                                    (cadence/cadence-step
                                      cadence (moved? state' server' lines))]
                                (swap! box assoc :cadence cadence-state)
-                               (when (and (seq lines) rl) (.prompt rl))
+                               (when (and rl (prompt-owed? state state' lines))
+                                 (.prompt rl))
                                (wake/arm! @wake-ref sleep-ms))
 
                              (shutdown-enter? state' server')
@@ -1545,7 +1555,8 @@
                                    (cadence/cadence-step
                                      cadence (moved? state' server' lines))]
                                (swap! box assoc :cadence cadence-state)
-                               (when (and (seq lines) (not headless?))
+                               (when (and (not headless?)
+                                          (prompt-owed? state state' lines))
                                  (print-prompt!))
                                (wake/arm! @wake-ref sleep-ms))
 

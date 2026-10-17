@@ -279,6 +279,30 @@
            "the step owner exits; the reader is still parked in read-line"))))
 
 
+(deftest every-evaluated-submission-owes-a-prompt
+  (testing "a value, a silent submission, and an error each owe the prompt"
+    (let [owed (fn [state line]
+                 (when line (driver/submit-line! (:input state) line))
+                 (let [[state' _ lines] (repl/step-all state nil 1)]
+                   [state' (repl/prompt-owed? state state' lines) lines]))
+          state (repl/boot {})
+          [state value-owed? value-lines] (owed state "(+ 1 2)")
+          [state error-owed? error-lines] (owed state "(nosuchfn 1)")
+          [state idle-owed? idle-lines] (owed state nil)
+          [state blank-owed? blank-lines] (owed state "")
+          ;; An unfinished form consumes the line and prints nothing: the
+          ;; same shape as a silent assignment, with the main prompt returning.
+          [_ silent-owed? silent-lines] (owed state "(+ 1")]
+      (is (and value-owed? (seq value-lines)))
+      (is (and error-owed? (seq error-lines)))
+      (is (empty? silent-lines))
+      (is (true? silent-owed?) "a silent submission still owes the prompt")
+      (is (empty? blank-lines))
+      (is (true? blank-owed?) "a blank line is consumed input too")
+      (is (empty? idle-lines))
+      (is (false? idle-owed?) "an idle tick owes nothing"))))
+
+
 ;; =============================================================================
 ;; L4: the publisher's key file (docs/design/yin.vm.linker.dht.md 6.5)
 ;; =============================================================================
