@@ -1341,8 +1341,12 @@
                      ;; other, and the step owner has already exited the process
                      ;; by
                      ;; the time this join is reached in that case.
+                     ;; The join is unbounded: lines read before end-of-input
+                     ;; still evaluate ahead of its `(quit)`, and the step
+                     ;; owner bounds its own shutdown drain (`stop-ticks`)
+                     ;; and exits the process itself.
                      (read-loop! (:input state) w)
-                     (.join poller ^long stop-join-millis))))
+                     (.join poller))))
              (.halt (Runtime/getRuntime) 0)))))))
 
 
