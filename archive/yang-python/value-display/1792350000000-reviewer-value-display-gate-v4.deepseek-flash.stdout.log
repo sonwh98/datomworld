@@ -1,0 +1,47 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Completed-GMT: 2026-10-17 18:11:30 GMT
+Completed-Local: 2026-10-18 01:11:30 +0700 (+07)
+
+# value-display landing gate v4 — e5a32b72
+
+The r4 report named in the brief (`collab/1792330000000-engineer-value-display-r4.claude-sonnet-5-5.stdout.log`) is absent from the worktree and from a workspace-wide search. I therefore verified every claim mechanically against the tree rather than the report.
+
+## P1 — prelude-derived goldens: resolved, mechanically verified
+
+- **float_address_test** — ran the namespace: **12 tests / 105 assertions, 0 failures**. The five pins are the live values: bundled root `ff9b9c08…`, A `66fcac5f…`, A′ `f99d5e41…`, derivation record `e2db3e58…`, prelude-id `ea29e305…`. No hand-invented value.
+- **pysp manifest** — ran `pysp-manifest-address-test`: **1 test / 5 assertions, 0 failures**. `fa373f02…` is the live published address; it embeds the live py manifest `093fc404…`.
+- **py manifest / dht fixture** — `linked_prelude_test` **14/122 green** (incl. `runtime-keys` 70) and `dht-import-test` **4/98 green**. `dht-import-fixture` is the only reader of the edn, and only this test requires it.
+- **scanner `:py`** — computed `scan-test/new-answer` for all eight C4 groups and compared against the committed `scanner-goldens`: **all equal**, including definitions-vector ordering. `:py` moved 3957→**3968 applications** / 382 free names; **`:pysp` is 77→77 applications, 34→34 free names, unchanged**; `:t/:k/:m/:w/:e/:n` unchanged. The committed generator still has `deferred #{:pysp}`. This reproduces the claimed byte-identical generator outcome without running the writing generator.
+- **packets** — `precompiled-packets-are-the-parsers-test`: **1/11 green**; the new handcrafted packets (including the `even_squares` comprehension and `x = 1; x`) match the parser exactly.
+
+## P3 — stale docstrings: all five fixed
+
+1. `python_antlr_test.cljc:3-5` — now describes print-then-last-expression.
+2. `yin.repl.md:72-73` — rewritten with the three edges.
+3. `yin/repl.cljc:1888` — `:render` hook.
+4. `prelude.cljc:71, :3504, :3610-3611` — “four cells”, and `py.rt/value` added to the table and `runtime-keys`.
+5. `yang.typescript.md:63, :1108` — `:display :output` replaced by `:render`; the ASCII table remains 80 columns aligned and the prose is self-contained (no collab refs).
+
+Grep is clean for `:display`, “display policy”, “not the program's value”, and “three runtime cells”.
+
+## P3 — coverage: resolved
+
+All requested rows are in the shared `packets` map and exercised by `the-loop-prints-the-last-expression-value-test`: `x = 1; x`, assignment alone, `even_squares` (prints `[4, 16, 36, 64, 100]`), `None`, `1 + 2`, a string, `x = 1; x`, and assignment-after-display. Ran it: **1 test / 18 assertions** (9 rows × 2 `langs`), **0 failures**. `langs` includes the cst binding on every host, so cljs/cljd are covered by construction; the Node/Dart slow-lane result remains the stated pending landing condition.
+
+## P3 — semantic edges: recorded, accurately
+
+The C1 claim is correct: CPython 3.9.6 renders `repr('\x80')` as `'\x80'`; `render/string-repr` emits raw U+0080. The compound-statement edge is correctly characterized (CPython’s interactive compiler prints `4` for `if True: 2+2` and `0`,`1` for `for i in range(2): i`). Error-before-value ordering matches `run-form`/`finalize-eval`. Behavior is unchanged; only documentation was added.
+
+## Adversarial pass — no blocking defect
+
+- `display-statement` is sound: node `:id`s are validated to equal their index (never nil), so the `(= (:id n) (:display-id ctx))` test cannot wrap anything when display is off; multi-child `expr_stmt`s (assign/annassign/augassign) are excluded; compound bodies are excluded as documented.
+- `py.rt/value` is reset to `:py/None` at every `run-session`, so a failing submission cannot display a stale value — confirmed by `an-exception-keeps-the-session-test` (green).
+- No double print: `other-frontends-still-echo-their-value-test` green; only the Python ANTLR binding carries `:render`.
+- Non-blocking P3 notes: (a) provenance docstrings are inconsistent — `linked_safepoint_test` records the value-display move, but the two `float_address_test` docstrings, the `linked_prelude_test` py-manifest docstring, and the `scanner_goldens` ns docstring still stop at I6/I1; (b) `prelude.cljc`’s `py/run-session` comment “the value is run-main's” is now inaccurate (`run-session` returns `:py/value`, `run-main` does not); (c) `yang.typescript.md:1109` is 93 columns where the doc wraps near 72; (d) the C1 edge has no known-gaps ledger row (the brief allowed reporting it instead, but the report is missing).
+
+## Evidence run
+
+float_address **12/105**, linked_prelude **14/122**, pysp-manifest **1/5**, dht-import **4/98**, python-antlr acceptance **1/18**, parser packets **1/11**, error-order **1/2**, other-frontends **1/2**, e2e **44/768**, frontend-catalog **8/39**, lower-portable **5/19**, main **45/370** — all **0 failures, 0 errors**. kondo **0 errors / 0 warnings** on the changed clj/cljc files. Node/Dart lanes not run (orchestrator-run, pending). The missing r4 report is a process gap, not a code finding.
+
+Verdict: READY (sign-off granted)

@@ -181,7 +181,7 @@
              (disj (sexp-def-keys (get (into {} prelude/definitions)
                                        'py/init!))
                    'py.rt/state)))
-      (is (= 69 (count prelude/runtime-keys))))))
+      (is (= 70 (count prelude/runtime-keys))))))
 
 
 ;; =============================================================================
@@ -234,7 +234,7 @@
    regenerates this again for statement-time import delivery. I6 over
    landed I5 re-mints it through dht-import-v1.generate.clj."
   (keyword (str "segment/blake3-"
-                "1fa7f8fc13f58096d98412e5f5a307d5d25976c33e4d83cdc60c62b64d2b209f")))
+                "093fc4045c2c0b6ae740dd967e164d65b4319f4e09256419ae16ca81c88cf73b")))
 
 
 (def ^:private vector-formats

@@ -252,9 +252,10 @@
    the pinned py requirement again for statement-time import delivery.
    I6's reload runtime moves it once more (the hook prelude joins the
    move; both hosts mint fbd90016). The standalone hook install now
-   delivers its pinned base prelude after defining hooks."
+   delivers its pinned base prelude after defining hooks. The loop-level
+   value display (py/result!, py.rt/value) moves the py address again."
   (keyword (str "segment/blake3-"
-                "767d8a65d9c460dbeee5de3ecaf14a6c88178921d1b6928e4959733092093d01")))
+                "fa373f02a01ec41338f0a3084aba7adce4982387a10f39fd664bc9ef2618d2fc")))
 
 
 (defn- pysp-manifest-address

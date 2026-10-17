@@ -1932,7 +1932,8 @@
     "simple_stmt" (statement ctx n (lower ctx (first (kids ctx n))))
     "compound_stmt" (statement ctx n (lower ctx (first (kids ctx n))))
     "flow_stmt" (lower ctx (first (kids ctx n)))
-    "expr_stmt" (lower-expr-stmt ctx n)
+    "expr_stmt" (let [v (lower-expr-stmt ctx n)]
+                  (if (= (:id n) (:display-id ctx)) (app* 'py/result! v) v))
     "pass_stmt" none
     "break_stmt" (lower-flow ctx n)
     "continue_stmt" (lower-flow ctx n)
@@ -2008,11 +2009,30 @@
       b)))
 
 
+;; A bare expression statement carries one child; an assignment, an augmented
+;; assignment and an annotation carry more.
+(defn- display-statement
+  "The id of the last top-level bare expression statement of the module,
+   the one a REPL submission displays (Clojure's last expression evaluated;
+   an assignment is a statement and displays nothing), or nil."
+  [pk]
+  (let [expr-stmts (for [stmt (p/child-rules pk (p/root pk) "stmt")
+                         simple (p/child-rules pk
+                                               (first (p/children pk stmt))
+                                               "simple_stmt")
+                         :let [e (first (p/children pk simple))]
+                         :when (and (p/rule? e "expr_stmt")
+                                    (= 1 (count (p/children pk e))))]
+                     (:id e))]
+    (last expr-stmts)))
+
+
 (defn- context
-  [packet unit]
+  [packet unit display?]
   (let [pk (p/validate! packet)
         analysis (scope/analyze pk)]
     {:pk pk,
+     :display-id (when display? (display-statement pk)),
      :unit unit,
      :importlib-bindings (importlib-bindings pk),
      :lines (newline-lines pk),
@@ -2034,8 +2054,9 @@
    :package?}`, resolves its relative imports; nil (the default, as for
    `__main__`) is a packageless unit."
   ([packet] (lower-module-body packet nil))
-  ([packet unit]
-   (let [ctx (context packet unit)]
+  ([packet unit] (lower-module-body packet unit false))
+  ([packet unit display?]
+   (let [ctx (context packet unit display?)]
      (lower ctx (p/root (:pk ctx))))))
 
 

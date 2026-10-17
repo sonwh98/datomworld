@@ -58,7 +58,7 @@
    shell's own reader read, so its parse stage is the identity.  The Python
    ANTLR frontend is installed where its parser runs (the JVM); elsewhere
    selecting it answers `unavailable-parser`.  It shows what a submission
-   printed and not the program's value (`:display :output`)."
+   printed and the value rendered by its `:render` (Python repr)."
   []
   (cond-> frontend/empty-catalog
     true (frontend/install (manifest :yang.clojure/legacy :clojure)
@@ -76,7 +76,7 @@
                                           (str source "\n"))),
                                :lower python.antlr.repl/lower,
                                :lower-session python.antlr.repl/lower-session,
-                               :display :output,
+                               :render python.antlr.repl/display-value,
                                :probe python.antlr.probe/probe})])))
 
 
