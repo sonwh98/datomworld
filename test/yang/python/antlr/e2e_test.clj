@@ -28,6 +28,8 @@
             [yang.python.antlr.import-programs :as imports]
             [yang.python.antlr.safepoint-programs :as programs]
             [yang.safepoint :as safepoint]
+            [yin.repl :as repl]
+            [yin.repl.frontends :as frontends]
             [yin.vm :as vm]
             [yin.vm.data :as data]
             [yin.vm.encoder :as encoder]
@@ -302,6 +304,43 @@
 (deftest ^:slow arithmetic-and-print-test
   (every-vm= (prints "7 3.5" "-4")
              "print(1 + 2 * 3, 7 / 2)\nprint(-(2 + 2))\n"))
+
+
+(def ^:private even-squares-source
+  "even_squares = [x**2 for x in range(1, 11) if x % 2 == 0]")
+
+
+(deftest ^:slow filtered-range-comprehension-test
+  (testing "the owner's exact assignment, and the filter/power/loop bisect"
+    (every-vm= (prints "[4, 16, 36, 64, 100]"
+                       "[1, 4, 9, 16, 25, 36, 49, 64, 81, 100]"
+                       "[2, 4, 6, 8, 10]"
+                       "[4, 16, 36, 64, 100]")
+               (str even-squares-source "\n"
+                    "print(even_squares)\n"
+                    "print([x**2 for x in range(1, 11)])\n"
+                    "print([x for x in range(1, 11) if x % 2 == 0])\n"
+                    "out = []\n"
+                    "for x in range(1, 11):\n"
+                    "    if x % 2 == 0:\n"
+                    "        out.append(x**2)\n"
+                    "print(out)\n"))))
+
+
+(deftest ^:slow filtered-range-comprehension-repl-test
+  (testing "a fresh REPL indexes the bundled prelude, evaluates, and keeps the value"
+    (let [run (future
+                (let [[state _] (repl/eval-input
+                                  (frontends/create-state)
+                                  "(lang :yang.python/antlr)")
+                      [assigned text] (repl/eval-input state even-squares-source)
+                      [_ printed] (repl/eval-input assigned "print(even_squares)")]
+                  [(:frontend-session assigned) text printed]))]
+      (try
+        (is (= [:primed "" "[4, 16, 36, 64, 100]\n"]
+               (deref run 30000 ::timeout))
+            "the fresh REPL round must terminate within 30 seconds")
+        (finally (future-cancel run))))))
 
 
 (deftest ^:slow floats-are-tagged-test

@@ -263,7 +263,8 @@
   "The length of a host byte array."
   [bs]
   #?(:cljd (.-length ^Uint8List bs)
-     :default (alength bs)))
+     :clj (alength ^bytes bs)
+     :cljs (alength bs)))
 
 
 (defn- byte-at
