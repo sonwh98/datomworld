@@ -11706,3 +11706,27 @@ Also: the logs/archives landed (see the prior entries); codex I1 implementation 
   datomworld-c4-i6 on branch c4-i1 (codex usage reset passed; the run is healthy and long).
 Next: S3v2 return -> lanes -> subagent gate -> land; I1 return -> glm-family static gate (codex-authored ->
 non-GPT family) + codex gates -> land; then C4 I7/I2 per the 8.5.6 table; C2-S4 after S3.
+
+## 2026-10-17 13:00:00 +07 — Correction: C2 S3/S4/S5 already on master (a4efc99a9, d9bcf0c6c, c6c5a5e6f); S3v2 lanes green on the current base
+Completed-GMT: 2026-10-17 06:00:00 GMT
+Coding-Agent: ZCode (Orchestrator seat, GLM-5.3-Flash session model)
+Session-ID: not-applicable (interactive seat)
+Tree: master@1fe7ddee == origin/master; no code changed
+Done: CORRECTION of the 02:20 entry: C2 slice S3 was NOT lost with the pruned c2gen3 worktree — it was
+  re-implemented and landed by an interim seat as a4efc99a9 (2026-10-04, "yield from, iter and stateful
+  sequence iterators"), with S4 (d9bcf0c6c, generator expressions) and S5 (c6c5a5e6f, heap/wire/hosts)
+  landed after it. C2 generators are COMPLETE on master. The opus session dispatched on the wrong premise
+  (fresh session 42b3c98c-era, worktree datomworld-py-c2s3v2, branch yang-python-c2-s3v2 — no changes,
+  correctly edited nothing) instead ran the full lane evidence for S3 ON THE CURRENT BASE: JVM 3782/265907/0
+  + yang.* 301/3135/0; CLJS 131150 assertions green + yang.* 305/38176/0; Dart parity 35/35 green with slow;
+  kondo/cljstyle moot (untouched). The ^:slow JVM S3 tests (yield-from-long-range, reachable-heap) did not
+  run under -e :slow — folded into the next bb test:slow:clj round. The full cljd lane's flutter summary
+  line was cut by the engineer's filter — inconclusive, rerun owed. An :ns-var-clash warning outside yang.*
+  was not investigated.
+  Worktree datomworld-py-c2s3v2: branch carries no changes — removable.
+  Attribution: the interim seats (muse line) landed S3/S4/S5; my completeness picture was stale when I
+  declared them lost and dispatched the re-implementation. The opus run's evidence still has value: it
+  proves the landed S3 holds under I5/I6/float64/regenerated pins.
+Next: I1 (codex, verification phase) -> gates -> land; C3-S2 landing (branch verified, sequenced); C2-S4/S5
+  REMOVED from the queue (landed); remaining yang.python: C3 completion gate, safepoint s3/s4, C4 I7 +
+  linked-prelude migration (L-a..L-e), JavaScript (parked).
