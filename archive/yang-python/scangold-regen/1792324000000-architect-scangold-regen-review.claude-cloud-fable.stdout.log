@@ -1,0 +1,23 @@
+Completed-GMT: 2026-10-18 (session clock) / Completed-Local: 2026-10-18 +07
+
+Plan mode allowed no writes besides the plan file, so the review lives in that file and here. No collab report was written.
+
+**What I verified, all read-only.** The four hunks in the goldens file all sit under the `:pysp` key. A stdin dry run of the generator pipeline, with the final write removed, showed every live `:c4` answer equal to the committed pins, zero `:b0` or `:register` goldens moved, and the on-disk def form byte-identical to the pprint of the committed pins. The scan test namespace passed on the JVM.
+
+| Check | Result |
+|---|---|
+| scan-test (JVM, slow bodies included) | 12 tests, 716 assertions, 0 failures |
+| live `:pysp` answer | 77 applications, 34 free names, first occurrence `[require false]` |
+| on-disk form vs pprint of pins | byte-identical |
+
+**Findings**
+
+1. **Provenance is misattributed.** The cited safepoint commits s1 and s2 are both ancestors of the I6 regen, so they cannot explain the move. The only prelude or safepoint change after the regen is the C4 slice I1 commit aad451c5e, which appends a `require` of py to the hook module tree. The delta is exactly that change: one more application and one main-sequence free name, which is why it heads the occurrence and obligation lists. Nothing is unexplained. The landing commit message must cite aad451c5e.
+2. **The gate is sound.** The intended pins now reduce over the deferred set, so the gate and the write share one source of truth, and the untouched groups still abort on movement. Non-blocking note: the deferred set is a ratchet. Leaving `:py` and `:t` in it means a future unintended move of those groups is caught only by the scan test, not by the generator. Set it to exactly the groups expected to move on each run.
+3. **The pins are mechanical.** No hand edits.
+4. **Two provenance docstrings are stale.** The goldens namespace docstring and the generator header still describe only the `:py` and `:t` regeneration. Add the `:pysp` regeneration after C4 I1 in the landing commit.
+5. **The known-gaps row stays closed.** Its closure was accurate for the I4-a staleness. This recurrence is a process matter: slice I1 moved the prelude without running the generator, and the breakage is invisible to the fast JVM lane because the golden test is slow-tier. Add a one-line rule to the yang.python slice checklist that any slice touching the prelude, safepoint, lowering or import programs runs the generator in the same slice. Do not re-open the row per cycle.
+
+**Landing steps** are in the plan file: fix the two docstrings, commit with the corrected provenance, optionally narrow the deferred set, then run the fast JVM lane and the scan test namespace.
+
+Verdict: READY (sign-off granted)

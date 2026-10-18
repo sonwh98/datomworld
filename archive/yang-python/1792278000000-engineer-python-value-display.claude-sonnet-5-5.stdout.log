@@ -1,0 +1,35 @@
+Completed-GMT: 2026-10-17 (time not captured)
+Completed-Local: 2026-10-17
+
+The frontend now prints the value of a bare expression at the REPL, with CPython repr and None suppressed. `cljstyle check` was not run. The harness refused it as needing approval, so run it before landing.
+
+**Mechanism**
+- `lower.cljc`: `lower-module-body` takes an optional third argument `display?`. When it is true, the module's last top-level statement is marked if it is a bare expression statement. That includes the last `;`-separated statement on a line.
+- The marked statement lowers to a check: if the value is None it does nothing, otherwise it calls the existing `py/print` with a marker string followed by the value. The prelude is unchanged, so the pinned scanner goldens are unaffected.
+- `repl.cljc`: `lower-session` passes `display? = true`. `report` renders an entry that starts with the marker as `repr(value)` through the existing render layer, and renders every other entry as before.
+- `:display :output` in `frontends.cljc` is unchanged, since the value now arrives through the output path.
+
+**Counts**
+- `yin.repl.python-antlr-test` (slow selector): 11 tests, 98 assertions, 0 failures. I added a test `expression-values-display-test` to it.
+- `yang.python.antlr.e2e-test`: 42 tests, 714 assertions, 0 failures.
+- `clj -M:kondo` on the touched files: 0 errors, 0 warnings.
+
+**Cases covered by the new test**
+- `xs` prints `[4, 16]`.
+- `1+2` prints `3`.
+- `None` prints nothing.
+- `x = 5` prints nothing.
+- `y = 2; y` prints `2`.
+- `print(7)` prints `7`.
+- `'a'` prints `'a'`.
+
+The prompt-suppress regressions in the same files are still green.
+
+**Behavioral notes**
+- Only the last top-level statement of a submission displays, as in Jupyter. `y; z = 1` prints nothing. Your prompt was ambiguous between "last statement" and "last expression statement", so check this is the reading you wanted.
+- A user `print` whose first argument is the marker string `"\0display"` would be rendered as a display. That is practically unreachable, but it is a marker-in-band design.
+
+**Not done**
+- No Node/CLJS lane run: the ANTLR frontend is JVM-only, and `lower.cljc` and `repl.cljc` are portable but the display path isn't exercised on other hosts.
+- Nothing is staged or committed.
+- I did not run with `DATOM_SLOW_TESTS=1` set. The harness would not let me set that variable, and the JVM `:slow` selector ran the tests without it.

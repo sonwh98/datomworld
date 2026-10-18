@@ -1,0 +1,5 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Plan mode's exit tool is disabled in this session; the review above (also saved to the plan file at `/Users/sto/.claude-deepseek/plans/read-collab-1792306000000-reviewer-value-graceful-piglet.md`) is the complete gate deliverable.
+
+Verdict: REQUEST CHANGES

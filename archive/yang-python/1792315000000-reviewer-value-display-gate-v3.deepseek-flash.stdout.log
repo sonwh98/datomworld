@@ -1,0 +1,46 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Completed-GMT: 2026-10-17 16:18:50
+Completed-Local: 2026-10-17 23:18:50 +0700 (+07)
+
+Independent gate on the uncommitted diff vs HEAD `822e938a` (8 files). I did not re-run suites (per the brief); everything below is from the diff, the pinned goldens, the design docs' own conventions, and read-only CPython probes.
+
+## P1 — prelude-derived goldens were left stale; the default JVM lane and the slow lanes are red
+
+Adding `py/result!` to `core-definitions` (`src/cljc/yang/python/antlr/prelude.cljc:2518`) and `py.rt/value` to `init-form` (`prelude.cljc:3518`) changes `prelude/uast`, `prelude/module-uast` and the `py` manifest address. The diff re-pinned the py manifest (`test/yang/python/antlr/linked_prelude_test.cljc:236-237` → `093fc404…`; `test/resources/yang/python/dht-import-v1.edn:2`) but not its dependents. `docs/design/yang.antlr.md:3215-3222` states that every prelude change moves exactly these:
+
+- `test/yang/python/antlr/float_address_test.cljc:227-233` (bundled prelude root `2bc76b3c…`) and `:253-274` (A `e0a762bf…`, A′ `2de8098a…`, derivation record `8728d356…`, prelude-id `231cbc80…`). These two deftests are **not** `^:slow`, so bare `clj -M:test` fails.
+- `test/yang/python/antlr/linked_safepoint_test.cljc:243-253` — `pysp-manifest-golden cf017bd4…`; pysp's `requires` pins the py manifest address, which moved to `093fc404…`.
+- `test/yin/vm/semantic/scanner_goldens.cljc` — the `:c4 :py` entry (starts line 517): `:definitions` (4478), `:application-count` 3957 (4936) and requirements move; `grep '\[result!'` finds none. Regenerate with `test/resources/yin/vm/semantic/scanner-golden-c4.generate.clj`.
+
+None of these three namespaces appears in the brief's already-run evidence, so the reported lanes are green but the change is not landable. Run `bb test:changed` (or these namespaces with `DATOM_SLOW_TESTS=1`) and regenerate the pins.
+
+## P3 — stale-docstring fix half applied; new staleness introduced
+
+- `test/yin/repl/python_antlr_test.cljc:3-5` still says "the shell shows what a submission printed and not its value" (explicitly requested by the prior gate).
+- `src/cljc/yin/vm/docs/yin.repl.md:72-73` — "displays what the program prints, not the program's value."
+- `src/cljc/yin/repl.cljc:1888` — "the display policy" (now `:render`).
+- `src/cljc/yang/python/antlr/prelude.cljc:71`, `:3504`, `:3610-3611` — "three runtime cells"/"the three cells below"; there are now four (`ctx`, `limit`, `out`, `value`).
+- `docs/design/yang.typescript.md:63,1108` still specify the removed `:display :output` binding key; the loop ignores `:display` entirely.
+
+## P3 — committed coverage of the ruled acceptance is thin
+
+`test/yin/repl/python_antlr_test.cljc:130-138` covers a bare name, assignment silence and `print(x)` only. Missing: the owner's `even_squares` (the example only exercises an int; the engineer's r3 report itself says "The `even_squares` case itself is untested"), `None` alone, `1+2`, a string, semicolon submissions (`x = 1; x`), and a later assignment after the displayed expression. Adding rows to the shared `packets` map (`test:44-51`) would also cover cljs/cljd via `langs`.
+
+## P3 — semantic edges to record
+
+- **Compound statements:** `display-statement` (`lower.cljc:1983-1996`) scans only top-level `stmt → simple_stmts`, so a bare expression inside a top-level `if`/`for` displays nothing; CPython's interactive displayhook prints it (`if True: 2+2` → `4`; `for i in range(2): i` → `0`,`1`). Defensible under the r3 "last expression statement" mapping, but it should be documented.
+- **Value-after-error ordering:** for `x; z = 1/0` the marked `x` sets the value, then the later statement raises; `run-form` prints the error and returns the value (`yang/python/antlr/repl.cljc:66-71`), and `finalize-eval` appends the value after the error text (`yin/repl.cljc:1086-1091`). CPython prints the value before the traceback.
+- **repr escaping:** `render/string-repr` (`render.cljc:99-119`) escapes only code units < 32 and 127; a bare `'\x80'` now writes a raw C1 control character at the prompt (CPython: `'\x80'`). Pre-existing, now load-bearing for every submitted string.
+
+## Confirmed good
+
+- Capture is exact: only the last top-level bare `expr_stmt` is wrapped; assignments/annassign/augassign (multi-child) and compound bodies are excluded (`lower.cljc:1904-1905,1981-2028`); default `display?` false leaves `lower-packet`/guest modules and all lowering goldens untouched (only `repl.cljc:95` passes true).
+- None suppression is double-covered: evaluated None snapshots to nil; no marked statement leaves raw `:py/None`; `display-value` suppresses both (`repl.cljc:59-63`).
+- Loop print composes without double-printing: `finalize-eval` uses `:render` when present, `format-value` otherwise (`yin/repl.cljc:1079-1091`); Clojure/legacy Python/PHP are unchanged (`other-frontends-still-echo-their-value-test`); the parked-require path carries the hook (`1520-1540,1960-1962`).
+- Runtime cell: one cell at init, reset at each `run-session` (`prelude.cljc:3283`), returned as `:py/value` (`:3298`), snapshot data only → no heap/custody churn; digit policy matches print.
+- Marker removal is complete: `render.cljc` is unmodified vs HEAD and `report` has no sentinel branch.
+- main.cljc untouched; prompt-owed?/prompt-suppress and the c4hang poller join are unaffected (the `yin/repl.cljc` hunks are only `finalize-eval` and `lower-parsed`).
+- Cross-host is portable by inspection (`display-value`/`render/repr` are cljc; the shared-packet test covers cljs/cljd), though no Node/Dart lane was reported.
+
+Verdict: REQUEST CHANGES

@@ -1,0 +1,19 @@
+I wrote no code, because the S3–S5 scope is already in this branch's history. The brief looks stale. The cross-host and lint checks are not done, and I never got results for two of the four test namespaces.
+
+The existing work covers the brief's scope. It is spread across commits `dedff175`, `b5ee98dc`, `8eb80a01`, `828680f1`, `817ce365`, `73b213a9`, `c681ca24` and `b3ae5708`, which the repo labels C3 S2, S3-A/B/C, S4, M4, S6 and S7. The design doc §8.5.4 also lists them as landed. The brief's `exact_int_test.cljc` does not exist. The working tree was clean, and I changed and committed nothing.
+
+On the JVM:
+- **`int-literal-test`:** passed, 364 assertions.
+- **`int-ops-test`:** passed, 305 assertions.
+- **`int-conv-test` and `c3-gate-test`:** still running when I stopped waiting, so I have no result for either.
+- **Not run:** the Node and Dart lanes, `clj -M:kondo`, and the full `bb test:clj`.
+
+The report recommends not redispatching this as new implementation. If a gate is still wanted, run the two unfinished namespaces and the Node and Dart lanes on this branch. It also suggests checking whether the brief was meant for a different base commit.
+
+The report is at `collab/1791539670710-compiler-engineer-c3-bignum.claude-sonnet-5-5.findings.md`.
+
+The background run ended with exit code 1, and `int-conv-test` and `c3-gate-test` never printed a result. Most likely each hit my 280-second `timeout`, but I haven't confirmed that. They are still unverified, which is what the report already says.
+
+`int-literal-test` (364 assertions) and `int-ops-test` (305 assertions) passed. I made no code changes, so there's nothing to fix. The next step would be rerunning those two namespaces with a longer timeout, or through `bb test:clj`.
+
+That monitor expired with no events, which just means the watched test run had already ended. I didn't re-arm it. There's nothing new to report: the report file stands as written, and `int-conv-test` and `c3-gate-test` remain unverified.
