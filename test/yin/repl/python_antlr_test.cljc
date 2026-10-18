@@ -538,3 +538,22 @@
                   ["even_squares = [x**2 for x in range(1, 11) if x % 2 == 0]"
                    "x = 1"
                    "print(even_squares)"])))))
+
+
+(deftest compile-previews-the-submitted-form-not-the-prelude-test
+  (doseq [lang langs]
+    (testing (str lang)
+      (let [fresh (session lang)
+            [after text] (repl/eval-input fresh "(compile \"1 + 2\")")]
+        (is (str/starts-with? text "AST:"))
+        (is (< (count text) 200000) "a compact artifact, not the prelude dump")
+        (is (not (str/includes? text "py/init!")) "the prelude body is implicit")
+        (is (str/includes? text "py/run-session"))
+        (is (= (:frontend-session fresh) (:frontend-session after))
+            "the preview leaves the session unprimed")))))
+
+
+(deftest compile-error-path-test
+  (let [[_ text] (repl/eval-input (session :yang.python/antlr)
+                                  "(compile 1)")]
+    (is (str/starts-with? text "Error:"))))

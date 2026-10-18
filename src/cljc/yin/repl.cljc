@@ -1749,12 +1749,17 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
 
 
 (defn- compile-command-ast
+  "The AST `(compile ...)` previews.  It lowers against a primed frontend
+   session: a session-staged frontend carries its prelude only on the
+   session's first lowering, and the preview is of the submitted form, not
+   of the runtime it would run on.  The session itself is not touched."
   [state arg]
-  (cond
-    (string? arg) (compile-source state arg)
-    (forms-input? state) (compile-input state nil [arg])
-    :else (throw (ex-info "This compile command expects a source string"
-                          {:lang (:lang state) :arg arg}))))
+  (let [state (assoc state :frontend-session :primed)]
+    (cond
+      (string? arg) (compile-source state arg)
+      (forms-input? state) (compile-input state nil [arg])
+      :else (throw (ex-info "This compile command expects a source string"
+                            {:lang (:lang state) :arg arg})))))
 
 
 (defn- render-compile-output
