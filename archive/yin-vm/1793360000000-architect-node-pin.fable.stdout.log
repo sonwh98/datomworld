@@ -1,0 +1,28 @@
+Report written to `collab/1793370000000-architect-node-pin.report.md`, ending RULING-READY.
+
+**Verdict: test defect, no src change.** The merge to master is unaffected.
+
+**Root cause.** The throw does not come from the first testing block. It comes from the second, cljs-only block in `test/yin/vm/semantic/load_paths_test.cljc` at lines 28 to 34. That block's `let` calls `linearize/project` on a bare `1e20` outside the `thrown-with-msg?` assertion. The block's docstring assumes projection accepts the value and only the load refuses it. That is false for the row lane:
+
+- `ast->semantic-bytecode` mints every row id with `jing/segment-key`, which CBOR-encodes the row body, literal value included.
+- On JS, `1e20` is a bare integral Number that is not a safe integer, so the encoder refuses it with the exact message in the Node log.
+- So the row lane refuses at projection time, before `load-image` runs, and the exception escapes the `let`.
+
+**The float64 pin itself is sound on every host.** The `Float64` carrier passes through `strip-reader-positions` untouched, through `ast->datoms` and `index-datoms` unchanged, is accepted by `plain-data?`, and both lanes encode it as tag 27, so the pinned BLAKE3 address holds on JS. Candidates (a), (b) and (c) in the brief are all ruled out. Production datom ingestion of Python float literals is not at risk.
+
+**Fix for codex.** Replace the cljs block so the projection call sits inside the assertion, and pin both lanes:
+
+```clojure
+  #?(:cljs
+     (testing "a bare integral JavaScript Number past 2^53 is not content:
+               neither lane mints an address for it"
+       (let [ast (corpus/tail (corpus/lit 1e20))]
+         (is (thrown-with-msg? js/Error #"unsafe integral JavaScript number"
+               (load-image (:vector (linearize/project ast)))))
+         (is (thrown-with-msg? js/Error #"unsafe integral JavaScript number"
+               (load-image (:vector (linearize/project-datoms
+                                      (vm/ast->datoms ast))))))))
+     :default nil))
+```
+
+Expected Node result after the fix: 55 tests, 0 failures, 0 errors, one more assertion than before. Node was not run here, per the brief. The diagnosis is from code with file and line citations in the report, and the log message is matched to the encoder's refusal text.
