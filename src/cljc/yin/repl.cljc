@@ -270,10 +270,15 @@
 
 (def host-text
   "One line naming the runtime: JVM and Node carry their version, Dart only
-   the platform (cljd exposes no version without a dart:io dependency)."
+   the platform (cljd exposes no version without a dart:io dependency).
+   The cljs branch must stay load-safe in a browser — the demo build links
+   this namespace and has no `process` global — so it probes `js/process`
+   and names a browser honestly."
   (str "Host: "
        #?(:clj (str "JVM " (System/getProperty "java.version"))
-          :cljs (str "Node " (.-version js/process))
+          :cljs (if (exists? js/process)
+                  (str "Node " (.-version js/process))
+                  "Browser")
           :cljd "Dart")))
 
 
