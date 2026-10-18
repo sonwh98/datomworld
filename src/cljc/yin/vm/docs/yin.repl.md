@@ -63,11 +63,11 @@ yin> print("hello")
 hello
 ```
 
-Selection forms: a language keyword selects the one frontend installed for
-that language (`(lang :python)` picks the ANTLR frontend), a qualified id
-names a frontend exactly, and `[id revision]` pins a revision. Selecting a
-frontend the catalog does not hold answers
-`Error: unavailable-parser: ...`; there is no fallback to another
+Selection forms: only a qualified id names a frontend exactly
+(`(lang :yang/python)`), and `[id revision]` pins a revision; a language
+keyword is not a selector — `(lang :python)` answers
+`Error: unavailable-parser: ...`. Selecting a frontend the catalog does
+not hold answers the same error; there is no fallback to another
 frontend.
 
 The ANTLR frontend displays what the program prints, then the value of the

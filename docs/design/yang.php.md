@@ -22,10 +22,15 @@ names what its rejection would reopen.
 
 ## 1. Scope
 
-A new ANTLR frontend, `:yang.php/antlr` (language `:php`), replaces the legacy
-`:yang.php/legacy` frontend (section 5). It compiles PHP 8.3 source, including
+A new ANTLR frontend replaces the current PHP compiler frontend (section 5).
+It compiles PHP 8.3 source, including
 mixed HTML text, to the Universal AST, and runs one request as one task
-reading an explicit request record.
+reading an explicit request record. The frontend id is `:yang/php` either
+way — the one-frontend-per-language scheme (2026-10-18; the id was
+`:yang.php/legacy` before the legacy suffix was retired) leaves no room
+for implementation-suffixed ids, so the ANTLR frontend lands as a new
+revision of `:yang/php`, its implementation named by the manifest's
+revision and profile keys; the final naming at acceptance is the owner's.
 
 The design claims a specified fragment, not Zend fidelity: the transition
 table of section 4 and the behaviour of the slices of section 15, each pinned
@@ -1288,8 +1293,10 @@ lambdas with cells, which also makes safepoints and tail marks work.
 
 Migration mechanics (the F2 pattern):
 
-- `:yang.php/antlr` is installed beside `:yang.php/legacy` in
-  `yin.repl.frontends/standard`, with no fallback.
+- The ANTLR frontend is installed in `yin.repl.frontends/standard` as a
+  new revision of `:yang/php` (the compiler frontend keeps its revision
+  during the migration window; `[id revision]` pins either), with no
+  fallback.
 - Every program in `test/yang/php_test.clj` is re-expressed in the new corpus,
   with expectations corrected where the legacy was wrong (`null` is
   `:php/null`, not `nil`).
@@ -1303,9 +1310,10 @@ Migration mechanics (the F2 pattern):
   the demo is dropped, or routed to a configured parser service when one
   exists (owner decision B8.9). `src/dev/subsystems.edn` is a one-line
   retarget.
-- `:yang.php/legacy` retires at P8 (file deleted, no shim; the repository has
-  no backward-compatibility obligation) once the demo retarget has landed and
-  the corpus covers the legacy programs (owner decision B8.6).
+- The compiler revision of `:yang/php` retires at P8 (implementation
+  deleted, no shim; the repository has no backward-compatibility
+  obligation) once the demo retarget has landed and the corpus covers the
+  compiler's programs (owner decision B8.6).
 
 What stays refused after migration: `goto`; return by reference (corner C7);
 `declare(encoding)`; `__halt_compiler`; `eval` until its slice; `$$` and
@@ -1962,7 +1970,7 @@ claimed row's fixtures must equal the oracle before its slice lands (section
 |       | packets,                         | expectations; the demo runs its   |
 |       | `src/dev/subsystems.edn`         | samples parserless in the         |
 |       | retargeted, `yang/php.cljc`      | browser; no reference to the      |
-|       | deleted, `:yang.php/legacy`      | legacy `yang.php` namespace       |
+|       | deleted, the compiler revision   | legacy `yang.php` namespace       |
 |       | removed from the standard        | remains                           |
 |       | catalog                          |                                   |
 +-------+----------------------------------+-----------------------------------+
@@ -2210,8 +2218,8 @@ From the converged text; the labels are the loop's (B8.n).
    cheap.
 5. (B8.5) The deterministic safepoint budget as the `max_execution_time`
    stand-in (recommended) versus refusing the ini.
-6. (B8.6) Replace and delete the legacy frontend at P8 (recommended) versus
-   keeping `:yang.php/legacy` installed until a later date.
+6. (B8.6) Replace and delete the compiler frontend at P8 (recommended) versus
+   keeping the compiler revision of `:yang/php` installed until a later date.
 7. (B8.7) The autoload class-map rule (recommended) versus refusing
    `spl_autoload_register` in Phase 3.
 8. (B8.8, final) The exact engine model of section 4 for the specified
