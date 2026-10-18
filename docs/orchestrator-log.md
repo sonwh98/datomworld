@@ -12032,3 +12032,23 @@ The C3 exact-integer phase is COMPLETE: S0-S7 landed, the completion gate signed
   carries her five close-out edits (the report archived, the doc fix, the two rows, the race note).
 Next: the (compile ...) investigation slice (the new P2 gap), the F1/F2 diagnosis slices, safepoint
   s4 (threads), C4 I7; ADR 0004 (owner-gated).
+## 2026-10-18 20:5x +07 — the (compile ...) P2 gap CLOSED (fc2e5d19); three root causes, three hosts
+The known-gap the M3 round refused to mask: (compile "1 + 2") under :yang.python/antlr — the JVM
+  dumped the whole prelude (24.8M chars), Node/Dart returned "". Three causes, three fixes:
+  b8dbeabf — the preview lowered against the shell's nil frontend-session, embedding the whole
+  prelude and rendering it four times (now lowered :primed, the real session untouched);
+  dbe1d14b — on Node, first-failure's NVA branch read the FILLED-to-EOF JS token buffer as the
+  failure point → every NVA classified :end → the completeness probe said :incomplete → the line
+  parked as pending input and the compile command NEVER RAN (the "" symptom); the listener's
+  offending token now decides. fbfb82b6 — my mirror for Dart after reading the identical sibling
+  (cst.cljd) and the Dart lane failing exactly the two compile tests. Evidence: JVM 21/194/0,
+  Node 21/70/0 (was 3 failures), Dart 4039 all passed (was 2 failures). The deepseek gate: READY,
+  both symptoms closed at root causes; its landing P3s applied (the JVM lazy-fill docstring
+  corrected, the row closed with the evidence). Candidate follow-up recorded in the row: the
+  contract test is a proxy — a submitted-content assertion + a host-neutral :incomplete probe test.
+Process notes: the round-1 engineer correctly stopped when the sandbox denied its build commands
+  (the fresh worktree lacked mise/npm setup) — the orchestrator now provisions worktrees BEFORE
+  dispatch; my round-2 dispatch lost its brief to the main tree's collab/ (the cp ran before the cd)
+  and the engineer correctly refused to guess — re-dispatched with the brief in place.
+Next: the F1 (dht-import :importers) and F2 (vm-rebuild :register/:semantic) diagnosis slices; the
+  compile-contract test hardening; safepoint s4 (threads); C4 I7; ADR 0004 (owner-gated).
