@@ -80,11 +80,11 @@ the error text, where CPython prints it before the traceback; and string
 `repr` escapes only code units below 32 and 127, so a raw C1 control such
 as `'\x80'` reaches the prompt unescaped. The frontend also keeps a frontend session across submissions (cleared with
 the VM, as with `(reset)` and `(vm ...)`). The generated parser must exist
-before the JVM REPL starts: `yin.repl.frontends` loads the parser
-namespace on the JVM, so on a fresh clone run `clj -M:antlr-gen` once, or
-REPL startup itself fails with class-not-found. The legacy Python
-frontend has no parser dependency and runs on every host, but it is the
-old hand-written frontend, not the ANTLR pipeline.
+before the REPL starts: `yin.repl.frontends` loads the parser namespace, so
+on a fresh clone run `bb gen:antlr` (or `clj -M:antlr-gen` for the JVM) once,
+or startup fails with class-not-found. The ANTLR frontend is the only Python
+frontend; the catalog is Clojure (default), PHP, and `:yang.python/antlr`,
+each on every host.
 
 ## Saved state
 

@@ -3080,7 +3080,10 @@ realizes sections 3.3 and 3.6 for the REPL:
   `:yang.python/legacy` registration are deleted. The standard catalog is
   `:yang.clojure/legacy` (`:clojure`), `:yang.php/legacy` (`:php`) and
   `:yang.python/antlr` (`:python`, revision f4, every host), so
-  `(lang :python)` selects the ANTLR frontend.) Selecting a frontend
+  `(lang :python)` selects the ANTLR frontend. Capability loss: the
+  legacy frontend could call Clojure macros and functions in the same
+  session; the ANTLR frontend cannot until the section 8.10 ABI, because
+  a Python name missing from the module dict raises `NameError`.) Selecting a frontend
   answers unavailable-parser only when neither a local parser nor an explicitly configured service is
   available, on any host (section 4.1).
 - Support claims derive from explicit semantic and runtime declarations
@@ -3187,7 +3190,8 @@ Linker prerequisites, the linker seat's to build:
 +-------+----------------------------------------------------------------------+
 | P3    | `pysp` linked, `attach!`                                             |
 +-------+----------------------------------------------------------------------+
-| F3    | The Python ANTLR frontend in the catalog (JVM); persistent           |
+| F3    | The Python ANTLR frontend in the catalog (every host, amended        |
+|       | 2026-10-17); persistent                                              |
 |       | `__main__`; needs P2                                                 |
 +-------+----------------------------------------------------------------------+
 | I1    | Static absolute imports of single modules, `py/import`, module       |
@@ -3995,8 +3999,9 @@ Exit criteria:
   arity behavior pass.
 - Unsupported constructs produce stable diagnostics.
 - Different chunk boundaries yield identical semantic output.
-- The legacy Python frontend remains selectable until the replacement
-  profile passes its migration gate.
+- The legacy Python frontend remained selectable until the replacement
+  profile passed its migration gate (satisfied 2026-10-18; the legacy
+  frontend is deleted).
 
 ### Phase 2: Java static and class-based pilot
 

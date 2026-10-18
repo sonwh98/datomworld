@@ -1519,7 +1519,7 @@ evaluation, a real checker.
 
 ## 17. The yang.core lift enumeration
 
-What TypeScript pulls from `yang.python` into shared namespaces (lifts L1 to
+What TypeScript pulls from `yang.python.antlr` into shared namespaces (lifts L1 to
 L4; PHP uses the same namespaces):
 
 - `yang.core.prelude`: the emitter machinery (define, strip, placeholder, wide

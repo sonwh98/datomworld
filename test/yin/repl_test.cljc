@@ -725,6 +725,12 @@
         (is (= ["1" "42" "5"] (rest texts)))))))
 
 
+(deftest a-python-submission-cannot-see-a-clojure-defined-name
+  (let [[state _] (evaluate (repl.frontends/create-state) ["(def clj_only 41)"])
+        [_ texts] (results state ["(lang :python)" "print(clj_only)"])]
+    (is (= "NameError: name 'clj_only' is not defined\n" (nth texts 1)))))
+
+
 (deftest a-host-function-renders-as-a-named-portable-marker
   (doseq [vm-type (keys repl/vm-constructors)]
     (testing (str vm-type)
