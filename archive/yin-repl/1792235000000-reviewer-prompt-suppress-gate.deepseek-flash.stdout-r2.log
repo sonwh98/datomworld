@@ -1,0 +1,20 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Completed-GMT: 2026-10-17 11:41:56 GMT
+Completed-Local: 2026-10-17 18:41:56 +0700
+
+# Gate: prompt-owed? — Round 2
+
+All four items verified against the diff.
+
+**1 — Silent submission is now genuinely silent.** `main_test.cljc:290` submits `"(+ 1"`, an unfinished form: `eval-input` retains it as `:pending-input` and answers `""` (`repl.cljc:2097-2100`), and `drain-input` has already advanced the cursor. So `silent-lines` is empty and `prompt-owed?` is true *via the cursor disjunct alone* (`main.cljc:1084`). The pair `(empty? silent-lines)` / `(true? silent-owed?)` at `main_test.cljc:295-296` now actually discriminates the fix — the prior `(def quiet 1)` gap is closed. It correctly drops the earlier unused `value-lines`/`error-lines` threading bug too (`owed` returns `state'` first in the vector, so the successive `state` rebindings feed forward correctly, with the `:pending-input`-retaining `(+ 1` case last).
+
+**2 — All three hosts wired.** `run-node!` (`main.cljc:1417`) and `run-dart!` (`main.cljc:1553`) now call `prompt-owed?`; both have the pre-step `state` and post-step `state'` in scope. The `rl`/`not headless?` guards are retained as the headless proxy, and `prompt-owed?` is side-effect-free so calling it headless is harmless. No divergence remains.
+
+**3 — Idle-tick guarantee pinned.** The `owed` helper now guards `(when line …)`, so `(owed state nil)` at `main_test.cljc:287` performs a no-submission `step-all`: `drain-input` hits `:blocked` without moving the cursor (`driver.cljc:157-158`) and produces no lines, so `prompt-owed?` is false. Asserted `(empty? idle-lines)` / `(false? idle-owed?)` at `main_test.cljc:299-300`.
+
+**4 — Incomplete input reprints the main prompt.** This is the `(+ 1` case itself, now intentional and pinned, matching the predicate's "input consumed ⇒ feedback owed" contract. No continuation prompt exists, so one `yin> ` per tick is the correct and consistent outcome.
+
+Nothing unrelated in the diff (one helper, three call sites, one deftest). The cursor-disjunct soundness, no-double-prompt, and c4hang non-interaction conclusions from Round 1 stand unchanged.
+
+Verdict: READY (sign-off granted)

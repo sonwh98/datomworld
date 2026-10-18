@@ -1,0 +1,23 @@
+Completed-GMT: 2026-10-17 UTC (exact clock not read)
+Completed-Local: 2026-10-17 +0700 (exact clock not read)
+
+I fixed the prompt defect, but the focused slow e2e lanes and `cljstyle` were never run, because the sandbox blocked those commands.
+
+**Root cause:** `poll-loop!` (`src/cljc/yin/repl/main.cljc`, ~1270) printed the prompt only when a tick produced output lines. A silent assignment evaluates to blank text, and `driver/publish` drops blank text. So the tick had no lines and the prompt was never re-printed.
+
+**Fix:** I added `prompt-owed?` to `main.cljc`. It is true when the tick printed lines or when the driver's `:input-cursor` advanced, meaning input was consumed even with nothing to print. `poll-loop!` now calls it, still guarded by `(not headless?)`.
+
+**Behavioral notes:**
+- **Unchanged output paths:** The prompt is still printed once per tick, and flush behavior goes through the same `print-prompt!`. TTY and piped stdout behave the same.
+- **Blank lines:** Entering a blank line now also re-prompts, because it consumes input too. This is new and I think it's the right behavior, but it is a visible change.
+
+**Tests:**
+- **Regression test:** I added `every-evaluated-submission-owes-a-prompt` in `test/yin/repl/main_test.cljc`. It runs on the JVM and cljs hosts (not cljd). It drives `step-all` from a fresh `boot` and checks that a value, a `def` and an error each owe the prompt. It also covers a blank line, a synthetic silent tick (no lines, cursor advanced), and an idle tick, which owes nothing.
+- **Counts:** `yin.repl.main-test` ran 45 tests with 366 assertions, 0 failures, 0 errors. The Dart-peer test skipped because `build/yin-repl-peer` is absent.
+- **kondo:** `clj -M:kondo` reports 0 errors, 0 warnings on `main.cljc` and `main_test.cljc`.
+
+**Incomplete:**
+- **Python silent-assignment test:** The test doesn't use the Python frontend. In Clojure, `(def x 1)` prints `1`, so I couldn't get a naturally silent real submission. The Python `even_squares = [...]` case is covered only by the synthetic silent-tick assertion. `filtered-range-comprehension-*` were not re-run.
+- **Slow lanes not run:** `DATOM_SLOW_TESTS=1 clojure -M:test -i :slow -n yang.python.antlr.e2e-test -n yang.python.antlr.e2e-c2-test` needs approval for the env-var prefix. The change doesn't touch the Python or e2e code paths.
+- **cljstyle not run:** `cljstyle fix` was blocked, so formatting is unchecked.
+- **Nothing staged or committed.** I tried an extra e2e test and reverted it, so `e2e_test.clj` is unchanged.

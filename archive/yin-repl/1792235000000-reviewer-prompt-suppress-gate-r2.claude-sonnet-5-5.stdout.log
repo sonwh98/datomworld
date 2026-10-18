@@ -1,0 +1,25 @@
+Round 2 is done in the same uncommitted diff, except that `cljstyle` was blocked and still hasn't run.
+
+Completed-GMT: 2026-10-17 UTC (exact clock not read)
+Completed-Local: 2026-10-17 +0700 (exact clock not read)
+
+I couldn't read the deepseek findings file. `/Users/sto/workspace/datomworld/collab/1792235000000-reviewer-prompt-suppress-gate.deepseek-flash.findings.md` does not exist at that path, so I worked from your four numbered points.
+
+1. **Silent case:** The regression test `every-evaluated-submission-owes-a-prompt` in `test/yin/repl/main_test.cljc` now uses a genuinely silent submission. An unfinished form, `"(+ 1"`, consumes the line and prints nothing. The test asserts `(empty? silent-lines)` and `(true? (prompt-owed? ...))`. I dropped the synthetic cursor assertions. A blank line is covered the same way.
+   - **Not tested:** There is still no test through the Python frontend, so the original `even_squares = ...` case is not exercised directly. In Clojure, `(def x 1)` prints `1`, so it isn't silent.
+2. **cljs and cljd:** `run-node!` (`(.prompt rl)`) and `run-dart!` (`print-prompt!`) now call `prompt-owed?`, so all three hosts behave the same. The JVM test lane covers the logic but not the cljs and cljd call sites. Those are untested here.
+3. **Idle tick:** A `step-all` with no submission asserts `(false? idle-owed?)` with empty lines.
+4. **Multi-line input:** Incomplete multi-line input now reprints the main prompt after each continuation line, because the input was consumed and nothing was printed. This is intentional per the contract, and it is visible in practice.
+
+A blank line also re-prompts, as in round 1.
+
+**Results:**
+- **`yin.repl.main-test`:** 45 tests, 370 assertions, 0 failures, 0 errors.
+- **kondo:** 0 errors, 0 warnings on `main.cljc` and `main_test.cljc`.
+
+**Not run:**
+- **`cljstyle`:** `cljstyle fix` was blocked for approval, so formatting is unchecked.
+- **Node and Dart lanes:** I ran no cljs or Dart lane, so the two newly wired call sites are unexercised.
+- **Slow e2e lanes:** `e2e-test` and `e2e-c2-test` were not run. The env-var prefix needs approval, and nothing in this round touches those code paths.
+
+Nothing is staged or committed.
