@@ -166,20 +166,23 @@
 (defn first-failure
   "Where the grammar first refuses `source` with `worker`: nil when it
    parses, `:end` when the first error failed on an end-of-input token, else
-   `:early` (`export/failure-kind` decides). See the JVM namespace."
+   `:early` (`export/failure-kind` decides). See the JVM namespace.
+
+   Unlike the JVM, the failing token is always the listener's offending
+   token: the JS token stream is filled to EOF by the time a
+   no-viable-alternative error is reported, so its buffer size says nothing
+   about where the parser stopped."
   [worker source]
   (let [{:keys [profile]} worker
         failure (volatile! nil)
         lexer ((:make-lexer profile) (char-stream source))
         tokens (new (.-CommonTokenStream antlr4) lexer)
         l (listener
-            (fn [_recognizer offending _line _column _msg e]
+            (fn [_recognizer offending _line _column _msg _e]
               (when-not @failure
                 (vreset! failure
                          (cond
                            (not (token? offending)) :lexical
-                           (instance? (.. antlr4-default -error -NoViableAltException) e)
-                           (dec (.-length (.-tokens tokens)))
                            :else (.-tokenIndex offending))))))
         _ (own-lexer! lexer worker)
         _ (.removeErrorListeners lexer)
