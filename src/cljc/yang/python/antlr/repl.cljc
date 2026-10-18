@@ -1,7 +1,7 @@
 (ns yang.python.antlr.repl
   "The Python ANTLR frontend's REPL lowering (docs/design/yang.antlr.md
-   section 8.5.6, slice F3). Portable: the parser is JVM-only, but a host
-   that holds a CST packet lowers it here.
+   section 8.5.6, slice F3). Portable: every host parses with its own
+   generated target of the grammar and lowers the CST packet here.
 
    One REPL submission lowers to a program that runs the packet's module body
    against the session's `__main__` namespace: the module object and its

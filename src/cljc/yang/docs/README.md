@@ -10,7 +10,7 @@ Together, Yin and Yang form a dual system:
 - **Yin** - The continuation execution engine (passive, runtime)
 - **Yang** - The continuation generation engine (active, compile-time)
   - `yang.clojure` - Compiles Clojure to Universal AST
-  - `yang.python` - (Future) Compiles Python to Universal AST
+  - `yang.python.antlr` - Compiles Python to Universal AST (ANTLR frontend)
   - `yang.javascript` - (Future) Compiles JavaScript to Universal AST
 
 The Clojure compiler transforms Clojure s-expressions into the Universal AST (U-AST), a language-agnostic, map-based structure that Yin can execute.
