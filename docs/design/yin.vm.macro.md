@@ -812,7 +812,7 @@ declaration row per macro definition.
 
 `yang.clojure` lowers `defmacro` to ordinary `yin/def` syntax and supplies the
 declaration occurrence; it puts no macro metadata in the lambda row.
-`yang.python` and `yang.php` require no lookup: every call is an ordinary
+`yang.python.antlr` and `yang.php` require no lookup: every call is an ordinary
 application row. A future macro-definition surface in either language need
 only produce the same declaration and harvest rows.
 

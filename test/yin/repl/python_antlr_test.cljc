@@ -7,12 +7,12 @@
    require commits its frontend session only when it completes, and
    `(reset)` and `(vm ...)` start a new process.
 
-   The parser is JVM-only, so the session scenarios run on every host
-   through a binding whose parse stage answers the parser's packets,
-   precompiled below (each def's docstring is the source the REPL hands
-   the parser); on the JVM they run through the installed frontend too,
-   and the packets are checked against the parser so the two cannot
-   drift. The completeness probe is JVM-only, as the parser is."
+   The session scenarios run on every host through a binding whose parse
+   stage answers the parser's packets, precompiled below (each def's
+   docstring is the source the REPL hands the parser), and through the
+   installed frontend, whose generated parser each host runs; the packets
+   are checked against the parser on every host so the two cannot drift.
+   The slow probe scenarios stay JVM-only."
   (:require
     [clojure.string :as str]
     [clojure.test :refer [deftest is testing]]
@@ -22,11 +22,12 @@
     [dao.stream.ringbuffer :as ring]
     [yang.clojure :as yang.clojure]
     [yang.frontend :as frontend]
+    [yang.antlr.packet :as packet]
     [yang.python.antlr.c3-programs :refer [asg at call e ex lit op st tc tx vr]]
     [yang.python.antlr.lower-portable-test :refer [packet]]
     [yang.python.antlr.repl :as python.repl]
-    #?@(:cljd [] :clj [[yang.python.antlr.parser :as parser]
-                       [yang.python.antlr.repl-probe :as probe]])
+    [yang.python.antlr.parser :as parser]
+    #?@(:cljd [] :clj [[yang.python.antlr.repl-probe :as probe]])
     [yin.repl :as repl]
     [yin.repl.frontends :as frontends]
     [yin.vm.linker.interpreter :as link]
@@ -138,11 +139,9 @@
 
 
 (def ^:private langs
-  "The ids every session scenario runs under: the precompiled packets on
-   every host, and the installed parser where it runs."
-  #?(:cljd [:yang.python/cst]
-     :clj [:yang.python/cst :yang.python/antlr]
-     :cljs [:yang.python/cst]))
+  "The ids every session scenario runs under: the precompiled packets and
+   the installed parser, on every host."
+  [:yang.python/cst :yang.python/antlr])
 
 
 (defn- feed
@@ -396,30 +395,29 @@
 
 (deftest other-frontends-still-echo-their-value-test
   (let [state (frontends/create-state)
-        [python _] (repl/eval-input state "(lang :yang.python/legacy)")]
+        [php _] (repl/eval-input state "(lang :php)")]
     (is (= "3" (second (repl/eval-input state "(+ 1 2)"))))
-    (is (= "3" (second (repl/eval-input python "1 + 2"))))))
+    (is (= "3" (second (repl/eval-input php "1 + 2;"))))))
 
 
 ;; =============================================================================
 ;; The parser and the probe (JVM)
 ;; =============================================================================
 
-#?(:cljd nil
-   :clj
-   (defn- node-shape
-     [node]
-     (select-keys node [:id :kind :type :text :rule :children])))
+(defn- node-shape
+  [node]
+  (select-keys node [:id :kind :type :text :rule :children]))
 
 
-#?(:cljd nil
-   :clj
-   (deftest precompiled-packets-are-the-parsers-test
-     (doseq [[source p] packets]
-       (is (= (map node-shape
-                   (:yang.cst/nodes (parser/parse-source (str source "\n"))))
-              (map node-shape (:yang.cst/nodes p)))
-           source))))
+(deftest precompiled-packets-are-the-parsers-test
+  (doseq [[source p] packets]
+    (is (= [] (packet/conform (parser/parse-source (str source "\n"))
+                              (str source "\n")))
+        source)
+    (is (= (map node-shape
+                (:yang.cst/nodes (parser/parse-source (str source "\n"))))
+           (map node-shape (:yang.cst/nodes p)))
+        source)))
 
 
 #?(:cljd nil
@@ -531,3 +529,31 @@
               ["x = (1 + * 2" :complete]
               ["x = )" :complete]]]
        (is (= expected (probe/probe text)) (pr-str text)))))
+
+
+(deftest installed-parser-evaluates-the-filtered-comprehension-test
+  (testing "the owner's comprehension line, through the installed parser"
+    (is (= ["" "" "[4, 16, 36, 64, 100]\n"]
+           (texts (session :yang.python/antlr)
+                  ["even_squares = [x**2 for x in range(1, 11) if x % 2 == 0]"
+                   "x = 1"
+                   "print(even_squares)"])))))
+
+
+(deftest compile-previews-the-submitted-form-not-the-prelude-test
+  (doseq [lang langs]
+    (testing (str lang)
+      (let [fresh (session lang)
+            [after text] (repl/eval-input fresh "(compile \"1 + 2\")")]
+        (is (str/starts-with? text "AST:"))
+        (is (< (count text) 200000) "a compact artifact, not the prelude dump")
+        (is (not (str/includes? text "py/init!")) "the prelude body is implicit")
+        (is (str/includes? text "py/run-session"))
+        (is (= (:frontend-session fresh) (:frontend-session after))
+            "the preview leaves the session unprimed")))))
+
+
+(deftest compile-error-path-test
+  (let [[_ text] (repl/eval-input (session :yang.python/antlr)
+                                  "(compile 1)")]
+    (is (str/starts-with? text "Error:"))))

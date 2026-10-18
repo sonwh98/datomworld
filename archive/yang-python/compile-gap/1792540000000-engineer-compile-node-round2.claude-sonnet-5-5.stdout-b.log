@@ -1,0 +1,26 @@
+The Node empty string is fixed and committed as `dbe1d14b` on `compile-investigation`. It was not pushed, and master is untouched. Node and JVM both pass the two compile tests.
+
+**Layer-by-layer trace** (a throwaway probe test, since deleted):
+- **Command dispatch:** `(compile "1 + 2")` never reached the compile branch on Node. It stopped one layer earlier, in `eval-input`.
+- **Reader:** `read-forms` returned `[(compile "1 + 2")]` on both hosts.
+- **Completeness probe:** the probe returned `:incomplete` on Node and `:complete` on JVM. `eval-input` therefore retained the line as `:pending-input` and returned `""`, so `compile-command-ast` and `render-compile-output` were never called.
+- **Why the probe differed:** `(compile "1 + 2")` is not valid Python, because it has two adjacent atoms. The probe's `first-failure` returned `:early` on JVM and `:end` on Node. `(compile 1)` showed the same `""` for the same reason, which explains the third failure.
+
+**Cause:** `src/cljs/yang/antlr/cst.cljs:181`. For a no-viable-alternative error, `first-failure` took `(dec (.-length (.-tokens tokens)))` as the failing token. That works on JVM, where the buffer holds only what the parser had read so far. On Node the buffer already holds every token through EOF, so the failure always looked like "at end of input" and classified as `:end`. The Node buffer in the trace was 6 tokens, with the real failure at index 2, the string.
+
+**Fix:** I dropped that branch in `src/cljs/yang/antlr/cst.cljs`, so Node uses the listener's offending token like every other error. I also renamed the now-unused binding and added a docstring note.
+
+**Results:**
+
+| Lane | Result |
+|---|---|
+| JVM `yin.repl.python-antlr-test` | 21 tests, 194 assertions, 0 failures |
+| Node `python-antlr` | 21 tests, 70 assertions, 0 failures (was 3 failures) |
+| Node `python-antlr\|repl-probe\|antlr` | 324 tests, 0 failures, as a check on the probe and parser tests |
+| kondo | 0 errors, 0 warnings |
+| cljstyle | clean |
+
+**Open:**
+- I did not run the Dart lane. `src/cljd/yang/antlr/cst.cljd:167` has its own `first-failure` that may share the same buffer-length assumption, so it is worth checking.
+- The known-gap row can now be closed, since both hosts pass.
+- Bare `java` in this shell is 17 and shadow-cljs fails there. I ran everything through `mise exec java@21 --`.

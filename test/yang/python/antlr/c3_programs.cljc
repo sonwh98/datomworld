@@ -2513,7 +2513,7 @@ except MemoryError:
                  "print"
                  (tc (at ["STRING" "'MemoryError'"]))
                  (tc (call "len" (tc (vr "x"))))))))
-         ["DEDENT" "<EOF>"]]]]]
+         ["DEDENT" ""]]]]]
      ["EOF" "<EOF>"]]))
 
 
@@ -2838,7 +2838,7 @@ except ValueError as e:
                    [:atom_expr
                     [:atom (nm "e")]
                     [:trailer ["DOT" "."] (nm "args")]])))))
-         ["DEDENT" "<EOF>"]]]]]
+         ["DEDENT" ""]]]]]
      ["EOF" "<EOF>"]]))
 
 

@@ -1,0 +1,79 @@
+Slice 3 is not finished. The tracing code and fixtures pass on the JVM, but the e2e and linked-safepoint runs haven't reported, and Node and Dart haven't been run. I'm waiting on the background JVM run (e2e, linked-safepoint, lower) and will be notified when it ends.
+
+Completed-GMT: not complete
+Completed-Local: not complete
+
+**Mechanism**
+- **Stage:** the hook marks in `yang.safepoint` can carry data (`[kind datum ...]`). A profile entry `{:hook sym :operands true}` applies the hook to that data as literals. `:line` sites wrap any statement node, not just a lambda body.
+- **Lowering:** every statement is marked `[:line n]` and every function `[:call name def-line]`. A line is the logical line: 1 plus the line breaks in the preceding NEWLINE tokens, since the packet carries no source text.
+- **Hooks:** a new `tracing-profile` in `yang.python.antlr.safepoint` maps `:call` to `py.sp/tcall`, `:line` to `py.sp/tline` and `:return` to `py.sp/treturn`.
+- **Trace state:** one `py.sp/trace` cell holds `{:global :profile :busy}`.
+- **Frames:** a traced frame is a record in the dynamic-context record's `:frame`, so an escape restores it along with the depth. It carries the Python-visible frame object (`f_code.co_name`, `f_lineno`, `f_back`), the local trace function and the depth it opened at.
+- **Re-entrancy:** the `:busy` flag keeps trace and profile functions from being traced. A trace function that raises clears both and propagates.
+- **`sys` wiring:** `py.sp/install-sys!` puts `settrace`, `setprofile`, `gettrace` and `getprofile` into `sys`.
+
+**Behavioral notes**
+- The composition has to call `install-sys!` after the base prelude has run. I didn't change the base prelude, because that would move the pinned `py` manifest address.
+- With a false flag the setters raise `NotImplementedError`. With no call at all, `sys.settrace` stays an `AttributeError`, as before, so the "landed slice-1 behavior" in the brief was never an explicit error.
+- Not emitted: `exception` and C-call events, events for module-level code, and `line` events for loop tests and `except` headers.
+- Frames open only while a trace or profile function is set, so a function entered before `settrace` is untraced, as in CPython.
+
+**Results so far**
+- **Safepoint namespace:** 29 fast tests (570 assertions) and 18 slow tests (136 assertions) ran. After one test-order fix, the only fast failure was fixed and the slow run was green. The slow run includes the five new tracing fixtures (basic call/line/return, profile counting, unwind, recursion interplay, unsupported error).
+- **kondo:** clean on the changed files.
+- **Docs:** `yang.antlr.md` has a slice-3 section.
+- **Packets:** the new test packets were generated from the real parser, and I added them to the e2e parser-match check.
+
+**Incomplete**
+- The e2e, linked-safepoint, lower and lower-portable run has not reported.
+- The `pysp` manifest pin in `linked_safepoint_test` will need updating, because the module's definitions changed. I haven't seen the new address yet.
+- Node and Dart lanes have not run, and neither have the yin.repl tests.
+- `cljstyle` needs approval in this session, so I couldn't run it. The generated `trace_programs.cljc` in particular needs formatting.
+- Linked-profile tracing fixtures were not written. `linked-tracing-profile` is defined but untested.
+
+Slice 3 works on the JVM, but Node and Dart haven't run, so "green on every host" isn't established.
+
+Completed-GMT: not complete
+Completed-Local: not complete
+
+I couldn't run the Node lane: the shell wouldn't let me set `DATOM_SLOW_TESTS=1` on a command, and it needs approval. The Dart lane and the `yin.repl` tests also haven't run, and I couldn't run `cljstyle` either.
+
+## Mechanism
+
+- **Stage:** a safepoint mark in `yang.safepoint` can now carry data (`[kind datum ...]`). A profile entry `{:hook sym :operands true}` applies the hook to that data as literals. `:line` sites wrap any statement node, not just a lambda body.
+- **Lowering:** every statement is marked `[:line n]` and every function `[:call name def-line]`. A line is the logical line (1 plus the line breaks in the preceding NEWLINE tokens), because the packet carries no source text.
+- **Hooks:** a new `tracing-profile` maps `:call` to `py.sp/tcall`, `:line` to `py.sp/tline` and `:return` to `py.sp/treturn`. They call the existing poll, enter and return hooks, so signals and recursion are unchanged.
+- **State and frames:** one cell, `py.sp/trace`, holds `{:global :profile :busy}`. A traced frame is a record in the dynamic-context record's `:frame`, so an escape restores it along with the depth. It carries the Python-visible frame object (`f_code.co_name`, `f_lineno`, `f_back`), the local trace function and the depth it opened at.
+- **Re-entrancy:** the `:busy` flag keeps trace and profile functions from being traced. If one raises, both are cleared and the error propagates.
+- **`sys` wiring:** `py.sp/install-sys!` puts `settrace`, `setprofile`, `gettrace` and `getprofile` into `sys`.
+- **Docs:** `yang.antlr.md` has a slice-3 section.
+
+## Behavior to know
+
+- **No `install-sys!` call:** `sys.settrace` stays an `AttributeError`, as before. The brief's "landed explicit error" did not exist, so I added it as `NotImplementedError`. The composition has to call `py.sp/install-sys! false` to get it. I did not change the base prelude, because that would move the pinned `py` manifest address.
+- **`settrace` timing:** frames open only while a trace or profile function is set, so a function entered before `settrace` is untraced, as in CPython.
+- **Events not emitted:** `exception` and C-call events, events for module-level code, and `line` events for loop tests and `except` headers.
+
+## Results
+
+| Run | Result |
+|---|---|
+| Safepoint namespace, fast | 29 tests, 570 assertions, green |
+| Safepoint namespace, slow | 18 tests, 136 assertions, green (includes the 5 new tracing fixtures) |
+| Linked safepoint, slow | 9 tests, 50 assertions, green after the fixes below |
+| e2e / lower / lower-portable | Ran in the same background command as linked-safepoint; the only failure and error were in linked-safepoint |
+| kondo | clean on the changed files, checked before the last two test edits |
+
+The five fixtures cover basic call/line/return, profile counting, the unwind case, the recursion interplay and the unsupported error.
+
+The linked run had one failure and one error, both from my changes:
+- **Manifest pin:** the `pysp` manifest pin changed, and I updated it to the new address (`767d8a65…`).
+- **Sort error:** a test sorted marks that were now a mix of keywords and vectors, and I fixed it.
+
+The new test packets came from the real parser. I added them to the e2e parser-match check, but I did not see the e2e result separately.
+
+## Not done
+
+- Node and Dart lanes, plus the `yin.repl` tests.
+- `cljstyle`: the generated `trace_programs.cljc` in particular needs formatting.
+- Linked-profile tracing fixtures: `linked-tracing-profile` is defined but untested.

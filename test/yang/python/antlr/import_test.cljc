@@ -409,7 +409,7 @@
                          ["COLON" ":"]
                          [:block ["NEWLINE" "\n"] ["INDENT" "    "]
                           (statement (import-simple-stmt "m"))
-                          ["DEDENT" "<EOF>"]]]]]
+                          ["DEDENT" ""]]]]]
                 ["EOF" "<EOF>"]])
           analysis (scope/analyze pk)
           f-scope (some (fn [s] (when (contains? (set (:locals s)) "m") s))
@@ -453,7 +453,7 @@
                                       [:exprlist
                                        (chain [:expr :atom_expr :atom]
                                               [:name ["NAME" "x"]])]])
-                          ["DEDENT" "<EOF>"]]]]]
+                          ["DEDENT" ""]]]]]
                 ["EOF" "<EOF>"]])
           analysis (scope/analyze pk)
           f-scope (some (fn [s] (when (contains? (set (:locals s)) "x") s))

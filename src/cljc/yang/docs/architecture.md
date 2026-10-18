@@ -9,7 +9,7 @@ Yang is a **collection of compilers** that transform source code from different 
 ```
 yang/
 ├── clojure.cljc       ✅ Clojure → Universal AST (implemented)
-├── python.cljc        ✅ Python → Universal AST (implemented)
+├── python/antlr/      ✅ Python → Universal AST (ANTLR frontend, docs/design/yang.antlr.md)
 ├── javascript.cljc    🔄 JavaScript → Universal AST (planned)
 ├── java.cljc          🔄 Java → Universal AST (planned)
 └── ...                   More languages as needed
@@ -39,7 +39,7 @@ The first compiler in the Yang collection. Transforms Clojure s-expressions into
 ### 1. Language-Specific Compilers
 Each language gets its own namespace:
 - `yang.clojure` - Understands Clojure syntax and semantics
-- `yang.python` - (Future) Understands Python syntax and semantics
+- `yang.python.antlr` - Understands Python syntax and semantics (ANTLR grammar)
 - `yang.javascript` - (Future) Understands JavaScript syntax and semantics
 
 ### 2. Unified Output
@@ -57,14 +57,6 @@ Each compiler is written in `.cljc` format to run on both JVM and Node.js.
 Compilation is a pure function of the input stream and its interpreter. Given the same source stream and compiler, you always get the same Universal AST (local interpretation/materialized view).
 
 ## Future Compilers
-
-### Python Compiler (`yang.python`)
-```clojure
-(require '[yang.python :as py-compiler])
-
-;; Compile Python code
-(def ast (py-compiler/compile "def add(x, y): return x + y"))
-```
 
 ### JavaScript Compiler (`yang.javascript`)
 ```clojure
@@ -122,12 +114,10 @@ Common compiler infrastructure can be shared:
 - **Platforms**: JVM and Node.js
 
 ### ✅ Completed: Python Compiler
-- **File**: `src/cljc/yang/python.cljc`
-- **Lines**: 450+ lines of code
-- **Features**: Literals, variables, lambdas, def statements, binary ops, if expressions, function calls
-- **Tests**: 12 test suites, 70 assertions, 100% passing
-- **Platforms**: JVM and Node.js
-- **Includes**: Custom tokenizer and recursive descent parser
+- **Namespaces**: `src/cljc/yang/python/antlr/` (the ANTLR frontend; the
+  hand-written `yang.python` compiler was retired 2026-10-18)
+- **Design**: `docs/design/yang.antlr.md`
+- **Platforms**: JVM, Node.js and Dart
 
 ### 🔄 Planned: JavaScript Compiler
 - Parse JavaScript AST
@@ -163,8 +153,9 @@ The Universal AST serves as the **lingua franca** (common language) for all sour
 ;; Define a function in Clojure
 (def clj-double (yang.clojure/compile '(fn [x] (* x 2))))
 
-;; Define a function in Python (future)
-(def py-triple (yang.python/compile "lambda x: x * 3"))
+;; Define a function in Python (the ANTLR frontend parses, then lowers)
+(def py-triple (yang.python.antlr.repl/lower
+                 (yang.python.antlr.parser/parse-source "lambda x: x * 3\n")))
 
 ;; Define a function in JavaScript (future)
 (def js-add (yang.javascript/compile "(x, y) => x + y"))

@@ -11944,3 +11944,111 @@ Decisions: nothing dispatched; the owner explicitly parked the design until Tues
 Verification: none needed (design conversation only).
 Delegates: none.
 Next (Tuesday, or on owner request): run the architect design loop on the four questions + command surface; then the implementation slice per routing. Also Tuesday: Fable's subscription resets (the claude-cloud reservation ends).
+
+## 2026-10-18 14:3x +07 — safepoint s3 (tracing) LANDED (a822e152); the finish round closed the slice
+Rounds: s3 round 1 (sonnet, the tracing surface + five fixtures, open items), WIP protected at
+  752647e5; the finish round (sonnet: merged the landed value-display, re-pinned the stacked moves —
+  the hook root fda45181…, the pysp manifest 97aba7f7…, the :pysp scanner entry 77→281 applications
+  with the 21 tracing free names, :py held at 3968 —, the linked-tracing-profile test, the v4 riders);
+  the deepseek gate (REQUEST CHANGES: the newline-lines P2 — CRLF counted 2, form feed 0 — plus the
+  rewrap falsely claimed and four docstring lags; everything else verified sound, incl. an independent
+  recount of +204); the fix round (sonnet 874dbf6a: one line per NEWLINE token containing a break,
+  the CRLF/FF fixtures + the ^:slow LF-equivalence test on all VMs); MY mutation check: the new test
+  FAILS (8 failures) against the restored buggy counter, passes with the fix; the deepseek re-gate
+  verified all four fixes code-level but caught the rewrap STILL not done (byte-identical file, the
+  false claim repeated); applied the re-gate's dictated break as landing mechanics (7c915940, every
+  line ≤75 cols, zero lines over 80 in the file). Lanes: 10 JVM namespaces + the fix rounds (95/1487/0,
+  slow 54/710/0), Node 4069/149763/0, Dart all passed; the line-count fix is LF-invariant so the
+  quick lanes stand. Landed safepoint-s3:master = a822e152 (the f3a1e0bb docs merge folded in).
+Process note: the s3-fix engineer claimed the typescript rewrap twice without doing it — the re-gate's
+  blob-identity check is what caught it. Gate reports now cross-check "done" claims against blob/diff
+  evidence by default.
+Next: the antlr M0-M2 (m012e's NEWLINE/DEDENT fixtures → the codex verification → land), then the C3
+  completion gate (ruling 14) over the final head.
+
+## 2026-10-18 17:0x +07 — the ANTLR multi-target M0-M2 LANDED (b0b49c11); one grammar, three hosts
+The arc: the fable-authored plan (codex adversarial review, three rounds to READY) -> m012b (sonnet:
+  M0 the build — Java digests byte-identical, JS/Dart generated + digest-pinned, three justified M0
+  additions incl. the Dart AOT OOM fix via the defquoted EDN-string prelude; M1 the packet v1 IR +
+  conformance oracle, the CST-parity evidence incl. the [4 99] Dart-only mutation proving the Dart lane
+  really executes; M2 the parser on every host, JVM 4104/285465/0, Node 4074/0, Dart 4022/0) ->
+  m012c (the commits, the master merge, the generator with deferred #{} — NOTHING moved, even the py
+  manifest held) -> the codex gate REQUEST CHANGES (3 P1s: M1 did not implement the strengthened
+  contract the READY'd plan promised — the validator accepted duplicate edges/wrong text/spans ending
+  inside é, proved by codex probes) -> m012d (the strengthened validator: structural + source-aware,
+  the single preorder walk, the type-keyed synthetic policy with canonical text, the 14-mutation
+  corpus on three hosts) -> the re-gate (one item: the corpus pinned INDENT/EOF where the READY'd
+  review required NEWLINE/DEDENT; codex supplied the reproducing source) -> m012e (the fixtures,
+  pinned per host, byte spans agreeing) -> the final check (an evidence gap: a stale JVM log; my
+  corrected runs: the identical 16/173 namespace on all three hosts, Dart naming the new test) ->
+  READY -> m012f (the landing merge: the every-host binding WITH :render; the per-host harness WITH
+  the acceptance rows; the generator clean at the merged head) -> my ruling: master's stored packets
+  followed the runtime's DEDENT text; the canonical text IS the cross-host identity contract, so
+  m012g regenerated the 14 DEDENT literals and restored the strict comparison (the weakening commit
+  fefec6d4 reverted) -> my final-head runs: e2e 44/775/0, python-antlr 19/183/0; Node 4088/149962/0,
+  Dart all passed. Landed antlr-multi:master = b0b49c11.
+The owner's hold ("don't remove legacy until antlr works for JS and dart too") is now LIFTED by the
+  landing: the antlr Python frontend parses on JVM, Node and Dart. M3 (the legacy retirement) is
+  queued as its own gated round. The C3 completion gate (ruling 14) dispatches over this head.
+Process lessons recorded: gates cross-check "done" claims against blob/diff evidence (the s3 rewrap);
+evidence must be captured AT the claimed head (the stale m012e-jvm.log); canonical synthetic text is
+  the packet-identity contract (the DEDENT regen ruling).
+
+## 2026-10-18 18:4x +07 — the legacy Python compiler RETIRED (5308e7cf); the M3 order executed
+The owner's hold ("don't remove legacy until antlr works for JS and dart too") lifted with the M0-M2
+  landing. Rounds: opus's retirement round (yang/python.cljc deleted, the catalog reshaped to
+  :yang.clojure/legacy + :yang.php/legacy + :yang.python/antlr (f4, every host), the repl capability
+  loss recorded (Python cannot call same-session Clojure macros until the §8.10 ABI — module dict
+  semantics, an undefined global raises NameError), 16 files +78/−1263, NO pin moved) -> the deepseek
+  gate (the substance sound; five doc-residue items: yin.repl.md self-contradiction, the LIVE
+  public/chp/yang.chp still documenting the dead compiler, demo_python.clj requiring the deleted
+  namespace, the capability loss absent from user docs, six stale references) -> the sonnet fix round
+  (all five resolved; the .chp page rewritten to the antlr reality; the NameError assertion added and
+  passing; the grep clean) -> my lanes at the fix head: JVM green, Node 4089/149964/0 (the new test
+  included), Dart 4037 all passed (the first Dart attempt hit the two-concurrent-lanes gen:antlr race
+  in the fresh worktree; the clean sequential rerun green — the lanes in one worktree stay
+  SEQUENTIAL). Landed m3-legacy:master = 5308e7cf.
+NEW known-gap (pre-existing, exposed not caused): (compile "1 + 2") under the antlr frontend — Node
+  returns an EMPTY string, the JVM works but prints the whole prelude (24.8M chars, ~15 s). The
+  implementer moved the check to PHP rather than mask it; it needs its own investigation.
+Next: the C3 completion gate (sonnet, running — twelve lanes + the mutation evidence at b0b49c11),
+  then fable's C3 sign-off; safepoint s4; C4 I7.
+
+## 2026-10-18 19:4x +07 — C3 CLOSED: fable signs the completion evidence (ruling 14 satisfied)
+The completion round (sonnet, the c3gate worktree at 79db800e): the twelve lanes run — the c3-gate
+  clean on EVERY host across all four VMs (JVM 221/5793/0 over 15 namespaces; Node 322/42358 with the
+  only failures the two non-C3 finds; Dart 276 likewise); zero fixture diffs (the post-S1 fixture
+  changes identified as non-C3 commits); the full C1 corpus; the checked-in operand tables — NO RNG —
+  re-generated under CPython 3.9.6 byte-identical, the 2^53/2^63/2^64 boundaries and every detector
+  theme covered; the SEVEN named mutations each shown failing its detector once (disabled promotion,
+  skipped demotion, double-coerced keys, omitted floor adjustment, abs(n) tag 3, host-number?-only —
+  326 Node failures —, narrowed shift). Fable's sign-off (claude-cloud): "The C3 evidence package
+  satisfies ruling 14 as written." Her rulings: F1 (the dht-import :importers divergence on
+  Node/Dart) and F2 (the vm-rebuild :register/:semantic default) are real red lanes OUTSIDE C3 —
+  both now P2 known-gaps rows; F3/F4 by design; F5 (the nonexistent scalars-v1.txt path in §8.5.4)
+  fixed to int-contract-v1; F6 recorded; F7 (the same-worktree concurrent-lane gen:antlr race,
+  corroborated twice this week) now documented in build-n-test.md with the sequential rule.
+The C3 exact-integer phase is COMPLETE: S0-S7 landed, the completion gate signed. The close commit
+  carries her five close-out edits (the report archived, the doc fix, the two rows, the race note).
+Next: the (compile ...) investigation slice (the new P2 gap), the F1/F2 diagnosis slices, safepoint
+  s4 (threads), C4 I7; ADR 0004 (owner-gated).
+## 2026-10-18 20:5x +07 — the (compile ...) P2 gap CLOSED (fc2e5d19); three root causes, three hosts
+The known-gap the M3 round refused to mask: (compile "1 + 2") under :yang.python/antlr — the JVM
+  dumped the whole prelude (24.8M chars), Node/Dart returned "". Three causes, three fixes:
+  b8dbeabf — the preview lowered against the shell's nil frontend-session, embedding the whole
+  prelude and rendering it four times (now lowered :primed, the real session untouched);
+  dbe1d14b — on Node, first-failure's NVA branch read the FILLED-to-EOF JS token buffer as the
+  failure point → every NVA classified :end → the completeness probe said :incomplete → the line
+  parked as pending input and the compile command NEVER RAN (the "" symptom); the listener's
+  offending token now decides. fbfb82b6 — my mirror for Dart after reading the identical sibling
+  (cst.cljd) and the Dart lane failing exactly the two compile tests. Evidence: JVM 21/194/0,
+  Node 21/70/0 (was 3 failures), Dart 4039 all passed (was 2 failures). The deepseek gate: READY,
+  both symptoms closed at root causes; its landing P3s applied (the JVM lazy-fill docstring
+  corrected, the row closed with the evidence). Candidate follow-up recorded in the row: the
+  contract test is a proxy — a submitted-content assertion + a host-neutral :incomplete probe test.
+Process notes: the round-1 engineer correctly stopped when the sandbox denied its build commands
+  (the fresh worktree lacked mise/npm setup) — the orchestrator now provisions worktrees BEFORE
+  dispatch; my round-2 dispatch lost its brief to the main tree's collab/ (the cp ran before the cd)
+  and the engineer correctly refused to guess — re-dispatched with the brief in place.
+Next: the F1 (dht-import :importers) and F2 (vm-rebuild :register/:semantic) diagnosis slices; the
+  compile-contract test hardening; safepoint s4 (threads); C4 I7; ADR 0004 (owner-gated).

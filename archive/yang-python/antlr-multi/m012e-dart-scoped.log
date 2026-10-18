@@ -1,0 +1,67 @@
+Loading initial Timbre config from: :default
+SLF4J(W): No SLF4J providers were found.
+SLF4J(W): Defaulting to no-operation (NOP) logger implementation
+SLF4J(W): See https://www.slf4j.org/codes.html#noProviders for further details.
+SLF4J(W): Class path contains SLF4J bindings targeting slf4j-api versions 1.7.x or earlier.
+SLF4J(W): Ignoring binding found at [jar:file:/Users/sto/.m2/repository/org/slf4j/slf4j-simple/1.7.36/slf4j-simple-1.7.36.jar!/org/slf4j/impl/StaticLoggerBinder.class]
+SLF4J(W): See https://www.slf4j.org/codes.html#ignoredBindings for an explanation.
+Resolving dependencies...
+Downloading packages...
++ _fe_analyzer_shared 67.0.0 (109.0.0 available)
++ analyzer 6.4.1 (14.5.0 available)
++ async 2.13.1
++ collection 1.19.1
++ convert 3.1.2
++ crypto 3.0.7
++ file 7.0.1
++ glob 2.2.0
++ meta 1.19.0
++ package_config 2.2.0 (3.0.0 available)
++ path 1.9.1
++ pub_semver 2.2.1
++ source_span 1.10.2
++ string_scanner 1.4.1
++ term_glyph 1.2.2
++ typed_data 1.4.0
++ watcher 1.2.1
++ yaml 3.1.4
+Changed 18 dependencies!
+3 packages have newer versions incompatible with dependency constraints.
+Try `flutter pub outdated` for more information.
+
+=== Compiling cljd.core to Dart 3 ===
+
+=== Compiling to Dart... === @03:53:40
+  yang.python.antlr.cst-export-test
+DYNAMIC WARNING: can't resolve member toList on target type dynamic of library dart:core  at line: 34, column: 13, file: yang/antlr/cst.cljd
+DYNAMIC WARNING: can't resolve member decisionToState on target type dynamic of library dart:core  at line: 35, column: 16, file: yang/antlr/cst.cljd
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member interpreter on target type dynamic of library dart:core  at line: 64, column: 3, file: yang/antlr/cst.cljd
+DYNAMIC WARNING: can't resolve member interpreter on target type dynamic of library dart:core  at line: 70, column: 3, file: yang/antlr/cst.cljd
+DYNAMIC WARNING: can't resolve member []= on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member length on target type dynamic of library dart:core  (no source location)
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 1341, column: 39, file: dao/data/btree.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 49, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member write on target type dynamic of library dart:core  at line: 85, column: 31, file: yin/vm/values.cljc
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 243, column: 12, file: yin/vm/debruijn.cljc
+DYNAMIC WARNING: can't resolve member codeUnitAt on target type dynamic of library dart:core  at line: 170, column: 12, file: yin/vm/debruijn_code.cljc
+Compilation succeeded - I like when a plan comes together! 👨‍🦳 @03:53:44
+Running 1 test files in 1 shards
+00:00 +0: loading /Users/sto/workspace/datomworld-antlr-multi/build/cljd-agg/shard_0_test.dart
+00:00 +0: null yang.python.antlr.cst-export-test/source-protocol-errors-test
+00:00 +1: null yang.python.antlr.cst-export-test/golden-assignment-test
+00:00 +2: null yang.python.antlr.cst-export-test/every-grammar-rule-name-is-exported-by-name-test
+00:00 +3: null yang.python.antlr.cst-export-test/stage-emits-one-packet-per-sealed-unit-test
+00:00 +4: null yang.python.antlr.cst-export-test/adversarial-mutations-are-refused-test
+00:00 +5: null yang.python.antlr.cst-export-test/indentation-tokens-test
+00:00 +6: null yang.python.antlr.cst-export-test/spans-are-utf8-bytes-test
+00:00 +7: null yang.python.antlr.cst-export-test/exporter-is-deterministic-test
+00:00 +8: null yang.python.antlr.cst-export-test/lexer-errors-are-records-test
+00:00 +9: null yang.python.antlr.cst-export-test/packets-keep-the-synthetic-policy-test
+00:00 +10: null yang.python.antlr.cst-export-test/helper-token-error-coordinates-test
+00:00 +11: null yang.python.antlr.cst-export-test/missing-final-newline-test
+00:00 +12: null yang.python.antlr.cst-export-test/stage-waits-for-the-seal-test
+00:00 +13: null yang.python.antlr.cst-export-test/chunk-invariance-test
+00:00 +14: null yang.python.antlr.cst-export-test/syntax-errors-are-records-test
+00:00 +15: null yang.python.antlr.cst-export-test/error-coordinates-are-independent-test
+00:00 +16: All tests passed!

@@ -425,7 +425,7 @@ Use sequential bindings with environment extension.
 #### 2. Update Python Compiler
 
 ```clojure
-;; In yang/python.cljc
+;; Historical: yang/python.cljc was retired; the equivalent lives in yang.python.antlr.lower
 
 (defn compile-assignment
   "Compile Python assignment to store operations."

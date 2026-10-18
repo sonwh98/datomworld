@@ -1,0 +1,25 @@
+I couldn't finish this task. The fix and the new tests are written, but nothing has been run or committed.
+
+The sandbox denied approval for the commands I needed: `bb gen:antlr`, `clojure -M:antlr-gen`, and the `bb` test lanes, kondo and cljstyle. The task said "no approvals", so I stopped rather than try to get around that. The only test run I got in failed with `ClassNotFoundException: yang.python.antlr.gen.Python3Lexer`. That is because the generated ANTLR parser isn't built in this worktree, not because of the fix.
+
+**Reproduction.** Not done, so I have no captures of the Node empty string or the JVM dump. The parser class doesn't exist here, so I couldn't run either host.
+
+**Diagnosed cause.** I traced this by reading the code. The trace is complete, but no run has confirmed it.
+- `lower-session` in `src/cljc/yang/python/antlr/repl.cljc:86-102` puts the prelude in front of the program unless the session is `:primed`.
+- `(compile …)` in `src/cljc/yin/repl.cljc` (the `compile` branch near line 1866, and `compile-command-ast` near line 1751) lowers against the shell's `:frontend-session`. On a fresh session that is `nil`, so the AST includes the whole prelude.
+- `render-compile-output` (near line 1760) then prints that AST four times (AST, input rows, expanded rows, events). That would explain the 24.8M characters and the ~15 s.
+- I did not trace why Node returns an empty string. A host-specific failure on a payload that large is a hypothesis only.
+
+**Fix.** In `src/cljc/yin/repl.cljc`, `compile-command-ast` now lowers with `(assoc state :frontend-session :primed)`. The preview shows only the submitted form, and the real session is left untouched because the modified state is not returned.
+
+**Contract.** I didn't check `yin.repl.md` or `yang.antlr.md` for a definition. I used the task's fallback: `(compile "expr")` returns the compiled artifact of the submitted form, with the prelude implicit.
+
+**Tests.** I added two tests to `test/yin/repl/python_antlr_test.cljc`, both unrun:
+- `compile-previews-the-submitted-form-not-the-prelude-test` runs under both `:yang.python/cst` and `:yang.python/antlr`. It checks that the output starts with `AST:`, is under 200,000 characters, does not contain `py/init!`, does contain `py/run-session`, and leaves `:frontend-session` unchanged.
+- `compile-error-path-test` runs `(compile 1)` and checks for an `Error:` prefix.
+
+**Open:**
+- Nothing is committed; the changes are uncommitted in `compile-investigation`. `collab/` is untracked and nothing was pushed.
+- To verify, run `bb gen:antlr`, then `python_antlr_test`, `main_test`, `repl_test`, the JVM quick tier and `bb test:cljs`, then kondo and cljstyle.
+- Confirm the Node empty string is gone. If it isn't, the cause is separate and needs its own trace.
+- The tests assume `py/run-session` appears in the rendered output and `py/init!` does not. Check that on the first run.

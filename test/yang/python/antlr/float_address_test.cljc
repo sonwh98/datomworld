@@ -222,14 +222,16 @@
             runtime -- sys.modules, module objects, py/import -- once
             with I2's package imports, once with I3's indexed
             __all__, once with I4-a's delivery and builtin changes,
-            and again on I6 over landed I5 (re-minted from source);
-            the hook prelude did not move)"
+            on I6 over landed I5, with value-display (06065e42:
+            py/result!, py.rt/value), and with the s3 tracing slice,
+            which moved only the hook prelude; all re-minted from
+            source)"
     (is (= (keyword
              (str "segment/blake3-"
                   "ff9b9c08d1fde82f9fb97e9521b6eaaf"
                   "a579383e95ccafbaece0069836018c91"))
            (:root (vm/ast->semantic-bytecode prelude/uast))))
-    (is (= :segment/blake3-2d387d0d4787a7222ad358d8d262d2d64b169162889461e84b954c1812074d08
+    (is (= :segment/blake3-fda451811f1d578884c70ec1a6992e508dd301f7fc49cccbe547eb128683a62e
            (:root (vm/ast->semantic-bytecode hooks/uast))))))
 
 
@@ -248,8 +250,9 @@
     (is (nil? (vm/validate-rows a')))
     (testing "A, A' and the record: one address on every host (JVM goldens;
               all three moved once with I1's prelude changes, once with
-              I2's, once with I3's, once with I4-a's, and again on I6
-              over landed I5 (re-minted from the source packet))"
+              I2's, once with I3's, once with I4-a's, on I6 over landed
+              I5, and with value-display (06065e42; re-minted from the
+              source packet); the s3 slice did not move them)"
       (is (= (keyword
                (str "segment/blake3-"
                     "66fcac5f202b438999ca40fb293a7cb0"

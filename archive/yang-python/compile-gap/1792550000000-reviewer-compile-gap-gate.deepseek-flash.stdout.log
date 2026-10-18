@@ -1,0 +1,54 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Completed-GMT: 2026-10-18 06:18:12 GMT
+Completed-Local: 2026-10-18 13:18:12 +0700 (+07)
+
+# Gate review — the `(compile ...)` known-gap landing
+
+Scope: `git diff origin/master fbfb82b6` — 4 files, +43/−13 (`yin/repl.cljc`, `cst.cljs`, `cst.cljd`, `python_antlr_test.cljc`). Read-only; no lanes re-run per the prompt.
+
+## 1. The priming fix — CONFIRMED
+
+- `compile-command-ast` (`src/cljc/yin/repl.cljc:1751-1762`) rebinds `state` lexically and returns only the lowered AST. `handle-command` (`:1871-1873`) returns its own unchanged `state` to the loop; the rebound state never escapes. The new equality assertion (`python_antlr_test.cljc:552-553`) pins it.
+- `:frontend-session` has exactly one production reader — the equality test `(= :primed session)` in `yang/python/antlr/repl.cljc:99-102` — and its only writer from lowering is `commit-frontend` (`repl.cljc:1063-1066`). Nothing calls methods on it. `:primed` is the frontend's own session vocabulary, not a foreign object.
+- Only Python installs `:lower-session` (`yin/repl/frontends.cljc:73`); Clojure and PHP have no `:lower-session`, so `lower-parsed` ignores the fabricated marker for them. Blast radius is the Python preview only.
+- Does `:primed` "lie" downstream? It rides on the AST as `::frontend {:session :primed}` metadata (`repl.cljc:1723`), but the preview is clean: `format-value` → `quote-symbols` → `render-map` rebuilds values and drops metadata (`repl.cljc:394-425`), and `encoder/program-batch` projects grammar slots only (`yin/vm.cljc:1114-1124`). No AST/rows/events section claims a primed session.
+- Honest nuance: on a fresh session the preview omits the prelude that the *first real submission* would carry. That is exactly the fallback contract ("the submitted form, the prelude implicit"), and the new docstring states it.
+
+## 2. The error-classifier change — CONFIRMED, no lost `:end`
+
+- The only caller of `first-failure` is the completeness probe (`repl_probe.cljc:163,168`); `failure-kind` has no other caller and no other consumer depends on its index.
+- `failure-kind` (`export.cljc:143-159`) returns `:end` iff the failing index > the last real token. The listener's `offending` is `LT(1)` in both changed runtimes: JS 4.13.2 constructs `new NoViableAltException(parser, input, input.get(startIndex), input.LT(1), …)`, Dart 4.13.2 does the same (`parser_atn_simulator.dart:2092-2099`) and reports via `e.offendingToken`. At a genuine end-of-input failure `LT(1)` is the EOF token (index `size-1`, always above `last-real`) or a trailing zero-width NEWLINE/DEDENT (excluded from `last-real` by `start <= stop`) → `:end`. The probe's parking contract is preserved.
+- The removed branch could only produce an index **≥** `LT(1)`'s (`dec(buffer length)` is the furthest buffered token), so it could only turn `:early` into false `:end` — never the reverse. Dropping it cannot lose a genuine `:end`.
+- Why the hosts differ: JVM `BufferedTokenStream.getText(Interval)` does not fill to EOF; JS/Dart `getText`/`getTextRange` call `fill()` before the listener fires. The branch was fatal only on JS/Dart. `tokens` remains used on both hosts for parser construction and real-token enumeration — no dead binding.
+- Index check for the fix: `(compile "1 + 2")\n` → offending STRING at 2, `last-real` = 4 (NEWLINE) → `:early` → complete → command runs; pre-fix `dec(length)` = 5 (EOF) → `:end` → parked → `""`. Same for `(compile 1)`, which is why the error-path test also covers the fix.
+
+## 3. The contract — honest, with one proxy weakness
+
+The tests implement the fallback: `AST:` prefix, <200k (vs the 24.8M dump), no `py/init!`, `py/run-session` present, session untouched, and `Error: …` on the non-string path (`format-error`, `repl.cljc:430`, via the `eval-parsed*` catch). That is a fair minimal contract. The weakness (P3): the tests never assert the submitted form's own content, and `py/run-session` is an implementation marker rather than part of the ruling. `yin.repl.md` and `yang.antlr.md` are silent as stated; the older `yin-repl-design.md:145,201` (AST + datoms) describes the deleted v1. The fallback governs.
+
+## 4. Cross-host identity — no widening
+
+- Exactly the four named files, +43/−13; `git diff --check` clean; each commit touches only its named file(s); no unrelated hunks.
+- The new tests carry no reader conditionals and add the same assertions on every host. The pre-existing host gates in the file (the `#?@(:cljd [] :clj …)` require; the five `#?(:cljd nil :clj …)` probe tests) are untouched, so the assertion-count difference is not widened. Corroboration: Dart's full suite moves 4037 → 4039, exactly the two new deftests.
+- Evidence nit: the namespace has 21 deftests but five are JVM-gated, so a Node-only scoped run of this namespace is 16 tests; the quoted "Node 21/70" is not reproducible as a same-namespace count. If 21 came from a wider selection, cite that selection.
+
+## 5. Gap substance and blast radius — CONFIRMED
+
+- JVM prelude dump: `lower-session` treats any non-`:primed` value as the first lowering and splices `prelude/uast`; the preview now selects `main`. The dump is gone structurally, not masked.
+- Node/Dart empty string: every NVA classified as `:end` because the filled buffer length is the EOF index; the probe said `:incomplete` and `eval-input` parked the line. The offending token now yields `:early` for the compile lines. The Dart mirror is the same class — a third host beyond the row's recorded Node/JVM pair, not contradictory.
+- No unrelated behavior changed: only `compile-command-ast` and the two NVA branches; the JVM CST file is untouched.
+
+## Findings (all P3, non-blocking)
+
+P3 | `docs/agents/known-gaps.md:44` | the P2 row still reads "found by the M3 round, deliberately not masked"; the four-file diff does not close it, though `b8dbeabf`'s message says the row stays until Node passes (it now does) | at landing, record `closed 2026-10-18: …` with the three-host evidence, per the ledger's closed-row convention.
+
+P3 | `src/clj/yang/antlr/cst.clj:191-192` | the JVM retains the buffer-length NVA branch; it is legitimate on its lazy-fill runtime but is now the odd host out, and its docstring rationale ("names the token its prediction began at") is inaccurate — the JVM runtime also passes `LT(1)` | correct the JVM docstring now; consider dropping the branch in a follow-up with the JVM-only `probe-classifies-test` as the guard.
+
+P3 | `test/yin/repl/python_antlr_test.cljc:543-559` | the contract test is a proxy — it never asserts the submitted form's content, and the `:end` path has no Node/Dart coverage because the probe tests are `#?(:cljd nil :clj …)` (lines 425, 443, 466, 482, 500) | add an assertion that the AST/rows contain the submitted operands/operator, and a host-neutral `probe/probe "print(" → :incomplete` (or a direct `first-failure` EOF assertion).
+
+P3 | landing evidence | "Node 21/70" cannot be the scoped namespace count (5 of 21 deftests are JVM-gated; Node runs 16) | cite the exact reproducible Node count or the full-lane delta.
+
+No P0/P1/P2. Both recorded symptoms are closed at their root causes, the session is genuinely untouched, the probe's `:end` contract survives, and no unrelated file or behavior moved.
+
+Verdict: READY (sign-off granted)

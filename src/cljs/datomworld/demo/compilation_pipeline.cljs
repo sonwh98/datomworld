@@ -28,11 +28,11 @@
    evaluator's AST database, and `dao.space` queries over the transacted
    datoms. Those are v1 evaluator features, not v2 gaps in a demo.
 
-   The Clojure/Python/PHP language selection (`yang.clojure`, `yang.python`,
-   `yang.php` all compile to the same `:yin/*` AST) is ported from v1
-   unchanged — it is a Source->AST axis, orthogonal to which evaluator runs
-   the result, and dropping it would be a product regression this plan does
-   not make."
+   The Clojure/Python/PHP language selection (`yang.clojure`, the ANTLR
+   Python frontend `yang.python.antlr`, `yang.php` all compile to the same
+   `:yin/*` AST) is ported from v1 unchanged — it is a Source->AST axis,
+   orthogonal to which evaluator runs the result, and dropping it would be
+   a product regression this plan does not make."
   (:require ["@codemirror/lang-php" :refer [php]]
             ["@codemirror/lang-python" :refer [python]]
             ["@codemirror/state" :refer [EditorState]]
@@ -47,7 +47,8 @@
             [reagent.core :as r]
             [yang.clojure :as yang]
             [yang.php :as php-comp]
-            [yang.python :as py]
+            [yang.python.antlr.parser :as py.parser]
+            [yang.python.antlr.repl :as py.repl]
             [yin.demo.utils :as demo.utils]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
@@ -83,7 +84,7 @@
 (defn- make-vm
   []
   (ast-walker/create-vm
-    {:primitives vm/primitives,
+    {:primitives (merge vm/primitives py.repl/primitives),
      :modules (module/register-stream-module (module/default-registry)),
      :make-stream make-stream,
      :capability-secret (str (random-uuid))}))
@@ -155,7 +156,8 @@
              ast (case lang
                    :clojure (yang/compile-program
                               (reader/read-string (str "[" source "]")))
-                   :python (py/compile source)
+                   :python (py.repl/lower
+                             (py.parser/parse-source (str source "\n")))
                    :php (php-comp/compile source))
              datoms (vec (vm/ast->datoms ast))
              walker (load-program! datoms)]

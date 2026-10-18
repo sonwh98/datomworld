@@ -1,0 +1,203 @@
+(ns yang.antlr.cst
+  "The Dart host's parser interpreter (docs/design/yang.antlr.md §4.3, §5.5):
+   the same public names as the JVM's `yang.antlr.cst` over the pub antlr4
+   runtime. A grammar profile supplies the host constructors:
+
+     {:grammar-id  string naming grammar revision and tool
+      :make-lexer  (fn [CharStream] Lexer)
+      :make-parser (fn [TokenStream] Parser)
+      :start       (fn [Parser] ParserRuleContext)}
+
+   No ANTLR object leaves this namespace: a packet is plain data, in the
+   target-neutral shape `yang.antlr.packet` owns (the IR). The host-free half
+   of the export lives in `yang.antlr.export`; this file holds the Dart walk.
+   `InputStream.fromString` indexes runes, the code points the JVM indexes."
+  (:require
+    ["package:antlr4/antlr4.dart" :as a]
+    [yang.antlr.export :as export]
+    [yang.antlr.packet :as packet]))
+
+
+(defn- char-stream
+  [source]
+  (a/InputStream.fromString source))
+
+
+;; =============================================================================
+;; Worker: exclusively owned recognizer caches (§4.3)
+;; =============================================================================
+
+(defn- fresh-dfa
+  "A new DFA list for `atn`: a copy of the simulator's own list (so the
+   element type is preserved) with every entry replaced."
+  [atn simulator-dfa]
+  (let [out (.toList simulator-dfa)
+        states (.-decisionToState atn)]
+    (dotimes [i (count states)]
+      (aset out i (a/DFA (nth states i) i)))
+    out))
+
+
+(defn make-worker
+  "A host worker for `profile` owning its own DFA and prediction-context
+   caches, so no parse shares mutable recognizer state with another worker.
+   The worker is host state owned by one parser stage; it is not data and
+   never crosses a stream."
+  [profile]
+  (let [^a/Lexer lexer ((:make-lexer profile) (char-stream ""))
+        ^a/Parser parser ((:make-parser profile) (a/CommonTokenStream lexer))
+        ^a/LexerATNSimulator lexer-sim (.-interpreter lexer)
+        ^a/ParserATNSimulator parser-sim (.-interpreter parser)
+        lexer-atn (.-atn lexer-sim)
+        parser-atn (.-atn parser-sim)]
+    {:profile profile,
+     :lexer-atn lexer-atn,
+     :lexer-dfa (fresh-dfa lexer-atn (.-decisionToDFA lexer-sim)),
+     :lexer-cache (a/PredictionContextCache),
+     :parser-atn parser-atn,
+     :parser-dfa (fresh-dfa parser-atn (.-decisionToDFA parser-sim)),
+     :parser-cache (a/PredictionContextCache)}))
+
+
+(defn- own-lexer!
+  [lexer {:keys [lexer-atn lexer-dfa lexer-cache]}]
+  (set! (.-interpreter lexer)
+        (a/LexerATNSimulator lexer-atn lexer-dfa lexer-cache .recog lexer)))
+
+
+(defn- own-parser!
+  [parser {:keys [parser-atn parser-dfa parser-cache]}]
+  (set! (.-interpreter parser)
+        (a/ParserATNSimulator parser parser-atn parser-dfa parser-cache)))
+
+
+;; =============================================================================
+;; Export
+;; =============================================================================
+
+(defn- listener
+  "An error listener whose `syntaxError` is `f`."
+  [f]
+  (reify :extends
+    (a/BaseErrorListener)
+
+    (syntaxError
+      [_ recognizer offending line column msg e]
+      (f recognizer offending line column msg e))))
+
+
+(defn- error-listener
+  "Collects syntax errors as data into `errors` (a volatile)."
+  [errors offsets]
+  (listener
+    (fn [recognizer offending line column msg _e]
+      (let [span (cond
+                   (instance? a/Token offending)
+                   (export/token-span offsets (.-startIndex ^a/Token offending)
+                                      (.-stopIndex ^a/Token offending))
+
+                   (instance? a/Lexer recognizer)
+                   (let [^a/Lexer lx recognizer]
+                     [(export/offset-at offsets (.-tokenStartCharIndex lx))
+                      (export/offset-at offsets (.-index (.-inputStream lx)))])
+
+                   :else nil)]
+        (vswap! errors conj (export/syntax-error msg line column span))))))
+
+
+(defn- ops
+  [^a/Parser parser]
+  (let [rule-names (.-ruleNames parser)
+        vocab (.-vocabulary parser)]
+    {:token? (fn [t] (instance? a/TerminalNode t)),
+     :token (fn [t]
+              (let [^a/Token tok (.-symbol ^a/TerminalNode t)
+                    type (.-type tok)]
+                {:type-name (if (= type -1)
+                              "EOF"
+                              (or (.getSymbolicName vocab type)
+                                  (.getLiteralName vocab type)
+                                  (str type))),
+                 :start (.-startIndex tok),
+                 :stop (.-stopIndex tok),
+                 :text (.-text tok)})),
+     :rule-name (fn [ctx]
+                  (nth rule-names (.-ruleIndex ^a/ParserRuleContext ctx))),
+     :children (fn [ctx]
+                 (let [kids (.-children ^a/ParserRuleContext ctx)]
+                   (if (nil? kids) [] (mapv identity kids)))),
+     :start (fn [ctx]
+              (when-some [^a/Token st (.-start ^a/ParserRuleContext ctx)]
+                (.-startIndex st)))}))
+
+
+(defn parse-unit
+  "Parse one sealed unit's `source` with `worker`; return its CST packet."
+  [worker unit source]
+  (let [{:keys [profile]} worker
+        cps (packet/code-points source)
+        offsets (export/byte-offsets cps)
+        errors (volatile! [])
+        l (error-listener errors offsets)
+        ^a/Lexer lexer ((:make-lexer profile) (char-stream source))
+        _ (own-lexer! lexer worker)
+        _ (.removeErrorListeners lexer)
+        _ (.addErrorListener lexer l)
+        ^a/Parser parser ((:make-parser profile) (a/CommonTokenStream lexer))
+        _ (own-parser! parser worker)
+        _ (.removeErrorListeners parser)
+        _ (.addErrorListener parser l)
+        tree ((:start profile) parser)]
+    (export/result profile unit @errors
+                   #(export/export-nodes (ops parser) cps offsets tree))))
+
+
+(defn parse-transform
+  "The parser stage's transform over source events (`packet/transform`)."
+  [worker]
+  (packet/transform parse-unit worker))
+
+
+(defn utf8-bytes
+  "The UTF-8 byte count of a string: span ends are checked against it."
+  [s]
+  (packet/utf8-bytes s))
+
+
+(defn first-failure
+  "Where the grammar first refuses `source` with `worker`: nil when it
+   parses, `:end` when the first error failed on an end-of-input token, else
+   `:early` (`export/failure-kind` decides). See the JVM namespace.
+
+   Like the JS target, the failing token is always the listener's
+   offending token: the Dart token stream is filled to EOF by the time a
+   no-viable-alternative error is reported, so its buffer size says
+   nothing about where the parser stopped."
+  [worker source]
+  (let [{:keys [profile]} worker
+        failure (volatile! nil)
+        ^a/Lexer lexer ((:make-lexer profile) (char-stream source))
+        ^a/CommonTokenStream tokens (a/CommonTokenStream lexer)
+        l (listener
+            (fn [_recognizer offending _line _column _msg _e]
+              (when-not @failure
+                (vreset! failure
+                         (cond
+                           (not (instance? a/Token offending)) :lexical
+                           :else (.-tokenIndex ^a/Token offending))))))
+        _ (own-lexer! lexer worker)
+        _ (.removeErrorListeners lexer)
+        _ (.addErrorListener lexer l)
+        ^a/Parser parser ((:make-parser profile) tokens)
+        _ (own-parser! parser worker)
+        _ (.removeErrorListeners parser)
+        _ (.addErrorListener parser l)]
+    ((:start profile) parser)
+    (export/failure-kind
+      @failure
+      (keep (fn [^a/Token t]
+              (when (not= -1 (.-type t))
+                {:index (.-tokenIndex t),
+                 :start (.-startIndex t),
+                 :stop (.-stopIndex t)}))
+            (.-tokens tokens)))))

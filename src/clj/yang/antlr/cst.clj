@@ -11,37 +11,20 @@
       :make-parser (fn [TokenStream] Parser)
       :start       (fn [Parser] ParserRuleContext)}
 
-   No ANTLR object leaves this namespace: a packet is plain data.
-
-   Packet (version 1):
-
-     {:yang.cst/version 1
-      :yang.cst/unit u
-      :yang.cst/grammar id
-      :yang.cst/outcome :yang.cst/ok | :yang.cst/syntax-error | :yang.cst/source-error
-      :yang.cst/root 0                       ; ok only
-      :yang.cst/nodes [record ...]           ; ok only, preorder, id = index
-      :yang.cst/errors [error ...]           ; non-ok only
-      :yang.cst/complete true}
-
-   Rule record  {:id n :kind :rule :rule \"name\" :children [ids] :span [s e]}
-   Token record {:id n :kind :token :type \"NAME\" :text t :span [s e]}
-                 plus :synthetic true when the token's text is not the source
-                 at its span (indentation helpers, EOF); its span is then
-                 zero-width.
-   Error record {:kind :syntax-error :message m :line l :column c :span [s e]}
-
-   Spans are half-open UTF-8 byte offsets into the sealed source. A unit with
-   any syntax error yields an error packet and no nodes: never a partial
-   program."
+   No ANTLR object leaves this namespace: a packet is plain data, in the
+   target-neutral shape `yang.antlr.packet` owns (the IR). The host-free half
+   of the export lives in `yang.antlr.export`; this file holds the JVM walk."
+  (:require
+    [yang.antlr.export :as export]
+    [yang.antlr.packet :as packet])
   (:import
-    (java.nio.charset
-      StandardCharsets)
     (org.antlr.v4.runtime
+      ANTLRErrorListener
       BaseErrorListener
       CharStreams
       CommonTokenStream
       Lexer
+      NoViableAltException
       Parser
       ParserRuleContext
       Recognizer
@@ -54,43 +37,7 @@
     (org.antlr.v4.runtime.dfa
       DFA)
     (org.antlr.v4.runtime.tree
-      ParseTree
       TerminalNode)))
-
-
-(def packet-version 1)
-
-
-;; =============================================================================
-;; Source coordinates
-;; =============================================================================
-
-(defn- utf8-length
-  [cp]
-  (cond (< cp 0x80) 1
-        (< cp 0x800) 2
-        (< cp 0x10000) 3
-        :else 4))
-
-
-(defn- byte-offsets
-  "Byte offset of each code point index of `s`, plus the total at index n.
-   ANTLR's CodePointCharStream indexes code points."
-  ^longs [^String s]
-  (let [cps (.toArray (.codePoints s))
-        n (alength cps)
-        out (long-array (inc n))]
-    (loop [i 0
-           acc 0]
-      (aset out i acc)
-      (when (< i n)
-        (recur (inc i) (+ acc (utf8-length (aget cps i))))))
-    out))
-
-
-(defn- offset-at
-  [^longs offsets i]
-  (aget offsets (max 0 (min i (dec (alength offsets))))))
 
 
 ;; =============================================================================
@@ -135,107 +82,50 @@
     (syntaxError
       [^Recognizer recognizer offending line column msg _e]
       (let [span (if (instance? Token offending)
-                   (let [^Token t offending
-                         s (offset-at offsets (.getStartIndex t))
-                         e (if (< (.getStopIndex t) (.getStartIndex t))
-                             s
-                             (offset-at offsets (inc (.getStopIndex t))))]
-                     [s e])
+                   (let [^Token t offending]
+                     (export/token-span offsets (.getStartIndex t)
+                                        (.getStopIndex t)))
                    (if (instance? Lexer recognizer)
                      (let [^Lexer lx recognizer]
-                       [(offset-at offsets (._tokenStartCharIndex lx))
-                        (offset-at offsets (.index (.getInputStream lx)))])
+                       [(export/offset-at offsets (._tokenStartCharIndex lx))
+                        (export/offset-at offsets
+                                          (.index (.getInputStream lx)))])
                      nil))]
-        (vswap! errors conj
-                {:kind :syntax-error,
-                 :message (str msg),
-                 :line line,
-                 :column column,
-                 :span span})))))
+        (vswap! errors conj (export/syntax-error msg line column span))))))
 
 
-(defn- token-record
-  "`last-stop` is the stop index of the previous real token: a token that
-   overlaps it was produced by a helper, not read from the source (the
-   Python helper's DEDENT reports the newline it follows as its text)."
-  [^Parser parser ^String source ^longs offsets last-stop id ^Token t]
-  (let [type (.getType t)
-        vocab (.getVocabulary parser)
-        type-name (if (= type Token/EOF)
-                    "EOF"
-                    (or (.getSymbolicName vocab type)
-                        (.getLiteralName vocab type)
-                        (str type)))
-        start (.getStartIndex t)
-        stop (.getStopIndex t)
-        text (.getText t)
-        n (dec (alength offsets))
-        real-text (when (and (<= 0 start) (<= start stop) (< stop n))
-                    (let [s (.offsetByCodePoints source 0 start)
-                          e (.offsetByCodePoints source 0 (inc stop))]
-                      (subs source s e)))
-        synthetic? (or (not= real-text text) (<= start last-stop))
-        span (if synthetic?
-               (let [p (offset-at offsets (inc stop))] [p p])
-               [(offset-at offsets start) (offset-at offsets (inc stop))])]
-    (cond-> {:id id, :kind :token, :type type-name, :text text, :span span}
-      synthetic? (assoc :synthetic true))))
-
-
-(defn- export-nodes
-  "Preorder records for the parse tree; a record's id is its index."
-  [^Parser parser source offsets ^ParseTree root]
+(defn- ops
+  [^Parser parser]
   (let [rule-names (.getRuleNames parser)
-        out (volatile! [])
-        last-stop (volatile! -1)]
-    (letfn [(walk
-              [^ParseTree t]
-              (let [id (count @out)]
-                (if (instance? TerminalNode t)
-                  (let [tok (.getSymbol ^TerminalNode t)
-                        record (token-record parser source offsets @last-stop
-                                             id tok)]
-                    (when-not (:synthetic record)
-                      (vreset! last-stop (.getStopIndex tok)))
-                    (vswap! out conj record))
-                  (let [^ParserRuleContext ctx t]
-                    (vswap! out conj nil)
-                    (let [kids (mapv #(walk (.getChild ctx (int %)))
-                                     (range (.getChildCount ctx)))
-                          records @out
-                          ;; a rule covers its real text: synthetic tokens
-                          ;; and empty rules do not stretch it
-                          child-spans (keep (fn [k]
-                                              (let [r (nth records k)
-                                                    [a b] (:span r)]
-                                                (when (and (not (:synthetic r))
-                                                           (< a b))
-                                                  [a b])))
-                                            kids)
-                          start-tok (.getStart ctx)
-                          s (if start-tok
-                              (offset-at offsets (.getStartIndex start-tok))
-                              0)
-                          span (if (seq child-spans)
-                                 [(apply min (map first child-spans))
-                                  (apply max (map second child-spans))]
-                                 [s s])]
-                      (vswap! out assoc id
-                              {:id id,
-                               :kind :rule,
-                               :rule (aget rule-names (.getRuleIndex ctx)),
-                               :children kids,
-                               :span span}))))
-                id))]
-      (walk root)
-      @out)))
+        vocab (.getVocabulary parser)]
+    {:token? (fn [t] (instance? TerminalNode t)),
+     :token (fn [t]
+              (let [tok (.getSymbol ^TerminalNode t)
+                    type (.getType tok)]
+                {:type-name (if (= type Token/EOF)
+                              "EOF"
+                              (or (.getSymbolicName vocab type)
+                                  (.getLiteralName vocab type)
+                                  (str type))),
+                 :start (.getStartIndex tok),
+                 :stop (.getStopIndex tok),
+                 :text (.getText tok)})),
+     :rule-name (fn [ctx]
+                  (aget rule-names (.getRuleIndex ^ParserRuleContext ctx))),
+     :children (fn [^ParserRuleContext ctx]
+                 (mapv #(.getChild ctx (int %))
+                       (range (.getChildCount ctx)))),
+     :start (fn [^ParserRuleContext ctx]
+              (some-> (.getStart ctx)
+                      (.getStartIndex)))}))
 
 
 (defn parse-unit
   "Parse one sealed unit's `source` with `worker`; return its CST packet."
   [worker unit ^String source]
   (let [{:keys [profile]} worker
-        offsets (byte-offsets source)
+        cps (packet/code-points source)
+        offsets (export/byte-offsets cps)
         errors (volatile! [])
         listener (error-listener errors offsets)
         lexer ^Lexer ((:make-lexer profile) (CharStreams/fromString source))
@@ -258,74 +148,74 @@
                                                 (:parser-cache worker)))
         _ (.removeErrorListeners parser)
         _ (.addErrorListener parser listener)
-        tree ((:start profile) parser)
-        base {:yang.cst/version packet-version,
-              :yang.cst/unit unit,
-              :yang.cst/grammar (:grammar-id profile),
-              :yang.cst/complete true}]
-    (if (seq @errors)
-      (assoc base
-             :yang.cst/outcome :yang.cst/syntax-error
-             :yang.cst/errors @errors)
-      (assoc base
-             :yang.cst/outcome :yang.cst/ok
-             :yang.cst/root 0
-             :yang.cst/nodes (export-nodes parser source offsets tree)))))
-
-
-;; =============================================================================
-;; Source units (§5.1) and the parser stage transform
-;; =============================================================================
-
-(defn- source-error
-  [grammar-id unit message data]
-  {:yang.cst/version packet-version,
-   :yang.cst/unit unit,
-   :yang.cst/grammar grammar-id,
-   :yang.cst/outcome :yang.cst/source-error,
-   :yang.cst/errors [(merge {:kind :source-error, :message message} data)],
-   :yang.cst/complete true})
+        tree ((:start profile) parser)]
+    (export/result profile unit @errors
+                   #(export/export-nodes (ops parser) cps offsets tree))))
 
 
 (defn parse-transform
-  "The parser stage's transform over source events: chunks accumulate per
-   unit by ordinal; a seal with every chunk present assembles the snapshot,
-   parses it, and emits one packet on port `:cst`. A conflicting duplicate
-   chunk, a seal with chunks missing, or an unknown event emits a
-   source-error packet instead. State is `{unit {ordinal text}}`."
+  "The parser stage's transform over source events (`packet/transform`)."
   [worker]
-  (let [grammar-id (get-in worker [:profile :grammar-id])]
-    (fn [units event]
-      (let [unit (:yang.source/unit event)]
-        (case (:yang.source/event event)
-          :yang.source/chunk
-          (let [ordinal (:yang.source/ordinal event)
-                text (:yang.source/text event)
-                prior (get-in units [unit ordinal])]
-            (if (and (some? prior) (not= prior text))
-              [(dissoc units unit)
-               [[:cst (source-error grammar-id unit "Conflicting duplicate chunk"
-                                    {:ordinal ordinal})]]]
-              [(assoc-in units [unit ordinal] text) []]))
-
-          :yang.source/seal
-          (let [chunks (get units unit {})
-                n (:yang.source/chunk-count event)]
-            (if (= (set (range n)) (set (keys chunks)))
-              [(dissoc units unit)
-               [[:cst (parse-unit worker unit
-                                  (apply str (map chunks (range n))))]]]
-              [(dissoc units unit)
-               [[:cst (source-error grammar-id unit "Seal with missing chunks"
-                                    {:chunk-count n,
-                                     :present (vec (sort (keys chunks)))})]]]))
-
-          [units
-           [[:cst (source-error grammar-id unit "Unknown source event"
-                                {:event (:yang.source/event event)})]]])))))
+  (packet/transform parse-unit worker))
 
 
 (defn utf8-bytes
   "The UTF-8 byte count of a string: span ends are checked against it."
   [^String s]
-  (alength (.getBytes s StandardCharsets/UTF_8)))
+  (packet/utf8-bytes s))
+
+
+(defn first-failure
+  "Where the grammar first refuses `source` with `worker`: nil when it
+   parses, `:end` when the first error failed on an end-of-input token, else
+   `:early` (`export/failure-kind` decides).
+
+   The failing token is the offending token of a mismatch; for a
+   no-viable-alternative error the JVM runtime lazy-fills its token
+   buffer, so the buffer's last token is the furthest the parser had read
+   when the error was reported (the JS and Dart runtimes fill to EOF and
+   use the listener's offending token instead — their hosts' cst
+   namespaces carry that rationale). A lexer error has no token."
+  [worker source]
+  (let [{:keys [profile lexer-atn lexer-dfa lexer-cache parser-atn
+                parser-dfa parser-cache]}
+        worker
+        failure (volatile! nil)
+        lexer ^Lexer ((:make-lexer profile) (CharStreams/fromString source))
+        tokens (CommonTokenStream. lexer)
+        listener (proxy [BaseErrorListener] []
+                   (syntaxError
+                     [_recognizer offending _line _column _msg e]
+                     (when-not @failure
+                       (vreset! failure
+                                (cond
+                                  (not (instance? Token offending)) :lexical
+                                  (instance? NoViableAltException e)
+                                  (dec (count (.getTokens tokens)))
+                                  :else (.getTokenIndex ^Token offending))))))
+        _ (.setInterpreter
+            lexer
+            (LexerATNSimulator. lexer
+                                ^ATN lexer-atn
+                                ^"[Lorg.antlr.v4.runtime.dfa.DFA;" lexer-dfa
+                                ^PredictionContextCache lexer-cache))
+        _ (.removeErrorListeners lexer)
+        _ (.addErrorListener lexer ^ANTLRErrorListener listener)
+        parser ^Parser ((:make-parser profile) tokens)
+        _ (.setInterpreter
+            parser
+            (ParserATNSimulator. parser
+                                 ^ATN parser-atn
+                                 ^"[Lorg.antlr.v4.runtime.dfa.DFA;" parser-dfa
+                                 ^PredictionContextCache parser-cache))
+        _ (.removeErrorListeners parser)
+        _ (.addErrorListener parser ^ANTLRErrorListener listener)]
+    ((:start profile) parser)
+    (export/failure-kind
+      @failure
+      (keep (fn [^Token t]
+              (when (not= Token/EOF (.getType t))
+                {:index (.getTokenIndex t),
+                 :start (.getStartIndex t),
+                 :stop (.getStopIndex t)}))
+            (.getTokens tokens)))))

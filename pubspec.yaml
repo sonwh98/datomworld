@@ -17,6 +17,9 @@ dependencies:
   # Unicode 16.0 release the de Bruijn projection design settled on
   # 2026-09-21; 0.3.2 moved to Unicode 17.0.
   unorm_dart: 0.3.1+1
+  # The generated Python3 ANTLR parser (antlr/python3/manifest.edn) runs on
+  # this runtime; one release with the ANTLR tool in deps.edn :antlr-gen.
+  antlr4: 4.13.2
   # DaoJing multihash content-addressing (BLAKE3).
   blake3_dart: 1.0.0
   ed25519_edwards: 0.3.2

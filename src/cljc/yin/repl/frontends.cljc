@@ -1,9 +1,9 @@
 (ns yin.repl.frontends
   "The REPL's standard frontend catalog (docs/design/yang.antlr.md section
-   8.5.6, slice F2): the three legacy hand-written frontends installed into
-   a `yang.frontend` catalog. This is the only place the REPL composition
-   names a language's namespace; `yin.repl` core steps whatever binding the
-   catalog selects.
+   8.5.6, slice F2): the hand-written Clojure and PHP frontends and the
+   ANTLR Python frontend installed into a `yang.frontend` catalog. This is
+   the only place the REPL composition names a language's namespace;
+   `yin.repl` core steps whatever binding the catalog selects.
 
    A binding is `{:parse (fn [input]) :lower (fn [parsed])}`, with
    `:input :forms` when the frontend consumes the forms the shell reader
@@ -12,10 +12,9 @@
     [yang.clojure :as yang.clojure]
     [yang.frontend :as frontend]
     [yang.php :as yang.php]
-    [yang.python :as yang.python]
     [yang.python.antlr.repl :as python.antlr.repl]
-    #?@(:cljd [] :clj [[yang.python.antlr.parser :as python.antlr.parser]
-                       [yang.python.antlr.repl-probe :as python.antlr.probe]])
+    [yang.python.antlr.parser :as python.antlr.parser]
+    [yang.python.antlr.repl-probe :as python.antlr.probe]
     [yin.repl :as repl]))
 
 
@@ -41,23 +40,22 @@
     (yang.clojure/compile-program forms)))
 
 
-#?(:cljd nil
-   :clj
-   (defn- antlr-manifest
-     []
-     (assoc (manifest :yang.python/antlr :python.antlr)
-            :yang.frontend/revision "f3"
-            :yang.frontend/grammar
-            {:yang.grammar/package "python3",
-             :yang.grammar/entries {:module "file_input"},
-             :yang.grammar/export-profile :yang.cst/v1})))
+(defn- antlr-manifest
+  []
+  (assoc (manifest :yang.python/antlr :python)
+         :yang.frontend/revision "f4"
+         :yang.frontend/grammar
+         {:yang.grammar/package "python3",
+          :yang.grammar/entries {:module "file_input"},
+          :yang.grammar/export-profile :yang.cst/v1,
+          :yang.grammar/targets #{:java :javascript :dart}}))
 
 
 (defn standard
   "The standard catalog. The Clojure frontend consumes the forms the
-   shell's own reader read, so its parse stage is the identity.  The Python
-   ANTLR frontend is installed where its parser runs (the JVM); elsewhere
-   selecting it answers `unavailable-parser`.  It shows what a submission
+   shell's own reader read, so its parse stage is the identity.  The ANTLR
+   frontend is the Python frontend, installed on every host, each running
+   its own generated target of the one grammar.  It shows what a submission
    printed and the value rendered by its `:render` (Python repr)."
   []
   (cond-> frontend/empty-catalog
@@ -65,19 +63,16 @@
                            {:input :forms,
                             :parse identity,
                             :lower clojure-lower})
-    true (frontend/install (manifest :yang.python/legacy :python)
-                           {:parse identity, :lower yang.python/compile})
     true (frontend/install (manifest :yang.php/legacy :php)
                            {:parse identity, :lower yang.php/compile})
-    #?@(:cljd [] :clj [true (frontend/install
-                              (antlr-manifest)
-                              {:parse (fn [source]
-                                        (python.antlr.parser/parse-source
-                                          (str source "\n"))),
-                               :lower python.antlr.repl/lower,
-                               :lower-session python.antlr.repl/lower-session,
-                               :render python.antlr.repl/display-value,
-                               :probe python.antlr.probe/probe})])))
+    true (frontend/install
+           (antlr-manifest)
+           {:parse (fn [source]
+                     (python.antlr.parser/parse-source (str source "\n"))),
+            :lower python.antlr.repl/lower,
+            :lower-session python.antlr.repl/lower-session,
+            :render python.antlr.repl/display-value,
+            :probe python.antlr.probe/probe})))
 
 
 (defn create-state

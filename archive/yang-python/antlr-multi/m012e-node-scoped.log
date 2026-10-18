@@ -1,0 +1,296 @@
+Loading initial Timbre config from: :default
+[:test] Compiling ...
+========= Running Tests =======================
+
+Testing yang.python.antlr.cst-export-test
+
+Ran 16 tests containing 173 assertions.
+0 failures, 0 errors.
+===============================================
+[:test] Build completed. (142 files, 8 compiled, 18 warnings, 3.54s)
+
+[1m------ WARNING #1 - :infer-warning ---------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-antlr-multi/src/cljs/yang/antlr/cst.cljs:39:9
+--------------------------------------------------------------------------------
+[2m  36 | [0m
+[2m  37 | (defn- fresh-dfa[0m
+[2m  38 |   [atn][0m
+[1m  39 |   (.map (.-decisionToState atn)[0m
+---------------^----------------------------------------------------------------
+ [33;1mCannot infer target type in expression (. atn -decisionToState)[0m
+--------------------------------------------------------------------------------
+[2m  40 |         (fn [state i] (new (.. antlr4-default -dfa -DFA) state i))))[0m
+[2m  41 | [0m
+[2m  42 | [0m
+[2m  43 | (defn make-worker[0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #2 - :infer-warning ---------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-antlr-multi/src/cljs/yang/antlr/cst.cljs:51:19
+--------------------------------------------------------------------------------
+[2m  48 |   [profile][0m
+[2m  49 |   (let [lexer ((:make-lexer profile) (char-stream ""))[0m
+[2m  50 |         parser ((:make-parser profile) (new (.-CommonTokenStream antlr4) lexer))[0m
+[1m  51 |         lexer-atn (.. lexer -_interp -atn)[0m
+-------------------------^------------------------------------------------------
+ [33;1mCannot infer target type in expression (. (. lexer -_interp) -atn)[0m
+--------------------------------------------------------------------------------
+[2m  52 |         parser-atn (.. parser -_interp -atn)][0m
+[2m  53 |     {:profile profile,[0m
+[2m  54 |      :lexer-atn lexer-atn,[0m
+[2m  55 |      :lexer-dfa (fresh-dfa lexer-atn),[0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #3 - :infer-warning ---------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-antlr-multi/src/cljs/yang/antlr/cst.cljs:52:20
+--------------------------------------------------------------------------------
+[2m  49 |   (let [lexer ((:make-lexer profile) (char-stream ""))[0m
+[2m  50 |         parser ((:make-parser profile) (new (.-CommonTokenStream antlr4) lexer))[0m
+[2m  51 |         lexer-atn (.. lexer -_interp -atn)[0m
+[1m  52 |         parser-atn (.. parser -_interp -atn)][0m
+--------------------------^-----------------------------------------------------
+ [33;1mCannot infer target type in expression (. (. parser -_interp) -atn)[0m
+--------------------------------------------------------------------------------
+[2m  53 |     {:profile profile,[0m
+[2m  54 |      :lexer-atn lexer-atn,[0m
+[2m  55 |      :lexer-dfa (fresh-dfa lexer-atn),[0m
+[2m  56 |      :lexer-cache (new (.. antlr4-default -atn -PredictionContextCache)),[0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #4 - :infer-warning ---------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-antlr-multi/src/cljs/yang/antlr/cst.cljs:89:11
+--------------------------------------------------------------------------------
+[2m  86 |   "An error listener whose `syntaxError` is `f`."[0m
+[2m  87 |   [f][0m
+[2m  88 |   (let [l (new (.. antlr4-default -error -ErrorListener))][0m
+[1m  89 |     (set! (.-syntaxError l) f)[0m
+-----------------^--------------------------------------------------------------
+ [33;1mCannot infer target type in expression (. l -syntaxError)[0m
+--------------------------------------------------------------------------------
+[2m  90 |     l))[0m
+[2m  91 | [0m
+[2m  92 | [0m
+[2m  93 | (defn- error-listener[0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #5 - :infer-warning ---------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-antlr-multi/src/cljs/yang/antlr/cst.cljs:104:47
+--------------------------------------------------------------------------------
+[2m 101 |                                       (.-stop offending))[0m
+[2m 102 | [0m
+[2m 103 |                    (instance? (.-Lexer antlr4) recognizer)[0m
+[1m 104 |                    [(export/offset-at offsets (._tokenStartCharIndex recognizer))[0m
+-----------------------------------------------------^--------------------------
+ [33;1mCannot infer target type in expression (. recognizer _tokenStartCharIndex)[0m
+--------------------------------------------------------------------------------
+[2m 105 |                     (export/offset-at offsets (.. recognizer -_input -index))][0m
+[2m 106 | [0m
+[2m 107 |                    :else nil)][0m
+[2m 108 |         (vswap! errors conj (export/syntax-error msg line column span))))))[0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #6 - :infer-warning ---------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-antlr-multi/src/cljs/yang/antlr/cst.cljs:105:47
+--------------------------------------------------------------------------------
+[2m 102 | [0m
+[2m 103 |                    (instance? (.-Lexer antlr4) recognizer)[0m
+[2m 104 |                    [(export/offset-at offsets (._tokenStartCharIndex recognizer))[0m
+[1m 105 |                     (export/offset-at offsets (.. recognizer -_input -index))][0m
+-----------------------------------------------------^--------------------------
+ [33;1mCannot infer target type in expression (. recognizer -_input)[0m
+--------------------------------------------------------------------------------
+[2m 106 | [0m
+[2m 107 |                    :else nil)][0m
+[2m 108 |         (vswap! errors conj (export/syntax-error msg line column span))))))[0m
+[2m 109 | [0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #7 - :infer-warning ---------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-antlr-multi/src/cljs/yang/antlr/cst.cljs:118:25
+--------------------------------------------------------------------------------
+[2m 115 |         literal (.-literalNames parser)][0m
+[2m 116 |     {:token? (fn [t] (instance? (.. antlr4-default -tree -TerminalNode) t)),[0m
+[2m 117 |      :token (fn [t][0m
+[1m 118 |               (let [tok (.-symbol t)[0m
+-------------------------------^------------------------------------------------
+ [33;1mCannot infer target type in expression (. t -symbol)[0m
+--------------------------------------------------------------------------------
+[2m 119 |                     type (.-type tok)][0m
+[2m 120 |                 {:type-name (if (= type -1)[0m
+[2m 121 |                               "EOF"[0m
+[2m 122 |                               (or (aget symbolic type)[0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #8 - :infer-warning ---------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-antlr-multi/src/cljs/yang/antlr/cst.cljs:143:11
+--------------------------------------------------------------------------------
+[2m 140 |         l (error-listener errors offsets)[0m
+[2m 141 |         lexer ((:make-lexer profile) (char-stream source))[0m
+[2m 142 |         _ (own-lexer! lexer worker)[0m
+[1m 143 |         _ (.removeErrorListeners lexer)[0m
+-----------------^--------------------------------------------------------------
+ [33;1mCannot infer target type in expression (. lexer removeErrorListeners)[0m
+--------------------------------------------------------------------------------
+[2m 144 |         _ (.addErrorListener lexer l)[0m
+[2m 145 |         parser ((:make-parser profile) (new (.-CommonTokenStream antlr4) lexer))[0m
+[2m 146 |         _ (own-parser! parser worker)[0m
+[2m 147 |         _ (.removeErrorListeners parser)[0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #9 - :infer-warning ---------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-antlr-multi/src/cljs/yang/antlr/cst.cljs:144:11
+--------------------------------------------------------------------------------
+[2m 141 |         lexer ((:make-lexer profile) (char-stream source))[0m
+[2m 142 |         _ (own-lexer! lexer worker)[0m
+[2m 143 |         _ (.removeErrorListeners lexer)[0m
+[1m 144 |         _ (.addErrorListener lexer l)[0m
+-----------------^--------------------------------------------------------------
+ [33;1mCannot infer target type in expression (. lexer addErrorListener l)[0m
+--------------------------------------------------------------------------------
+[2m 145 |         parser ((:make-parser profile) (new (.-CommonTokenStream antlr4) lexer))[0m
+[2m 146 |         _ (own-parser! parser worker)[0m
+[2m 147 |         _ (.removeErrorListeners parser)[0m
+[2m 148 |         _ (.addErrorListener parser l)[0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #10 - :infer-warning --------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-antlr-multi/src/cljs/yang/antlr/cst.cljs:147:11
+--------------------------------------------------------------------------------
+[2m 144 |         _ (.addErrorListener lexer l)[0m
+[2m 145 |         parser ((:make-parser profile) (new (.-CommonTokenStream antlr4) lexer))[0m
+[2m 146 |         _ (own-parser! parser worker)[0m
+[1m 147 |         _ (.removeErrorListeners parser)[0m
+-----------------^--------------------------------------------------------------
+ [33;1mCannot infer target type in expression (. parser removeErrorListeners)[0m
+--------------------------------------------------------------------------------
+[2m 148 |         _ (.addErrorListener parser l)[0m
+[2m 149 |         tree ((:start profile) parser)][0m
+[2m 150 |     (export/result profile unit @errors[0m
+[2m 151 |                    #(export/export-nodes (ops parser) cps offsets tree))))[0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #11 - :infer-warning --------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-antlr-multi/src/cljs/yang/antlr/cst.cljs:148:11
+--------------------------------------------------------------------------------
+[2m 145 |         parser ((:make-parser profile) (new (.-CommonTokenStream antlr4) lexer))[0m
+[2m 146 |         _ (own-parser! parser worker)[0m
+[2m 147 |         _ (.removeErrorListeners parser)[0m
+[1m 148 |         _ (.addErrorListener parser l)[0m
+-----------------^--------------------------------------------------------------
+ [33;1mCannot infer target type in expression (. parser addErrorListener l)[0m
+--------------------------------------------------------------------------------
+[2m 149 |         tree ((:start profile) parser)][0m
+[2m 150 |     (export/result profile unit @errors[0m
+[2m 151 |                    #(export/export-nodes (ops parser) cps offsets tree))))[0m
+[2m 152 | [0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #12 - :infer-warning --------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-antlr-multi/src/cljs/yang/antlr/cst.cljs:183:34
+--------------------------------------------------------------------------------
+[2m 180 |                            (not (token? offending)) :lexical[0m
+[2m 181 |                            (instance? (.. antlr4-default -error -NoViableAltException) e)[0m
+[2m 182 |                            (dec (.-length (.-tokens tokens)))[0m
+[1m 183 |                            :else (.-tokenIndex offending))))))[0m
+----------------------------------------^---------------------------------------
+ [33;1mCannot infer target type in expression (. offending -tokenIndex)[0m
+--------------------------------------------------------------------------------
+[2m 184 |         _ (own-lexer! lexer worker)[0m
+[2m 185 |         _ (.removeErrorListeners lexer)[0m
+[2m 186 |         _ (.addErrorListener lexer l)[0m
+[2m 187 |         parser ((:make-parser profile) tokens)[0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #13 - :infer-warning --------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-antlr-multi/src/cljs/yang/antlr/cst.cljs:185:11
+--------------------------------------------------------------------------------
+[2m 182 |                            (dec (.-length (.-tokens tokens)))[0m
+[2m 183 |                            :else (.-tokenIndex offending))))))[0m
+[2m 184 |         _ (own-lexer! lexer worker)[0m
+[1m 185 |         _ (.removeErrorListeners lexer)[0m
+-----------------^--------------------------------------------------------------
+ [33;1mCannot infer target type in expression (. lexer removeErrorListeners)[0m
+--------------------------------------------------------------------------------
+[2m 186 |         _ (.addErrorListener lexer l)[0m
+[2m 187 |         parser ((:make-parser profile) tokens)[0m
+[2m 188 |         _ (own-parser! parser worker)[0m
+[2m 189 |         _ (.removeErrorListeners parser)[0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #14 - :infer-warning --------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-antlr-multi/src/cljs/yang/antlr/cst.cljs:186:11
+--------------------------------------------------------------------------------
+[2m 183 |                            :else (.-tokenIndex offending))))))[0m
+[2m 184 |         _ (own-lexer! lexer worker)[0m
+[2m 185 |         _ (.removeErrorListeners lexer)[0m
+[1m 186 |         _ (.addErrorListener lexer l)[0m
+-----------------^--------------------------------------------------------------
+ [33;1mCannot infer target type in expression (. lexer addErrorListener l)[0m
+--------------------------------------------------------------------------------
+[2m 187 |         parser ((:make-parser profile) tokens)[0m
+[2m 188 |         _ (own-parser! parser worker)[0m
+[2m 189 |         _ (.removeErrorListeners parser)[0m
+[2m 190 |         _ (.addErrorListener parser l)][0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #15 - :infer-warning --------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-antlr-multi/src/cljs/yang/antlr/cst.cljs:189:11
+--------------------------------------------------------------------------------
+[2m 186 |         _ (.addErrorListener lexer l)[0m
+[2m 187 |         parser ((:make-parser profile) tokens)[0m
+[2m 188 |         _ (own-parser! parser worker)[0m
+[1m 189 |         _ (.removeErrorListeners parser)[0m
+-----------------^--------------------------------------------------------------
+ [33;1mCannot infer target type in expression (. parser removeErrorListeners)[0m
+--------------------------------------------------------------------------------
+[2m 190 |         _ (.addErrorListener parser l)][0m
+[2m 191 |     ((:start profile) parser)[0m
+[2m 192 |     (export/failure-kind[0m
+[2m 193 |       @failure[0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #16 - :infer-warning --------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-antlr-multi/src/cljs/yang/antlr/cst.cljs:190:11
+--------------------------------------------------------------------------------
+[2m 187 |         parser ((:make-parser profile) tokens)[0m
+[2m 188 |         _ (own-parser! parser worker)[0m
+[2m 189 |         _ (.removeErrorListeners parser)[0m
+[1m 190 |         _ (.addErrorListener parser l)][0m
+-----------------^--------------------------------------------------------------
+ [33;1mCannot infer target type in expression (. parser addErrorListener l)[0m
+--------------------------------------------------------------------------------
+[2m 191 |     ((:start profile) parser)[0m
+[2m 192 |     (export/failure-kind[0m
+[2m 193 |       @failure[0m
+[2m 194 |       (keep (fn [t][0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #17 - :infer-warning --------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-antlr-multi/src/cljs/yang/antlr/cst.cljs:196:25
+--------------------------------------------------------------------------------
+[2m 193 |       @failure[0m
+[2m 194 |       (keep (fn [t][0m
+[2m 195 |               (when (not= -1 (.-type t))[0m
+[1m 196 |                 {:index (.-tokenIndex t), :start (.-start t), :stop (.-stop t)}))[0m
+-------------------------------^------------------------------------------------
+ [33;1mCannot infer target type in expression (. t -tokenIndex)[0m
+--------------------------------------------------------------------------------
+[2m 197 |             (.-tokens tokens)))))[0m
+[2m 198 | [0m
+--------------------------------------------------------------------------------
+
+[1m------ WARNING #18 - :infer-warning --------------------------------------------[0m
+ File: /Users/sto/workspace/datomworld-antlr-multi/src/cljc/yang/python/antlr/parser.cljc:38:28
+--------------------------------------------------------------------------------
+[2m  35 |                    :default (fn [ts] (Python3Parser. ts))),[0m
+[2m  36 |    :start #?(:cljd (fn [p] (.file_input ^parser-ns/Python3Parser p))[0m
+[2m  37 |              :clj (fn [^Python3Parser p] (.file_input p))[0m
+[1m  38 |              :cljs (fn [p] (.file_input p)))})[0m
+----------------------------------^---------------------------------------------
+ [33;1mCannot infer target type in expression (. p file_input)[0m
+--------------------------------------------------------------------------------
+[2m  39 | [0m
+[2m  40 | [0m
+[2m  41 | (def rule-names[0m
+[2m  42 |   "The grammar's rule-name table."[0m
+--------------------------------------------------------------------------------

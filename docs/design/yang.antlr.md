@@ -187,7 +187,9 @@ The inspected implementation establishes these starting points:
 - `yang.python` (`src/cljc/yang/python.cljc`) and `yang.php`
   (`src/cljc/yang/php.cljc`) contain handwritten tokenizers, parsers, and
   limited lowering. Replacing their parsing does not automatically repair
-  their semantic limitations.
+  their semantic limitations. (Amended 2026-10-18: `yang.python` was
+  removed at its migration gate; see section 8.5.6, the REPL frontend
+  catalog.)
 - JavaScript is described as future work in the Yang documentation; no
   corresponding frontend was found in the inspected Yang source
   directory.
@@ -491,10 +493,11 @@ The proposed deployment policy is:
 |               | in a worker; TypeScript       | service                  |
 |               | compiled at build             |                          |
 +---------------+-------------------------------+--------------------------+
-| Dart / CLJD   | Optional generated Dart       | Sidecar where supported, |
-|               | parser in an isolate          | or a remote service;     |
-|               |                               | otherwise unsupported    |
-|               |                               | outcome                  |
+| Dart / CLJD   | Generated Dart parser (the    | Sidecar where supported, |
+|               | local implementation for      | or a remote service;     |
+|               | Python since 2026-10-17; a    | otherwise unsupported    |
+|               | grammar without a Dart helper | outcome                  |
+|               | answers `unavailable-parser`) |                          |
 +---------------+-------------------------------+--------------------------+
 ```
 
@@ -631,6 +634,24 @@ the Java digests stay byte-identical to today. The runtimes pin per
 target (the Maven runtime, the antlr4 npm package, the antlr4 pub
 package, all at the tool version).
 
+The JavaScript target carries three compatibility additions, each exact
+and digest-pinned in `antlr/python3/manifest.edn`:
+
+- **Duplicate member removal.** The upstream `Python3LexerBase.js` declares
+  `getIndentationCount` twice, identically; Closure (the Node build's
+  release and test compile) rejects the duplicate, so the target's
+  `:patches` entry for that helper deletes the first copy.
+- **Import rewrite.** The `antlr4` package exposes its API at the top level
+  or only under `default`, depending on the loader. The helpers (`:patches`)
+  and the two tool-written files `Python3Lexer.js` and `Python3Parser.js`
+  (`:output-patches`, applied by the generator right after the tool runs)
+  replace `import antlr4 from 'antlr4'` with an import that takes
+  `default` when present.
+- **Runtime default fallback.** `src/cljs/yang/antlr/cst.cljs` resolves the
+  same `default`-or-top-level object (`antlr4-default`) before it reaches
+  the runtime's DFA, prediction-context and simulator classes, so the
+  worker and the generated parsers agree on one runtime object.
+
 The target-neutral parse-tree IR is the existing CST packet v1,
 formalized. ANTLR has no target-neutral tree, and the per-target parse
 trees differ in their objects, but for the same grammar their structure
@@ -646,7 +667,10 @@ own outcome), and a portable `conform` is the per-target oracle. A
 (DEDENT always, NEWLINE at end, EOF always, other types never), and
 error packets carry two independent coordinate systems: the byte span
 computed from token indexes, and ANTLR's line and column captured
-verbatim, which are not required to agree.
+verbatim, which are not required to agree. Where the error token is one an
+indentation helper fabricated (INDENT, EOF), each target's helper reports
+its own line and column, and the conformance corpus pins those per host
+rather than asserting one value across targets.
 
 The lowering stays per language by design and consumes the IR
 host-neutrally; it never sees a target runtime. Per language, the whole
@@ -774,6 +798,13 @@ The syntax exporter emits a versioned packet containing:
 - Source spans and token vocabulary names.
 - Explicit recovery/error records where applicable.
 - A completion record identifying the complete packet.
+
+Amended 2026-10-17: `src/cljc/yang/antlr/packet.cljc` owns the v1 packet
+shape (the normative statement and `packet/conform`, the per-target
+conformance check over the invariants), and `yang.antlr.cst` has one
+exporter per host (JVM, Node, Dart) over the same profile contract; the
+packet is the target-neutral parse-tree IR every exporter produces and every
+language's CST-to-UAST converter consumes.
 
 CST identifiers are deterministic within a packet, for example preorder
 ordinals. They are not ANTLR object identities.
@@ -1706,6 +1737,29 @@ Composition and cost:
   (decision 8).
 - Under a profile without tracing, `sys.settrace` raises an explicit
   unsupported error (decision 10).
+- Slice 3 implements tracing. A frontend mark may carry data:
+  `[:call name def-line]` on a function's code lambda, `[:line n]` on
+  every statement (`:line` sites mark any node, and the hook is
+  sequenced before it). A profile entry `{:hook sym :operands true}`
+  applies the hook to the mark's data as literals. A line is the
+  logical line (`1 +` the line breaks of the preceding NEWLINE tokens),
+  as a packet carries no source text. The trace state is one cell
+  `{:global :profile :busy}`; a traced frame is a record in the
+  dynamic-context record's `:frame` (name, line, Python-visible frame
+  object with `f_code.co_name`, `f_lineno`, `f_back`, local trace
+  function, and the absolute depth that tells the running function's
+  frame from one a caller opened). Frames open only while a trace or
+  profile function is set, so a function entered before `settrace` is
+  untraced, as in CPython. Events fire at the marks: `call` after the
+  recursion check, `line` per statement start, `return` on normal exit
+  (before the depth decrement). Trace and profile functions run with the
+  `:busy` flag set, so they are not traced; one that raises clears both
+  functions and propagates. An escape restores the frame with the depth.
+  `py.sp/install-sys!` puts `settrace`, `setprofile`, `gettrace` and
+  `getprofile` into the `sys` module; with a false flag the setters
+  raise `NotImplementedError`. Not emitted: `exception` and C-call
+  events, events for module-level code, `f_locals`, and the `line` event
+  for loop tests and `except` headers.
 
 The stage is generic over the Universal AST and the frontend-metadata
 side table and lives at `yang.safepoint`, not under `yang.python`. Each
@@ -2367,8 +2421,9 @@ canonical Jing bytes through the existing `dao.jing.stream` adapter are
 the only remote form, and printing and re-reading EDN is not a bignum
 transport. Version-0 handoff of a bignum returns `:yin.k/non-portable`
 of kind `:host-object` on every host. The version-1 scalar body bytes
-and address are pinned in `yin/vm/ucf/scalars-v1.txt`, minted once on
-the JVM and verified on Node and Dart. CPython NaN object-identity
+and address are pinned in the `int-contract-v1` fixture
+(`test/resources/yin/vm/ucf/int-contract-v1.txt`), minted once on the
+JVM and verified on Node and Dart. CPython NaN object-identity
 fidelity remains unsupported;
 deterministic NaN key behavior is now specified. Float text parity is
 claimed for `repr`, `str` and `print` of every double, as amended in S4
@@ -2997,10 +3052,11 @@ gates pass, then it is deleted, with no compatibility shim:
 The float fix is also a hard prerequisite for P2: the prelude manifest
 must have one address on every host.
 
-The REPL frontend catalog (ruling 16). `yin/repl.cljc` today has a
+The REPL frontend catalog (ruling 16). `yin/repl.cljc` at ruling 16 had a
 closed `case` over three languages, language special cases, and static
-requires of all three frontends; its `:python` is the legacy
-`yang.python`, and the ANTLR parser exists only on the JVM. The design
+requires of all three frontends; its `:python` was the legacy
+`yang.python`, and the ANTLR parser then existed only on the JVM (it is
+now generated for JVM, Node and Dart). The design
 realizes sections 3.3 and 3.6 for the REPL:
 
 - `yang.frontend`, new and pure cljc: manifest validation,
@@ -3020,8 +3076,16 @@ realizes sections 3.3 and 3.6 for the REPL:
   pending-require.
 - No fallback between frontends: `:yang.python/antlr` and
   `:yang.python/legacy` are distinct ids, and legacy retires at its own
-  migration gate. Selecting a frontend answers unavailable-parser only
-  when neither a local parser nor an explicitly configured service is
+  migration gate. (Amended 2026-10-18: the gate passed once the ANTLR
+  frontend parsed on JVM, Node and Dart; `yang.python` and its
+  `:yang.python/legacy` registration are deleted. The standard catalog is
+  `:yang.clojure/legacy` (`:clojure`), `:yang.php/legacy` (`:php`) and
+  `:yang.python/antlr` (`:python`, revision f4, every host), so
+  `(lang :python)` selects the ANTLR frontend. Capability loss: the
+  legacy frontend could call Clojure macros and functions in the same
+  session; the ANTLR frontend cannot until the section 8.10 ABI, because
+  a Python name missing from the module dict raises `NameError`.) Selecting a frontend
+  answers unavailable-parser only when neither a local parser nor an explicitly configured service is
   available, on any host (section 4.1).
 - Support claims derive from explicit semantic and runtime declarations
   and tests, not solely from the syntactic `unsupported-rules` list.
@@ -3127,7 +3191,8 @@ Linker prerequisites, the linker seat's to build:
 +-------+----------------------------------------------------------------------+
 | P3    | `pysp` linked, `attach!`                                             |
 +-------+----------------------------------------------------------------------+
-| F3    | The Python ANTLR frontend in the catalog (JVM); persistent           |
+| F3    | The Python ANTLR frontend in the catalog (every host, amended        |
+|       | 2026-10-17); persistent                                              |
 |       | `__main__`; needs P2                                                 |
 +-------+----------------------------------------------------------------------+
 | I1    | Static absolute imports of single modules, `py/import`, module       |
@@ -3147,17 +3212,22 @@ Linker prerequisites, the linker seat's to build:
 +-------+----------------------------------------------------------------------+
 ```
 
-Acceptance, each on all three hosts unless stated (Node and Dart consume
-precompiled CST packets or rows, since the parser is JVM-only):
+Acceptance, each on all three hosts unless stated (amended 2026-10-17: the
+Python parser is generated for all three hosts, so the session scenarios run
+through the installed parser on each, and the precompiled packets are checked
+against it by the packet-parity test; per-target helper availability, 4.2,
+decides the host matrix of any other grammar):
 
 - F1: two revisions of one id installed into an empty catalog are both
   selectable and the original catalog is unchanged; a manifest holding a
   function is rejected with a qualified outcome.
 - F2: a toy frontend defined in a test namespace installs, is selected,
   and evaluates on every VM with no `src` edit; a newer revision
-  installed under a live session leaves it unchanged; on Node and Dart
-  with no parser or configured service, the ANTLR id answers
-  unavailable-parser with no legacy fallback.
+  installed under a live session leaves it unchanged; a host with no
+  generated parser for a grammar, and no configured service, answers
+  unavailable-parser for that grammar's id with no legacy fallback (amended
+  2026-10-17: the Python grammar is generated for JVM, Node and Dart, so
+  `:yang.python/antlr` is installed on every host).
 - P1: the full corpus output is unchanged on every VM and host; a
   composition with no cell module halts ok on `functions-uast`;
   `py/init!` twice yields one set of class cells; shadowing then
@@ -3930,8 +4000,9 @@ Exit criteria:
   arity behavior pass.
 - Unsupported constructs produce stable diagnostics.
 - Different chunk boundaries yield identical semantic output.
-- The legacy Python frontend remains selectable until the replacement
-  profile passes its migration gate.
+- The legacy Python frontend remained selectable until the replacement
+  profile passed its migration gate (satisfied 2026-10-18; the legacy
+  frontend is deleted).
 
 ### Phase 2: Java static and class-based pilot
 

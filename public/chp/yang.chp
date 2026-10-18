@@ -24,10 +24,10 @@
            "Currently implemented:"]
           [:ul.bulleted
            [:li [:strong "yang.clojure"] " — Compiles Clojure s-expressions to Universal AST"]
-           [:li [:strong "yang.python"] " — Compiles Python syntax to Universal AST"]]
+           [:li [:strong "yang.python"] " — Parses Python source with a generated ANTLR grammar and lowers it to Universal AST"]]
           [:p
            "This architecture enables " [:strong "true language interoperability"]
-           "—Python functions can call Clojure functions and vice versa, because both compile to the same Universal AST that Yin understands."]]]
+           "—both compile to the same Universal AST that Yin understands. Calling across languages within one session needs an ABI that is still being designed, so for now each language keeps its own module scope."]]]
         [:section.section-dark
          [:div.section-inner
           [:h2 "The Clojure compiler"]
@@ -61,82 +61,43 @@
            " construct in the Universal AST—everything becomes lambdas and applications."]]]
         [:section.section-light
          [:div.section-inner
-          [:h2 "The Python compiler"]
+          [:h2 "The Python frontend"]
           [:p
-           "The " [:code "yang.python"] " compiler parses Python source text and compiles it to Universal AST. "
-           "Unlike the Clojure compiler, which operates on already-parsed s-expressions, the Python compiler includes "
-           [:strong "a complete tokenizer and recursive-descent parser"] "."]
-          [:h3 "Three-stage compilation"]
+           "The " [:code "yang.python.antlr"] " frontend parses Python source text with "
+           [:strong "one generated ANTLR grammar"] " (revision f4) and lowers it to Universal AST. "
+           "The same grammar produces the parser on every host: JVM, JavaScript, and Dart."]
+          [:h3 "Pipeline"]
           [:ul.bulleted
-           [:li [:strong "Tokenize:"] " Python source → token stream"]
-           [:li [:strong "Parse:"] " Tokens → Python-specific AST (with operator precedence)"]
-           [:li [:strong "Compile:"] " Python AST → Universal AST"]]
-          [:h3 "Tokenizer"]
+           [:li [:strong "Parse:"] " Python source → concrete syntax tree (CST) packet"]
+           [:li [:strong "Lower:"] " CST packet → Universal AST"]
+           [:li [:strong "Run:"] " Yin executes the AST like any other"]]
+          [:h3 "The CST packet"]
           [:p
-           "The tokenizer breaks Python source into meaningful tokens using regex patterns:"]
-          [:pre [:code
-                 "\"lambda x: x * 2\"\n"
-                 ";; Tokenizes to:\n"
-                 "[[:keyword \"lambda\"]\n"
-                 " [:identifier \"x\"]\n"
-                 " [:colon \":\"]\n"
-                 " [:identifier \"x\"]\n"
-                 " [:operator \"*\"]\n"
-                 " [:number \"2\"]]"]]
-          [:h3 "Parser"]
+           "The parser emits a plain-data packet describing the concrete syntax, including indentation tokens. "
+           "Because the packet is data, it can cross a stream and be lowered anywhere."]
+          [:h3 "Module scope"]
           [:p
-           "The recursive-descent parser constructs a Python-specific AST with proper operator precedence:"]
-          [:table.comparison-table
-           [:thead
-            [:tr
-             [:th "Python"]
-             [:th "Python AST"]]]
-           [:tbody
-            [:tr
-             [:td [:code "2 + 3 * 4"]]
-             [:td [:code "{:py-type :binop, :op +, :left 2, :right {:py-type :binop, :op *, ...}}"]]]]]
-          [:p
-           "Operator precedence ensures " [:code "3 * 4"] " evaluates before " [:code "+ 2"] "."]
+           "Python module globals live in a dict, and a missing name raises " [:code "NameError"] ", as in CPython. "
+           "A Python submission therefore cannot see names defined from Clojure until the cross-language ABI is specified."]
           [:h3 "Supported Python features"]
           [:ul.bulleted
            [:li "Literals: " [:code "42"] ", " [:code "\"hello\""] ", " [:code "True"] ", " [:code "None"]]
-           [:li "Variables: " [:code "x"] ", " [:code "my_var"]]
            [:li "Lambda expressions: " [:code "lambda x, y: x + y"]]
            [:li "Function definitions: " [:code "def double(x): return x * 2"]]
            [:li "Function calls: " [:code "f(1, 2)"] ", " [:code "(lambda x: x * 2)(21)"]]
-           [:li "Binary operators with precedence: " [:code "+"] ", " [:code "-"] ", " [:code "*"] ", " [:code "/"] ", " [:code "=="] ", " [:code "<"] ", " [:code ">"]]
-           [:li "If expressions: " [:code "10 if x > 5 else 20"]]
-           [:li "Higher-order functions: " [:code "(lambda f: f(5))(lambda x: x * 2)"]]]]]
+           [:li "Binary operators with precedence"]
+           [:li "If expressions: " [:code "10 if x > 5 else 20"]]]]]
         [:section.section-dark
          [:div.section-inner
           [:h2 "Language interoperability"]
           [:p
            "Because both compilers produce the same Universal AST format, "
-           [:strong "Python and Clojure code can be composed together"] ":"]
-          [:pre [:code
-                 ";; Define a function in Python\n"
-                 "(def py-triple\n"
-                 "  (yang.python/compile \"lambda x: x * 3\"))\n"
-                 "\n"
-                 ";; Define a function in Clojure\n"
-                 "(def clj-add10\n"
-                 "  (yang.clojure/compile '(fn [x] (+ x 10))))\n"
-                 "\n"
-                 ";; Compose them!\n"
-                 "(def composed\n"
-                 "  {:type :application\n"
-                 "   :operator clj-add10\n"
-                 "   :operands [{:type :application\n"
-                 "               :operator py-triple\n"
-                 "               :operands [{:type :literal :value 5}]}]})\n"
-                 "\n"
-                 ";; Execute: add10(triple(5)) = add10(15) = 25\n"
-                 "(vm/run initial-state composed)\n"
-                 ";; => {:value 25}"]]
+           [:strong "their output is interchangeable at the AST level"] ". "
+           "A Python " [:code "lambda x: x * 3"] " and a Clojure " [:code "(fn [x] (* x 3))"]
+           " both lower to " [:code ":lambda"] " nodes that Yin executes the same way."]
           [:p
-           "The Python " [:code "lambda x: x * 3"] " and Clojure " [:code "(fn [x] (+ x 10))"]
-           " compile to identical Universal AST structures (both are " [:code ":lambda"] " nodes), "
-           "so Yin can execute them interchangeably."]]]
+           "Calling a function defined in one language from another within the same session is not available yet. "
+           "It waits on a cross-language ABI."]]]
         [:section.section-light
          [:div.section-inner
           [:h2 "Universal AST as lingua franca"]
@@ -163,7 +124,7 @@
              [:td [:code "{:type :lambda, :params [x], :body {...}}"]]]]]
           [:p
            "All three languages compile to the " [:em "same"] " Universal AST, "
-           "enabling seamless cross-language function calls and data sharing."]
+           "so one VM runs them all. Cross-language calls within a session wait on the planned ABI."]
           [:p.learn-more
            "Learn more about how the Universal AST enables cross-language semantic preservation in "
            [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"} "Yin.vm: Chinese Characters for Programming Languages"]
@@ -191,9 +152,9 @@
           [:p "Explore the Yang compiler implementation in depth:"]
           [:ul.bulleted
            [:li "Clojure Compiler Source — 226 lines of portable code"]
-           [:li "Python Compiler Source — 450+ lines including tokenizer and parser"]
+           [:li "Python Frontend — one ANTLR grammar and a CST-to-AST lowering"]
            [:li "Clojure Compiler Documentation — Usage examples and implementation details"]
-           [:li "Python Compiler Documentation — Tokenizer, parser, and compiler architecture"]
+           [:li "Python Frontend Documentation — grammar, CST packet, and lowering"]
            [:li "Multi-Language Architecture — How Yang enables cross-language composition"]]]]
         [:section.section-dark
          [:div.section-inner
