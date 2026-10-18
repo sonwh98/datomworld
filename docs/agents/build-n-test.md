@@ -453,6 +453,15 @@ not recorded yet: fill them in from `summary.txt` after a completed run. Running
 lanes concurrently on one host did not make the Dart lane faster, so count on the
 extra cores and a free laptop, and measure before relying on a speedup.
 
+One exception to the concurrency above: never run two lanes that both trigger
+`gen:antlr` (the quick `test:cljs`/`test:cljd` tasks) in the SAME worktree at the
+same time — they race on `build/antlr` and `lib/antlr` and fail with
+"Patch does not apply" or "Generated sources differ from the recorded digests".
+Run them sequentially, or in separate clones (as the slow-tier harness does).
+The fix after a collision is `rm -rf build/antlr lib/antlr` and a rerun; the
+generator is not idempotent over an already-patched tree. Corroborated twice in
+one week (the M3 round and the C3 completion round, 2026-10-18).
+
 ## Testing Philosophy & TDD
 
 Write tests before implementing features (TDD).

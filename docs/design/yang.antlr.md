@@ -2419,8 +2419,9 @@ canonical Jing bytes through the existing `dao.jing.stream` adapter are
 the only remote form, and printing and re-reading EDN is not a bignum
 transport. Version-0 handoff of a bignum returns `:yin.k/non-portable`
 of kind `:host-object` on every host. The version-1 scalar body bytes
-and address are pinned in `yin/vm/ucf/scalars-v1.txt`, minted once on
-the JVM and verified on Node and Dart. CPython NaN object-identity
+and address are pinned in the `int-contract-v1` fixture
+(`test/resources/yin/vm/ucf/int-contract-v1.txt`), minted once on the
+JVM and verified on Node and Dart. CPython NaN object-identity
 fidelity remains unsupported;
 deterministic NaN key behavior is now specified. Float text parity is
 claimed for `repr`, `str` and `print` of every double, as amended in S4

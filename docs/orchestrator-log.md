@@ -11993,3 +11993,22 @@ The owner's hold ("don't remove legacy until antlr works for JS and dart too") i
 Process lessons recorded: gates cross-check "done" claims against blob/diff evidence (the s3 rewrap);
 evidence must be captured AT the claimed head (the stale m012e-jvm.log); canonical synthetic text is
   the packet-identity contract (the DEDENT regen ruling).
+
+## 2026-10-18 19:4x +07 — C3 CLOSED: fable signs the completion evidence (ruling 14 satisfied)
+The completion round (sonnet, the c3gate worktree at 79db800e): the twelve lanes run — the c3-gate
+  clean on EVERY host across all four VMs (JVM 221/5793/0 over 15 namespaces; Node 322/42358 with the
+  only failures the two non-C3 finds; Dart 276 likewise); zero fixture diffs (the post-S1 fixture
+  changes identified as non-C3 commits); the full C1 corpus; the checked-in operand tables — NO RNG —
+  re-generated under CPython 3.9.6 byte-identical, the 2^53/2^63/2^64 boundaries and every detector
+  theme covered; the SEVEN named mutations each shown failing its detector once (disabled promotion,
+  skipped demotion, double-coerced keys, omitted floor adjustment, abs(n) tag 3, host-number?-only —
+  326 Node failures —, narrowed shift). Fable's sign-off (claude-cloud): "The C3 evidence package
+  satisfies ruling 14 as written." Her rulings: F1 (the dht-import :importers divergence on
+  Node/Dart) and F2 (the vm-rebuild :register/:semantic default) are real red lanes OUTSIDE C3 —
+  both now P2 known-gaps rows; F3/F4 by design; F5 (the nonexistent scalars-v1.txt path in §8.5.4)
+  fixed to int-contract-v1; F6 recorded; F7 (the same-worktree concurrent-lane gen:antlr race,
+  corroborated twice this week) now documented in build-n-test.md with the sequential rule.
+The C3 exact-integer phase is COMPLETE: S0-S7 landed, the completion gate signed. The close commit
+  carries her five close-out edits (the report archived, the doc fix, the two rows, the race note).
+Next: the (compile ...) investigation slice (the new P2 gap), the F1/F2 diagnosis slices, safepoint
+  s4 (threads), C4 I7; ADR 0004 (owner-gated).

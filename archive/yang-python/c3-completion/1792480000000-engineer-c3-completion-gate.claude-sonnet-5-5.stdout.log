@@ -1,0 +1,46 @@
+The C3 gate is not clean. The C3 detectors pass on all three hosts and all seven mutations were caught. Two non-C3 tests fail on Node and Dart, and the gate misses one mutation on the JVM. I made no commits, restored the source after every mutation, and left the branch at 79db800e. Only untracked files under `collab/` remain.
+
+**Twelve lanes**
+
+I ran Node and Dart with the slow-guarded bodies enabled, because the fast `bb test:*` lanes skip `c3-gate-test`.
+
+| Lane | Result |
+|---|---|
+| JVM (4 VMs, source-level) | 221 tests, 5793 assertions, 0 failures. `c3-gate-test` alone: 3 tests, 70 assertions, 0 failures. |
+| Node (4 VMs, parserless) | 322 tests, 42358 assertions, 5 failures (F1, F2 below). `c3-gate-test` clean. |
+| Dart VM (4 VMs, parserless) | 276 tests, 2 failures (F1, F2 below). `c3-gate-test` clean. Dart reports tests, not assertions. |
+
+**Golden byte identity**
+- **Pass counts:** Jing and C3 goldens pass on all three hosts: JVM 69 tests, Node 99, Dart 81 (4405, 7077 and not-reported assertions).
+- **Digests:** the canonical and refusal digests are identical on JVM, Node and Dart.
+- **Pins:** there are no fixture diffs against the committed pins. Non-C3 commits changed the Jing fixture files after S1 (BLAKE3 digests, equality-collapse refusals, the JS float64 coercion refusal). Every host passes against the current pins.
+
+**C1 corpus:** `e2e-c1-test` passes inside the JVM run. It is a JVM-only file; Node and Dart see C1 only through the shared int-ops and prelude-parity namespaces.
+
+**Operand table**
+- **What the table is:** there is no RNG table. It is `c3-corpus-v1` (10 programs) plus the `int-ops-v1`/`v2`/`v3`, `int-conv-v1`, `int-contract-v1` and `float-text-v1` fixtures.
+- **CPython check:** I re-ran all seven generators under CPython 3.9.6, and each output matches its checked-in file byte for byte.
+- **Coverage:** the corpus covers 2^53, 2^63, 2^64, promotion followed by cancellation, divmod, shifts, power, conversions, keys, `hash(-1)` and signed zero. The `limits` and `small` programs are hand pins, not CPython output.
+
+**Mutations** (each shown failing once)
+
+| # | Mutation | Detector | Failure |
+|---|---|---|---|
+| 1 | Disabled promotion (`fast-add` wraps on `long` overflow) | `c3-gate-test` `promotion`, 4 VMs | `2**63-1 + 1` printed `-9223372036854775808 False …` |
+| 2 | Skipped demotion (`out` returns a `BigInt`) | `int-literal-test`, 28 failures | `c3-gate-test` passes on the JVM (F3) |
+| 3 | Double-coerced keys (ints keyed through float) | `c3-gate-test` `keys`, 4 VMs | `2**53+1` collides with `2**53`; `len(e)` 4 becomes 2 |
+| 4 | Omitted floor adjustment (`adjust? false`) | `c3-gate-test` `divmod` and `keys`, 8 failures | divmod gives truncating results |
+| 5 | `abs(n)` for tag 3 | `int-contract-test`, 8 failures | `-2^64-1` encodes `c349…00` instead of `…01` |
+| 6 | Host `number?` as the only scalar gate | Node only: 326 failures, 4 errors | `c3-gate-test` `promotion` and the int-ops fixtures; passes on the JVM because `BigInt` is a `Number` |
+| 7 | Narrowed shift count (`.longValue`) | `c3-gate-test` `shifts` and `limits`, 8 failures | `1 >> 2**70` and similar |
+
+**Findings**
+- **F1:** `dht-import-test-test` fails on Node and Dart. Its own publication differs from the JVM artifact in the `:importers` key. This is the C4 publication area, and the JVM passes.
+- **F2:** `vm-rebuild-is-a-new-process-test` in `yin.repl.python-antlr-test` fails on Node (4 assertions, reproduced standalone) and on Dart (expected `:register`, got `:semantic`). The JVM passes. It is not a C3 detector.
+- **F3:** The gate cannot see skipped demotion on the JVM, because `BigInt` equals `long` there. The gate catches it only on Node and Dart, and only `int-literal-test` catches it on the JVM.
+- **F4:** The gate programs do not catch the tag-3 mutation. Only `int-contract-test` does, which matches what the doc says.
+- **F5:** Section 8.5.4 names `yin/vm/ucf/scalars-v1.txt` as the pinned scalar bytes, but that file does not exist. The scalar bytes are pinned in `int-contract-v1.txt` instead.
+- **F6:** The fast lanes (`bb test:clj`, `test:cljs`, `test:cljd`) skip `c3-gate-test`, so the gate only runs under the slow or all lanes.
+- **F7:** `bb test:slow:cljs` ran every guard namespace and hit the 2-hour background cap in the semantic namespaces, after the Python ones had finished. I reran the Python and C3 namespaces with a scoped `ns-regexp` to get counts. The Dart run was scoped with `--only` to the same namespaces, so the full Dart suite was not run. Running `test:cljs` and `test:cljd` at the same time collided in `gen:antlr` ("Generated sources differ from the recorded digests"). Removing `build/antlr` and `lib/antlr` and running the lanes one at a time fixed it.
+
+The full report is `collab/1792480000000-engineer-c3-completion-gate.report.md`. My scratch `bb.edn` and regeneration scripts are in `collab/c3gate/`.

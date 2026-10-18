@@ -1,0 +1,32 @@
+Completed-GMT: 2026-10-18 05:28:41 GMT
+Completed-Local: 2026-10-18 12:28:41 +0700
+
+The C3 evidence package satisfies ruling 14 as written. I checked the report's claims against the tree read-only, since plan mode blocked the report file and doc edits. Those close-out steps are in the plan file for approval.
+
+**What I verified in the tree**
+
+- HEAD is 79db800e with no fixture diffs. Only untracked collab files are present.
+- The gate test runs every corpus program over the four VM runners per host and is slow-guarded, as the report says.
+- The scalar pin file named in the design doc does not exist. The real pin is int-contract-v1.txt, so F5 is a confirmed doc defect.
+- The three fixture-changing commits the report names exist and are non-C3 work. All hosts pass against the current pins.
+- The regeneration script runs the seven generators isolated and byte-compares them. The lane tooling sets the slow-tier flag.
+- The known-gaps ledger has no C3 row at all, so there is nothing to reopen.
+
+**Rulings on F1 to F7**
+
+- F1 and F2 are real red lanes but outside C3. F1 is C4 publication. F2 is a yin.repl VM-type default. Both need known-gaps rows at P2.
+- F3 is by design. The JVM cannot distinguish a demoted long from a BigInt, and int-literal-test is the JVM detector. The ruling asks for each mutation to fail its detector once, not on every host.
+- F4 matches the doc, which delegates tag-3 detection to the codec and int-contract tests.
+- F5 is a doc correction to apply at close.
+- F6 matches the test-tier cadence. Record it in the landing note.
+- F7 deserves one line in build-n-test.md about running the Node and Dart lanes sequentially.
+
+**Close-out edits waiting on approval**
+
+1. Write the Architect report into collab.
+2. Fix the scalar pin path in yang.antlr.md.
+3. Add F1 and F2 rows to the known-gaps ledger.
+4. Add the gen:antlr race note to build-n-test.md.
+5. Commit the docs on c3-completion and merge per the standing rule.
+
+Verdict: READY (sign-off granted)
