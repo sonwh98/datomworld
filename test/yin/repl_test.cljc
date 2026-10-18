@@ -35,7 +35,7 @@
   (let [state (repl.frontends/create-state)]
     (is (= :semantic (:vm-type state))
         "the semantic VM is the default after Phase 4 (yin.vm.semantic.md §10 phase 8)")
-    (is (= :clojure (:lang state)))
+    (is (= :yang/clojure (:lang state)))
     (is (true? (:running? state)))
     (is (= :untried (get-in state [:ledger :output]))
         "an idle medium has no last operation, so the ledger says so")
@@ -183,10 +183,13 @@
 
 
 (deftest language-and-compile-commands-behave-as-they-do-in-v1
-  (let [[_ result] (repl/eval-input (repl.frontends/create-state) "(lang :python)")
-        [state _] (repl/eval-input (repl.frontends/create-state) "(lang :php)")
+  (let [[_ result] (repl/eval-input (repl.frontends/create-state) "(lang :yang/python)")
+        [_ refused] (repl/eval-input (repl.frontends/create-state) "(lang :python)")
+        [state _] (repl/eval-input (repl.frontends/create-state) "(lang :yang/php)")
         [_ compiled] (repl/eval-input state "(compile \"1 + 2;\")")]
-    (is (= "Switched to Python" result))
+    (is (= "Switched to :yang/python" result))
+    (is (str/includes? refused "unavailable-parser")
+        "a language keyword is not a selector")
     (is (str/includes? compiled "AST:"))
     (is (str/includes? compiled "Input rows:"))
     (is (str/includes? compiled "Expanded rows:"))
@@ -718,7 +721,7 @@
   (let [[state _] (evaluate (repl.frontends/create-state) [unless-source twice-source
                                                            "(defn inc2 [x] (+ x 2))"])]
     (testing "PHP"
-      (let [[_ texts] (results state ["(lang :php)"
+      (let [[_ texts] (results state ["(lang :yang/php)"
                                       "unless(false, 1, 2);"
                                       "twice(21);"
                                       "inc2(3);"])]
@@ -727,7 +730,7 @@
 
 (deftest a-python-submission-cannot-see-a-clojure-defined-name
   (let [[state _] (evaluate (repl.frontends/create-state) ["(def clj_only 41)"])
-        [_ texts] (results state ["(lang :python)" "print(clj_only)"])]
+        [_ texts] (results state ["(lang :yang/python)" "print(clj_only)"])]
     (is (= "NameError: name 'clj_only' is not defined\n" (nth texts 1)))))
 
 

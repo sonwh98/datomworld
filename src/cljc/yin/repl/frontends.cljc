@@ -42,7 +42,7 @@
 
 (defn- antlr-manifest
   []
-  (assoc (manifest :yang.python/antlr :python)
+  (assoc (manifest :yang/python :python)
          :yang.frontend/revision "f4"
          :yang.frontend/grammar
          {:yang.grammar/package "python3",
@@ -59,11 +59,11 @@
    printed and the value rendered by its `:render` (Python repr)."
   []
   (cond-> frontend/empty-catalog
-    true (frontend/install (manifest :yang.clojure/legacy :clojure)
+    true (frontend/install (manifest :yang/clojure :clojure)
                            {:input :forms,
                             :parse identity,
                             :lower clojure-lower})
-    true (frontend/install (manifest :yang.php/legacy :php)
+    true (frontend/install (manifest :yang/php :php)
                            {:parse identity, :lower yang.php/compile})
     true (frontend/install
            (antlr-manifest)
