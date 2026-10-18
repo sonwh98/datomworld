@@ -170,10 +170,12 @@
    parses, `:end` when the first error failed on an end-of-input token, else
    `:early` (`export/failure-kind` decides).
 
-   The failing token is the offending token of a mismatch; a
-   no-viable-alternative error names the token its prediction began at, so
-   for it the failing token is the furthest one the parser had buffered when
-   the error was reported. A lexer error has no token."
+   The failing token is the offending token of a mismatch; for a
+   no-viable-alternative error the JVM runtime lazy-fills its token
+   buffer, so the buffer's last token is the furthest the parser had read
+   when the error was reported (the JS and Dart runtimes fill to EOF and
+   use the listener's offending token instead — their hosts' cst
+   namespaces carry that rationale). A lexer error has no token."
   [worker source]
   (let [{:keys [profile lexer-atn lexer-dfa lexer-cache parser-atn
                 parser-dfa parser-cache]}
