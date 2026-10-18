@@ -303,6 +303,63 @@
       (is (false? idle-owed?) "an idle tick owes nothing"))))
 
 
+(defn- transcript
+  "Each line submitted to the interactive composition `repl/boot` builds,
+   paired with what the step owner printed for it: the path the host
+   entries (`bin/yin_repl_main.dart`, the JVM and Node mains) run."
+  [lines]
+  (loop [state (repl/boot {})
+         lines lines
+         out []]
+    (if-let [line (first lines)]
+      (let [_ (driver/submit-line! (:input state) line)
+            [state' printed] (loop [state state
+                                    n 0]
+                               (let [[state' _ printed] (repl/step-all state
+                                                                       nil
+                                                                       n)]
+                                 (if (or (seq printed) (= n 50))
+                                   [state' printed]
+                                   (recur state' (inc n)))))]
+        (recur state' (rest lines) (conj out [line (vec printed)])))
+      out)))
+
+
+(deftest the-interactive-composition-holds-every-standard-language
+  (let [t (transcript ["(host)"
+                       "(lang :yang/python)"
+                       "1 + 2"
+                       "(lang :python)"
+                       "1 + 2"
+                       "[x * x for x in range(4)]"
+                       "(lang :yang.python/antlr)"
+                       "'a' + 'b'"
+                       "(lang :php)"
+                       "1 + 2;"
+                       "(lang :clojure)"
+                       "(+ 1 2)"])]
+    (is (str/starts-with? (first (get-in t [0 1])) "Host: "))
+    (testing "a name that is neither a language nor an id is refused on
+              every host, naming what is installed"
+      (is (= [(str "Error: unavailable-parser: Yin REPL language :yang/python"
+                   " is not in the frontend catalog; installed: :clojure :php"
+                   " :python (ids :yang.clojure/legacy :yang.php/legacy"
+                   " :yang.python/antlr)")]
+             (get-in t [1 1]))))
+    (testing "Clojure reads `1 + 2` as three forms; the last value prints"
+      (is (= ["2"] (get-in t [2 1]))))
+    (is (= [["(lang :python)" ["Switched to Python"]]
+            ["1 + 2" ["3"]]
+            ["[x * x for x in range(4)]" ["[0, 1, 4, 9]"]]
+            ["(lang :yang.python/antlr)" ["Switched to :yang.python/antlr"]]
+            ["'a' + 'b'" ["'ab'"]]
+            ["(lang :php)" ["Switched to PHP"]]
+            ["1 + 2;" ["3"]]
+            ["(lang :clojure)" ["Switched to Clojure"]]
+            ["(+ 1 2)" ["3"]]]
+           (subvec t 3)))))
+
+
 ;; =============================================================================
 ;; L4: the publisher's key file (docs/design/yin.vm.linker.dht.md 6.5)
 ;; =============================================================================

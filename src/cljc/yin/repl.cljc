@@ -1683,6 +1683,17 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
        vec))
 
 
+(defn- installed-text
+  "The languages and ids `catalog` holds, for a refused selection to name:
+   a name that is neither is a typo, not a missing frontend."
+  [catalog]
+  (let [entries (:yang.frontend/entries catalog)
+        listed (fn [xs] (str/join " " (map pr-str (sort (distinct xs)))))]
+    (str "installed: "
+         (listed (map (comp :yang.frontend/language :manifest) (vals entries)))
+         " (ids " (listed (map first (keys entries))) ")")))
+
+
 (defn- select-frontend
   "Select the frontend `lang` names in `catalog`: a qualified id selects
    id (ambiguous when several revisions are installed), `[id revision]`
@@ -1882,7 +1893,8 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                [(assoc state :lang lang)
                 (str "Switched to " (get lang-labels lang (str lang)))]
                [state (str "Error: unavailable-parser: Yin REPL language "
-                           (pr-str lang) " is not in the frontend catalog")]))
+                           (pr-str lang) " is not in the frontend catalog; "
+                           (installed-text (:frontends state)))]))
       compile [state (render-compile-output
                        state
                        (compile-command-ast state (first args)))]
