@@ -11994,6 +11994,26 @@ Process lessons recorded: gates cross-check "done" claims against blob/diff evid
 evidence must be captured AT the claimed head (the stale m012e-jvm.log); canonical synthetic text is
   the packet-identity contract (the DEDENT regen ruling).
 
+## 2026-10-18 18:4x +07 — the legacy Python compiler RETIRED (5308e7cf); the M3 order executed
+The owner's hold ("don't remove legacy until antlr works for JS and dart too") lifted with the M0-M2
+  landing. Rounds: opus's retirement round (yang/python.cljc deleted, the catalog reshaped to
+  :yang.clojure/legacy + :yang.php/legacy + :yang.python/antlr (f4, every host), the repl capability
+  loss recorded (Python cannot call same-session Clojure macros until the §8.10 ABI — module dict
+  semantics, an undefined global raises NameError), 16 files +78/−1263, NO pin moved) -> the deepseek
+  gate (the substance sound; five doc-residue items: yin.repl.md self-contradiction, the LIVE
+  public/chp/yang.chp still documenting the dead compiler, demo_python.clj requiring the deleted
+  namespace, the capability loss absent from user docs, six stale references) -> the sonnet fix round
+  (all five resolved; the .chp page rewritten to the antlr reality; the NameError assertion added and
+  passing; the grep clean) -> my lanes at the fix head: JVM green, Node 4089/149964/0 (the new test
+  included), Dart 4037 all passed (the first Dart attempt hit the two-concurrent-lanes gen:antlr race
+  in the fresh worktree; the clean sequential rerun green — the lanes in one worktree stay
+  SEQUENTIAL). Landed m3-legacy:master = 5308e7cf.
+NEW known-gap (pre-existing, exposed not caused): (compile "1 + 2") under the antlr frontend — Node
+  returns an EMPTY string, the JVM works but prints the whole prelude (24.8M chars, ~15 s). The
+  implementer moved the check to PHP rather than mask it; it needs its own investigation.
+Next: the C3 completion gate (sonnet, running — twelve lanes + the mutation evidence at b0b49c11),
+  then fable's C3 sign-off; safepoint s4; C4 I7.
+
 ## 2026-10-18 19:4x +07 — C3 CLOSED: fable signs the completion evidence (ruling 14 satisfied)
 The completion round (sonnet, the c3gate worktree at 79db800e): the twelve lanes run — the c3-gate
   clean on EVERY host across all four VMs (JVM 221/5793/0 over 15 namespaces; Node 322/42358 with the

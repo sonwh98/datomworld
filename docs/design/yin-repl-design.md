@@ -131,7 +131,7 @@ Execute an AST map. Calls `vm/eval` which internally translates AST → datoms.
 
 Compile source code to AST via Yang compiler:
 - `:clojure` → `yang.clojure/compile-program` (EDN reader)
-- `:python` → `yang.python/compile`
+- `:python` → the ANTLR frontend (`yang.python.antlr.parser/parse-source`, then `yang.python.antlr.repl/lower`)
 - `:php` → `yang.php/compile`
 
 ### `handle-command [state form]` → `[new-state print-msg]`

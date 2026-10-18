@@ -149,7 +149,7 @@ x_2 = x_1 * 2
 ```
 
 ```clojure
-;; In yang/python.cljc - Compile assignments:
+;; Historical (yang/python.cljc is retired; see yang.python.antlr.lower) - Compile assignments:
 
 (defn compile-assignment [var-name value-expr body]
   {:type :store-set

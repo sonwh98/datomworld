@@ -1,9 +1,9 @@
 (ns yin.repl.frontends
   "The REPL's standard frontend catalog (docs/design/yang.antlr.md section
-   8.5.6, slice F2): the three legacy hand-written frontends installed into
-   a `yang.frontend` catalog. This is the only place the REPL composition
-   names a language's namespace; `yin.repl` core steps whatever binding the
-   catalog selects.
+   8.5.6, slice F2): the hand-written Clojure and PHP frontends and the
+   ANTLR Python frontend installed into a `yang.frontend` catalog. This is
+   the only place the REPL composition names a language's namespace;
+   `yin.repl` core steps whatever binding the catalog selects.
 
    A binding is `{:parse (fn [input]) :lower (fn [parsed])}`, with
    `:input :forms` when the frontend consumes the forms the shell reader
@@ -12,7 +12,6 @@
     [yang.clojure :as yang.clojure]
     [yang.frontend :as frontend]
     [yang.php :as yang.php]
-    [yang.python :as yang.python]
     [yang.python.antlr.repl :as python.antlr.repl]
     [yang.python.antlr.parser :as python.antlr.parser]
     [yang.python.antlr.repl-probe :as python.antlr.probe]
@@ -43,7 +42,7 @@
 
 (defn- antlr-manifest
   []
-  (assoc (manifest :yang.python/antlr :python.antlr)
+  (assoc (manifest :yang.python/antlr :python)
          :yang.frontend/revision "f4"
          :yang.frontend/grammar
          {:yang.grammar/package "python3",
@@ -54,9 +53,9 @@
 
 (defn standard
   "The standard catalog. The Clojure frontend consumes the forms the
-   shell's own reader read, so its parse stage is the identity.  The Python
-   ANTLR frontend is installed on every host, each running its own generated
-   target of the one grammar.  It shows what a submission
+   shell's own reader read, so its parse stage is the identity.  The ANTLR
+   frontend is the Python frontend, installed on every host, each running
+   its own generated target of the one grammar.  It shows what a submission
    printed and the value rendered by its `:render` (Python repr)."
   []
   (cond-> frontend/empty-catalog
@@ -64,8 +63,6 @@
                            {:input :forms,
                             :parse identity,
                             :lower clojure-lower})
-    true (frontend/install (manifest :yang.python/legacy :python)
-                           {:parse identity, :lower yang.python/compile})
     true (frontend/install (manifest :yang.php/legacy :php)
                            {:parse identity, :lower yang.php/compile})
     true (frontend/install

@@ -63,12 +63,17 @@
 
 (deftest the-standard-languages-still-select-by-id-and-language-test
   (let [state (repl.frontends/create-state)
-        [python switched] (run state "(lang :yang.python/legacy)")
+        [python switched] (run state "(lang :yang.python/antlr)")
         [_ value] (run python "1 + 2")
         [_ compiled] (run (first (run state "(lang :php)")) "(compile \"1 + 2;\")")]
     (is (str/starts-with? switched "Switched to"))
     (is (= "3" value))
-    (is (str/includes? compiled "AST:"))))
+    (is (str/includes? compiled "AST:"))
+    (testing "the language :python selects the ANTLR frontend"
+      (let [[by-language answer] (run state "(lang :python)")]
+        (is (= "Switched to Python" answer))
+        (is (= "'ab'" (second (run by-language "'a' + 'b'")))
+            "the value is rendered by the ANTLR frontend's Python repr")))))
 
 
 (deftest a-newer-revision-leaves-a-live-session-unchanged-test
@@ -94,7 +99,7 @@
     (testing "selecting an id the catalog does not hold is a diagnostic"
       (is (str/includes? answer "unavailable-parser"))
       (is (= :clojure (:lang state'))))
-    (testing "compiling under it answers unavailable-parser, not legacy"
+    (testing "compiling under it answers unavailable-parser, not another frontend"
       (let [pinned (assoc state :lang :yang.python/uninstalled)
             [_ result] (run pinned "1 + 2")
             [_ compiled] (run pinned "(compile \"1 + 2\")")]

@@ -46,11 +46,13 @@ An absent URL path means `/repl`; an explicit `/` remains `/`.
 
 ## Using Python at the prompt
 
-The REPL starts a frontend catalog with four frontends installed: Clojure
-(the default), a legacy Python frontend, PHP, and -- on the JVM only -- the
-ANTLR Python frontend (`:yang.python/antlr`, revision f3), which parses
-Python source with the vendored Python 3 grammar and lowers it through the
-yang.python.antlr pipeline. Select a frontend with the
+The REPL starts a frontend catalog with three frontends installed: Clojure
+(the default), PHP, and the ANTLR Python frontend (`:yang.python/antlr`,
+revision f4), which parses Python source with the vendored Python 3
+grammar and lowers it through the yang.python.antlr pipeline. It is the
+only Python frontend, installed on every host (JVM, Node and Dart each run
+their own generated target of the one grammar); the hand-written legacy
+Python compiler was retired at the frontend's migration gate. Select a frontend with the
 `lang` command:
 
 ```clojure
@@ -61,13 +63,11 @@ hello
 ```
 
 Selection forms: a language keyword selects the one frontend installed for
-that language (`(lang :python)` picks the legacy frontend; on the JVM
-`(lang :python.antlr)` picks the ANTLR one), a qualified id names a
-frontend exactly, and `[id revision]` pins a revision. Selecting a frontend
-with no parser for this host answers
-`Error: unavailable-parser: ...` -- the ANTLR frontend is installed only
-where its parser runs, so on Node and Dart `(lang :yang.python/antlr)`
-fails this way while `(lang :python)` selects the legacy frontend.
+that language (`(lang :python)` picks the ANTLR frontend), a qualified id
+names a frontend exactly, and `[id revision]` pins a revision. Selecting a
+frontend the catalog does not hold answers
+`Error: unavailable-parser: ...`; there is no fallback to another
+frontend.
 
 The ANTLR frontend displays what the program prints, then the value of the
 submission's last top-level bare expression statement (`x = 1; x` shows
@@ -80,11 +80,11 @@ the error text, where CPython prints it before the traceback; and string
 `repr` escapes only code units below 32 and 127, so a raw C1 control such
 as `'\x80'` reaches the prompt unescaped. The frontend also keeps a frontend session across submissions (cleared with
 the VM, as with `(reset)` and `(vm ...)`). The generated parser must exist
-before the JVM REPL starts: `yin.repl.frontends` loads the parser
-namespace on the JVM, so on a fresh clone run `clj -M:antlr-gen` once, or
-REPL startup itself fails with class-not-found. The legacy Python
-frontend has no parser dependency and runs on every host, but it is the
-old hand-written frontend, not the ANTLR pipeline.
+before the REPL starts: `yin.repl.frontends` loads the parser namespace, so
+on a fresh clone run `bb gen:antlr` (or `clj -M:antlr-gen` for the JVM) once,
+or startup fails with class-not-found. The ANTLR frontend is the only Python
+frontend; the catalog is Clojure (default), PHP, and `:yang.python/antlr`,
+each on every host.
 
 ## Saved state
 

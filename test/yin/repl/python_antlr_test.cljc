@@ -395,9 +395,9 @@
 
 (deftest other-frontends-still-echo-their-value-test
   (let [state (frontends/create-state)
-        [python _] (repl/eval-input state "(lang :yang.python/legacy)")]
+        [php _] (repl/eval-input state "(lang :php)")]
     (is (= "3" (second (repl/eval-input state "(+ 1 2)"))))
-    (is (= "3" (second (repl/eval-input python "1 + 2"))))))
+    (is (= "3" (second (repl/eval-input php "1 + 2;"))))))
 
 
 ;; =============================================================================

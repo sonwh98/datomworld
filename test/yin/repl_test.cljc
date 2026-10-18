@@ -183,8 +183,9 @@
 
 
 (deftest language-and-compile-commands-behave-as-they-do-in-v1
-  (let [[state result] (repl/eval-input (repl.frontends/create-state) "(lang :python)")
-        [_ compiled] (repl/eval-input state "(compile \"1 + 2\")")]
+  (let [[_ result] (repl/eval-input (repl.frontends/create-state) "(lang :python)")
+        [state _] (repl/eval-input (repl.frontends/create-state) "(lang :php)")
+        [_ compiled] (repl/eval-input state "(compile \"1 + 2;\")")]
     (is (= "Switched to Python" result))
     (is (str/includes? compiled "AST:"))
     (is (str/includes? compiled "Input rows:"))
@@ -716,15 +717,18 @@
 (deftest a-clojure-macro-expands-calls-from-other-languages
   (let [[state _] (evaluate (repl.frontends/create-state) [unless-source twice-source
                                                            "(defn inc2 [x] (+ x 2))"])]
-    (testing "Python"
-      (let [[state' texts] (results state ["(lang :python)"
-                                           "unless(False, 1, 2)"
-                                           "twice(21)"
-                                           "inc2(3)"])]
-        (is (= ["1" "42" "5"] (rest texts)))
-        (testing "then PHP, on the same session"
-          (let [[_ texts] (results state' ["(lang :php)" "twice(21);" "inc2(3);"])]
-            (is (= ["42" "5"] (rest texts)))))))))
+    (testing "PHP"
+      (let [[_ texts] (results state ["(lang :php)"
+                                      "unless(false, 1, 2);"
+                                      "twice(21);"
+                                      "inc2(3);"])]
+        (is (= ["1" "42" "5"] (rest texts)))))))
+
+
+(deftest a-python-submission-cannot-see-a-clojure-defined-name
+  (let [[state _] (evaluate (repl.frontends/create-state) ["(def clj_only 41)"])
+        [_ texts] (results state ["(lang :python)" "print(clj_only)"])]
+    (is (= "NameError: name 'clj_only' is not defined\n" (nth texts 1)))))
 
 
 (deftest a-host-function-renders-as-a-named-portable-marker

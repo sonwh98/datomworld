@@ -891,7 +891,7 @@
    is empty and every compile answers `unavailable-parser`.  The session
    pins this immutable snapshot: installing into another catalog value
    never changes a live session.  `:lang` selects a frontend by id
-   (`:yang.python/legacy`), by `[id revision]`, or by language (`:python`);
+   (`:yang.python/antlr`), by `[id revision]`, or by language (`:python`);
    one the catalog cannot answer is an `unavailable-parser` diagnostic,
    never a fallback to another frontend."
   ([] (create-state {}))

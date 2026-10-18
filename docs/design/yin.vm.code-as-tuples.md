@@ -332,7 +332,7 @@ mark in the whole v2 lineage is the linearizer's `:call` emission
 (`linearize.cljc:107-108`), which reads it on `:application`; the walker
 never reads it; `:ffi-call` has no tail operand ([the deleted v3 design](./yin.vm.semantic.md#history)
 §2.4). The yang frontends mark `:tail? true` on literals, defs, and other
-nodes (`src/cljc/yang/clojure.cljc:132`, `:164`; `src/cljc/yang/python.cljc:481`),
+nodes (`src/cljc/yang/clojure.cljc:132`, `:164`; the Python lowering in `src/cljc/yang/python/antlr/lower.cljc`),
 and the codec faithfully persists every such mark (`v2.cljc:412`). The
 boundary projection drops those marks: a mark no evaluator can
 observe is not part of the program's syntax as the evaluators read it. The
