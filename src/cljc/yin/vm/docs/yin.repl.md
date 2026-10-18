@@ -46,18 +46,19 @@ An absent URL path means `/repl`; an explicit `/` remains `/`.
 
 ## Using Python at the prompt
 
-The REPL starts a frontend catalog with three frontends installed: Clojure
-(the default), PHP, and the ANTLR Python frontend (`:yang.python/antlr`,
-revision f4), which parses Python source with the vendored Python 3
-grammar and lowers it through the yang.python.antlr pipeline. It is the
-only Python frontend, installed on every host (JVM, Node and Dart each run
-their own generated target of the one grammar); the hand-written legacy
-Python compiler was retired at the frontend's migration gate. Select a frontend with the
-`lang` command:
+The REPL starts a frontend catalog with three frontends installed: `:yang/clojure`
+(the default), `:yang/php`, and `:yang/python` — implemented by the ANTLR
+multi-target parser (revision f4), which parses Python source with the
+vendored Python 3 grammar and lowers it through the yang.python.antlr
+pipeline. It is the only Python frontend, installed on every host (JVM,
+Node and Dart each run their own generated target of the one grammar);
+the hand-written Python compiler was retired at the frontend's migration
+gate. Select a frontend with the `lang` command by frontend id — a
+language keyword is not a selector:
 
 ```clojure
-yin> (lang :yang.python/antlr)
-"Switched to :yang.python/antlr"
+yin> (lang :yang/python)
+"Switched to :yang/python"
 yin> print("hello")
 hello
 ```
@@ -83,7 +84,7 @@ the VM, as with `(reset)` and `(vm ...)`). The generated parser must exist
 before the REPL starts: `yin.repl.frontends` loads the parser namespace, so
 on a fresh clone run `bb gen:antlr` (or `clj -M:antlr-gen` for the JVM) once,
 or startup fails with class-not-found. The ANTLR frontend is the only Python
-frontend; the catalog is Clojure (default), PHP, and `:yang.python/antlr`,
+frontend; the catalog is `:yang/clojure` (default), `:yang/php`, and `:yang/python`,
 each on every host.
 
 ## Saved state

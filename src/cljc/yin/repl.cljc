@@ -229,9 +229,6 @@
                  (derive/register-image (packet->vector packet))))})
 
 
-(def lang-labels {:clojure "Clojure" :python "Python" :php "PHP"})
-
-
 (def command-heads
   "Commands this shell answers.  `connect` and `disconnect` belong to the
    driver, which owns the RPC client; `telemetry` is answered only to say that
@@ -243,7 +240,7 @@
 (def help-text
   (str "Commands:\n"
        "  (vm :ast-walker | :semantic | :stack | :register)\n"
-       "  (lang :clojure | :python | :php)\n"
+       "  (lang :yang/clojure | :yang/python | :yang/php)\n"
        "  (compile expr)\n"
        "  (reset)\n"
        "  (trust \"ed25519:<64 hex>\") / (untrust \"ed25519:<64 hex>\")\n"
@@ -891,7 +888,8 @@
    is empty and every compile answers `unavailable-parser`.  The session
    pins this immutable snapshot: installing into another catalog value
    never changes a live session.  `:lang` selects a frontend by id
-   (`:yang.python/antlr`), by `[id revision]`, or by language (`:python`);
+   (`:yang/python`) or by `[id revision]`; a language keyword is not a
+   selector. The default is the `:yang/clojure` frontend.
    one the catalog cannot answer is an `unavailable-parser` diagnostic,
    never a fallback to another frontend."
   ([] (create-state {}))
@@ -899,7 +897,7 @@
             content-store content-client name-env link-policy index-store
             index-store-spec dht-key principals ws-host write-heads! custody
             frontends admission]
-     :or {lang :clojure vm-type :semantic admission {}}}]
+     :or {lang :yang/clojure vm-type :semantic admission {}}}]
    (let [output-stream (or output-stream (make-output-medium!))
          output-cursor (or output-cursor (mint-cursor output-stream))
          shell-token (str (random-uuid))
@@ -1657,22 +1655,11 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                    (ast-index/notice (:ast-indexer indexed))])))))))))
 
 
-(defn- language-ids
-  "The ids in `catalog` whose manifest language is `language`."
-  [catalog language]
-  (->> (:yang.frontend/entries catalog)
-       (keep (fn [[[id _] entry]]
-               (when (= language (:yang.frontend/language (:manifest entry)))
-                 id)))
-       distinct
-       vec))
-
-
 (defn- select-frontend
   "Select the frontend `lang` names in `catalog`: a qualified id selects
-   id (ambiguous when several revisions are installed), `[id revision]`
-   pins one revision, any other keyword selects the one id installed for
-   that language."
+   by id (ambiguous when several revisions are installed), `[id revision]`
+   pins one revision; anything else is refused — the selector is the
+   frontend id, never a language keyword."
   [catalog lang]
   (cond
     (vector? lang) (frontend/select catalog
@@ -1680,11 +1667,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                                      :yang.frontend/revision (second lang)})
     (qualified-keyword? lang) (frontend/select catalog
                                                {:yang.frontend/id lang})
-    :else (let [ids (language-ids catalog lang)]
-            (case (count ids)
-              0 (frontend/refused :yang.frontend/unknown {:language lang})
-              1 (frontend/select catalog {:yang.frontend/id (first ids)})
-              (frontend/refused :yang.frontend/ambiguous {:ids ids})))))
+    :else (frontend/refused :yang.frontend/unknown {:id lang})))
 
 
 (defn- usable-binding
@@ -1865,7 +1848,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
       lang (let [lang (first args)]
              (if (usable-binding (select-frontend (:frontends state) lang))
                [(assoc state :lang lang)
-                (str "Switched to " (get lang-labels lang (str lang)))]
+                (str "Switched to " lang)]
                [state (str "Error: unavailable-parser: Yin REPL language "
                            (pr-str lang) " is not in the frontend catalog")]))
       compile [state (render-compile-output
