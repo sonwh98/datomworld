@@ -237,7 +237,7 @@
    driver, which owns the RPC client; `telemetry` is answered only to say that
    this REPL slice does not have it."
   #{'vm 'lang 'compile 'reset 'help 'repl-state 'quit 'telemetry 'abandon
-    'trust 'untrust 'trusted})
+    'trust 'untrust 'trusted 'host})
 
 
 (def help-text
@@ -260,11 +260,21 @@
        "  (require (quote yin.head)), then (yin.head/heads)  - each followed"
        " principal's installed head, and (yin.head/moved)  - the linked"
        " names a newer head moved\n"
+       "  (host)  - the runtime this REPL runs on\n"
        "  (repl-state)\n"
        "  (help)\n"
        "  (quit)\n"
        "  *1, *2, *3  - last, second-to-last, and third-to-last evaluated"
        " values"))
+
+
+(def host-text
+  "One line naming the runtime: JVM and Node carry their version, Dart only
+   the platform (cljd exposes no version without a dart:io dependency)."
+  (str "Host: "
+       #?(:clj (str "JVM " (System/getProperty "java.version"))
+          :cljs (str "Node " (.-version js/process))
+          :cljd "Dart")))
 
 
 (def telemetry-text
@@ -1885,6 +1895,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
       repl-state [state (format-value (repl-state state))]
       quit [(assoc state :running? false) "Bye"]
       telemetry [state telemetry-text]
+      host [state host-text]
       [state (str "Error: Unknown Yin REPL command " (pr-str command))])))
 
 

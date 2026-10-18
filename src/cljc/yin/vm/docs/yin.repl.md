@@ -10,6 +10,8 @@ JVM, Node and Dart.
 
 ## Starting and connecting
 
+`(host)` prints the runtime the shell runs on (`Host: JVM 21.0.5`, `Host: Node v25.6.1`, `Host: Dart`), which tells attached REPLs apart over `(connect)`.
+
 The entry points are the REPL aliases:
 
 ```bash

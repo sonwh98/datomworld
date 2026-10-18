@@ -795,3 +795,9 @@
   (is (= "{:type :x, 'a 1, 'a 2}"
          (repl/format-value {:type :x, 'a 1, (list 'quote 'a) 2}))
       "the same inside a typed map"))
+
+
+(deftest host-command-names-the-runtime
+  (let [[_ text] (repl/eval-input (repl.frontends/create-state) "(host)")]
+    (is (str/starts-with? text
+                          #?(:clj "Host: JVM " :cljs "Host: Node " :cljd "Host: Dart")))))
