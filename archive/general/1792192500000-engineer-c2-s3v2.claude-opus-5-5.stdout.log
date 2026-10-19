@@ -1,0 +1,41 @@
+I'm letting this group finish in the background; I'll be notified when it exits. It covers only namespaces outside `yang.*`, which nothing in S3 touches, and the tree has no edits. The Dart lane is next, once it's done.
+
+The Dart lane passed the foreground cap and moved to the background. Its sharded runner is hard to split by namespace, so I'm letting it finish and will report its counts when the notification arrives.
+
+Completed-GMT: 2026-10-17 05:45:49 GMT
+Completed-Local: 2026-10-17 12:45:49 +0700
+
+S3 didn't need re-implementing: it is already on this branch, so I edited nothing. The brief assumed the earlier attempt was lost, but it was committed as `a4efc99a9` on 2026-10-04 ("yield from, iter and stateful sequence iterators (C2 slice S3)"), which is in master's history. S4 (`d9bcf0c6c`) and S5 (`c6c5a5e6f`) landed after it. I ran the lanes on the unchanged tree to check that S3 still holds on the current base (I5/I6, float64 carrier, regenerated pins).
+
+## What S3 already has
+- **Prelude** (`src/cljc/yang/python/antlr/prelude.cljc`):
+  - `py/yield-from` (line 587) forwards sends and throws to the inner generator, closes the inner first, and turns `StopIteration` into a return value.
+  - The `:iterator` cell (`{:py/type :iterator :src :i}`) is used in `py/iterable` and `py/iter-at` (line 2219, index signature kept per ruling 5), plus `py/next`, the `iter`/`next` builtins and the `__next__`/`__iter__` methods.
+- **Lowering:** `lower-yield` in `lower.cljc:1777` turns `yield from x` into `(py/yield-from %gen x)`.
+- **JVM tests on all four evaluators**, in `test/yang/python/antlr/e2e_c2_test.clj:543-890`:
+  - Every row of the S3 acceptance table: send-through (`1, got s, v r, 10, 20`), a throw reaching the inner's handler, close order (inner before outer), `yield from range(3000)` (a `^:slow` test), and `iter([1,2])` giving `1 2 d` and `True`.
+  - Extra cases: a `StopIteration` thrown through a closed delegate, a three-deep chain resumed from different callers, and suspension while an exception unwinds.
+  - The JVM-only check that reachable heap stays the same under nested delegation (`reachable-heap-is-stable-under-delegation-test`, `^:slow`), per ruling 7.
+- **Node/Dart parity tests** in `prelude_parity_test.cljc`: `yield-from-and-iter-on-every-host-test`, `delegation-stop-and-sticky-dict-iterator-on-every-host-test` and `delegation-chain-callers-and-unwinding-on-every-host-test`.
+
+## Lane results
+| Lane | Result |
+|---|---|
+| `bb gen:python-antlr` | ok, generated 4 Java files |
+| `bb build:yin-repl-node` | ok. The first run showed a docstring warning block in the DHT head-board namespace; the rerun reported 225 files, 0 warnings |
+| `bb test:clj` | over the 600 s cap, so I stopped it and reran in two groups. `yang.*`: 301 tests, 3135 assertions, 0 failures, 0 errors. Everything else: 3782 tests, 265907 assertions, 0 failures, 0 errors |
+| `bb test:cljs` | over the cap, rerun in two groups. `yang.*`: 305 tests, 38176 assertions, 0 failures, 0 errors. Everything else: 3782 tests, 131150 assertions, 0 failures, 0 errors. One `:ns-var-clash` compile warning, not inspected |
+| `bb test:cljd` (full) | ran in the background past the cap and exited 0, but that is the exit code of my grep/tail, not of flutter. The last line I captured was `+3987` with no failure count; flutter's final pass/fail line was cut by my filter. **Not conclusive.** |
+| Dart, `--only yang.python.antlr.prelude-parity-test` | 35 tests: "All tests passed!" |
+| Same, with `DATOM_SLOW_TESTS=1` | 35 tests: "All tests passed!", with the slow-guarded S3 delegation tests actually running |
+| kondo / cljstyle | not run, because no file was touched |
+
+**Float-free gate (8.5.5):** I didn't change any golden or prelude literal, so nothing new can carry a float. I didn't audit S3's original goldens again.
+
+## Open items
+- The full `bb test:cljd` needs a rerun with its final summary line captured before anyone treats it as green.
+- The JVM `^:slow` S3 tests (`yield-from-long-range-test` and the reachable-heap check) are excluded by `test:clj`'s `-e :slow`, so they didn't run on this base. Running them needs `bb test:slow:clj`.
+- The `:ns-var-clash` warning in the Node group outside `yang.*` was not investigated.
+- The brief's premise is wrong, so whoever dispatched it should be told that S3 through S5 are already on master.
+
+Changed files: none.

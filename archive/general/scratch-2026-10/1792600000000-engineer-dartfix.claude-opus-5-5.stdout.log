@@ -1,0 +1,52 @@
+Waiting on the JVM quick tier.
+
+Waiting on the Node lane.
+
+Waiting on the Node lane.
+
+Waiting on the Dart lane.
+
+The interactive Dart REPL has no Python gap. The brief's premise doesn't hold: `:yang/python` is not a name the catalog knows on any host, and the JVM gives exactly the owner's Dart output for the same input. So `(lang :yang/python)` still refuses; the brief's requirement that it switch is not met. The real fix is that the refusal now names what is installed. Committed as `57470f49` on host-command; not pushed, master untouched.
+
+## Diagnosis
+- **Python is in the Dart catalog.** `src/cljc/yin/repl/frontends.cljc:61` installs the Clojure, PHP and Python (ANTLR) frontends with no host conditionals. The interactive entry builds its catalog through `boot` → `repl.frontends/create-state` (`src/cljc/yin/repl/main.cljc:622`), the same on every host.
+- **Why the switch was refused.** `(lang ...)` accepts either a language name (`:clojure`, `:php`, `:python`) or a frontend id (`:yang.clojure/legacy`, `:yang.php/legacy`, `:yang.python/antlr`). A namespaced keyword like `:yang/python` is looked up as an id (`src/cljc/yin/repl.cljc:1695`), and no such id exists. The old message, "is not in the frontend catalog", made a working install look missing.
+- **Why `1 + 2` printed `2`.** After the refusal the language stayed Clojure. The Clojure reader reads `1 + 2` as three separate forms (`1`, `+`, `2`), runs them in order and prints the last value, `2`. This happens on the JVM too, so it is not a Dart evaluation bug. Printing 3 under Clojure would be wrong Clojure semantics, so I left it alone; under Python, `1 + 2` prints 3 on all three hosts.
+
+## Fix
+- **Refusal text** (`src/cljc/yin/repl.cljc`, new `installed-text` helper): a refused `(lang ...)` now ends with `; installed: :clojure :php :python (ids :yang.clojure/legacy :yang.php/legacy :yang.python/antlr)`.
+- **New test** `the-interactive-composition-holds-every-standard-language` in `test/yin/repl/main_test.cljc`. It submits lines through `repl/boot` and `step-all`, the same path `bin/yin_repl_main.dart` uses, and runs on all three hosts. It covers `(host)`, the `:yang/python` refusal text, `1 + 2` → `2` under Clojure, then Python by language and by id (including the list comprehension and the `'ab'` display), PHP, and Clojure `(+ 1 2)`.
+
+## Dart transcript
+I could not run `dart run bin/yin_repl_main.dart`: both `dart run` and plain `dart` need an approval this session can't get. What I have is the transcript the new test checked inside the Dart lane, through the same entry path:
+```
+(host)                     → Host: Dart
+(lang :yang/python)        → Error: unavailable-parser: Yin REPL language :yang/python is not in the frontend catalog; installed: :clojure :php :python (ids :yang.clojure/legacy :yang.php/legacy :yang.python/antlr)
+1 + 2                      → 2
+(lang :python)             → Switched to Python
+1 + 2                      → 3
+[x * x for x in range(4)]  → [0, 1, 4, 9]
+(lang :yang.python/antlr)  → Switched to :yang.python/antlr
+'a' + 'b'                  → 'ab'
+(lang :php)                → Switched to PHP
+1 + 2;                     → 3
+(lang :clojure)            → Switched to Clojure
+(+ 1 2)                    → 3
+```
+On Dart the test asserts that `(host)` starts with `Host: ` but not the word `Dart`. The JVM run printed `Host: JVM 17.0.18`.
+
+## Lanes (run one after another)
+| Lane | Result |
+|---|---|
+| JVM focused (`frontend-catalog-test`, `main-test`, `repl-test`) | 104 tests, 670 assertions, 0 failures |
+| JVM quick tier (`bb test:clj`) | 4102 tests, 0 failures, 0 errors |
+| Node (`bb test:cljs`) | 4093 tests, 0 failures, 0 errors (`yin.repl.main-test` ran) |
+| Dart (`bb test:cljd`) | 4041 passed, "All tests passed!", new test ran on Dart |
+| clj-kondo, changed files | 0 errors, 0 warnings |
+| cljstyle | direct run needed approval; the pre-commit hook formatted the staged files and the tree is clean |
+
+## Open
+1. **Live interactive Dart run:** still owed. Typing `(lang :python)` (not `:yang/python`), then `1 + 2`, should print 3.
+2. **For the owner:** should `(lang :yang/python)` work as a shorthand? That would add a new naming scheme next to languages and ids, which is a design decision, so I didn't add it.
+3. **The brief's wording** "`:yang/clojure` default, `:yang/php`, `:yang/python`" doesn't match the real ids. The JVM/Node/Dart catalogs were already identical.
+4. **Architect sign-off:** this went to host-command without one, because the brief said to commit. The standing rule wants a non-author review before it goes further.

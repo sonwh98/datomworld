@@ -1,0 +1,19 @@
+$ clj -M:cljs -m shadow.cljs.devtools.cli compile test --config-merge {:ns-regexp "^yin\\.vm\\.(ucf\\.rows|semantic-register\\.frame)-test$"}
+Loading initial Timbre config from: :default
+[:test] Compiling ...
+========= Running Tests =======================
+
+Testing yin.vm.parity-test
+
+Testing yin.vm.semantic-register.frame-test
+
+Testing yin.vm.semantic-register.parity-test
+
+Testing yin.vm.ucf.rows-test
+
+Ran 43 tests containing 820 assertions.
+0 failures, 0 errors.
+===============================================
+[:test] Build completed. (157 files, 5 compiled, 0 warnings, 45.58s)
+
+exit 0
