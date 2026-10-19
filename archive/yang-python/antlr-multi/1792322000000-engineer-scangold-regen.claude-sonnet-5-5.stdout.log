@@ -1,0 +1,26 @@
+I stopped before regenerating anything. The premise doesn't match the live scanner: `[:c4 :py]` and `[:c4 :t]` haven't moved, and a different group, `[:c4 :pysp]`, has.
+
+I compared the live scanner answers for every group against the committed pins in `scanner_goldens.cljc`:
+
+| Group | Old → new application-count | Old → new free-names count |
+|---|---|---|
+| `[:c4 :py]` | 3957 → 3957 | 381 → 381 |
+| `[:c4 :t]` | 18 → 18 | 13 → 13 |
+| `[:c4 :pysp]` | 76 → 77 | 33 → 34 |
+| `[:c4 :k]` | 8 → 8 | 5 → 5 |
+| `[:c4 :m]` | 31 → 31 | 14 → 14 |
+| `[:c4 :w]` | 12 → 12 | 6 → 6 |
+| `[:c4 :e]` | 11 → 11 | 8 → 8 |
+| `[:c4 :n]` | 7 → 7 | 4 → 4 |
+
+`:py`, `:t` and the other five groups (`:k`, `:m`, `:w`, `:e`, `:n`) match their pins exactly. In `:pysp`, one application and one free name were added. The `:b0` and `:register` groups are unchanged.
+
+- **The generator:** `test/resources/yin/vm/semantic/scanner-golden-c4.generate.clj` already exists and does this job. It rebuilds the specs, gates on the other groups, and rewrites the pins through the file's own pprint pipeline. I did not write a second script. It is hard-wired to `deferred #{:py :t}`, so as it stands it throws "an untouched :c4 group moved" on `:pysp`. I ran it, hit that gate, and it wrote nothing.
+- **What I did not run:** I did not run the slow scan test, kondo or cljstyle, because there is nothing to verify without a regeneration.
+- **Working tree:** it is unchanged apart from the three untracked `collab/` prompts that were already there. I deleted my throwaway probe file.
+
+**Decision for you:**
+1. **Regenerate `:pysp`.** I would widen `deferred` to `#{:pysp}`, or `#{:py :t :pysp}`, and run the generator.
+2. **Check the stale pins first.** Your note says `:py` and `:t` moved, but on this branch (`scangold-regen`) they haven't. It may be that the pins were already regenerated, or that this branch is missing the 6d/6e merges that moved them. I'd check that before any regeneration.
+
+Which do you want?

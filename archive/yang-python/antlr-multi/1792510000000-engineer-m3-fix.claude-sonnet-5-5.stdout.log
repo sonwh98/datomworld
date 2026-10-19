@@ -1,0 +1,30 @@
+All five findings are fixed and committed to `m3-legacy` as `5308e7cf`. I didn't push and didn't touch master.
+
+**Fix map**
+1. **P2, `yin.repl.md`:** I removed the "legacy runs on every host" sentence. The prerequisite note now says to run `bb gen:antlr` (or `clj -M:antlr-gen`) on a fresh clone, on any host. It also states the catalog: Clojure by default, PHP, and `:yang.python/antlr`, each on every host.
+2. **P2, `public/chp/yang.chp`:** I rewrote the Python section to the ANTLR frontend: revision f4, one grammar, the CST packet, and module-dict scope with `NameError`.
+   - The dead `yang.python/compile` sample and the tokenizer and parser tables are gone.
+   - The interop section now says calls across languages in one session wait on the §8.10 ABI.
+   - I also fixed the intro line, the "seamless" claim and the doc-list entries. The page keeps its format.
+3. **P3:** `demo_python.clj` is deleted.
+4. **P3:**
+   - **`yang.antlr.md` §8.5.6:** I added a capability-loss sentence to the amendment. It says legacy Python could call Clojure macros and functions in the same session, and the ANTLR frontend can't until the §8.10 ABI.
+   - **`repl_test.cljc`:** I added `a-python-submission-cannot-see-a-clojure-defined-name`.
+5. **P3 stale references:**
+   - **`yang.antlr.md`:** :3998 is now past tense ("satisfied 2026-10-18"). The F3 row at :3190 now says every host.
+   - **`yin.vm.code-as-tuples.md:335`:** now points at `yang/python/antlr/lower.cljc`.
+   - **`yin.vm.macro.md` and `yang.typescript.md`:** now say `yang.python.antlr`.
+   - **`assignments.md` and `assignment_strategies.md`:** the two `yang/python.cljc` samples are marked historical. Both files are in `src/cljc/yin/vm/docs/`, not the repo root.
+
+**New NameError assertion:** it passes. The test defines `clj_only` in Clojure, switches to Python, and checks that `print(clj_only)` returns `NameError: name 'clj_only' is not defined`.
+
+**Other checks**
+- **Tests:** `yin.repl-test` (49 tests, 253 assertions), `frontend-catalog-test`, `python-antlr-test` (these three together: 76 tests, 478 assertions) and `yin.repl.main-test` (45 tests, 378 assertions) all show 0 failures and 0 errors. This was the JVM lane only; I didn't run the Node or Dart lanes.
+- **Lint:** kondo on the changed code file (`repl_test.cljc`) is 0 errors and 0 warnings. I didn't run `cljstyle` separately; the commit's pre-commit hook ran the formatter on the staged files.
+
+**Grep confirmation:** a grep over `docs`, `public`, `src` and `README.md` for legacy-Python claims finds no live ones. The remaining hits are:
+- the historical amendment prose in `yang.antlr.md` (:187, :3056–3080, :4002)
+- the two "Historical" markers
+- `docs/orchestrator-log.md` entries
+- an unrelated "legacy libraries" phrase in a blog post
+- the Clojure and PHP `legacy` ids, which stay

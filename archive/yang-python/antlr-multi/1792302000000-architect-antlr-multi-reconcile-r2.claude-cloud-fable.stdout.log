@@ -1,0 +1,14 @@
+Completed-GMT / Completed-Local
+2026-10-17 13:18:05 GMT / 2026-10-17 20:18:05 +0700
+
+The revised plan (v3) is written to `/Users/sto/.claude/plans/read-collab-1792302000000-architect-antl-soft-ullman.md`. Plan mode blocked writing into collab/, so the plan file is the deliverable, as the brief anticipated. The orchestrator promotes its "Revised document (v3)" block to `collab/1792289000000-architect-antlr-multi-plan.claude-cloud-fable.findings-v3.md`, leaving v2 on disk for the diff. No tracked file was touched and nothing was executed.
+
+Both P1s are conceded on evidence and the fix for each is a separate contract, as the reviewer asked.
+
+- **Finding 10, synthetic justification.** Synthetic-ness becomes grammar-role data: a `:synthetic-policy` map on the language profile (`{"NEWLINE" :at-end, "DEDENT" :always}` for Python3, EOF always, every other type never). The oracle keys on type, the exporter keeps its own char-index evidence, and the goldens prove the two agree. The reviewer's DEDENT `{:text "" :span [16 16]}` is accepted; a collapsed NAME is rejected by its type. Synthetic token text becomes canonical (empty, `"<EOF>"` for EOF), which removes the runtime `getText` fallback text the reviewer's probe exposed (`"<EOF>"` on NEWLINE, `"y = 1"` on EOF). This is the only edit to the retained JVM exporter, and existing goldens still hold. A twelve-row mutation table plus three acceptance fixtures go into layer 1 on every host.
+
+- **Finding 11, error coordinates.** The error record carries two independent coordinate systems. The span is source coordinates computed from char indexes with a boundary invariant. Line and column are ANTLR coordinates captured verbatim, with bounds only, and the two are explicitly not required to agree. The cause is documented from the patched helper: `positionedToken` copies the lexer's position at construction and `createDedent` overrides the line, so this is the pinned helper's behaviour on every target, not a JVM defect. The conformance corpus gains helper-NEWLINE and helper-DEDENT error fixtures, pinned with their disagreeing coordinates as the expected values.
+
+The §1.3.6 rewrite names which rule now establishes each original P1-class property, so the reviewer can confirm nothing regressed. Delta sections and ledger rows 10 and 11 point at every changed section.
+
+One consequence worth the owner's eye: the REPL prints ANTLR's line for syntax errors, so `if x:\n    y =` reports line 3 where CPython says line 2. The plan leaves that as a REPL decision, not a packet one.

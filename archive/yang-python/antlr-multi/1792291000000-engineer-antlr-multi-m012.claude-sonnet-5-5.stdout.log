@@ -1,0 +1,28 @@
+Completed-GMT: 2026-10-17
+Completed-Local: 2026-10-17 (+0700)
+
+**Result: blocked at M0. I made no changes, and no slice (M0, M1 or M2) is complete.**
+
+**What blocked it**
+- Every network command (`curl` to GitHub raw and the npm registry) needs approval. This session is non-interactive, so those commands were denied.
+- The M0 digests can't be pinned without the network. The JS and Dart helper files (`JavaScript/Python3{Lexer,Parser}Base.js`, `Dart/Python3{Lexer,Parser}Base.dart`) have to be fetched from grammars-v4 at `8af0d4c2`. Their BLAKE3 digests and the exact text for the ported positioned-token patches come from those files.
+- `npm ci` and `pub get` can't confirm that the `antlr4` 4.13.2 pins resolve.
+- Nothing is cached locally. I found no `antlr4` package in any `node_modules`, no `antlr4` in `~/.pub-cache`, and no helper files in any workspace directory.
+- The prompt says gen/build ran once at creation, but `build/` and `lib/` don't exist in this worktree. `bb gen:antlr` needs the network on a clean run anyway.
+- The tools themselves are fine. `mise exec` finds `bb`, `dart`, `flutter` and `java` 21.
+
+**Why I didn't write code anyway**
+I could have refactored `src/dev/yang_antlr_gen.clj` into a per-target loop. But I couldn't run it, so I couldn't show the Java digests unchanged. The JS and Dart patches and `:generated` digests would be guesses. M1 and M2 depend on generated JS and Dart parsers, and the Node and Dart conformance goldens can't be run without them.
+
+**Counts and parity**
+- Lane counts: none, no lane was run.
+- CST-parity evidence: none.
+- Behavioral changes: none.
+- Files touched: none. The three untracked `collab/` files were already there.
+
+**To unblock**
+Run in this worktree, in either order:
+1. Approve network access (GitHub raw and npm/pub) for this session.
+2. Or run `mise exec -- bb gen:python-antlr` once interactively. That caches the Java helpers under `build/antlr/python3/upstream`. I'd still need the four JS/Dart helper files and the `antlr4` npm/pub packages, either by approval or copied in.
+
+With network access I'll do M0, M1 and M2 in order, as the plan specifies.

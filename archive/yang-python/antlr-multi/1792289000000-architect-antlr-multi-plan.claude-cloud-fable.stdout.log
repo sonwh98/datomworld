@@ -1,0 +1,26 @@
+Completed-GMT: 2026-10-17 12:38:41 GMT
+Completed-Local: 2026-10-17 19:38:41 +0700 (+07)
+
+The architect plan is written to `/Users/sto/.claude/plans/read-collab-1792289000000-architect-antl-inherited-mochi.md`. Plan mode blocked writing it under `collab/`, so the orchestrator should copy it there as the findings file. The engineer round has not started: no `datomworld-antlr-multi` worktree exists.
+
+**Core rulings**
+
+- **The IR is the existing CST packet v1, formalized, not a new schema.** ANTLR has no target-neutral tree. The repo already has one: manifests name it `:yang.cst/v1`, `packet.cljc` validates it, and the lowering reads only its data fields. The plan moves the shape doc from `cst.clj` into `packet.cljc`, writes down seven invariants, and adds a portable `conform` check used as the per-target oracle.
+- **One exporter namespace, three host files.** `yang.antlr.cst` gains `.cljs` and `.cljd` siblings with the same public names and the same profile contract. The probe splits into a portable scan plus a per-host `first-failure` primitive.
+- **One manifest, N targets.** The manifest gains a `:targets` map (flags, helpers, patches, digests, output dir per target); the generator loops it. Java digests must stay byte-identical. The positioned-token patch gets ported to the JS and Dart helpers.
+- **Per language, the whole per-host surface is one ~40-line `parser.cljc`** with three reader-conditional constructor profiles. The lowering stays per language by design and never sees a target runtime.
+
+**Verified facts that shaped it**
+
+- The pinned grammars-v4 revision ships JavaScript and Dart helper bases for Python 3. Upstream CI tests the JavaScript target but not Dart, so the Dart helper is the riskier one.
+- Both runtimes exist at the pinned tool version 4.13.2 under BSD-3-Clause: npm `antlr4` (ESM) and pub `antlr4`.
+- The TS and PHP designs' "JVM-only" statements are helper-availability facts, not architecture. TypeScript has Java-only helpers upstream, PHP has Java and JavaScript. After this design they gain hosts by adding a helper to their manifest.
+
+**Slices for the first engineer round, in order**
+
+1. M0 build: multi-target manifest and generator, JS and Dart generation, dependency pins, lane dependencies.
+2. M1 IR and exporters: `packet.cljc` ownership plus `conform`, the two new exporters, a shared `yang.antlr.conformance` helper, the export goldens on all three hosts.
+3. M2 Python everywhere: `parser.cljc`, probe split, catalog gate removed, parity and end-to-end tests opened to Node and Dart, doc amendments.
+4. M3 legacy retirement is a separate gated round with preconditions listed in the plan.
+
+**Top risks**: UTF-16 versus code-point indexing in the JS and Dart streams (the UTF-8 span fixture guards it), the untested Dart helper and the pub runtime's `<3.0.0` SDK bound, and shadow-cljs handling of the circular ESM import between the JS lexer base and the generated parser.

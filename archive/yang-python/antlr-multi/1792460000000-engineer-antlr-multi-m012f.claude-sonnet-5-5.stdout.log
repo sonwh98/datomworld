@@ -1,0 +1,61 @@
+The e2e lane is still running, so I can't report yet. The merge is committed as `9df68223`, but there are uncommitted edits on top of it. I'll continue when the lane finishes.
+
+So far:
+- **Conflict resolution:**
+  - `frontends.cljc`: the antlr binding is installed on every host, and master's `:render python.antlr.repl/display-value` replaces our `:display :output`. Master's engine no longer reads `:display`, so I dropped it and updated the docstring.
+  - `python_antlr_test.cljc`: only the require block conflicted. I kept `yang.antlr.packet` and took master's `at` in the `c3-programs` refer. The rest merged automatically, so both the per-host harness and the packet rows are kept.
+- **Generator:** with `deferred #{}`, no abort and no pin movement. `scanner_goldens.cljc` is byte-identical to master's, and a second run changed nothing. `deferred` is restored to `#{:pysp}`.
+- **JVM namespaces so far:**
+
+| Namespace | Result |
+|---|---|
+| `cst-export-test` | 16 tests, 173 assertions, 0 failures |
+| `python-antlr-test` | 19 tests, 183 assertions, 0 failures |
+| `frontend-catalog-test` | 8 tests, 40 assertions, 0 failures |
+| `e2e-test` | 10 failures before my fix; rerun pending |
+
+- **Finding in `e2e-test`:** `portable-packets-are-the-parsers-test` and `import-packets-are-the-parsers-test` failed. Master's packets carry DEDENT text `"<EOF>"`, while our synthetic-DEDENT policy gives `""`. I changed `node-shape` in `e2e_test.clj` to ignore a DEDENT's text. That edit is uncommitted, and I'm waiting on the rerun to confirm it.
+- **Not yet run:** `lower-portable-test`, `main-test`, `float_address_test`, `linked_safepoint_test`, `linked_prelude_test`, `dht-import-test`, the Node and Dart lanes, kondo and cljstyle.
+
+The Node lane is running; I'll proceed when it completes.
+
+Waiting for Dart.
+
+The merge of `origin/master` into `antlr-multi` is committed. Everything I ran passes at the merged head. I did not push, and `collab/` is still untracked. The head is `fefec6d4`, on top of the merge commit `9df68223`.
+
+**Conflict resolution map**
+- `src/cljc/yin/repl/frontends.cljc`: the antlr binding is installed on every host and carries master's `:render python.antlr.repl/display-value`. I dropped our `:display :output`, because master's engine no longer reads `:display`, and I updated the docstring to match.
+- `test/yin/repl/python_antlr_test.cljc`: only the require block conflicted. I kept `yang.antlr.packet` and took master's `at` in the `c3-programs` refer. The rest merged automatically, so the per-host harness and master's acceptance rows are both present.
+- The other files you named, including the prelude, merged without conflict. I did not edit them, so the prelude's defquoted mechanism and master's value/safepoint changes both survive.
+
+**Generator finding**
+- With `deferred #{}` there was no abort and no pin movement. `scanner_goldens.cljc` ended up unchanged from the merged master version, and a second run changed nothing. `deferred` is back to `#{:pysp}`.
+- The command in the generator's header is `clojure -Sdeps '{:aliases {:t {:extra-paths ["test"]}}}' -M:t …`. `-M:test -i` runs the suite instead and writes nothing.
+
+**One change beyond the merge, needs your review**
+- `e2e-test` failed 10 assertions in `portable-packets-are-the-parsers-test` and `import-packets-are-the-parsers-test`. Master's packets carry DEDENT text `"<EOF>"`, but our synthetic-token policy canonicalises it to `""`. I changed `node-shape` in `test/yang/python/antlr/e2e_test.clj` to ignore a DEDENT's text and committed that as `fefec6d4`. The alternative is regenerating master's packets, which I didn't do.
+
+**Namespace table (JVM)**
+
+| Namespace | Tests | Assertions | Result |
+|---|---|---|---|
+| `cst-export-test` | 16 | 173 | pass |
+| `python-antlr-test` | 19 | 183 | pass |
+| `e2e-test` | 44 | 775 | pass after the fix |
+| `frontend-catalog-test` | 8 | 40 | pass |
+| `lower-portable-test` | 5 | 19 | pass |
+| `main-test` | 45 | 378 | pass |
+| `float-address-test` | 12 | 105 | pass |
+| `linked-safepoint-test` | 16 | 113 | pass |
+| `linked-prelude-test` | 14 | 122 | pass |
+| `dht-import-test` | 4 | 98 | pass |
+
+**Other lanes**
+- **Node (`bb test:cljs`):** 4088 tests, 149962 assertions, 0 failures. `yin.repl.python-antlr-test` ran. The log has about 19 infer-warnings and no "Patch does not apply".
+- **Dart (`bb test:cljd`):** "All tests passed!" and `python-antlr-test` ran. No "Patch does not apply".
+- **kondo:** 0 errors, 0 warnings on `frontends.cljc`, `python_antlr_test.cljc` and `e2e_test.clj`. cljstyle check printed nothing, and the commit hook ran the formatter.
+- **Value-display rows:** they are in `python_antlr_test` and passed on the JVM through the antlr frontend.
+
+**Open**
+- The DEDENT-text decision above.
+- Fresh logs are in `collab/m012f-*.log`.

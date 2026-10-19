@@ -1,0 +1,20 @@
+Completed-GMT / Completed-Local
+2026-10-17 13:03:28 GMT / 2026-10-17 20:03:28 +0700
+
+Plan mode blocked the actual deliverable (an overwrite of a collab file), so the reconciled plan is written in full to the plan file and is ready for approval. ExitPlanMode is not available in this session's tool set, so I am ending the turn here for you to approve it from the plan file.
+
+**Plan file:** `/Users/sto/.claude/plans/read-users-sto-workspace-datomworld-coll-parallel-fern.md`
+
+**What it contains.** One action: overwrite `collab/1792289000000-architect-antlr-multi-plan.claude-cloud-fable.findings.md` with the v2 document embedded verbatim in the plan. No code, build, or docs change in this round.
+
+**Verdict on the review.** All nine findings hold against the current tree and are conceded, three with a qualification. The key evidence:
+
+- `packet.cljc:34-38` checks only `i < k` against a `seen` set that is not updated between one node's children, so duplicate edges and a non-preorder tree pass. Error packets throw "no root" at `:23-24`.
+- The parity packets in `python_antlr_test.cljc:44-49` come from the lowering-fixture builder in `lower_portable_test.cljc:11-37`: spans `[0 0]`, no synthetic flags, grammar `"hand"`.
+- `bb.edn:33-38` makes the Node and Dart test lanes depend only on the REPL builds, which do not depend on generation.
+- `compilation_pipeline.cljs:50,158` still calls the legacy compiler, and `driver.cljc:22` already pulls the catalog into the browser bundle.
+- `repl_probe.clj:59-68` uses `.charAt`, which Dart strings lack.
+
+**Main design revisions in v2.** A one-pass recursive preorder walk in `validate!` with outcome-specific contracts. A `conform` oracle over source bytes plus a host-exported vocabulary, covering UTF-8 boundaries, real-token text, terminal ordering, and rule extents. Instance-owned ATN caches on all three runtimes with an interleaved-worker test, fallback removed. JVM-exported full-packet goldens with diagnostic normalization rules. Generation attached to the consuming build tasks and both cljs classpaths, with lockfile and pin enforcement. Missing targets handled by absent require branches and a catalog binding without `:parse`, demonstrated by a test-only Java-only language. Browser inclusion decided with a measured fallback. Demo migration and a consumer inventory as M3 prerequisites. Slices resequenced so M1 owns its profile and M0 has executable Node and Dart acceptance.
+
+**Next.** On approval I overwrite the collab findings file with the v2 content and reply with the completion header; collab stays uncommitted.

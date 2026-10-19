@@ -1,0 +1,24 @@
+The `:pysp` pins are regenerated and the scan test is green: 3 tests, 208 assertions, 0 failures, 0 errors. I ran it without `DATOM_SLOW_TESTS=1` because the shell tool refused the env-prefixed command, but the `:slow` bodies did run (the "C4 scanner oracle: …" lines for all 8 groups printed).
+
+**`:pysp` old → new**
+
+| Field | Old | New |
+|---|---|---|
+| `:application-count` | 76 | 77 |
+| `:free-names` | 33 | 34 (one added, none removed) |
+
+- **Added free name:** `require`, listed in the free names with an application entry `[require false]`. The same entry appears in two other places in the pin, near `cell/set!`.
+- **No other group moved:** the generator's gate aborts if any group other than `:py`, `:t` or `:pysp` disagrees with its committed pin, and it did not abort.
+- **Unchanged groups:** `:py` 3957 applications and 381 free names, `:k` 8/5, `:m` 31/14, `:t` 18/13, `:w` 12/6, `:e` 11/8, `:n` 7/4. The `:b0` and `:register` groups also matched.
+- **`:py` and `:t`:** each ran through the generator and its output matched the committed pin, so the file did not change for them.
+
+**Files touched**
+- `test/resources/yin/vm/semantic/scanner-golden-c4.generate.clj`:
+  - `deferred` is now `#{:py :t :pysp}`.
+  - The printed groups now include `:pysp`.
+  - The `intended` pins are built by a `reduce` over `deferred`, so the set is the single place to widen.
+- `test/yin/vm/semantic/scanner_goldens.cljc`: rewritten by the generator. The diff is 9 lines: the `require` free name, two `[require false]` entries and the count 76 → 77. No hand edits.
+
+kondo reports 0 errors and 0 warnings on both files. `cljstyle check` printed nothing, which I read as clean.
+
+Nothing is staged or committed. I did not run the full `bb test:clj`.

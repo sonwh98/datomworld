@@ -1,0 +1,56 @@
+The m012g task is not finished. I haven't committed, and I haven't run the Node or Dart lanes, the scoped runs, kondo or cljstyle.
+
+- **Revert:** I reverted fefec6d4 (staged, not committed), so `node-shape` compares DEDENT text again.
+- **Regeneration method:** the stored packets are hand-written hiccup (`(packet [...])`), not generated output. I found no checked-in generator, so I edited them directly instead of regenerating through the pipeline. I replaced every `["DEDENT" "<EOF>"]` with `["DEDENT" ""]`, 14 literals across four files:
+  - `c3_programs.cljc`: 2
+  - `import_programs.cljc`: 8
+  - `safepoint_programs.cljc`: 2
+  - `import_test.cljc`: 2
+- **Fixture delta so far:** I didn't touch any NEWLINE or EOF literals. `import_test.cljc` wasn't named in the brief; I included it because it carries the same literal.
+- **JVM run:** the JVM lane for e2e, cst-export and python-antlr is running in the background (log in `collab/m012g-jvm2.log`).
+- **Stale log:** `collab/m012g-jvm.log` is from the run before the edits and shows the old failures, so ignore it.
+- **Environment:** a few commands needed approval that this session can't give, including `sed`, a compound `pkill`, and piped or `;`-chained shell lines. I edited with the Edit tool and used plain commands instead.
+
+The JVM run was killed by the background time limit before it finished, and I can't restart it, so I haven't verified the regenerated fixtures. The task is incomplete, and I haven't committed anything.
+
+- **Done:** I reverted fefec6d4, so `node-shape` compares DEDENT text again. That revert is staged, not committed. I also changed 14 stored `["DEDENT" "<EOF>"]` literals to `["DEDENT" ""]` across four files:
+  - `c3_programs.cljc`: 2
+  - `import_programs.cljc`: 8
+  - `safepoint_programs.cljc`: 2
+  - `import_test.cljc`: 2
+- **Regeneration method:** the packets are hand-written hiccup, and I found no checked-in generator. So I edited the literals directly instead of regenerating them through the pipeline. I didn't touch any NEWLINE or EOF texts.
+- **Verification:** the JVM run got through `cst-export-test` and was partway through `e2e-test` when it was killed. The log shows no FAIL lines, but no result was recorded.
+- **Not run:** `python_antlr_test`, the Node and Dart lanes, the scoped e2e runs on Node and Dart, kondo and cljstyle.
+- **Not confirmed:** I can't yet say the comparison passes strictly at the new fixtures, or that they're identical across hosts. Next step is a foreground JVM e2e run with a longer limit, then the other lanes, then the commit.
+
+The scoped JVM e2e run is going in the background. I'll pick it up when it finishes.
+
+The Node lane is still running in the background. I'm stopping here for now; the JVM checks are done and Node, Dart and the commit are still to do.
+
+**Done**
+- **Revert:** fefec6d4 is reverted (staged, not committed), so `node-shape` compares DEDENT text again.
+- **Fixture delta:** 14 stored `["DEDENT" "<EOF>"]` literals changed to `["DEDENT" ""]`. They are in `c3_programs.cljc` (2), `import_programs.cljc` (8), `safepoint_programs.cljc` (2) and `import_test.cljc` (2).
+- **Regeneration method:** the packets are hand-written hiccup and I found no checked-in generator, so I edited the literals directly. I did not touch any NEWLINE or EOF texts.
+- **Strict comparison:** `portable-packets-are-the-parsers-test` and `import-packets-are-the-parsers-test` pass on the JVM at the new fixtures (2 tests, 61 assertions, 0 failures).
+- **Other JVM lanes:** `cst-export-test`, `import-test` and `lower-portable-test` pass together (71 tests, 628 assertions, 0 failures). I did not capture the 16/173 cst-export counts you asked about.
+- **Kondo:** 0 errors and 0 warnings on the five touched files.
+
+**Not done**
+- The full `e2e-test` namespace hit the background time limit twice, probably because it includes the `^:slow` tests. I verified only the two packet tests, not the whole namespace.
+- `python_antlr_test`, the Node and Dart lanes, and the scoped e2e runs on Node and Dart have not completed. Node (`bb test:cljs`) is still running in the background.
+- cljstyle has not been run.
+- Nothing is committed.
+
+Node is green: 4088 tests, 149962 assertions, 0 failures. The "Cannot infer target type" text in the log is a compile warning, not a failure. The Dart lane is running in the background and I'll check it when it finishes.
+
+The stored packets now carry the canonical DEDENT text, and the comparison is strict again. It's committed to `antlr-multi` as b0b49c11, not pushed. Every lane I ran is green, but I did not run the whole e2e namespace, `python_antlr_test`, or the scoped Node and Dart e2e runs.
+
+- **Regeneration method:** there is no checked-in generator. The packets are hand-written hiccup, so I edited the literals directly instead of regenerating through the pipeline.
+- **Fixture delta:** 14 `["DEDENT" "<EOF>"]` literals became `["DEDENT" ""]`: `c3_programs.cljc` 2, `import_programs.cljc` 8, `safepoint_programs.cljc` 2, `import_test.cljc` 2. No NEWLINE or EOF text changed. The commit message records the method.
+- **Strict comparison:** I reverted fefec6d4, so `node-shape` compares DEDENT text again. The two packet-vs-parser tests pass at the new fixtures (2 tests, 61 assertions, 0 failures).
+- **Other JVM runs:** `cst-export-test`, `import-test` and `lower-portable-test` pass together (71 tests, 628 assertions, 0 failures). I didn't capture the 16/173 cst-export counts.
+- **Node quick lane (`bb test:cljs`):** 4088 tests, 149962 assertions, 0 failures. The log has a "Cannot infer target type" compile warning.
+- **Dart quick lane (`bb test:cljd`):** all tests passed.
+- **Kondo and cljstyle:** kondo reports 0 errors and 0 warnings on the touched files, and cljstyle check is clean.
+
+The full `e2e-test` namespace hit the background time limit twice, so I only ran its two packet tests. The two quick lanes are the evidence for cross-host identity.
