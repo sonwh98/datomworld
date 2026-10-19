@@ -460,6 +460,7 @@ public surface has no way to ask a handle its retention policy. A constructor
 takes the deposit destination and its admission declaration as data. This is
 configuration provenance, not runtime introspection. (`dao.stream.ws.md`
 specifies one such transport and the admission rule in detail.)
+[dao.stream.wasm.md](./dao.stream.wasm.md) specifies the wasm import-surface implementation.
 
 A boundary that can no longer deposit must make itself **observably gone**. Its
 one permitted action is closing the host resource it itself holds; it invokes

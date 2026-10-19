@@ -12052,3 +12052,36 @@ Process notes: the round-1 engineer correctly stopped when the sandbox denied it
   and the engineer correctly refused to guess — re-dispatched with the brief in place.
 Next: the F1 (dht-import :importers) and F2 (vm-rebuild :register/:semantic) diagnosis slices; the
   compile-contract test hardening; safepoint s4 (threads); C4 I7; ADR 0004 (owner-gated).
+## 2026-10-19 16:4x +07 — the register-VM wasm lane: spec tree landed (owner rulings; not yet implemented)
+The epic: lower yin.vm.debruijn.register bytecode to WebAssembly. Born as a gpt-6-astra plan
+  (five review rounds with gemini-4-argon, APPROVE on r5), then reshaped by three owner rulings
+  in conversation: (R1) one ABI — dao.stream is the only boundary; (R2) the boundary
+  clarification — yang.wasm is the compiler implementation plan, the wasm boundary IS dao.stream,
+  the exposed functions are adapters, engine-in-guest (the Rust crates compiled into the
+  instance) is the architecture, and the former service protocol/TLV mailbox is dissolved;
+  (R3) the abstraction taxonomy — dao.stream is an abstraction boundary, not a transport;
+  ring-buffer, websocket, UDP and the wasm import surface are implementations of it.
+The landed tree: datom.world.abi.md (the ABI doctrine, consolidated); dao.stream.wasm.md (the
+  wasm implementation of the abstraction, sibling of dao.stream.ws.md); yang.wasm.md (the
+  compiler plan: all 23 opcode lowerings, trampoline, node-lane W0–W6); yin.vm.rust.md (the
+  Rust implementation of the yin.vm stack — renamed from rust-kernel via rust-engine after the
+  owner's naming critiques; flow-cleaned, C-numbered reconciliation apparatus replaced by four
+  positive control laws); yin.vm.engine.md §E (state discipline + conformance method; E.3 now a
+  pointer); yin.vm.debruijn.register.md §10 (the register dimension's wasm-lane facts,
+  retitled from "Wasm execution instance" — the register VM is not a wasm instance; its
+  bytecode is lowered to wasm bytecode); dao.stream.md gains the wasm pointer; datom.world.md
+  Host Boundaries slimmed to the doctrine link.
+Verification trail: astra FAIL→fix→PASS on the first decomposition (F1 protocol tables
+  restated, F2 procedure duplicated, F3 citation); deepseek PASS on the restructure and PASS on
+  the final decomposition (both independent of the author). Two four-architect opinion polls
+  (astra, deepseek, fable, argon) drove the rulings; round 2 saw deepseek retract "no design in
+  which guest-host is dao.stream" and fable withdraw its "indispensable reason" — the
+  engine-in-guest endpoint won the room. Standing non-goals: nothing implemented; W0/K0 not
+  commissioned; the wasm32 profile section for yin.vm.rust and a post-K0 jolt (Chez) spike are
+  the recorded follow-ups; fable was quota-reserved (resets 4am), argon at 15%, so deepseek
+  took the verification seat.
+Also landed: the agy --print-timeout quirk (optional, defaults to wait-until-done; the old 5m
+  recipe truncated a review mid-turn) — recipes and quirks updated in the
+  delegate-invocation-reference.
+Next: owner-gated — W0/K0 authorization (kit export from R4, toolchain pins, wasm32
+  feasibility), the wasm32 profile section, the jolt spike decision.

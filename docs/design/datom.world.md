@@ -67,61 +67,8 @@ See [`docs/design/yin.vm.streams-all-the-way-down.md`](./yin.vm.streams-all-the-
 
 ### Host Boundaries
 
-A host boundary is a stream boundary, never a function call. The one
-sanctioned function-shaped contact is a `dao.stream` handle operation, whose
-exhaustive outcome map is stream protocol, not an application callback.
-
-**Effects out.** Portable code appends an effect value describing what must
-happen. A host interpreter consumes that stream, performs the operation, and
-appends the outcome. Portable code reads the outcome. Correlation is by
-identity in the data; neither side holds a reference to the other. A host with
-no implementation for an effect emits a qualified unsupported result. That is a
-correct outcome, not a gap to be filled.
-
-**Events in.** When the host initiates (a socket receives, a connection drops,
-a timer fires) the adapter appends one plain-data event and returns. It invokes
-nothing. An interpreter reads that stream and decides what the event means.
-Constructively: **a callback is replaced by a function that transforms an event
-to data on a stream.** The host's demand for a callback stops at that function.
-
-**Adapters.** An adapter is a map of those transform functions. That is all an
-adapter is. It is a value, not a namespace, and it is general: sockets, files,
-timers and windows all deliver events by calling something, and an adapter is
-what they call. Each entry takes the host's arguments and returns one value;
-the append is the adapter's, not the entry's, so an entry cannot return a value
-to the host and cannot invoke application code. The adapter is handed only the
-deposit operation and its own host resource. If its deposit channel fails, it
-may close that resource to make the boundary observably gone; this is teardown,
-not an upward callback.
-
-Host types are classified into plain data in the transform: it is the last
-place holding a host error object, and no host type crosses onto the stream. A
-transport may use a qualified envelope to preserve correlation, lifecycle, and
-additive evolution; that envelope remains plain data and creates no separate
-event mechanism. A composition may likewise define its own qualified vocabulary
-for facts it owns.
-
-Which stream an adapter writes to is the caller's composition, never the
-adapter's knowledge. An adapter cannot tell whether it deposits into one
-transport's private stream or into a medium many interpreters read. This keeps
-the layering one-way: a boundary depends on nothing above it, because whoever
-constructs the adapter supplies the stream.
-
-A transform deposits every event admitted by the boundary protocol and judges
-none of them semantically. Wire framing, decoding, and protocol validation
-happen below the transform: malformed wire input is transport machinery, not an
-event. Once the transport has produced a valid host event, data is syntax
-(axiom 2): an event that is noise to one interpreter is signal to another that
-does not exist yet, and filtering at the depositing layer destroys perspectives
-not yet taken. Retention is the medium's operational policy; meaning is
-interpretation. Neither is the depositor's decision.
-
-Two things are not adapters. One that exposes a function for portable code to
-call isolates the host library but keeps the coupling, and the effect never
-appears as an emission. One that takes a function to invoke has relocated the
-callback, not removed it, even when every value it passes is plain data; if
-that callback has a meaningful return value, it is a synchronous call in both
-directions wearing the shape of an event.
+A host boundary is the dao.stream abstraction boundary; implementations do not add contracts.
+[datom.world.abi.md](./datom.world.abi.md) owns the doctrine, owner rulings, taxonomy, floor and custody rules.
 
 ## Architectural Commitments
 

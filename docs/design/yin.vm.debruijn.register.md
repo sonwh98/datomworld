@@ -1204,3 +1204,510 @@ agree. The full register-VM end condition adds a validator-approved kernel
 with both R4 tiers complete, the R3 report published for the owner to read,
 and cross-stream R fetch and verification via the B6 linker. The
 project does not stop at R2: R3's numbers inform, they do not decide.
+
+
+---
+
+## 10. The wasm lane: register bytecode lowered to wasm (2026-10-19, design only)
+
+Status: design, owner-authorized planning; not implemented. Sections 1–9 above
+(as amended on 2026-10-10 and 2026-10-15) remain authoritative for the register
+image contract and the landed R4 register kernel.
+
+> **Amendment 2026-10-19 (design only): the register bytecode's wasm
+> execution lane, and K0/W0 register conformance fixtures.** The register VM
+> is not itself a wasm instance; register bytecode is lowered to wasm
+> bytecode (yang.wasm), and this section holds the register dimension's
+> facts for that lane.
+>
+> Consensus provenance (2026-10-18): gpt-6-astra, author; gemini-4-argon,
+> reviewer; five review rounds, APPROVE on r5. Author thread:
+> `01a14f30-ca56-7530-bb93-3a870eca7a7b`; reviewer thread:
+> `f365ef1d-caa2-4379-8e96-51e64ca36af8`. It does not report an implementation
+> or runtime acceptance result.
+>
+> Owner boundary clarification and decomposition, 2026-10-19: the Rust engine
+> executes inside wasm; eight-field synchronization is internal. Doctrine and
+> historical supersessions live in [datom.world.abi.md](./datom.world.abi.md);
+> the adapter implementation lives in [dao.stream.wasm.md](./dao.stream.wasm.md).
+> Fixtures and register transition semantics survive unchanged.
+> Wasmer's full-suite gate moves from W4 to W5 under the revised schedule.
+>
+> Earlier decomposition/fold provenance remains: engine method lives in
+> engine §E; the stream implementation lives in dao.stream.wasm.md; this section holds register state, fixtures and gates. The dated
+> correction of historical `:store-updates` remains: ready entries merge
+> `:resource-updates` into private `:resources`, refusing non-keyword keys with
+> `{:rule :resource-update-key}`.
+
+Authorities and companion specifications for §10:
+- [datom.world.md](./datom.world.md): foundational axioms and invariants.
+- [yin.vm.semantic.md](./yin.vm.semantic.md): A identity, semantic execution, and A→R derivation.
+- [yin.vm.linker.md](./yin.vm.linker.md): admission, offset tables, and module transport.
+- [yin.vm.engine.md](./yin.vm.engine.md): scheduler, effects, custody, and (`§E.1–§E.5`) the in-instance engine and reference to the wasm stream implementation, and K0/W0 differential conformance method.
+- [yin.vm.rust.md](./yin.vm.rust.md): shared Rust crates, `Value` ownership, transition reuse, and LLVM sibling relationship.
+- [yang.wasm.md](./yang.wasm.md): lowering register images to WebAssembly modules, the 10-region linear-memory layout, and all 23 opcode lowerings linked to the in-instance engine.
+
+### 10.1 Register machine state and the register instance of the synchronization barrier
+
+This is the register instance (contract version 4 / "r2", 23 opcodes) of the
+in-instance engine in [yin.vm.engine.md](./yin.vm.engine.md) §E.1–§E.5.
+[yang.wasm.md](./yang.wasm.md) compiles admitted register images and links the
+same Rust engine into wasm under Node/Wasmtime/Wasmer. The CLJS kernel is the
+oracle. Arena/Value facade and both repository codecs live inside the instance;
+only dao.stream adapters ([dao.stream.wasm.md](./dao.stream.wasm.md)) cross into the composition. The single-port rule
+and Rust reconciliations remain §E.4.
+
+#### 10.1.1 The eight materialized register fields and the synchronization barrier instance
+
+Each register-wasm task owns one imported, non-shared wasm32 memory arena with
+the ten-region layout (`Task header`, `Body directory`, `Active register shadow`,
+`Lexical frames`, `Return stack`, `Sparse snapshots`, `Continuation record`,
+`Value descriptors`, `Engine state roots`, `Exit mailbox`), 64-bit wire `pc`
+fields, and program-store `ValueRef` rules specified in
+[`yang.wasm.md`](./yang.wasm.md) §2.2.
+
+As the **register instance** of the engine extension's machine-state-as-data
+boundary pattern ([`yin.vm.engine.md`](./yin.vm.engine.md) §E.1), the register
+machine's declared execution state consists of **eight materialized fields** on
+the authoritative in-instance state record (the oracle uses a VM map):
+
+    :pc  :registers  :frames  :continuation  :store-of  :value  :halted?  :blocked?
+
+Linear memory is a private execution cache over these eight fields plus the
+current register code layout (`:segment`, `:hash`, `:images`) and engine state.
+The register instance of the four-step synchronization protocol
+([`yin.vm.engine.md`](./yin.vm.engine.md) §E.1) is:
+
+1. **Engine-to-body entry:** `step`, `run`, and `register-restore` accept the supplied named-field snapshot as authoritative. Import `:pc`, `:registers`, `:frames`, `:continuation`, `:store-of`, `:value`, `:halted?`, and `:blocked?`, plus the current code layout and engine state. W1 imports unconditionally. A later cache may skip only after proving all relevant keys agree with its last materialized snapshot; a retained private token alone is not proof. In particular `(assoc parked :pc 2 :halted? false)` must execute the requested state. Import a copied or privately owned active register shadow so running an old or externally modified map never mutates another returned map.
+2. **Body-to-engine:** before every state-consuming `engine/*` call, including `handle-effect`, pinning, collection, scheduler, park/resume and module work, materialize all eight register execution fields (`:pc`, `:registers`, `:frames`, `:continuation`, `:store-of`, `:value`, `:halted?`, `:blocked?`) onto the VM record. Materialize them also at every public `step`, `run`, restore or inspection return. Preserve equivalent `module/gc-roots` dispatch over the current record. Dense shadow synchronization without state-record synchronization is insufficient.
+3. **Engine completion:** the returned engine state is the new authority, including its eight execution fields and every extension key. Apply only the current opcode's specified post-helper changes ([`yang.wasm.md`](./yang.wasm.md) §3.3–§3.4) to that returned state, then reimport it into memory. Never overlay a pre-helper header onto it. In particular `handle-effect` sets `:value` even for nonblocking effects; preserve that value, resource/heap/GC updates, stores, counters, queues and custody fields. A plain non-tail primitive call, by contrast, only updates `:pc`/`rd` in the kernel and does not automatically set `:value`.
+4. **Seam `pc`:** before an engine helper, the map contains the instruction's absolute site `pc`, unless the source transition explicitly advances it first (such as parking in the FFI path). Capture the payload at the site; apply the opcode's `pc` update exactly once after helper completion. Mailbox state does not count as a completed guest instruction.
+
+Because `:cell/new` may collect *inside* `handle-effect` before the caller
+receives its result ([`yin.vm.engine.md`](./yin.vm.engine.md) §E.1), state-record
+`:registers`, `:frames`, `:continuation`, and `:value` must already be current
+before `handle-effect` is entered.
+
+#### 10.1.2 Dense register shadow, sparse saved frames, and register GC roots
+
+Start with a dense active register shadow (`Active register shadow` in
+[`yang.wasm.md`](./yang.wasm.md) §2.2) synchronized on every register write and
+before every return to the engine driver. The wasm local is the execution operand; the
+shadow makes complete current state and GC roots available. **Sparse saved
+frames and payloads are nevertheless mandatory:** never retain the full dense
+shadow through a guest call or park. On a successful call/restore, replace the
+active shadow; clear abandoned mailbox/argument roots when no longer needed. A
+parked VM's observable active `:registers` vector may still contain dead slots,
+as the reference register VM does; do not confuse those current-state roots with
+the sparse continuation payload.
+
+Under the arena and engine heap collection rules of
+[`yin.vm.engine.md`](./yin.vm.engine.md) §E.2.3, mark active `:registers`,
+`:frames`, `:value`, `:continuation`, `parked`/`wait-set`/`ready-queue` entries,
+`store`, `module-stores`, engine heap and pinned/outgoing values, constants,
+and pending mailbox arguments. Traverse trusted wrappers via `values/payload`
+and preserve the register kernel's `module/gc-children` implementation and its
+treatment of code. Persistent snapshots share immutable arena objects, never a
+mutable register buffer; the first implementation may copy the active dense
+`:registers` vector at every public `IVM` transition and optimize only after
+snapshot-alias tests pass.
+
+### 10.2 Sparse continuation materialization, `register-restore`, and layout transport
+
+#### 10.2.1 Materialization and capture-time metadata
+
+At any of the six in-band live-set opcodes (`:call`, `:stream-put`,
+`:stream-next`, `:current-continuation`, `:park`, `:ffi-call`) at site `p`, the
+exported boundary payload and return-frame shape are those built by
+`effects/continuation-payload` as specified in [`yang.wasm.md`](./yang.wasm.md)
+§3.5 (`:segment`, `:site-pc p`, `:pc (inc p)`, `:frames`, sparse `:regs` and
+`:live`, `:continuation`, `:dest`, `:resume-mode`, `:format
+:yin.debruijn.register`, `:hash`, `:image`, and optional `:images` /
+`:store-of`). Return frames contain `{:site-pc :return-pc :frames :regs :live
+:dest}` plus optional `:store-of`, with no code space.
+
+Materialization recursively resolves `ValueRef`s and never puts numeric handle
+IDs or arena references into payload values. Import performs the
+inverse into immutable records. The capture-time `:segment`/`:hash`/`:images`
+are validation data and must survive later `attach-image` unchanged. They can
+share immutable objects in memory, but a plain-data export must contain the
+actual required image data. A wasm function index, memory pointer, instance id,
+or private linkage version is not a guest format identity.
+
+#### 10.2.2 `register-restore` algorithm and failure ordering
+
+Implement one in-instance restore with the same `(base entry val) -> state` contract
+([`yin.vm.engine.md`](./yin.vm.engine.md) §2.1) and use it from both engine
+resume paths:
+
+1. Check `:format` equals `:yin.debruijn.register` and entry `:image` is in base `:images`; preserve `:rule :continuation-format`, `:reason :foreign-format`, and diagnostic context. Do **not** compare entry `:hash` to current base `:hash`.
+2. Run the existing `effects/continuation-defect` against the entry, preserving deterministic first-defect results, including capture-time hash recomputation (`yin-image` R in [`yin.vm.engine.md`](./yin.vm.engine.md) §E.2.2) and per-component image/table validation.
+3. Check the actual `vm/machine-data?` predicate on `val`; reject unsupported host functions/errors with `:rule :resume-value`. Do not turn an error-shaped ordinary map into an exception.
+4. If `request-sent`, enqueue `ffi/response-wait-entry` using `call-id` and remain blocked with `:yin/blocked`, `halted` false ([`yin.vm.engine.md`](./yin.vm.engine.md) §4 and §E.4.4). Do not deliver writer acknowledgement into `rd`.
+5. Otherwise remove `call-id` from `parked` when present and apply `ffi/call-result` to its response. For `:write-result` allocate the receiving body's register count, nil-fill, copy sparse pairs, then write `dest`; restore `pc`, `frames`, `K`, `store-of`, `value` and `halted` false. For `:return-result` first `assoc` `:pc (:pc entry)`, `:frames (:frames entry)`, `:continuation (:continuation entry)`, `:store-of (:store-of entry)`, and `:halted? false` onto `base`, leaving `:registers` equal to `(:registers base)`; then run the ordinary `return-transition` ([`yang.wasm.md`](./yang.wasm.md) §3.3). With empty captured `K` this halts at the entry's next `pc`, retains `base` registers and captured frames, and clears `store-of`. With nonempty `K`, the popped caller frame replaces `pc`/`registers`/`frames`/`store-of` as usual. Preserve `base`'s `store`, `resources`, queues, counters, `modules`, and code space.
+
+Do not clear `blocked` universally in the low-level restore: the engine clears
+it in ready-queue resumption; direct paths preserve the source's exact field
+behavior. Public APIs should route through engine scheduling instead of
+manufacturing a partially cleared state. Failed restoration must not commit a
+mutated arena/state snapshot: stage validation and allocations before publishing
+the successful transition.
+
+The distinct internal `:call` path for a trusted reified continuation
+(`engine/operator-kind` ownership first → `engine/continuation-argument` arity
+second → format/image membership third → `write-back`, skipping external
+`continuation-defect`/`machine-data?` gates) is specified in
+[`yang.wasm.md`](./yang.wasm.md) §3.3 and §3.5.
+
+#### 10.2.3 Cross-runtime continuation transport and layout compatibility
+
+Same-layout native payloads with admissible values round-trip between reference
+and wasm execution through conformance/inspection facilities. Inside one task,
+trusted wrappers remain arena Values; there is no serialized handle service.
+This grants no external portability. The actual module/linker path retains
+`:yin.k/non-portable` / `:non-canonicalizable` continuation refusal in
+`engine/encoder`. Only admitted canonical stream values use
+[dao.stream.wasm.md](./dao.stream.wasm.md) §§1–3.
+
+If a future authorized transport carries register continuation coordinates
+image-relatively, it must translate **site-pc, pc, every return frame's
+site/return pc, and recursively all closure body pcs**, attach admitted origins,
+reconstruct self-consistent segment/hash/live metadata, and apply normal native
+`register-restore`. Raw payloads with absolute pcs must not be fed to a
+differently ordered receiving layout merely because one R is present. W0 must
+gate the native transport API to a verified matching layout/prefix or return
+qualified `:continuation-format`; this transport restriction does not change
+same-task `register-restore` semantics. General rebasing and canonical semantic
+UCF migration remain outside this backend's completion claim.
+
+#### 10.2.4 Register wait-entry validation scope
+
+Guest-agnostic stream, park, custody-gate, and FFI two-step rules are specified
+in [`yin.vm.engine.md`](./yin.vm.engine.md) §E.4.4. For register wait entries
+specifically, `effects/wait-entry-defect` is an acceptance oracle **only for its
+four newly built stream/FFI forms**: `put`/`next` writers/readers and
+`request-sent`/`call-id` writer/reader entries. Do not apply it universally to
+the wait set: `link-request`, `link-response`, `install`, and gated `observe`
+entries are outside its shape vocabulary. For these, check
+`effects/continuation-defect` on the register payload plus the owning
+module/engine reason-specific fields and transitions. Do not apply a newly
+parked-entry oracle to stale-key-bearing ready entries either.
+
+### 10.3 Register module attachment, `spawn-module`, and artifact cache
+
+Per-image-row compilation, PC relocation, the four-step staged `attach-image`
+transaction, combined-segment boundary payload reads, empty-base
+`[[empty-R 0 0]]` offset-table rules, and the 65,536-slot preallocated function
+table are specified in [yang.wasm.md](./yang.wasm.md) §5. The composition's
+runtime lifecycle installs derived body functions only at materialized boundaries;
+the **in-instance engine** owns admission/attachment and publishes its layout.
+Missing artifacts use its own register interpreter. This is runtime linkage,
+not an imported engine service. `reset` preserves offset rows; `load-image`
+replaces code space and resets execution, so old membership checks can fail.
+
+Under the `spawn-module` isolation rules of
+[`yin.vm.engine.md`](./yin.vm.engine.md) §E.4.4, register `spawn-module` creates
+a fresh task/memory/arena/owner/counter/resources context with the composition
+options copied by the register kernel; it does not borrow the parent's mutable
+active register shadow or per-module store. Reuse the module scheduler
+child-task lifecycle, encoder/decoder, and `module/IModuleKernel` seams.
+Register closure lifting uses image-relative body references and `store-of`;
+lowering validates binding/format, attached origin, and arity against actual
+closure instructions before minting the receiver's trusted Closure value.
+Cache compiled wasm modules by `A`, `r2` derivation/checksum `R`,
+internal layout/emitter version, and feature profile; `R` alone is
+not executable admission authority. A missing or dropped artifact falls back to
+the in-instance register interpreter at any materialized boundary.
+
+### 10.4 Register conformance fixture schema (K0/W0)
+
+**W0 and Rust K0 are the same conformance-kit deliverable**, exported from R4,
+not independent harness authorities
+(`yin.vm.rust.md` §10 K0). The guest-agnostic differential
+conformance method (oracle export discipline, the CLJS/Rust-interpreter/wasm/LLVM
+lanes, trace-not-just-values comparison, B0-normalized vs. raw boundary
+comparison, and determinism/snapshot gates) is specified in
+[`yin.vm.engine.md`](./yin.vm.engine.md) §E.5.1–§E.5.3.
+
+For the register format and kernel, the K0/W0 kit exports, per corpus program:
+- the register image as canonical data,
+- `R` (`register-hash`),
+- the B0-normalized result or error, and
+- the format-level trace R4 produces (sparse continuation payload at every boundary, `K` depth, saved register pairs).
+
+Plus the required register fixture groups:
+- refusal fixtures for all fourteen validator rules with rule keywords,
+- the descriptor hash (`descriptor-hash`),
+- executable register scalar-encoding vectors (`yin-scalar` / `debruijn_code.cljc`),
+- diagnostic message fixtures,
+- refused-step atomicity fixtures (a refused step leaves the state equal),
+- tail-site fixtures for every row of the Rust design's §7.3 call-outcome table (including a tail primitive value and a tail primitive effect returning into a caller in another body, and halting with `K` empty; `yin.vm.rust.md` §7.3),
+- a wide-body fixture whose register count exceeds `65,535`,
+- `:host-limit` refusal fixtures, and
+- the million-iteration tail fixtures.
+
+Required repository corpora for register-wasm and Rust K0–K5 (each processed by the
+generic projection/admission/execution/comparison procedure of
+[`yin.vm.engine.md`](./yin.vm.engine.md) §E.5.1; only the register-specific
+fixtures, bindings, and compared fields are listed here):
+- `test/yin/vm/semantic/corpus.cljc` **programs and literal goldens**: these goldens specify syntax/address, not a runnable environment or expected final value for every entry. Supply deterministic `f`/`g`/`h`/`k`/`x`/`y`/`c`/`loop` bindings, stream fixtures, and genuine parked targets for resume cases; otherwise compare the same qualified refusal.
+- All fixtures and assertions of `test/yin/vm/debruijn/register_test.cljc` (plus `test/yin/vm/debruijn_code_test.cljc` and `test/yin/vm/debruijn_register_code_test.cljc`), including hand images, B0/B2 parity, stream scripts, continuation corruption, and `IVM` behavior. The register raw observable fields compared beyond the method's B0-normalized values: register payload shapes, `store`/`module-stores`, `pc`, frame order, `K`, counter, flags, `wait-set`/`ready-queue`/`parked` entries, and emitted request traces.
+
+### 10.5 Register-specific W0–W6 implementation slices and acceptance gates
+
+The node-lane schedule replaces private-service-first staging by owner ruling,
+2026-10-19. Toolchain pins, oracle-first K0/W0, two-codec determinism, wasm32
+compilability and dao.stream implementation probes live in
+[yin.vm.engine.md](./yin.vm.engine.md) §E.5.2–§E.5.3. Compiler work lives in
+[yang.wasm.md](./yang.wasm.md) §6.1. Each gate below retains the existing
+register acceptance assertions, now against the in-instance engine.
+
+#### 10.5.1 W0 — Oracle first, admission, wasm32 feasibility and internal state
+
+First export/extend K0 from the CLJS oracle; probe the shared crates on
+`wasm32-unknown-unknown` with the final-module feature allowlist and adapter
+reservation/handle/CBOR tests. No service-library substitute is allowed.
+
+Acceptance: all semantic goldens retain their literal vector/address; all
+derived register images retain `R` and exact live operands. Existing register
+tests pass unchanged on the reference lane. Invalid contract, Rule R, unknown
+opcode, cross-body target, bad live set and empty-image cases have identical
+admission outcomes. Validate a minimal wasm instance and explicit resource-limit
+diagnostics. Establish matching-layout register payload transport and qualified
+`:continuation-format` refusal for incompatible layouts (§10.2.3). Freeze the
+eight-field register map/memory authority protocol (§10.1.1) and its
+internal snapshot equivalents, including external `assoc`/snapshot replacement,
+old-state replay, and preservation of unknown engine extension keys; do not
+defer that contract to performance tuning. Add cross-embedder vectors for
+`descriptor-hash`/`R` (including empty and concatenated images), exact encoded
+bytes, owner/seal/profile inputs, and manifest addresses.
+
+#### 10.5.2 W1 — Pure register execution and body dispatch
+
+Required runtime gate: Node + Wasmtime, identical image binaries and full
+step/stream traces. The required shared Rust crates must actually compile, link
+and run inside wasm; require their interpreter dispatcher to pass the same pure
+fixtures. Failure of wasm32/profile feasibility blocks W1. Also test
+refused-step atomicity and per-machine fault isolation from K0/K1, including
+the wide-register (`>65,535`) and million-tail cases.
+
+Implement arena, dense register shadow, body dispatcher,
+constants/moves/loads/branches, closures, explicit calls/returns/halt, primitive
+results, `store`/`define`/`gensym`, and one-step materialization.
+Effects/continuation execution remains explicitly unavailable until its slice,
+rather than silently emulated as a completed wasm feature.
+
+Acceptance: register
+literal/load-bound/free/store/nested-closure/multi-arg/compose/branch/B0/B2/gensym
+tests; pure semantic corpus entries including `nested-if-same-rd`,
+`body-queue-order`, `define-then-call`, and unreachable structural slots. Add
+nil-fill/extra-drop, zero truthiness, frame shadowing, backward/irreducible
+valid CFGs, source/destination aliasing, bounded yields, deep non-tail
+recursion and long tail recursion. Assert guest `K` behavior and bounded native
+call depth. Preserve snapshot immutability between steps. Assert bit-identical
+load `R`, owner tags and primitive-profile addresses, plus direct map
+`pc`/register/frame reads, externally `assoc`-modified entry state, and
+`:halt`/final-`:return` preservation of the executing `pc`, `:registers`, and
+`:frames` (including nonempty `K` on `:halt`).
+
+#### 10.5.3 W2 — Continuations and `register-restore`
+
+Required runtime gate: Node + Wasmtime full continuation/restore traces, plus
+native↔CLJS admissible payload round-trips and identical qualified refusals.
+Implement native payload/owner/type validation before this gate.
+
+Implement sparse payload materialization (§10.2.1), reification, internal
+continuation application, explicit `park`/`resume`, and external
+`register-restore` (§10.2.2). Use existing validators and engine gates.
+
+Acceptance: `current-continuation`, `park-and-resume`, `bytecode-resume`, every
+tampered/refusal test in `register_test`; semantic corpus `park`/`resume`
+productions with valid fixture targets or matching errors. Add nested non-tail
+capture then abortive invocation, multi-shot capture, tail `:return-result`,
+live Closure versus live primitive distinctions under `machine-data?`,
+host-function/error resume refusal, error-shaped data success, dead-slot `nil`
+restoration, snapshot alias isolation, and both native
+interpreted→wasm/wasm→interpreted payload round-trips. Assert expected linker
+`:non-canonicalizable` refusals rather than claiming transport support from
+same-process tests. Assert native `continuation-defect` recomputes the same
+repository `R` on original and tampered images, without trusting the supplied
+hash or hashing adapter bytes. Add `:return-result` fixtures with empty and
+nonempty captured `K`, deliberately different `base` `pc`/registers, and exact
+post-restore `pc`/register/frame assertions. Add an unowned wrong-arity
+continuation case proving `:foreign-value` precedes `:continuation-arity`, and
+an owned wrong-arity/foreign-format case proving arity precedes format.
+
+#### 10.5.4 W3 — Streams, shared scheduler, and FFI
+
+Required runtime gate: Node + Wasmtime full scheduler/event/stream-adapter traces using
+independent scripted transports; in-instance scheduler, custody, collection and
+two-step FFI are required now.
+
+Implement typed effect completion inside the engine, register site wait builders,
+scheduler seam, call-effect handling including tail effects
+([`yang.wasm.md`](./yang.wasm.md) §3.4), bridge wrapper, FFI request/response
+logic and pinning.
+
+Acceptance: every immediate/blocking stream and bridge success/error test in
+`register_test`; semantic corpus streams/ffi/park with scheduled events. Add
+full-writer two-step and stale-key checks, pending-ready-after-halt,
+lost/closed stream outcomes, missing call-pair before id allocation,
+call-result errors, repeated polling without duplicate append, effect
+permission checks and resource-update validation. Compare value/store/parking
+and external emission traces after each wake, not only final values. Exercise
+the [`yang.wasm.md`](./yang.wasm.md) §3.4 (r5 §2.4) host-call matrix:
+immediate/blocked × tail/non-tail, including `put`/`next`, module
+`require`/`try-require` builder fallback (full module installation in W4), and
+running `poll`'s `observe` fallback. Assert blocked `pc` advances without `rd`
+write or tail return, and post-effect state mutations survive each completion.
+Compare immediate empty-`K` tail completion at site `pc` with restored blocked
+completion at entry `pc`.
+
+Add a low-threshold `:cell/new` host-effect test whose only live cell roots
+occur in newly materialized registers/frames/K, forcing collection inside
+`handle-effect`; it must retain those cells. Check `:value` after each
+nonblocking effect and verify a plain non-tail primitive leaves the previous
+value unchanged. Test all supported gate modes
+(`ungated`/`running`/`exporting`/`ended`), no handle calls for deferred
+FFI/cursor/put/poll/close/link work, separate issue/id counters, queued running
+closes versus exporting/ended refusals, suppressed wait polling, and driver
+apply synchronization. Scope `wait-entry-defect` to its four shapes (§10.2.4);
+use payload plus owning-shape checks for `observe`/`link`/`install`. These are
+W3 correctness gates, not deferred GC optimizations. Assert exact seals on
+stream/cursor/cell refs with the same secrets and ids, and deterministic
+`resource-updates` diagnostic order under [`yin.vm.engine.md`](./yin.vm.engine.md)
+§E.4.3 (r5 §4.1.2).
+
+W3 repeats W0 adapter probes against real effects: full-before-append, response
+reservation before execution, all stream terminal/error outcomes, bounds/CBOR/
+handle failures with no accidental mutation, and no automatic retry after an
+unknown-acceptance transport error. Full writer wake converts once to the FFI
+reader: no second append/id/GC/resource update. Compare resulting records and
+canonical stream bytes on Node and Wasmtime; Wasmer repeats by W5. There is
+no response-refetch protocol. Internal gensym/park/GC never cross adapters.
+
+#### 10.5.5 W4 — Attach, modules, and lifetime correctness
+
+Required runtime gate: Node + Wasmtime full module/state/stream traces; implement
+in-instance admission, module stores and resource/closure transport. Prepare
+the Wasmer adapter implementation; its complete suite is required by W5.
+
+Implement independent image instances/function-table append, `IModuleKernel`
+adapter, closure/resource transport, `store-of` restoration, `reset`/`load-image`
+distinctions and arena/heap root integration (§10.3).
+
+Acceptance: rerun both corpora completely; add A-calls-B-while-C-attaches
+followed by ordinary return, park-before-attach then resume, stale hash but
+present image success, absent-image refusal, duplicate/empty attach no-op,
+empty-base row, layout-image rehashing, independent `spawn-module`
+counters/stores and module `require` in a tail call. Cross-layout closure lower
+validates arity/format and private store behavior. GC tests retain captured
+live values and FFI-pinned refs, release unreachable scratch records, and never
+free values held by old immutable state snapshots. No return or resume shrinks
+the code space. Reuse one compiled component in two different attachment orders
+and assert absolute exit/capture/return/closure pcs and combined-segment
+payload checks. Assert empty-base attachment retains both offset rows, `halted`
+true and `registers []`, then `reset` and capture with the two-row table.
+Complete gated install-child scheduling and link-response/install oracle tests.
+Node and Wasmtime must pass the identical binaries now; Wasmer must pass the
+entire W1–W4 suite as part of W5 (dated owner schedule supersession above).
+
+Require in-wasm↔CLJS module-slice parity in both directions: lift with
+`engine/lift-slice`, transfer real canonical content, then receive with
+`engine/receive-module` semantics into matched receiver
+layouts/secrets/resources. Compare exact slice-entry vectors, cells/aliasing,
+store snapshots, component image hashes/addresses, minted stream/cursor ids and
+seals, owner/profile fields, counters, diagnostics and subsequent module
+execution. Vary insertion history and map size, nested sets/maps, multiple
+module stores and repeated references; verify the shared traversal
+prerequisite, not just final return values. Recompute repository hashes on
+receiving in-instance engines. Also test distinct receiver secrets: compare each
+receiver against its own CLJS oracle, since valid resealing intentionally
+differs across different secrets.
+
+#### 10.5.6 W5 — Lane completion and release gate
+
+Register wasm as an embedder-agnostic backend with Node, Wasmtime and
+Wasmer stream adapters, with no changes to the `r2` opcode table. Freeze
+the dao.stream implementation/profile and internal linkage versioning and deterministic binary generation. Run
+all named register tests and every semantic golden through the harness; report
+unsupported canonical-semantic fragment cases as named refusals with reasons.
+The wasm backend must not silently narrow behavior relative to an admitted
+register image except documented resource limits or preexisting transport
+refusal boundaries.
+
+Acceptance: required corpora pass in full, every opcode exercised, public
+`IVM`/`IVMState` behavior matches (including eval/environment refusals),
+differential traces agree, no host handle leaks into wire payloads, and all
+binary artifacts validate. Run focused JVM reference tests with the existing
+`clojure -M:test -n yin.vm.debruijn.register-test` invocation, the existing
+Node tests through the documented
+`clj -M:cljs -m shadow.cljs.devtools.cli compile test` lane, and the new wasm
+harness in that lane. Add dedicated native Wasmtime and Wasmer harness tasks
+and a shared cross-runtime trace runner; run all W1–W5 cases on Node and both
+native runtimes against the reference. No native lane may be reduced to
+final-value checks. Verify byte-identical artifacts, dao.stream external
+import allowlist, malformed CBOR/bounds/overflow/reservation/full handling,
+no duplicate effects and no JS/WASI dependencies in native execution. Register
+these build/tasks during implementation rather than pretending they exist
+today. Follow repository quick/slow phase gates and existing Dart regression
+lane for shared CLJC edits. These acceptance tests are planned, not reported
+execution results.
+
+#### 10.5.7 W6 — Measured optimization and register non-goals
+
+Keep Node + Wasmtime + Wasmer full-trace parity mandatory for every
+optimization. Measure compilation latency, binary size, dispatch/indirection,
+native stack depth, arena/heap retention, call/suspension, stream bytes/copy/codec
+cost and end-to-end time against the same in-instance register interpreter.
+Only then coalesce/structure blocks, reduce redundant spills or use pinned
+Binaryen passes ([yang.wasm.md](./yang.wasm.md) §6.1). Re-run all parity and
+profile gates. Engine placement is settled; W6 is **codegen optimization only**,
+not a service-migration or alternative architecture experiment. K3 may measure
+wasm on the shared harness; this does not commission K4. Making wasm work is
+not evidence it is faster.
+
+Register-specific non-goals (in addition to the guest-agnostic non-goals in
+[`yin.vm.engine.md`](./yin.vm.engine.md) §E.5.4): no new register
+opcode/contract version, no alternate A→R register allocator, no native stack
+continuations or async-stack capture, and no full semantic VM feature parity
+beyond the established native register fragment.
+
+#### 10.5.8 Rust K1–K5 and LLVM acceptance retained
+
+The same K0/W0 conformance kit retains the Rust phase gates
+(`yin.vm.rust.md` §10 K1–K5):
+- **K1:** pure fixtures and R/refusal parity; constant stack and one file per live activation on tail fixtures; refused-step atomicity; no panic. Fault-injected decoded images refuse with `:kernel-invariant` or poison at most the one machine, while another task completes.
+- **K2:** payload/effect descriptor canonical bytes equal R4, including every return frame's `:live`; bidirectional Rust↔R4 restore and equal `continuation-defect` refusal rules.
+- **K3:** benchmark evidence for owner review before K4 is commissioned.
+- **K4:** deterministic translator bytes across runs/platforms, full-kit interpreted/native boundary and refusal equality, artifact-drop fallback, and interpretation with no toolchain plus `:unsupported`.
+- **K5:** shared engine parity and blocked-machine wire round-trips with JVM R4 in both directions.
+
+Wasm completion does not certify the full K5 standalone node. Rust interpreter
+coverage advances alongside the W slices and cannot be omitted because native
+wasm passes. Native runtime execution is not CLI validation, replay, a JS
+subprocess or a success-only primitive stub.
+
+### 10.6 Register-specific risks, reference conventions, and open items
+
+Guest-agnostic host, arena, single-port, and embedder risks are specified in
+[`yin.vm.engine.md`](./yin.vm.engine.md) §E.5.4; lowering-specific risks (body
+dispatch size, wasm module code growth, canonical admission) are in
+[`yang.wasm.md`](./yang.wasm.md) §6.2. Register-host-specific risks retained
+from r5 §7:
+
+1. **Native continuation transport has a limited scope.** The sources support same-model register payloads and qualified transport refusal, while the module encoder currently refuses continuations. Keep this distinction visible in API docs/tests. A full portable continuation design would require separate authorization and compatibility work, not an ad hoc wasm-only decoder.
+2. **Absolute `pc` layout compatibility.** The register kernel's format check tests image membership, not complete receiving-layout equivalence. That suffices for grow-only same-task use; it is not proof that arbitrary imported absolute pcs mean the same thing. The transport adapter must enforce matching layout/prefix or use a separately specified rebaser (§10.2.3). Preserve legacy restore diagnostics without presenting the legacy check as stronger than it is.
+
+The wasm register implementation is complete when the same emitted baseline
+binary for an admitted `r2` image has the same values, store transitions,
+continuation records, refusals, parking/wake behavior and module growth under
+Node, Wasmtime and Wasmer as under the existing register kernel, with
+full-trace parity and no suspended computation held on the wasm stack.
+
+**Reference conventions and open items:** follow
+[yin.vm.engine.md](./yin.vm.engine.md) §E.5.5 and
+[yang.wasm.md](./yang.wasm.md), Reference conventions / Open items. The former
+service-call split and response-refetch questions are superseded by the owner
+ruling. Remaining W0 feasibility/adapter/ordering gates do not change the
+register fixture schema or restore semantics.
