@@ -14,7 +14,7 @@
 (deftest deps-edn-carries-the-four-additive-aliases
   (let [aliases (:aliases (read-config "deps.edn"))]
     (is (= ["-m" "yin.repl.main"] (:main-opts (:clj-yin-repl aliases))))
-    (is (= ["-m" "shadow.cljs.devtools.cli" "run" "yin.repl.main/-main"]
+    (is (= ["-m" "yin.repl.node-runner"]
            (:main-opts (:cljs-yin-repl aliases))))
     (is (= ["-m" "yin.repl.runner"] (:main-opts (:cljd-yin-repl aliases))))
     (is (= 'yin.repl.main (:main (:cljd/opts (:cljd-yin-repl-build aliases)))))

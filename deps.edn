@@ -69,7 +69,7 @@
             :extra-deps {thheller/shadow-cljs {:mvn/version "3.3.5"}
                          reagent/reagent {:mvn/version "2.0.1"}
                          com.cognitect/transit-cljs {:mvn/version "0.8.280"}}
-            :main-opts ["-m" "shadow.cljs.devtools.cli" "run" "yin.repl.main/-main"]}
+            :main-opts ["-m" "yin.repl.node-runner"]}
            :fmt {:extra-paths ["src/dev"]
                  :exec-fn tasks/fix-all}
            ;; Build-time generation of the grammars-v4 Python3 parser.

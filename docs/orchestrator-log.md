@@ -12085,3 +12085,34 @@ Also landed: the agy --print-timeout quirk (optional, defaults to wait-until-don
   delegate-invocation-reference.
 Next: owner-gated — W0/K0 authorization (kit export from R4, toolchain pins, wasm32
   feasibility), the wasm32 profile section, the jolt spike decision.
+
+## 2026-10-19 09:0x +07 — the frontend ids, the id-only selector, and (host) LANDED to master (the host-command merge)
+The owner drove this cluster live: ":yang.python/antlr should be removed"; "remove the legacy in the
+  keyword"; ":yang/clojure, :yang/php and :yang/python are acceptable"; "(lang :python) should not
+  work — consistent throughout"; "simple search and replace — do it yourself". Rounds: the rename
+  (f06a252e: the catalog, select-frontend refusing language keywords, the default lang :yang/clojure,
+  the tests, the docs; the first :yang.python attempt found the frontend spec's qualified-keyword
+  rule — the owner's own :yang/<language> scheme resolved it) -> the deepseek gate's three doc
+  residues fixed (da0b277e: the Selection-forms paragraph, the live FAQ, the yang.php migration
+  reworded to one-id-per-language with the deferral note). The (host) slice (fd9bc043 + 770ecd68: the
+  browser-safe js/process probe the gate caught — it would have crashed the demo page) and the
+  :cljs-yin-repl alias fix (05a28f19: the alias booted the JVM main; yin.repl.node-runner now
+  generates, compiles and starts the Node REPL — the owner's own test exposed it). The owner's Dart
+  test ("the dart repl doesnt run correctly") prompted the dartfix round, which resolved as a
+  MISDIAGNOSIS: the interactive Dart entry on host-command predated the rename, so its catalog
+  legitimately lacked :yang/python; the 1+2→2 is correct Clojure three-forms semantics. Opus's real
+  contributions kept: the catalog-derived installed-list refusal and the interactive-path test
+  (rewritten to the renamed rules). The merge (a948cce7) unified both branches.
+Lanes at a948cce7: JVM 4102/285567/0, Node 4093/149989/0, Dart 4041 all passed; the LIVE Dart
+  transcript: Host: Dart / Switched to :yang/python / 3 / [0 1 4 9] / the installed-list refusal;
+  the JVM (host): Host: JVM 21.0.2; the Node (host): Host: Node v25.6.1. Gates: the rename READY
+  (1792570000000) + residues; (host) READY after the probe fix (1792590000000); the merge READY
+  (1792610000000, byte-exact refusal, compiled-artifact cross-host coverage). Landed
+  land-host-command:master per the owner's direction; the shiva/jupiter slow tiers continue against
+  a948cce7 as post-landing verification (their first runs: shiva's JVM slow tier green 23/23 at
+  f06a252e; the Dart results were eaten by a relative-OUT script bug — fixed; jupiter's first run
+  died in the fresh-clone Node build — relaunched with memory capture).
+New known-gaps row: the interactive Dart entry's compile failure under the drifted Flutter-beta
+  selection (P2, pre-existing) — pin-or-regenerate slice queued.
+Next: the remote greens close the loop; the F1/F2 diagnosis slices; the compile-contract test
+  hardening; safepoint s4; C4 I7; ADR 0004 (owner-gated).

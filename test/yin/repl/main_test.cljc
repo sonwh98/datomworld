@@ -303,6 +303,61 @@
       (is (false? idle-owed?) "an idle tick owes nothing"))))
 
 
+(defn- transcript
+  "Each line submitted to the interactive composition `repl/boot` builds,
+   paired with what the step owner printed for it: the path the host
+   entries (`bin/yin_repl_main.dart`, the JVM and Node mains) run."
+  [lines]
+  (loop [state (repl/boot {})
+         lines lines
+         out []]
+    (if-let [line (first lines)]
+      (let [_ (driver/submit-line! (:input state) line)
+            [state' printed] (loop [state state
+                                    n 0]
+                               (let [[state' _ printed] (repl/step-all state
+                                                                       nil
+                                                                       n)]
+                                 (if (or (seq printed) (= n 50))
+                                   [state' printed]
+                                   (recur state' (inc n)))))]
+        (recur state' (rest lines) (conj out [line (vec printed)])))
+      out)))
+
+
+(deftest the-interactive-composition-holds-every-standard-language
+  (let [t (transcript ["(host)"
+                       "(lang :yang/python)"
+                       "1 + 2"
+                       "[x * x for x in range(4)]"
+                       "'a' + 'b'"
+                       "(lang :python)"
+                       "1 + 2"
+                       "(lang :yang/php)"
+                       "1 + 2;"
+                       "(lang :yang/clojure)"
+                       "1 + 2"
+                       "(+ 1 2)"])]
+    (is (str/starts-with? (first (get-in t [0 1])) "Host: "))
+    (is (= "Switched to :yang/python" (first (get-in t [1 1]))))
+    (is (= ["3"] (get-in t [2 1])))
+    (is (= ["[0, 1, 4, 9]"] (get-in t [3 1])))
+    (is (= ["'ab'"] (get-in t [4 1])))
+    (testing "a language keyword is not a selector: the refusal names what
+              is installed, and the session keeps its frontend"
+      (is (= [(str "Error: unavailable-parser: Yin REPL language :python"
+                   " is not in the frontend catalog; installed: :clojure :php"
+                   " :python (ids :yang/clojure :yang/php :yang/python)")]
+             (get-in t [5 1])))
+      (is (= ["3"] (get-in t [6 1]))))
+    (is (= "Switched to :yang/php" (first (get-in t [7 1]))))
+    (is (= ["3"] (get-in t [8 1])))
+    (is (= "Switched to :yang/clojure" (first (get-in t [9 1]))))
+    (testing "Clojure reads `1 + 2` as three forms; the last value prints"
+      (is (= ["2"] (get-in t [10 1]))))
+    (is (= ["3"] (get-in t [11 1])))))
+
+
 ;; =============================================================================
 ;; L4: the publisher's key file (docs/design/yin.vm.linker.dht.md 6.5)
 ;; =============================================================================
