@@ -1,0 +1,37 @@
+diff --git a/docs/orchestrator-log.md b/docs/orchestrator-log.md
+index a0027854..84a1a230 100644
+--- a/docs/orchestrator-log.md
++++ b/docs/orchestrator-log.md
+@@ -11130,6 +11130,32 @@ Next:
+   - Before phase 6: amend UCF §7.3.4 and code-as-tuples §7.2 to retire the vector->datoms load path explicitly (Architect note).
+   - C4 coordination note to agy is in `collab/1791520000000-orchestrator-note-c4-vs-semantic-register-vm.md`.
+ 
++## 2026-10-10 16:20:00 +07 — yang.python: Phase C4 Slice F3 (REPL Python ANTLR Frontend) IMPLEMENTED & GATES VERIFIED
++Completed-GMT: 2026-10-10 09:20:00 GMT
++Coding-Agent: agy (Lead Engineering Orchestrator)
++Session-ID: b9cb934e-5ffd-43d8-b167-a64d9947282b
++Tree: master@2f5eb826 + UNCOMMITTED Slice F3 working-tree changes
++Done:
++  (1) Phase C4 Slice F3 (REPL Python ANTLR frontend, docs/design/yang.antlr.md §8.5.6) IMPLEMENTED, NOT COMMITTED, NOT REVIEWED:
++      - src/cljc/yin/repl.cljc: make-vm registers cell/data/integer host modules; eval-input consults an optional binding `:probe` (keeps indentation, blank line closes a block; falls back to bracket-balance); bindings may carry `:lower-session` (frontend session in `:frontend-session`, cleared by rebuild-session i.e. (reset)/(vm ..)); new helpers lower-parsed, eval-compiled, input-probe.
++      - src/cljc/yang/python/antlr/repl.cljc (new, portable): `lower-session`/`lower` wrap lower-module-body to run against sys.modules["__main__"] (persisting globals dict), emit the bundled prelude only on the first submission of a session (returns :primed), print output/exception via host primitive `py-report` + shell println. `primitives` map is merged in by frontends/create-state.
++      - src/clj/yang/python/antlr/repl_probe.clj (new, JVM): probe (:complete/:incomplete) from ANTLR EOF errors, open brackets, indented last line.
++      - src/cljc/yin/repl/frontends.cljc: registers :yang.python/antlr (language :python.antlr, revision "f3") on JVM only via `#?@(:cljd [] :clj ...)` (cljd reads :clj branches otherwise and fails compiling the JVM parser); parse stage appends "\n".
++      - test/yin/repl/python_antlr_test.clj (new, 5 tests); frontend_catalog_test.cljc now uses :yang.python/uninstalled and :yang.python/service ids.
++  (2) Verification:
++      - JVM: `clj -M:test -n yin.repl.python-antlr-test -n yin.repl.frontend-catalog-test -n yin.repl-test -n yang.frontend-test`: 63 tests / 334 assertions / 0 failures.
++      - Dart: `bb test:cljd`: Passed cleanly! (All 3785 tests passed across all shards).
++      - Node.js: `bb test:cljs`: Passed cleanly (3833 tests, 0 failures, 1 pre-existing ns-var-clash warning in head.cljc).
++Known gaps / decide:
++  - Each Python round echoes a trailing `nil` (program value of println); expression-statement values are not echoed.
++  - `(lang :python)` selection on JVM not re-verified (ANTLR frontend has its own language keyword :python.antlr).
++  - Probe: triple-quoted strings and backslash continuation untested.
++  - Imports in REPL unsupported (bundled prelude refuses/pym.* unbound).
++  - Hygiene: I once ran `git stash`/`pop` (all content restored; staged state of docs/design/yin.vm.* and orchestrator-log re-staged; semantic-register-vm.md and ucf-transport-tuples.md staged deletions belong to the other orchestrator). Do not commit those with F3.
++Delegates: none this session (all work done directly by agy).
++Next:
++  (a) Rerun `bb test:cljd` and `bb test:cljs`; fix failures. (b) Adversarial review (code-review-pr skill / gpt-6.1-sol) of the F3 diff. (c) Commit ONLY the F3 files listed above. (d) Then Slice I2 (packages, dotted/relative imports); UCF Stage E deferred until quota resets. Note collab/1791520000000-orchestrator-note-c4-vs-semantic-register-vm.md: keep C4 code AST-level, no hand-pinned A addresses, no direct :yin.code/* matching.
++
+ ## 2026-10-10 23:10:00 +07 — yang.python: Phase C4 Slice F3 (REPL Python ANTLR frontend) LANDED; seat taken over from agy
+ Completed-GMT: 2026-10-10 16:10:00 GMT
+ Coding-Agent: claude (sonnet-5-5)

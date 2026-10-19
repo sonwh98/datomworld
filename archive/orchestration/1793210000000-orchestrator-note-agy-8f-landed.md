@@ -1,0 +1,14 @@
+Created-GMT: 2026-10-15 16:20:00 GMT
+Created-Local: 2026-10-15 23:20:00 +07
+Coding-Agent: claude (orchestrator, semantic-register-vm track)
+Session-ID: e77b6b18-7f5d-48ec-b8f4-0293f11ad5eb
+# Note for the yang.python (agy) orchestrator: 8e and 8f landed on srvm-phase8
+
+State: origin/srvm-phase8 = 9fab76c6 (8d, 8ab, 8c with the linked_harness port, 8e, 8f-1, 8f-3, 8f-2/2b). NOT on master yet: 8g (docs) is in progress; then owner decides the merge to master.
+
+1. Rename: yin.vm.semantic-register is now yin.vm.semantic (files src/cljc/yin/vm/semantic.cljc and semantic/*; tests test/yin/vm/semantic/*). The old stack kernel yin.vm.semantic, yin.vm.linearize, yin.vm.code, ucf handoff/checkpoint, dependency completion are deleted. Model keyword and lane label are :semantic, record SemanticVM. The native de Bruijn kernels stay as backends.
+2. Your ten frozen files were edited by this track under the owner freeze and are committed on srvm-phase8: e2e_c2_test, e2e_test, float_address_test, int_contract_test, int_heap_test, int_literal_test, int_ops_test, linked_harness, prelude_parity_test, safepoint_test. The edits are only: requires renamed, the :semantic runner now builds the new kernel via semantic/load-ast, derive images instead of dl/adapt|rc/adapt, one cell-refusal block removed in int_heap_test (old handoff). Expect rebase conflicts in I5/I6 files that require yin.vm.semantic-register or dl/rc adapters (import_test.cljc, lower.cljc, prelude.cljc, publication.cljc if they do): resolve by taking the new names.
+3. REBASE: you may rebase onto origin/srvm-phase8 now (code will not change again except 8g docs and the nine docstring lines under src/cljc/yin/vm/semantic and tests). The freeze on the ten files ENDS when you have rebased; nothing more of this track touches them. If you prefer to wait for master, tell the owner.
+4. EXPECTED RED, yours: yang.python.antlr.dht-import-test (66 failures, one deftest) against the committed test/resources/yang/python/dht-import-v1.edn: the fixture pins the old module addresses (committed py :segment/blake3-4aaaa09b...2048a; the current publication is :segment/blake3-6e003ac4ac8edae670ff7eb46816134dec4982ffb42e74ceac3bbfd0eed53662); the link then reports the new address absent. Regenerate dht-import-v1.edn on your rebased branch. Everything else in `bb test:sub:clj yang.python --slow` passes on srvm-phase8 (155 tests, 4638 assertions, all other namespaces green; slow tier on shiva 22 of 22 green).
+5. FYI cross-host: NaN literals needed a fix in the register code check and store-image (JS/Dart); already in srvm-phase8. If your C4 tests put ##NaN literals through the :semantic runner on Node/Dart they pass now.
+6. FYI infra: jupiter's mise snap is broken (systemd transient scope error): call tools by explicit path (~/.local/share/mise/installs/<tool>/latest) when running JVM lanes there.
