@@ -11,7 +11,7 @@ the two de Bruijn kernels, and the landed UCF code and harness
 (`src/cljc/yin/vm/ucf.cljc`, `src/cljc/yin/vm/ucf/handoff.cljc`,
 `test/yin/vm/ucf/safepoint_harness_test.cljc`). Revision 2 (2026-10-11)
 applies the codex review
-`collab/1791760000000-architect-srvm-phase6-design-review.gpt-6.1-sol.findings.md`
+`archive/yin-vm/1791760000000-architect-srvm-phase6-design-review.gpt-6.1-sol.findings.md`
 (CHANGES_REQUESTED): the task's free environment is carried explicitly
 (§4.4, §6.3), the stack kernel's K slices and tail completion are
 corrected and gated (§4.3, §8.3), register return destinations are
@@ -22,7 +22,7 @@ a specified re-emission (§5.5), the harness matrix is expanded (§5.2),
 6a is the independent codec (§8.1), and the amendment inventory is
 exhaustive (§10). Revision 3 (2026-10-11) applies the codex round-2
 review
-`collab/1791800000000-architect-srvm-phase6-design-review-r2.gpt-6.1-sol.findings.md`
+`archive/yin-vm/1791800000000-architect-srvm-phase6-design-review-r2.gpt-6.1-sol.findings.md`
 (CHANGES_REQUESTED): stack lowering bases are cumulative through each
 slice (§4.3), the live operand subtracts the virtual destination before
 mapping (§4.2, §5.6), the free environment's source on lift is specified
@@ -40,7 +40,7 @@ and the amendment residue is closed (§10.3 R9, U7). **Revision 4
 is marked "**Amended after 6b**" with what changed and why, §10.6
 inventories them, and §11 lists the design choices the code made that
 the owner has not ruled on. Sources: the engineer report
-`collab/1792270000000-engineer-6b-task-transport.report.md` (design bugs
+`archive/yin-vm/1792270000000-engineer-6b-task-transport.report.md` (design bugs
 B1-B4, deviations 1-10) and the three codex reviews
 (`collab/1792280000000-…`, `1792300000000-…`, `1792320000000-…`). The
 frozen document is not changed by this one. **Revision 5 (2026-10-13,
@@ -55,9 +55,9 @@ tests (`layout_test.cljc`, the harness's cross-engine lanes,
 "**Amended after 6c (2026-10-13)**" with what changed and why, §10.7
 inventories them, and §11 gains the three questions slice 6c left for
 the owner, one of them answered. Sources: the
-engineer report `collab/1792340000000-engineer-6c-layouts.report.md`
+engineer report `archive/yin-vm/1792340000000-engineer-6c-layouts.report.md`
 (deviations 1-8, design defects D1-D5), the codex review
-`collab/1792350000000-review-6c-layouts.gpt-6.1-sol.findings.md` (F1-F6,
+`archive/yin-vm/1792350000000-review-6c-layouts.gpt-6.1-sol.findings.md` (F1-F6,
 D1-D5) and the Architect's rulings
 `collab/1792360000000-architect-6c-rulings.report.md` (R1-R6), whose
 wording is applied verbatim where it says so. **Revision 6 (2026-10-13,

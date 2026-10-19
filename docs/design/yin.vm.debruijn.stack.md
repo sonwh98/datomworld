@@ -62,7 +62,7 @@ Status: B0-B3 implemented and merged; B4-B7 not started
 > (`yin.vm.semantic-register-vm.md`, forthcoming; landed and renamed
 > `yin.vm.semantic.md` at the 2026-10-15 cutover) and is not applied here.
 > Architect review of both rulings:
-> `collab/1791510000000-architect-semantic-register-vm.gpt-6.1-sol.findings.md`.
+> `archive/yin-vm/1791510000000-architect-semantic-register-vm.gpt-6.1-sol.findings.md`.
 >
 > **Amendment 2026-10-15 (phase 8, 8g).** This kernel survived the
 > cutover: `debruijn/stack.cljc` is a **backend** of the canonical

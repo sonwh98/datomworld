@@ -285,4 +285,4 @@ Phase 2:  host tick adapters, a judge composed in yin.repl, and the
 ```
 
 The implementation brief for phase 1 is staged at
-`collab/1790446000000-vm-engineer-linker-link-policy.claude-opus-5-5.prompt.md`.
+`archive/yin-linker/1790446000000-vm-engineer-linker-link-policy.claude-opus-5-5.prompt.md`.

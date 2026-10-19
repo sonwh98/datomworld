@@ -40,7 +40,7 @@ Status: design, revised; not implemented
 > narrower topology sentence, "no projection is compiled from another"
 > as applied at the de Bruijn layer, is superseded, since the register
 > image is now derived from A. R1's lowering walk changes input and is not a plug-in allocator over a
-> vector (Architect, `collab/1791510000000-architect-semantic-register-vm.gpt-6.1-sol.findings.md`
+> vector (Architect, `archive/yin-vm/1791510000000-architect-semantic-register-vm.gpt-6.1-sol.findings.md`
 > finding 6).
 >
 > A second ruling of the same date makes the canonical semantic vector

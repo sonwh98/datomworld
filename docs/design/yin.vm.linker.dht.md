@@ -4,24 +4,24 @@ Status: **contract frozen 2026-10-01 (linker-over-DHT epic slice L-design,
 revision r5); slices L0 to L5 are implemented and landed on master
 (df7cf1f4).** Revision r5 closes the one finding
 of the r4 sign-off
-(<code>collab/1790808100000-architect-linker-over-dht-design-doc-signoff<!--
+(<code>archive/yin-linker/1790808100000-architect-linker-over-dht-design-doc-signoff<!--
 -->-r4.gpt-6-sol.findings.md</code>):
 `:republished` reports any result change after the first report, whatever
 wrote the ledger (5.5.3). Revision r4 closed the two
 findings of the r3 sign-off
-(<code>collab/1790808100000-architect-linker-over-dht-design-doc-signoff<!--
+(<code>archive/yin-linker/1790808100000-architect-linker-over-dht-design-doc-signoff<!--
 -->-r3.gpt-6-sol.findings.md</code>):
 the repair queue has its own capacity and its own admission turn, and
 publications awaiting a first report are bounded (5.5.2, 5.5.4). Revision
 r3 closed the two
 lifecycle findings of the r2 sign-off
-(<code>collab/1790808100000-architect-linker-over-dht-design-doc-signoff<!--
+(<code>archive/yin-linker/1790808100000-architect-linker-over-dht-design-doc-signoff<!--
 -->-r2.gpt-6-sol.findings.md</code>)
 and adopts owner decision 5, automatic retry while open: section 5.5 is
 rewritten around one complete publication ledger. Revision r2 closed the five
 findings
 of the withheld sign-off
-(<code>collab/1790808100000-architect-linker-over-dht-design-doc-signoff<!--
+(<code>archive/yin-linker/1790808100000-architect-linker-over-dht-design-doc-signoff<!--
 -->.gpt-6-sol.findings.md</code>):
 the bounded replicate backlog and the publication result (5.5), dependency
 names (7.4), the `:unaskable` and walk-defect shapes (4.3, 9), and the
@@ -35,13 +35,13 @@ is the slice plan, L0 to L5. Subordinate to
 3 to 11 every sentence is a rule.
 
 Inputs: the lead design
-(`collab/1790806000000-architect-linker-over-dht.claude-fable-5-1.findings.md`),
+(`archive/yin-linker/1790806000000-architect-linker-over-dht.claude-fable-5-1.findings.md`),
 the second opinion
-(<code>collab/1790806000000-architect-linker-over-dht-second-opinion.gpt<!--
+(<code>archive/yin-linker/1790806000000-architect-linker-over-dht-second-opinion.gpt<!--
 -->-6-sol.findings.md</code>,
 AGREE-WITH-CHANGES, corrections adopted), and the owner decisions of
 2026-10-01
-(`collab/1790808000000-orchestrator-linker-over-dht-owner-decisions.md`).
+(`archive/yin-linker/1790808000000-orchestrator-linker-over-dht-owner-decisions.md`).
 
 ## 1. Overview and scope
 
@@ -1908,12 +1908,12 @@ invariant. The eager binding entries are:
 Status: AD-1 (the seam) and AD-2 (the Python policy) landed in
 `yin.repl.*`. This section moves the responsibility into the linker; the
 AL slices (7.5.14) build it. The binding design is
-`collab/1792262000000-architect-admission-in-linker-r2.claude-fable-5-1.findings.md`
+`archive/yin-linker/1792262000000-architect-admission-in-linker-r2.claude-fable-5-1.findings.md`
 (approved with nits by
-`collab/1792263000000-reviewer-admission-in-linker-r2.findings.md` and
-`collab/1791809519945-reviewer-admission-in-linker-r2-confirm.gpt-6.1-sol.findings.md`,
+`archive/yin-linker/1792263000000-reviewer-admission-in-linker-r2.findings.md` and
+`archive/yin-linker/1791809519945-reviewer-admission-in-linker-r2-confirm.gpt-6.1-sol.findings.md`,
 whose nits are folded in below). It supersedes the earlier admission
-design (`collab/1792234000000-architect-admission-stream-r3.claude-fable-5-1.findings.md`),
+design (`archive/yin-linker/1792234000000-architect-admission-stream-r3.claude-fable-5-1.findings.md`),
 whose mechanisms it keeps and whose layering it reverses. AD-3 (the REPL
 trust commands) becomes AL-4.
 

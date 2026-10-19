@@ -817,7 +817,7 @@ planning estimate, not a diff, and not a smaller implementation than 6a.
 
 ## B. Round 3's variants: components (D4), conflicts (D5) and the residue search (D6). Optional extension, not adopted
 
-Round 3 (`collab/1792220000000-numbering-note.partial-round4.md`, 980
+Round 3 (`archive/yin-vm/1792220000000-numbering-note.partial-round4.md`, 980
 lines, and `probe/discovery_r3.clj`) resolved surviving ties differently:
 link tied members that share an unnumbered cell into **components**;
 encode each component by a local run over a synthetic

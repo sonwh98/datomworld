@@ -1347,7 +1347,7 @@ relay rings, `--dht-recover`, the removal of hydration, and slice H5.
 The owner chose the simple core and asked whether cross-machine use
 would then need a redesign. The document was rewritten, not patched,
 and section 8 is the answer. The second review's five findings
-(<code>collab/1791205158504-reviewer-architect-head-trace-r2.gpt-6.1-sol<!--
+(<code>archive/yin-linker/1791205158504-reviewer-architect-head-trace-r2.gpt-6.1-sol<!--
 -->.findings.md</code>):
 
 1. **Candidate eviction starvation (P1): eliminated.** There is one
@@ -1398,7 +1398,7 @@ Found while rewriting:
 ## Revision 3 (2026-10-05)
 
 The third review
-(<code>collab/1791207836775-reviewer-architect-head-trace-r3.gpt-6.1-sol<!--
+(<code>archive/yin-linker/1791207836775-reviewer-architect-head-trace-r3.gpt-6.1-sol<!--
 -->.findings.md</code>)
 found five new defects. Each citation was checked; all five are
 accepted.
