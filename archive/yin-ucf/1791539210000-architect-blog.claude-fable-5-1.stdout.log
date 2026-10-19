@@ -1,0 +1,23 @@
+Completed-GMT: 2026-10-09 12:50:28 GMT
+Completed-Local: 2026-10-09 19:50:28 ICT
+
+The blog post is written to `public/chp/blog/hygienic-parallel-transport-universal-continuation-format.blog` and verified.
+
+**Verification**
+
+- The file parses as EDN with babashka and yields the four expected keys: title, date, abstract, content.
+- It contains zero em dashes.
+- All five outbound links resolve to existing files under `public/chp/`.
+- Structure matches format.md: `#:blog{...}` with `:$blog-title` and `:$blog-date` inside `[:section.blog-article [:div.section-inner [:article ...]]]`.
+
+**Essay summary**
+
+Title: "Hygienic Execution State: The Universal Continuation Format as Parallel Transport." Roughly 3,000 words in six sections.
+
+- **The Question** restates the spec's stance: a parked `{segment pc env stack k}` record is locally complete and globally meaningless, and UCF is its lift into a self-describing value plus the discipline over who may lower it.
+- **Part One, the lexical parallel** walks from Kohlbecker, Clinger-Rees, and Dybvig's syntax-case to the claim that hygiene changes what an identifier is. It then maps each macro capture failure onto a runtime twin: tempid pointer capture, store-merge shadowing, unportable handles, and marker forgery. The UCF answers follow one for one: content-addressed `:yin.code/hash`, the `:yin.k/contract` stamp, the disjoint tagged grammar, the isolated store slice, primitives as named bindings, and total refusal by path.
+- **Part Two, the geometric parallel** introduces connections, fiber bundles, and holonomy, then assigns each term: base manifold is distributed spacetime, fiber is the local CESK state space, path is the dao.stream carrier, connection is UCF itself. The resumption race is identified as holonomy, and the lease machinery (content versus occurrence identity, custody as a lease, epochs as the gauge, ledger-authored completion edges) as the curvature accounting. It is explicit that UCF does not flatten the manifold: exactly-once needs enrolled consumers, and a composition without a dao.space transactor can only offer fork semantics.
+- **Why the Two Parallels Are One** argues hygiene is the fiberwise story (making the connection well defined) and parallel transport is the global story (making the path single), and that macro systems never needed the second half because lexical scope is flat.
+- **The Lineage** ties Plan 9 per-process namespaces, Datomic content identity, Lisp macro hygiene, and differential geometry into the closing claim that a continuation is a value, not a session.
+
+All technical vocabulary was drawn directly from `docs/design/yin.vm.universal-continuation-format.md` sections 7.1 through 7.7, so the keyword names and claims in the essay match the current spec. The file is uncommitted on master.
