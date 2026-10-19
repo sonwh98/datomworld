@@ -1,0 +1,20 @@
+Review done. Verdict is SIGN-OFF, written to `collab/1792097439000-architect-retained-ffi-review.report.md`.
+
+What I verified on the uncommitted G2 diff:
+
+- **Predicate is exact.** A `:ffi-request` pending is minted in one place only, from a `:put` wait with `:request-sent true`. The branch reads task slot 13 with the same wait/pending shape `validate-frames` uses. The positive control is an ordinary `:ffi` response pending and still lowers, attaches, and finishes with "echo!".
+- **No collateral refusals.** Only matrix row 4 builds a retained request, and the `unlowerable` table is unchanged. The focused JVM run here passed with the count assertions intact.
+
+| Lane | Result |
+| --- | --- |
+| Focused JVM, five namespaces | 123 tests, 4,041 assertions, 0 failures, 0 errors |
+| Law 4 / law 5 quick | 16 / 92, unchanged |
+
+- **Vocabulary and ordering** match the `:installs` sibling, and `lower-task` throws before any attach. Zero attaches are pinned by the recording attacher.
+- **Semantic receiver is safe.** The branch ignores `kind`, but `lower-defect` is reachable only through the backend path. Every semantic-receiver path calls the rows lowerer directly. Both de Bruijn restores re-park on their own call pair and drop the carried cursor, so refusing them and only them is correct. No regression.
+- **Docs** are accurate and minimal. One stale phrase remains: continuation 4.6 still says "four pre-attach checks" and lists four. Recorded as P3, non-blocking.
+- **Node and Dart** were not run by either party. Every helper the new tests use is already exercised cross-host by the existing row-4 cases, so both lanes should pass with the same counts. They should run once before merge.
+
+I could not rerun clj-kondo in this session because the command needs approval. The engineer's clean result is accepted and noted in the report.
+
+Next step for the orchestrator: run the Node and Dart quick lanes once, then commit on this sign-off.

@@ -1,0 +1,18 @@
+The report is written at `collab/1793520000000-architect-fetch-threat-model.report.md`, ending `THREAT-MODEL-READY`. Nothing else was touched (read-only brief).
+
+**Headline findings**
+
+- **The linker pipeline itself is sound.** Address, identity, derivation, manifest name and admission-before-load are all enforced and cited. Injection routes go around it, not through it.
+- **Name-only satisfaction is the core flaw.** Lift answers a registry name by presence (`rows.cljc:1616`) and runtime resolves by name (`engine.cljc:133-139`). A same-named module of different content at the receiver silently answers. Option B inherits this; a name-driven fetch loop lets a malicious sender choose what the receiver loads, bounded only by its trust set.
+- **A live injection route exists today, independent of Q5.** A pack's carried install child is verified self-consistent and then installed into the receiver's registry family by `link-install` with the **sender's** admission record copied (`engine.cljc:1436-1443`). The receiver's policy is never asked, and later requires answer from the registry with no question. This is registry poisoning via the carrier (row R4 in the report).
+- **Option D is confirmed rejected** on invariants I4 and I6, the custody gate, and the absence of holder context in the VM.
+
+**Verdict on Q5**
+
+C, implemented as B's mechanism plus one map. UCF §7.6.4 already specifies `:yin.k/modules {name manifest-address}` with equal-address satisfaction; the row carrier dropped it. The pin narrows and never widens: the fetch still goes by name through the receiver's fold and admission, and the installed entry must equal the pin. The format change is justified and "derive, don't persist" does not apply because the sender's binding is not recoverable from the receiver's rows. The install-child admission gap should close in the same slice using the same check.
+
+**What the report delivers**
+
+Sections 1 through 7 as the brief asked: assets and trust boundaries, five attacker models, a thirteen-row attack table against A to D with file:line mitigations and residuals, the exact refusal shape and loop contract (fetch before the grant proposal, per-run `dao.lease`, same-bytes re-lower, forbidden name-env seeding and `:trusted` downgrade), the VM/lower exclusions, the verdict, ten portable test pins, and the doc amendments for continuation §2.5/§7/§11 and UCF §7.11.
+
+**Suggested next step for the orchestrator:** route R4 to the known-gaps ledger as P1 now, since it does not wait on the owner's Q5 answer.

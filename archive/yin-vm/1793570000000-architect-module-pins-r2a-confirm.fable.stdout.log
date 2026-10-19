@@ -1,0 +1,19 @@
+Verdict: **SIGN-OFF** for module-pins commit 1 (R4 alone), conditional on green Node and Dart lanes. Report written to `collab/1793580000000-architect-module-pins-r2a-confirm.report.md`.
+
+What I verified against the 13-file diff:
+
+- **Lift strips at install-node** before the CBOR check and the row; the restore-side dissoc is gone, so the restored response equals the carried one and fenced reproduction holds by construction.
+- **check-install! refuses carried admission keys** as `:yin.k/undecodable :install-response`, inside the step pass before custody and attach. Keyword-only is the correct scope: the sole consumer, link-install, reads by keyword, so string or nested keys are inert plain data.
+- **Rename is complete.** The new option name is in both source files, all five test files and six docs. The ledger fact kind and driver field keep the old name and their files are not in the diff.
+- **Tests truly pin P1-1.** The recovery test starts from a response carrying the sender record, lifts, rehydrates fenced and reproduces byte for byte. Under the old restore-side design it would have answered recovery-inconsistent. The spliced-pack case uses a correct admitted map, so the refusal is provably from check-install!.
+- **Mutants m1 to m3** are each killed by distinct named assertions.
+- **Docs** have no leftover "dropped on restore" wording, carry the P2-1 driver-seam row and the docstring note, and claim no pin implementation.
+
+Findings, all P3 and none blocking:
+
+- Lift strips four named keys while the lower refuses the whole namespace. A fifth admit key on real responses would refuse every real pack. Fold into commit 2.
+- Four doc statements say "blocked pending the Architect's decision" but Part B has ruled. Commit 2 rewrites them, or a one-word edit now.
+- Known-gaps R4 row still says "pending Architect review".
+- Cosmetic docstring splice and one trivially true assertion.
+
+Next for the orchestrator: run the Node and Dart lanes foreground, one at a time. Both must show the four test namespaces green with no new SKIP lines. Then commit the exact code, test and doc file list in the report with the prescribed fix message.

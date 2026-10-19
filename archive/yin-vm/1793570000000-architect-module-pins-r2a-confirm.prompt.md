@@ -1,0 +1,10 @@
+Created-GMT: 2026-10-17 07:00:00 GMT
+Created-Local: 2026-10-17 14:00:00 +07
+Coding-Agent: claude (claude-fable-5-1)
+Session-ID: pending
+# Task: confirm module-pins commit 1 (R4 alone) after your P1-1 fix steps: sign-off or changes
+Role: Architect
+Implementers:
+- Model: claude-fable-5-1 | Assigned: 2026-10-17 14:00 +07 | Status: active | Rationale: sign-off gate before commit
+
+cwd = worktree datomworld-srvm-pins (branch srvm-module-pins @ origin/master, uncommitted, 13 files). Read ./collab/*engineer-module-pins-r2a.report.md and your Part A/C in ./collab/*architect-module-pins-review.report.md. Verify steps 1-7 against the diff: (1) install-node strips the four :yin.admit/* keys at lift before the cbor/encode check and the row, restore-side dissoc deleted; (2) check-install! refuses any carried :yin.admit-namespaced keyword key as :yin.k/undecodable :install-response (is the namespace test correct for keyword keys only; does a string key "yin.admit/id" or a nested one slip; the response is a map of plain data: judge); (3) the rename to :yin.k/admitted-modules is complete in rows, export, support and tests and docs and did NOT touch ledger.cljc/driver.cljc :yin.k/admitted (grep); (4) the new tests really pin: decoded root install row has none of the keys; relift equals the wire by root; spliced pack refused with zero attaches; the frozen parked-installer with an explicit sender record rehydrates :ok and reproduces byte for byte (does the test truly start from a response carrying :yin.admit/* so it would fail on the earlier restore-side dissoc design: reason about it); (5) mutants m1-m3 meaningful; (6) doc rewording consistent, no leftover "dropped on restore"; the P2-1 driver-seam known-gaps row and the lower-task docstring note present; docs do not claim the pin work is implemented; (7) anything else in the 13-file diff. Also say what Node and Dart must show (discovery strings, skips). Report ./collab/<ms>-architect-module-pins-r2a-confirm.report.md with Completed-GMT/Completed-Local/Coding-Agent/Session-ID, P1/P2/P3, the exact commit file list (code/tests/docs), ending SIGN-OFF or CHANGES-REQUIRED. Read-only except the report.

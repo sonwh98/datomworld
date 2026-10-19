@@ -1,0 +1,17 @@
+Review done. Report written to `collab/1792098065000-architect-try-flag-review.report.md`, ending CHANGES-REQUIRED, scoped to documentation only.
+
+**Verdict.** The code change is correct and minimal. One required slot appended to each of the three link pendings, lift normalises an absent flag to false, restore carries it back, the frame validator refuses a non-boolean as `:pending-try` before any resource attaches, and every engine resume path honours the restored flag. The fixture diff touches exactly the installs pack and its three derived address lines and nothing else. No version bump is needed: the positional row-shape check refuses old packs loudly, and the dated record follows the 8c precedent.
+
+**Independent evidence on this worktree (JVM only):**
+
+| check | result |
+|---|---|
+| focused suite: rows, rows-checkpoint, remote, frame, safepoint-harness, linker | 178 tests, 3229 assertions, 0 failures |
+| checkpoint fixture pins | 17 tests, 179 assertions, 0 failures |
+| kondo on the 7 changed source and test files | 0 errors, 0 warnings |
+
+**Blocking item (P2-1, docs only).** The normative row-grammar table in `docs/design/yin.vm.ucf-transport-tuples.md` section 5.3 still lists the old slot sequences for the three link pendings. It needs `try?-D` appended to each row, one sentence naming the boolean rule, and `:pending-try` added to the named undecodable kinds. The engineer's brief did not list that file, so this is a brief gap, not an engineer error.
+
+**Non-blocking (P3).** The UCF 7.4.3 examples omit the new key despite the sentence saying it is required. The revisions record was inserted between the "First" and "Second" paragraphs of entry I-6 and should become its own I-7. After a handoff a try install waiter's loss datum has a nil link id, which strengthens the separate open known-gaps row; no change in this slice.
+
+**Next.** Once P2-1 is applied the review stands as sign-off on the code without another round. Node and Dart lanes have not run on this diff. The worktree has no node_modules, so the Node lane needs `npm ci` first. One green 3-host quick run is required before commit per the test-tier cadence.

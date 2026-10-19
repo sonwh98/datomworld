@@ -1,0 +1,71 @@
+[claude-code:unrecognized_model] {"model":"muse-spark-1.3-contributor","query_source":"sdk"}
+Completed-GMT: 2026-10-14 08:44:26 GMT
+Completed-Local: 2026-10-14 15:44:26 Asia/Bangkok
+Coding-Agent: claude
+Session-ID: 43fb870b-1216-4a82-a6e4-e7e4ab97f1f2
+
+# Phase-8d old-transport-removal review: commit 249f8799 vs 67b98907
+
+**Verdict: ready to merge into the srvm-phase8 integration branch.** One non-blocking P3 heads-up for 8f below; no P0/P1/P2 findings. I treated the implementer's report as untrusted and re-verified each claim against the repository. (Review was read-only; I did not rerun the test suite, so runtime claims — kondo clean, 754-test sweep, slow tier — are assessed by code reasoning, not by re-execution.)
+
+## 1. No production behavioral change — CONFIRMED
+
+- `git diff 67b98907..249f8799 --name-only -- src/` returns **zero files** (count 0). Nothing under `src/cljc/` — or anywhere under `src/` — was touched.
+- `git diff ... --quiet -- test/resources/yin/vm/ucf/rows-checkpoint-v3.txt test/resources/yin/vm/ucf/ledger-v2.txt src/cljc/` exits quiet: **IDENTICAL**. No hash reminted, corpus/layout/harness literals untouched.
+- The surviving-test diffs I inspected in full (`frame_test`, `layout_test`, `safepoint_harness_test`, `compose_rows_test`, `fencing_rows_test`, `int_contract_test`) contain only require swaps and call-site renames — zero address-literal or assertion-constant changes. Unitarity invariant (`docs/design/datom.world.md`: append-only, no datom destroyed, AST always retrievable) holds: only obsolete wire-format tests died; the row carrier and its fixtures are byte-identical.
+
+## 2. Borrowed helpers complete in `rows_support.cljc` — CONFIRMED
+
+- `rows_support.cljc` no longer delegates: the `ls/` alias block is gone, the `lift-support` require is removed, and every helper is now owned (`lit/v/lam/app/then/let1/def!/cursor-of/next-of/one-slot-stream/serve-table/with-op-id/occurrence/predecessor/origin/arbitration/op-id/header/ring/new-machine/load-ast/.../remote-attacher/halted-result-closure` — full def list verified at `test/yin/vm/ucf/rows_support.cljc:34-495`).
+- Every true `(s/…)` call site in the five re-pointed suites resolves: I enumerated all alias call sites in `frame_test` + `layout_test` + `safepoint_harness_test` (`s/v, lit, app, lam, ring, let1, then, stream-of, next-of, def!, one-slot-stream, cursor-of, call-node, serve-mirror!, toy, server, served-peer, remote-attacher`) — all defined. (An early naive grep suggested `s/programs`, `s/if-node`, `s/payload` gaps; precise `\(s/` matching proved those were substrings of `corpus/programs`, `analysis/reachable`, `values/payload` — false alarm, checked, not filed.)
+- Semantic upgrade at two sites is correct, not lossy: `safepoint_harness_test.cljc:544` `s/attacher t` → `s/remote-attacher t`, and `fencing_rows_test.cljc:209,524` likewise. Old `v2-support/attacher` took the toy table (a remote attacher); `rows_support/attacher` takes zero args (local counting attacher). The port picks the matching function in each case.
+- Single `[yin.vm.ucf.rows-support :as s]` in each of the six consumer namespaces; **zero** remaining references to `lift-support`, `v2-support`, or `checkpoint-fixtures` (grep across `test/`, `src/`). (`rows-checkpoint-fixtures`, still required by compose/fencing, is the surviving inspector fixture — a different namespace from deleted `checkpoint_fixtures`.)
+- `checkpoint_fixtures` had no surviving borrower — deletion without port is correct.
+
+## 3. The three new tests — CONFIRMED genuine, correctly scoped
+
+- **Header refusal** (`rows_test.cljc:1043-1054`): pins `{:yin.k/status :yin.k/profile-mismatch, :yin.k/kind :version, :yin.k/path [:yin.k/version]}` with zero attachments for versions 0/1/2 via `rows/lower-task`. This **is** the code's actual answer: `src/cljc/yin/vm/ucf/rows.cljc:847-849` refuses exactly `(:yin.k/profile-mismatch :version [:yin.k/version])` when ` (= 3 (:yin.k/version wire))` fails (and `code/reg?` rejects 0/1/2), and `lower-task` (`rows.cljc:2240-2267`, docstring "all before the first attach!") decodes before attaching. The brief's `:yin.k/undecodable` wording was indeed a plan defect, not a behavior change — the report's deviation #1 is accurate.
+- **Not coverage theater:** pre-existing `gates-and-graph-before-hashes` (`rows_test.cljc:214-217`) already asserts `:profile-mismatch` for versions 0/1/2 through `rows/decode`, so the new test overlaps on status — but it alone pins the **`lower-task` entry path** (the production path the holder/C4 uses) **plus the zero-attachment guarantee**. That justifies its existence; the report is honest that removing it kills only the audit, not the runtime suite (mutant M2 discussion below).
+- **Numeric round-trip** (`rows_test.cljc:1057-1074`): covers both carried-code literals and halted-result values, canonical CBOR equality, and the checked-in integer CBOR goldens — the union of deleted `scalar_round_trip_test` (2 tests), `lift_v1` floats test, and two census numeric tests. Needed consolidation.
+- **Result-only census** (`rows_test.cljc:1077-1097` + new `halted-result-closure` helper at `rows_support.cljc:486-495`): covers repeated vs independent cursors, topology/counts, and module-closure dependency completion — the union of four deleted `lift_v1` result-only tests plus the census/values closure tests. Needed consolidation.
+- Mutant reasoning: M1 (one-slot cursor 0→1 → `the-file-holds-exactly-the-declared-bytes` fails) is a credible kill — the deterministic exporter feeds the pinned checkpoint bytes. M3 (`:value`→`:mutant` in `lower-task` → numeric test fails both paths, 2 failures/35 assertions) is a credible kill — restore writes the value both positions assert on. M2 (delete refusal test → audit-only kill) is correctly disclosed as an audit kill with the `gates-and-graph` overlap named; I verified the overlapping test exists. No misrepresentation.
+
+## 4. C4 caveat — CONFIRMED (a), (b), (c)
+
+- (a) Retention is forced. `int_heap_test.cljc:241` calls `handoff/export-task` inside `cell-refusal`'s `run-all` harness, which runs old-kernel/de Bruijn walker machines. Swapping in `rows/lift-task` is not a one-line port: the row lift accepts semantic-register state, and the walker/old-semantic setup plus native-backend layout conversion would have to change — kernel-harness edits beyond the freeze rule's "trivial port" allowance. Leaving the file untouched is correct.
+- (b) Nothing else requires the pair. Namespace-require scan for `yin.vm.ucf.handoff` / `yin.vm.ucf.checkpoint` hits only: `handoff.cljc:69` (the pair's internal require), `int_heap_test.cljc:25` (the known blocker), plus two non-requires — a docstring mention in `ucf.cljc:326` and a docstring in `rows/checkpoint.cljc:4`. One static (non-namespace) reference exists: `store_write_audit_test.clj:346` textually scans `handoff.cljc` for store-write shapes (filed as P3 below for 8f cleanup; it passes while the file is retained and does not force retention).
+- (c) Both files byte-identical to HEAD — entailed by the zero-file `src/` diff above.
+
+## 5. `int-contract-test` port — CONFIRMED
+
+- `an-image-carries-no-profile-test` (`int_contract_test.cljc:467-496`) now lifts via `s/lift` (carrier `rows/lift-task` over a semantic-register machine, fork pack, nil header) and lowers via `rows/lower-task` — the carrier APIs the holder uses. Integer composition preserved (wide-limits admit → small-limits resume), no-carried-limits assertion preserved (`not-any?` over `max-bits/max-digits/max-items` on the whole pack), wide/small result assertions preserved (`dec` + `small` columns). Success-signal translation is faithful (`:ok` status → `vm/halted?`; `:ok` lift + version 1 → `:yin.k/handoff true` + version 3). No weakening.
+- No other C4 file changed: the 31-file name list contains exactly one `test/yang/` entry (`int_contract_test.cljc`); `int_heap_test.cljc` is untouched.
+
+## 6. Deftest inventory 4599 → 4461 = −141 + 3 — CONFIRMED by sample + diff
+
+- Deleted-file samples match the report exactly: `handoff_v1_test` 27, `safepoint_harness_test` 8, `scalar_round_trip_test` 2 (via `git show 67b98907:… | grep -c deftest`). The 16-file / 141-test accounting (15 codec files with 133 + harness file with 8) reconciles the prompt's "15 files" with the report's "16 files" — the report's deviation #6 is correct, not a discrepancy.
+- Full diffs of all seven changed test files show require/call-site changes only — **no surviving deftest removed or weakened** outside the 16 retired files. Current-tree `.cljc` count (4029) is consistent with 4461 across all extensions. The plan's 4574 is stale, as the report states; the branch's own count governs.
+- `rows_test.cljc` net +3 deftests (1036→1097 lines); semantic-register counts unchanged by construction (frame −1/+0 lines of requires, layout require-only, harness −1 line).
+
+## 7. Four negatives — CONFIRMED
+
+- No compatibility namespace (no `*compat*`/`*shim*` files in the diff); no added version dispatch (added-line scan for `codec-versions`, `v2-body`, `compat`, `profiles`, `semantic-format`, old-lowerer names: zero hits — the only `vm/semantic-contract` hits are deletions); no widened backend fragment (de Bruijn kernels untouched — zero `src/` diff); no revived legacy dispatch (deleted suites stay deleted; row profile stays single/canonical, version 3).
+
+## Spot-checks: six audit mappings (two handoff_v1, two lift_v1, two elsewhere)
+
+| Deleted deftest | Claimed survivor | Repository evidence |
+|---|---|---|
+| `handoff_v1_test/v1-grant-boundary-and-consistency` | `rows-custody-test/every-grant-check-refuses-before-any-attachment` | exists `test/yin/vm/ucf/rows_custody_test.cljc:168`; grant-boundary → pre-attachment grant refusal, plausible |
+| `handoff_v1_test/a-version-0-child-in-a-version-1-root-is-undecodable` | `rows-test/legacy-version-headers-refuse-before-attachment` | exists `test/yin/vm/ucf/rows_test.cljc:1043`; version refusal → version refusal, plausible |
+| `lift_v1_test/floats-signed-zero-nan-and-nested-maps-lift-canonically-test` | `rows-test/numeric-scalars-round-trip-through-rows` | exists `test/yin/vm/ucf/rows_test.cljc:1057`; float/canonical coverage present in the new test body, plausible |
+| `lift_v1_test/a-result-only-cursor-is-declared-in-both-versions-test` | `rows-test/result-only-values-complete-the-census` | exists `test/yin/vm/ucf/rows_test.cljc:1077`; result-only cursor coverage present, plausible |
+| `checkpoint_test/the-file-holds-exactly-the-declared-bytes` | `rows-checkpoint-test/the-file-holds-exactly-the-declared-bytes` | exists `test/yin/vm/ucf/rows_checkpoint_test.cljc:33`; direct successor, strong |
+| `handoff_test/shared-and-independent-cells-cross-as-bytes` | `rows-test/alias-topology-and-census` | exists `test/yin/vm/ucf/rows_test.cljc:191`; alias topology coverage, plausible |
+
+## Findings
+
+P3 | `test/yin/vm/store_write_audit_test.clj:346` | The store-write audit textually pins `src/cljc/yin/vm/ucf/handoff.cljc` (`isolated-receiver`/`resume-task*` assoc/store-put shapes). It passes while the file is retained and is not a namespace require, so it does not affect this slice — but it is a second static reference to the retained pair beyond the C4 test, unmentioned in the report's "no production requirers" framing | Concrete fix (in 8f, together with the heap-test port and physical deletion): delete the `handoff.cljc` entry block at lines 339–349 when the file dies; do not touch it in this slice.
+
+No other actionable findings. Specifically not filed: the `s/programs`-style grep hits (proven substrings of `corpus/`/`analysis/`/`values/` aliases); the M2 audit-only kill (honestly disclosed, and the new test adds lower-task + zero-attachment coverage the decode-only test lacks); the `int_contract_test` old-kernel requires (kernels stay per the architect plan §1.2).
+
+**The slice is ready to merge into the srvm-phase8 integration branch.** Follow-ups belong to 8f: port `int-heap-test/cell-refusal-test` off `handoff/export-task`, physically delete `handoff.cljc` + `checkpoint.cljc`, and remove the `store_write_audit_test.clj:346` entry block.

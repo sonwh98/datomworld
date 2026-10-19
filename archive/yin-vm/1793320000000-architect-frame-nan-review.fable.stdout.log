@@ -1,0 +1,11 @@
+Review done and reported. Verdict: **SIGN-OFF**, conditional only on green Node and Dart lanes, which the brief leaves to the orchestrator.
+
+Report written to `collab/1792083677000-architect-frame-nan-review.report.md`. Summary of what it says:
+
+- **frame.cljc `bindings=` is correct.** NaN, signed zero and the guards all match the private `data-content=` exactly. Closures and continuations are deftypes, so content-key never walks them. Both sides of the comparison come from the wire decoder in the only caller, so no host object, record, or unportable number can reach it. The only non-NaN behaviour changes are 0.0 vs -0.0, decimal scale, and Dart int vs float, all now refused, all genuine canonical differences. Nothing previously unequal becomes equal.
+- **The rows.cljc row-order site is the same bug.** The old whole-vector host `=` fails on any NaN literal slot on JS and Dart. Slotwise content equality is equivalent for all canonically ordered rows and stricter only where host `=` wrongly merged byte-distinct literals. No other NaN site was missed.
+- **One sibling for the ledger, P2, not blocking.** The host `distinct` clause in the duplicate-key check refuses a map or set row with keys 0.0 and -0.0 on every host even though `emit` produces it, and on Dart would refuse 1 and 1.0 keys the JVM accepts. I confirmed this with a JVM probe, since deleted. It is a different rule from the NaN bug, so codex was right to leave it, but it needs a known-gaps row.
+- **Tests are real.** The frame test fails 9 ways under the host-equality mutant on the JVM. The rows test cannot fail on the JVM by construction and is the lane test; the cursor references do not shield the NaN slot. I re-ran both namespaces on the JVM: 49 tests, 939 assertions, 0 failures.
+- **Ledger row accurate**, two wording nits at landing. **Scope clean**: five files, no docs/design, no yang.
+
+The report also states what the Node and Dart lanes must show: both namespaces discovered, zero failures, with the two new deftests adding 30 and 6 assertions. The tree is unchanged apart from the new report.

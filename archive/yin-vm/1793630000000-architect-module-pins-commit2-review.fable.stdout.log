@@ -1,0 +1,19 @@
+Review complete. The report is at `collab/1793640000000-architect-module-pins-commit2-review.report.md`.
+
+**Verdict: SIGN-OFF.** Both orchestrator decisions confirmed.
+
+- **D1 confirmed.** Always emitting both pin maps costs a few dozen bytes per task row and changes nothing for determinism. It buys a real property: a pack minted by a pre-pins lift is refused as a grammar error instead of passing as pin-free.
+- **D2 confirmed.** My "string-or-nil" wording was a typing slip. Linked addresses are segment keywords everywhere else in the carrier, and Stage E pins their cross-host round trip. A string would have been the one inconsistent slot.
+
+**What I checked.** The lift records pins only in the registry branch of `discharge!`, after env, store, primitives and installing names. The validator requires both keys, checks key qualification and value types, and uses the count-based cardinality guard from the `built` precedent. The `check-modules!` gate walks the whole tree, throws terminal mismatches before emitting the single collected refusal, and sits after custody and before the first attach. The driver seam forwards the admission map on both lower paths and its test drives a real checkpoint through the public driver. The re-mint proof scripts are present under /tmp on this machine. I read them, and the strip and re-hash logic is sound: 53 checkpoint packs, 19 inline roots, 4 ledger packs all reproduce the old bytes after removing only the two keys.
+
+**Independent JVM run.** 323 tests, 4828 assertions, 0 failures across the ten touched namespaces.
+
+**Findings.** No P1, no P2. Three P3 items:
+- Known-gaps and I-8 say "uncommitted"; reword to "landed as module-pins commit 2" and drop the /tmp path from I-8 before the docs commit.
+- The layering gate checks direct requires only. The transitive closure is clean today, so this is a follow-up.
+- The validator accepts any keyword as an address. No security consequence, no change.
+
+**Commit split.** Three commits: code plus tests plus fixtures together (they cannot be separated without a red commit), then the driver seam, then docs. File lists are in the report.
+
+**Remaining gate.** Node and Dart lanes. The report lists the exact "Testing" lines that must appear and notes that the Stage E row is the cross-host pin for the keyword addresses. A failure there would be P1.

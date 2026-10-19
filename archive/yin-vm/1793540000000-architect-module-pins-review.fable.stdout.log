@@ -1,0 +1,12 @@
+Report written to `collab/1793550000000-architect-module-pins-review.report.md`. Verdict: **CHANGES-REQUIRED** for Part A, **RULING-READY** for Part B.
+
+**Part A (R4 review), blocking finding.** Dropping the sender's admission fields at restore breaks every real pack with an install child. The lift copies the install response whole into the row, and the linker interpreter puts the four admission fields on every DHT-admitted response. The restore-side drop then makes the relifted machine differ from the carried pack, so fenced recovery answers `:recovery-inconsistent` and the harness relift law fails. Current tests pass only because the fixture responses carry no admission fields. Fix: strip the fields at lift, refuse a carried response that still has them, delete the restore-side drop.
+
+Other findings:
+- P2: the holder driver never passes an admitted map on either lower path, so composition-driven handoff of install children refuses. Needs a config seam in round 2 and a known-gaps row with the R4 commit.
+- P2: `:yin.k/admitted` already names a ledger fact kind and a driver answer field. Rename the option to `:yin.k/admitted-modules` before commit.
+- P3: refusal reports only the first child and omits discovery, to be folded into the round-2 module check. Doc wording "dropped on restore" has to follow the fix.
+
+**Part B ruling.** Host modules participate now. The lift records only the exports live code uses, as two maps in `requires`: module name to manifest address or nil, and qualified export to profile address keyword. The lower compares profile addresses by equality, ignores extra receiver exports, throws terminal `:module-pin-mismatch` and `:host-export-mismatch` first, then one collected refusal with discovery complete. Profile addresses are BLAKE3 over plain data, identical on all three hosts.
+
+**Part C.** Sixteen ordered steps and a commit split: R4 alone after the fix and rename, then carrier plus lift plus lower plus re-mint plus docs, with an optional third commit for the driver seam.
