@@ -1,0 +1,24 @@
+Completed-GMT: 2026-10-19 10:55:30 GMT
+Completed-Local: 2026-10-19 17:55:30 +07
+Coding-Agent: claude
+Session-ID: 06daf2e5-59b2-4d67-9c9e-94995df5c027
+
+Both corrections verified and applied; two sentences changed in `docs/design/dao.star.md`, nothing else touched, nothing staged. The EDN block still parses (3 forms). (`docs/orchestrator-log.md` shows modified in the worktree from before this task; not mine.)
+
+**1. Line 163, in-flight renewals.** Verified against `dao.lease.md` step 2 (lines 148–150): an eligible renewal that reaches the judge advances the lease while it is in the ledger; a driver's own gap removes nothing. The reviewer is right.
+
+Before:
+> …and a driver stops renewing an exchange once it observes the lapse or its own gap, renewals already in flight being ignored as facts about a lease the ledger no longer holds.
+
+After:
+> …and a driver stops renewing an exchange once it observes the lapse or its own gap; a renewal in flight may still count while the lease is live, and one observed after retirement does not revive it.
+
+**2. Line 53, scope of the direct-read rule.** Verified: the classification argument needs only the session-facts and lineage-lease media to be direct; a driver separated from the HTTP boundary must read that boundary's exchange-lease medium (lines 91–93), which can only be a reflection in that topology. The reviewer is right.
+
+Before:
+> …and reads those media directly; only the HTTP boundary's ingress and egress may be reflections, which is the topology *Roles, not nodes* permits.
+
+After:
+> …and reads those two classification media directly; any other medium may be a reflection, which is the topology *Roles, not nodes* permits, so a driver separated from the HTTP boundary observes exchange grants and lapses over a reflection of the boundary's lease medium.
+
+Final line count: `docs/design/dao.star.md` 164 lines (unchanged in count; `dao.stream.http.md` 153, untouched).

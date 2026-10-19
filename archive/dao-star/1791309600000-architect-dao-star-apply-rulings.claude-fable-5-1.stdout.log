@@ -1,0 +1,32 @@
+Completed-GMT: 2026-10-07 06:15:00 GMT
+Completed-Local: 2026-10-07 13:15:00 +07
+Coding-Agent: claude
+Session-ID: 06daf2e5-59b2-4d67-9c9e-94995df5c027
+
+Both files written in the worktree; nothing staged or committed. `docs/orchestrator-log.md` was already modified before I started and I did not touch it. (The brief's `Created-GMT` header is again a day off from its own local time.)
+
+## What changed
+
+**`docs/design/dao.stream.http.md`** (new, 131 lines): the Gap 1 ruling as a stream-level spec, subordinate to `dao.stream.md`, sibling of `dao.stream.ws.md`. Exchange-as-attachment with incarnation-bearing ids; `:http/request` / `:http/ended` / `:http/closed` events with exactly one terminal event per exchange; deposit admission reused from ws (`:portable-values`, `:http/max-open`, `:http/max-body-bytes`); `egress-step` performing `:http/head` / `:http/chunk` / `:http/end` in stream order, ignoring values that are not its own, appending no per-effect outcome, holding no clock, exposing exchange close as the reclaim procedure; observably-gone rules per cause; the no-privileged-node paragraph; a Deferred list (HTTP channel for `dao.stream.remote`, streamed bodies, TLS/CORS). It names neither Datastar, SSE nor `yin.vm`.
+
+**`docs/design/dao.star.md`** (rewritten in place, 51 → 131 lines):
+- Status block: Mode 1 buildable, Mode 2 waits on UCF v1 (Q1), correct UCF doc name, blog link.
+- Core Philosophy: "Datastar interprets the SSE projection of an egress stream" replaces "speaks the universal language of streams"; "Backend/Frontend" labels dropped; new **Roles, not nodes** paragraph.
+- Mode 1 flow: routing step added, "wakes" replaced by the driver's poll, `:http/head`/`:http/chunk`/`:http/end` effects, long-lived exchange stated.
+- New **First page load** (glm addition, ruled: token-less request → root program → full HTML with `data-init` opening the SSE exchange; an unknown token begins again).
+- New **Signals** (Gap 2), **Inputs, order and replay** (Gap 5, one-shot default per Q3, token as sole gate per Q5), **Liveness** (Gap 3, plus the parked-continuation lease per Q4 with subject `{:dao.star/parked O}`, holder the session agent, released on consumption, renewed while the session's SSE exchange is open, reclaim = retraction).
+- Mode 2 marked proposed; flow rewritten with exporting state, custody by lease, gated/leased reflections, honest channel-loss outcomes; new **Handoff carrier** (Q6, marked as architect ruling unconfirmed), **Local projection** (glm addition, explicitly deferred with the shape stated), **Admitting a continuation back** (Gap 4, allow-listed peers per Q2).
+- Design Invariants corrected (custody by lease, egress-gap cost, "Datastar is a dumb renderer", no-callback line added); Completion Criteria rewritten with negative criteria, criterion 2 conditional on UCF v1.
+
+## Q6 ruling (architect, owner has not confirmed)
+
+The SSE patch carries a **notice** (content address, arbitration descriptor, channel descriptor); the handoff **body travels by address over the browser's WebSocket channel**. Reasons: the body is canonical CBOR and SSE is text (inlining is a second encoding); the egress medium is shared, so a body on it discloses the store slice to every observer while a notice discloses only a name; `dao.stream.md` Granularity already sends large values as content addresses; the browser `yin.vm` needs the channel anyway for custody and remote access. Rejected: base64 body inside a `datastar-patch-signals` or element attribute (double encoding, egress disclosure, payload size); a second HTTP GET by address (a second boundary path for what the channel already carries). Completion criterion 2 changed accordingly and flagged.
+
+## Orchestrator readings
+
+All six readings match my understanding. One note on Q4: the owner said "dao.lease should be used to expire parked continuations"; I made the session agent the holder and let the open SSE exchange drive renewals so a connected session is retained and a disconnected one lapses after the idle allowance. That holder choice is my design, not the owner's words.
+
+## Not resolved
+
+- The parked-continuation lease is process-scoped until a composition settles `dao.lease.md`'s three durable duties; the blog's "paused for weeks" therefore needs a durable judge and store, which no doc yet specifies.
+- glm's note that the blog shares the "waking" locution: the blog is published and the brief says not to contradict it, so I left the blog alone and corrected only the design doc.

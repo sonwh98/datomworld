@@ -1,0 +1,34 @@
+Verification is done (all EDN blocks parse, only the two docs changed); writing the report now.
+
+Completed-GMT: 2026-10-07 06:27:30 GMT
+Completed-Local: 2026-10-07 13:27:30 +07
+Coding-Agent: claude
+Session-ID: 06daf2e5-59b2-4d67-9c9e-94995df5c027
+
+All nine findings verified against the text at the cited lines; all nine are correct. Six fixed, three met by deleting or deferring machinery. No owner decision changed. Only `docs/design/dao.star.md` was edited this round; `dao.stream.http.md` needed nothing. Both docs' EDN blocks parse with `clojure.edn/read` (3 and 6 forms). `dao.star.md` is 160 lines: the net growth over round 1 is a Deferred list and three EDN facts, against the removal of the forks paragraph, the compaction alternative, the Local projection section and the session-facts retirement fact.
+
+| # | Sev | Finding | Disposition |
+|---|---|---|---|
+| 1 | High | No root fact, no token binding | **Fixed by simplification, ruling below** |
+| 2 | High | Ingress gap never reaches drivers | **Fixed, ruling below** |
+| 3 | High | Compaction offered but unavailable | **Fixed by deletion, ruling below** |
+| 4 | Med | Judge-authored retirement on a driver-only medium | **Fixed by deletion**: the `:ended :lapsed` fact is gone; the judge's own `:lapsed` record on the lease medium ends the lineage for the router, which reads both media. Session-facts stays driver-only; `:ended :halted` stays driver-authored. |
+| 5 | Med | Late input after holder bound | **Fixed**: the driver observes its grant before consuming or projecting, stops at its bound, and an input arriving past it is handed to the root program as begin. Renewal cannot revive expired tenure because the stopped holder appends none. |
+| 6 | Med | Forks break "current is unique" | **Deferred**: the opt-in forks paragraph is deleted; "Mode 1 continuations are one-shot; multi-shot forks are deferred" plus a Deferred entry naming what is unspecified. Owner's Q3 (one-shot default) is unchanged; the opt-in was my addition. |
+| 7 | Med | Notice lacks the content coordinate | **Fixed**: the notice carries the `{:dao.jing/type :dao.jing/remote :dao.jing/requests … :dao.jing/answers …}` coordinate from the implementation plan §1. Named as an open dependency: that plan is not rules. |
+| 8 | Med | Absence misclassified; shared answers readable | **Fixed**: three distinct data outcomes (`:jing/found? false`, remote `not-found`, `:dao.stream/refused`); the content entries are a pair served per lineage; the gate's `verify` admits a `get` only for addresses the lineage's own export facts name. |
+| 9 | Low | "Restart rule" misnamed | **Fixed**: called inventory reconciliation; reclaim-and-regrant reserved for a lost ledger. |
+
+## Rulings on the Highs
+
+**H1: token facts.** Ruling: the token *is* the occurrence id, minted unguessable by the driver, and the lineage id is the root's id. That removes the token-binding fact entirely; three facts remain (root, consumption, halt), shown as EDN, and each is appended with `:dao.stream/ok` before any UI carrying the new id is projected. Rejected: a separate token-binding fact per occurrence (a second identity for one thing, and a second fact to keep consistent); a stable per-lineage token (loses the per-occurrence idempotence key that makes stale input one-shot).
+
+**H2: gap propagation.** Ruling: the two ingress readers each propagate a gap to what they own. The judge reconciles against the boundary's inventory (every open exchange without a lease is granted); the router appends `{:dao.star/event :dao.star/gap}` to every session medium it serves, and a driver reading it forgets its subscriptions and renews none, so they lapse and Datastar re-subscribes. The router also forwards each routed exchange's terminal events to the same session medium (added to Flow step 2). Rejected: drivers holding their own ingress cursors (O(sessions × ingress) polling, the cost `dao.stream.md` names); drivers probing by writing (the boundary ignores effects for closed exchanges silently, by design); the boundary depositing inventory snapshots (a second event mechanism).
+
+**H3: compaction.** Ruling: the session-facts medium is a complete-history transport now, and nothing else is offered; growth is bounded only by OD-4's resolution, named as an open dependency, with compaction listed under Deferred. Rejected: specifying a chain-preserving compaction here (it would resolve OD-4 from a document with no standing to); an evicting medium with a kept origin cursor (detection, not completeness, and a lineage whose chain is lost cannot route).
+
+## Open dependencies (outside my two files)
+
+- `dao.stream.md` OD-4: compaction/destruction of a complete-history transport; bounds the session-facts medium.
+- `dao.jing.content` request/answer convention: a plan section (`dao.stream.remote.implementation-plan.md` §1), not rules; the Mode 2 notice and the per-lineage gated pair depend on it.
+- `dao.stream.remote.md` §5 pair convention: used per lineage for private answers; whether a served pair may be gated by a credential other than channel identity is `dao.shibi.md`'s, still a stub.
