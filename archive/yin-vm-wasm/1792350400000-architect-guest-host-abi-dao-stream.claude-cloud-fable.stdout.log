@@ -1,0 +1,14 @@
+The plan is written and ready. ExitPlanMode is not available in this session's tool set, so I'm ending here for your approval.
+
+**Status.** The question file asks for a read-only analysis. The Fable slot is empty (its log is 0 bytes), so the deliverable is the Fable answer. I drafted it in full in the plan file at `/Users/sto/.claude/plans/read-collab-1792350400000-architect-gues-luminous-owl.md`. On approval I will write it verbatim to `collab/1792350400000-architect-guest-host-abi-dao-stream.claude-fable-5-1.findings.md` and change nothing else. I did not read the other three architects' answers.
+
+**Position in brief.** The separate guest-host ABI is justified. The one indispensable reason is shared value custody. The wasm module holds handles into a heap the composition owns, and a reference is categorically not a stream value. That makes the seam an executor split inside one trust domain, not a host boundary. The doctrine's own justification, that wasm can only import a function, is the accident. It should be replaced by the custody argument, which also covers the LLVM sibling, JITs and threads.
+
+**Decisive sub-points in the draft:**
+- GC is the anti-stream operation. Roots as stream history make garbage permanent and persist derived state.
+- Stream-ifying the shim creates a privileged reader, the arena owner, rather than removing one.
+- Synchrony is weaker than the question assumes. The FFI two-step already does append-then-wait. The real cost is that a register read's answer is a machine invariant with exactly one legitimate supplier.
+- The representation problem defines the seam and survives every transport choice. Primitives have no wire projection at all.
+- One `exchange` versus N typed imports is not where doctrine lives. N imports buy only a static capability manifest, which can be a custom section instead.
+
+**Recommendations in the draft.** Keep the ABI and restate its rationale in datom.world.md. Name a second lane, whole-engine-in-wasm with its own heap, where the "just use dao.stream" instinct is correct. Shrink the shim by moving pure work into the guest. Lower-confidence aside: consider jing CBOR plus two private tags instead of the parallel TLV codec.

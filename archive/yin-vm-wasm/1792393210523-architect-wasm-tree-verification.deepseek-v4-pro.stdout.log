@@ -1,0 +1,14 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+Verification complete. Wrote my findings to `collab/1792393210523-architect-wasm-tree-verification.deepseek-v4-pro.findings.md` and changed nothing else.
+
+**Verdict: PASS.**
+
+I read all five files in full plus the cross-referenced `dao.stream.md` outcome contract, checked `git status`, retired-file references, link resolution, and `rust-kernel.md` line coordinates. Summary of what I confirmed:
+
+- **A. Rulings faithful** — R1/R2/R3 stated correctly; every residual `yin.vm.engine.host.v1`/TLV/comparator/NEED_SPACE mention is in a dated supersession or provenance context, never live.
+- **B. Complete supersession** — control block, TLV tags, comparator, NEED_SPACE/fetch-response, and serialized service-status set are gone as normative text; no dangling `§E.3.4` or "three codec" references (only the correct "don't invent a third codec" prohibition).
+- **C. Structural coherence** — engine-in-guest with no imports for resolve-var/primitive/GC/etc.; adapter outcome maps match `dao.stream.md` exactly (append/next/close verified against source); two codecs only; CLJS oracle; wasm32 early gate; W0–W6 node-lane schedule with consistent Wasmer-by-W5.
+- **D. Survivor integrity** — all 23 opcode rows, trampoline law, per-image-row attach/cache, ten-region table, continuation payload/restore, fixture schema, single-port rule all intact.
+- **E. Mechanical** — `rust-kernel.md:1–1334` unshifted (spot-checked ~15 line-coordinate citations); no src/test changes; all 13 links resolve; no dead links to the two retired files.
+
+I flagged two non-blocking observations: the frozen `:1300` pointer still names the historical ABI (correctly neutralized by the `:1339` footer note), and the handle-as-Jing-integer encoding at `engine.md:587-593` as the subtlest spot worth re-scrutiny at implementation review. Neither blocks commit.

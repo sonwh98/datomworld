@@ -1,0 +1,12 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+I've written my round-2 answer to `collab/1792353000000-architect-one-abi-ruling.deepseek-v4-pro.findings.md` and changed nothing else.
+
+Summary of my position:
+
+**Q1 — the ruling changes my round-1 position.** I retract "no design in which guest-host is dao.stream" as a category error: the correct statement is "no design in which it's dao.stream *while the engine lives in the host*." My round-1 *diagnosis* (synchronous/state-local vs async/canonical, one-privileged-reader vs no-privileged-reader) survives — but as cost accounting, not as a proof of different "kinds." My round-1 identification of "compile the engine into the guest" as the real alternative axis is vindicated, since the ruling names exactly that as the destination.
+
+**Q2 — the ruling's conclusion is correct, but under-formulated.** Every candidate justification is either ABI-agnostic (capability granularity, freeze-vs-extend, failure isolation, versioning — both media satisfy these) or actually a *cost* of the second ABI (determinism/parity, which is strictly harder on the private ABI — §E.4.3 exists only because of it). Performance is the *only possible* justification because it's the only thing the second ABI *is*: synchrony + task-local non-canonical identity. My two corrections: (1) "performance" conflates crossing *frequency* (dissolves at the node lane) with *canonicalization cost* (permanent floor cost); (2) the ruling names the second ABI's benefit but not its own determinism/versioning costs.
+
+**Q3 — the floor is sound at its core, but "immovable" is overstated.** The non-computability *seam* is immovable (and symmetric: effects-out are as non-computable as facts-in). But the *frontier* (which operations count as world-facts) is movable — the `:define` promotion is exactly a frontier move. Replicated agreement doesn't move the floor at all; recorded worlds/determinism move it *extensionally*. Only the seam is immovable.
+
+**Q4 — the ruling changes teleology/accounting, not sequence.** I'd argue against resequencing to node-lane-first (the mailbox ABI is the conformance oracle the node lane's verifiability depends on). What I'd change: flip W6 from "fallback" to "destination," make service-migration-into-guest a mandated per-operation partition deliverable, and add a W0 crossing-cost measurement fixture + required-operations minimality audit.

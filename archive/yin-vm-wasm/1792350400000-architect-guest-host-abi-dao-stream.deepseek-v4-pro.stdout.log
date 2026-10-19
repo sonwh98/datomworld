@@ -1,0 +1,68 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+I've read the architecture doc, the wasm lowering spec, the engine `§E` extension (the full `yin.vm.engine.host.v1` protocol), and the `dao.stream` contract. Here is my analysis.
+
+---
+
+## Verdict
+
+The separate guest-host ABI is **justified** — but for a reason the question half-sees and half-obscures. The indispensable reason is not "wasm can't express a stream" (that's the symptom). It is that **the guest-host seam is synchronous and state-local, while `dao.stream` is asynchronous and canonical by invariant — and those are opposite properties, not two choices on one axis.**
+
+The framing mistake is embedded in the question's own first sentence: it treats the guest-host interface as *a host boundary*, then asks why a host boundary isn't a stream. But the wasm guest is **not a peer on the other side of a host boundary**. It is an *execution strategy for code the host already holds* — "wasm is a kernel execution strategy over an admitted image, not a replacement source emitter" (`yang.wasm.md` §1). The guest and its embedder share one task, one store, one custody context. The boundary that genuinely exists there is a **capability/custody** boundary (the guest must not forge closures, continuations, or typed effects), and that is enforced by check-then-commit service transitions — not by the medium being a stream.
+
+So the answer has two layers, and they need to be kept apart:
+
+## 1. `dao.stream` cannot be the guest-host medium, because its defining rule is "no operation waits"
+
+Read the contract literally (`dao.stream.md` IO Model): `next` returns `:dao.stream/blocked` = `EAGAIN`; `append!` returns `:dao.stream/full`; *"No operation in this contract parks, and none takes a callback."* The eventual answer "arrives the way every other fact does — as data, observed later." Correlation is by identity in the data; there is no privileged reader.
+
+Now look at what a single guest instruction needs. `:load-free` **is** `resolve-var` — resolving the var *is* the instruction; the resolved value must be written into `rd` and the pc advanced *before* the next instruction runs. A primitive `:call` must produce its result to write into `rd` within the same transition. GC must materialize the frame *now* to trace roots, mid-`handle-effect`. These are not "synchronous service needs that happen to be synchronous"; they are the instruction semantics themselves, and the transition is atomic (check-then-commit: "refused transitions leave guest state unchanged").
+
+If the guest reached these through append/read/park, every `load-free` would decompose into: append a resolve-var effect → park → scheduler round observes it → host resolves → appends outcome → another round observes *that* → resume the guest with the value. That is not "using the stream medium"; that is **re-implementing the engine loop as stream traffic, with the machine's registers/frames/K as the payload of the medium rather than the private state of an interpreter.** And it collides head-on with the next point:
+
+## 2. "No privileged reader" is the *opposite* of what a machine's state requires
+
+`dao.stream`'s architecture is built on *one stream, many peer observers, none privileged* — the evaluator and `dao.space.index` observe the same bytes and neither knows the other exists. But the register machine's state has **exactly one privileged reader**: the interpreter. The linear-memory arena is explicitly a *private execution cache*; §E.3.1 forbids the host from "mutating the guest's state shadow behind the guest's back." If machine-internal traffic (register reads, root materialization, GC traces) became stream history, you would be:
+
+- flooding the effects/observation layer with entries that are **not effects at all** (a register read is not a request for something to happen), and
+- permanently archiving every micro-step of every interpreter into the same medium that `dao.space` indexes and other interpreters observe — destroying "one stream, many interpretations" and collapsing it into "one stream, one transcript."
+
+The docs are explicit that pure guest control (moves, closure calls) *stays in the guest* precisely so the medium doesn't carry it (`yang.wasm.md` §3.4). This isn't a design smell; it's the whole reason the wasm lane is fast and the peer-observer architecture stays intact. Two properties are in direct conflict — *many unprivileged readers* vs. *one privileged reader over a private cache* — and the ABI is what keeps them apart.
+
+## 3. The value-representation problem survives *any* transport redesign (this is the decisive point the question correctly suspects)
+
+The guest operates on `i32` `ValueRef` **handles** — task-local arena indices, generation-checked, resolving to host-side `Value`s that include closures, continuations, primitives, and typed effects. `dao.stream` carries **canonical plain data** (jing CBOR, content-hashed). Three consequences, none of which disappear under any reshuffling:
+
+- **In-machine identity ≠ wire identity.** This is exactly why tag-`13` ("checked task-local arena reference") exists in the ABI, and why the ordering rule resolves references *before* handle compression. The guest correlates by handle; `dao.stream` correlates by content hash. You cannot collapse these. If you forced handle traffic onto a canonical stream you'd be re-inventing tag-`13` as a stream element type — i.e., re-inventing the ABI with append semantics glued on.
+- **Machine-internal values are not canonicalizable.** The encoder explicitly *refuses* reified/parked continuations (`:yin.k/status :yin.k/non-portable`). A closure is portable only as a *payload under specific conditions*, not as canonical bytes. Putting register/root traffic on `dao.stream` would force either a lossy encoding of values that have no canonical form, or a new non-canonical "stream" that is no longer `dao.stream`.
+- **The three encoding domains are deliberately separate** (§E.2.2): ABI TLV (private, in-memory), register image (executable identity R), jing CBOR (content identity). These are three different *kinds* of bytes with three different purposes. Any "guest-host = dao.stream" design still needs all three; it has changed nothing about the representation problem, only relabeled where the first domain lives.
+
+So the question's sub-question — "does the representation problem survive any transport redesign?" — has a definite answer: **yes, and it is itself the reason the transport is not `dao.stream`.**
+
+## 4. The import-surface question (one `exchange` vs N typed imports) is a red herring for the core issue
+
+The host-call signature constraint (no i64/externref/host types) forces *everything* through linear memory regardless. N typed imports `append(ptr,len)` / `read(ptr,len)` / `park(ptr,len)` and one generic `exchange(control_ptr)` both end up doing the identical thing: write bytes to linear memory, call a synchronous host function, read bytes back. Naming an import `append` does not make it `dao.stream` — it's still a synchronous host call returning `i32`, terminating at the composition. So the question's "typed imports mirroring stream operations" is **not an alternative to the service ABI; it's the same ABI with a different (larger, harder-to-version) import table.**
+
+The single generic `exchange` is not an accident. It encodes, at the import level, the fact that a wasm module's *only* outgoing capability is one imported function — one surface, one envelope, one versioning point, and it keeps the "one transition implementation, two dispatchers" rule from fragmenting into N per-operation handlers. I'd keep it, and I'd only entertain splitting it on *measurement* grounds (W6), never doctrinal.
+
+## 5. Is the shim load-bearing doctrine or an accident of wasm?
+
+**The shim-ness is load-bearing doctrine; the wasm-specific envelope is incidental.** The shim correctly names that the guest is not a peer and that `dao.stream` remains the *only* thing that crosses a trust domain — guest effects reach the stream *via the composition*. That is a real, correct, and permanent commitment.
+
+But the *existence* of a separate synchronous service ABI is **not** a wasm-specific accident. It is a property of the *interpreter-vs-compiled-artifact seam*, which the Rust-kernel LLVM sibling has too — same body functions, entry-pc dispatch, data guest calls, same `handle↔Value` facade (`§3.1.1` sibling law). Any native-code guest (JIT, LLVM, wasm) hits the same synchronous-in-process seam. What *is* wasm-specific is only the *envelope* — linear-memory mailbox, `NEED_SPACE` retry, i32-only signatures, `fetch-response`. The separate ABI is a consequence of the seam; the envelope is a consequence of wasm.
+
+## What I'd build instead (the "if not" branch)
+
+There is **no design in which the guest-host interface is `dao.stream`** — the seam is synchronous and state-local, and `dao.stream` is asynchronous and canonical, and no renaming closes that gap. The only real alternative axes are orthogonal to the question:
+
+- **Where the loop lives.** "Move the interpreter loop into the host / effect-only guest" is the one genuinely different design — but it is not "guest talks to host via stream"; it is "guest is a dumb instruction dispatcher, host owns the machine." It's already on the table as the W6 fallback (interpreter-loop variant, `yang.wasm.md` §6.1), to be adopted *only if measured crossing cost dominates*. Its cost is exactly the thing the compiled-body design bought back: the machine state stops living in the guest's linear-memory cache. And "effect-only guest with no synchronous services" is incoherent as stated, because `load-free`/primitive-apply/closure-mint *are the instructions* — removing them removes execution, not just "services."
+- **The shape of the synchronous surface.** One `exchange` vs N typed imports — a consolidation/measurement choice, not a doctrinal one.
+
+So my recommendation is, in substance, what already exists, with the framing corrected:
+
+1. Keep `dao.stream` as the **sole** cross-trust-domain ABI, and keep a **process-local synchronous service ABI** for the guest-host seam — and say out loud that these are *different kinds of boundary*, not two instances of one.
+2. State explicitly that the guest is an *execution strategy*, not a peer; the trust boundary it poses is capability/custody, enforced by check-then-commit, not by the medium.
+3. Keep the single `exchange` as the import surface; treat "split into typed imports" and "move the loop into the host" as measured W6 options only.
+4. Guard the one thing that would actually break the architecture: **never let machine-internal traffic become stream history**, because it is neither an effect nor canonical data, and it would collapse the peer-observer medium into a privileged transcript.
+
+The one indispensable reason, in a sentence: **`dao.stream` is the medium *between* interpreters, whose rule is "no operation waits and no reader is privileged"; the guest-host seam is the medium *inside one interpreter* between itself and a compiled artifact of itself, whose rule is "this instruction must synchronously complete on state that has exactly one privileged reader." A stream is the wrong shape for the second boundary, and the wasm mailbox is the right shape — which is why it exists, and why it is a shim to the composition and never a second system ABI.**

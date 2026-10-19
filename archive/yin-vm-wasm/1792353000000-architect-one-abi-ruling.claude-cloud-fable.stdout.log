@@ -1,0 +1,11 @@
+The round-2 answer is written to `collab/1792353000000-architect-one-abi-ruling.claude-fable-5-1.findings.md`. Nothing else was changed, and nothing was staged.
+
+**Position in brief.** The ruling is accepted in shape: the boundary is drawn, and only cost justifies a second ABI. Two corrections and one plan change follow.
+
+- **Round-1 revision.** Shared custody is withdrawn as the "indispensable reason" and kept as the indispensable property. It describes what any process-local ABI is, not why one exists.
+- **"Performance" is the wrong word.** What justifies the shim today is availability. The only engine is CLJC, which cannot live inside a wasm instance, and the Rust kernel is design-only and unauthorized. Crossing cost justifies the shim's size, not its existence.
+- **Every named alternative reason reduces away.** Capability granularity, parity, ISA freeze, failure isolation, versioning and in-machine sharing all evaporate in the node lane, so none is a second-ABI reason. The ISA-freeze point carries one real one-way risk: a stream vocabulary frozen too early is permanent.
+- **The floor is sound** under a sharper definition: the machine is a function of shipped code plus stream prefix, and the floor is whatever is not such a function. It moves only downward, by making more things functions of history.
+- **The endpoint is unreachable as planned.** Nothing commissions an engine that compiles to wasm32, so the ruling implies an owner decision it does not state.
+
+**Plan changes recommended.** Rule on the Rust kernel for wasm32 now rather than at W6. Make wasm32 compilability a W2–W4 gate for the service crates. Add a node-lane gate beside W5. Design body-module service thunks to be replaceable by intra-instance calls. Mark §E.3 as bridge-era. Count crossings from W1. Withdraw my round-1 items that shrank the shim by duplicating engine semantics in the emitter.

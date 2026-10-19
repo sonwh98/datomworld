@@ -1,0 +1,16 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+Verification complete. Wrote my findings to `collab/1792401600140-architect-abi-decomposition-verification.deepseek-v4-pro.findings.md` and changed nothing else.
+
+**Verdict: PASS.**
+
+Summary of what I confirmed across all five checklist items:
+
+- **A. Doctrine fidelity** — `datom.world.abi.md` holds the owner rulings verbatim (one-ABI, boundary-drawn-not-found, the exact taxonomy quote), plus custody, floor, naming doctrine, contract-what/boundary-why split, and effects/events/adapter discipline. `datom.world.md`'s remnant is 2 lines + link, pointing correctly.
+- **B. No category errors** — `dao.stream.wasm.md` is framed as an implementation (never "an ABI"), language-neutral with Rust host side in `rust-engine.md` §6.4, outcome maps match `dao.stream.md` exactly, jing CBOR only, no TLV/comparator/NEED_SPACE revival.
+- **C. Completeness of moves** — nothing dropped; `engine.md` §E.3 is a clean pointer preserving §E.4/§E.5 numbering, retained content intact.
+- **D. Rename integrity** — `yin.vm.rust-engine.md` keeps the full surviving core with dated supersession notes; **zero** "rust-kernel" references remain; I spot-checked 14 section-number citations and all map correctly (§9 crates, §6.4 new host adapter, §10 K-phases, §11 K-D2/K-D7/Deferred, §7.2/7.3/7.5, §7.4+§12-risk-2 "two dispatchers", §§5.3–5.5 atomicity).
+- **E. Mechanical** — `dao.stream.md` diff is exactly +1 line; no src/test changes; all 17 links resolve; the broken links are pre-existing and unrelated.
+
+One discrepancy worth flagging: the author reported "four" pre-existing broken links; I found **three** markdown-link breaks (two in `daostream-udp-design.md`, one in `yin.vm.telemetry.implementation-plan.md`) plus two additional bare-text references to retired v1-model files. All are pre-existing and untouched by this step — cosmetic count difference, doesn't affect the verdict.
+
+Two non-blocking notes: a stray leading space at `datom.world.abi.md:27`, and the internal-layout sense of "ABI" in `rust-engine.md` §12 risk 3 (legitimate per the naming doctrine's "internal compiler linkage" carve-out, but worth a glance at review).
