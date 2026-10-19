@@ -212,8 +212,11 @@ cmd -p -m <model> <review-or-implementation-flags> --output-format json < <promp
   > collab/<timestamp>-<role>-<task>.<sanitized-model>.stdout.log 2>&1
 
 # Gemini / AGY
+# No --print-timeout: it is optional and defaults to 0 (wait until the turn
+# completes). Setting a short value truncates long turns mid-review (observed
+# 2026-10-18: a 5m limit killed an architecture review mid-turn; see quirks).
 agy --model <model> --effort <effort> <review-or-implementation-flags> \
-  --print-timeout 5m --output-format json -p "Read <prompt> and complete it now." \
+  --output-format json -p "Read <prompt> and complete it now." \
   > collab/<timestamp>-<role>-<task>.<model>.stdout.log 2>&1
 ```
 
@@ -227,6 +230,14 @@ Recognize it, apply the fix, and don't declare failure prematurely:
   with narrowly scoped escalation. For an authorized implementation run,
   preserve `--sandbox`/`--mode accept-edits`; never add
   `--dangerously-skip-permissions`.
+- **AGY `--print-timeout` is optional and defaults to 0** — wait until the
+  turn completes. Prescribing a short value (the recipes here carried `5m`
+  until 2026-10-18) returns partial output mid-turn ("print timeout after
+  Xm with turn in progress") and loses the rest of the run; a review
+  needing one conversation resume was the observed cost. Omit the flag for
+  delegate dispatches; the host's background tracking owns the wait, and a
+  truncated turn is recovered by `--conversation <id>` resume with a new
+  prompt/artifact name, never by raising the limit as a routine.
 - **Claude `Not logged in` / Codex app-server `Operation not permitted`**
   under the default command sandbox are host diagnostics: retry via host
   escalation with the documented narrow prefixes, preserving each CLI's own
