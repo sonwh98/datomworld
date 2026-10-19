@@ -53,33 +53,34 @@
       (testing (str vm-type)
         (let [state (repl/create-state {:frontends catalog,
                                         :vm-type vm-type})
-              [state' switched] (run state "(lang :toy)")
-              [_ by-id] (run state "(lang :example.toy/frontend)")
+              [state' switched] (run state "(lang :example.toy/frontend)")
+              [_ refused] (run state "(lang :toy)")
               [_ result] (run state' "abcd")]
-          (is (= "Switched to :toy" switched))
-          (is (= "Switched to :example.toy/frontend" by-id))
+          (is (= "Switched to :example.toy/frontend" switched))
+          (is (str/includes? refused "unavailable-parser")
+              "a language keyword is not a selector")
           (is (= "4" result)))))))
 
 
-(deftest the-standard-languages-still-select-by-id-and-language-test
+(deftest the-standard-languages-select-by-id-test
   (let [state (repl.frontends/create-state)
-        [python switched] (run state "(lang :yang.python/antlr)")
+        [python switched] (run state "(lang :yang/python)")
         [_ value] (run python "1 + 2")
-        [_ compiled] (run (first (run state "(lang :php)")) "(compile \"1 + 2;\")")]
-    (is (str/starts-with? switched "Switched to"))
+        [_ compiled] (run (first (run state "(lang :yang/php)")) "(compile \"1 + 2;\")")]
+    (is (= "Switched to :yang/python" switched))
     (is (= "3" value))
     (is (str/includes? compiled "AST:"))
-    (testing "the language :python selects the ANTLR frontend"
-      (let [[by-language answer] (run state "(lang :python)")]
-        (is (= "Switched to Python" answer))
-        (is (= "'ab'" (second (run by-language "'a' + 'b'")))
-            "the value is rendered by the ANTLR frontend's Python repr")))))
+    (testing "a language keyword is not a selector"
+      (let [[_ refused] (run state "(lang :python)")]
+        (is (str/includes? refused "unavailable-parser")))
+      (testing "the frontend renders the ANTLR Python repr"
+        (is (= "'ab'" (second (run python "'a' + 'b'"))))))))
 
 
 (deftest a-newer-revision-leaves-a-live-session-unchanged-test
   (let [catalog (toy-catalog "r1" 1)
         state (repl/create-state {:frontends catalog})
-        [state' _] (run state "(lang :toy)")
+        [state' _] (run state "(lang :example.toy/frontend)")
         newer (frontend/install catalog (manifest "r2") (toy-binding 100))]
     (is (frontend/ok? (frontend/select newer
                                        {:yang.frontend/id :example.toy/frontend,
@@ -88,7 +89,7 @@
     (is (= catalog (:frontends state')))
     (testing "a session composed with the newer catalog pins its own snapshot"
       (let [other (repl/create-state {:frontends (toy-catalog "r2" 100)})
-            [other' _] (run other "(lang :toy)")]
+            [other' _] (run other "(lang :example.toy/frontend)")]
         (is (= "200" (second (run other' "ab"))))
         (is (= "2" (second (run state' "ab"))))))))
 
@@ -98,7 +99,7 @@
         [state' answer] (run state "(lang :yang.python/uninstalled)")]
     (testing "selecting an id the catalog does not hold is a diagnostic"
       (is (str/includes? answer "unavailable-parser"))
-      (is (= :clojure (:lang state'))))
+      (is (= :yang/clojure (:lang state'))))
     (testing "compiling under it answers unavailable-parser, not another frontend"
       (let [pinned (assoc state :lang :yang.python/uninstalled)
             [_ result] (run pinned "1 + 2")
@@ -118,8 +119,8 @@
 
 (deftest the-antlr-id-is-installed-on-every-host-test
   (let [[state answer] (run (repl.frontends/create-state)
-                            "(lang :yang.python/antlr)")]
-    (is (= :yang.python/antlr (:lang state)))
+                            "(lang :yang/python)")]
+    (is (= :yang/python (:lang state)))
     (is (not (str/includes? answer "unavailable-parser")))))
 
 
@@ -165,7 +166,7 @@
       (let [[state answer] (run (repl.frontends/create-state {:frontends bare})
                                 "(lang :yang.python/service)")]
         (is (str/includes? answer "unavailable-parser"))
-        (is (= :clojure (:lang state))))
+        (is (= :yang/clojure (:lang state))))
       (is (str/includes?
             (second (run (assoc (repl.frontends/create-state
                                   {:frontends bare})

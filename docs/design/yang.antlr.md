@@ -3074,17 +3074,18 @@ realizes sections 3.3 and 3.6 for the REPL:
   of REPL core. An explicit parser service, worker or remote, has the
   same shape; a slow one needs a pending-compile state like the existing
   pending-require.
-- No fallback between frontends: `:yang.python/antlr` and
-  `:yang.python/legacy` are distinct ids, and legacy retires at its own
-  migration gate. (Amended 2026-10-18: the gate passed once the ANTLR
-  frontend parsed on JVM, Node and Dart; `yang.python` and its
-  `:yang.python/legacy` registration are deleted. The standard catalog is
-  `:yang.clojure/legacy` (`:clojure`), `:yang.php/legacy` (`:php`) and
-  `:yang.python/antlr` (`:python`, revision f4, every host), so
-  `(lang :python)` selects the ANTLR frontend. Capability loss: the
-  legacy frontend could call Clojure macros and functions in the same
-  session; the ANTLR frontend cannot until the section 8.10 ABI, because
-  a Python name missing from the module dict raises `NameError`.) Selecting a frontend
+- No fallback between frontends: each language has one frontend id, and
+  there is no fallback between them. (Amended 2026-10-18, twice: the
+  migration gate passed once the ANTLR frontend parsed on JVM, Node and
+  Dart and the legacy Python registration was deleted; then the ids
+  dropped their implementation suffixes per the owner's ruling — the
+  standard catalog is `:yang/clojure` (`:clojure`), `:yang/php` (`:php`)
+  and `:yang/python` (`:python`, implemented by the ANTLR multi-target
+  parser, revision f4, every host); the selector is the frontend id —
+  `(lang :yang/python)` — never a language keyword. Capability loss: the retired Python frontend could
+  call Clojure macros and functions in the same session; the ANTLR
+  frontend cannot until the section 8.10 ABI, because a Python name
+  missing from the module dict raises `NameError`.) Selecting a frontend
   answers unavailable-parser only when neither a local parser nor an explicitly configured service is
   available, on any host (section 4.1).
 - Support claims derive from explicit semantic and runtime declarations
@@ -3227,7 +3228,7 @@ decides the host matrix of any other grammar):
   generated parser for a grammar, and no configured service, answers
   unavailable-parser for that grammar's id with no legacy fallback (amended
   2026-10-17: the Python grammar is generated for JVM, Node and Dart, so
-  `:yang.python/antlr` is installed on every host).
+  `:yang/python` is installed on every host).
 - P1: the full corpus output is unchanged on every VM and host; a
   composition with no cell module halts ok on `functions-uast`;
   `py/init!` twice yields one set of class cells; shadowing then

@@ -141,7 +141,7 @@
 (def ^:private langs
   "The ids every session scenario runs under: the precompiled packets and
    the installed parser, on every host."
-  [:yang.python/cst :yang.python/antlr])
+  [:yang.python/cst :yang/python])
 
 
 (defn- feed
@@ -395,7 +395,7 @@
 
 (deftest other-frontends-still-echo-their-value-test
   (let [state (frontends/create-state)
-        [php _] (repl/eval-input state "(lang :php)")]
+        [php _] (repl/eval-input state "(lang :yang/php)")]
     (is (= "3" (second (repl/eval-input state "(+ 1 2)"))))
     (is (= "3" (second (repl/eval-input php "1 + 2;"))))))
 
@@ -424,7 +424,7 @@
    :clj
    (deftest ^:slow probe-buffers-an-open-block-test
      (let [[[s1 t1] [s2 t2] [s3 t3] [_ t4]]
-           (feed (session :yang.python/antlr)
+           (feed (session :yang/python)
                  ["def f(n):" "    return n + 1" "" "print(f(2))"])]
        (testing "the header and body are buffered"
          (is (= "" t1))
@@ -443,21 +443,21 @@
    (deftest ^:slow probe-buffers-across-lines-test
      (testing "an open bracket"
        (is (= ["" "(1, 2)\n"]
-              (texts (session :yang.python/antlr) ["print((1," "2))"]))))
+              (texts (session :yang/python) ["print((1," "2))"]))))
      (testing "a blank line inside brackets does not submit"
        (let [[[s1 t1] [s2 t2] [s3 t3]]
-             (feed (session :yang.python/antlr) ["print(" "" "1)"])]
+             (feed (session :yang/python) ["print(" "" "1)"])]
          (is (= ["" "" "1\n"] [t1 t2 t3]))
          (is (= "print(\n" (:pending-input s2)))
          (is (nil? (:pending-input s3)))
          (is (some? (:pending-input s1)))))
      (testing "an open triple string, brackets inside it"
        (is (= ["" "" "hello\n(\n\n"]
-              (texts (session :yang.python/antlr)
+              (texts (session :yang/python)
                      ["s = \"\"\"hello" "(" "\"\"\"; print(s)"]))))
      (testing "explicit backslash continuation"
        (is (= ["" "" "3\n"]
-              (texts (session :yang.python/antlr)
+              (texts (session :yang/python)
                      ["x = 1 \\" "+ 2" "print(x)"]))))))
 
 
@@ -466,11 +466,11 @@
    (deftest ^:slow probed-lines-keep-their-whitespace-test
      (testing "trailing spaces and tabs inside a triple string are kept"
        (is (= ["" "" "" "a  \t\n  \n\tb \n"]
-              (texts (session :yang.python/antlr)
+              (texts (session :yang/python)
                      ["s = \"\"\"a  \t" "  " "\tb \"\"\"" "print(s)"]))))
      (testing "a short string ending in a backslash and spaces is broken"
        (is (= :complete (probe/probe "s = 'a\\  ")))
-       (let [[[s t] [_ t']] (feed (session :yang.python/antlr)
+       (let [[[s t] [_ t']] (feed (session :yang/python)
                                   ["s = 'a\\  " "print(2)"])]
          (is (nil? (:pending-input s)))
          (is (str/includes? t "SyntaxError"))
@@ -487,7 +487,7 @@
                   "x = (1 + * 2 'a\\"]]
        (testing bad
          (is (= :complete (probe/probe bad)))
-         (let [[[s t] [_ t']] (feed (session :yang.python/antlr)
+         (let [[[s t] [_ t']] (feed (session :yang/python)
                                     [bad "print(2)"])]
            (is (nil? (:pending-input s)))
            (is (str/includes? t "SyntaxError"))
@@ -534,7 +534,7 @@
 (deftest installed-parser-evaluates-the-filtered-comprehension-test
   (testing "the owner's comprehension line, through the installed parser"
     (is (= ["" "" "[4, 16, 36, 64, 100]\n"]
-           (texts (session :yang.python/antlr)
+           (texts (session :yang/python)
                   ["even_squares = [x**2 for x in range(1, 11) if x % 2 == 0]"
                    "x = 1"
                    "print(even_squares)"])))))
@@ -554,6 +554,6 @@
 
 
 (deftest compile-error-path-test
-  (let [[_ text] (repl/eval-input (session :yang.python/antlr)
+  (let [[_ text] (repl/eval-input (session :yang/python)
                                   "(compile 1)")]
     (is (str/starts-with? text "Error:"))))

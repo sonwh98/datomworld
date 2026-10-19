@@ -1203,7 +1203,7 @@
 
 (deftest ^{:slow true :prompt-hang true} prompt-returns-after-filtered-comprehension-assignment-test
   "Regression for the owner's live-session hang: at the JVM prompt, after
-   `(lang :yang.python/antlr)`, a filtered comprehension assignment
+   `(lang :yang/python)`, a filtered comprehension assignment
    never came back. With stdin closed after the lines, `-main` halted
    the process `stop-join-millis` after end-of-input, while the lines
    were still evaluating, so nothing they printed ever appeared.
@@ -1215,12 +1215,12 @@
                   (spawn! "prompt-hang-control"
                           ["--name" "prompt-hang-control"
                            "--dir" "target/prompt-hang-control"])
-                  ["(lang :yang.python/antlr)" "print(1+2)"] 90000)
+                  ["(lang :yang/python)" "print(1+2)"] 90000)
         bug     (run-submissions
                   (spawn! "prompt-hang-bug"
                           ["--name" "prompt-hang-bug"
                            "--dir" "target/prompt-hang-bug"])
-                  ["(lang :yang.python/antlr)"
+                  ["(lang :yang/python)"
                    "even_squares = [x**2 for x in range(1, 11) if x % 2 == 0]"
                    "print(even_squares)"]
                   90000)]

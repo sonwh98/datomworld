@@ -333,7 +333,7 @@
     (let [run (future
                 (let [[state _] (repl/eval-input
                                   (frontends/create-state)
-                                  "(lang :yang.python/antlr)")
+                                  "(lang :yang/python)")
                       [assigned text] (repl/eval-input state even-squares-source)
                       [_ printed] (repl/eval-input assigned "print(even_squares)")]
                   [(:frontend-session assigned) text printed]))]

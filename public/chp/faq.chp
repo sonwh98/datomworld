@@ -143,7 +143,7 @@
              " or "
              [:code "(vm :ast-walker)"]
              ", switch languages with "
-             [:code "(lang :clojure)"]
+             [:code "(lang :yang/clojure)"]
              ", and connect to a remote yin.repl over WebSocket with "
              [:code "(connect \"daostream:ws://host:port\")"]
              ". The REPL is available on the JVM, Node, and Dart."]]]
