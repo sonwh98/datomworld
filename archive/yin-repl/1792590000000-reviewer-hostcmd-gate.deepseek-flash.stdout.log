@@ -1,0 +1,29 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Completed-GMT: 2026-10-18 15:22:11 GMT
+Completed-Local: 2026-10-18 22:22:11 +0700 (+07)
+
+# Gate review — the (host) command
+
+## Verified
+
+1. **Command surface.** `host` is in `command-heads` (`src/cljc/yin/repl.cljc:235-240`), has a help line (`:263`), and a dispatch branch (`:1898`) — the same three registration points as `vm`/`lang`/`compile`, with the same "ignore args" shape as `reset`/`help`. The message construction (`:271-277`) yields exactly `Host: JVM <java.version>`, `Host: Node v<process.version>`, `Host: Dart`, matching the requested surface and the live captures. `host` is deliberately absent from `yin.repl.adapter/local-command-heads`; that is consistent with `vm`/`lang`/`compile`, which are also remote-routed, so a connected client gets the *attached shell's* runtime — which is what the docs sentence says. No other command registry exists.
+
+2. **Test.** `host-command-names-the-runtime` (`test/yin/repl_test.cljc:800-803`) drives `repl/eval-input` with `repl.frontends/create-state` (default frontend) and asserts the per-host prefix via a reader conditional. There is no silent wrong-host pass: the conditional selects one prefix per compiler, and a host with no matching branch fails at read time. It is compiled into both non-JVM lanes — present in `.shadow-cljs/builds/test/dev/out/cljs-runtime/yin.repl_test.js` and in `test/cljd-out/yin/repl-test_test.dart:8258-8390` (expected `"Host: Dart"`) — so the supplied lane counts are credible.
+
+3. **Docs.** The note at `src/cljc/yin/vm/docs/yin.repl.md:13` is in the right section ("Starting and connecting", beside the `connect` paragraph) and its examples match the emitted format. Non-blocking nit: it is a 154-char single line where the file wraps prose at ~80 columns.
+
+4. **Blast radius in the diff itself.** `git diff --stat` is 21 insertions / 1 deletion across four files; the deletion is the `command-heads` line replaced with the same set plus `'host`. Nothing else in `repl.cljc` changed, and `git diff --check` is clean.
+
+## Finding (blocking)
+
+**The new top-level `host-text` breaks the browser `:demo` bundle at load.** `host-text` is an eager `def` (`src/cljc/yin/repl.cljc:271`), and its `:cljs` branch dereferences `js/process` (`:276`). `yin.repl` is compiled into the browser build through this chain: `datomworld.demo` → `datomworld.demo.yin-repl` (`src/cljs/datomworld/demo.cljs:10`, `src/cljs/datomworld/demo/yin_repl.cljs:38`) → `yin.repl.driver` (`src/cljc/yin/repl/driver.cljc:21` requires `[yin.repl :as repl]`). No browser `process` global is provided: there is no shim in `package.json` or `src/`, and the `ws` browser stub noted in the demo docstring only covers `require("ws")`. The compiled Node output confirms the emitted form (`process.version`). In a browser, `process` is undefined at namespace init, so the **entire demo page** throws `ReferenceError: process is not defined`, not merely `(host)` in its REPL pane. `:demo` is a canonical Layer 4 build and `compile demo` is a standing constraint, but this is a runtime, not compile-time, reference — the compile stays 0 warnings and none of the JVM/Node/Dart lanes exercises it, so the supplied evidence cannot catch it.
+
+Fix: make the lookup load-safe — e.g. `(if (exists? js/process) (str "Node " (.-version js/process)) "Browser")` — or move platform naming behind the existing host seam. Decide what a browser client should print; `Host: Browser` is the honest answer for the demo's in-browser eval path (which reaches `repl/eval-input` through the driver's local evaluation).
+
+## Non-blocking nits
+
+- The test's prefix-only assertion would also pass if the version segment were empty; a follow-up assertion that the text is longer than the prefix (or a full regex) would pin the live-captured strings.
+- The docs note's line length noted above.
+
+Verdict: REQUEST CHANGES

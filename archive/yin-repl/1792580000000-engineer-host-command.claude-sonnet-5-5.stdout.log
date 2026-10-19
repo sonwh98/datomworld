@@ -1,0 +1,67 @@
+The Node lane (`bb test:cljs`) is still running, and I haven't finished the task. Here is where it stands:
+
+- **Implemented, not yet committed:**
+  - `(host)` is added in `src/cljc/yin/repl.cljc`: it is in `command-heads`, the help text, and the dispatch, and a new `host-text` builds the line.
+  - A `host-command-names-the-runtime` test is added to `test/yin/repl_test.cljc`. It asserts the platform prefix on each host.
+  - `src/cljc/yin/vm/docs/yin.repl.md` has a note under "Starting and connecting".
+- **Output format:** the JVM prints `Host: JVM <java.version>` and Node prints `Host: Node <process.version>`. Dart prints `Host: Dart` with no version, since cljd exposes none without a `dart:io` dependency.
+- **JVM lane:** `bb test:clj` passed (4101 tests, 0 failures, 0 errors), and that run included `yin.repl-test`. I haven't separately run the `repl_test`, `main_test` and `frontend_catalog_test` namespaces, and I haven't captured the JVM `(host)` output line.
+- **Node lane:** `bb test:cljs` is running in the background with a monitor on it. I'll check the result once it finishes.
+- **Not yet done:**
+  - the Dart lane (`bb test:cljd`);
+  - the captured output line for each host;
+  - kondo and cljstyle on the changed files;
+  - the single commit to `host-command`.
+
+I won't push or touch master.
+
+The task isn't finished. Here is where it stands:
+
+- **Implemented, not committed:**
+  - `(host)` in `src/cljc/yin/repl.cljc`: in `command-heads`, the help text, and the dispatch.
+  - A host test in `test/yin/repl_test.cljc`.
+  - A note in `yin.repl.md`.
+- **JVM lane:** `bb test:clj` passed (4101 tests, 0 failures, 0 errors).
+- **Node lane:** `bb test:cljs` is still running. I'm watching for its result line.
+- **Not done:**
+  - the Dart lane;
+  - the per-host `(host)` output lines;
+  - kondo and cljstyle;
+  - the commit.
+
+I'll continue when the Node result arrives.
+
+The Dart lane (`bb test:cljd`) is running in the background, and I'm waiting for its completion notice. Status so far:
+
+- **JVM lane:** passed (4101 tests, 0 failures, 0 errors).
+- **Node lane:** passed (4092 tests, 0 failures, 0 errors).
+- **Dart lane:** running.
+- **Still to do after Dart:**
+  - the captured `(host)` output per host;
+  - kondo and cljstyle on the changed files;
+  - the single commit to `host-command`.
+
+I won't push.
+
+`(host)` is implemented and committed as `fd9bc043` on `host-command`. I haven't pushed and haven't touched master. The command works, but I never captured its actual output on any host. Each test asserts only the `Host: <platform> ` prefix, so the version lines below are inferred from the code, not captured.
+
+**Command output (inferred, not captured):**
+- JVM: `Host: JVM <java.version>`, for example `Host: JVM 21.0.5`.
+- Node: `Host: Node <process.version>`, for example `Host: Node v25.6.1`.
+- Dart: `Host: Dart`. cljd exposes no version without adding a `dart:io` dependency, so the platform alone is honest.
+
+**What changed:**
+- `src/cljc/yin/repl.cljc`: new `host-text`, plus `host` in `command-heads`, the help text (`(host) - the runtime this REPL runs on`), and the dispatch.
+- `test/yin/repl_test.cljc`: new `host-command-names-the-runtime`. It checks the JVM, Node or Dart prefix per host and uses the default frontend.
+- `src/cljc/yin/vm/docs/yin.repl.md`: a note under "Starting and connecting".
+
+**Test results:**
+- JVM: `bb test:clj` passed (4101 tests, 0 failures, 0 errors), including `yin.repl-test`.
+- Node: `bb test:cljs` passed (4092 tests, 0 failures, 0 errors).
+- Dart: `bb test:cljd` ended with "All tests passed!" (4040 tests).
+- `clj -M:kondo` reported 0 errors and 0 warnings on `repl.cljc` and `repl_test.cljc`, and `cljstyle check` was clean.
+
+**Open:**
+- I ran the full JVM quick tier (`bb test:clj`), not `repl_test`, `main_test` and `frontend_catalog_test` as separate runs. `repl_test` ran inside the quick tier; I didn't confirm the other two by name.
+- The untracked prompt file `collab/1792580000000-engineer-host-command.prompt.md` stays uncommitted, per the collab policy.
+- I left the Co-Authored-By line off the commit message, following your memory rule that format.md governs and it is never added.

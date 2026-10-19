@@ -1,0 +1,45 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Completed-GMT: 2026-10-18 18:13:13 GMT
+Completed-Local: 2026-10-19 01:13:13 +0700 (+07)
+
+# Merge landing gate — host-command @ a948cce7 (read-only)
+
+Scope: `git diff origin/master a948cce7` (16 files), plus the merge deltas against both parents (`57470f49` host lineage, `da0b277e` rename lineage). No tests rerun; the supplied lane evidence is taken as given. No edits made.
+
+## 1. Merge resolution — PASS
+
+- `language-ids` and `lang-labels` are gone from `src/` and `test/` (`grep` finds zero references; `archive/` only). No duplicate/dead helper survived the merge.
+- `installed-text` exists exactly once (`src/cljc/yin/repl.cljc:1673`) and is catalog-derived: languages come from `(:manifest entry)` and ids from `(first (keys entries))`, each `distinct` + `sort`, no literal ids.
+- The `lang` branch (`src/cljc/yin/repl.cljc:1874-1880`) uses the renamed `select-frontend` (id-only selector, `:else` refuses) and appends `installed-text` to the refusal.
+- The merge delta `57470f49..a948cce7` rewrote the interactive test to the renamed rules rather than stacking a second test: the pre-rename `(lang :yang/python)` refusal case became the success case, and `(lang :python)` became the refusal. No leftover duplicate assertions.
+- No conflict markers; `git diff --check` clean.
+
+## 2. Rewritten interactive test — PASS
+
+`the-interactive-composition-holds-every-standard-language` (`test/yin/repl/main_test.cljc:330-357`) drives `repl/boot` + `driver/submit-line!` + `repl/step-all` — the same composition (`yin.repl.main`) that `bin/yin_repl_main.dart` and the JVM/Node mains run.
+
+- Exact assertions: `Switched to :yang/python`; Python `1 + 2` → `3`; comprehension → `[0, 1, 4, 9]`; `'a' + 'b'` → `'ab'`; the refusal; Python still active after the refusal (`1 + 2` → `3`); `Switched to :yang/php` and `1 + 2;` → `3`; `Switched to :yang/clojure`, `1 + 2` → `2` (three forms, last value), `(+ 1 2)` → `3`.
+- Wrong-host check: every language/value assertion is exact and unconditional — none can pass vacuously because of a reader conditional. The only host-agnostic assertion is `(str/starts-with? … "Host: ")`, which by construction cannot distinguish hosts (see nit below); per-host naming is pinned separately by `host-command-names-the-runtime` (`test/yin/repl_test.cljc:802-805`) with `#?(:clj :cljs :cljd)` prefixes.
+
+## 3. Refusal message shape — PASS
+
+The emitted string is byte-for-byte the required shape:
+
+`Error: unavailable-parser: Yin REPL language :python is not in the frontend catalog; installed: :clojure :php :python (ids :yang/clojure :yang/php :yang/python)`
+
+Both lists are computed from the live catalog snapshot (`:frontends` of the session) and sorted/deduped, so they stay honest under a different catalog; no hardcoded ids. The `testing` block also asserts the session keeps its frontend after the refusal.
+
+## 4. Cross-host — PASS
+
+`main_test.cljc` is untagged, and `cljd_agg.clj` includes every `*_test.clj[cd]` under `test/`, while the shadow `:test` build compiles the whole `test` path. The generated artifacts postdate the merge and contain the merged assertions unchanged: `.shadow-cljs/builds/test/dev/out/cljs-runtime/yin.repl.main_test.js` (00:41) and `test/cljd-out/yin/repl/main-test_test.dart` (01:03, merge at 00:27). The new test and helper contain no reader conditionals, so Node/Dart coverage is not weakened.
+
+Also re-confirmed as consistent with the prior gates: the `(host)` `exists?` probe fix is in place, the `:cljs-yin-repl` alias points at `yin.repl.node-runner` (`deps.edn:72`, asserted at `test/yin/repl/build_test.clj:17`), the runner mirrors the Dart runner's shape, and the three rename residues are fixed.
+
+## Non-blocking nits
+
+- The composition test's `(host)` assertion checks only the `"Host: "` prefix — it would also pass on `"Host: "` alone or on the wrong host. Coverage is not lost because `host-command-names-the-runtime` pins each host's prefix; the assertion could still be tightened.
+- `installed-text` on a truly empty catalog renders `installed:  (ids )` (double space); unreachable through the standard catalog.
+- `src/cljc/yin/vm/docs/yin.repl.md:13` remains a ~154-character single line (carried over from the prior gate).
+
+Verdict: READY (sign-off granted)

@@ -1,0 +1,7 @@
+I couldn't do this task because the file you named doesn't exist in this worktree. I haven't traced, fixed or verified anything.
+
+`collab/1792540000000-engineer-compile-node-round2.prompt.md` is missing. The only compile-related file in `collab/` is `1792530000000-engineer-compile-investigation.prompt.md`, which is untracked. That looks like the first-round brief, not round 2. The worktree is on `compile-investigation` at `b8dbeabf`.
+
+The round-2 brief may not have been written yet, or it may be in the main checkout's `collab/`. Since `collab/` is never committed, it wouldn't appear in this worktree on its own.
+
+I haven't opened the round-1 file. If it is what you meant, tell me and I'll work from it. Otherwise, copy the round-2 brief into this worktree's `collab/` and I'll start.

@@ -1,0 +1,40 @@
+[claude-code:unrecognized_model] {"model":"deepseek-flash","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through api.deepseek.com, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Completed-GMT: 2026-10-18 14:18:26 GMT
+Completed-Local: 2026-10-18 21:18:26 +07 (+0700)
+
+# Frontend-id rename landing gate — review
+
+Scope reviewed: `git diff origin/master f06a252e` (1 commit, 9 files, +82/−93: 6 code/test areas + 2 docs). Read-only; no edits made.
+
+## Verification results
+
+| # | Check | Result |
+|---|-------|--------|
+| 1 | Legacy ids absent from `src/` and `test/` | **PASS** — grep for `:yang.python/antlr`, `:yang.clojure/legacy`, `:yang.php/legacy` returns nothing in `src/`/`test/`. Remaining matches are `archive/`, `docs/orchestrator-log.md`, `docs/agents/known-gaps.md` (append-only history) and the live `docs/design/yang.php.md` (finding F3). |
+| 2 | Refusal path | **PASS** — `select-frontend` (`src/cljc/yin/repl.cljc:1658-1670`) sends every non-qualified/non-vector value to `frontend/refused :yang.frontend/unknown`; the shell (`repl.cljc:1847-1855`) answers `Error: unavailable-parser: Yin REPL language :python is not in the frontend catalog` and leaves `:lang` unchanged. Asserted in `frontend_catalog_test.cljc:57-61,73-75` and `repl_test.cljc:186-193`. The `[id revision]` form still selects (branch at `repl.cljc:1665-1667`; exercised at `frontend_catalog_test.cljc:143-150`). Unknown qualified ids unchanged (`select` → `:yang.frontend/unknown`, `yang/frontend.cljc:215-216`; tests at `frontend_catalog_test.cljc:99-104,167-169`). |
+| 3 | Default `:lang` | **PASS for code** — `:or {lang :yang/clojure …}` at `repl.cljc:900`; help text at `repl.cljc:243`; `yin.repl.md:49,87`; no language-keyword default remains in `src/` or `test/`. **But** the same live doc still teaches a language-keyword *selector* (F1). |
+| 4 | Pins / hashes | **PASS** — no `test/resources`, fixture, golden or manifest address in the diff; test resources contain no `:yang.frontend/*` data. The id is only a catalog key (`yang/frontend.cljc:163,204`), never hashed. No pin moved. |
+| 5 | Blast radius | **PASS** — `lang-labels`/`language-ids` have zero references outside `archive/`; no `(lang :python|:php|:clojure)` literals remain in `src/` or `test/` except the intentional refusal assertions. The demo's `:lang` values (`compilation_pipeline.cljs:348-384`) are its own `case` state in `compile-source!` (`:156-161`) and never touch the REPL catalog. |
+
+## Findings
+
+**F1 — BLOCKING. The live REPL doc still teaches the removed language-keyword selector.**
+`src/cljc/yin/vm/docs/yin.repl.md:66-68` (the file this commit edited) still says:
+
+> "Selection forms: a language keyword selects the one frontend installed for that language (`(lang :python)` picks the ANTLR frontend), a qualified id names a frontend exactly…"
+
+This directly contradicts line 55-57 of the same file ("a language keyword is not a selector") and the shipped behavior. It is the exact ruling the rename implements: *"(lang :python) should not work. it should be consistent throughout."* The diff updated the surrounding paragraph and the earlier catalog paragraph but missed this one. Replace it with: only a qualified id or `[id revision]` selects; `(lang :python)` answers `Error: unavailable-parser: ...`.
+
+**F2 — BLOCKING (small). User-facing FAQ instructs a now-refused command.**
+`public/chp/faq.chp:146` tells visitors to "switch languages with `(lang :clojure)`". That answer is now `Error: unavailable-parser`. Change to `(lang :yang/clojure)` (or the more useful `(lang :yang/python)` example).
+
+**F3 — REQUIRED or explicitly deferred by the owner. A live (not historical) design doc still names the old ids.**
+`docs/design/yang.php.md:26,1291,1306,1965,2214` describes the *installed* PHP frontend as `:yang.php/legacy` and a planned `:yang.php/antlr`. After this commit the installed id is `:yang/php`, and implementation-suffixed ids contradict the ruling. At minimum the installed-id references must become `:yang/php`; the future PHP ANTLR id needs the owner's naming decision (the `:yang/<language>` scheme leaves no room for a second suffix), so an explicit deferral note is acceptable — silent staleness is not. `docs/design/yin-repl-design.md` and the `known-gaps`/`orchestrator-log` mentions are historical/superseded and correctly untouched.
+
+## Notes
+
+- The four focused JVM namespaces and the JVM quick tier are taken as given; the shiva (JVM slow + full Dart) and jupiter (full Node) evidence is not in this dossier and remains a landing precondition.
+- Everything else in the diff matches the rulings: the three ids, the deleted helpers, the id-only selector, the `Switched to <id>` message, the help/docstring text, the tests, and the 8.5.6 amendment.
+
+Verdict: REQUEST CHANGES

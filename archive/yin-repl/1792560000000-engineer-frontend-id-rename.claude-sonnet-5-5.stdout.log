@@ -1,0 +1,19 @@
+I stopped without committing. The rename to `:yang.python` can't work as specified: the frontend manifest validator rejects unqualified ids. The tree is back at HEAD, with only the untracked prompt file left.
+
+**What broke**
+- `src/cljc/yang/frontend.cljc:90` checks `[:yang.frontend/id qualified-keyword?]`. `:yang.python` has no namespace, so `frontend/install` returns a refusal.
+- In `yin.repl.frontends/standard`, the `cond->` then threads that refusal as the catalog. `standard` does not return a usable catalog, and sessions fail with `unavailable-parser: no parser for :clojure`, which is a different symptom from the one you'd expect.
+- The unmodified HEAD passes `bb test:clj` with 0 failures and 0 errors. With the id rename applied, `bb test:clj` gave 1195 failures and 62 errors. The only failure text I read was `unavailable-parser: no parser for :clojure`, from `query_test.cljc`, and I did not diagnose the other failures.
+- I ran no other lanes (Node, Dart, kondo, cljstyle).
+- Nothing in the run showed a pin or golden moving. I did not get as far as checking whether the id feeds any hash.
+
+**What I did before stopping**
+- I renamed the id in `frontends.cljc`, the `repl.cljc` docstring, four test files, `yin.repl.md` and `yang.antlr.md`. That is how I found the failures, and I reverted all of it.
+- The id appears in no other docs: `architecture.md` and the other design docs only name the `yang.python.antlr.*` namespaces, which are out of scope.
+- The `yin.repl.md` example prints `"Switched to :yang.python/antlr"`. The tests show the real output is `"Switched to Python"`, so that example should be corrected whatever id is chosen.
+
+**Your options**
+1. **Keep the qualified-id rule and pick a qualified id.** For example `:yang/python`, or something like `:yang.python/frontend`. This leaves the frontend spec alone and it is what I'd recommend.
+2. **Relax the rule to `keyword?`.** This needs a spec amendment to `yang.frontend` section 3.7 and its manifest validation tests, and it widens the SPI.
+
+Tell me which id (or the relaxed rule) you want and I'll redo the rename, the docs, the lane runs and the commit. The old stash I made for the baseline run is dropped.
