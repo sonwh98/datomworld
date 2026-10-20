@@ -148,7 +148,7 @@
                "Python3Lexer.h"
                "a1cb6339cead5dd6f20cb85825b309dc7a576c77a1b17113fba447b92d307dc3",
                "Python3LexerBase.cpp"
-               "65027edf9cf43a5d09c745b4936576d3bd5da466b733f337420f73ae368a4bed",
+               "2483e344297051efebf6f8228647eda53186b143874699e4062f1b8c9c3c5660",
                "Python3LexerBase.h"
                "8548fd2cd8b7176c70b3761b8de779c6471d238f1ea675587d9c7936538a56e8",
                "Python3Parser.cpp"
@@ -197,11 +197,21 @@
     [["        emit(commonToken(Python3Lexer::NEWLINE, newLine));"
       "        emit(positionedToken(Python3Lexer::NEWLINE, tokenStartCharIndex, tokenStartCharIndex + newLine.size() - 1));"]
      ["    std::unique_ptr<antlr4::CommonToken> dedent = commonToken(Python3Parser::DEDENT, \"\");"
-      "    std::unique_ptr<antlr4::CommonToken> dedent = positionedToken(Python3Parser::DEDENT, getCharIndex(), getCharIndex() - 1);"]
+      "    std::unique_ptr<antlr4::CommonToken> dedent = positionedToken(Python3Parser::DEDENT, getCharIndex(), getCharIndex() - 1);\n    if (lastToken) dedent->setLine(lastToken->getLine());"]
      ["        emit(commonToken(Python3Parser::NEWLINE, \"\\n\"));"
       "        emit(positionedToken(Python3Parser::NEWLINE, getCharIndex(), getCharIndex() - 1));"]
      ["std::unique_ptr<antlr4::CommonToken> Python3LexerBase::commonToken(size_t type, const std::string& text) {"
-      "std::unique_ptr<antlr4::CommonToken> Python3LexerBase::positionedToken(size_t type, size_t start, size_t stop) {\n    return _factory->create({ this, _input }, type, \"\", DEFAULT_TOKEN_CHANNEL, start, stop, getLine(), getCharPositionInLine());\n}\n\nstd::unique_ptr<antlr4::CommonToken> Python3LexerBase::commonToken(size_t type, const std::string& text) {"]]}}},
+      "std::unique_ptr<antlr4::CommonToken> Python3LexerBase::positionedToken(size_t type, size_t start, size_t stop) {\n    return _factory->create({ this, _input }, type, \"\", DEFAULT_TOKEN_CHANNEL, start, stop, getLine(), getCharPositionInLine());\n}\n\nstd::unique_ptr<antlr4::CommonToken> Python3LexerBase::commonToken(size_t type, const std::string& text) {"]
+     ;; Token coordinates as the Java helper has them (J0c round 2 found the
+     ;; C++ helper's differ; Architect ruling 1792491122000 makes this
+     ;; required): commonToken (INDENT, the end-of-input EOF) takes the
+     ;; lexer's line and column, not the last token's (line 0 when there is
+     ;; none, which packet/validate! refuses); DEDENT takes the last token's
+     ;; line (above). Java's createDedent dereferences lastToken
+     ;; unconditionally (a DEDENT needs an earlier INDENT, so it is set);
+     ;; the guard only keeps a null from crashing the process.
+     ["    return _factory->create({ this, _input }, type, text, DEFAULT_TOKEN_CHANNEL, start, stop, lastToken ? lastToken->getLine() : 0, lastToken ? lastToken->getCharPositionInLine() : 0);"
+      "    return _factory->create({ this, _input }, type, text, DEFAULT_TOKEN_CHANNEL, start, stop, getLine(), getCharPositionInLine());"]]}}},
  ;; §4.5 license review
  :license {"Python3Lexer.g4" "MIT (header: Copyright (c) 2014 Bart Kiers); vendored with its notice verbatim",
            "Python3Parser.g4" "MIT (header: Copyright (c) 2014 Bart Kiers); vendored with its notice verbatim",

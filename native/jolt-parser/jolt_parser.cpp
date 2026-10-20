@@ -43,7 +43,7 @@
 // stop before a zero-width start), as the JVM reports them. Its layout:
 //
 //   magic   "JPX1"
-//   u32     layout version (1)
+//   u32     layout version (2; 2 added the offending token type)
 //   u32     status (0 ok, 1 syntax errors)
 //   u32     rule-name count R,     then R x (u32 len, UTF-8 bytes)
 //   u32     symbolic-name count S, then S x (u32 len, UTF-8 bytes; "" none)
@@ -58,7 +58,8 @@
 //             u32 line, u32 column, u32 len, UTF-8 message,
 //             u8 span kind (0 none, 1 offending token, 2 lexer),
 //             i32 a, i32 b (token start/stop, or lexer token-start char
-//             index / input index when the error was reported)
+//             index / input index when the error was reported),
+//             i32 offending token type (-2 when there is no token)
 //   first-failure evidence (the first error reported, lexer or parser):
 //             u8 kind (0 none, 1 lexical, 2 token), u8 no-viable-alt,
 //             i32 offending token index, u32 tokens buffered at the report
@@ -182,6 +183,7 @@ struct ExportError {
   std::string msg;
   uint8_t span_kind;
   int32_t a, b;
+  int32_t type;
 };
 
 class ExportCollect : public antlr4::BaseErrorListener {
@@ -196,12 +198,13 @@ class ExportCollect : public antlr4::BaseErrorListener {
   void syntaxError(antlr4::Recognizer* recognizer, antlr4::Token* offending,
                    size_t line, size_t column, const std::string& msg,
                    std::exception_ptr e) override {
-    ExportError err{idx(line), idx(column), msg, 0, -1, -1};
+    ExportError err{idx(line), idx(column), msg, 0, -1, -1, -2};
     auto* lexer = dynamic_cast<antlr4::Lexer*>(recognizer);
     if (offending) {
       err.span_kind = 1;
       err.a = sidx(offending->getStartIndex());
       err.b = sidx(offending->getStopIndex());
+      err.type = static_cast<int32_t>(offending->getType());
     } else if (lexer) {
       err.span_kind = 2;
       err.a = sidx(lexer->tokenStartCharIndex);
@@ -283,7 +286,7 @@ JOLT_EXPORT int32_t jolt_parser_export(const uint8_t* src, size_t len,
 
     Out o;
     o.buf.insert(o.buf.end(), {'J', 'P', 'X', '1'});
-    o.u32(1);
+    o.u32(2);
     o.u32(errors.errors.empty() ? 0 : 1);
     const auto& rules = parser.getRuleNames();
     o.u32(idx(rules.size()));
@@ -308,6 +311,7 @@ JOLT_EXPORT int32_t jolt_parser_export(const uint8_t* src, size_t len,
       o.u8(e.span_kind);
       o.u32(static_cast<uint32_t>(e.a));
       o.u32(static_cast<uint32_t>(e.b));
+      o.u32(static_cast<uint32_t>(e.type));
     }
     o.u8(errors.failure_kind);
     o.u8(errors.no_viable);

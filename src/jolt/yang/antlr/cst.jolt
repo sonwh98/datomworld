@@ -32,7 +32,9 @@
 ;; =============================================================================
 
 (def ^:private platform
-  (let [os (str/lower-case (System/getProperty "os.name"))
+  ;; jolt's os.name/os.arch shim can answer nil (udp_probe.clj); nil reads as
+  ;; Linux, as jolt.socket.native/os decides, and as x86_64
+  (let [os (str/lower-case (or (System/getProperty "os.name") ""))
         arch (System/getProperty "os.arch")]
     (str (if (str/includes? os "mac") "darwin" "linux") "-"
          (if (#{"aarch64" "arm64"} arch) "arm64" "x86_64"))))
@@ -118,7 +120,7 @@
             (refuse "bad magic" {:length length}))
         _ (vreset! pos 4)
         layout (u32)
-        _ (when-not (= 1 layout) (refuse "unknown layout" {:layout layout}))
+        _ (when-not (= 2 layout) (refuse "unknown layout" {:layout layout}))
         status (u32)
         rules (counted text)
         symbolic (counted text)
@@ -135,7 +137,7 @@
         errors (counted
                  (fn []
                    {:line (u32), :column (u32), :message (text),
-                    :span-kind (u8), :a (i32), :b (i32)}))
+                    :span-kind (u8), :a (i32), :b (i32), :type (i32)}))
         failure {:kind (u8), :no-viable (u8), :index (i32), :buffered (u32)}
         tokens (counted (fn [] {:type (i32), :index (i32), :start (i32),
                                 :stop (i32)}))]
