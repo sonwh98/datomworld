@@ -12,3 +12,7 @@ Never a copy of `yin.repl`, `yin.vm.engine` or `dao.jing.cbor`.
 
 Empty at J0a round 1: the baseline closure (`yang.antlr.export`,
 `yang.antlr.packet`) needs no host override.
+
+- `yang/antlr/cst.jolt` (J0c round 2): the native-library facade over the
+  ANTLR4 C++ Python3 parser (§7.3). Its contract is the JVM oracle corpus in
+  `src/dev/jolt_j0c_parity.clj`.
