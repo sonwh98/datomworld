@@ -40,6 +40,13 @@
     ;; verified on shiva (Ubuntu 24.04.5): "cannot find -lncurses" until
     ;; this was installed (docs/orchestrator-log.md, J0b-on-shiva entry)
     "libncurses-dev" "mise Chez source build (link)"
+    ;; Chez's expression editor (c/expeditor.c:1189-1212) reads the X11
+    ;; clipboard; verified on jupiter (Ubuntu 24.04.5): the build failed with
+    ;; "c/expeditor.c:1191: fatal error: X11/Xlib.h: No such file or
+    ;; directory" until this was installed (shiva had the headers already,
+    ;; so it never failed there). Chez's configure also offers --disable-x11
+    ;; and --disable-curses, which the mise plugin does not pass.
+    "libx11-dev" "mise Chez source build (compile, X11 clipboard in the editor)"
     ;; the same Chez source build compiles and links C (the failing step
     ;; above was its link); present on shiva, so not independently shown
     "gcc" "mise Chez source build (C compiler)"
