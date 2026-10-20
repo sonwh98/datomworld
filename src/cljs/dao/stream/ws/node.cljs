@@ -34,6 +34,7 @@
   (:require ["ws" :as ws-package]
             [clojure.string :as str]
             [dao.stream.transit :as transit]
+            [dao.stream.codec :as codec]
             [dao.stream.ws :as ws]))
 
 
@@ -65,7 +66,7 @@
    not a downgrade."
   [codecs offered]
   (some (fn [codec]
-          (when (some #(= (:ws/subprotocol codec) %) offered)
+          (when (some #(= (codec/codec-name codec) %) offered)
             codec))
         codecs))
 
@@ -207,7 +208,7 @@
   (let [max-frame (:ws/max-frame-bytes adapter)
         socket (new (.-WebSocket ws-package)
                     (socket-url descriptor)
-                    (get-in adapter [:ws/codec :ws/subprotocol] ws/subprotocol)
+                    (if-some [c (:ws/codec adapter)] (codec/codec-name c) ws/subprotocol)
                     #js {:maxPayload (or max-frame ws-default-max-payload)})]
     (wire! socket adapter)
     (raw-socket socket)))
@@ -247,7 +248,7 @@
               :or {host "127.0.0.1" port 0}}]
    (let [clock (or clock #(js/Date.now))
          codecs (vec (or (seq codecs) default-codecs))
-         supported (set (map :ws/subprotocol codecs))
+         supported (set (map codec/codec-name codecs))
          accept! (or accept!
                      (fn [path socket now]
                        (ws/accept-connection! endpoint path socket now)))
@@ -277,7 +278,7 @@
                                             (cb false 400
                                                 "dao.stream/subprotocol-required")))
                           :handleProtocols (fn [protocols _request]
-                                             (:ws/subprotocol
+                                             (codec/codec-name
                                                (negotiate codecs
                                                           (array-seq (js/Array.from protocols)))))})]
      (.on ^js server "error" (fn [_error] (when (fn? on-error) (on-error))))

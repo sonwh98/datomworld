@@ -23,6 +23,7 @@
    composition's `:ws/max-frame-bytes`."
   (:require [clojure.string :as str]
             [dao.stream.transit :as transit]
+            [dao.stream.codec :as codec]
             [dao.stream.ws :as ws]
             [org.httpkit.server :as http]
             [ring.websocket.protocols :as wsp])
@@ -58,7 +59,7 @@
    not a downgrade."
   [codecs offered]
   (some (fn [codec]
-          (when (some #(= (:ws/subprotocol codec) %) offered)
+          (when (some #(= (codec/codec-name codec) %) offered)
             codec))
         codecs))
 
@@ -330,8 +331,7 @@
             ((:error! adapter))))
         builder (-> (HttpClient/newHttpClient)
                     (.newWebSocketBuilder)
-                    (.subprotocols (get-in adapter [:ws/codec :ws/subprotocol]
-                                           ws/subprotocol)
+                    (.subprotocols (if-some [c (:ws/codec adapter)] (codec/codec-name c) ws/subprotocol)
                                    (make-array String 0)))
         future (.buildAsync builder (URI/create (socket-url descriptor)) listener)]
     (swap! connection assoc :future future)
@@ -374,7 +374,7 @@
         [_ socket]
         (try
           (let [target (or (canonical-path (:uri request)) (:uri request))
-                result (accept! target (server-socket socket (:ws/subprotocol codec))
+                result (accept! target (server-socket socket (codec/codec-name codec))
                                 (clock))]
             (when-let [handle (:ws/handle result)]
               (reset! adapter (ws/adapter handle))))
@@ -427,7 +427,7 @@
                       (and (:websocket? request) negotiated)
                       {:ring.websocket/listener
                        (listener request accept! clock deposit! negotiated)
-                       :ring.websocket/protocol (:ws/subprotocol negotiated)}
+                       :ring.websocket/protocol (codec/codec-name negotiated)}
 
                       (:websocket? request)
                       (do

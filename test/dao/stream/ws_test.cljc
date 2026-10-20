@@ -395,7 +395,7 @@
 
 (deftest a-frame-over-max-frame-bytes-is-a-protocol-failure-before-decode
   (let [decodes (atom 0)
-        codec (update transit/profile :ws/decode
+        codec (update transit/profile :dao.stream.codec/decode
                       (fn [decode] (fn [p] (swap! decodes inc) (decode p))))
         small (frame 1)
         {:keys [handle adapter traffic closes]}

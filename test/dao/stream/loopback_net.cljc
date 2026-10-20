@@ -7,7 +7,8 @@
    test pumps, so every host runs the same composition
    deterministically.  `blackhole!` drops the frames toward one side;
    `flood!` delivers unrelated value frames to the clients."
-  (:require [dao.stream.transit :as transit]
+  (:require [dao.stream.codec :as codec]
+            [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]))
 
 
@@ -138,7 +139,11 @@
                                   :close! (fn [code reason]
                                             (enqueue! net
                                                       #(close-conn!
-                                                         conn code reason)))}
+                                                         conn code reason)))
+                                  ;; The negotiated subprotocol, as a real host
+                                  ;; names it; absent means the Transit default.
+                                  :ws/subprotocol (when-some [c (:ws/codec client)]
+                                                    (codec/codec-name c))}
                           r ((:accept! l) (:ws/path descriptor) socket 0)]
                       (when-some [h (:ws/handle r)]
                         (reset! (:server conn) (ws/adapter h))

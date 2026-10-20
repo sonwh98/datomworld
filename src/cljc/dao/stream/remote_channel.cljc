@@ -291,7 +291,9 @@
   "Compose the serving end of `spec` and bind its listener through the
    host assembly's `:bind!`.  `:table` and `:names` are the mirror's
    table and name map (dao.stream.remote.md section 2), passed through
-   untouched.  `:bounds` merges over `production-bounds`.
+   untouched.  `:bounds` merges over `production-bounds`.  The optional
+   `:codecs` (a vector of codec profiles) is the wire profiles the
+   endpoint serves; omitted, `dao.stream.ws`'s default (Transit) applies.
 
    Each table entry declares a non-empty subset of `#{:reader :writer}`
    as its `:surface`, validated against its handle's own natures: a
@@ -316,7 +318,7 @@
    `::bind-failed` (`:bind!` threw or answered an outcome that is not
    ok; `:detail` nil).  An invalid bound is the composition error the
    validating layer throws, before anything listens."
-  [{:keys [spec host table names bounds]}]
+  [{:keys [spec host table names bounds codecs] :as config}]
   (let [b (merge production-bounds bounds)]
     (cond
       (not (and (ws-transport? spec) (fn? (:bind! host))))
@@ -348,7 +350,8 @@
                                                :ack-admission handoff-admission
                                                :ack-cursor (:ack-cursor slot)})
                                             pool)
-                               :expiry-ms (:expiry-ms b)}))
+                               :expiry-ms (:expiry-ms b)}
+                              (when (contains? config :codecs) {:codecs codecs})))
             acceptor (ws-project/make-acceptor
                        {:endpoint endpoint
                         :slots (mapv (fn [slot]
@@ -388,6 +391,7 @@
                       :bind-port (or (:bind-port spec) (:port spec))
                       :path (:path spec)
                       :ws/max-frame-bytes (:ws/max-frame-bytes b)
+                      :codecs (:codecs endpoint)
                       :accept! (fn [request-path socket now]
                                  (ws/accept-connection!
                                    endpoint request-path socket now))
@@ -799,7 +803,7 @@
    Without `:connect!`, or for a transport other than :ws, `{:status
    :refused :reason ::no-transport}`.  An invalid bound is the
    composition error the validating layer throws."
-  [{:keys [spec host bounds events identities now table names] n :name :as opts}]
+  [{:keys [spec host bounds events identities now table names codec] n :name :as opts}]
   (let [b (merge production-bounds bounds)]
     (cond
       (table-refusal (or table {}) names)
@@ -824,7 +828,8 @@
                       (merge (select-keys b ws-bound-keys)
                              {:traffic (writer-target traffic)
                               :admission (admission capacity)
-                              :connect! (:connect! host)}))
+                              :connect! (:connect! host)}
+                             (when codec {:codec codec})))
             d {:status :resolving
                :spec spec
                :descriptor (descriptor-of spec)

@@ -8,6 +8,8 @@
    and the session bounds."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
+            [dao.stream.cbor :as cbor]
+            [dao.stream.transit :as transit]
             [dao.stream.loopback-net :as net]
             [dao.stream.remote-channel :as rc]
             [dao.stream.ringbuffer :as ringbuffer]
@@ -191,6 +193,44 @@
       (is (= (identity-of (:source w)) (:identity @d)))
       (is (= (identity-of (:source w)) (identity-of h)))
       (read-past-value w 0 h))))
+
+
+(deftest a-spec-codec-is-honored-end-to-end
+  (testing "a cbor-only server and a cbor dial attach and read"
+    (let [lnet (net/loopback-net)
+          source (toy)
+          server (rc/serve {:spec spec :host (host-of lnet)
+                            :table {(identity-of source) {:handle source :surface #{:reader}}}
+                            :names {n (identity-of source)}
+                            :codecs [cbor/profile]})
+          d (rc/dial {:spec spec :codec cbor/profile :host (host-of lnet) :name n})
+          w {:net lnet :source source :server (atom server) :dials [(atom d)]}]
+      (is (= [cbor/profile] (:codecs (:endpoint server))))
+      (let [h (attach! w 0)]
+        (is (= :attached (:status @(first-dial w))) (pr-str (:outcome @(first-dial w))))
+        (read-past-value w 0 h))))
+  (testing "a default-codec dial against a cbor-only server does not attach"
+    (let [lnet (net/loopback-net)
+          source (toy)
+          w {:net lnet :source source
+             :server (atom (rc/serve {:spec spec :host (host-of lnet)
+                                      :table {(identity-of source) {:handle source :surface #{:reader}}}
+                                      :names {n (identity-of source)}
+                                      :codecs [cbor/profile]}))
+             :dials [(atom (dial lnet))]}]
+      (attach! w 0)
+      (is (not= :attached (:status @(first-dial w)))))))
+
+
+(deftest an-explicit-empty-codecs-is-refused-and-omitted-defaults-to-transit
+  (let [lnet (net/loopback-net)
+        source (toy)
+        base {:spec spec :host (host-of lnet)
+              :table {(identity-of source) {:handle source :surface #{:reader}}}
+              :names {n (identity-of source)}}]
+    (is (thrown? #?(:cljd Object :clj Exception :cljs :default)
+          (rc/serve (assoc base :codecs []))))
+    (is (= [transit/profile] (:codecs (:endpoint (rc/serve base)))))))
 
 
 (deftest production-bounds-reach-every-layer

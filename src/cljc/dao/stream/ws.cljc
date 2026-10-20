@@ -14,6 +14,7 @@
    client offers exactly its selected subprotocol, an endpoint serves exactly
    the profiles it was composed with — so no silent downgrade exists."
   (:require [dao.stream :as stream]
+            [dao.stream.codec :as codec]
             [dao.stream.transit :as transit]
             [clojure.string :as str]))
 
@@ -30,12 +31,7 @@
    predicate for its domain, and its encoder and decoder over host payloads
    (strings for text profiles, host bytes for binary profiles)."
   [x]
-  (and (map? x)
-       (string? (:ws/subprotocol x))
-       (contains? #{:text :binary} (:ws/frame-kind x))
-       (fn? (:ws/portable-value? x))
-       (fn? (:ws/encode x))
-       (fn? (:ws/decode x))))
+  (codec/profile? x))
 
 
 (defn checked-codec
@@ -81,7 +77,7 @@
         (integer? (:ws/port x))
         (pos? (:ws/port x))
         (canonical-path? (:ws/path x))
-        ((:ws/portable-value? codec) x))))
+        ((codec/portable-value-fn codec) x))))
 
 
 (defn servable-descriptor?
@@ -280,10 +276,10 @@
       (cond
         (= :closed phase) (outcome :dao.stream/closed)
         (not= :open phase) (outcome :dao.stream/full)
-        (not ((:ws/portable-value? codec) value)) (outcome :dao.stream/invalid-value)
+        (not ((codec/portable-value-fn codec) value)) (outcome :dao.stream/invalid-value)
         :else (let [payload (try
-                              ((:ws/encode codec) {:ws/frame :ws/value
-                                                   :ws/value value})
+                              ((codec/encode-fn codec) {:ws/frame :ws/value
+                                                        :ws/value value})
                               (catch #?(:cljd Object :clj Throwable :cljs :default) _
                                 ::unencodable))]
                 (if (= ::unencodable payload)
@@ -408,10 +404,10 @@
       (let [size (payload-size payload)]
         (if (and max-frame-bytes (> size max-frame-bytes))
           (frame-too-large! state attachment)
-          (let [frame ((:ws/decode codec) payload)]
+          (let [frame ((codec/decode-fn codec) payload)]
             (if-not (and (= :ws/value (:ws/frame frame))
                          (contains? frame :ws/value)
-                         ((:ws/portable-value? codec) (:ws/value frame)))
+                         ((codec/portable-value-fn codec) (:ws/value frame)))
               (protocol-failure! state attachment)
               (let [value (:ws/value frame)
                     action (volatile! nil)]
@@ -445,7 +441,7 @@
    profile is a protocol failure — the transport reads the frame's declared
    kind, never its content."
   [handle text]
-  (if (= :text (:ws/frame-kind (.-codec ^WsHandle handle)))
+  (if (= :text (codec/frame-kind (.-codec ^WsHandle handle)))
     (deliver! handle text)
     (protocol-failure! (.-state ^WsHandle handle)
                        (.-attachment ^WsHandle handle))))
@@ -456,7 +452,7 @@
    byte[] on the JVM, Uint8Array on ClojureScript, Uint8List on Dart.  A
    binary frame on a text profile is a protocol failure."
   [handle bytes]
-  (if (= :binary (:ws/frame-kind (.-codec ^WsHandle handle)))
+  (if (= :binary (codec/frame-kind (.-codec ^WsHandle handle)))
     (deliver! handle bytes)
     (protocol-failure! (.-state ^WsHandle handle)
                        (.-attachment ^WsHandle handle))))
@@ -560,7 +556,7 @@
       (throw (ex-info "WebSocket endpoint needs handoff slots" {:config config})))
     (when-not (and (seq codecs) (every? codec-profile? codecs))
       (throw (ex-info "WebSocket endpoint needs at least one codec profile" {:codecs codecs})))
-    (when-not (apply distinct? (map :ws/subprotocol codecs))
+    (when-not (apply distinct? (map codec/codec-name codecs))
       (throw (ex-info "WebSocket endpoint codec subprotocols must be distinct" {:codecs codecs})))
     (when-not (= :portable-values (:value-domain control-admission))
       (throw (ex-info "endpoint control medium must carry portable values" {:admission control-admission})))
@@ -580,7 +576,7 @@
     {:config config
      :bounds bounds
      :codecs codecs
-     :codec-index (zipmap (map :ws/subprotocol codecs) codecs)
+     :codec-index (zipmap (map codec/codec-name codecs) codecs)
      :state (atom {:control control-target
                    :descriptor descriptor
                    :slots (mapv (fn [slot]
