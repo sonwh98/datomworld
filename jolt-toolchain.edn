@@ -1,0 +1,52 @@
+;; The jolt host lane's toolchain declaration
+;; (docs/design/yin.repl-jolt-implementation.md §6.1, §6.4).
+;;
+;; `bb bootstrap:jolt` materializes exactly this into build/tools/jolt and
+;; verifies it; ordinary runs never pull. Changing any pin here goes through
+;; the upgrade gate (`qualify:jolt-upgrade`, §6.4), never silently.
+{:jolt
+ {:origin "https://github.com/jolt-lang/jolt"
+  :sha "96d7b8662d7c491722445bf976b2e25e36ce5d63"
+  :committed "2026-10-19T08:26:43-04:00"
+  ;; ruling 4 (§13.4): kept although untagged
+  :tag :none
+  :nearest-release-tag {:tag "v0.8.23"
+                        :sha "a0ac71c3f638fe55158bd01b4ecbb0dd3d7545e5"}
+  :describe "vnightly-16-g96d7b866"
+  :dir "build/tools/jolt"
+  ;; recursive submodule SHAs at :sha (git submodule status --recursive);
+  ;; bootstrap refuses a checkout whose submodules differ
+  :submodules {"vendor/cli" "14f07644080070246974942415a104228d9a6b04"
+               "vendor/clojure-test-suite" "489b6743e8421687ef96cec557830acf258d1886"
+               "vendor/fs" "5b273b8a943a622593fbc85fca6761c5a39d6d66"
+               "vendor/grenadine" "688e0ed6618582eccc8c8b745243ceac92835e03"
+               "vendor/irregex" "c948a704fc732914a243c1643bfe359913d11c7b"
+               "vendor/process" "43bdd65e189f2ccacc56662c53a21f5470ff1500"
+               "vendor/sci" "32d62a5136ad3dc148588752f5bcc4cc30b14752"}
+  ;; proposed default 2 (§13.2): none recorded, so none applied
+  :patches []}
+
+ ;; Provisioned by mise from the exact pins in mise.toml. JOLT_CHEZ is always
+ ;; set explicitly (build/tools/jolt-env.sh), never left to jolt's PATH search.
+ :chez {:version "10.4.1"
+        :provider :mise
+        :mise-tool "chezscheme"
+        :threaded true
+        :binary "bin/scheme"}
+ :cmake {:version "4.4.4"
+         :provider :mise
+         :mise-tool "cmake"}
+
+ ;; Recorded at J0a round 1 on the platforms actually run.
+ :observed
+ {:macos-arm64 {:os "macOS 26.6.2 (25G83)"
+                :chez-path "~/.local/share/mise/installs/chezscheme/10.4.1/bin/scheme"
+                :cmake-path "~/.local/share/mise/installs/cmake/4.4.4/cmake-4.4.4-macos-universal/CMake.app/Contents/bin/cmake"
+                :cc "Apple clang version 21.0.0 (clang-2100.1.1.101)"}
+  ;; shiva.stigmergy.systems: not yet provisioned or run
+  :linux-x86_64 nil}
+
+ ;; Not yet declared (later J0a rounds / J1, §6.1-6.3): libblake3 and ANTLR4
+ ;; C++ runtime source revisions and hashes, build output digests, libcrypto
+ ;; path and version per platform.
+ :native {}}

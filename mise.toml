@@ -5,6 +5,10 @@ zprint = "1.3.0"
 babashka = "latest"
 clojure = "1.12.4.1602"
 node = "25.6.1"
+# jolt host lane (jolt-toolchain.edn): exact pins, never "latest"; a change of
+# either goes through the jolt upgrade gate
+chezscheme = "10.4.1"
+cmake = "4.4.4"
 android-sdk = "latest"
 flutter = { version = "latest", platforms = """
 [linux-x64]
