@@ -2,7 +2,7 @@
   "Build-time generation of the grammars-v4 parsers for every host target
    (docs/design/yang.antlr.md §4.2). Reproducible from clean:
 
-     clj -M:antlr-gen [--grammar g] [--target java|javascript|dart]
+     clj -M:antlr-gen [--grammar g] [--target java|javascript|dart|cpp]
                                  ; or: bb gen:antlr
 
    1. Read the vendored grammars (antlr/<grammar>/*.g4, MIT, committed) and
@@ -153,6 +153,13 @@
     (subs base (str/last-index-of base "."))))
 
 
+(defn- target-exts
+  "The source extensions a target keeps and digests: its :exts when given
+   (C++ keeps headers beside sources), else its helpers' extension."
+  [target]
+  (or (:exts target) [(helper-ext target)]))
+
+
 (defn- target-dir
   "Where a target's generated files (and copied helpers) land."
   ^java.io.File [{:keys [out package]}]
@@ -187,7 +194,7 @@
 (defn- run-antlr!
   [{:keys [grammar]} {:keys [flags helpers output-patches] :as target} gen-in]
   (let [out (target-dir target)
-        ext (helper-ext target)]
+        exts (target-exts target)]
     (delete-tree! (io/file (:out target)))
     (.mkdirs out)
     (let [tool (org.antlr.v4.Tool.
@@ -208,16 +215,16 @@
             :let [f (io/file gen-in (last (str/split h #"/")))]]
       (io/copy f (io/file out (.getName f))))
     (doseq [f (.listFiles out)
-            :when (not (str/ends-with? (.getName f) ext))]
+            :when (not-any? #(str/ends-with? (.getName f) %) exts)]
       (.delete f))
     out))
 
 
 (defn- generated-digests
-  [out ext]
+  [out exts]
   (into (sorted-map)
         (for [f (.listFiles (io/file out))
-              :when (str/ends-with? (.getName f) ext)]
+              :when (some #(str/ends-with? (.getName f) %) exts)]
           [(.getName f)
            (blake3 (java.nio.file.Files/readAllBytes (.toPath f)))])))
 
@@ -256,7 +263,7 @@
   [m src-dir [tname target]]
   (let [gen-in (stage-sources! m target src-dir)
         out (run-antlr! m target gen-in)
-        digests (generated-digests out (helper-ext target))
+        digests (generated-digests out (target-exts target))
         non-ascii (non-ascii-files out)]
     (spit (io/file out "generated-digests.edn")
           (with-out-str (pprint/pprint digests)))

@@ -46,7 +46,31 @@
   ;; shiva.stigmergy.systems: not yet provisioned or run
   :linux-x86_64 nil}
 
- ;; Not yet declared (later J0a rounds / J1, §6.1-6.3): libblake3 and ANTLR4
- ;; C++ runtime source revisions and hashes, build output digests, libcrypto
- ;; path and version per platform.
- :native {}}
+ ;; Vendored native sources (§6.1, Q4): fetched by `bb build:jolt-native`
+ ;; only when absent from build/native/src, accepted only at the pinned
+ ;; SHA-256, built with the mise-pinned CMake into build/native/<platform>/.
+ ;; Nothing downloads during namespace loading. Not yet declared: libblake3
+ ;; and the libcrypto path/version per platform.
+ :native
+ {:antlr4-cpp-runtime
+  {:version "4.13.2"
+   :license "BSD-3-Clause"
+   ;; the official C++ runtime source distribution (antlr4 doc/cpp-target.md);
+   ;; the GitHub release carries no C++ asset
+   :url "https://www.antlr.org/download/antlr4-cpp-runtime-4.13.2-source.zip"
+   :sha256 "0ed13668906e86dbc0dcddf30fdee68c10203dea4e83852b4edb810821bee3c4"
+   :upstream {:repo "https://github.com/antlr/antlr4"
+              :tag "4.13.2"
+              :tag-object "2ac185af855ff39b4b8c41854b756767099c356f"
+              :commit "cc82115a4e7f53d71d9d905caa2c2dfa4da58899"
+              :path "runtime/Cpp"}
+   ;; static, position-independent: linked into the one wrapper dylib that
+   ;; jolt loads, so no second library or rpath is resolved at load time.
+   ;; Tests off: ANTLR_BUILD_CPP_TESTS=ON downloads googletest at configure
+   ;; time.
+   :cmake-flags ["-DCMAKE_BUILD_TYPE=Release"
+                 "-DANTLR_BUILD_CPP_TESTS=OFF"
+                 "-DANTLR_BUILD_SHARED=OFF"
+                 "-DANTLR_BUILD_STATIC=ON"
+                 "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+                 "-DCMAKE_CXX_STANDARD=17"]}}}

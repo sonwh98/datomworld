@@ -15,6 +15,11 @@
            (:exit (shell {:continue true} "sh" "-c"
                          ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt src/dev/jolt_smoke.clj")))}
 
+  build:jolt-native
+  {:doc "Fetch (by pinned SHA-256, only when absent) and build the jolt-toolchain.edn :native sources with the mise-pinned CMake into build/native/<platform>/"
+   :task (System/exit
+           (:exit (shell {:continue true} "bb" "src/dev/jolt_native.clj")))}
+
   build:yin-repl-node
   {:doc "Compile the Node yin.repl (shadow-cljs build :yin-repl) to target/yin-repl.js"
    ;; The Node lanes (test:cljs and its variants) depend on this task, so the
