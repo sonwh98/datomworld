@@ -1,6 +1,7 @@
 (ns dao.stream.transit-test
   (:require [clojure.test :refer [deftest is testing]]
             #?@(:cljd [[dao.jing :as jing]])
+            [dao.stream.codec :as numeric]
             [dao.stream.transit :as codec]))
 
 
@@ -39,14 +40,14 @@
 
 (deftest portable-number-domain-test
   (testing "only documented safe integers and finite doubles cross hosts"
-    (doseq [value [(- codec/max-safe-integer)
-                   codec/max-safe-integer
+    (doseq [value [(- numeric/max-safe-integer)
+                   numeric/max-safe-integer
                    -1.25
                    0.5
                    1.0]]
       (is (codec/portable-value? value) (str value " is portable")))
-    (doseq [value [(inc codec/max-safe-integer)
-                   (dec (- codec/max-safe-integer))
+    (doseq [value [(inc numeric/max-safe-integer)
+                   (dec (- numeric/max-safe-integer))
                    #?(:clj Double/NaN :cljs js/NaN :cljd ##NaN)
                    #?(:clj Double/POSITIVE_INFINITY
                       :cljs js/Infinity

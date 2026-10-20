@@ -6,41 +6,11 @@
    handlers and metadata are not part of the wire contract."
   (:require
     [dao.stream :as stream]
+    [dao.stream.codec :as codec]
     #?(:cljd [dao.stream.transit.cljd :as transit]
        :clj [cognitect.transit :as transit]
        :cljs [cognitect.transit :as transit]
        :default [cognitect.transit :as transit])))
-
-
-(def max-safe-integer 9007199254740991)
-(def min-safe-integer (- max-safe-integer))
-
-
-(defn- finite-number?
-  [x]
-  ;; ClojureDart supplies both :clj and :cljd reader features, so its branch
-  ;; must come first in every mixed-host reader conditional in this namespace.
-  #?(:cljd (and (number? x) (.-isFinite ^num x))
-     :clj (or (instance? java.lang.Byte x)
-              (instance? java.lang.Short x)
-              (instance? java.lang.Integer x)
-              (instance? java.lang.Long x)
-              (and (instance? java.lang.Double x)
-                   (Double/isFinite ^Double x)))
-     :cljs (and (number? x) (js/isFinite x))
-     :default false))
-
-
-(defn safe-number?
-  "True for the cross-host numeric domain: finite and within the safe
-   integer bounds.  Public so `dao.stream.cbor` can state the same numeric
-   rule the Transit profile states."
-  [x]
-  (and (finite-number? x)
-       (if (integer? x)
-         (<= min-safe-integer x max-safe-integer)
-         (and (number? x) (<= (double min-safe-integer) x
-                              (double max-safe-integer))))))
 
 
 (declare portable-value?)
@@ -68,7 +38,7 @@
                  (transit/quoted? x)
                  (transit/link? x))
        :default false) false
-    (number? x) (safe-number? x)
+    (number? x) (codec/safe-number? x)
     (map? x) (portable-map? x)
     (vector? x) (every? portable-value? x)
     (list? x) (every? portable-value? x)
@@ -138,7 +108,13 @@
    message per value, the `dao.stream.transit-json` subprotocol, and the
    portable-value domain above.  A profile is plain composition data; the
    transport never special-cases it."
-  {:ws/subprotocol "dao.stream.transit-json"
+  {:dao.stream.codec/name "dao.stream.transit-json"
+   :dao.stream.codec/frame-kind :text
+   :dao.stream.codec/portable-value? portable-value?
+   :dao.stream.codec/encode encode
+   :dao.stream.codec/decode decode
+   :dao.stream.codec/bytes? false
+   :ws/subprotocol "dao.stream.transit-json"
    :ws/frame-kind :text
    :ws/portable-value? portable-value?
    :ws/encode encode

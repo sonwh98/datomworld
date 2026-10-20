@@ -5,8 +5,7 @@
    Boring on the JVM and must not differ per host."
   (:require ["dart:core" :as core]
             [clojure.test :refer [deftest is]]
-            [dao.stream.cbor :as cbor]
-            [dao.stream.transit :as transit])
+            [dao.stream.cbor :as cbor])
   (:import ["dart:typed_data" Uint8List]))
 
 
@@ -181,10 +180,3 @@
     (doseq [hex rejects]
       (is (thrown? Object (cbor/decode (from-hex hex)))
           (str "decode accepted " hex)))))
-
-
-(deftest transit-domain-stays-a-subset-of-the-cbor-domain
-  (let [base [nil true "s" :k 'k 1 -1 1.5 {:a [1] :b #{2}}]]
-    (doseq [value base]
-      (is (transit/portable-value? value))
-      (is (cbor/portable-value? value)))))

@@ -8,7 +8,7 @@
    survive into the result. This is the parent namespace's own file, sitting
    alongside the `dao.data.*` sub-namespaces; neither depends on the other."
   (:require [dao.stream :as stream]
-            [dao.stream.transit :as transit]))
+            [dao.stream.codec :as codec]))
 
 
 (defn tag
@@ -55,7 +55,7 @@
    rather than preserved. `portable-value?` is the actual check the v2 wire
    boundary applies, so this can't drift from the real contract."
   [x]
-  (if (transit/portable-value? x)
+  (if (codec/safe-number? x)
     {:dao.data/type :number :dao.data/value x :dao.data/truncated? false}
     {:dao.data/type :number :dao.data/value (str x) :dao.data/truncated? true}))
 

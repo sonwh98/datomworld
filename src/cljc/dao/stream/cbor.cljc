@@ -1,5 +1,5 @@
 (ns dao.stream.cbor
-  "The DaoStream v2 CBOR wire codec: the binary twin of `dao.stream.transit`.
+  "The DaoStream v2 CBOR wire codec: the binary twin of the Transit codec.
 
    The portable domain here is stream-owned and deliberately NOT Jing's: it
    keeps the Transit profile's base domain (nil, booleans, strings, safe
@@ -17,7 +17,7 @@
    pub.dev `cbor` package (6.5.1) behind the same interface on Dart.  The
    byte-level contract both implement is `dao.stream.cbor.boring`'s doc."
   (:require [clojure.string :as str]
-            [dao.stream.transit :as transit]
+            [dao.stream.codec :as codec]
             #?(:cljd [dao.stream.cbor.cljd :as impl]
                :default [dao.stream.cbor.boring :as impl])))
 
@@ -61,7 +61,7 @@
     (or (true? x) (false? x) (string? x)) true
     (impl/byte-payload? x) true
     (or (keyword? x) (symbol? x)) (portable-identifier? x)
-    (number? x) (transit/safe-number? x)
+    (number? x) (codec/safe-number? x)
     (map? x) (and (not (record? x)) (portable-meta? x)
                   (every? (fn [[k v]] (and (portable-value? k) (portable-value? v))) x))
     (vector? x) (and (portable-meta? x) (every? portable-value? x))
@@ -77,13 +77,9 @@
     {:error :non-portable-value :value x}))
 
 
-(defn byte-payload?
-  "True for a host byte payload (byte[] / Uint8Array / Uint8List) — the
-   value the profile writes as a CBOR byte string. Public so the Jing
-   boundary adapter can recognize the carrier on the wire without knowing
-   the host."
-  [x]
-  (impl/byte-payload? x))
+(def byte-payload?
+  "Forwards to `dao.stream.codec/host-bytes?`."
+  codec/host-bytes?)
 
 
 (defn- ensure-portable!
@@ -112,7 +108,13 @@
   "The `dao.stream.ws` codec profile for this codec: one binary WebSocket
    message per value, the `dao.stream.cbor` subprotocol, and the portable
    domain above."
-  {:ws/subprotocol "dao.stream.cbor"
+  {:dao.stream.codec/name "dao.stream.cbor"
+   :dao.stream.codec/frame-kind :binary
+   :dao.stream.codec/portable-value? portable-value?
+   :dao.stream.codec/encode encode
+   :dao.stream.codec/decode decode
+   :dao.stream.codec/bytes? true
+   :ws/subprotocol "dao.stream.cbor"
    :ws/frame-kind :binary
    :ws/portable-value? portable-value?
    :ws/encode encode

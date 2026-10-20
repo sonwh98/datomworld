@@ -410,8 +410,11 @@ codec (§6.1 point 3).
 **Law (P, enforced by a shared conformance test, slice C0):** for every value
 `v` in D, `((portable-value-fn p) v)` is true for every profile `p`, and
 `(decode-fn p)` of `(encode-fn p)` of `v` is equal to `v` under the rule
-above. The law test runs over both profiles on all three lanes with a corpus
-that includes, as **adversarial identifier and metadata cases** (review A1):
+above, **except on the baseline exception paths of §7.3**, where the law
+test asserts the frozen per-host outcome instead of the round trip (ruling
+R2, Architect, 2026-10-20; see "Baseline exception paths" below). The law
+test runs over both profiles on all three lanes with a corpus that includes,
+as **adversarial identifier and metadata cases** (review A1):
 
 - rejected by D, so outside the law and asserted rejected by D: the five
   identifiers of `cbor_test.cljc:171-175`, a vector whose metadata holds a
@@ -428,12 +431,62 @@ that includes, as **adversarial identifier and metadata cases** (review A1):
   {:line 1})`, a symbol with portable metadata both direct and nested in a
   vector and in a map, and a symbol whose metadata holds a symbol with
   portable metadata (equal after the trip on both; metadata preservation
-  additionally asserted for CBOR only, in CBOR's own test), `'(1 2)` (equal to `[1 2]` under `=` on both), a map whose keys
+  additionally asserted for CBOR only, in CBOR's own test), a map whose keys
   carry metadata, nested collections mixing all four kinds, the numeric
   boundaries `9007199254740991`, `-9007199254740991`, `1.0` against `1`;
+- inside D, asserted round-tripping on CBOR, and on Transit asserted to
+  produce the **frozen per-host outcome** of §7.3's `exceptions.edn`: `'(1 2)`
+  and a nested list such as `[1 '(2 #{3})]`. See "Baseline exception paths"
+  below for why these are not round-tripped on Transit;
 - asserted admitted by exactly one profile, to pin the documented asymmetry:
   `(keyword "a/b" "c")` Transit-only, host bytes CBOR-only, a vector with a
   host object in its metadata Transit-only.
+
+**Baseline exception paths (ruling R2, Architect, 2026-10-20).** The C0
+review (Codex, R2) found that the universal law as first stated contradicts
+the F0 freeze: at `master@212c45dd` Transit's JVM decoder turns list text
+into a non-list seq that its own post-decode gate (`ensure-portable!`,
+`transit.cljc:96-100`, via `list?` at `:74`) rejects, so
+`(decode (encode '(1 2)))` throws on the JVM while Node and Dart decode it
+to a vector (equal to the list under `=`). F0 pinned exactly that per-host
+behaviour in `test/fixtures/codec/transit/exceptions.edn` (entries `list`
+and `nested-list`). The ruling:
+
+1. **D is not narrowed.** Lists stay in D. The defect is in one host's
+   Transit decoder, not in the domain: CBOR round-trips lists on all three
+   lanes and Transit round-trips them on two. Removing lists from D would
+   encode a JVM Transit bug into the shared contract and silently shrink
+   what `dao.data` and future codecs may rely on.
+2. **Transit is not fixed in C0.** C0's acceptance is "no behaviour change
+   anywhere" (§7.1), and §7.3 says fixing an exception is a separate, named
+   change that moves the entry from `exceptions.edn` to `envelopes.edn`
+   and is reviewed as a behaviour change. A C0 that patched the decoder
+   would fail the frozen fixture on purpose and bury a behaviour change in
+   an expand slice.
+3. **The law is stated with the exception.** "For every value in D over
+   both profiles" is read as "for every value in D, on every path that is
+   not a baseline exception path recorded in `exceptions.edn` at F0". The
+   exception paths are, today, exactly the Transit list entries; the CBOR
+   `1.0` entry is a decode-side divergence on a payload no encoder in this
+   tree emits and does not touch the law's encode-then-decode shape.
+4. **What the law test must do for the excepted values.** For each value
+   on an exception path the test asserts, on CBOR, the full round trip
+   under the equality rule, and, on Transit, the frozen per-host outcome:
+   on the JVM the decode throws; on Node and Dart the decode is equal to
+   the value. Asserting the outcome, rather than merely dropping the values
+   from the corpus, is what keeps the law test from quietly passing after a
+   future decoder change in either direction; the fixture test of §7.3
+   pins the same fact from frozen text, and the two must agree. A test that
+   round-trips lists on CBOR only and leaves Transit to the fixture test
+   satisfies this ruling **provided** it names the exclusion and cites
+   `exceptions.edn`, as the engineer's C0 draft does; asserting the Transit
+   outcome in the law test as well is preferred and is accepted either way.
+5. **Exit.** When the Transit owner fixes the JVM list decode (separate
+   change, §7.3), the entries move to `envelopes.edn`, this paragraph's
+   list of exception paths becomes empty, and the law test's Transit
+   branch for lists becomes the plain round trip. Until then the law is
+   universal over D on CBOR and universal over D minus the recorded
+   exception paths on Transit, and the design claims nothing stronger.
 
 The transport judges values with the attachment's codec predicate, as today
 (`ws.cljc:283,414`).
@@ -625,13 +678,16 @@ tests and assertions per lane, with any added test listed by name.
 |       |          |                                                                             | slice report as the "old peer" for §7.3's bidirectional check.      |
 +-------+----------+-----------------------------------------------------------------------------+---------------------------------------------------------------------+
 | C0    | expand   | Create `dao.stream.codec`: accessors with dual lookup, `profile?` accepting | Three lanes green; counts unchanged plus the named new tests in     |
-|       |          | either complete key set, `safe-number?` and bounds moved from Transit, the  | `codec_test.cljc`: the §4.4 law corpus over both profiles, the      |
-|       |          | D predicate with `validate-portable`, `host-bytes?` (moved from             | adversarial identifier and metadata cases (collection and symbol    |
-|       |          | `cbor/byte-payload?`, which stays as a forwarding def). Both profiles gain  | metadata, direct and nested), the dual-key gate.                    |
-|       |          | the six `:dao.stream.codec/*` keys **beside** the five `:ws/*` keys.        | `transit-domain-stays-a-subset-of-the-cbor-domain` is replaced      |
-|       |          | `dao.stream.cbor`, `dao.stream.transit` and `dao.data` require the          | by the law test (its claim was false in general, §4.4).             |
-|       |          | contract; `cbor.cljc` drops its Transit require. No consumer changes.       | `grep dao.stream.transit src/` no longer hits `cbor.cljc` or        |
-|       |          |                                                                             | `data.cljc`. Fixtures pass. No behaviour change anywhere.           |
+|       |          | either complete key set, `safe-number?` and bounds moved from Transit, the  | `codec_test.cljc`: the §4.4 law corpus over both profiles **minus   |
+|       |          | D predicate with `validate-portable`, `host-bytes?` (moved from             | the baseline exception paths of §7.3** (today: Transit lists, which |
+|       |          | `cbor/byte-payload?`, which stays as a forwarding def). Both profiles gain  | round-trip on CBOR and are asserted to keep their frozen per-host   |
+|       |          | the six `:dao.stream.codec/*` keys **beside** the five `:ws/*` keys.        | Transit outcome; §4.4 ruling R2), the adversarial identifier and    |
+|       |          | `dao.stream.cbor`, `dao.stream.transit` and `dao.data` require the          | metadata cases (collection and symbol metadata, direct and nested), |
+|       |          | contract; `cbor.cljc` drops its Transit require. No consumer changes.       | the dual-key gate. `transit-domain-stays-a-subset-of-the-cbor-      |
+|       |          | Transit's decoder is **not** touched, even where it breaks the law (R2).    | domain` is replaced by the law test (its claim was false in         |
+|       |          |                                                                             | general, §4.4). `grep dao.stream.transit src/` no longer hits       |
+|       |          |                                                                             | `cbor.cljc` or `data.cljc`. Fixtures pass. No behaviour change      |
+|       |          |                                                                             | anywhere.                                                           |
 +-------+----------+-----------------------------------------------------------------------------+---------------------------------------------------------------------+
 | C1    | expand   | Consumers read profiles only through the accessors, keeping every default:  | Three lanes green; counts unchanged plus: `jing/stream_test`        |
 |       |          | `dao.stream.ws` (gate, `codec-index`, `distinct?` check, frame kind,        | cases for nil, `{}` and a **malformed** profile (a key missing,     |
@@ -866,6 +922,10 @@ behaviour change is C3's, and it is at composition time, not on the wire.
 +------------+---------------------------------------------------------------------------------------------------------------+------------------------------+
 | CD6        | Migration is expand, migrate, contract (F0, C0-C4, §7.1); no slice removes what another slice still           | Architect, 2026-10-20, r2    |
 |            | reads; the wire is proved by frozen fixtures and bidirectional old/new peers (§7.3), never by new/new suites. |                              |
++------------+---------------------------------------------------------------------------------------------------------------+------------------------------+
+| CD7        | The §4.4 law excepts the baseline exception paths frozen at F0 (§7.3 `exceptions.edn`; today Transit lists);  | Architect, 2026-10-20,       |
+|            | D is not narrowed and Transit's decoder is not touched in C0; the law test round-trips those values on CBOR   | ruling R2 on the C0 review   |
+|            | and asserts Transit's frozen per-host outcome. Fixing the decoder is a separate, named behaviour change.      |                              |
 +------------+---------------------------------------------------------------------------------------------------------------+------------------------------+
 
 ## 10. Open owner decisions
