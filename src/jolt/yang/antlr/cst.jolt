@@ -14,12 +14,18 @@
 
    The calls are synchronous and `:blocking`, as §7.5 prescribes.
 
-   J0c round 2 limits, disclosed: the native library is the one Python3
-   grammar the wrapper was built with, whatever the profile names; a worker
-   is the profile only (no native handle and no worker-owned DFA or
-   prediction-context caches yet, §7.4); the library loads with this
-   namespace, so a missing library fails the load rather than answering a
-   qualified unavailable-parser result (J5)."
+   A worker (§7.4) holds an opaque native handle that owns the lexer and
+   parser DFA vectors and prediction-context caches its parses use; the
+   generated ATNs are shared, immutable. Its owner disposes it with
+   `close-worker` (a jolt-only addition: the other hosts' workers are
+   collected). A worker serves one thread at a time; a concurrent call on the
+   same worker is refused by the wrapper (status -5) and throws here.
+
+   Disclosed limits: the native library is the one Python3 grammar the
+   wrapper was built with, whatever the profile names; the library loads with
+   this namespace, so a missing library fails the load rather than answering a
+   qualified unavailable-parser result (J5); a worker nobody closes keeps its
+   native caches until the process exits."
   (:require
     [clojure.string :as str]
     [jolt.ffi :as ffi]
@@ -49,20 +55,32 @@
 
 (ffi/load-library library)
 (ffi/defcfn ^:private c-export "jolt_parser_export"
-  [:pointer :size_t :pointer :pointer] :int :blocking)
+  [:pointer :pointer :size_t :pointer :pointer] :int :blocking)
 (ffi/defcfn ^:private c-free "jolt_parser_free" [:pointer] :void)
+(ffi/defcfn ^:private c-worker-new "jolt_parser_worker_new" [] :pointer)
+(ffi/defcfn ^:private c-worker-free "jolt_parser_worker_free" [:pointer] :void)
+(ffi/defcfn ^:private c-export-layout-version "jolt_parser_export_layout_version" [] :int)
+
+
+(def ^:private export-layout 2)
+
+
+(when-not (= export-layout (c-export-layout-version))
+  (throw (ex-info "jolt parser library writes another export layout"
+                  {:library library, :expected export-layout,
+                   :actual (c-export-layout-version)})))
 
 
 (defn- call-export
   "The wrapper's status and its buffer, copied into jolt memory and freed."
-  [^bytes src]
+  [handle ^bytes src]
   (let [n (alength src)
         in (ffi/alloc (max 1 n))
         out-cell (ffi/alloc :pointer)
         len-cell (ffi/alloc :size_t)]
     (try
       (when (pos? n) (ffi/write-array in src))
-      (let [status (c-export in n out-cell len-cell)
+      (let [status (c-export handle in n out-cell len-cell)
             p (ffi/read out-cell :pointer)
             len (ffi/read len-cell :size_t)]
         (try
@@ -120,7 +138,7 @@
             (refuse "bad magic" {:length length}))
         _ (vreset! pos 4)
         layout (u32)
-        _ (when-not (= 2 layout) (refuse "unknown layout" {:layout layout}))
+        _ (when-not (= export-layout layout) (refuse "unknown layout" {:layout layout}))
         status (u32)
         rules (counted text)
         symbolic (counted text)
@@ -180,12 +198,19 @@
     (if (= -1 t) "EOF" (or (pick symbolic) (pick literal) (str t)))))
 
 
+(defn- handle
+  [worker]
+  (or (some-> (::native worker) deref)
+      (throw (ex-info "jolt parser worker is closed" {}))))
+
+
 (defn export-records
-  "Parse UTF-8 `source` natively and answer the checked records. Host-only
-   (the probe harness reads the raw first-failure evidence through it); a
-   wrapper failure status throws, so a failed parse never yields a packet."
-  [source]
-  (let [[status bs] (call-export (.getBytes ^String source "UTF-8"))]
+  "Parse UTF-8 `source` natively with `worker` and answer the checked
+   records. Host-only (the probe harness reads the raw first-failure evidence
+   through it); a wrapper failure status throws, so a failed parse never
+   yields a packet."
+  [worker source]
+  (let [[status bs] (call-export (handle worker) (.getBytes ^String source "UTF-8"))]
     (when-not (zero? status)
       (throw (ex-info "jolt parser failed"
                       {:status status,
@@ -214,10 +239,27 @@
 ;; =============================================================================
 
 (defn make-worker
-  "A host worker for `profile`. Round 2: the profile only; the worker-owned
-   native caches of §7.4 are later J0c work."
+  "A host worker for `profile`, owning a native handle with its own DFA and
+   prediction-context caches (§7.4), so no parse shares mutable recognizer
+   state with another worker. Host state owned by one parser stage; it is not
+   data and never crosses a stream. Dispose it with `close-worker`."
   [profile]
-  {:profile profile})
+  (let [h (c-worker-new)]
+    (when (ffi/null? h)
+      (throw (ex-info "jolt parser worker could not be made" {})))
+    {:profile profile, ::native (atom h)}))
+
+
+(defn close-worker
+  "Dispose `worker`'s native handle and caches. Idempotent; a closed worker
+   refuses further parses. Must not run while a parse on it is active."
+  [worker]
+  (when-let [box (::native worker)]
+    (let [h @box]
+      ;; the swap wins once, so two closes never free twice
+      (when (and h (compare-and-set! box h nil))
+        (c-worker-free h))))
+  nil)
 
 
 (defn- error-record
@@ -235,7 +277,7 @@
   [worker unit source]
   (let [cps (packet/code-points source)
         offsets (export/byte-offsets cps)
-        records (export-records source)]
+        records (export-records worker source)]
     (export/result (:profile worker) unit
                    (mapv #(error-record offsets %) (:errors records))
                    #(export/export-nodes (ops records) cps offsets 0))))
@@ -263,8 +305,8 @@
    when it was reported, since the C++ runtime's BufferedTokenStream fills
    lazily as the Java one does (observed against the JVM oracle in J0c round
    2, not assumed). A lexer error has no token."
-  [_worker source]
-  (let [{:keys [failure tokens]} (export-records source)
+  [worker source]
+  (let [{:keys [failure tokens]} (export-records worker source)
         {:keys [kind no-viable index buffered]} failure]
     (export/failure-kind
       (case kind

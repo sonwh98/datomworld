@@ -122,15 +122,30 @@
        :outputs (into (sorted-map) (map (fn [l] [l (file-sha256 l)])) libs)})))
 
 
+(defn- exported-symbols
+  "The library's exported (defined, external) symbols, from nm."
+  [lib]
+  (let [flags (if (str/starts-with? (platform) "darwin") ["-gU"] ["-D" "--defined-only"])]
+    (->> (str/split-lines (apply sh "nm" (concat flags [lib])))
+         (keep #(last (str/split (str/trim %) #"\s+")))
+         (remove str/blank?)
+         sort
+         vec)))
+
+
 (defn- build-parser!
-  "native/jolt-parser over the generated Cpp target and the pinned runtime.
-   The generated sources come from `clj -M:antlr-gen --target cpp` (the JVM
-   build tool); their absence fails the task rather than skipping it."
-  [{:keys [prefix]} cmake plat]
+  "native/jolt-parser over the generated Cpp target and the pinned runtime,
+   in one of two variants: :test (-DJOLT_PARSER_TEST_SEAMS=ON, installed at
+   jolt-parser/, the library the probes and harnesses load) and :release (the
+   CMake default, seams OFF, at jolt-parser-release/). The generated sources
+   come from `clj -M:antlr-gen --target cpp` (the JVM build tool); their
+   absence fails the task rather than skipping it."
+  [{:keys [prefix]} cmake plat variant]
   (let [gen "build/antlr/python3/cpp"
         out (fs/path "build/native" plat)
-        bld (str (fs/path out "jolt-parser-build"))
-        dest (str (fs/absolutize (fs/path out "jolt-parser")))]
+        dir (if (= :test variant) "jolt-parser" "jolt-parser-release")
+        bld (str (fs/path out (str dir "-build")))
+        dest (str (fs/absolutize (fs/path out dir)))]
     (when-not (seq (fs/glob gen "*.cpp"))
       (fail! "no generated parser in " gen "; run `clj -M:antlr-gen --target cpp` first"))
     (fs/delete-tree bld)
@@ -138,14 +153,18 @@
           "-DCMAKE_BUILD_TYPE=Release"
           (str "-DANTLR4_PREFIX=" prefix)
           (str "-DGENERATED_DIR=" (fs/absolutize gen))
-          (str "-DCMAKE_INSTALL_PREFIX=" dest))
+          (str "-DCMAKE_INSTALL_PREFIX=" dest)
+          (str "-DJOLT_PARSER_TEST_SEAMS=" (if (= :test variant) "ON" "OFF")))
     (run! cmake "--build" bld "--parallel" "--config" "Release")
     (run! cmake "--install" bld "--config" "Release")
     (let [libs (sort (map str (fs/glob dest "lib/*jolt_parser*")))]
       (when (empty? libs) (fail! "no jolt_parser library installed under " dest))
       {:prefix dest
+       :variant variant
+       :test-seams (= :test variant)
        :generated (str (fs/absolutize gen))
-       :outputs (into (sorted-map) (map (fn [l] [l (file-sha256 l)])) libs)})))
+       :outputs (into (sorted-map) (map (fn [l] [l (file-sha256 l)])) libs)
+       :exported (into (sorted-map) (map (fn [l] [l (exported-symbols l)])) libs)})))
 
 
 (defn -main
@@ -156,13 +175,15 @@
         cxx (sh "c++" "--version")
         runtime (fetch! (:antlr4-cpp-runtime native))
         built (build-antlr4-runtime! runtime cmake-bin plat)
-        parser (build-parser! built cmake-bin plat)
+        parser (build-parser! built cmake-bin plat :test)
+        release (build-parser! built cmake-bin plat :release)
         record {:platform plat
                 :cmake {:path cmake-bin :version (first (str/split-lines (sh cmake-bin "--version")))}
                 :cxx (first (str/split-lines cxx))
                 :antlr4-cpp-runtime (merge (select-keys runtime [:version :url :sha256 :cmake-flags])
                                            built)
-                :jolt-parser parser}
+                :jolt-parser parser
+                :jolt-parser-release release}
         record-file (str (fs/path "build/native" plat "build-record.edn"))]
     (spit record-file (with-out-str (pprint/pprint record)))
     (pprint/pprint record)

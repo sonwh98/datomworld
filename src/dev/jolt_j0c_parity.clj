@@ -134,8 +134,8 @@
 (defn- alternative-failure
   "The JS/Dart rule (the listener's offending token even for no-viable-alt),
    as an observation of the C++ token buffer."
-  [source]
-  (let [{:keys [failure tokens]} (cst/export-records source)
+  [worker source]
+  (let [{:keys [failure tokens]} (cst/export-records worker source)
         {:keys [kind index]} failure]
     (export/failure-kind
       (case kind 0 nil 1 :lexical 2 index)
@@ -165,11 +165,12 @@
   "Whether the first error's offending token was fabricated by the lexer
    helper rather than read from the source."
   [records]
-  (let [{:keys [type a b]} (first (:errors records))
-        tn (cond (= -1 type) "EOF"
-                 (< -1 type (count (:symbolic records))) ((:symbolic records) type))]
-    (boolean (or (#{"INDENT" "DEDENT" "EOF"} tn)
-                 (and (= "NEWLINE" tn) (< b a))))))
+  (boolean
+    (when-let [{:keys [type a b]} (first (:errors records))]
+      (let [tn (cond (= -1 type) "EOF"
+                     (< -1 type (count (:symbolic records))) ((:symbolic records) type))]
+        (or (#{"INDENT" "DEDENT" "EOF"} tn)
+            (and (= "NEWLINE" tn) (< b a)))))))
 
 
 (defn- e1-violations
@@ -214,14 +215,14 @@
                          (catch Throwable e {:thrown (ex-message e), :data (ex-data e)}))
         jolt-ff (try (cst/first-failure worker source)
                      (catch Throwable e {:thrown (ex-message e)}))
-        records (cst/export-records source)
+        records (cst/export-records worker source)
         strict (= packet jolt-packet)
         e1 (if (:thrown jolt-packet)
              [[:thrown jolt-packet]]
              (e1-violations id source packet jolt-packet records))
         ff-ok (= first-failure jolt-ff)
         ok (and (empty? e1) ff-ok)
-        alt (alternative-failure source)]
+        alt (alternative-failure worker source)]
     (swap! results conj {:id id, :strict strict, :e1 (empty? e1), :first-failure ff-ok})
     (when-not ok (swap! diverged conj id))
     (println (if ok "PASS" "FAIL-E1") id
@@ -237,7 +238,8 @@
              (pr-str {:first-error (:failure records),
                       :buffered-after (count (:tokens records)),
                       :offending-token-rule alt,
-                      :rules-agree (= alt jolt-ff)}))))
+                      :rules-agree (= alt jolt-ff)}))
+    (cst/close-worker worker)))
 
 
 (check "every helper pin names a corpus entry"
@@ -248,11 +250,12 @@
 ;; -- E1 refuses what it must (the checker is not vacuous) ------------------------
 
 (let [entry (fn [id] (first (filter #(= id (:id %)) (:entries oracle))))
+      w (cst/make-worker profile)
       run (fn [id f]
             (let [{:keys [source packet]} (entry id)
-                  jolt (f (cst/parse-unit (cst/make-worker profile) [:unit 0] source))]
+                  jolt (f (cst/parse-unit w [:unit 0] source))]
               (set (map first (e1-violations id source packet jolt
-                                             (cst/export-records source))))))
+                                             (cst/export-records w source))))))
       first-error (fn [k f] #(update-in % [:yang.cst/errors 0 k] f))]
   (doseq [[label id f expect]
           [["an INDENT at line 0 (the round-2 C++ helper)" :malformed-unexpected-indent
@@ -272,29 +275,148 @@
     (let [got (run id f)]
       (check (str "[E1 self-test] refuses " label)
              (every? got expect)
-             got))))
+             got)))
+  (cst/close-worker w))
 
 
 ;; -- a failed native parse never yields a packet --------------------------------
 
-(ffi/defcfn c-inject-fault "jolt_parser_inject_fault" [:int] :int)
+;; The seam exists only in a -DJOLT_PARSER_TEST_SEAMS=ON build.
+(def inject-fault
+  (when (ffi/find-symbol "jolt_parser_inject_fault")
+    (ffi/cfn "jolt_parser_inject_fault" [:int] :int)))
 
 
-(doseq [mode [1 2 3]]
-  (c-inject-fault mode)
-  (let [r (try (cst/parse-unit (cst/make-worker profile) [:unit 0] "1 + 2\n")
-               (catch Throwable e {:thrown (ex-data e)})
-               (finally (c-inject-fault 0)))]
-    (check (str "[injected mode " mode "] parse-unit throws the wrapper status, no packet")
-           (and (contains? r :thrown) (#{-2 -3} (get-in r [:thrown :status])))
-           r)))
+(if-not inject-fault
+  (println "SKIP fault injection: this library has no jolt_parser_inject_fault (built without JOLT_PARSER_TEST_SEAMS)")
+  (let [w (cst/make-worker profile)]
+    (doseq [mode [1 2 3]]
+      (inject-fault mode)
+      (let [r (try (cst/parse-unit w [:unit 0] "1 + 2\n")
+                   (catch Throwable e {:thrown (ex-data e)})
+                   (finally (inject-fault 0)))]
+        (check (str "[injected mode " mode "] parse-unit throws the wrapper status, no packet")
+               (and (contains? r :thrown) (#{-2 -3} (get-in r [:thrown :status])))
+               r)))
+    (check "after the injected failures the same worker answers the oracle packet again"
+           (= (:packet (first (:entries oracle)))
+              (cst/parse-unit w [:unit 0] (:source (first (:entries oracle)))))
+           (:id (first (:entries oracle))))
+    (cst/close-worker w)))
 
 
-(check "after the injected failures parse-unit answers the oracle packet again"
-       (= (:packet (first (:entries oracle)))
-          (cst/parse-unit (cst/make-worker profile) [:unit 0]
-                          (:source (first (:entries oracle)))))
-       (:id (first (:entries oracle))))
+;; -- input policy (round 4) ------------------------------------------------------
+;;
+;; Sources a JVM string can carry (embedded NUL, CR/CRLF, BOM, edge code
+;; points) are held to E1 against jolt_j0c_input_oracle.edn, after checking
+;; that jolt read each source to the JVM's code points. What has no JVM
+;; equivalent is checked at the C ABI against this policy:
+;;
+;;   invalid UTF-8      fails closed: status -2 (the runtime's strict decode
+;;                      throws; the message is copied out), no JPX1 buffer.
+;;                      A jolt string cannot carry one: jolt decodes invalid
+;;                      bytes to U+FFFD, as the JVM does, and its reader
+;;                      refuses a lone surrogate escape
+;;   output over 64 MiB status -4, no buffer, and cst throws, so no packet;
+;;                      the same worker parses again afterwards
+;;   invalid arguments  status -1: NULL source with a length, NULL or
+;;                      unrecognized worker, NULL out cells
+
+(def input-oracle
+  (edn/read-string (slurp "test/yang/python/antlr/fixtures/jolt_j0c_input_oracle.edn")))
+
+
+(def input-failed (atom []))
+
+
+(check "input oracle is the JVM's, for this grammar id"
+       (and (= :jvm (:host input-oracle)) (= grammar-id (:grammar-id input-oracle)))
+       (:written-by input-oracle))
+
+
+(doseq [{:keys [id source packet first-failure code-points]} (:entries input-oracle)]
+  (let [w (cst/make-worker profile)
+        read-ok (= code-points (packet/code-points source))
+        jolt (try (cst/parse-unit w [:unit 0] source)
+                  (catch Throwable e {:thrown (ex-message e), :data (ex-data e)}))
+        ff (try (cst/first-failure w source) (catch Throwable e {:thrown (ex-message e)}))
+        e1 (cond (not read-ok) [[:source-read-differs (packet/code-points source)]]
+                 (:thrown jolt) [[:thrown jolt]]
+                 :else (e1-violations id source packet jolt (cst/export-records w source)))
+        ok (and (empty? e1) (= first-failure ff))]
+    (cst/close-worker w)
+    (when-not ok (swap! input-failed conj id))
+    (println (if ok "PASS" "FAIL-E1") "input" id
+             (pr-str (cond-> {:outcome (:yang.cst/outcome packet), :first-failure first-failure,
+                              :strict (= packet jolt)}
+                       (seq e1) (assoc :e1-violations e1)
+                       (not= first-failure ff) (assoc :jolt-first-failure ff))))))
+
+
+(ffi/defcfn c-export-raw "jolt_parser_export" [:pointer :pointer :size_t :pointer :pointer] :int :blocking)
+(ffi/defcfn c-free-raw "jolt_parser_free" [:pointer] :void)
+
+
+(defn- raw-export
+  "jolt_parser_export on raw bytes; the status and what came back."
+  [handle bytes & {:keys [null-src null-out]}]
+  (let [bs (byte-array (map unchecked-byte bytes))
+        n (alength bs)
+        in (ffi/alloc (max 1 n))
+        out-cell (ffi/alloc :pointer)
+        len-cell (ffi/alloc :size_t)]
+    (try
+      (when (pos? n) (ffi/write-array in bs))
+      (let [status (c-export-raw handle (if null-src ffi/null in) n
+                                 (if null-out ffi/null out-cell) len-cell)
+            p (if null-out ffi/null (ffi/read out-cell :pointer))
+            len (if null-out 0 (ffi/read len-cell :size_t))
+            got (if (ffi/null? p) (byte-array 0) (ffi/read-array p len))]
+        (when-not (ffi/null? p) (c-free-raw p))
+        {:status status,
+         :buffer (cond (zero? (alength got)) :none
+                       (and (>= (alength got) 4) (= "JPX1" (String. got 0 4 "US-ASCII"))) :jpx1
+                       :else (String. got "UTF-8"))})
+      (finally (ffi/free in) (ffi/free out-cell) (ffi/free len-cell)))))
+
+
+(let [w (cst/make-worker profile)
+      h @(:yang.antlr.cst/native w)
+      bytes-of (fn [s] (map int (.getBytes ^String s "UTF-8")))]
+  (doseq [[label bs] [["a lone 0xFF" [0xff]]
+                      ["a truncated two-byte sequence at the end" (concat (bytes-of "x = ") [0xc3])]
+                      ["an overlong '/'" [0xc0 0xaf]]
+                      ["an encoded surrogate U+D800" [0xed 0xa0 0x80]]
+                      ["a code point above U+10FFFF" [0xf4 0x90 0x80 0x80]]
+                      ["0xFF inside a string literal" (concat (bytes-of "s = '") [0xff] (bytes-of "'\n"))]]]
+    (let [r (raw-export h bs)]
+      (when-not (= -2 (:status r)) (swap! input-failed conj label))
+      (check (str "[invalid UTF-8] " label " fails closed: -2, no JPX1 buffer")
+             (and (= -2 (:status r)) (not= :jpx1 (:buffer r)))
+             r)))
+  ;; one string token whose text alone passes the bound: cheap to lex
+  (let [big (str "s = '" (apply str (repeat (* 70 1024) (apply str (repeat 1024 "a")))) "'\n")
+        r (try (cst/parse-unit w [:unit 0] big) :packet
+               (catch Throwable e (ex-data e)))]
+    (when-not (= -4 (:status r)) (swap! input-failed conj :oversize))
+    (check "[oversize] output past 64 MiB (one 70 MiB string token) answers -4 and no packet"
+           (= -4 (:status r)) r)
+    (check "[oversize] the same worker parses again afterwards"
+           (= (:packet (first (:entries oracle)))
+              (cst/parse-unit w [:unit 0] (:source (first (:entries oracle)))))
+           :ok))
+  (let [fake (ffi/alloc 256)
+        args [["NULL source with a length" (raw-export h [1 2 3] :null-src true)]
+              ["NULL out cell" (raw-export h (bytes-of "1\n") :null-out true)]
+              ["NULL worker" (raw-export ffi/null (bytes-of "1\n"))]
+              ["an unrecognized worker (zeroed memory)" (raw-export fake (bytes-of "1\n"))]]]
+    (doseq [[label r] args]
+      (when-not (= -1 (:status r)) (swap! input-failed conj label))
+      (check (str "[invalid arguments] " label " answers -1, no buffer")
+             (and (= -1 (:status r)) (= :none (:buffer r)))
+             r))
+    (ffi/free fake))
+  (cst/close-worker w))
 
 
 ;; -- the completeness probe ----------------------------------------------------
@@ -328,12 +450,18 @@
                     :strict-packets-equal (count (filter :strict rs)),
                     :first-failure-equal (count (filter :first-failure rs)),
                     :probe-texts (count (:probe oracle)),
+                    :input-entries (count (:entries input-oracle)),
+                    :input-failed @input-failed,
                     :diverged @diverged})))
 
 
-(println "SUMMARY" (if (and (empty? @diverged) (zero? @failed))
+(def ok? (and (empty? @diverged) (empty? @input-failed) (zero? @failed)))
+
+
+(println "SUMMARY" (if ok?
                      "ok"
-                     (str (count @diverged) " diverged, " @failed " failed")))
+                     (str (count @diverged) " diverged, " (count @input-failed)
+                          " input-policy failed, " @failed " failed")))
 
 
-(System/exit (if (and (empty? @diverged) (zero? @failed)) 0 1))
+(System/exit (if ok? 0 1))

@@ -32,15 +32,23 @@
 
 
 (def library
-  (str (System/getProperty "user.dir") "/build/native/" platform
-       "/jolt-parser/lib/libjolt_parser" (if (str/starts-with? platform "darwin") ".dylib" ".so")))
+  ;; JOLT_PARSER_PROBE_LIB names another build (the release variant, to show
+  ;; the fault checks skip there); otherwise the test build
+  (or (System/getenv "JOLT_PARSER_PROBE_LIB")
+      (str (System/getProperty "user.dir") "/build/native/" platform
+           "/jolt-parser/lib/libjolt_parser" (if (str/starts-with? platform "darwin") ".dylib" ".so"))))
 
 
 (ffi/load-library library)
 (ffi/defcfn c-parse "jolt_parser_parse" [:pointer :size_t :pointer :pointer] :int :blocking)
 (ffi/defcfn c-free "jolt_parser_free" [:pointer] :void)
 (ffi/defcfn c-layout-version "jolt_parser_layout_version" [] :int)
-(ffi/defcfn c-inject-fault "jolt_parser_inject_fault" [:int] :int)
+
+
+;; A test seam, present only in a -DJOLT_PARSER_TEST_SEAMS=ON build.
+(def c-inject-fault
+  (when (ffi/find-symbol "jolt_parser_inject_fault")
+    (ffi/cfn "jolt_parser_inject_fault" [:int] :int)))
 
 
 (defn- parse-bytes
@@ -173,30 +181,27 @@
   (try (parse-bytes "1 + 2\n") (finally (c-inject-fault 0))))
 
 
-(let [{:keys [status bytes]} (fault 1)]
-  (check "[injected] std::bad_alloc inside the parse -> status -2 with the message copied out"
-         (and (= -2 status) (= "std::bad_alloc" (String. ^bytes bytes "UTF-8")))
-         {:status status :message (String. ^bytes bytes "UTF-8")}))
-
-
-(let [{:keys [status bytes]} (fault 2)]
-  (check "[injected] non-std exception -> status -3 \"unknown exception\""
-         (and (= -3 status) (= "unknown exception" (String. ^bytes bytes "UTF-8")))
-         {:status status :message (String. ^bytes bytes "UTF-8")}))
-
-
-(let [{:keys [status bytes]} (fault 3)]
-  (check "[injected] bad_alloc and the handler's own malloc fails -> status -2, no buffer, no throw"
-         (and (= -2 status) (zero? (alength ^bytes bytes)))
-         {:status status :buffer-bytes (alength ^bytes bytes)}))
-
-
-(let [{:keys [status bytes]} (parse-bytes "1 + 2\n")
-      tree (decode bytes)]
-  (check "after the injected failures the same process parses \"1 + 2\\n\" again"
-         (and (= 0 status) (= "JPT1" (:magic tree)) (empty? (:errors tree))
-              (= (:consumed tree) (:length tree)))
-         {:status status :buffer-bytes (alength ^bytes bytes)}))
+(if-not c-inject-fault
+  (println "SKIP the 4 fault-injection checks: this library has no jolt_parser_inject_fault (built without JOLT_PARSER_TEST_SEAMS)")
+  (do
+    (let [{:keys [status bytes]} (fault 1)]
+      (check "[injected] std::bad_alloc inside the parse -> status -2 with the message copied out"
+             (and (= -2 status) (= "std::bad_alloc" (String. ^bytes bytes "UTF-8")))
+             {:status status :message (String. ^bytes bytes "UTF-8")}))
+    (let [{:keys [status bytes]} (fault 2)]
+      (check "[injected] non-std exception -> status -3 \"unknown exception\""
+             (and (= -3 status) (= "unknown exception" (String. ^bytes bytes "UTF-8")))
+             {:status status :message (String. ^bytes bytes "UTF-8")}))
+    (let [{:keys [status bytes]} (fault 3)]
+      (check "[injected] bad_alloc and the handler's own malloc fails -> status -2, no buffer, no throw"
+             (and (= -2 status) (zero? (alength ^bytes bytes)))
+             {:status status :buffer-bytes (alength ^bytes bytes)}))
+    (let [{:keys [status bytes]} (parse-bytes "1 + 2\n")
+          tree (decode bytes)]
+      (check "after the injected failures the same process parses \"1 + 2\\n\" again"
+             (and (= 0 status) (= "JPT1" (:magic tree)) (empty? (:errors tree))
+                  (= (:consumed tree) (:length tree)))
+             {:status status :buffer-bytes (alength ^bytes bytes)}))))
 
 
 (println "SUMMARY" (if (zero? @failures) "ok" (str @failures " failed")))
