@@ -1,0 +1,33 @@
+[{:name "nil", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",null]", :expected {:ws/frame :ws/value, :ws/value nil}}
+ {:name "true", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",true]", :expected {:ws/frame :ws/value, :ws/value true}}
+ {:name "false", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",false]", :expected {:ws/frame :ws/value, :ws/value false}}
+ {:name "empty-string", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",\"\"]", :expected {:ws/frame :ws/value, :ws/value ""}}
+ {:name "string", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",\"hello\"]", :expected {:ws/frame :ws/value, :ws/value "hello"}}
+ {:name "unicode-string", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",\"héllo 世界\"]", :expected {:ws/frame :ws/value, :ws/value "héllo 世界"}}
+ {:name "zero", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",0]", :expected {:ws/frame :ws/value, :ws/value 0}}
+ {:name "one", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",1]", :expected {:ws/frame :ws/value, :ws/value 1}}
+ {:name "minus-one", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",-1]", :expected {:ws/frame :ws/value, :ws/value -1}}
+ {:name "large", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",1000000]", :expected {:ws/frame :ws/value, :ws/value 1000000}}
+ {:name "max-safe", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",9007199254740991]", :expected {:ws/frame :ws/value, :ws/value 9007199254740991}}
+ {:name "min-safe", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",-9007199254740991]", :expected {:ws/frame :ws/value, :ws/value -9007199254740991}}
+ {:name "double", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",1.5]", :expected {:ws/frame :ws/value, :ws/value 1.5}}
+ {:name "double-small", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",0.001]", :expected {:ws/frame :ws/value, :ws/value 0.001}}
+ {:name "integral-double", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",1.0]", :expected {:ws/frame :ws/value, :ws/value 1.0}}
+ {:name "keyword", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",\"~:k\"]", :expected {:ws/frame :ws/value, :ws/value :k}}
+ {:name "ns-keyword", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",\"~:a/b\"]", :expected {:ws/frame :ws/value, :ws/value :a/b}}
+ {:name "symbol", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",\"~$k\"]", :expected {:ws/frame :ws/value, :ws/value k}}
+ {:name "ns-symbol", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",\"~$a/b\"]", :expected {:ws/frame :ws/value, :ws/value a/b}}
+ {:name "empty-vector", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",[]]", :expected {:ws/frame :ws/value, :ws/value []}}
+ {:name "vector", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",[1,2,3]]", :expected {:ws/frame :ws/value, :ws/value [1 2 3]}}
+ {:name "set", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",[\"~#set\",[1,3,2]]]", :expected {:ws/frame :ws/value, :ws/value #{1 3 2}}}
+ {:name "empty-map", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",[\"^ \"]]", :expected {:ws/frame :ws/value, :ws/value {}}}
+ {:name "map", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",[\"^ \",\"~:a\",1,\"~:b\",[2]]]", :expected {:ws/frame :ws/value, :ws/value {:a 1, :b [2]}}}
+ {:name "map-mixed-keys", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",[\"^ \",\"~i1000\",\"x\",\"a\",\"~:y\"]]", :expected {:ws/frame :ws/value, :ws/value {1000 "x", "a" :y}}}
+ {:name "nested-mixed", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",[\"^ \",\"~:v\",[1,[\"^ \",\"~:s\",[\"~#set\",[\"~:y\",\"~:x\"]]],[2,3]],\"~:n\",null]]", :expected {:ws/frame :ws/value, :ws/value {:v [1 {:s #{:y :x}} [2 3]], :n nil}}}
+ {:name "vector-with-meta", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",[1]]", :expected {:ws/frame :ws/value, :ws/value {:fixture/meta {:line 1}, :fixture/value [1]}}}
+ {:name "symbol-with-meta", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",\"~$x\"]", :expected {:ws/frame :ws/value, :ws/value {:fixture/meta {:line 1}, :fixture/value x}}}
+ {:name "symbol-with-meta-in-vector", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",[\"~$x\"]]", :expected {:ws/frame :ws/value, :ws/value [{:fixture/meta {:line 1}, :fixture/value x}]}}
+ {:name "symbol-with-meta-in-map", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",[\"^ \",\"~:k\",\"~$x\"]]", :expected {:ws/frame :ws/value, :ws/value {:k {:fixture/meta {:line 1}, :fixture/value x}}}}
+ {:name "symbol-meta-holds-symbol-with-meta", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",\"~$y\"]", :expected {:ws/frame :ws/value, :ws/value {:fixture/meta {:m {:fixture/meta {:c 2}, :fixture/value x}}, :fixture/value y}}}
+ {:name "map-key-with-meta", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",[\"~#cmap\",[[1],\"~:v\"]]]", :expected {:ws/frame :ws/value, :ws/value {{:fixture/meta {:k 1}, :fixture/value [1]} :v}}}
+ {:name "slash-bearing-keyword", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",\"~:a/b/c\"]", :expected {:ws/frame :ws/value, :ws/value {:fixture/keyword ["a" "b/c"]}}}]
