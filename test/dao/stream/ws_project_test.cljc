@@ -15,6 +15,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ringbuffer]
+            [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]
             [dao.stream.ws-project :as project]))
 
@@ -325,7 +326,7 @@
    (let [offers (ring 1)
          acks (ring 1)
          endpoint (ws/make-endpoint
-                    {:descriptor
+                    {:codecs [transit/profile] :descriptor
                      {:dao.stream/type :dao.stream/ws
                       :dao.stream/identity "toy"
                       :ws/host "127.0.0.1"

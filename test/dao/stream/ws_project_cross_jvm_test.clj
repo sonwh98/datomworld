@@ -22,6 +22,7 @@
   (:require [clojure.java.io :as io]
             [clojure.test :refer [deftest is]]
             [dao.stream :as stream]
+            [dao.stream.cbor :as cbor]
             [dao.stream.ringbuffer :as ringbuffer]
             [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]
@@ -93,7 +94,7 @@
   "The toy's serving end: the ws endpoint with one acceptance-handoff
    slot, the acceptor composition, and a real http-kit listener whose
    bound port is learned from the host's own bind report."
-  []
+  [codec]
   (let [hello (served-stream "hello")
         descriptor {:dao.stream/type :dao.stream/ws
                     :dao.stream/identity "str-1"
@@ -103,7 +104,8 @@
         offers (buffer 1)
         acks (buffer 1)
         endpoint (ws/make-endpoint
-                   {:descriptor descriptor
+                   {:codecs [codec]
+                    :descriptor descriptor
                     :control {:dao.stream/handle (buffer 16)
                               :dao.stream/surface #{:writer}}
                     :control-admission admission
@@ -134,7 +136,8 @@
                                      :ring channel}))})
         port (atom nil)
         listener (jvm/listen!
-                   {:bind-host "127.0.0.1"
+                   {:codecs [codec]
+                    :bind-host "127.0.0.1"
                     :bind-port 0
                     :accept! (fn [target socket now]
                                (ws/accept-connection! endpoint target
@@ -168,9 +171,10 @@
 
 
 (defn- start-peer!
-  "Spawn the Dart peer with the descriptor as its sole argument."
-  [descriptor]
-  (let [command [dart-peer-exe (transit/encode-descriptor descriptor)]
+  "Spawn the Dart peer with the descriptor and the `--codec` flag."
+  [descriptor flag]
+  (let [command [dart-peer-exe (transit/encode-descriptor descriptor)
+                 "--codec" flag]
         process (.start (ProcessBuilder. ^java.util.List command))
         replies (atom [])
         errors (atom [])
@@ -259,7 +263,8 @@
 ;; =============================================================================
 
 
-(deftest a-dart-dialer-reads-a-jvm-server
+(defn- a-dart-dialer-reads-a-jvm-server
+  [codec flag]
   (if-not (.exists (io/file dart-peer-exe))
     (println ";; SKIPPED a-dart-dialer-reads-a-jvm-server:"
              dart-peer-exe "is absent -- compile it first:"
@@ -267,11 +272,11 @@
              "dart compile exe"
              "lib/cljd-out/dao/stream/ws-project-peer.dart -o"
              dart-peer-exe)
-    (let [server (jvm-acceptor)
+    (let [server (jvm-acceptor codec)
           bound (eventually (fn [] @(:port server)) 5000)
           descriptor (when bound
                        (assoc (:descriptor server) :ws/port bound))
-          peer (when descriptor (start-peer! descriptor))]
+          peer (when descriptor (start-peer! descriptor flag))]
       (try
         (is (some? bound) "the listener never reported a bound port")
         (when peer
@@ -326,3 +331,11 @@
         (finally
           (when peer (stop-peer! peer))
           (jvm/stop-listening! (:listener server) (fn [] nil)))))))
+
+
+(deftest a-dart-dialer-reads-a-jvm-server-over-transit
+  (a-dart-dialer-reads-a-jvm-server transit/profile "transit"))
+
+
+(deftest a-dart-dialer-reads-a-jvm-server-over-cbor
+  (a-dart-dialer-reads-a-jvm-server cbor/profile "cbor"))

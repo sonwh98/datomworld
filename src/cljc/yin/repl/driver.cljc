@@ -53,7 +53,8 @@
 
 
 (def connect-usage
-  "(connect \"daostream:ws://host:port/repl\") — an absent path means /repl")
+  (str "(connect \"daostream:ws://host:port/repl\" [:codec :cbor|:transit]) "
+       "— an absent path means /repl, an absent codec means :cbor"))
 
 
 (defn create-input-medium!
@@ -297,9 +298,9 @@
 
 
 (defn- reattach
-  [state url]
+  [state url codec]
   (let [result (connect/reattach (:connection state) (rpc-client state)
-                                 (:last-tick state))]
+                                 (:last-tick state) codec)]
     (if-not (= :yin.repl.connect/reattached (get result connect/outcome-key))
       (connect-failure state result)
       (-> state
@@ -318,9 +319,9 @@
 
 
 (defn- open-connection
-  [state url]
+  [state url codec]
   (let [result (connect/open {:url url :host (:host state)
-                              :now (:last-tick state)})
+                              :now (:last-tick state) :codec codec})
         dropped (count (:queued state))]
     (if-not (= :yin.repl.connect/attached (get result connect/outcome-key))
       (connect-failure state result)
@@ -339,18 +340,24 @@
 
 
 (defn- connect-command
-  "`(connect \"url\")`.  Reattaching a dropped connection keeps its medium,
-   cursor, and id allocator; connecting a fresh URL composes a new boundary."
+  "`(connect \"url\")` or `(connect \"url\" :codec :transit)`.  Reattaching a
+   dropped connection keeps its medium, cursor, and id allocator; connecting a
+   fresh URL composes a new boundary.  The codec is CBOR unless named."
   [state line]
-  (let [url (second (adapter/command-form line))]
+  (let [[_ url & opts] (adapter/command-form line)
+        codec-key (if (seq opts) (second opts) :cbor)
+        codec (get connect/codec-profiles codec-key)]
     (cond
-      (not (string? url))
+      (not (and (string? url)
+                (or (empty? opts)
+                    (and (= 2 (count opts)) (= :codec (first opts))))
+                codec))
       (publish state :yin.repl.driver/notice connect-usage)
 
       (and (:connection state)
            (= url (:url (:connection state)))
            (connect/reattachable? (:connection state) (rpc-client state)))
-      (reattach state url)
+      (reattach state url (when (seq opts) codec))
 
       ;; The operator's own disconnection is in flight: the terminal fact has
       ;; not landed yet, so there is nothing to reattach to and nothing to
@@ -371,7 +378,7 @@
                     (or (:url (:connection state)) "the remote shell")
                     "; (disconnect) first"))
 
-      :else (open-connection state url))))
+      :else (open-connection state url codec))))
 
 
 (defn- queue-line

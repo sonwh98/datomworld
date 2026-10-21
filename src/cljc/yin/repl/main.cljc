@@ -19,6 +19,7 @@
             [dao.stream.waitset.cadence :as cadence]
             [dao.stream.waitset.driver :as wake]
             [yin.repl :as shell]
+            [yin.repl.connect :as connect]
             [yin.repl.dht :as repl.dht]
             [yin.repl.frontends :as repl.frontends]
             [yin.repl.driver :as driver]
@@ -501,6 +502,17 @@
                       {:value text})))))
 
 
+(defn- parse-codec
+  "A `--codec` value, `cbor` or `transit`, as the keyword `connect/codec-profiles`
+   names."
+  [value]
+  (let [k (some-> value keyword)]
+    (if (contains? connect/codec-profiles k)
+      k
+      (throw (ex-info (str "--codec takes cbor or transit, not " (pr-str value))
+                      {:value value})))))
+
+
 (defn parse-args
   "Parse the host arguments.  `--telemetry` and `--telemetry-stream` are
    rejected rather than ignored.  `--index-store` is parsed into
@@ -552,6 +564,9 @@
                                         "interfaces, so it answers on "
                                         "localhost and on this machine's IP")
                                    {}))
+          "--codec" (recur (nnext args)
+                           (assoc opts :codec (parse-codec value))
+                           dht)
           "--headless" (recur (next args) (assoc opts :headless? true) dht)
           "--vm" (recur (nnext args)
                         (assoc opts :vm-type (parse-vm (second args)))
@@ -688,7 +703,8 @@
     (serve/serve! {:bind-port (:port opts)
                    :bind-host bind-all-host
                    :advertised-host (local-ip)
-                   :host (or (:adapter opts) (host/websocket))})))
+                   :host (or (:adapter opts) (host/websocket))
+                   :codec (get connect/codec-profiles (:codec opts :cbor))})))
 
 
 (def help-lines
@@ -717,6 +733,7 @@
    "flags:"
    "  --port n          serve this shell to other shells over WebSockets, on"
    "                    all interfaces: localhost and this machine's IP"
+   "  --codec c         wire codec served: cbor (default) or transit"
    "  --headless        no prompt, endpoint only; needs --port"
    "  --index-store s   mem (default), file:<dir> or dht:<dir>"
    "  --vm type         ast-walker, semantic (default), stack or register"

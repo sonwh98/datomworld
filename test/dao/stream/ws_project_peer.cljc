@@ -17,6 +17,10 @@
      and on command attaches a reflection of the served identity
      \"str-1\".  The parent observes only what this program reports.
 
+   Either role takes `--codec cbor|transit` (default transit): the wire
+   profile the peer's attacher or endpoint is composed with.  The command
+   protocol on stdin/stdout stays Transit text in both.
+
    * **Serve role** (`--serve`) -- the accepting end of the toy behind
      this host's listener: one endpoint, one handoff slot, the acceptor
      composition, and \"str-1\" (\"hello\", complete history) in the
@@ -28,6 +32,9 @@
    silently ending the cadence."
   (:require [clojure.string :as str]
             [dao.stream :as stream]
+            [dao.stream.cbor :as cbor]
+            [dao.stream.ws-project-corpus :as corpus]
+            [dao.stream.remote :as remote]
             [dao.stream.ringbuffer :as ringbuffer]
             [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]
@@ -76,11 +83,11 @@
 
 
 (defn- served-stream
-  "The toy's source: one value, complete history -- the owner's close is
-   what makes a later read answer the source's own end."
-  [value]
-  (let [s (buffer 16)]
-    (stream/append! s value)
+  "The toy's source: complete history -- the owner's close is what makes
+   a later read answer the source's own end."
+  [& values]
+  (let [s (buffer 64)]
+    (doseq [value values] (stream/append! s value))
     (stream/close! s)
     s))
 
@@ -108,11 +115,12 @@
 
 
 (defn- exit!
-  []
-  #?(:cljd (.then (.flush ^io/Stdout io/stdout) (fn [_] (io/exit 0)))
-     :clj (System/exit 0)
-     :cljs (.exit js/process 0)
-     :default nil))
+  ([] (exit! 0))
+  ([code]
+   #?(:cljd (.then (.flush ^io/Stdout io/stdout) (fn [_] (io/exit code)))
+      :clj (System/exit code)
+      :cljs (.exit js/process code)
+      :default nil)))
 
 
 (defn- decode
@@ -227,7 +235,11 @@
       (emit! (cond-> {:reply :read :op :next
                       :outcome (:dao.stream/outcome r)}
                (contains? r :dao.stream/value)
-               (assoc :value (:dao.stream/value r))
+               (assoc :value (corpus/normalize (:codec @box)
+                                               (:dao.stream/value r))
+                      :canon (corpus/canon (corpus/normalize
+                                             (:codec @box)
+                                             (:dao.stream/value r))))
                (contains? r :dao.stream.remote/reason)
                (assoc :reason (:dao.stream.remote/reason r))))
       nil)
@@ -243,7 +255,7 @@
     (let [r (project/dial-attach!
               dial
               {:dao.stream/type :dao.stream/remote
-               :dao.stream/identity "str-1"
+               :dao.stream/identity (or (:identity command) "str-1")
                :dao.stream/channel descriptor})]
       (swap! box assoc :reflection (:dao.stream/handle r))
       (emit! {:reply :attach
@@ -264,6 +276,12 @@
     :read
     (do (read-command! box command) true)
 
+    :corpus
+    (do (emit! {:reply :corpus
+                :canon (mapv corpus/canon
+                             (corpus/expected (:codec @box)))})
+        true)
+
     :quit
     (do (stop)
         (emit! {:reply :quit})
@@ -273,18 +291,24 @@
     (do (emit! {:reply :unknown :cmd (:cmd command)}) true)))
 
 
+(def ^:private profiles
+  {"transit" transit/profile "cbor" cbor/profile})
+
+
 (defn- dial-role!
   "The dialing end of the toy over this host's connect seam.  The
    traffic medium and its :dao.stream/newest cursor are minted before
    any attach!, so no deposited event can outrun the position this end
    later reads from."
-  [descriptor]
+  [descriptor codec]
   (let [backward (served-stream "backward")
+        wire-corpus (apply served-stream (corpus/values codec))
         traffic (buffer 64)
         events (buffer 64)
         dial (project/dial
                {:attach! (ws/make-attacher
-                           {:traffic {:dao.stream/handle traffic
+                           {:codec codec
+                            :traffic {:dao.stream/handle traffic
                                       :dao.stream/surface #{:writer}}
                             :admission admission
                             :connect! host/connect!})
@@ -292,9 +316,11 @@
                           :dao.stream/surface #{:writer}}
                 :cursor (newest traffic)
                 :ring (buffer 64)
-                :table {"str-2" {:handle backward :surface #{:reader}}}
+                :table {"str-2" {:handle backward :surface #{:reader}}
+                        corpus/identity-name {:handle wire-corpus
+                                              :surface #{:reader}}}
                 :dao.stream.remote/events events})
-        box (atom {:reflection nil :cursor nil :events events
+        box (atom {:reflection nil :cursor nil :events events :codec codec
                    :ticker-error nil})
         stop (start-ticker! (fn [] (guarded box #(project/dial-step! dial))))]
     (emit! {:reply :ready :descriptor descriptor})
@@ -316,10 +342,11 @@
   "Bind this host's listener behind `endpoint`, reporting the assigned
    port through `on-port`.  The bound port is learned from the host's
    own bind report, never guessed."
-  [endpoint on-port]
+  [endpoint codec on-port]
   #?(:clj
      (host/listen!
-       {:bind-host "127.0.0.1"
+       {:codecs [codec]
+        :bind-host "127.0.0.1"
         :bind-port 0
         :accept! (fn [target socket now]
                    (ws/accept-connection! endpoint target socket now))
@@ -328,13 +355,15 @@
                       (on-port (:port data))))})
      :cljs
      (host/listen! endpoint
-                   {:host "127.0.0.1"
+                   {:codecs [codec]
+                    :host "127.0.0.1"
                     :port 0
                     :on-listening (fn [address]
                                     (on-port (.-port address)))})
      :cljd
      (host/bind!
-       {:bind-host "127.0.0.1"
+       {:codecs [codec]
+        :bind-host "127.0.0.1"
         :bind-port 0
         :accept! (fn [target socket now]
                    (ws/accept-connection! endpoint target socket now))
@@ -356,6 +385,29 @@
   "Interpret one parent command and emit exactly one reply."
   [box acceptor listener stop command]
   (case (:cmd command)
+    ;; The reverse direction of the one accepted connection: this end's own
+    ;; reflection of `:identity` over the session's channel end.
+    :attach
+    (let [attachment (first (keys (project/sessions acceptor)))
+          descriptor (:descriptor @box)
+          end (when attachment (project/session-end acceptor attachment))
+          r ((remote/attacher {:dao.stream.remote/channels {descriptor end}})
+             {:dao.stream/type :dao.stream/remote
+              :dao.stream/identity (or (:identity command) "str-2")
+              :dao.stream/channel descriptor})]
+      (swap! box assoc :reflection (:dao.stream/handle r))
+      (emit! {:reply :attach :outcome (:dao.stream/outcome r)})
+      true)
+
+    :read
+    (do (read-command! box command) true)
+
+    :corpus
+    (do (emit! {:reply :corpus
+                :canon (mapv corpus/canon
+                             (corpus/expected (:codec @box)))})
+        true)
+
     :sessions
     (emit! {:reply :sessions
             :count (count (project/sessions acceptor))
@@ -376,8 +428,9 @@
    endpoint with one acceptance-handoff slot, the acceptor composition,
    and the toy's served table.  The bound port is the parent's
    readiness signal."
-  []
+  [codec]
   (let [hello (served-stream "hello")
+        wire-corpus (apply served-stream (corpus/values codec))
         descriptor {:dao.stream/type :dao.stream/ws
                     :dao.stream/identity "str-1"
                     :ws/host "127.0.0.1"
@@ -386,7 +439,8 @@
         offers (buffer 1)
         acks (buffer 1)
         endpoint (ws/make-endpoint
-                   {:descriptor descriptor
+                   {:codecs [codec]
+                    :descriptor descriptor
                     :control {:dao.stream/handle (buffer 16)
                               :dao.stream/surface #{:writer}}
                     :control-admission admission
@@ -404,7 +458,9 @@
                              :offer-cursor (newest offers)
                              :ack-writer {:dao.stream/handle acks
                                           :dao.stream/surface #{:writer}}}]
-                    :table {"str-1" {:handle hello :surface #{:reader}}}
+                    :table {"str-1" {:handle hello :surface #{:reader}}
+                            corpus/identity-name {:handle wire-corpus
+                                                  :surface #{:reader}}}
                     :make-media (fn [_offer]
                                   (let [traffic (buffer 64)
                                         channel (buffer 64)]
@@ -415,12 +471,12 @@
                                      :reader traffic
                                      :cursor (newest traffic)
                                      :ring channel}))})
-        box (atom {:ticker-error nil})
+        box (atom {:ticker-error nil :codec codec :descriptor descriptor})
         stop (start-ticker!
                (fn [] (guarded box #(project/accept-step! acceptor (now-ms)))))
         listener (atom nil)]
     (reset! listener
-            (listen! endpoint
+            (listen! endpoint codec
                      (fn [port]
                        ;; On the JVM the bind deposit arrives inside listen!
                        ;; itself; on Node it arrives on a later event-loop
@@ -440,9 +496,15 @@
 (defn -main
   "Serve role with `--serve`; dial role with a descriptor argument."
   [& args]
-  (if (and (seq args) (= "--serve" (first args)))
-    (serve-role!)
-    (dial-role! (transit/decode-descriptor (first args)))))
+  (let [[positional codec-flag] (split-with #(not= "--codec" %) args)
+        codec-name (or (second codec-flag) "transit")
+        codec (get profiles codec-name)]
+    (when-not codec
+      (println "unknown --codec" (pr-str codec-name) "(expected cbor|transit)")
+      (exit! 2))
+    (if (and (seq positional) (= "--serve" (first positional)))
+      (serve-role! codec)
+      (dial-role! (transit/decode-descriptor (first positional)) codec))))
 
 
 #?(:cljd

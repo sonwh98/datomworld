@@ -17,7 +17,7 @@
 
 
 (defn- bind!
-  [{:keys [endpoint bind-host bind-port accept! deposit!]}]
+  [{:keys [endpoint bind-host bind-port accept! deposit! codecs]}]
   ;; `ws` reports bind failures through its asynchronous error callback.  This
   ;; bit belongs to the listener resource's lifecycle and exists only to
   ;; distinguish failure-to-bind from an error after the listener was live.
@@ -26,6 +26,7 @@
                   {:host bind-host
                    :port bind-port
                    :accept! accept!
+                   :codecs codecs
                    :on-listening
                    (fn [address]
                      (vreset! bound? true)

@@ -46,6 +46,7 @@
   [["--index-store" :value]
    ["--vm" :value]
    ["--port" :value]
+   ["--codec" :value]
    ["--headless" :switch]
    ["--dht-peer" :many]
    ["--dht-publish" :switch]

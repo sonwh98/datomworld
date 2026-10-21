@@ -1,9 +1,15 @@
 (ns dao.stream.ws-test
   (:require [clojure.test :refer [deftest is]]
             [dao.stream :as stream]
+            [dao.stream.codec :as codec]
             [dao.stream.ringbuffer :as ring]
             [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]))
+
+
+(def ^:private seam
+  "The subprotocol name a host seam reports for the Transit profile."
+  (codec/codec-name transit/profile))
 
 
 (defn- buffer
@@ -39,8 +45,8 @@
         adapter (atom nil)
         sent (atom [])
         attacher (ws/make-attacher
-                   {:traffic {:dao.stream/handle traffic
-                              :dao.stream/surface #{:writer}}
+                   {:codec transit/profile :traffic {:dao.stream/handle traffic
+                                                     :dao.stream/surface #{:writer}}
                     :admission admission
                     :connect! (fn [_ adapter-map]
                                 (reset! adapter adapter-map)
@@ -66,7 +72,7 @@
         closed (atom [])
         handle (:dao.stream/handle
                  ((ws/make-attacher
-                    {:traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
+                    {:codec transit/profile :traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
                      :admission admission
                      :connect! (fn [_ a]
                                  (reset! adapter a)
@@ -91,7 +97,7 @@
         close-calls (atom [])
         handle (:dao.stream/handle
                  ((ws/make-attacher
-                    {:traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
+                    {:codec transit/profile :traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
                      :admission admission
                      :connect! (fn [_ a]
                                  (reset! adapter a)
@@ -108,7 +114,7 @@
   (let [traffic (buffer)
         adapter (atom nil)
         attacher (ws/make-attacher
-                   {:traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
+                   {:codec transit/profile :traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
                     :admission admission
                     :connect! (fn [_ a]
                                 (reset! adapter a)
@@ -131,7 +137,7 @@
   (let [traffic (buffer)
         sends (atom 0)
         attacher (ws/make-attacher
-                   {:traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
+                   {:codec transit/profile :traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
                     :admission admission
                     :connect! (fn [_ _] {:send! #(swap! sends inc) :close! (fn [& _] nil)})})]
     (is (= :dao.stream/invalid-descriptor
@@ -155,8 +161,8 @@
         adapters (atom [])
         make-client (fn [traffic]
                       (ws/make-attacher
-                        {:traffic {:dao.stream/handle traffic
-                                   :dao.stream/surface #{:writer}}
+                        {:codec transit/profile :traffic {:dao.stream/handle traffic
+                                                          :dao.stream/surface #{:writer}}
                          :admission admission
                          :connect! (fn [_ adapter]
                                      (swap! adapters conj adapter)
@@ -184,7 +190,7 @@
   (let [traffic (buffer)
         adapter (atom nil)
         attacher (ws/make-attacher
-                   {:traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
+                   {:codec transit/profile :traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
                     :admission admission
                     :connect! (fn [_ a]
                                 (reset! adapter a)
@@ -206,7 +212,7 @@
   ([offer ack control bounds]
    (ws/make-endpoint
      (merge
-       {:descriptor descriptor
+       {:codecs [transit/profile] :descriptor descriptor
         :control {:dao.stream/handle control :dao.stream/surface #{:writer}}
         :control-admission admission
         :slots [{:offer {:dao.stream/handle offer :dao.stream/surface #{:writer}}
@@ -220,7 +226,7 @@
 
 (deftest pre-accept-peer-loss-releases-its-handoff-slot
   (let [endpoint (one-slot-endpoint (buffer) (buffer) (buffer))
-        socket {:send! (fn [_]) :close! (fn [& _] nil)}
+        socket {:ws/subprotocol seam :send! (fn [_]) :close! (fn [& _] nil)}
         first-accept (ws/accept-connection! endpoint "/yin/repl" socket)]
     (is (= :ws/pending (:ws/status first-accept)))
     ;; Admission stays bounded while the offer is outstanding.
@@ -239,7 +245,7 @@
         ack (buffer)
         endpoint (one-slot-endpoint offer ack (buffer))
         sent (atom [])
-        socket {:send! #(do (swap! sent conj %) nil) :close! (fn [& _] nil)}
+        socket {:ws/subprotocol seam :send! #(do (swap! sent conj %) nil) :close! (fn [& _] nil)}
         accepted (ws/accept-connection! endpoint "/yin/repl" socket)
         attachment (:ws/attachment accepted)
         traffic (buffer)]
@@ -260,7 +266,7 @@
         control (buffer)
         sent (atom [])
         endpoint (ws/make-endpoint
-                   {:descriptor descriptor
+                   {:codecs [transit/profile] :descriptor descriptor
                     :control {:dao.stream/handle control :dao.stream/surface #{:writer}}
                     :control-admission admission
                     :slots [{:offer {:dao.stream/handle offer :dao.stream/surface #{:writer}}
@@ -270,7 +276,7 @@
                              :ack-cursor (:dao.stream/cursor (stream/cursor ack stream/anchor-newest))}]
                     :expiry-ms nil})
         accepted (ws/accept-connection! endpoint "/yin/repl"
-                                        {:send! #(do (swap! sent conj %) nil) :close! (fn [& _] nil)})
+                                        {:ws/subprotocol seam :send! #(do (swap! sent conj %) nil) :close! (fn [& _] nil)})
         offer-event (first (values offer))
         attachment (:ws/attachment offer-event)
         traffic (buffer)]
@@ -302,7 +308,8 @@
         endpoint (one-slot-endpoint offer ack control)
         sent (atom [])
         accepted (ws/accept-connection! endpoint "/yin/repl"
-                                        {:send! #(do (swap! sent conj %) nil)
+                                        {:ws/subprotocol seam
+                                         :send! #(do (swap! sent conj %) nil)
                                          :close! (fn [& _] nil)})
         offer-event (first (values offer))
         attachment (:ws/attachment offer-event)
@@ -334,7 +341,8 @@
         ack (buffer)
         endpoint (one-slot-endpoint offer ack (buffer))
         accepted (ws/accept-connection! endpoint "/yin/repl"
-                                        {:send! (fn [_] nil)
+                                        {:ws/subprotocol seam
+                                         :send! (fn [_] nil)
                                          :close! (fn [& _] nil)})
         handle (:ws/handle accepted)
         attachment (:ws/attachment (first (values offer)))
@@ -425,7 +433,8 @@
         endpoint (one-slot-endpoint offer ack control bounds)
         closes (atom [])
         accepted (ws/accept-connection! endpoint "/yin/repl"
-                                        {:send! (fn [_] nil)
+                                        {:ws/subprotocol seam
+                                         :send! (fn [_] nil)
                                          :close! (fn [& args] (swap! closes conj (vec args)))})
         attachment (:ws/attachment accepted)
         traffic (buffer)]
@@ -519,7 +528,7 @@
   (let [control (buffer)
         slots [(handoff-slot) (handoff-slot)]
         endpoint (ws/make-endpoint
-                   {:descriptor descriptor
+                   {:codecs [transit/profile] :descriptor descriptor
                     :control {:dao.stream/handle control :dao.stream/surface #{:writer}}
                     :control-admission admission
                     :slots slots
@@ -527,7 +536,8 @@
         closes (atom [])
         sent (atom [])
         socket (fn [tag]
-                 {:send! #(do (swap! sent conj %) nil)
+                 {:ws/subprotocol seam
+                  :send! #(do (swap! sent conj %) nil)
                   :close! (fn [code reason] (swap! closes conj [tag code reason]))})
         a (ws/accept-connection! endpoint "/yin/repl" (socket :a))
         b (ws/accept-connection! endpoint "/yin/repl" (socket :b))]
@@ -564,13 +574,13 @@
 
 
 (deftest a-served-descriptor-may-name-port-zero-and-a-dialed-one-may-not
-  (is (ws/servable-descriptor? port-zero))
-  (is (not (ws/descriptor? port-zero)))
-  (is (ws/servable-descriptor? descriptor))
-  (is (not (ws/servable-descriptor? (assoc descriptor :ws/port -1))))
+  (is (ws/servable-descriptor? port-zero transit/profile))
+  (is (not (ws/descriptor? port-zero transit/profile)))
+  (is (ws/servable-descriptor? descriptor transit/profile))
+  (is (not (ws/servable-descriptor? (assoc descriptor :ws/port -1) transit/profile)))
   (is (some? (one-slot-endpoint (buffer) (buffer) (buffer) {:descriptor port-zero})))
   (let [attacher (ws/make-attacher
-                   {:traffic {:dao.stream/handle (buffer) :dao.stream/surface #{:writer}}
+                   {:codec transit/profile :traffic {:dao.stream/handle (buffer) :dao.stream/surface #{:writer}}
                     :admission admission
                     :connect! (fn [_ _] {:send! (fn [_]) :close! (fn [& _] nil)})})]
     (is (= :dao.stream/invalid-descriptor
@@ -581,7 +591,7 @@
   (let [endpoint (one-slot-endpoint (buffer) (buffer) (buffer) {:descriptor port-zero})
         _ (is (identical? endpoint (ws/endpoint-bound! endpoint 4567)))
         accepted (ws/accept-connection! endpoint "/yin/repl"
-                                        {:send! (fn [_]) :close! (fn [& _] nil)})
+                                        {:ws/subprotocol seam :send! (fn [_]) :close! (fn [& _] nil)})
         d (stream/descriptor (:ws/handle accepted))]
     (is (= :ws/pending (:ws/status accepted)))
     (is (= "ws://127.0.0.1:4567/yin/repl" (:dao.stream/identity d)))

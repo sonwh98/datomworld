@@ -21,6 +21,7 @@
             [dao.stream :as stream]
             [dao.stream.remote :as remote]
             [dao.stream.ringbuffer :as ringbuffer]
+            [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]
             [dao.stream.ws.jvm :as jvm]
             [dao.stream.ws-project :as project]
@@ -89,7 +90,7 @@
         acks (buffer 1)
         control (buffer 16)
         endpoint (ws/make-endpoint
-                   {:descriptor descriptor
+                   {:codecs [transit/profile] :descriptor descriptor
                     :control {:dao.stream/handle control
                               :dao.stream/surface #{:writer}}
                     :control-admission admission
@@ -122,7 +123,7 @@
         deposits (atom [])
         listener
         (jvm/listen!
-          {:bind-host "127.0.0.1"
+          {:codecs [transit/profile] :bind-host "127.0.0.1"
            :bind-port 0
            :accept!
            (fn [target socket now]
@@ -135,8 +136,8 @@
         events (buffer 64)
         attacher
         (ws/make-attacher
-          {:traffic {:dao.stream/handle traffic
-                     :dao.stream/surface #{:writer}}
+          {:codec transit/profile :traffic {:dao.stream/handle traffic
+                                            :dao.stream/surface #{:writer}}
            :admission admission
            :connect! jvm/connect!})
         table {"str-2" {:handle str-2 :surface #{:reader}}}

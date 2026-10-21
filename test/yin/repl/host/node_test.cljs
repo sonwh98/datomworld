@@ -1,6 +1,7 @@
 (ns yin.repl.host.node-test
   "Real-loopback checks for the Node composition of the Yin REPL host seam."
   (:require [cljs.test :refer [async deftest is]]
+            [dao.stream.transit :as transit]
             [yin.repl.host :as host]
             [yin.repl.host.common :as host-common]))
 
@@ -36,7 +37,8 @@
                deposit! (fn [kind value]
                           (swap! lifecycle conj [kind value]))
                resources ((:bind! adapter)
-                          {:endpoint {}
+                          {:codecs [transit/profile]
+                           :endpoint {}
                            :bind-host "127.0.0.1"
                            :bind-port 0
                            :path "/repl"
@@ -57,6 +59,7 @@
                          (let [client-connect ((:connect! adapter)
                                                {:dao.stream/type :dao.stream/ws
                                                 :dao.stream/identity "host-seam-test"
+                                                :ws/codec transit/profile
                                                 :ws/host host
                                                 :ws/port port
                                                 :ws/path "/repl"}
@@ -106,7 +109,8 @@
                owner-deposit! (fn [kind value]
                                 (swap! owner-events conj [kind value]))
                owner ((:bind! adapter)
-                      {:endpoint {}
+                      {:codecs [transit/profile]
+                       :endpoint {}
                        :bind-host "127.0.0.1"
                        :bind-port 0
                        :accept! (fn [& _] nil)
@@ -125,7 +129,8 @@
                                failed-deposit! (fn [kind value]
                                                  (swap! failed-events conj [kind value]))]
                            ((:bind! adapter)
-                            {:endpoint {}
+                            {:codecs [transit/profile]
+                             :endpoint {}
                              :bind-host "127.0.0.1"
                              :bind-port port
                              :accept! (fn [& _] nil)

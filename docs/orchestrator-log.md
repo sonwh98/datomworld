@@ -12375,3 +12375,21 @@ Decisions: Explicit empty codec vectors are preserved through configuration and 
 Verification: bb test:sub dao.stream dao.jing passed with zero failures across all 3 lanes: JVM 689 tests / 13,664 assertions (14s), Node 680 tests / 8,902 assertions (20s), Dart 657 tests (44s). Grep gate satisfied: no consumer accesses legacy profile keys directly.
 Delegates: claude-sonnet-5-5 (implementation & fix rounds); gpt-6-astra (code review & sign-off rounds).
 Next: Owner instruction to stage/commit Slice C1, clean up worktree ../datomworld-codec-c1, and commission Slice C2 (migrate yin.repl.serve / connect callers to CBOR by default with CLI / runtime prompt configurability, plus old/new peer bidirectional testing).
+
+
+## 2026-10-21 09:00:00 +0700 — dao.stream codec track: Slice C2 (migrate callers to explicit profiles & CBOR default) verified & signed off
+Completed-GMT: 2026-10-21 02:00:00 GMT
+Coding-Agent: Gemini (interactive orchestrator seat)
+Session-ID: cc118b7a-f972-4630-aa72-8f2dcac087ac
+Tree: master@eacaed90; modified: docs/design/dao.stream.codec.md, src/cljc/yin/repl/connect.cljc, src/cljc/yin/repl/dht.cljc, src/cljc/yin/repl/driver.cljc, src/cljc/yin/repl/main.cljc, src/cljc/yin/repl/serve.cljc, src/cljc/yin/repl/state.cljc, src/cljc/yin/vm/docs/yin.repl.md, src/cljc/yin/vm/linker/head/board.cljc, src/cljs/yin/repl/host.cljs, test/dao/stream/loopback_net.cljc, test/dao/stream/remote_channel_test.cljc, test/dao/stream/ws/browser_test.cljs, test/dao/stream/ws/dart_test.cljd, test/dao/stream/ws/jvm_test.clj, test/dao/stream/ws/node_test.cljs, test/dao/stream/ws_codec_test.cljc, test/dao/stream/ws_project_cross_jvm_test.clj, test/dao/stream/ws_project_cross_node_test.cljs, test/dao/stream/ws_project_jvm_test.clj, test/dao/stream/ws_project_peer.cljc, test/dao/stream/ws_project_test.cljc, test/dao/stream/ws_test.cljc, test/yin/repl/connect_test.cljc, test/yin/repl/driver_test.cljc, test/yin/repl/host/jvm_test.clj, test/yin/repl/host/node_test.cljs, test/yin/repl/main_test.cljc, test/yin/vm/linker/head_board_test.cljc, test/dao/stream/ws_project_corpus.cljc.
+Done: Implemented, verified, and signed off Slice C2 per dao.stream.codec.md §7.1 C2, §7.2, §7.3, §10 OQ1:
+  1. yin.repl Migration: Wire default set to dao.stream.cbor/profile on serve/serve! and connect/open. Added CLI --codec cbor|transit option parsing in main.cljc (saved in state, documented in --help). Prompt-level (connect url :codec :transit|:cbor) enables dynamic per-connection codec configuration.
+  2. Latent bug fix: Fixed src/cljs/yin/repl/host.cljs bind! which previously dropped :codecs on Node.
+  3. Call-site Migration: Replaced all 1-arity descriptor gates (ws/descriptor? and ws/servable-descriptor?) with 2-arity calls. Migrated all test call sites across ws_test, remote_channel_test, ws_project_test, loopback_net, etc. to supply explicit profiles. Added the-suite-over-cbor parameterizing 43 tests over CBOR in remote_channel_test.cljc.
+  4. R1 & R2 Closures: Fixed indirect host calls (:bind!, :connect!) in jvm_test.clj and node_test.cljs. Created test/dao/stream/ws_project_corpus.cljc with 34-value Transit and 40-value CBOR corpus (including clean metadata, CBOR lists, and Jing payload).
+  5. Section 7.3 Wire Proof: Executed bidirectional live corpus exchange between Node(new) and genuine F0 old-peer worktree (47f43405c) across both role assignments in both directions with 0 failures (502 tests, 4,286 assertions). Negative control verified (perturbing F0 corpus produced 152 failures). JVM(old) <-> JVM(new) verified 8/8 PASS across all configurations.
+  6. Independent Sign-off: Codex gpt-6-astra SIGNED OFF WITH CHANGES (collab/1792526500000-reviewer-codec-c2-r3.gpt-6-astra.findings.md).
+Decisions: yin.repl wire default moves to CBOR in C2 (resolving OQ1); intentional default test at remote_channel_test.cljc:244 noted for C3 rewrite.
+Verification: bb test:sub dao.stream passed across all 3 lanes (CLJ 499 tests / 0 failures, CLJS 502 tests / 0 failures, CLJD 431 tests / 0 failures). Frozen fixtures pass 100%.
+Delegates: claude-sonnet-5-5 (implementation & fix rounds); claude-fable-5-1 (architect sign-off); gpt-6-astra (independent review & final sign-off rounds).
+Next: Proceed to commission Slice C3 (Contract: dropping defaults and Transit require in dao.stream.ws and host adapters).

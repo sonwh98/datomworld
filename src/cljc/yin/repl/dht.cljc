@@ -59,6 +59,7 @@
             [dao.stream :as stream]
             [dao.stream.remote-channel :as remote-channel]
             [dao.stream.ringbuffer :as ringbuffer]
+            [yin.repl.connect :as connect]
             [yin.repl.index :as index]
             [yin.repl.store :as store]
             [yin.vm.linker.dht :as ld]
@@ -616,6 +617,11 @@
 ;; The board endpoint and the token (5.1, 5.8)
 ;; =============================================================================
 
+(def ^:private board-codec
+  "The head board's wire profile."
+  (:transit connect/codec-profiles))
+
+
 (defn- serve-board
   "Compose the board's endpoint once the node's socket is bound at
    `host`:`port`: `[pub lines]`."
@@ -623,7 +629,8 @@
   (let [server (head.board/serve {:board (:board pub)
                                   :principal (:principal pub)
                                   :spec {:host host :port port}
-                                  :host ws})]
+                                  :host ws
+                                  :codecs [board-codec]})]
     [(assoc pub :server server :listen [host port])
      (when (= :refused (:status server))
        [(case (:reason server)
@@ -772,7 +779,8 @@
     (let [d (head.board/dial {:principal (sign/principal (:principal source))
                               :spec {:host (:host source)
                                      :port (:port source)}
-                              :host ws})]
+                              :host ws
+                              :codec board-codec})]
       (if (= :refused (:status d))
         [follower (drop-dial follower link now) (:reason d)]
         [follower (assoc link :dial d :handle nil) nil]))

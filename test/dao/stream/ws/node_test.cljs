@@ -18,6 +18,7 @@
             [dao.stream :as stream]
             [dao.stream.cbor :as cbor]
             [dao.stream.ringbuffer :as ring]
+            [dao.stream.codec :as codec]
             [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]
             [dao.stream.ws.node :as node]
@@ -120,8 +121,8 @@
 
 (defn- attach-with-fake
   [traffic fake]
-  ((ws/make-attacher {:traffic {:dao.stream/handle traffic
-                                :dao.stream/surface #{:writer}}
+  ((ws/make-attacher {:codec transit/profile :traffic {:dao.stream/handle traffic
+                                                       :dao.stream/surface #{:writer}}
                       :admission admission
                       :connect! (fake-connect! fake)})
    (descriptor)))
@@ -652,7 +653,7 @@
                         (fn [port]
                           (let [raw ^js (new (.-WebSocket ws-package)
                                              (str "ws://127.0.0.1:" port "/yin/repl")
-                                             ws/subprotocol)
+                                             (codec/codec-name transit/profile))
                                 frames (atom [])
                                 opened (atom false)]
                             (.on raw "open" (fn [] (reset! opened true)))
@@ -725,7 +726,7 @@
                ;; Nothing acknowledges this endpoint's offers, so an accepted
                ;; connection stays pending until admission expiry releases it.
                endpoint (ws/make-endpoint
-                          {:descriptor table-descriptor
+                          {:codecs [transit/profile] :descriptor table-descriptor
                            :control {:dao.stream/handle control :dao.stream/surface #{:writer}}
                            :control-admission admission
                            :slots [{:offer {:dao.stream/handle offer :dao.stream/surface #{:writer}}
@@ -734,7 +735,7 @@
                                     :ack-admission handoff-admission
                                     :ack-cursor (newest ack)}]
                            :expiry-ms 50})
-               listener (node/listen! endpoint {:host "127.0.0.1" :port 0
+               listener (node/listen! endpoint {:codecs [transit/profile] :host "127.0.0.1" :port 0
                                                 ;; An explicit host clock reading is
                                                 ;; what makes expiry effective.
                                                 :clock (constantly 1000)})
@@ -747,7 +748,7 @@
                              (finish))
                          (let [raw ^js (new (.-WebSocket ws-package)
                                             (str "ws://127.0.0.1:" port "/yin/repl")
-                                            ws/subprotocol)
+                                            (codec/codec-name transit/profile))
                                closes (atom [])]
                            (.on raw "close" (fn [code reason]
                                               (swap! closes conj [code (.toString ^js reason "utf8")])))

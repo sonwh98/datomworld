@@ -1,7 +1,9 @@
 (ns dao.stream.ws.dart-test
   (:require [clojure.test :refer [deftest is]]
             [dao.stream :as stream]
+            [dao.stream.codec :as codec]
             [dao.stream.ringbuffer :as ring]
+            [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]
             [dao.stream.ws.dart :as dart]
             [yin.repl.host :as host]))
@@ -58,8 +60,8 @@
         adapter-ref (atom nil)
         closes (atom [])
         attach! (ws/make-attacher
-                  {:traffic {:dao.stream/handle traffic
-                             :dao.stream/surface #{:writer}}
+                  {:codec transit/profile :traffic {:dao.stream/handle traffic
+                                                    :dao.stream/surface #{:writer}}
                    :admission admission
                    :connect! (fn [_ adapter]
                                (reset! adapter-ref adapter)
@@ -86,11 +88,12 @@
         offer (buffer)
         ack (buffer)
         closes (atom [])
-        raw (dart/socket-view (fn [_] nil)
-                              (fn [code reason]
-                                (swap! closes conj [code reason])))
+        raw (assoc (dart/socket-view (fn [_] nil)
+                                     (fn [code reason]
+                                       (swap! closes conj [code reason])))
+                   :ws/subprotocol (codec/codec-name transit/profile))
         endpoint (ws/make-endpoint
-                   {:descriptor descriptor
+                   {:codecs [transit/profile] :descriptor descriptor
                     :control {:dao.stream/handle control
                               :dao.stream/surface #{:writer}}
                     :control-admission admission

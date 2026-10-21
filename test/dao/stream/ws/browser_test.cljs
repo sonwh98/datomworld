@@ -11,6 +11,7 @@
   (:require [cljs.test :refer [deftest is use-fixtures]]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
+            [dao.stream.codec :as codec]
             [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]
             [dao.stream.ws.browser :as browser]))
@@ -101,14 +102,14 @@
 
 
 (deftest connect-returns-send-and-close-synchronously
-  (let [fake (fake-socket "ws://127.0.0.1:9183/yin/repl" ws/subprotocol)]
+  (let [fake (fake-socket "ws://127.0.0.1:9183/yin/repl" (codec/codec-name transit/profile))]
     (set-global-websocket! (fn [url protocol]
                              (is (= "ws://127.0.0.1:9183/yin/repl" url))
-                             (is (= ws/subprotocol protocol))
+                             (is (= (codec/codec-name transit/profile) protocol))
                              (:socket fake)))
     (let [traffic (buffer)
-          attach ((ws/make-attacher {:traffic {:dao.stream/handle traffic
-                                               :dao.stream/surface #{:writer}}
+          attach ((ws/make-attacher {:codec transit/profile :traffic {:dao.stream/handle traffic
+                                                                      :dao.stream/surface #{:writer}}
                                      :admission admission
                                      :connect! browser/connect!})
                   (descriptor))]
@@ -122,7 +123,7 @@
 
 
 (deftest raw-socket-shape-is-exactly-send-close-and-queued-bytes
-  (let [fake (fake-socket "ws://x" ws/subprotocol)
+  (let [fake (fake-socket "ws://x" (codec/codec-name transit/profile))
         raw (browser/raw-socket (:socket fake))]
     (is (fn? (:send! raw)))
     (is (fn? (:close! raw)))
@@ -156,11 +157,11 @@
 
 (defn- attach-validating
   [bounds]
-  (let [fake (validating-socket "ws://127.0.0.1:9183/yin/repl" ws/subprotocol)
+  (let [fake (validating-socket "ws://127.0.0.1:9183/yin/repl" (codec/codec-name transit/profile))
         traffic (buffer)]
     (set-global-websocket! (fn [_url _protocol] (:socket fake)))
-    (let [attach ((ws/make-attacher (merge {:traffic {:dao.stream/handle traffic
-                                                      :dao.stream/surface #{:writer}}
+    (let [attach ((ws/make-attacher (merge {:codec transit/profile :traffic {:dao.stream/handle traffic
+                                                                             :dao.stream/surface #{:writer}}
                                             :admission admission
                                             :connect! browser/connect!}
                                            bounds))
@@ -170,7 +171,7 @@
 
 
 (deftest dom-close-rejects-the-raw-overflow-codes
-  (let [fake (validating-socket "ws://x" ws/subprotocol)]
+  (let [fake (validating-socket "ws://x" (codec/codec-name transit/profile))]
     (doseq [code [1008 1009 1013]]
       (is (thrown? js/Error (.close ^js (:socket fake) code "r"))
           "the fake enforces the DOM contract the adapter must satisfy"))
@@ -205,10 +206,10 @@
 
 (deftest wiring-deposits-opened-and-closed-through-the-boundary
   (let [traffic (buffer)
-        fake (fake-socket "ws://127.0.0.1:9183/yin/repl" ws/subprotocol)]
+        fake (fake-socket "ws://127.0.0.1:9183/yin/repl" (codec/codec-name transit/profile))]
     (set-global-websocket! (fn [_url _protocol] (:socket fake)))
-    (let [attach ((ws/make-attacher {:traffic {:dao.stream/handle traffic
-                                               :dao.stream/surface #{:writer}}
+    (let [attach ((ws/make-attacher {:codec transit/profile :traffic {:dao.stream/handle traffic
+                                                                      :dao.stream/surface #{:writer}}
                                      :admission admission
                                      :connect! browser/connect!})
                   (descriptor))

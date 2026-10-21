@@ -2,6 +2,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
+            [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]
             [dao.stream.ws.jvm :as jvm]
             [yin.repl.host.jvm :as host])
@@ -85,7 +86,7 @@
         offer-cursor (cursor offer)
         ack-cursor (cursor ack)
         endpoint (ws/make-endpoint
-                   {:descriptor descriptor
+                   {:codecs [transit/profile] :descriptor descriptor
                     :control (target control)
                     :control-admission portable-admission
                     :slots [{:offer (target offer)
@@ -97,7 +98,8 @@
         deposit! (fn [kind value] (swap! lifecycle conj [kind value]))
         adapter (host/websocket)
         listener ((:bind! adapter)
-                  {:endpoint endpoint
+                  {:codecs [transit/profile]
+                   :endpoint endpoint
                    :bind-host "127.0.0.1"
                    :bind-port port
                    :path "/repl"
@@ -106,7 +108,7 @@
                    :deposit! deposit!})
         client-traffic (buffer 32)
         client-cursor (cursor client-traffic)
-        attach! (ws/make-attacher {:traffic (target client-traffic)
+        attach! (ws/make-attacher {:codec transit/profile :traffic (target client-traffic)
                                    :admission portable-admission
                                    :connect! (:connect! adapter)})
         attached (attach! descriptor)]

@@ -189,6 +189,15 @@
     (is (str/includes? (text-of (driver/repl-step state 0)) "daostream:ws://"))))
 
 
+(deftest connect-with-an-unknown-codec-answers-with-its-usage
+  (doseq [line ["(connect \"daostream:ws://h:1\" :codec :xml)"
+                "(connect \"daostream:ws://h:1\" :codec)"
+                "(connect \"daostream:ws://h:1\" :other :cbor)"]]
+    (let [state (driver/create-state)]
+      (driver/submit-line! (:input state) line)
+      (is (str/includes? (text-of (driver/repl-step state 0)) ":codec") line))))
+
+
 (defn- unminted-reflection
   "A response reader shaped like a dao.stream.remote reflection: minting the
    `newest` anchor answers the retryable transport-error until `minted?` is

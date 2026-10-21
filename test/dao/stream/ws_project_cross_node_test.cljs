@@ -35,9 +35,11 @@
             [dao.stream :as stream]
             [dao.stream.remote :as remote]
             [dao.stream.ringbuffer :as ringbuffer]
+            [dao.stream.cbor :as cbor]
             [dao.stream.transit :as transit]
             [dao.stream.ws :as ws]
             [dao.stream.ws.node :as node]
+            [dao.stream.ws-project-corpus :as corpus]
             [dao.stream.ws-project :as project]))
 
 
@@ -81,9 +83,9 @@
 
 
 (defn- served-stream
-  [value]
-  (let [s (buffer 16)]
-    (stream/append! s value)
+  [& values]
+  (let [s (buffer 64)]
+    (doseq [value values] (stream/append! s value))
     (stream/close! s)
     s))
 
@@ -143,6 +145,24 @@
                (on-line line)))))))
 
 
+(def ^:private under-test
+  "The wire profile the running proof is composed with, `{:profile p :flag f}`;
+   the proofs run one at a time, so an atom set at each proof's start is the
+   whole of its scope.  `:flag` is the `--codec` value the JVM peer takes."
+  (atom nil))
+
+
+(def ^:private profiles
+  {"transit" transit/profile "cbor" cbor/profile})
+
+
+(def ^:private peer-dir
+  "The checkout the JVM peer runs from: `DAO_STREAM_PEER_DIR` when set (an
+   older build of the peer, for the old/new wire proof of
+   docs/design/dao.stream.codec.md 7.3), else this process's own."
+  (some-> js/process .-env (aget "DAO_STREAM_PEER_DIR") not-empty))
+
+
 (defn- jvm-classpath
   "The JVM test classpath, as a promise of a string.  Nil when the
    Clojure CLI is absent: the parent then cannot spawn a JVM peer and
@@ -152,6 +172,7 @@
     (fn [resolve _reject]
       (let [child-process (js/require "child_process")]
         (.exec child-process "clojure -Spath -M:test"
+               (if peer-dir #js {:cwd peer-dir} #js {})
                (fn [error stdout _stderr]
                  (if (or error (str/blank? (str stdout)))
                    (resolve nil)
@@ -167,9 +188,11 @@
   "Spawn process B as a JVM child on the given classpath with `args`."
   [classpath args]
   (let [child-process (js/require "child_process")
-        command (into ["-cp" classpath "clojure.main" "-m" peer-main] args)
+        command (into ["-cp" classpath "clojure.main" "-m" peer-main]
+                      (concat args ["--codec" (:flag @under-test)]))
         process (.spawn child-process "java" (to-array command)
-                        #js {:stdio #js ["pipe" "pipe" "pipe"]})
+                        (clj->js (cond-> {:stdio ["pipe" "pipe" "pipe"]}
+                                   peer-dir (assoc :cwd peer-dir))))
         replies (atom [])
         errors (atom [])]
     ;; Loading B's namespaces prints to B's stdout before the peer protocol
@@ -250,11 +273,13 @@
    direction of the same connection."
   []
   (let [backward (served-stream "backward")
+        wire-corpus (apply served-stream (corpus/values (:profile @under-test)))
         traffic (buffer 64)
         events (buffer 64)
         dial (project/dial
                {:attach! (ws/make-attacher
-                           {:traffic {:dao.stream/handle traffic
+                           {:codec (:profile @under-test)
+                            :traffic {:dao.stream/handle traffic
                                       :dao.stream/surface #{:writer}}
                             :admission admission
                             :connect! node/connect!})
@@ -262,7 +287,9 @@
                           :dao.stream/surface #{:writer}}
                 :cursor (newest traffic)
                 :ring (buffer 64)
-                :table {"str-2" {:handle backward :surface #{:reader}}}
+                :table {"str-2" {:handle backward :surface #{:reader}}
+                        corpus/identity-name {:handle wire-corpus
+                                              :surface #{:reader}}}
                 :dao.stream.remote/events events})
         timer (js/setInterval (fn [] (project/dial-step! dial)) 5)]
     {:dial dial
@@ -276,11 +303,13 @@
    is learned from the server's own report."
   []
   (let [hello (served-stream "hello")
+        wire-corpus (apply served-stream (corpus/values (:profile @under-test)))
         descriptor (descriptor-at 1)
         offers (buffer 1)
         acks (buffer 1)
         endpoint (ws/make-endpoint
-                   {:descriptor descriptor
+                   {:codecs [(:profile @under-test)]
+                    :descriptor descriptor
                     :control {:dao.stream/handle (buffer 16)
                               :dao.stream/surface #{:writer}}
                     :control-admission admission
@@ -298,7 +327,9 @@
                              :offer-cursor (newest offers)
                              :ack-writer {:dao.stream/handle acks
                                           :dao.stream/surface #{:writer}}}]
-                    :table {"str-1" {:handle hello :surface #{:reader}}}
+                    :table {"str-1" {:handle hello :surface #{:reader}}
+                            corpus/identity-name {:handle wire-corpus
+                                                  :surface #{:reader}}}
                     :make-media (fn [_offer]
                                   (let [traffic (buffer 64)
                                         channel (buffer 64)]
@@ -311,7 +342,8 @@
                                      :ring channel}))})
         port (atom nil)
         listener (node/listen! endpoint
-                               {:host "127.0.0.1"
+                               {:codecs [(:profile @under-test)]
+                                :host "127.0.0.1"
                                 :port 0
                                 :accept! (fn [target socket now]
                                            (ws/accept-connection!
@@ -356,6 +388,116 @@
 ;; =============================================================================
 ;; clj -> Node: the JVM peer serves, this Node process dials and reads
 ;; =============================================================================
+
+
+;; =============================================================================
+;; The §7.3 live corpus: the envelope corpus and one Jing-wrapped payload,
+;; read through a reflection of the peer's "str-3", compared under the
+;; §4.4 law (`=` after Jing unwrapping to octets).
+;; =============================================================================
+
+
+(defn- read-reflection-corpus
+  "Read `reflection` to its source end; resolves with the normalized
+   values received, or nil when any ask never settled."
+  [reflection]
+  (let [profile (:profile @under-test)]
+    (-> (settle #(stream/cursor reflection stream/anchor-oldest) settle-ms)
+        (.then
+          (fn [c0]
+            (when (and c0 (= :dao.stream/ok (:dao.stream/outcome c0)))
+              (letfn [(step
+                        [cursor acc]
+                        (-> (settle #(stream/next reflection cursor) settle-ms)
+                            (.then
+                              (fn [n]
+                                (case (:dao.stream/outcome n)
+                                  :dao.stream/ok
+                                  (step (:dao.stream/cursor n)
+                                        (conj acc (corpus/normalize
+                                                    profile
+                                                    (:dao.stream/value n))))
+                                  :dao.stream/end acc
+                                  nil)))))]
+                (step (:dao.stream/cursor c0) []))))))))
+
+
+(defn- check-corpus!
+  [received what]
+  (let [expected (corpus/expected (:profile @under-test))]
+    (is (some? received) (str what ": the corpus read never completed"))
+    (when received
+      (is (= (count expected) (count received))
+          (str what ": corpus count"))
+      (doseq [[e v] (map vector expected received)]
+        (is (= e v) (str what ": " (pr-str e) " crossed as " (pr-str v)))))))
+
+
+(defn- p1-corpus
+  "Node dials, the JVM serves: the JVM's encoded corpus decodes here."
+  [{:keys [descriptor dialer] :as acc}]
+  (let [attached (project/dial-attach!
+                   (:dial dialer)
+                   (remote-descriptor descriptor corpus/identity-name))]
+    (when (is (= :dao.stream/ok (:dao.stream/outcome attached))
+              "the corpus attach was refused")
+      (-> (read-reflection-corpus (:dao.stream/handle attached))
+          (.then (fn [received]
+                   (check-corpus! received "JVM serves, Node decodes")
+                   acc))))))
+
+
+(defn- jvm-reads-corpus
+  "The JVM peer reads its reflection of the corpus to the source's end: the
+   Node-encoded corpus decodes in the JVM.  `what` names the direction."
+  [{:keys [peer] :as acc} what]
+  (letfn [(step
+            [received]
+            (-> (settled-read! peer :next settle-ms)
+                (.then
+                  (fn [reply]
+                    (case (:outcome reply)
+                      :dao.stream/ok (step (conj received (:value reply)))
+                      :dao.stream/end received
+                      nil)))))]
+    (-> (settled-read! peer :begin settle-ms)
+        (.then (fn [_] (step [])))
+        (.then (fn [received]
+                 (check-corpus! received what)
+                 acc)))))
+
+
+(defn- p2-corpus-forward
+  "The JVM dials, Node serves: the Node-encoded corpus decodes in the JVM."
+  [acc]
+  (jvm-reads-corpus acc "Node serves, JVM decodes"))
+
+
+(defn- p1-corpus-back
+  "The JVM serves, Node dials: the JVM attaches its own reflection of the
+   corpus Node serves over the same accepted session, and decodes it."
+  [{:keys [peer] :as acc}]
+  (-> (ask! peer {:cmd :attach :identity corpus/identity-name} :attach)
+      (.then
+        (fn [attached]
+          (when (is (= :dao.stream/ok (:outcome attached))
+                    "the JVM reverse attach was refused")
+            (jvm-reads-corpus acc "Node dials, JVM server decodes"))))))
+
+
+(defn- p2-corpus-back
+  "The JVM's dial-side mirror serves its encoded corpus to this end over
+   the same accepted session."
+  [{:keys [acceptor descriptor] :as acc}]
+  (-> (poll-until #(seq (project/sessions acceptor)) settle-ms)
+      (.then
+        (fn [_]
+          (-> (read-reflection-corpus
+                (reflection-over-session acceptor descriptor
+                                         corpus/identity-name))
+              (.then (fn [received]
+                       (check-corpus! received "JVM mirror serves, Node decodes")
+                       acc)))))))
 
 
 (defn- p1-descriptor
@@ -448,37 +590,39 @@
             acc)))))
 
 
-(deftest a-node-dialer-reads-a-jvm-server
-  (async done
-         (.then (jvm-classpath)
-                (fn [classpath]
-                  (if (nil? classpath)
-                    (do (println ";; SKIPPED a-node-dialer-reads-a-jvm-server:"
-                                 "no Clojure CLI, so no JVM peer can serve")
-                        (done))
-                    (let [peer (start-jvm-peer! classpath ["--serve"])
-                          finish! (fn []
-                                    (stop-peer! peer)
-                                    (done))]
-                      (-> (chain peer [p1-descriptor
-                                       p1-dialer
-                                       p1-attach
-                                       p1-cursor
-                                       p1-value
-                                       p1-end
-                                       p1-sessions])
-                          (.then
-                            (fn [acc]
-                              (when (nil? acc)
-                                (is false "the clj->Node proof stopped early"))
-                              (when-some [dialer (:dialer acc)]
-                                ((:stop! dialer)))
-                              (finish!)))
-                          (.catch
-                            (fn [error]
-                              (is false (str "clj->Node proof failure: "
-                                             (pr-str error)))
-                              (finish!))))))))))
+(defn- a-node-dialer-reads-a-jvm-server
+  [flag done & [steps]]
+  (reset! under-test {:profile (get profiles flag) :flag flag})
+  (.then (jvm-classpath)
+         (fn [classpath]
+           (if (nil? classpath)
+             (do (println ";; SKIPPED a-node-dialer-reads-a-jvm-server:"
+                          "no Clojure CLI, so no JVM peer can serve")
+                 (done))
+             (let [peer (start-jvm-peer! classpath ["--serve"])
+                   finish! (fn []
+                             (stop-peer! peer)
+                             (done))]
+               (-> (chain peer (or steps
+                                   [p1-descriptor
+                                    p1-dialer
+                                    p1-attach
+                                    p1-cursor
+                                    p1-value
+                                    p1-end
+                                    p1-sessions]))
+                   (.then
+                     (fn [acc]
+                       (when (nil? acc)
+                         (is false "the clj->Node proof stopped early"))
+                       (when-some [dialer (:dialer acc)]
+                         ((:stop! dialer)))
+                       (finish!)))
+                   (.catch
+                     (fn [error]
+                       (is false (str "clj->Node proof failure: "
+                                      (pr-str error)))
+                       (finish!)))))))))
 
 
 ;; =============================================================================
@@ -527,8 +671,8 @@
 
 (defn- p2-attach
   "The child dials: one attach over the descriptor, one attachment."
-  [{:keys [peer] :as acc}]
-  (-> (ask! peer {:cmd :attach} :attach)
+  [{:keys [peer identity] :as acc}]
+  (-> (ask! peer {:cmd :attach :identity (or identity "str-1")} :attach)
       (.then
         (fn [attached]
           (when (is (map? attached) "the attach never answered")
@@ -671,47 +815,95 @@
       (.then (fn [_reply] acc))))
 
 
-(deftest a-jvm-dialer-serves-back-over-one-node-connection
-  (async done
-         (.then (jvm-classpath)
-                (fn [classpath]
-                  (if (nil? classpath)
-                    (do (println ";; SKIPPED"
-                                 "a-jvm-dialer-serves-back-over-one-connection:"
-                                 "no Clojure CLI, so no JVM peer can dial")
-                        (done))
-                    (let [server (node-acceptor)
-                          peers (atom [])
-                          finish! (fn []
-                                    ((:stop! server))
-                                    (doseq [peer @peers] (stop-peer! peer))
-                                    (done))]
-                      (-> (chain {:classpath classpath
-                                  :acceptor (:acceptor server)
-                                  :server server
-                                  :peers peers}
-                                 [p2-bound
-                                  p2-spawn
-                                  p2-ready
-                                  p2-attach
-                                  p2-probe-confirmed
-                                  p2-probe
-                                  p2-read-begun
-                                  p2-read-hello
-                                  p2-read-end
-                                  p2-b-reflect
-                                  p2-b-cursor
-                                  p2-b-value
-                                  p2-b-end
-                                  p2-one-session
-                                  p2-quit])
-                          (.then
-                            (fn [acc]
-                              (when (nil? acc)
-                                (is false "the Node->clj proof stopped early"))
-                              (finish!)))
-                          (.catch
-                            (fn [error]
-                              (is false (str "Node->clj proof failure: "
-                                             (pr-str error)))
-                              (finish!))))))))))
+(defn- a-jvm-dialer-serves-back-over-one-node-connection
+  [flag done & [steps]]
+  (reset! under-test {:profile (get profiles flag) :flag flag})
+  (.then (jvm-classpath)
+         (fn [classpath]
+           (if (nil? classpath)
+             (do (println ";; SKIPPED"
+                          "a-jvm-dialer-serves-back-over-one-connection:"
+                          "no Clojure CLI, so no JVM peer can dial")
+                 (done))
+             (let [server (node-acceptor)
+                   peers (atom [])
+                   finish! (fn []
+                             ((:stop! server))
+                             (doseq [peer @peers] (stop-peer! peer))
+                             (done))]
+               (-> (chain {:classpath classpath
+                           :acceptor (:acceptor server)
+                           :server server
+                           :peers peers}
+                          (or steps
+                              [p2-bound
+                               p2-spawn
+                               p2-ready
+                               p2-attach
+                               p2-probe-confirmed
+                               p2-probe
+                               p2-read-begun
+                               p2-read-hello
+                               p2-read-end
+                               p2-b-reflect
+                               p2-b-cursor
+                               p2-b-value
+                               p2-b-end
+                               p2-one-session
+                               p2-quit]))
+                   (.then
+                     (fn [acc]
+                       (when (nil? acc)
+                         (is false "the Node->clj proof stopped early"))
+                       (finish!)))
+                   (.catch
+                     (fn [error]
+                       (is false (str "Node->clj proof failure: "
+                                      (pr-str error)))
+                       (finish!)))))))))
+
+
+(deftest a-node-dialer-reads-a-jvm-server-over-transit
+  (async done (a-node-dialer-reads-a-jvm-server "transit" done)))
+
+
+(deftest a-node-dialer-reads-a-jvm-server-over-cbor
+  (async done (a-node-dialer-reads-a-jvm-server "cbor" done)))
+
+
+(deftest a-jvm-dialer-serves-back-over-one-node-connection-over-transit
+  (async done (a-jvm-dialer-serves-back-over-one-node-connection "transit" done)))
+
+
+(deftest a-jvm-dialer-serves-back-over-one-node-connection-over-cbor
+  (async done (a-jvm-dialer-serves-back-over-one-node-connection "cbor" done)))
+
+
+(defn- p1-corpus-chain
+  []
+  [p1-descriptor p1-dialer p1-corpus p1-corpus-back p1-sessions])
+
+
+(defn- p2-corpus-chain
+  []
+  [p2-bound p2-spawn p2-ready
+   (fn [acc] (p2-attach (assoc acc :identity corpus/identity-name)))
+   p2-probe-confirmed p2-corpus-forward p2-corpus-back p2-one-session p2-quit])
+
+
+(deftest corpus-jvm-serves-node-decodes-over-transit
+  (async done (a-node-dialer-reads-a-jvm-server "transit" done (p1-corpus-chain))))
+
+
+(deftest corpus-jvm-serves-node-decodes-over-cbor
+  (async done (a-node-dialer-reads-a-jvm-server "cbor" done (p1-corpus-chain))))
+
+
+(deftest corpus-both-directions-jvm-dials-node-serves-over-transit
+  (async done (a-jvm-dialer-serves-back-over-one-node-connection
+                "transit" done (p2-corpus-chain))))
+
+
+(deftest corpus-both-directions-jvm-dials-node-serves-over-cbor
+  (async done (a-jvm-dialer-serves-back-over-one-node-connection
+                "cbor" done (p2-corpus-chain))))

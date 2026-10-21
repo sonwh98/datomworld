@@ -639,8 +639,10 @@ concrete example (then an `open` hook; no present codec needs it).
 ### 6.4 Which codec yin.repl selects by default: owner decision
 
 After the migration no shared default exists and `yin.repl.serve`/`connect`
-must pass a profile. Until the owner records a choice, they pass
-`dao.stream.transit/profile`, which keeps today's wire behaviour exactly.
+must pass a profile. **Owner decision, 2026-10-20 (OQ1 resolved):**
+`yin.repl` selects `dao.stream.cbor/profile` by default, configurable with the
+CLI flag `--codec <cbor|transit>` and at the prompt with
+`(connect url :codec :transit|:cbor)`. The default moved in C2, not C5.
 
 Architect's recommendation, marked as such: **`dao.stream.cbor/profile`**.
 Reasons: its implementation is the smaller one to carry to a new host (a CBOR
@@ -704,7 +706,7 @@ tests and assertions per lane, with any added test listed by name.
 |       |          |                                                                             | is honoured end to end (one test per host). Fixtures pass.          |
 +-------+----------+-----------------------------------------------------------------------------+---------------------------------------------------------------------+
 | C2    | migrate  | Every caller supplies its profile explicitly: `yin.repl.serve`/`connect`    | Three lanes green; counts unchanged plus the fixture-driven         |
-|       |          | pass `dao.stream.transit/profile`; every test in §7.2 names its profile;    | tests; `grep` for codec-less `make-attacher`/`make-endpoint`/       |
+|       |          | pass `dao.stream.cbor/profile` by default (`--codec`/`:codec` select Transit); every test in §7.2 names its profile;    | tests; `grep` for codec-less `make-attacher`/`make-endpoint`/       |
 |       |          | one parameterized fixture runs codec-neutral suites over both profiles;     | `listen!`/serve/dial calls over `src/` and `test/` returns none.    |
 |       |          | one-arity descriptor gates replaced by two-arity calls at every site.       | The §7.3 bidirectional old/new peer check runs here for both        |
 |       |          | Defaults still exist but nothing reaches them.                              | profiles. Fixtures pass.                                            |
@@ -731,7 +733,7 @@ tests and assertions per lane, with any added test listed by name.
 |       |          |                                                                             | asserted. Under both answers: fixtures pass; the §7.3 bidirectional |
 |       |          |                                                                             | check runs again. Slow tier once.                                   |
 +-------+----------+-----------------------------------------------------------------------------+---------------------------------------------------------------------+
-| C5    | owner    | Owner-gated (§6.4): `yin.repl` selects `dao.stream.cbor/profile`;           | Same suites green over CBOR; `grep dao.stream.transit src/` hits    |
+| C5    | owner    | Superseded: the `yin.repl` CBOR default moved to C2 (§6.4, OQ1);            | Same suites green over CBOR; `grep dao.stream.transit src/` hits    |
 |       |          | cross-host peer suites configured for CBOR.                                 | only `transit*.clj*`. Not commissioned by this document.            |
 +-------+----------+-----------------------------------------------------------------------------+---------------------------------------------------------------------+
 
@@ -936,9 +938,9 @@ with the date and the owner's words, and the touched sections are re-edited.
 +------+------------------------------------------------------------------------------------------------------+----------------------------------------------------+
 | Id   | Question                                                                                             | Architect's recommendation (not a decision)        |
 +======+======================================================================================================+====================================================+
-| OQ1  | Which profile `yin.repl.serve`/`connect` select by default once no shared default exists (§6.4).     | `dao.stream.cbor/profile` (slice C5). Until        |
-|      |                                                                                                      | recorded, C2 passes `dao.stream.transit/profile`   |
-|      |                                                                                                      | explicitly, so wire bytes are unchanged.           |
+| OQ1  | Which profile `yin.repl.serve`/`connect` select by default once no shared default exists (§6.4).     | RESOLVED 2026-10-20 (owner): `yin.repl` defaults   |
+|      |                                                                                                      | to `dao.stream.cbor/profile` in C2; `--codec       |
+|      |                                                                                                      | <cbor|transit>` and `(connect url :codec ...)`.    |
 +------+------------------------------------------------------------------------------------------------------+----------------------------------------------------+
 | OQ2  | Whether the 571-line cljd Transit port (`src/cljd/dao/stream/transit/cljd.cljd`) is kept once OQ1 is | Keep it while any composition or cross-host suite  |
 |      | CBOR (§6.3). Peers means both are available; removing one is a scope decision.                       | selects Transit; revisit after C5, not before.     |
@@ -957,9 +959,9 @@ Decided (CD1-CD6): the contract namespace, data resolution, one common domain
 D with a shared law test and unchanged codec predicates, the single `bytes?`
 capability, the key move behind accessors (subject to OQ3), the
 expand/migrate/contract sequence with the frozen-fixture wire proof. Not
-decided: OQ1-OQ3 above; none of them blocks F0-C3, because C2 passes Transit
-explicitly and C0-C3 are correct under either answer to OQ3. C4 waits for
-OQ3; C5 waits for OQ1.
+decided: OQ2-OQ3 above (OQ1 resolved 2026-10-20: `yin.repl` defaults to CBOR
+in C2, configurable via `--codec`/`:codec`); C0-C3 are correct under either
+answer to OQ3. C4 waits for OQ3; C5 no longer waits for OQ1.
 
 Start with **F0** (§7.3): it changes no source, and everything after it is
 measured against what it records. Then **C0**: it adds a namespace, moves the
@@ -967,7 +969,7 @@ three numeric definitions, adds keys beside existing ones and changes no
 behaviour; its acceptance is mechanical (three lanes green, counts unchanged
 plus the named law and adversarial tests, fixtures passing, the `grep` gate
 on `cbor.cljc` and `data.cljc`). Then C1, C2, C3 in order; each lands alone.
-C4 after OQ3; C5 after OQ1.
+C4 after OQ3; the C5 default flip is done in C2.
 
 Lanes and gates (`docs/agents/build-n-test.md`, Commands and Gate Ladder):
 iterate on the JVM lane with `bb test:sub:clj dao.stream` (G0); at each slice

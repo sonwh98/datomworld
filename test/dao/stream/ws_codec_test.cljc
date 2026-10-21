@@ -159,7 +159,7 @@
        (let [traffic (buffer)
              adapter (atom nil)
              _ ((ws/make-attacher
-                  {:traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
+                  {:codec transit/profile :traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
                    :admission admission
                    :connect! (fn [_ a]
                                (reset! adapter a)
