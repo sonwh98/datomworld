@@ -733,7 +733,7 @@
            [:li
             [:strong "Multiplayer Replication:"]
             " Native to stream federation. Client and server are simply two stream observers synchronizing append-only datom logs, governed by single-writer transaction custody."]]
-          [:h3 "The Distributed Engine: dao.stream Across Machines"]
+          [:h2 "The Distributed Engine: dao.stream Across Machines"]
           [:p
            "The most profound consequence of datom.world is that it is not merely a local runtime; "
            [:strong "datom.world is fundamentally a distributed system enabled by the dao.stream abstraction and pure immutable values"]
@@ -744,22 +744,22 @@
           [:ul.bulleted
            [:li
             [:strong "Eliminating Replication Boilerplate:"]
-            " In Unreal, developers spend months writing custom serialization macros, RPC boilerplate, and client-side prediction reconcilers to synchronize mutable object graphs. In Dao Engine, a game is not an application locked into a single machine's RAM; it is an append-only stream of facts. A client and a server are simply two peer observers subscribing to the same stream. Networking ceases to be an RPC marshaling problem and becomes pure stream consumption and delta synchronization."]
+            " In Unreal, developers spend months writing custom serialization macros, RPC boilerplate, and client-side prediction reconcilers to synchronize mutable object graphs. In Dao Engine, a game is not an application locked into a single machine's RAM; it is an append-only stream of facts. A client and a server are simply peer observers reading the same stream, governed by single-writer transaction custody. Networking ceases to be an inverted RPC control-flow problem and becomes pure cursor polling and delta synchronization."]
            [:li
             [:strong "Physical Decoupling of Simulation, Tooling, and Rendering:"]
-            " Because observers share no direct memory and communicate strictly across the stream boundary, workloads distribute across physical nodes with zero architectural friction. A 64-core headless Linux server in a data center can execute pure physical simulation and AI logic in yin.vm at 250 ticks per second. Concurrently, level designers in different cities can connect to the live stream via dao.space.index, inspecting and placing entities in real time, while player clients consume simulation deltas and lower them into local dao.postgraphics GPU pipelines. The game loop never knows the remote editors exist."]
+            " Because observers share no direct memory and communicate strictly across the stream boundary, workloads distribute across physical nodes with zero structural coupling. A 64-core headless Linux server in a data center can execute pure physical simulation and AI logic in yin.vm at 250 ticks per second. Concurrently, level designers in different cities can connect to the live stream via dao.space.index, inspecting and placing entities within standard network round-trip latency, while player clients consume simulation deltas and lower them into local dao.postgraphics GPU pipelines. The simulation loop never knows the remote editors exist."]
            [:li
             [:strong "Native Rollback and Replay:"]
-            " GGPO-style rollback netcode normally requires developers to write heroic, complex memory-cloning routines for local game state. In Dao Engine, computation in yin.vm is modeled as first-class, serializable continuations (Axiom 4). When late-arriving player input is received from the network, the engine does not scramble to rewind mutable memory: it resumes the continuation at the target transaction offset, reapplies the input stream events, and catches up instantly. Esports replays and kill-cams require no video encoding, remaining pure, compact event-stream logs replayable bit-for-bit on any client."]
+            " GGPO-style rollback netcode normally requires developers to write heroic, complex memory-cloning routines for local game state. In Dao Engine, computation in yin.vm is modeled as first-class, serializable continuations (Axiom 4). When late-arriving player input is received from the network, the engine does not scramble to rewind mutable memory: it resumes the continuation from the verified state snapshot, replays the retained simulation stream events, and catches up within a bounded re-simulation window. Esports replays and kill-cams require no video encoding, remaining pure, compact event-stream logs replayable bit-for-bit on any client."]
            [:li
             [:strong "Spatial Server Meshing as Stream Routing:"]
-            " Large-scale virtual worlds usually suffer from severe server boundary taxes when transferring complex C++ actor state across physical nodes. In Dao Engine, an entity has no physical locality; it is merely an identity integer e bound to immutable facts. Spatial world partitioning is simply a stream subscription filter: a cluster node subscribes to stream events for a spatial quadrant, and handing an entity across boundaries is merely routing its subsequent fact emissions to the neighboring partition."]
+            " Large-scale virtual worlds usually suffer from severe server boundary taxes when transferring complex C++ actor state across physical nodes. In Dao Engine, an entity has no physical locality; it is an identity integer e bound to immutable facts. Spatial world partitioning is managed by a routing interpreter that demuxes spatial facts: handing an entity across boundaries involves routing subsequent fact emissions, streaming the entity's retained history or epoch snapshot to the neighboring node, and cleanly transferring write custody at an epoch seal."]
            [:li
             [:strong "Persistence as an Idle Observer:"]
-            " Persistent world storage is not an external relational database requiring complex Object-Relational Mapping (ORM) or manual save-game serializers. Durable storage is simply an idle observer at the tail of the stream. Saving a world state is recording a stream transaction offset or snapshotting an epoch seal; loading a level is streaming facts from that offset into memory observers. If a simulation node crashes, a replacement node reads the log from the last sealed epoch and resumes instantly."]]
+            " Persistent world storage is not an external relational database requiring complex Object-Relational Mapping (ORM) or manual save-game serializers. Durable storage is an observer whose durable drain is what seals an epoch. Saving a world state is recording a stream transaction offset or snapshotting an epoch seal; loading a level is streaming facts from that offset into memory observers. If a simulation node crashes, a replacement node reads the log from the last durable epoch seal and resumes promptly, losing at most the unsealed in-flight suffix."]]
           [:p
            "The ultimate implication is a paradigm shift: "
-           [:strong "the Dao Engine is not a monolithic application trying to talk to the network; it is a distributed stream architecture that happens to render at 250 FPS"]
+           [:strong "the Dao Engine is not a monolithic application trying to talk to the network; it is a distributed stream architecture designed to simulate at 250 ticks per second and render with zero GC pauses"]
            "."]
           [:h2 "Embracing DOOM's Restrictions: Discipline as Data"]
           [:p
@@ -779,7 +779,7 @@
             [:strong "Fixed Budgets as Datoms:"]
             " Capacity is a fact like any other: "
             [:code "[:pool/demons :pool/capacity 64]"]
-            ". Memory is allocated once at an epoch boundary (level load). If a designer drops fifty extra demons into an encounter, the editor reports a budget violation at authoring time instead of overflowing mid-combat. The budget is not removed; it is made visible."]
+            ". Memory is preallocated at the coarsest epoch boundary (level load), while finer-grained transaction epochs seal frame-to-frame simulation batches. If a designer drops fifty extra demons into an encounter, the editor reports a budget violation at authoring time instead of overflowing mid-combat. The budget is not removed; it is made visible."]
            [:li
             [:strong "Zero Allocation During Play and Unitarity:"]
             " The hot path never builds persistent heap allocations. Immutability comes from double-buffering: systems read frame "
