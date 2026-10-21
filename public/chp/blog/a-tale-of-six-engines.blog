@@ -38,7 +38,8 @@
            [:strong "The Dao Engine blueprint completes the circle:"]
            " "
            "it takes the relational simplicity and deterministic event streams of 1993 DOOM, "
-           "and pairs them with the high-throughput, flat-buffer silicon execution of modern id Tech 7."]
+           "and pairs them with the high-throughput, flat-buffer silicon execution of modern id Tech 7. "
+           "It does so by keeping DOOM's restrictions, not by relaxing them."]
           [:p
            "If we reconstruct interactive 3D simulation on datom.world primitives, the architecture decomposes into four clean, isolated layers linked only by streams:"]
           [:pre
@@ -95,18 +96,19 @@
            "Because computation in "
            [:code "yin.vm"]
            " is modeled as first-class, serializable continuations (Axiom 4), "
-           "network prediction and rollback become effortless: "
+           "network prediction and rollback become structurally straightforward for the simulation stream: "
            "if the server informs a client that a prediction was incorrect three frames ago, "
-           "it simply resumes the continuation from the verified state snapshot and replays the stream events."]
+           "it resumes the continuation from the verified state snapshot and replays the deterministic simulation stream events "
+           "(with cross-host numeric determinism enforced by a strict arithmetic profile for hot simulation kernels, keeping non-deterministic rendering distinct)."]
           [:p
            "Furthermore, because of datom.world's "
            [:strong "Yang"]
            " compiler frontend, game scripting is not locked into a single language. "
            "Yang targets the Universal AST and compiles source text directly into executable datoms. "
-           "As a result, Dao Engine can use any ANTLR-supported language to write gameplay scripts. "
-           "Clojure and Python are supported out of the box today, but any grammar supported by ANTLR4 "
+           "As a result, Dao Engine can support gameplay scripts in any language equipped with a Yang frontend grammar package. "
+           "Clojure and Python frontends are supported out of the box today, while other ANTLR4 grammars "
            "-- from TypeScript and Lua to custom domain-specific gameplay DSLs -- "
-           "can compile down to the exact same Universal AST and run natively inside "
+           "can plug into Yang's composition pipeline, compiling down to the canonical Universal AST to run natively inside "
            [:code "yin.vm"]
            " with zero foreign-function boundary penalties."]
           [:p
@@ -118,7 +120,8 @@
            "Conversely, engines like DOOM and Bevy operate at the opposite extreme: pure, uncompromising code-only austerity that delivers blistering performance but demands low-level systems programming in C++ or Rust. "
            "The Dao Engine establishes a distinct middle tier between DOOM and those heavyweight visual tools: "
            "it empowers programmers and designers with the natural expressive power of whatever programming language they think in, "
-           "without forcing them to build complex GUI bridges, manage fragile FFI boundaries, or surrender silicon-grade execution speed."]
+           "without forcing them to build complex GUI bridges or manage fragile FFI boundaries, "
+           "while delivering silicon-grade execution speed through a verified hot-kernel tier."]
           [:p
            "However, this does not mean visual authoring is abandoned. "
            [:strong
@@ -669,8 +672,8 @@
            "The graphics subsystem ("
            [:code "dao.postgraphics"]
            ") acts as an incremental lowering observer. "
-           "Because lowering is a pure function over stream deltas, it recompiles the modified scene fragment into GPU uniform buffers in under twenty milliseconds. "
-           "The artist experiences instant, lag-free visual manipulation; the GPU continues to execute against pure, flat contiguous buffers. "
+           "Because lowering is a pure function over stream deltas, it targets recompilation of the modified scene fragment into GPU uniform buffers within a sub-frame budget (aiming under twenty milliseconds for localized deltas). "
+           "The artist experiences responsive, live visual manipulation; the GPU continues to execute against pure, flat contiguous buffers. "
            "Live mutation and packed silicon layout are completely reconciled."]
           [:h3
            "Wall 2: Expressive Composition vs. Runtime Throughput (Resolving Unity and Godot)"]
@@ -709,14 +712,12 @@
           [:ul.bulleted
            [:li
             [:strong "Undo and Redo:"]
-            " Free. Because datoms carry transaction time "
+            " A structural consequence of the substrate. Because datoms are immutable facts over transaction time "
             [:code "t"]
-            ", undoing an edit is simply querying the state of the world as of transaction "
-            [:code "t - 1"]
-            ". There are no undo stacks to maintain."]
+            ", undo is an explicit compensating retraction transaction (:db/retract) generated from transaction history, while as-of queries provide instantaneous state inspection across previous points in time."]
            [:li
             [:strong "Save and Load:"]
-            " Free. The world state is an append-only stream of facts. Saving is recording a stream offset; loading is streaming the facts into an observer."]
+            " Built into the stream model. The world state is an append-only stream of facts. Saving is recording a stream offset or checkpoint; loading is streaming the facts into an observer."]
            [:li
             [:strong "Declarative UI:"]
             " Tooling interfaces are authored in "
@@ -725,13 +726,72 @@
             [:code "dao.gui"]
             " (for immediate UI) and compiled into "
             [:code "dao.postgraphics"]
-            " bytecode. There is no heavy, brittle C++ or C# UI framework required."]
+            " bytecode (with scene graph vocabularies established as reserved design specifications). There is no heavy, brittle C++ or C# UI framework required."]
            [:li
             [:strong "Zero-Allocation Concurrency:"]
-            " Deterministic stream batching eliminates stop-the-world garbage collection pauses forever."]
+            " Fixed budgets, preallocated double buffers, and declared write sets (described below) keep garbage collection and locks out of the frame entirely."]
            [:li
             [:strong "Multiplayer Replication:"]
-            " Free. Client and server are simply two stream observers synchronizing append-only datom logs."]]
+            " Native to stream federation. Client and server are simply two stream observers synchronizing append-only datom logs, governed by single-writer transaction custody."]]
+          [:h2 "Embracing DOOM's Restrictions: Discipline as Data"]
+          [:p
+           "The Dao Engine does not try to escape the restrictions that make DOOM fast. "
+           [:strong
+            "Those restrictions are the reason DOOM runs faster than Unreal, Unity, and Godot"]
+           ": fixed memory budgets, flat layouts, zero allocation during play, lock-free scheduling, and no runtime reflection. "
+           "Every engine that relaxed them for convenience paid for it in frame time. "
+           "The Dao Engine keeps every one of them. What changes is where they live. "
+           "In id Tech, the restrictions are tribal knowledge enforced by hand by C++ systems engineers. "
+           "In the Dao Engine, they become explicit, declared data in the stream, checked by the compiler and visible to everyone."]
+          [:ul.bulleted
+           [:li
+            [:strong "Flat Layouts from Schema:"]
+            " Every attribute declares its type in the schema. The lowering compiler turns attributes into struct-of-arrays columns and maps each entity id to a dense row index, exactly as a 1993 Thing was simply a row in the THINGS table."]
+           [:li
+            [:strong "Fixed Budgets as Datoms:"]
+            " Capacity is a fact like any other: "
+            [:code "[:pool/demons :pool/capacity 64]"]
+            ". Memory is allocated once at an epoch boundary (level load). If a designer drops fifty extra demons into an encounter, the editor reports a budget violation at authoring time instead of overflowing mid-combat. The budget is not removed; it is made visible."]
+           [:li
+            [:strong "Zero Allocation During Play and Unitarity:"]
+            " The hot path never builds persistent heap allocations. Immutability comes from double-buffering: systems read frame "
+            [:code "t"]
+            " as read-only and write deltas into preallocated frame "
+            [:code "t+1"]
+            " buffers. Columnar buffers represent intra-epoch working projections, while the canonical datom stream remains the ultimate truth sealed at epoch boundaries under single-writer transaction custody. Event streams use fixed-capacity preallocated buffers; to protect unitarity, exceeding capacity deterministically triggers a budget-violation event rather than silently overwriting facts."]
+           [:li
+            [:strong "Lock-Free Scheduling from Declared Access:"]
+            " Each system declares the attributes it reads and writes as part of its query. The compiler builds the dependency graph and partitions work into jobs across cores. Because write sets are proven disjoint, no locks are needed."]
+           [:li
+            [:strong "Determinism Restored:"]
+            " A fixed tick rate, randomness supplied as an explicit input stream, a strict arithmetic profile for hot simulation operations (avoiding host-dependent transcendental drift), and deltas merged in a canonical deterministic order recover the pure input-stream replayability of 1993 demos that id Tech 6 and 7 gave up for multicore throughput."]
+           [:li
+            [:strong "No Runtime Reflection:"]
+            " All reflection lives in "
+            [:code "dao.space.index"]
+            ", which consumes the delta stream asynchronously on a separate core. The frame never waits for the editor."]]
+          [:h3 "Hot Kernels and Cold Continuations"]
+          [:p
+           "The restrictions apply to scripts too. "
+           "Unrestricted Clojure or Python that allocates maps every frame cannot run at DOOM speed, and the Dao Engine does not pretend otherwise. "
+           "Gameplay code is split into two tiers within the same language:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Hot Kernels:"]
+            " A statically checkable subset with no allocation, bounded loops, and fixed attribute types. Yin lowers these into typed, flat code that streams over the attribute columns. Movement, damage, and AI steering live here."]
+           [:li
+            [:strong "Cold Continuations:"]
+            " Everything else runs as event-driven "
+            [:code "yin.vm"]
+            " continuations outside the frame budget. Quest logic, dialogue, and UI flow live here. All continuation wakeups are stream-recorded events. Cold effects buffer their state mutations and commit at scheduled epoch boundaries in canonical order, governed by explicit attribute write-precedence rules so that asynchronous cold logic never introduces non-deterministic frame-time jitter."]]
+          [:p
+           "The tier is a property the compiler verifies, not a rewrite into another language. "
+           "Where Unreal forces a Blueprint prototype to be rewritten in C++ by a different engineer, "
+           "the Dao Engine reports why a script cannot run hot (for example, \"allocates at line 12\") and the author fixes that line."]
+          [:p
+           "This is the honest trade. Designers still work within budgets, and hot code still obeys the subset. "
+           "What disappears is the need for an elite team to enforce DOOM's discipline by hand. "
+           "The lowering compiler that makes this possible does not exist yet; it is the central engineering bet of the blueprint."]
           [:h2 "Comparison Matrix: The Six Paradigms"]
           [:ul.bulleted
            [:li
@@ -748,7 +808,7 @@
              [:li
               "Bevy: Contiguous archetype tables indexed by 64-bit integer IDs (Entity), statically typed in Rust."]
              [:li
-              "The Dao Engine (Blueprint): Entity identities with immutable facts [e a v t m]. Zero memory overhead on execution, infinite malleability in authoring."]]]
+              "The Dao Engine (Blueprint): Entity identities with immutable facts [e a v t m]. Flat packed silicon execution with high declarative authoring malleability bounded by schema budgets."]]]
            [:li
             [:strong "Execution Topology:"]
             [:ul.bulleted
@@ -794,7 +854,7 @@
              [:li
               "Bevy: High engineering barrier; requires deep Rust expertise, wrestling with the borrow checker and archetype migration rules."]
              [:li
-              "The Dao Engine (Blueprint): Democratized; designers author high-level declarative facts while the lowering compiler automatically produces flat, lock-free silicon execution."]]]
+              "The Dao Engine (Blueprint): Disciplined but accessible; designers work within declared budgets and a verifiable hot-kernel subset, while the lowering compiler, not a team of systems engineers, enforces DOOM's restrictions."]]]
            [:li
             [:strong "Memory and Concurrency:"]
             [:ul.bulleted
@@ -809,7 +869,7 @@
              [:li
               "Bevy: Safe multi-threaded system execution via Rust borrow checker; contiguous archetype memory layout."]
              [:li
-              "The Dao Engine (Blueprint): Pure stream processing with serializable continuations; deterministic, lock-free, and hitch-free."]]]
+              "The Dao Engine (Blueprint): Pure stream processing with serializable continuations; deterministic simulation, lock-free multi-threading, and zero runtime GC."]]]
            [:li
             [:strong "Time, Replay, and Multiplayer:"]
             [:ul.bulleted
