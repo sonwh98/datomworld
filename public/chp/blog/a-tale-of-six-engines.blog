@@ -840,98 +840,66 @@
             [:strong "A Closed Frame Loop:"]
             " The frame loop is mathematically closed: hot simulation kernels compute pure state transitions via direct calls over contiguous columnar buffers, while all external world interactions are pushed strictly to stream boundaries at the edges of the frame. Pure computation runs at the silicon limit; side effects remain explicit, observable, and replayable."]]
           [:h2 "Comparison Matrix: The Six Paradigms"]
-          [:ul.bulleted
-           [:li
-            [:strong "Entity Architecture:"]
-            [:ul.bulleted
-             [:li
-              "Unreal Engine 5: Heavy polymorphic C++ classes (AActor) with virtual tables, pointers, and GC headers."]
-             [:li
-              "id Tech 7 (DOOM): Rigid flat arrays and packed structs, manually tuned per game."]
-             [:li
-              "Unity: Hybrid GameObjects + MonoBehaviours split across C++ and C#; awkward DOTS ECS struct authoring."]
-             [:li
-              "Godot: Tree of C++ Node objects with dynamic signal connections and Variant dictionaries."]
-             [:li
-              "Bevy: Contiguous archetype tables indexed by 64-bit integer IDs (Entity), statically typed in Rust."]
-             [:li
-              "The Dao Engine (Blueprint): Entity identities with immutable facts [e a v t m]. Flat packed silicon execution with high declarative authoring malleability bounded by schema budgets."]]]
-           [:li
-            [:strong "Execution Topology:"]
-            [:ul.bulleted
-             [:li
-              "Unreal Engine 5: Recursive AST-walker style traversal of heap-allocated actor components."]
-             [:li
-              "id Tech 7 (DOOM): Flat contiguous arrays and micro-job loops."]
-             [:li
-              "Unity: Virtual method invocations crossing the native/managed P/Invoke boundary on every Update()."]
-             [:li
-              "Godot: Recursive scene-tree traversal with GDScript bytecode dispatch and dynamic signal callbacks."]
-             [:li
-              "Bevy: Concurrent system dispatch over contiguous archetype slices, scheduled via compile-time type analysis."]
-             [:li
-              "The Dao Engine (Blueprint): Canonical AST/state datoms compiled to a linear execution stream with flat array backing and integer dispatch."]]]
-           [:li
-            [:strong "Tooling, Scripting, and Reflection:"]
-            [:ul.bulleted
-             [:li
-              "Unreal Engine 5: C++ and Blueprints; runtime reflection tables (UHT) baked into every object with high memory and CPU cost."]
-             [:li
-              "id Tech 7 (DOOM): Pure C++; minimal runtime reflection; requires specialized offline baking pipelines."]
-             [:li
-              "Unity: C# reflection for MonoBehaviours; complex external bakers and code generators for DOTS entities."]
-             [:li
-              "Godot: GDScript and C#; lightweight runtime ClassDB reflection, but tightly coupled to the C++ node hierarchy."]
-             [:li
-              "Bevy: Rust only; compile-time type reflection (bevy_reflect); no runtime REPL, no dynamic scripting, and no mature visual editor."]
-             [:li
-              "The Dao Engine (Blueprint): Polyglot via Yang (Clojure and Python supported today, any ANTLR4 language pluggable); Datalog query engine (dao.space) observes the stream independently with zero runtime tax on the execution kernel."]]]
-           [:li
-            [:strong
-             "Engineering Barrier and Developer Accessibility:"]
-            [:ul.bulleted
-             [:li
-              "Unreal Engine 5: Highly accessible to non-programmers; artists and designers can build and ship full games with Blueprints."]
-             [:li
-              "id Tech 7 (DOOM): Extremely high engineering barrier; completely impossible without specialized C++ systems engineers for all mechanics, memory pools, and fiber jobs."]
-             [:li
-              "Unity: Accessible via C# and visual scripting, but fractured when trying to author high-performance DOTS ECS code."]
-             [:li
-              "Godot: Extremely accessible and beginner-friendly with GDScript and node scenes, but hits a hard wall when scaling to high-performance simulation."]
-             [:li
-              "Bevy: High engineering barrier; requires deep Rust expertise, wrestling with the borrow checker and archetype migration rules."]
-             [:li
-              "The Dao Engine (Blueprint): Disciplined but accessible; designers work within declared budgets and a verifiable hot-kernel subset, while the lowering compiler, not a team of systems engineers, enforces DOOM's restrictions."]]]
-           [:li
-            [:strong "Memory and Concurrency:"]
-            [:ul.bulleted
-             [:li
-              "Unreal Engine 5: Coarse thread pipelining with 1-frame latency queues, prone to GC hitches and tick ordering conflicts."]
-             [:li
-              "id Tech 7 (DOOM): Lock-free fiber job scheduler; flat 144 to 250 FPS frame pacing."]
-             [:li
-              "Unity: Stop-the-world Boehm GC pauses and script execution order race conditions."]
-             [:li
-              "Godot: Single-threaded main scene loop; physics running on separate thread with mutex locks; prone to cache misses."]
-             [:li
-              "Bevy: Safe multi-threaded system execution via Rust borrow checker; contiguous archetype memory layout."]
-             [:li
-              "The Dao Engine (Blueprint): Pure stream processing with serializable continuations; deterministic simulation, lock-free multi-threading, and zero runtime GC."]]]
-           [:li
-            [:strong "Time, Replay, and Multiplayer:"]
-            [:ul.bulleted
-             [:li
-              "Unreal Engine 5: Custom replication macros, bespoke save serialization, manual rollback buffers."]
-             [:li
-              "id Tech 7 (DOOM): Custom netcode packet serializers, rigid level state snapshots."]
-             [:li
-              "Unity: Fragmented netcode packages; difficult rollback due to mutable heap allocations."]
-             [:li
-              "Godot: High-level multiplayer node replication, but manual state serialization and no native time-travel rollback."]
-             [:li
-              "Bevy: Rollback possible via manual component snapshots, but archetype restructuring makes deep state serialization complex."]
-             [:li
-              "The Dao Engine (Blueprint): Native time dimension in every datom; rewind, replay, save/load, and continuation migration come built-in."]]]]
+          [:div.table-responsive
+           [:table
+            [:thead
+             [:tr
+              [:th "Dimension"]
+              [:th "DOOM / id Tech (1993/2020)"]
+              [:th "Unreal Engine (1998)"]
+              [:th "Unity (2005)"]
+              [:th "Godot (2014)"]
+              [:th "Bevy (2020)"]
+              [:th "The Dao Engine (Blueprint)"]]]
+            [:tbody
+             [:tr
+              [:td [:strong "Entity Architecture"]]
+              [:td "Rigid flat arrays and packed structs, manually tuned per game."]
+              [:td "Heavy polymorphic C++ classes (AActor) with virtual tables, pointers, and GC headers."]
+              [:td "Hybrid GameObjects + MonoBehaviours split across C++ and C#; awkward DOTS ECS struct authoring."]
+              [:td "Tree of C++ Node objects with dynamic signal connections and Variant dictionaries."]
+              [:td "Contiguous archetype tables indexed by 64-bit integer IDs (Entity), statically typed in Rust."]
+              [:td "Entity identities with immutable facts [e a v t m]. Flat packed silicon execution with high declarative authoring malleability bounded by schema budgets."]]
+             [:tr
+              [:td [:strong "Execution Topology"]]
+              [:td "Flat contiguous arrays and micro-job loops."]
+              [:td "Recursive AST-walker style traversal of heap-allocated actor components."]
+              [:td "Virtual method invocations crossing the native/managed P/Invoke boundary on every Update()."]
+              [:td "Recursive scene-tree traversal with GDScript bytecode dispatch and dynamic signal callbacks."]
+              [:td "Concurrent system dispatch over contiguous archetype slices, scheduled via compile-time type analysis."]
+              [:td "Canonical AST/state datoms compiled to a linear execution stream with flat array backing and integer dispatch."]]
+             [:tr
+              [:td [:strong "Tooling, Scripting, & Reflection"]]
+              [:td "Pure C++; minimal runtime reflection; requires specialized offline baking pipelines."]
+              [:td "C++ and Blueprints; runtime reflection tables (UHT) baked into every object with high memory and CPU cost."]
+              [:td "C# reflection for MonoBehaviours; complex external bakers and code generators for DOTS entities."]
+              [:td "GDScript and C#; lightweight runtime ClassDB reflection, but tightly coupled to the C++ node hierarchy."]
+              [:td "Rust only; compile-time type reflection (bevy_reflect); no runtime REPL, no dynamic scripting, and no mature visual editor."]
+              [:td "Polyglot via Yang (Clojure and Python supported today, any ANTLR4 language pluggable); Datalog query engine (dao.space) observes the stream independently with zero runtime tax on the execution kernel."]]
+             [:tr
+              [:td [:strong "Developer Accessibility"]]
+              [:td "Extremely high engineering barrier; completely impossible without specialized C++ systems engineers for all mechanics, memory pools, and fiber jobs."]
+              [:td "Highly accessible to non-programmers; artists and designers can build and ship full games with Blueprints."]
+              [:td "Accessible via C# and visual scripting, but fractured when trying to author high-performance DOTS ECS code."]
+              [:td "Extremely accessible and beginner-friendly with GDScript and node scenes, but hits a hard wall when scaling to high-performance simulation."]
+              [:td "High engineering barrier; requires deep Rust expertise, wrestling with the borrow checker and archetype migration rules."]
+              [:td "Disciplined but accessible; designers work within declared budgets and a verifiable hot-kernel subset, while the lowering compiler, not a team of systems engineers, enforces DOOM's restrictions."]]
+             [:tr
+              [:td [:strong "Memory & Concurrency"]]
+              [:td "Lock-free fiber job scheduler; flat 144 to 250 FPS frame pacing."]
+              [:td "Coarse thread pipelining with 1-frame latency queues, prone to GC hitches and tick ordering conflicts."]
+              [:td "Stop-the-world Boehm GC pauses and script execution order race conditions."]
+              [:td "Single-threaded main scene loop; physics running on separate thread with mutex locks; prone to cache misses."]
+              [:td "Safe multi-threaded system execution via Rust borrow checker; contiguous archetype memory layout."]
+              [:td "Pure stream processing with serializable continuations; deterministic simulation, lock-free multi-threading, and zero runtime GC."]]
+             [:tr
+              [:td [:strong "Time, Replay, & Multiplayer"]]
+              [:td "Custom netcode packet serializers, rigid level state snapshots."]
+              [:td "Custom replication macros, bespoke save serialization, manual rollback buffers."]
+              [:td "Fragmented netcode packages; difficult rollback due to mutable heap allocations."]
+              [:td "High-level multiplayer node replication, but manual state serialization and no native time-travel rollback."]
+              [:td "Rollback possible via manual component snapshots, but archetype restructuring makes deep state serialization complex."]
+              [:td "Native time dimension in every datom; rewind, replay, save/load, and continuation migration come built-in."]]]]]
           [:h2 "The Conclusion: Moving Beyond the 1990s Compromise"]
           [:p
            "For three decades, game architecture has been held hostage by false compromises: "
