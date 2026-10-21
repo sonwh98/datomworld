@@ -71,24 +71,48 @@
                    :actual (c-export-layout-version)})))
 
 
+(defn- with-native
+  "(f p) over caller-owned native memory `p` allocated by `spec` (as
+   `ffi/alloc` takes it), freed however `f` exits. The release is established
+   before anything else can fail, so nesting one call per acquisition frees
+   each allocation independently of the others."
+  [spec f]
+  (let [p (ffi/alloc spec)]
+    (try
+      (when (ffi/null? p)
+        (throw (ex-info "jolt parser native allocation failed" {:spec spec})))
+      (f p)
+      (finally (ffi/free p)))))
+
+
 (defn- call-export
   "The wrapper's status and its buffer, copied into jolt memory and freed."
   [handle ^bytes src]
-  (let [n (alength src)
-        in (ffi/alloc (max 1 n))
-        out-cell (ffi/alloc :pointer)
-        len-cell (ffi/alloc :size_t)]
-    (try
-      (when (pos? n) (ffi/write-array in src))
-      (let [status (c-export handle in n out-cell len-cell)
-            p (ffi/read out-cell :pointer)
-            len (ffi/read len-cell :size_t)]
-        (try
-          [status (if (or (ffi/null? p) (zero? len))
-                    (byte-array 0)
-                    (ffi/read-array p len))]
-          (finally (when-not (ffi/null? p) (c-free p)))))
-      (finally (ffi/free in) (ffi/free out-cell) (ffi/free len-cell)))))
+  (let [n (alength src)]
+    (with-native (max 1 n)
+      (fn [in]
+        (when (pos? n) (ffi/write-array in src))
+        (with-native :pointer
+          (fn [out-cell]
+            (with-native :size_t
+              (fn [len-cell]
+                ;; the cleanup's view of the wrapper's buffer, made before the
+                ;; wrapper can hand one out
+                (let [owned (volatile! nil)
+                      status (c-export handle in n out-cell len-cell)]
+                  ;; the wrapper's buffer is released from here on, whatever
+                  ;; reading the cells or copying it does: once the body has
+                  ;; read the pointer the release uses it as read, and only
+                  ;; when that read failed does the release read the out cell
+                  (try
+                    (let [p (vreset! owned (ffi/read out-cell :pointer))
+                          len (ffi/read len-cell :size_t)]
+                      [status (if (or (ffi/null? p) (zero? len))
+                                (byte-array 0)
+                                (ffi/read-array p len))])
+                    (finally
+                      (let [p (or @owned (ffi/read out-cell :pointer))]
+                        (when-not (ffi/null? p) (c-free p))))))))))))))
 
 
 ;; =============================================================================
@@ -247,7 +271,12 @@
   (let [h (c-worker-new)]
     (when (ffi/null? h)
       (throw (ex-info "jolt parser worker could not be made" {})))
-    {:profile profile, ::native (atom h)}))
+    ;; the handle is released unless the worker that owns it is made
+    (try
+      {:profile profile, ::native (atom h)}
+      (catch Throwable e
+        (c-worker-free h)
+        (throw e)))))
 
 
 (defn close-worker

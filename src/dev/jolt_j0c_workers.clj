@@ -21,8 +21,10 @@
 ;;      runs on it is refused (status -5); a closed worker refuses parses and a
 ;;      second close is a no-op.
 ;;
-;; The shared ATNs' next-token memo is counted and reported (RECORD), not
-;; required to stay flat; see the round-4 report.
+;; The memos the runtime fills lazily in shared state (each ATN state's
+;; next-token set, each lexer action's hash, PredictionContext::EMPTY's hash)
+;; must be complete when the first worker exists and must not change during
+;; recognition (round 5; the wrapper fills them once in published_atns).
 (ns jolt-j0c-workers
   (:require
     [clojure.edn :as edn]
@@ -66,10 +68,13 @@
 
 (defn- static-stats
   []
-  (let [[ls le lc ps pe pc lm pm] (u64s c-static-stats 8)]
+  (let [[ls le lc ps pe pc lm pm lstates pstates ah an eh] (u64s c-static-stats 13)]
     {:caches {:lexer-dfa-states ls, :lexer-dfa-edges le, :lexer-ctx lc,
               :parser-dfa-states ps, :parser-dfa-edges pe, :parser-ctx pc},
-     :atn-memo {:lexer lm, :parser pm}}))
+     :memos {:lexer-next-tokens lm, :parser-next-tokens pm,
+             :lexer-action-hashes ah, :empty-context-hash eh},
+     :memo-sizes {:lexer-next-tokens lstates, :parser-next-tokens pstates,
+                  :lexer-action-hashes an, :empty-context-hash 1}}))
 
 
 (defn- worker-stats
@@ -86,9 +91,25 @@
 
 ;; -- initialization ------------------------------------------------------------
 
+;; nothing has made a worker or parsed yet: the memo counters must read the
+;; unfilled state (positive control: they observe the runtime's fields)
+(def s-pre (static-stats))
+(println "RECORD shared memos before the first worker" (pr-str (:memos s-pre)))
+
+
 (def init-worker (cst/make-worker profile))
 (def s0 (static-stats))
 (println "RECORD static caches after initialization" (pr-str s0))
+
+
+(check "the shared memo counters read empty before the first worker (they are live)"
+       (every? zero? (vals (:memos s-pre)))
+       (:memos s-pre))
+
+
+(check "every shared lazily filled memo was filled before the first worker was published"
+       (= (:memos s0) (:memo-sizes s0))
+       {:filled (:memos s0), :of (:memo-sizes s0)})
 
 
 ;; -- 1. isolated ---------------------------------------------------------------
@@ -166,8 +187,9 @@
        {:before (:caches s0), :after (:caches s1)})
 
 
-(println "RECORD shared ATN next-token memo (lazily filled by the runtime, ATN::nextTokens)"
-         (pr-str {:before (:atn-memo s0), :after (:atn-memo s1)}))
+(check "the shared memos (ATN next-token sets, lexer-action hashes, the EMPTY context's hash) did not grow during worker recognition"
+       (= (:memos s0) (:memos s1))
+       {:before (:memos s0), :after (:memos s1)})
 
 
 (let [src (.getBytes ^String (sources 7) "UTF-8")
@@ -189,6 +211,11 @@
        (and (> (get-in s2 [:caches :parser-dfa-states]) (get-in s1 [:caches :parser-dfa-states]))
             (> (get-in s2 [:caches :lexer-dfa-states]) (get-in s1 [:caches :lexer-dfa-states])))
        {:after-static-parse (:caches s2)})
+
+
+(check "the shared memos did not change during the round-1 parse either"
+       (= (:memos s0) (:memos s2))
+       {:after-static-parse (:memos s2)})
 
 
 ;; -- 5. one thread at a time; close ---------------------------------------------

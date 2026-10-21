@@ -15,6 +15,13 @@
            (:exit (shell {:continue true} "sh" "-c"
                          ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt src/dev/jolt_smoke.clj")))}
 
+  jolt:run
+  {:doc "Run the bootstrapped jolt with build/tools/jolt-env.sh, passing every argument through (e.g. bb jolt:run -Srepro -M:jolt src/dev/jolt_j0c_workers.clj)"
+   :task (System/exit
+           (:exit (apply shell {:continue true} "sh" "-c"
+                         ". build/tools/jolt-env.sh && exec \"$JOLT_HOME/bin/jolt\" \"$@\"" "jolt"
+                         *command-line-args*)))}
+
   build:jolt-native
   {:doc "Fetch (by pinned SHA-256, only when absent) and build the jolt-toolchain.edn :native sources with the mise-pinned CMake into build/native/<platform>/"
    :task (System/exit
