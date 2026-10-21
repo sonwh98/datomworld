@@ -717,7 +717,7 @@
             ", undo is an explicit compensating retraction transaction (:db/retract) generated from transaction history, while as-of queries provide instantaneous state inspection across previous points in time."]
            [:li
             [:strong "Save and Load:"]
-            " Built into the stream model. The world state is an append-only stream of facts. Saving is recording a stream offset or checkpoint; loading is streaming the facts into an observer."]
+            " Built into the stream model. A scene or level is an append-only stream of facts. Saving is bookmarking a stream offset or snapshot; loading is streaming the facts into an observer."]
            [:li
             [:strong "Declarative UI:"]
             " Tooling interfaces are authored in "
@@ -728,8 +728,8 @@
             [:code "dao.postgraphics"]
             " bytecode (with scene graph vocabularies established as reserved design specifications). There is no heavy, brittle C++ or C# UI framework required."]
            [:li
-            [:strong "Zero-Allocation Concurrency:"]
-            " Fixed budgets, preallocated double buffers, and declared write sets keep garbage collection and locks out of the frame entirely."]]
+            [:strong "Time-Travel Inspection & Telemetry:"]
+            " Because all editor actions, viewport interactions, and script modifications are recorded as an immutable fact stream, designers can scrub through the entire history of an editing session, branch alternate scene layouts without destructive writes, and reproduce editor bugs or crash states with absolute fidelity."]]
           [:p
            "Crucially, because state transitions exist as pure stream deltas, this malleability extends far beyond local editor tools into distributed deployment."]
           [:h2 "The Distributed Engine: dao.stream Across Machines"]
@@ -752,10 +752,10 @@
             " GGPO-style rollback netcode normally requires developers to write heroic, complex memory-cloning routines for local game state. In Dao Engine, computation in yin.vm is modeled as first-class, serializable continuations (Axiom 4). When late-arriving player input is received from the network, the engine does not scramble to rewind mutable memory: it resumes the continuation from the verified state snapshot, replays the retained simulation stream events, and catches up within a bounded re-simulation window. Esports replays and kill-cams require no video encoding, remaining pure, compact event-stream logs replayable bit-for-bit on any client."]
            [:li
             [:strong "Spatial Server Meshing as Stream Routing:"]
-            " Large-scale virtual worlds usually suffer from severe server boundary taxes when transferring complex C++ actor state across physical nodes. In Dao Engine, an entity has no physical locality; it is an identity integer e bound to immutable facts. Spatial world partitioning is managed by a routing interpreter that demuxes spatial facts: handing an entity across boundaries involves routing subsequent fact emissions, streaming the entity's retained history or epoch snapshot to the neighboring node, and cleanly transferring write custody at an epoch seal."]
+            " Large-scale virtual worlds usually suffer from severe server boundary taxes when transferring complex C++ actor state across physical nodes. In Dao Engine, an entity has no physical locality; it is an identity integer e bound to immutable facts. Spatial world partitioning is managed by a routing interpreter that demuxes spatial facts: handing an entity across boundaries involves routing subsequent fact emissions, streaming the entity's retained history or epoch snapshot to the neighboring node, and cleanly transferring write custody via a deterministic lease handoff (dao.lease) at an epoch seal."]
            [:li
             [:strong "Persistence as an Idle Observer:"]
-            " Persistent world storage is not an external relational database requiring complex Object-Relational Mapping (ORM) or manual save-game serializers. Durable storage is an observer whose durable drain is what seals an epoch. Saving a world state is recording a stream transaction offset or snapshotting an epoch seal; loading a level is streaming facts from that offset into memory observers. If a simulation node crashes, a replacement node reads the log from the last durable epoch seal and resumes promptly, losing at most the unsealed in-flight suffix."]
+            " Persistent world storage is not an external relational database requiring complex Object-Relational Mapping (ORM) or manual save-game serializers. Durable storage is simply an append-only stream observer whose drain seals each epoch to disk. If a simulation node crashes, a replacement node catches up by streaming the log from the last durable epoch seal and resumes execution immediately, losing at most the unsealed in-flight suffix without complex crash-recovery protocols or database reconciliation."]
            [:li
             [:strong "Shared Asset and Code Mesh (dao.jing.dht):"]
             " In traditional engines, shipping a game or mod requires fracturing the universe into two distinct, brittle pipelines: static asset bundles (pak files) distributed over CDNs, and compiled platform-locked native binaries (DLLs or shared objects). In Dao Engine, because code in yin.vm is structured datoms (Axiom 3), the boundary between an asset and an executable routine dissolves completely. A 3D demon mesh, a 4K texture, an audio sample, and a gameplay AI script are all identical in kind: immutable, content-addressed byte segments in dao.jing. Clients and servers form a peer-to-peer distributed hash table mesh (dao.jing.dht) over UDP, fetching and caching both art assets and executable kernels by cryptographic hash. Verification is guaranteed before materialization (ensuring segment-hash matches content-hash), enabling community modding, dynamic asset streaming, and live gameplay hot-patching with zero downtime and perfect cross-game deduplication."]
@@ -905,7 +905,7 @@
               [:td "Fragmented netcode packages; difficult rollback due to mutable heap allocations."]
               [:td "High-level multiplayer node replication, but manual state serialization and no native time-travel rollback."]
               [:td "Rollback possible via manual component snapshots, but archetype restructuring makes deep state serialization complex."]
-              [:td "Native time dimension in every datom; rewind, replay, save/load, and continuation migration come built-in."]]]]]
+              [:td "Native time dimension in every datom; rewind, replay, save/load, deterministic leasing (dao.lease), and peer-to-peer asset/code streaming (dao.jing.dht) come built-in."]]]]]
           [:h2 "The Conclusion: Moving Beyond the 1990s Compromise"]
           [:p
            "For three decades, game architecture has been held hostage by false compromises: "
