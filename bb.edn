@@ -43,6 +43,12 @@
            (:exit (shell {:continue true} "sh" "-c"
                          ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-test src/dev/jolt_test_runner.clj dao.host.conformance-test dao.host.bytes-test dao.host.float-test dao.host.text-test")))}
 
+  test:jolt-text-perf
+  {:doc "Linearity guard for the jolt dao.host.text override: code-points, unit-count, an ascending code-unit walk and utf8-encode on BMP, astral and mixed strings of 64/256/1024 Ki code points; each 4x input under 8x the time, 1024 Ki under 5 s (src/dev/jolt_text_perf.clj; needs bb bootstrap:jolt)"
+   :task (System/exit
+           (:exit (shell {:continue true} "sh" "-c"
+                         ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt src/dev/jolt_text_perf.clj")))}
+
   compare:jolt-host
   {:doc "J1: run src/dev/jolt_profile_compare.cljc on the JVM and on jolt (public vars, arities, refusal data, a differential case battery over dao.host.*) and diff the two; writes build/j1-logs/compare-{jvm,jolt}.edn and compare.diff; exit 1 when they differ"
    :task (System/exit

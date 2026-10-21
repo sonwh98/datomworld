@@ -69,19 +69,59 @@
         units))))
 
 
+(def ^:private code-unit-hint
+  "Where the last `code-unit` call stopped: `[s ci at]`, scalar `ci` of
+   `s` starts at code unit `at`. A Chez string is indexed by scalar, so
+   finding unit `i` means walking the scalars before it; a call on the
+   same (identical) string at a unit index at or past the hint resumes
+   there instead of at 0, which makes an ascending walk over the units
+   (every caller's shape, e.g. yin.vm.debruijn's) linear in the string
+   rather than quadratic. Any other call starts at 0, as without the
+   hint, and answers the same. The hint is one immutable vector swapped
+   whole, so a racing thread at worst restarts from 0; it keeps the last
+   such string reachable until the next call. The resume is sound only
+   while `s` is never mutated between calls: a Chez string is mutable,
+   and nothing under src/ mutates one (no `string-set!`)."
+  (atom nil))
+
+
 (defn code-unit
   "P. The UTF-16 code unit at index `i` of `s`, 0 to 0xFFFF; the caller
    has checked 0 <= i < `unit-count`. A code point above U+FFFF answers
    its high surrogate at its first unit and its low at its second."
   [s i]
-  (loop [ci 0
-         at 0]
-    (let [cp (scalar-at s ci)]
-      (if (< cp 0x10000)
-        (if (= at i) cp (recur (inc ci) (inc at)))
-        (cond (= at i) (+ 0xD800 (quot (- cp 0x10000) 0x400))
-              (= (inc at) i) (+ 0xDC00 (rem (- cp 0x10000) 0x400))
-              :else (recur (inc ci) (+ at 2)))))))
+  (let [[hs hci hat] @code-unit-hint
+        resume? (and (identical? hs s) (<= hat i))]
+    (loop [ci (if resume? hci 0)
+           at (if resume? hat 0)]
+      (let [cp (scalar-at s ci)]
+        (if (< cp 0x10000)
+          (if (= at i)
+            (do (reset! code-unit-hint [s ci at]) cp)
+            (recur (inc ci) (inc at)))
+          (cond (= at i) (do (reset! code-unit-hint [s ci at])
+                             (+ 0xD800 (quot (- cp 0x10000) 0x400)))
+                (= (inc at) i) (do (reset! code-unit-hint [s ci at])
+                                   (+ 0xDC00 (rem (- cp 0x10000) 0x400)))
+                :else (recur (inc ci) (+ at 2))))))))
+
+
+(defn- code-units
+  "The UTF-16 code units of `s` as a vector, in one pass over its
+   scalars: what `code-unit` answers at each index 0 to `unit-count`."
+  [s]
+  (let [n (chez-string-length s)]
+    (loop [ci 0
+           out (transient [])]
+      (if (< ci n)
+        (let [cp (scalar-at s ci)]
+          (recur (inc ci)
+                 (if (< cp 0x10000)
+                   (conj! out cp)
+                   (-> out
+                       (conj! (+ 0xD800 (quot (- cp 0x10000) 0x400)))
+                       (conj! (+ 0xDC00 (rem (- cp 0x10000) 0x400)))))))
+        (persistent! out)))))
 
 
 (defn- high-surrogate?
@@ -135,20 +175,17 @@
 
 (defn code-points
   "P, table B. The code points of string `s` as a vector: a surrogate
-   pair decodes to one code point, an unpaired surrogate is its own."
+   pair decodes to one code point, an unpaired surrogate is its own.
+   Over a Chez string that is exactly its scalars, read in one pass: a
+   scalar below U+10000 is one unit and never a surrogate (Chez holds
+   none), so it decodes to itself; a scalar above is a high-low pair,
+   which decodes back to it; no unpaired surrogate is left to emit."
   [s]
-  (let [n (unit-count s)]
-    (loop [i 0
+  (let [n (chez-string-length s)]
+    (loop [ci 0
            out (transient [])]
-      (if (< i n)
-        (let [u (code-unit s i)
-              v (when (< (inc i) n) (code-unit s (inc i)))]
-          (if (and (high-surrogate? u) v (low-surrogate? v))
-            (recur (+ i 2)
-                   (conj! out (+ 0x10000
-                                 (* (- u 0xD800) 0x400)
-                                 (- v 0xDC00))))
-            (recur (inc i) (conj! out u))))
+      (if (< ci n)
+        (recur (inc ci) (conj! out (scalar-at s ci)))
         (persistent! out)))))
 
 
@@ -157,15 +194,17 @@
 ;; =============================================================================
 
 (defn- check-surrogates!
-  "Refuse `:unpaired-surrogate` unless every surrogate of `s` is paired."
+  "Refuse `:unpaired-surrogate` unless every surrogate of `s` is paired,
+   over its code units built once (`code-units`)."
   [entry s]
-  (let [n (unit-count s)]
+  (let [units (code-units s)
+        n (count units)]
     (loop [i 0]
       (when (< i n)
-        (let [c (code-unit s i)]
+        (let [c (nth units i)]
           (cond
             (high-surrogate? c)
-            (if (and (< (inc i) n) (low-surrogate? (code-unit s (inc i))))
+            (if (and (< (inc i) n) (low-surrogate? (nth units (inc i))))
               (recur (+ i 2))
               (refuse entry :unpaired-surrogate (str "unpaired high surrogate at " i)))
             (low-surrogate? c)

@@ -63,9 +63,9 @@
   (println (if ok? "PASS" "FAIL") label (pr-str detail)))
 
 
-(check "yang.antlr.cst resolves to the jolt adapter (export-records exists) and loads only export/packet beside it"
+(check "yang.antlr.cst resolves to the jolt adapter (export-records exists) and loads only export, packet, dao.host.text and jolt.scheme beside it (no transit)"
        (and (some? (resolve 'yang.antlr.cst/export-records))
-            (= '(yang.antlr.cst yang.antlr.export yang.antlr.packet) added))
+            (= '(dao.host.text jolt.scheme yang.antlr.cst yang.antlr.export yang.antlr.packet) added))
        added)
 
 
@@ -396,8 +396,11 @@
              r)))
   ;; one string token whose text alone passes the bound: cheap to lex
   (let [big (str "s = '" (apply str (repeat (* 70 1024) (apply str (repeat 1024 "a")))) "'\n")
+        t0 (System/nanoTime)
         r (try (cst/parse-unit w [:unit 0] big) :packet
                (catch Throwable e (ex-data e)))]
+    (println "RECORD [oversize] parse-unit on the 70 MiB source"
+             (pr-str {:ms (long (/ (- (System/nanoTime) t0) 1e6))}))
     (when-not (= -4 (:status r)) (swap! input-failed conj :oversize))
     (check "[oversize] output past 64 MiB (one 70 MiB string token) answers -4 and no packet"
            (= -4 (:status r)) r)
