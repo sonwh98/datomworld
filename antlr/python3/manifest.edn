@@ -18,7 +18,14 @@
                    "JavaScript/Python3LexerBase.js" {:blake3 "25f008c2ee815b3c21af0b037e6dd99aa4b91d54f9f92720f218d542e731262f"},
                    "JavaScript/Python3ParserBase.js" {:blake3 "e106d38dbd2dff1cc036b70ddc2829b733aa207f1adb2d987e358d3edd316e84"},
                    "Dart/Python3LexerBase.dart" {:blake3 "45022cf97972b104313464d80e923ff2fca50b9d5a3d00502067bc569bc218f4"},
-                   "Dart/Python3ParserBase.dart" {:blake3 "e4c4693a640e53b971d37088809c74539cc0f1dda7d9c6a3cdd9beb7ce40a87d"}},
+                   "Dart/Python3ParserBase.dart" {:blake3 "e4c4693a640e53b971d37088809c74539cc0f1dda7d9c6a3cdd9beb7ce40a87d"},
+                   ;; Every target's gen:antlr run fetches and digest-checks ALL of
+                   ;; these, so a Cpp helper fetch failure also blocks the Java,
+                   ;; JavaScript and Dart generation; all targets re-pin together.
+                   "Cpp/Python3LexerBase.h" {:blake3 "393ff86dff65763fee957305788c5e63411adae06477ed70c6f1ab7de712817a"},
+                   "Cpp/Python3LexerBase.cpp" {:blake3 "cd598ca53f0e192605bef42f76991c747d2a2d4599635e034f9b5980b6baa5b3"},
+                   "Cpp/Python3ParserBase.h" {:blake3 "59afaba901ed2d546e2e7f9cc90f9e1b6f7512d53bd5b44567d7154909c83349"},
+                   "Cpp/Python3ParserBase.cpp" {:blake3 "38a2790b2ad40d3a8c2e19f1c84a157b60f100c565f5e294fcdc8fc16c46b28b"}},
            :generate ["Python3Lexer.g4" "Python3Parser.g4"]},
  :tool {:antlr "4.13.2"},
  ;; One entry per host target; all runtimes are the pinned tool release
@@ -123,7 +130,88 @@
                "Python3Parser.dart"
                "fa00271187b2ba976be61c81acd3309b9ea8d19d458ce4a13a5ba1ed971ccf70",
                "Python3ParserBase.dart"
-               "e4c4693a640e53b971d37088809c74539cc0f1dda7d9c6a3cdd9beb7ce40a87d"}}},
+               "e4c4693a640e53b971d37088809c74539cc0f1dda7d9c6a3cdd9beb7ce40a87d"}}
+
+  ;; jolt host lane (docs/design/yin.repl-jolt-implementation.md §7.2): the
+  ;; Cpp target, linked into the jolt parser wrapper with the C++ runtime
+  ;; pinned in jolt-toolchain.edn. Generated output stays under build/
+  ;; (LOCAL-BUILD-ONLY, see :redistribution).
+  :cpp
+  {:runtime "antlr4-cpp-runtime 4.13.2 (jolt-toolchain.edn :native)",
+   :flags ["-Dlanguage=Cpp" "-no-listener" "-no-visitor"],
+   :helpers ["Cpp/Python3LexerBase.h" "Cpp/Python3LexerBase.cpp"
+             "Cpp/Python3ParserBase.h" "Cpp/Python3ParserBase.cpp"],
+   :exts [".h" ".cpp"],
+   :out "build/antlr/python3/cpp",
+   :generated {"Python3Lexer.cpp"
+               "a8be1b511222602ef3e2728cacc7201a6b567347bc336dec886b38ae8263cdde",
+               "Python3Lexer.h"
+               "a1cb6339cead5dd6f20cb85825b309dc7a576c77a1b17113fba447b92d307dc3",
+               "Python3LexerBase.cpp"
+               "2483e344297051efebf6f8228647eda53186b143874699e4062f1b8c9c3c5660",
+               "Python3LexerBase.h"
+               "8548fd2cd8b7176c70b3761b8de779c6471d238f1ea675587d9c7936538a56e8",
+               "Python3Parser.cpp"
+               "d30cc4df41981ed4ae6ced58727fe758004d49a1626cb966844c700b9ece48e4",
+               "Python3Parser.h"
+               "5e62a9c37bf2e582fc11ccce60f863a2705d79d491b4be0f029bc7e81fe6d816",
+               "Python3ParserBase.cpp"
+               "38a2790b2ad40d3a8c2e19f1c84a157b60f100c565f5e294fcdc8fc16c46b28b",
+               "Python3ParserBase.h"
+               "59afaba901ed2d546e2e7f9cc90f9e1b6f7512d53bd5b44567d7154909c83349"},
+   :patches
+   {;; The grammars carry Java-syntax actions and two header placeholders;
+    ;; upstream's own Cpp/transformGrammar.py (pinned revision, blake3
+    ;; 7600aaee...) rewrites `this.` to `this->` and fills the placeholders.
+    ;; The same edits, as exact-text replacements.
+    "Python3Lexer.g4"
+    [["// Insert here @header for C++ lexer."
+      "@header {#include \"Python3LexerBase.h\"}"]
+     ["NEWLINE: ({this.atStartOfInput()}? SPACES | ( '\\r'? '\\n' | '\\r' | '\\f') SPACES?) {this.onNewLine();};"
+      "NEWLINE: ({this->atStartOfInput()}? SPACES | ( '\\r'? '\\n' | '\\r' | '\\f') SPACES?) {this->onNewLine();};"]
+     ["OPEN_PAREN         : '(' {this.openBrace();};" "OPEN_PAREN         : '(' {this->openBrace();};"]
+     ["CLOSE_PAREN        : ')' {this.closeBrace();};" "CLOSE_PAREN        : ')' {this->closeBrace();};"]
+     ["OPEN_BRACK         : '[' {this.openBrace();};" "OPEN_BRACK         : '[' {this->openBrace();};"]
+     ["CLOSE_BRACK        : ']' {this.closeBrace();};" "CLOSE_BRACK        : ']' {this->closeBrace();};"]
+     ["OPEN_BRACE         : '{' {this.openBrace();};" "OPEN_BRACE         : '{' {this->openBrace();};"]
+     ["CLOSE_BRACE        : '}' {this.closeBrace();};" "CLOSE_BRACE        : '}' {this->closeBrace();};"]],
+    "Python3Parser.g4"
+    [["// Insert here @header for C++ parser."
+      "@header {#include \"Python3ParserBase.h\"}"]
+     ["literal_pattern\n    : signed_number { this.CannotBePlusMinus() }?"
+      "literal_pattern\n    : signed_number { this->CannotBePlusMinus() }?"]
+     ["literal_expr\n    : signed_number { this.CannotBePlusMinus() }?"
+      "literal_expr\n    : signed_number { this->CannotBePlusMinus() }?"]
+     ["    : /* cannot be '_' */ name { this.CannotBeDotLpEq() }?"
+      "    : /* cannot be '_' */ name { this->CannotBeDotLpEq() }?"]
+     ["    : attr { this.CannotBeDotLpEq() }?"
+      "    : attr { this->CannotBeDotLpEq() }?"]],
+    ;; The positioned NEWLINE/DEDENT patch of the other targets, ported to the
+    ;; C++ token factory: NEWLINE on its newline characters, DEDENT and the
+    ;; end-of-input NEWLINE zero-width at the current index (stop = start - 1),
+    ;; text read back from the input.
+    "Cpp/Python3LexerBase.h"
+    [["    std::unique_ptr<antlr4::CommonToken> commonToken(size_t type, const std::string& text);"
+      "    std::unique_ptr<antlr4::CommonToken> positionedToken(size_t type, size_t start, size_t stop);\n    std::unique_ptr<antlr4::CommonToken> commonToken(size_t type, const std::string& text);"]],
+    "Cpp/Python3LexerBase.cpp"
+    [["        emit(commonToken(Python3Lexer::NEWLINE, newLine));"
+      "        emit(positionedToken(Python3Lexer::NEWLINE, tokenStartCharIndex, tokenStartCharIndex + newLine.size() - 1));"]
+     ["    std::unique_ptr<antlr4::CommonToken> dedent = commonToken(Python3Parser::DEDENT, \"\");"
+      "    std::unique_ptr<antlr4::CommonToken> dedent = positionedToken(Python3Parser::DEDENT, getCharIndex(), getCharIndex() - 1);\n    if (lastToken) dedent->setLine(lastToken->getLine());"]
+     ["        emit(commonToken(Python3Parser::NEWLINE, \"\\n\"));"
+      "        emit(positionedToken(Python3Parser::NEWLINE, getCharIndex(), getCharIndex() - 1));"]
+     ["std::unique_ptr<antlr4::CommonToken> Python3LexerBase::commonToken(size_t type, const std::string& text) {"
+      "std::unique_ptr<antlr4::CommonToken> Python3LexerBase::positionedToken(size_t type, size_t start, size_t stop) {\n    return _factory->create({ this, _input }, type, \"\", DEFAULT_TOKEN_CHANNEL, start, stop, getLine(), getCharPositionInLine());\n}\n\nstd::unique_ptr<antlr4::CommonToken> Python3LexerBase::commonToken(size_t type, const std::string& text) {"]
+     ;; Token coordinates as the Java helper has them (J0c round 2 found the
+     ;; C++ helper's differ; Architect ruling 1792491122000 makes this
+     ;; required): commonToken (INDENT, the end-of-input EOF) takes the
+     ;; lexer's line and column, not the last token's (line 0 when there is
+     ;; none, which packet/validate! refuses); DEDENT takes the last token's
+     ;; line (above). Java's createDedent dereferences lastToken
+     ;; unconditionally (a DEDENT needs an earlier INDENT, so it is set);
+     ;; the guard only keeps a null from crashing the process.
+     ["    return _factory->create({ this, _input }, type, text, DEFAULT_TOKEN_CHANNEL, start, stop, lastToken ? lastToken->getLine() : 0, lastToken ? lastToken->getCharPositionInLine() : 0);"
+      "    return _factory->create({ this, _input }, type, text, DEFAULT_TOKEN_CHANNEL, start, stop, getLine(), getCharPositionInLine());"]]}}},
  ;; §4.5 license review
  :license {"Python3Lexer.g4" "MIT (header: Copyright (c) 2014 Bart Kiers); vendored with its notice verbatim",
            "Python3Parser.g4" "MIT (header: Copyright (c) 2014 Bart Kiers); vendored with its notice verbatim",
@@ -133,6 +221,11 @@
            "JavaScript/Python3ParserBase.js" "no notice in file; UNRESOLVED: not vendored, fetched by pinned digest",
            "Dart/Python3LexerBase.dart" "no notice in file; UNRESOLVED: not vendored, fetched by pinned digest",
            "Dart/Python3ParserBase.dart" "no notice in file; UNRESOLVED: not vendored, fetched by pinned digest",
+           "Cpp/Python3LexerBase.h" "no notice in file; UNRESOLVED: not vendored, fetched by pinned digest",
+           "Cpp/Python3LexerBase.cpp" "no notice in file; UNRESOLVED: not vendored, fetched by pinned digest",
+           "Cpp/Python3ParserBase.h" "no notice in file; UNRESOLVED: not vendored, fetched by pinned digest",
+           "Cpp/Python3ParserBase.cpp" "no notice in file; UNRESOLVED: not vendored, fetched by pinned digest",
+           "antlr4-cpp-runtime 4.13.2" "BSD-3-Clause",
            "antlr4-runtime 4.13.2" "BSD-3-Clause",
            "antlr4 4.13.2 (npm)" "BSD-3-Clause",
            "antlr4 4.13.2 (pub)" "BSD-3-Clause"},
@@ -141,5 +234,5 @@
  :redistribution {:vendored-sources ["antlr/python3/Python3Lexer.g4"
                                      "antlr/python3/Python3Parser.g4"],
                   :generated-artifacts :none,
-                  :blocked-until "Java, JavaScript and Dart helper provenance and licence resolved"}}
+                  :blocked-until "Java, JavaScript, Dart and C++ helper provenance and licence resolved"}}
 

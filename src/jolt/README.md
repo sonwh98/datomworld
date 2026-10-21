@@ -22,3 +22,6 @@ Contents (J1):
   integers, flonums, strings and jolt byte arrays.
 - `clojure/data/json.jolt`: the subset of `clojure.data.json` the test
   fixtures call, because the library itself does not load on jolt.
+- `yang/antlr/cst.jolt` (J0c round 2): the native-library facade over the
+  ANTLR4 C++ Python3 parser (§7.3). Its contract is the JVM oracle corpus in
+  `src/dev/jolt_j0c_parity.clj`.

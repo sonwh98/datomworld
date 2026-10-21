@@ -1,0 +1,348 @@
+(ns yang.antlr.cst
+  "The jolt host's parser interpreter (docs/design/yin.repl-jolt-implementation.md
+   §7.3): the same surface as the JVM, Node and Dart `yang.antlr.cst`
+   (`make-worker`, `parse-unit`, `parse-transform`, `utf8-bytes`,
+   `first-failure`), over the ANTLR4 C++ Python3 parser behind
+   native/jolt-parser.
+
+   The wrapper parses and answers one private fixed-layout buffer (\"JPX1\",
+   see jolt_parser.cpp); this namespace copies it into a jolt byte array,
+   frees it through the wrapper, checks its bounds and topology, and hands the
+   shared `yang.antlr.export` an `ops` view over the decoded records. Packets,
+   spans and synthetic tokens are built by the shared exporter, never in C++.
+   No native pointer leaves `export-records`.
+
+   The calls are synchronous and `:blocking`, as §7.5 prescribes.
+
+   A worker (§7.4) holds an opaque native handle that owns the lexer and
+   parser DFA vectors and prediction-context caches its parses use; the
+   generated ATNs are shared, immutable. Its owner disposes it with
+   `close-worker` (a jolt-only addition: the other hosts' workers are
+   collected). A worker serves one thread at a time; a concurrent call on the
+   same worker is refused by the wrapper (status -5) and throws here.
+
+   Disclosed limits: the native library is the one Python3 grammar the
+   wrapper was built with, whatever the profile names; the library loads with
+   this namespace, so a missing library fails the load rather than answering a
+   qualified unavailable-parser result (J5); a worker nobody closes keeps its
+   native caches until the process exits."
+  (:require
+    [clojure.string :as str]
+    [jolt.ffi :as ffi]
+    [yang.antlr.export :as export]
+    [yang.antlr.packet :as packet]))
+
+
+;; =============================================================================
+;; The native library
+;; =============================================================================
+
+(def ^:private platform
+  ;; jolt's os.name/os.arch shim can answer nil (udp_probe.clj); nil reads as
+  ;; Linux, as jolt.socket.native/os decides, and as x86_64
+  (let [os (str/lower-case (or (System/getProperty "os.name") ""))
+        arch (System/getProperty "os.arch")]
+    (str (if (str/includes? os "mac") "darwin" "linux") "-"
+         (if (#{"aarch64" "arm64"} arch) "arm64" "x86_64"))))
+
+
+(def library
+  "The wrapper `bb build:jolt-native` builds, under the working directory."
+  (str (System/getProperty "user.dir") "/build/native/" platform
+       "/jolt-parser/lib/libjolt_parser"
+       (if (str/starts-with? platform "darwin") ".dylib" ".so")))
+
+
+(ffi/load-library library)
+(ffi/defcfn ^:private c-export "jolt_parser_export"
+  [:pointer :pointer :size_t :pointer :pointer] :int :blocking)
+(ffi/defcfn ^:private c-free "jolt_parser_free" [:pointer] :void)
+(ffi/defcfn ^:private c-worker-new "jolt_parser_worker_new" [] :pointer)
+(ffi/defcfn ^:private c-worker-free "jolt_parser_worker_free" [:pointer] :void)
+(ffi/defcfn ^:private c-export-layout-version "jolt_parser_export_layout_version" [] :int)
+
+
+(def ^:private export-layout 2)
+
+
+(when-not (= export-layout (c-export-layout-version))
+  (throw (ex-info "jolt parser library writes another export layout"
+                  {:library library, :expected export-layout,
+                   :actual (c-export-layout-version)})))
+
+
+(defn- with-native
+  "(f p) over caller-owned native memory `p` allocated by `spec` (as
+   `ffi/alloc` takes it), freed however `f` exits. The release is established
+   before anything else can fail, so nesting one call per acquisition frees
+   each allocation independently of the others."
+  [spec f]
+  (let [p (ffi/alloc spec)]
+    (try
+      (when (ffi/null? p)
+        (throw (ex-info "jolt parser native allocation failed" {:spec spec})))
+      (f p)
+      (finally (ffi/free p)))))
+
+
+(defn- call-export
+  "The wrapper's status and its buffer, copied into jolt memory and freed."
+  [handle ^bytes src]
+  (let [n (alength src)]
+    (with-native (max 1 n)
+      (fn [in]
+        (when (pos? n) (ffi/write-array in src))
+        (with-native :pointer
+          (fn [out-cell]
+            (with-native :size_t
+              (fn [len-cell]
+                ;; the cleanup's view of the wrapper's buffer, made before the
+                ;; wrapper can hand one out
+                (let [owned (volatile! nil)
+                      status (c-export handle in n out-cell len-cell)]
+                  ;; the wrapper's buffer is released from here on, whatever
+                  ;; reading the cells or copying it does: once the body has
+                  ;; read the pointer the release uses it as read, and only
+                  ;; when that read failed does the release read the out cell
+                  (try
+                    (let [p (vreset! owned (ffi/read out-cell :pointer))
+                          len (ffi/read len-cell :size_t)]
+                      [status (if (or (ffi/null? p) (zero? len))
+                                (byte-array 0)
+                                (ffi/read-array p len))])
+                    (finally
+                      (let [p (or @owned (ffi/read out-cell :pointer))]
+                        (when-not (ffi/null? p) (c-free p))))))))))))))
+
+
+;; =============================================================================
+;; Decoding the private layout, checked
+;; =============================================================================
+
+(defn- refuse
+  [message data]
+  (throw (ex-info (str "jolt parser buffer refused: " message) data)))
+
+
+(defn- reader
+  [^bytes bs]
+  (let [n (alength bs)
+        pos (volatile! 0)
+        need (fn [k]
+               (when (or (neg? k) (> (+ @pos k) n))
+                 (refuse "read past the end" {:at @pos, :need k, :length n})))
+        u8 (fn []
+             (need 1)
+             (let [b (bit-and (aget bs @pos) 0xff)] (vswap! pos inc) b))
+        u32 (fn []
+              (need 4)
+              (reduce (fn [acc i] (bit-or acc (bit-shift-left (u8) (* 8 i))))
+                      0
+                      (range 4)))
+        i32 (fn [] (let [v (u32)] (if (> v 0x7fffffff) (- v 0x100000000) v)))
+        text (fn []
+               (let [k (u32)]
+                 (need k)
+                 (let [s (String. bs (int @pos) (int k) "UTF-8")]
+                   (vswap! pos + k)
+                   s)))
+        counted (fn [f]
+                  (let [k (u32)]
+                    ;; every record is at least one byte
+                    (need k)
+                    (vec (repeatedly k f))))]
+    {:u8 u8, :u32 u32, :i32 i32, :text text, :counted counted, :pos pos,
+     :length n}))
+
+
+(defn- decode
+  [^bytes bs]
+  (let [{:keys [u8 u32 i32 text counted pos length]} (reader bs)
+        _ (when (or (< length 8) (not= "JPX1" (String. bs 0 4 "US-ASCII")))
+            (refuse "bad magic" {:length length}))
+        _ (vreset! pos 4)
+        layout (u32)
+        _ (when-not (= export-layout layout) (refuse "unknown layout" {:layout layout}))
+        status (u32)
+        rules (counted text)
+        symbolic (counted text)
+        literal (counted text)
+        nodes (counted
+                (fn []
+                  (case (u8)
+                    0 (let [rule (u32) kids (u32) has-start (u8) start (i32)]
+                        {:kind :rule, :rule rule, :child-count kids,
+                         :start (when (= 1 has-start) start)})
+                    1 {:kind :token, :type (i32), :start (i32), :stop (i32),
+                       :index (i32), :text (text)}
+                    (refuse "bad record kind" {:at @pos}))))
+        errors (counted
+                 (fn []
+                   {:line (u32), :column (u32), :message (text),
+                    :span-kind (u8), :a (i32), :b (i32), :type (i32)}))
+        failure {:kind (u8), :no-viable (u8), :index (i32), :buffered (u32)}
+        tokens (counted (fn [] {:type (i32), :index (i32), :start (i32),
+                                :stop (i32)}))]
+    (when-not (= @pos length)
+      (refuse "trailing bytes" {:consumed @pos, :length length}))
+    (when-not (= status (if (seq errors) 1 0))
+      (refuse "status disagrees with the errors" {:status status}))
+    {:rules rules, :symbolic symbolic, :literal literal, :nodes nodes,
+     :errors errors, :failure failure, :tokens tokens}))
+
+
+(defn- children-of
+  "Each preorder record's child ids, checked: one root whose subtree is every
+   record, rule indexes inside the table."
+  [{:keys [nodes rules]}]
+  (let [n (count nodes)
+        out (transient (vec (repeat n [])))
+        next-id (volatile! 0)]
+    (letfn [(walk
+              []
+              (let [id @next-id]
+                (when (>= id n) (refuse "child count overruns the records" {}))
+                (vswap! next-id inc)
+                (let [{:keys [kind rule child-count]} (nth nodes id)]
+                  (when (= :rule kind)
+                    (when-not (< -1 rule (count rules))
+                      (refuse "rule index outside the table" {:rule rule}))
+                    (assoc! out id (vec (repeatedly child-count walk)))))
+                id))]
+      (when (pos? n) (walk))
+      (when-not (= @next-id n)
+        (refuse "records outside the root's subtree" {:walked @next-id, :n n}))
+      (persistent! out))))
+
+
+(defn- type-name
+  [{:keys [symbolic literal]} t]
+  (let [pick (fn [names] (let [s (when (< -1 t (count names)) (names t))]
+                           (when (seq s) s)))]
+    (if (= -1 t) "EOF" (or (pick symbolic) (pick literal) (str t)))))
+
+
+(defn- handle
+  [worker]
+  (or (some-> (::native worker) deref)
+      (throw (ex-info "jolt parser worker is closed" {}))))
+
+
+(defn export-records
+  "Parse UTF-8 `source` natively with `worker` and answer the checked
+   records. Host-only (the probe harness reads the raw first-failure evidence
+   through it); a wrapper failure status throws, so a failed parse never
+   yields a packet."
+  [worker source]
+  (let [[status bs] (call-export (handle worker) (.getBytes ^String source "UTF-8"))]
+    (when-not (zero? status)
+      (throw (ex-info "jolt parser failed"
+                      {:status status,
+                       :message (when (pos? (alength ^bytes bs))
+                                  (String. ^bytes bs "UTF-8"))})))
+    (let [records (decode bs)]
+      (assoc records :children (children-of records)))))
+
+
+(defn- ops
+  [{:keys [nodes rules children], :as records}]
+  {:token? (fn [i] (= :token (:kind (nth nodes i)))),
+   :token (fn [i]
+            (let [{:keys [type start stop text]} (nth nodes i)]
+              {:type-name (type-name records type),
+               :start start,
+               :stop stop,
+               :text text})),
+   :rule-name (fn [i] (rules (:rule (nth nodes i)))),
+   :children (fn [i] (children i)),
+   :start (fn [i] (:start (nth nodes i)))})
+
+
+;; =============================================================================
+;; The host surface
+;; =============================================================================
+
+(defn make-worker
+  "A host worker for `profile`, owning a native handle with its own DFA and
+   prediction-context caches (§7.4), so no parse shares mutable recognizer
+   state with another worker. Host state owned by one parser stage; it is not
+   data and never crosses a stream. Dispose it with `close-worker`."
+  [profile]
+  (let [h (c-worker-new)]
+    (when (ffi/null? h)
+      (throw (ex-info "jolt parser worker could not be made" {})))
+    ;; the handle is released unless the worker that owns it is made
+    (try
+      {:profile profile, ::native (atom h)}
+      (catch Throwable e
+        (c-worker-free h)
+        (throw e)))))
+
+
+(defn close-worker
+  "Dispose `worker`'s native handle and caches. Idempotent; a closed worker
+   refuses further parses. Must not run while a parse on it is active."
+  [worker]
+  (when-let [box (::native worker)]
+    (let [h @box]
+      ;; the swap wins once, so two closes never free twice
+      (when (and h (compare-and-set! box h nil))
+        (c-worker-free h))))
+  nil)
+
+
+(defn- error-record
+  [offsets {:keys [line column message span-kind a b]}]
+  (export/syntax-error message line column
+                       (case span-kind
+                         1 (export/token-span offsets a b)
+                         2 [(export/offset-at offsets a)
+                            (export/offset-at offsets b)]
+                         nil)))
+
+
+(defn parse-unit
+  "Parse one sealed unit's `source` with `worker`; return its CST packet."
+  [worker unit source]
+  (let [cps (packet/code-points source)
+        offsets (export/byte-offsets cps)
+        records (export-records worker source)]
+    (export/result (:profile worker) unit
+                   (mapv #(error-record offsets %) (:errors records))
+                   #(export/export-nodes (ops records) cps offsets 0))))
+
+
+(defn parse-transform
+  "The parser stage's transform over source events (`packet/transform`)."
+  [worker]
+  (packet/transform parse-unit worker))
+
+
+(defn utf8-bytes
+  "The UTF-8 byte count of a string: span ends are checked against it."
+  [s]
+  (packet/utf8-bytes s))
+
+
+(defn first-failure
+  "Where the grammar first refuses `source`: nil when it parses, `:end` when
+   the first error failed on an end-of-input token, else `:early`
+   (`export/failure-kind` decides).
+
+   The failing token follows the JVM rule: the offending token of a
+   mismatch, and for a no-viable-alternative error the last token buffered
+   when it was reported, since the C++ runtime's BufferedTokenStream fills
+   lazily as the Java one does (observed against the JVM oracle in J0c round
+   2, not assumed). A lexer error has no token."
+  [worker source]
+  (let [{:keys [failure tokens]} (export-records worker source)
+        {:keys [kind no-viable index buffered]} failure]
+    (export/failure-kind
+      (case kind
+        0 nil
+        1 :lexical
+        2 (if (= 1 no-viable) (dec buffered) index))
+      (keep (fn [{:keys [type index start stop]}]
+              (when (not= -1 type)
+                {:index index, :start start, :stop stop}))
+            tokens))))

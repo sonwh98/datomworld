@@ -1,0 +1,6 @@
+{
+  global:
+    jolt_parser_*;
+  local:
+    *;
+};

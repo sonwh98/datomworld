@@ -1,0 +1,88 @@
+;; J0c round 2 fixed corpus (docs/design/yin.repl-jolt-implementation.md §7.8):
+;; the Python sources whose CST packets and first-failure results the jolt
+;; adapter must reproduce. W8: no integer beyond 64 bits and no floats.
+;; The oracle for every entry is jolt_j0c_oracle.edn, written on the JVM by
+;; src/dev/jolt_j0c_oracle.clj; never edit it to match another host.
+;;
+;; :entries   one packet (unit [:unit 0], a fresh worker) and one
+;;            cst/first-failure result per source
+;; :probe     texts for yang.python.antlr.repl-probe/probe: the oracle records
+;;            the probe's answer and every cst/first-failure call it made
+;;            (from yin.repl.python-antlr-test probe-classifies-test and
+;;            probe-reports-irreparable-errors-at-once-test)
+{:entries
+ [;; arithmetic
+  {:id :arith-add, :source "1 + 2\n"}
+  {:id :arith-assign, :source "x = 1\n"}
+  {:id :arith-mixed, :source "x = (1 + 2) * 3 - 4 // 5 % 6 ** 2\n"}
+  {:id :arith-int64-max, :source "x = 9223372036854775807 - -9223372036854775807\n"}
+  {:id :arith-compare-bool, :source "y = not 1 < 2 and 3 >= 4 or x == 5\n"}
+  {:id :call-and-literals, :source "def f(a):\n    return [a, {1: 'x'}]\n"}
+  ;; nested indentation and dedent
+  {:id :indent-one, :source "if x:\n    y = 1\nz = 2\n"}
+  {:id :indent-nested,
+   :source "def f(a):\n    if a:\n        return 1\n    else:\n        while a:\n            a = a - 1\n    return 2\nf(3)\n"}
+  {:id :indent-double-dedent-eof, :source "if a:\n    if b:\n        c = 1\n"}
+  {:id :indent-tab, :source "if x:\n\ty = 1\n"}
+  {:id :indent-blank-and-comment-lines, :source "if x:\n\n    # c\n    y = 1\n\nz = 2\n"}
+  ;; the C++ helper counts indentation over UTF-8 bytes (the Java one over
+  ;; UTF-16 chars); NEWLINE's text is newline characters plus [ \t]* only
+  {:id :indent-mixed-tab, :source "if x:\n  \ty = 1\n  \tz = 2\n"}
+  {:id :indent-formfeed, :source "if x:\n\f    y = 1\n"}
+  {:id :indent-nbsp, :source "if x:\n\u00a0   y = 1\n"}
+  {:id :indent-nonascii-first-token, :source "if x:\n    é = 'ü'\n    π = 1\nz = é\n"}
+  {:id :dedent-at-eof-no-newline, :source "if x:\n    y = 1"}
+  {:id :dedent-at-eof-comment, :source "if x:\n    y = 1  # c"}
+  ;; empty input and EOF
+  {:id :empty, :source ""}
+  {:id :only-newline, :source "\n"}
+  {:id :only-comment, :source "# c\n"}
+  {:id :blank-lines, :source "\n\n  \n"}
+  {:id :missing-final-newline, :source "x = 1"}
+  ;; non-ASCII and astral characters
+  {:id :nonascii-string, :source "s = 'é𝄞'\nt = 2\n"}
+  {:id :nonascii-identifier, :source "é = 1\nπ2 = é + 1\n"}
+  {:id :astral-comment, :source "x = 1  # 𝄞\ny = 2\n"}
+  {:id :nonascii-under-indent, :source "if 'é':\n    y = '𝄞'\n    z = 'ü'\n"}
+  {:id :astral-before-error, :source "s = '𝄞' +\n"}
+  ;; malformed syntax
+  {:id :malformed-trailing-op, :source "1 +\n"}
+  {:id :malformed-def, :source "def f(:\n    return 1\n"}
+  {:id :malformed-lexer, :source "x = $\n"}
+  {:id :malformed-unexpected-indent, :source "  x = 1\n"}
+  {:id :malformed-missing-indent, :source "if x:\npass\n"}
+  {:id :malformed-unexpected-newline, :source "if x:\n    x =\n"}
+  {:id :malformed-unexpected-dedent, :source "if x:\n    @d\ny = 1\n"}
+  {:id :malformed-closer, :source "x = )\n"}
+  {:id :malformed-mismatched, :source "x = (]\n"}
+  ;; incomplete multiline input
+  {:id :incomplete-def-header, :source "def f(n):\n"}
+  {:id :incomplete-block-open, :source "def f(n):\n    return n\n"}
+  {:id :incomplete-decorator, :source "@dec\n"}
+  {:id :incomplete-continuation, :source "x = 1 \\\n"}
+  ;; triple-quoted strings
+  {:id :triple-closed, :source "s = '''a\nb'''\n"}
+  {:id :triple-closed-dq, :source "s = \"\"\"a\n  b\"\"\"\n"}
+  {:id :triple-open, :source "s = '''a\nb\n"}
+  {:id :triple-open-in-block, :source "if x:\n    s = '''a\n"}
+  ;; open brackets
+  {:id :bracket-list-open, :source "x = [1,\n2,\n"}
+  {:id :bracket-call-open, :source "f(1,\n"}
+  {:id :bracket-dict-open, :source "d = {'a': [1, 2\n"}
+  {:id :bracket-closed-multiline, :source "x = [1,\n  2]\n"}
+  ;; an early error under an open bracket
+  {:id :early-under-bracket, :source "x = [1 2,\n"}
+  {:id :early-under-call, :source "foo(1 2\n"}
+  {:id :early-star-under-paren, :source "x = (1 + * 2\n"}]
+
+ :probe
+ ["x = 1" "print(" "print(\n" "print((1," "d = {'a': [1, 2"
+  "if x:\n  y = {1: (2" "f(a for a in b" "x = (1 if y else" "def f(n):"
+  "def f(n): # body next" "@dec" "def f(n):\n    return n"
+  "def f(n):\n    return n\n" "s = \"\"\"hello" "s = \"\"\"a\n  b\"\"\""
+  "s = \"\"\"(\"\"\"" "s = '(' # )" "s = 'it\\'s ('" "s = 'abc\\"
+  "s = 'abc\\  " "foo(\"\"\"a" "if x:\n    s = '''a" "x = * \"\"\""
+  "x = 1 \\" "x = 1 \\\n+ 2" "x = 1 # \\" "x = (1 + * 2" "x = )"
+  "foo(1 2" "x = (]" "x =" "1 +" "lambda x:" "s = 'abc"
+  "x = 1 \"\"\"abc" "x = = \"\"\"" "foo(1 2 '''" "x = (1 + * 2 'a\\"
+  "s = '𝄞'\nif é:" "if x:\n    y = 'é'\n"]}

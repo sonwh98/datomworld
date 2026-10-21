@@ -1,0 +1,22 @@
+;; J0c round 4 input-policy corpus (docs/design/yin.repl-jolt-implementation.md
+;; §7.8: embedded NUL and invalid input policy). Sources a JVM string can
+;; carry; the oracle is jolt_j0c_input_oracle.edn, written on the JVM by
+;; `clojure -M:dev -m jolt-j0c-oracle input`; never edit it to match another
+;; host. Invalid UTF-8, oversize output and invalid arguments have no JVM
+;; equivalent (a JVM String cannot hold invalid UTF-8, and the JVM parser has
+;; no output bound or C ABI); src/dev/jolt_j0c_parity.clj tests those at the C
+;; ABI against the policy it states.
+{:entries
+ [{:id :nul-in-string, :source "s = 'a\u0000b'\n"}
+  {:id :nul-in-comment, :source "x = 1  # a\u0000b\n"}
+  {:id :nul-after-statement, :source "x = 1\u0000\n"}
+  {:id :nul-only, :source "\u0000"}
+  {:id :nul-in-indentation, :source "if x:\n\u0000   y = 1\n"}
+  {:id :empty, :source ""}
+  {:id :crlf, :source "x = 1\r\ny = 2\r\n"}
+  {:id :lone-cr, :source "x = 1\ry = 2\r"}
+  {:id :bom-at-start, :source "\uFEFFx = 1\n"}
+  {:id :replacement-char, :source "s = '\uFFFD'\n"}
+  {:id :max-code-point, :source "s = '\uDBFF\uDFFF'\n"}
+  {:id :noncharacter, :source "s = '\uFFFF'\n"}
+  {:id :del-control, :source "x = 1\u007f\n"}]}
