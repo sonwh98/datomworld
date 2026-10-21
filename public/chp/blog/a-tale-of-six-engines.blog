@@ -820,6 +820,23 @@
            "This is the honest trade. Designers still work within budgets, and hot code still obeys the subset. "
            "What disappears is the need for an elite team to enforce DOOM's discipline by hand. "
            "The lowering compiler that makes this possible does not exist yet; it is the central engineering bet of the blueprint."]
+          [:h3 "The Host Boundary: Direct Calls vs. Stream IO"]
+          [:p
+           "This brings us to the foundational rule governing how the Dao Engine interfaces with physical hardware: "
+           [:strong "a stream is used wherever an interaction can be an IO action with the outside world; a pure, total, synchronous function on owned memory is a direct call"]
+           ". "
+           "In game engine history, architectural degradation almost always stems from confusing calculation with world interaction. "
+           "The Dao Engine avoids the pitfalls of its predecessors by strictly enforcing this dividing line:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Avoiding the Managed-to-Native Tax (The Unity Trap):"]
+            " In Unity, every frame spends precious CPU budget crossing the P/Invoke boundary between the C# managed engine and the native C++ runtime. In Dao Engine, pure internal computations (vector math, collision resolution, damage formulas, byte packing) are direct synchronous calls within the machine. They never incur stream marshaling, FFI translation layers, or garbage collector write barriers."]
+           [:li
+            [:strong "Eliminating Hidden Re-entrancy (The Unreal Trap):"]
+            " In Unreal, calling an imperative function like TakeDamage() triggers cascades of hidden side effects: spawning sound emitters, playing particle effects, firing RPCs, and mutating sibling state mid-iteration. In Dao Engine, any action that affects the outside world (audio playback, network packets, haptics, disk writes) or observes world non-determinism (system clocks, physical entropy) cannot be a direct function call. It must be emitted as an explicit event onto a stream. The simulation kernel remains a closed, pure transition loop, while driver observers consume effects asynchronously off the frame thread."]
+           [:li
+            [:strong "A Closed Frame Loop:"]
+            " The frame loop is mathematically closed: hot simulation kernels compute pure state transitions via direct calls over contiguous columnar buffers, while all external world interactions are pushed strictly to stream boundaries at the edges of the frame. Pure computation runs at the silicon limit; side effects remain explicit, observable, and replayable."]]
           [:h2 "Comparison Matrix: The Six Paradigms"]
           [:ul.bulleted
            [:li
