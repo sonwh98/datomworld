@@ -20,6 +20,7 @@ Contents (J1):
 - `dao/host/{integer,bytes,text,float,number}.jolt`: the primitive profile
   (docs/design/dao.stream.host-boundary.md §4.2, table A) over Chez's exact
   integers, flonums, strings and jolt byte arrays.
+  `bb test:jolt-text-perf` guards that `text`'s code-unit walks stay linear.
 - `clojure/data/json.jolt`: the subset of `clojure.data.json` the test
   fixtures call, because the library itself does not load on jolt.
 - `yang/antlr/cst.jolt` (J0c round 2): the native-library facade over the
