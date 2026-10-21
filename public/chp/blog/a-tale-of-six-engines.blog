@@ -146,19 +146,19 @@
            "In the history of real-time 3D simulation, game engine architecture has been defined by five distinct software philosophies:"]
           [:ul.bulleted
            [:li
-            [:strong "John Carmack's id Tech:"]
+            [:strong "John Carmack's id Tech (1993):"]
             " The Formula 1 racecar. Written in lean, procedural C and C++, it touched the hardware directly, achieving blistering frame rates with zero runtime garbage collection and flat memory buffers."]
            [:li
-            [:strong "Tim Sweeney's Unreal Engine:"]
+            [:strong "Tim Sweeney's Unreal Engine (1998):"]
             " The operating system. A massive, monolithic C++ platform built on deep object-oriented inheritance, heavy reflection tables, and in-engine visual editing."]
            [:li
-            [:strong "Joachim Ante's Unity:"]
+            [:strong "Joachim Ante's Unity (2005):"]
             " The democratizer. A component-based engine that championed composition over inheritance, providing a friendly C# scripting layer over a native C++ runtime."]
            [:li
-            [:strong "Juan Linietsky's Godot:"]
+            [:strong "Juan Linietsky's Godot (2014):"]
             " The indie tree-walker. A lightweight, nested scene-tree architecture driven by dynamically typed GDScript, signals, and pointer-linked node hierarchies."]
            [:li
-            [:strong "Carter Anderson's Bevy:"]
+            [:strong "Carter Anderson's Bevy (2020):"]
             " The pure Rust ECS. A data-driven, archetype-based engine harnessing Rust's borrow checker for compile-time concurrency and cache-friendly linear memory."]]
           [:p
            "For decades, the industry has swung like a pendulum between these paradigms. "
@@ -169,7 +169,7 @@
            "All five paradigms have painted themselves into architectural dead ends. "
            "The sections that follow analyze why DOOM, Unreal, Unity, Godot, and Bevy each hit a fundamental wall, and why the solutions of the past three decades have only deepened the fracture."]
           [:h2
-           "1. The Anatomy of DOOM: From 1993 Data Purity to Modern Titanium"]
+           "1. The Anatomy of DOOM (1993): From Data Purity to Modern Titanium"]
           [:h3
            "The 1993 Epiphany: When Classic DOOM Anticipated Datoms"]
           [:p
@@ -280,7 +280,7 @@
            "DOOM's data layouts are so tightly coupled to the silicon and frozen at map load that they offer no natural hook for dynamic inspection or live, visual iteration. "
            "Because the engine has no runtime reflection layer and no dynamic scripting VM, "
            "content creation demands an elite, expensive team of systems engineers, technical artists, and custom offline baking pipelines."]
-          [:h2 "2. The Anatomy of Unreal: The Monolithic OOP Facade"]
+          [:h2 "2. The Anatomy of Unreal (1998): The Monolithic OOP Facade"]
           [:p
            "Unreal Engine won the commercial AAA market because it catered to content creators: artists, level designers, and technical animators. "
            "To make life intuitive for humans, Unreal adopted the classical Object-Oriented Programming (OOP) paradigm."]
@@ -326,7 +326,7 @@
            ", Sweeney argued that shared mutable state is the primary obstacle to concurrent software, "
            "praising functional programming and immutability. "
            "Yet the commercial reality of Unreal Engine's legacy codebase kept it chained to mutable OOP for twenty more years."]
-          [:h2 "3. The Anatomy of Unity: The Managed Component Trap"]
+          [:h2 "3. The Anatomy of Unity (2005): The Managed Component Trap"]
           [:p
            "Unity entered the industry with a revolutionary insight: "
            [:strong "composition over inheritance"]
@@ -397,7 +397,7 @@
            [:strong
             "you cannot bridge an OOP authoring model to a DOD runtime by adding code generation and baking glue"]
            "."]
-          [:h2 "4. The Anatomy of Godot: The Pure Scene Tree Walker"]
+          [:h2 "4. The Anatomy of Godot (2014): The Pure Scene Tree Walker"]
           [:p
            "Godot took the indie development world by storm by offering a clean, lightweight alternative to commercial giants. "
            "Juan Linietsky designed Godot around an intuitive mental model: everything is a "
@@ -466,7 +466,7 @@
            "This proves the fundamental thesis: the moment you need real hardware performance in Godot, "
            "you are forced to abandon its authoring model completely."]
           [:h2
-           "5. The Anatomy of Bevy: The Rust ECS and the Tooling Desert"]
+           "5. The Anatomy of Bevy (2020): The Rust ECS and the Tooling Desert"]
           [:p
            "At the opposite end of the modern spectrum sits "
            [:strong "Bevy"]
