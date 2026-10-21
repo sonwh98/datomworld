@@ -108,8 +108,8 @@
 (defn generate
   []
   #?(:cljd (let [pair (ed/generateKey)]
-             {:seed (to-hex (bytes/from-vector (take 32 (.-bytes (.-privateKey pair)))))
-              :public (to-hex (bytes/from-vector (.-bytes (.-publicKey pair))))})
+             {:seed (to-hex (bytes/from-vector (vec (take 32 (.-bytes (.-privateKey pair))))))
+              :public (to-hex (bytes/from-vector (vec (.-bytes (.-publicKey pair)))))})
      :clj (let [seed (byte-array 32)]
             (.nextBytes (SecureRandom.) seed)
             (let [hex (to-hex seed)]
