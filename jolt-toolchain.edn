@@ -1,0 +1,96 @@
+;; The jolt host lane's toolchain declaration
+;; (docs/design/yin.repl-jolt-implementation.md §6.1, §6.4).
+;;
+;; `bb bootstrap:jolt` materializes exactly this into build/tools/jolt and
+;; verifies it; ordinary runs never pull. Changing any pin here goes through
+;; the upgrade gate (`qualify:jolt-upgrade`, §6.4), never silently.
+{:jolt
+ {:origin "https://github.com/jolt-lang/jolt"
+  :sha "96d7b8662d7c491722445bf976b2e25e36ce5d63"
+  :committed "2026-10-19T08:26:43-04:00"
+  ;; ruling 4 (§13.4): kept although untagged
+  :tag :none
+  :nearest-release-tag {:tag "v0.8.23"
+                        :sha "a0ac71c3f638fe55158bd01b4ecbb0dd3d7545e5"}
+  :describe "vnightly-16-g96d7b866"
+  :dir "build/tools/jolt"
+  ;; recursive submodule SHAs at :sha (git submodule status --recursive);
+  ;; bootstrap refuses a checkout whose submodules differ
+  :submodules {"vendor/cli" "14f07644080070246974942415a104228d9a6b04"
+               "vendor/clojure-test-suite" "489b6743e8421687ef96cec557830acf258d1886"
+               "vendor/fs" "5b273b8a943a622593fbc85fca6761c5a39d6d66"
+               "vendor/grenadine" "688e0ed6618582eccc8c8b745243ceac92835e03"
+               "vendor/irregex" "c948a704fc732914a243c1643bfe359913d11c7b"
+               "vendor/process" "43bdd65e189f2ccacc56662c53a21f5470ff1500"
+               "vendor/sci" "32d62a5136ad3dc148588752f5bcc4cc30b14752"}
+  ;; proposed default 2 (§13.2): none recorded, so none applied
+  :patches []}
+
+ ;; Host OS packages (owner 2026-10-20: Linux = the Debian family with apt).
+ ;; `bb bootstrap:jolt` checks :required with dpkg-query on hosts whose
+ ;; /etc/os-release ID or ID_LIKE names debian, BEFORE anything mise builds,
+ ;; and fails naming the missing packages and the exact
+ ;; `sudo apt-get install -y ...` command. It never runs sudo or apt.
+ ;; :unverified entries are candidates with no step shown to need them yet;
+ ;; they are listed, not checked. Chez and CMake stay mise-provided.
+ :os-packages
+ {:debian
+  {:required
+   {;; mise builds Chez 10.4.1 from source and links it against ncurses;
+    ;; verified on shiva (Ubuntu 24.04.5): "cannot find -lncurses" until
+    ;; this was installed (docs/orchestrator-log.md, J0b-on-shiva entry)
+    "libncurses-dev" "mise Chez source build (link)"
+    ;; Chez's expression editor (c/expeditor.c:1189-1212) reads the X11
+    ;; clipboard; verified on jupiter (Ubuntu 24.04.5): the build failed with
+    ;; "c/expeditor.c:1191: fatal error: X11/Xlib.h: No such file or
+    ;; directory" until this was installed (shiva had the headers already,
+    ;; so it never failed there). Chez's configure also offers --disable-x11
+    ;; and --disable-curses, which the mise plugin does not pass.
+    "libx11-dev" "mise Chez source build (compile, X11 clipboard in the editor)"
+    ;; the same Chez source build compiles and links C (the failing step
+    ;; above was its link); present on shiva, so not independently shown
+    "gcc" "mise Chez source build (C compiler)"
+    "make" "mise Chez source build (make)"
+    ;; bootstrap:jolt clones jolt and its submodules (src/dev/jolt_bootstrap.clj)
+    "git" "bootstrap:jolt clone and verification"}
+   :unverified
+   {;; J0c native build (jolt-j0c branch, bb build:jolt-native) compiles the
+    ;; ANTLR4 C++ runtime and wrapper and unzips the runtime source; shown on
+    ;; macOS only, not yet on a Debian host
+    "g++" "J0c native build (C++ compiler)"
+    "unzip" "J0c native build (runtime source archive)"
+    ;; §6.3 / Q4: system libcrypto via apt, version-checked before use (J1).
+    ;; The package NAME differs per release: on Ubuntu 24.04 libcrypto.so.3 is
+    ;; owned by libssl3t64 (dpkg -S verified on shiva) and libssl3 is not
+    ;; installed there; "libssl3" is correct for older releases. When J1
+    ;; promotes this, declare the library (soname libcrypto.so.3 plus the
+    ;; version check), not a package name.
+    "libssl3" "libcrypto for SHA-256/Ed25519 (J1); wrong name on Ubuntu 24.04"}}
+  ;; Homebrew is assumed on macOS and not enforced; nothing is checked there
+  ;; yet (Homebrew openssl@3 for libcrypto is §6.3's later gate).
+  :macos {:manager :homebrew :enforced false}}
+
+ ;; Provisioned by mise from the exact pins in mise.toml. JOLT_CHEZ is always
+ ;; set explicitly (build/tools/jolt-env.sh), never left to jolt's PATH search.
+ :chez {:version "10.4.1"
+        :provider :mise
+        :mise-tool "chezscheme"
+        :threaded true
+        :binary "bin/scheme"}
+ :cmake {:version "4.4.4"
+         :provider :mise
+         :mise-tool "cmake"}
+
+ ;; Recorded at J0a round 1 on the platforms actually run.
+ :observed
+ {:macos-arm64 {:os "macOS 26.6.2 (25G83)"
+                :chez-path "~/.local/share/mise/installs/chezscheme/10.4.1/bin/scheme"
+                :cmake-path "~/.local/share/mise/installs/cmake/4.4.4/cmake-4.4.4-macos-universal/CMake.app/Contents/bin/cmake"
+                :cc "Apple clang version 21.0.0 (clang-2100.1.1.101)"}
+  ;; shiva.stigmergy.systems: not yet provisioned or run
+  :linux-x86_64 nil}
+
+ ;; Not yet declared (later J0a rounds / J1, §6.1-6.3): libblake3 and ANTLR4
+ ;; C++ runtime source revisions and hashes, build output digests, libcrypto
+ ;; path and version per platform.
+ :native {}}

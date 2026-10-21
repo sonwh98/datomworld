@@ -1,0 +1,188 @@
+(ns dao.host.number
+  "The jolt override of src/cljc/dao/host/number.cljc (the :jolt alias puts
+   src/jolt first, docs/design/yin.repl-jolt-implementation.md §4.2): the
+   same public entries, arities, laws and refusal data
+   (docs/design/dao.stream.host-boundary.md §4.2, table A; table C laws of
+   the carriers).
+
+   jolt reads the :clj arm of every shared reader conditional, so its
+   carriers are the JVM column of the shared table, each on jolt's own
+   value model:
+
+   | Content  | jolt                                                    |
+   |----------|---------------------------------------------------------|
+   | float64  | a Chez flonum (`Double`)                                |
+   | decimal  | jolt's `java.math.BigDecimal` record {unscaled, scale}  |
+   | ratio    | a Chez exact ratio (`clojure.lang.Ratio`), or the       |
+   |          | `Rational` carrier for denominator 1                    |
+
+   A decimal is built with `BigDecimal/valueOf (unscaled, scale)`, which
+   keeps the scale, never with the two-argument constructor, whose jolt
+   shim drops it (V: `(.scale (BigDecimal. 15 -2147483648))` is 0 on jolt
+   96d7b866). As on the JVM, host `=` on two decimals compares values, not
+   scales (jolt's BigDecimal: \"Equality is by value\")."
+  (:refer-clojure :exclude [decimal? ratio?])
+  (:require
+    [dao.host.integer :as integer]
+    [jolt.scheme :as scheme]))
+
+
+(defn- refuse
+  [entry cls detail]
+  (throw (ex-info (str "dao.host refused: " entry " " (name cls) " (" detail ")")
+                  {:dao.host/refusal cls :dao.host/entry entry :detail detail})))
+
+
+(defn- big
+  "The host big integer of exact-integer carrier `x`, or a refusal."
+  [entry x]
+  (if (integer/exact-integer? x)
+    (integer/promote x)
+    (refuse entry :unsupported-value "not an exact integer")))
+
+
+(def ^:private zero (integer/from-native 0))
+
+
+(def ^:private chez-divide (scheme/proc "/"))
+(def ^:private chez-numerator (scheme/proc "numerator"))
+(def ^:private chez-denominator (scheme/proc "denominator"))
+
+
+;; =============================================================================
+;; Carriers (table C)
+;; =============================================================================
+
+(deftype Rational
+  [numerator denominator]
+
+  Object
+
+  (equals
+    [_ other]
+    (and (instance? Rational other)
+         (= numerator (.-numerator ^Rational other))
+         (= denominator (.-denominator ^Rational other))))
+
+
+  (hashCode [_] (hash [numerator denominator]))
+
+
+  (toString [_] (str numerator "/" denominator))
+
+
+  clojure.lang.IHashEq
+
+  (hasheq [_] (hash [numerator denominator])))
+
+
+(defmethod print-method Rational
+  [^Rational r w]
+  (.write w (str "#dao.jing/ratio [" (.-numerator r) " "
+                 (.-denominator r) "]")))
+
+
+;; =============================================================================
+;; Table A entries
+;; =============================================================================
+
+(defn float64-of
+  "P. Floating-point content with the value of host number `x`: a Chez
+   flonum (jolt's `double`, which also takes a decimal or a ratio)."
+  [x]
+  (double x))
+
+
+(defn float-value
+  "P. The host double of floating-point content `x`."
+  [x]
+  (double x))
+
+
+(defn decimal?
+  "P. True for decimal content: jolt's `BigDecimal`."
+  [x]
+  (clojure.core/decimal? x))
+
+
+(def decimal-exponent-min
+  "Smallest decimal exponent every host accepts: the JVM scale
+   (-exponent) is a 32-bit int, so -(2^31 - 1)."
+  -2147483647)
+
+
+(def decimal-exponent-max
+  "Largest decimal exponent every host accepts: 2^31 (scale -2^31)."
+  2147483648)
+
+
+(defn decimal-of
+  "P, fresh. Decimal content `mantissa x 10^exponent` with exactly this
+   scale, for exact integers `exponent` and `mantissa`. Every host accepts
+   exactly the exponents in [decimal-exponent-min, decimal-exponent-max];
+   outside it the value is refused `:malformed-number`."
+  [exponent mantissa]
+  (let [e (big 'decimal-of exponent)
+        m (big 'decimal-of mantissa)]
+    (when-not (and (<= 0 (integer/compare-big e (integer/promote decimal-exponent-min)))
+                   (<= (integer/compare-big e (integer/promote decimal-exponent-max)) 0))
+      (refuse 'decimal-of :malformed-number "decimal exponent out of range"))
+    (java.math.BigDecimal/valueOf m (integer/sub zero e))))
+
+
+(defn decimal-exponent
+  "P. The exponent of decimal content `d`, a native integer."
+  [d]
+  (- (.scale d)))
+
+
+(defn decimal-mantissa
+  "P. The exact mantissa of decimal content `d` as a host big integer."
+  [d]
+  (.unscaledValue d))
+
+
+(defn ratio?
+  "P. True for rational content: a Chez exact ratio or the `Rational`
+   carrier."
+  [x]
+  (or (clojure.core/ratio? x) (instance? Rational x)))
+
+
+(defn ratio-of
+  "P, fresh. Rational content `numerator/denominator` for exact integers,
+   reduced, with the sign on the numerator; both fields are host big
+   integers. Denominator 1 keeps rational kind (a `Rational` carrier);
+   other ratios are Chez exact ratios. A zero denominator is refused
+   `:malformed-number`."
+  [numerator denominator]
+  (let [n (big 'ratio-of numerator)
+        d (big 'ratio-of denominator)]
+    (when (zero? (integer/compare-big d zero))
+      (refuse 'ratio-of :malformed-number "zero denominator"))
+    (let [[n d] (if (neg? (integer/compare-big d zero))
+                  [(integer/sub zero n) (integer/sub zero d)]
+                  [n d])
+          g (integer/gcd n d)
+          n (integer/quot-trunc n g)
+          d (integer/quot-trunc d g)]
+      (if (= (integer/from-native 1) d)
+        (Rational. n d)
+        (chez-divide n d)))))
+
+
+(defn ratio-numerator
+  "P. The numerator of rational content `r`, a host big integer."
+  [r]
+  (if (instance? Rational r)
+    (.-numerator ^Rational r)
+    (chez-numerator r)))
+
+
+(defn ratio-denominator
+  "P. The denominator of rational content `r`, a positive host big
+   integer."
+  [r]
+  (if (instance? Rational r)
+    (.-denominator ^Rational r)
+    (chez-denominator r)))

@@ -1,0 +1,291 @@
+(ns clojure.data.json
+  "jolt only: the subset of org.clojure/data.json 2.5.0 this repository's
+   tests call, because the library does not load on jolt 96d7b866 (its
+   reader requires java.time.format.DateTimeFormatter, which jolt does not
+   provide). The `.jolt` extension keeps it off every other host; on jolt
+   the :jolt alias puts src/jolt first, so it is found before any jar.
+
+   Call sites it serves (test/dao/jing/cbor_fixtures.cljc, the :clj arm):
+   `(json/read-str text)` in `parse`, and `json/write-str` with
+   `json/read-str` in `json-round-trip`. Nothing else in the repository's
+   jolt closure calls clojure.data.json; `read`, `write` and the other
+   options are deliberately absent, and an unsupported option is refused
+   rather than ignored.
+
+   Behaviour follows data.json 2.5.0 as observed on the JVM (the same
+   cases run on both hosts in jolt-json-test):
+   - `read-str`: string keys, integers as exact integers (a Long or, past
+     64 bits, a BigInt), numbers with a fraction or exponent as doubles,
+     the JSON number grammar (no leading zero, no `+`, no bare `.`),
+     escapes including surrogate pairs, raw control characters inside
+     strings accepted, a duplicate key keeps the last value, and text
+     after the first value ignored. Option `:key-fn` is supported.
+   - `write-str`: data.json's defaults, `:escape-unicode` and
+     `:escape-slash` on: every non-ASCII character as `\\uXXXX`
+     (an astral one as its UTF-16 surrogate pair), `/` as `\\/`.
+
+   One difference no shim can remove: a `\\uD800`-style escape of an
+   unpaired surrogate has no jolt string (a Chez string holds only Unicode
+   scalar values); it throws ex-info carrying `:jolt/unimplemented`, where
+   the JVM builds a one-unit string.
+
+   Review J1-R3 (round 3), annotated, not widened; both rows are pinned in
+   jolt-json-test `write-str-review-rows`. Neither is reachable from the
+   fixture path, which only writes what `read-str` produced:
+   - U+007F (DEL): this shim writes `\\u007f`; data.json 2.5.0 writes
+     the character raw. A real difference, kept: the shim escapes every
+     character outside 0x20-0x7E.
+   - Keywords: written as their `name`, keys and values alike
+     (`{:ns/k 1}` is `{\"k\":1}`, `[:a :b/c]` is `[\"a\",\"c\"]`).
+     The review read this as a difference; data.json 2.5.0 does the
+     same on the JVM (observed), so it is not one."
+  (:require
+    [clojure.edn :as edn]))
+
+
+(defn- json-error
+  [what]
+  (throw (ex-info (str "JSON error (" what ")") {:clojure.data.json/error what})))
+
+
+(defn- ws
+  [^String s i]
+  (let [n (count s)]
+    (loop [i i]
+      (if (and (< i n) (contains? #{\space \tab \newline \return} (nth s i)))
+        (recur (inc i))
+        i))))
+
+
+(defn- at
+  "The character at `i`, or a JSON error at the end of the text."
+  [s i what]
+  (if (< i (count s)) (nth s i) (json-error what)))
+
+
+(def ^:private hex-digit
+  (into {} (map-indexed (fn [i c] [c i])) "0123456789abcdef"))
+
+
+(defn- hex4
+  [s i]
+  (when (< (count s) (+ i 4)) (json-error "end-of-file inside string"))
+  (reduce (fn [acc c]
+            (if-let [d (hex-digit (Character/toLowerCase c))]
+              (+ (* 16 acc) d)
+              (json-error "invalid \\u escape")))
+          0
+          (subs s i (+ i 4))))
+
+
+(defn- unpaired!
+  [u]
+  (throw (ex-info (str "jolt: no jolt string holds the unpaired surrogate escape \\u"
+                       (Integer/toHexString u))
+                  {:jolt/unimplemented 'clojure.data.json/read-str :unit u})))
+
+
+(defn- read-string*
+  "The string whose opening quote is at `i`: [string next-index]."
+  [s i]
+  (loop [i (inc i)
+         out (transient [])]
+    (let [c (at s i "end-of-file inside string")]
+      (cond
+        (= c \") [(apply str (persistent! out)) (inc i)]
+        (= c \\)
+        (let [e (at s (inc i) "end-of-file inside string")]
+          (case e
+            \" (recur (+ i 2) (conj! out \"))
+            \\ (recur (+ i 2) (conj! out \\))
+            \/ (recur (+ i 2) (conj! out \/))
+            \b (recur (+ i 2) (conj! out (char 8)))
+            \f (recur (+ i 2) (conj! out (char 12)))
+            \n (recur (+ i 2) (conj! out \newline))
+            \r (recur (+ i 2) (conj! out \return))
+            \t (recur (+ i 2) (conj! out \tab))
+            \u (let [u (hex4 s (+ i 2))]
+                 (cond
+                   (<= 0xD800 u 0xDBFF)
+                   (let [lo (when (and (< (+ i 7) (count s))
+                                       (= "\\u" (subs s (+ i 6) (+ i 8))))
+                              (hex4 s (+ i 8)))]
+                     (if (and lo (<= 0xDC00 lo 0xDFFF))
+                       (recur (+ i 12)
+                              (conj! out (char (+ 0x10000 (* (- u 0xD800) 0x400) (- lo 0xDC00)))))
+                       (unpaired! u)))
+                   (<= 0xDC00 u 0xDFFF) (unpaired! u)
+                   :else (recur (+ i 6) (conj! out (char u)))))
+            (json-error (str "invalid escape \\" e))))
+        :else (recur (inc i) (conj! out c))))))
+
+
+(def ^:private number-pattern
+  #"^-?(0|[1-9][0-9]*)(\.[0-9]+)?([eE][+-]?[0-9]+)?")
+
+
+(defn- read-number
+  [s i]
+  (let [m (re-find number-pattern (subs s i))
+        t (if (vector? m) (first m) m)]
+    (when (or (nil? t) (= "" t)) (json-error "invalid number literal"))
+    (let [j (+ i (count t))
+          next-c (when (< j (count s)) (nth s j))]
+      ;; "1." and "1e" stop the grammar before a character that can only
+      ;; continue a number
+      (when (contains? #{\. \e \E \+ \- \0 \1 \2 \3 \4 \5 \6 \7 \8 \9} next-c)
+        (json-error "invalid number literal"))
+      [(if (re-find #"[.eE]" t)
+         (Double/parseDouble t)
+         (edn/read-string t))
+       j])))
+
+
+(declare read-value)
+
+
+(defn- read-array
+  [s i opts]
+  (let [i (ws s (inc i))]
+    (if (= \] (at s i "end-of-file inside array"))
+      [[] (inc i)]
+      (loop [i i
+             out (transient [])]
+        (let [[v i] (read-value s i opts)
+              i (ws s i)
+              c (at s i "end-of-file inside array")]
+          (cond (= c \,) (recur (ws s (inc i)) (conj! out v))
+                (= c \]) [(persistent! (conj! out v)) (inc i)]
+                :else (json-error (str "unexpected character): " c))))))))
+
+
+(defn- read-object
+  [s i {:keys [key-fn] :as opts}]
+  (let [i (ws s (inc i))]
+    (if (= \} (at s i "end-of-file inside object"))
+      [{} (inc i)]
+      (loop [i i
+             out (transient {})]
+        (when-not (= \" (at s i "end-of-file inside object"))
+          (json-error "non-string key in object"))
+        (let [[k i] (read-string* s i)
+              i (ws s i)
+              _ (when-not (= \: (at s i "end-of-file inside object"))
+                  (json-error "missing `:` in object"))
+              [v i] (read-value s (ws s (inc i)) opts)
+              out (assoc! out (key-fn k) v)
+              i (ws s i)
+              c (at s i "end-of-file inside object")]
+          (cond (= c \,) (recur (ws s (inc i)) out)
+                (= c \}) [(persistent! out) (inc i)]
+                :else (json-error (str "unexpected character): " c))))))))
+
+
+(defn- literal
+  [s i word value]
+  (if (= word (subs s i (min (count s) (+ i (count word)))))
+    [value (+ i (count word))]
+    (json-error (str "expected " word))))
+
+
+(defn- read-value
+  [s i opts]
+  (let [i (ws s i)
+        c (at s i "end-of-file")]
+    (case c
+      \{ (read-object s i opts)
+      \[ (read-array s i opts)
+      \" (read-string* s i)
+      \t (literal s i "true" true)
+      \f (literal s i "false" false)
+      \n (literal s i "null" nil)
+      (if (or (= c \-) (Character/isDigit c))
+        (read-number s i)
+        (json-error (str "unexpected character): " c))))))
+
+
+(defn read-str
+  "Reads one JSON value from string `s`. Option: `:key-fn` (applied to
+   every object key; default identity). Any other option is refused."
+  [s & options]
+  (let [opts (apply hash-map options)
+        unknown (remove #{:key-fn} (keys opts))]
+    (when (seq unknown)
+      (throw (ex-info (str "jolt clojure.data.json shim: unsupported option(s) " (vec unknown))
+                      {:jolt/unimplemented 'clojure.data.json/read-str :options (vec unknown)})))
+    (first (read-value s 0 {:key-fn (or (:key-fn opts) identity)}))))
+
+
+;; =============================================================================
+;; write-str
+;; =============================================================================
+
+(defn- hex-unit
+  [u]
+  (let [h (Integer/toHexString u)]
+    (str "\\u" (subs "0000" (count h)) h)))
+
+
+(defn- write-string
+  [^StringBuilder sb s]
+  (.append sb \")
+  (doseq [c s]
+    (let [cp (int c)]
+      (case c
+        \" (.append sb "\\\"")
+        \\ (.append sb "\\\\")
+        \/ (.append sb "\\/")
+        \newline (.append sb "\\n")
+        \return (.append sb "\\r")
+        \tab (.append sb "\\t")
+        (cond
+          (= cp 8) (.append sb "\\b")
+          (= cp 12) (.append sb "\\f")
+          (and (<= 0x20 cp) (< cp 0x7f)) (.append sb c)
+          (< cp 0x10000) (.append sb (hex-unit cp))
+          :else (let [v (- cp 0x10000)]
+                  (.append sb (hex-unit (+ 0xD800 (quot v 0x400))))
+                  (.append sb (hex-unit (+ 0xDC00 (rem v 0x400)))))))))
+  (.append sb \"))
+
+
+(defn- write-value
+  [^StringBuilder sb x]
+  (cond
+    (nil? x) (.append sb "null")
+    (boolean? x) (.append sb (str x))
+    (string? x) (write-string sb x)
+    (keyword? x) (write-string sb (name x))
+    (integer? x) (.append sb (str x))
+    (float? x) (.append sb (str x))
+    (map? x) (do (.append sb "{")
+                 (loop [es (seq x) first? true]
+                   (when es
+                     (let [[k v] (first es)]
+                       (when-not first? (.append sb ","))
+                       (write-string sb (if (keyword? k) (name k) (str k)))
+                       (.append sb ":")
+                       (write-value sb v)
+                       (recur (next es) false))))
+                 (.append sb "}"))
+    (sequential? x) (do (.append sb "[")
+                        (loop [xs (seq x) first? true]
+                          (when xs
+                            (when-not first? (.append sb ","))
+                            (write-value sb (first xs))
+                            (recur (next xs) false)))
+                        (.append sb "]"))
+    :else (throw (ex-info (str "jolt clojure.data.json shim: cannot write " (type x))
+                          {:jolt/unimplemented 'clojure.data.json/write-str :value x}))))
+
+
+(defn write-str
+  "The JSON text of `x` with data.json's default options (non-ASCII and
+   `/` escaped). Options are refused."
+  [x & options]
+  (when (seq options)
+    (throw (ex-info "jolt clojure.data.json shim: write-str options are not supported"
+                    {:jolt/unimplemented 'clojure.data.json/write-str :options (vec options)})))
+  (let [sb (StringBuilder.)]
+    (write-value sb x)
+    (str sb)))

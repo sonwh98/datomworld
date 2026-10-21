@@ -3,6 +3,48 @@
   {:doc "Generate the pinned grammars-v4 parsers for every target (antlr/*/manifest.edn): Java compiled into build/antlr/<g>/classes, JavaScript in build/antlr/<g>/js, Dart in lib/antlr/<g>; filters after --: --grammar g --target t"
    :task (apply shell "clojure" "-M:antlr-gen" *command-line-args*)}
 
+  ;; jolt host lane (experimental, docs/design/yin.repl-jolt-implementation.md)
+  bootstrap:jolt
+  {:doc "Materialize the jolt-toolchain.edn pins into build/tools/jolt (mise Chez/CMake checked, jolt cloned at the full SHA, never pulled) and write build/tools/jolt-env.sh"
+   :task (System/exit
+           (:exit (shell {:continue true} "bb" "src/dev/jolt_bootstrap.clj")))}
+
+  smoke:jolt
+  {:doc "J0a baseline smoke under jolt -Srepro -M:jolt: tracked load of yang.antlr.export/packet and defcfn :blocking calls (needs bb bootstrap:jolt)"
+   :task (System/exit
+           (:exit (shell {:continue true} "sh" "-c"
+                         ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt src/dev/jolt_smoke.clj")))}
+
+  test:jolt-host
+  {:doc "J1: the dao.host oracle (conformance, bytes, float, text tests) under jolt -Srepro -M:jolt:jolt-test through src/dev/jolt_test_runner.clj; counts per namespace, nonzero exit on any failure, error or load failure (needs bb bootstrap:jolt)"
+   :task (System/exit
+           (:exit (shell {:continue true} "sh" "-c"
+                         ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-test src/dev/jolt_test_runner.clj dao.host.conformance-test dao.host.bytes-test dao.host.float-test dao.host.text-test")))}
+
+  compare:jolt-host
+  {:doc "J1: run src/dev/jolt_profile_compare.cljc on the JVM and on jolt (public vars, arities, refusal data, a differential case battery over dao.host.*) and diff the two; writes build/j1-logs/compare-{jvm,jolt}.edn and compare.diff; exit 1 when they differ"
+   :task (System/exit
+           (:exit (shell {:continue true} "sh" "-c"
+                         "mkdir -p build/j1-logs && clojure -M src/dev/jolt_profile_compare.cljc | grep '^\\[' > build/j1-logs/compare-jvm.edn && . build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt src/dev/jolt_profile_compare.cljc | grep '^\\[' > build/j1-logs/compare-jolt.edn && diff build/j1-logs/compare-jvm.edn build/j1-logs/compare-jolt.edn > build/j1-logs/compare.diff; s=$?; cat build/j1-logs/compare.diff; exit $s")))}
+
+  test:jolt-host-diag
+  {:doc "J1 DIAGNOSTIC, not the oracle verdict: dao.host.float-test and dao.host.text-test, unchanged, under jolt with the :jolt-diag stand-in for the corpus loader dao.jing.cbor-fixtures (which cannot load on jolt); see src/dev/jolt_diag/dao/jing/cbor_fixtures.cljc"
+   :task (System/exit
+           (:exit (shell {:continue true} "sh" "-c"
+                         ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-diag:jolt-test src/dev/jolt_test_runner.clj dao.host.float-test dao.host.text-test")))}
+
+  test:jolt-json
+  {:doc "J1: the jolt clojure.data.json shim (src/jolt/clojure/data/json.jolt) against src/dev/jolt_json_test.cljc, under jolt; the same file passes against the real data.json on the JVM (clojure -M:dev, see its header)"
+   :task (System/exit
+           (:exit (shell {:continue true} "sh" "-c"
+                         ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-test src/dev/jolt_test_runner.clj jolt-json-test")))}
+
+  test:jolt-runner-self
+  {:doc "J1: prove src/dev/jolt_test_runner.clj counts a throwing test as one error and keeps running (the jolt-runner-sentinel namespace)"
+   :task (System/exit
+           (:exit (shell {:continue true} "sh" "-c"
+                         ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-test src/dev/jolt_test_runner.clj --self-test")))}
+
   build:yin-repl-node
   {:doc "Compile the Node yin.repl (shadow-cljs build :yin-repl) to target/yin-repl.js"
    ;; The Node lanes (test:cljs and its variants) depend on this task, so the

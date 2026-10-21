@@ -11,7 +11,7 @@
 ;;    (:clj before :cljd), silently re-breaking the guard on every
 ;;    `cljstyle fix` — this bit dao.jing.dht.node.cljc and cost a lost
 ;;    commit before being traced back here.
-{:files {:extensions #{"blog" "chp" "clj" "cljc" "cljd" "cljs" "edn"},
+{:files {:extensions #{"blog" "chp" "clj" "cljc" "cljd" "cljs" "edn" "jolt"},
          :ignore #{".cpcache" ".git" ".shadow-cljs" "node_modules" "target"}},
  :rules {:blank-lines {:enabled? true, :max-consecutive 2},
          :eof-newline {:enabled? true},
