@@ -11,6 +11,15 @@
    * write build/native/<platform>/build-record.edn: tool versions, flags and
      the SHA-256 of every output library.
 
+   :libcrypto is the one system entry (§6.3): never fetched; the task fails
+   unless the declared path for this platform exists, on a Debian-family host
+   one of the declared runtime packages is installed (this task, not
+   bootstrap:jolt, checks them), and its canonical path and SHA-256 equal
+   :libcrypto :qualified; it records both. native/jolt-crypto links it by the
+   declared path. `--requalify` skips only the :qualified comparison, so a
+   library that changed can be built against and then qualified (`bb
+   qualify:jolt-libcrypto`); the record says so.
+
    Nothing here runs at namespace load; jolt only ever loads what this task
    built. Exit status is nonzero on any failure."
   (:require [babashka.fs :as fs]
@@ -84,7 +93,7 @@
   "The pinned source archive under build/native/src, downloaded only when
    absent; its SHA-256 must equal the declaration."
   [{:keys [url sha256] :as decl}]
-  (let [dest (fs/path "build/native/src" (last (str/split url #"/")))]
+  (let [dest (fs/path "build/native/src" (or (:archive-name decl) (last (str/split url #"/"))))]
     (fs/create-dirs (fs/parent dest))
     (when-not (fs/exists? dest)
       (println "fetching" url)
@@ -167,23 +176,159 @@
        :exported (into (sorted-map) (map (fn [l] [l (exported-symbols l)])) libs)})))
 
 
+(defn- build-blake3!
+  "The BLAKE3 C reference (the release's c/ directory), static and PIC."
+  [{:keys [version archive cmake-flags]} cmake plat]
+  (let [src (str (fs/path "build/native/src" (str "blake3-" version)))
+        out (fs/path "build/native" plat)
+        bld (str (fs/path out "blake3-build"))
+        prefix (str (fs/absolutize (fs/path out "blake3")))]
+    (fs/delete-tree src)
+    (fs/create-dirs src)
+    (sh "tar" "-xzf" archive "-C" src)
+    (let [c-dir (str (fs/path src (str "BLAKE3-" version) "c"))]
+      (when-not (fs/exists? (fs/path c-dir "CMakeLists.txt"))
+        (fail! "no c/CMakeLists.txt in " archive))
+      (fs/delete-tree bld)
+      (fs/delete-tree prefix)
+      (apply run! cmake "-S" c-dir "-B" bld
+             (str "-DCMAKE_INSTALL_PREFIX=" prefix)
+             cmake-flags))
+    (run! cmake "--build" bld "--parallel" "--config" "Release")
+    (run! cmake "--install" bld "--config" "Release")
+    (let [lib (str (fs/path prefix "lib" "libblake3.a"))]
+      (when-not (fs/exists? lib) (fail! "no libblake3.a installed under " prefix))
+      {:prefix prefix
+       :outputs (sorted-map lib (file-sha256 lib))})))
+
+
+(defn- debian-family?
+  []
+  (let [f "/etc/os-release"]
+    (and (fs/exists? f)
+         (boolean (re-find #"(?m)^(ID|ID_LIKE)=.*\bdebian\b" (slurp f))))))
+
+
+(defn- dpkg-installed?
+  [pkg]
+  (let [r (p/shell {:out :string :err :string :continue true}
+                   "dpkg-query" "-W" "-f=${Status}" pkg)]
+    (and (zero? (:exit r)) (str/includes? (:out r) "install ok installed"))))
+
+
+(defn- check-libcrypto!
+  "The declared system libcrypto for `plat`: present, on a Debian-family host
+   owned by one installed runtime package, and (unless `requalify?`) the
+   :qualified library by canonical path and file SHA-256; never fetched or
+   searched. Its version needs the library loaded, so dao.host.hash checks
+   that one at load."
+  [{:keys [path include min-version debian-runtime-any-of] :as decl} plat requalify?]
+  (let [k (keyword plat)
+        lib (get path k)
+        inc-dir (get include k)]
+    (when-not lib (fail! ":native :libcrypto declares no path for " plat))
+    (when-not (fs/exists? lib)
+      (fail! "declared libcrypto " lib " is absent"
+             (when (str/starts-with? plat "darwin") " (brew install openssl@3)")))
+    (when-not (fs/exists? (fs/path inc-dir "openssl" "evp.h"))
+      (fail! "no openssl/evp.h under " inc-dir
+             (if (str/starts-with? plat "darwin")
+               " (brew install openssl@3)"
+               " (sudo apt-get install -y libssl-dev)")))
+    (let [owners (when (debian-family?) (filterv dpkg-installed? debian-runtime-any-of))
+          real (str (fs/real-path lib))
+          digest (file-sha256 real)
+          qualified (get-in decl [:qualified k])]
+      (when (and (debian-family?) (empty? owners))
+        (fail! "none of the libcrypto runtime packages " debian-runtime-any-of " is installed"))
+      (when-not requalify?
+        (when-not qualified
+          (fail! ":native :libcrypto :qualified has no entry for " plat
+                 "; requalify (see jolt-toolchain.edn)"))
+        (when-not (= (:canonical-path qualified) real)
+          (fail! "libcrypto canonical path " real " differs from the qualified "
+                 (:canonical-path qualified) "; requalify (see jolt-toolchain.edn)"))
+        (when-not (= (:sha256 qualified) digest)
+          (fail! "libcrypto " real " has SHA-256 " digest ", the qualified library "
+                 (:sha256 qualified) "; requalify (see jolt-toolchain.edn)")))
+      {:path lib
+       :real-path real
+       :sha256 digest
+       :qualified (if requalify? :skipped-for-requalification qualified)
+       :include inc-dir
+       :min-version min-version
+       :soname (get (:soname decl) k)
+       :debian-runtime-installed owners})))
+
+
+(defn- linked-libraries
+  "What the dynamic loader records for `lib`: otool -L on macOS, the
+   DT_NEEDED and RUNPATH entries elsewhere."
+  [lib]
+  (if (str/starts-with? (platform) "darwin")
+    (vec (rest (map str/trim (str/split-lines (sh "otool" "-L" lib)))))
+    (->> (str/split-lines (sh "readelf" "-d" lib))
+         (filter #(re-find #"\((NEEDED|RUNPATH|RPATH)\)" %))
+         (mapv str/trim))))
+
+
+(defn- build-jolt-crypto!
+  "native/jolt-crypto over the built BLAKE3 and the declared libcrypto."
+  [blake3 libcrypto cmake plat]
+  (let [out (fs/path "build/native" plat)
+        bld (str (fs/path out "jolt-crypto-build"))
+        dest (str (fs/absolutize (fs/path out "jolt-crypto")))]
+    (fs/delete-tree bld)
+    (fs/delete-tree dest)
+    (run! cmake "-S" "native/jolt-crypto" "-B" bld
+          "-DCMAKE_BUILD_TYPE=Release"
+          (str "-DBLAKE3_PREFIX=" (:prefix blake3))
+          (str "-DLIBCRYPTO_PATH=" (:path libcrypto))
+          (str "-DOPENSSL_INCLUDE=" (:include libcrypto))
+          (str "-DCMAKE_INSTALL_PREFIX=" dest))
+    (run! cmake "--build" bld "--parallel" "--config" "Release")
+    (run! cmake "--install" bld "--config" "Release")
+    (let [libs (sort (map str (fs/glob dest "lib/*jolt_crypto*")))]
+      (when (empty? libs) (fail! "no jolt_crypto library installed under " dest))
+      (let [exported (into (sorted-map) (map (fn [l] [l (exported-symbols l)])) libs)]
+        (doseq [[l syms] exported
+                s syms]
+          (when-not (str/starts-with? (str/replace s #"^_" "") "jolt_crypto_")
+            (fail! l " exports " s ", outside jolt_crypto_*")))
+        {:prefix dest
+         :outputs (into (sorted-map) (map (fn [l] [l (file-sha256 l)])) libs)
+         :exported exported
+         :linked (into (sorted-map) (map (fn [l] [l (linked-libraries l)])) libs)}))))
+
+
 (defn -main
-  [& _]
+  [& args]
   (let [{:keys [native cmake]} (edn/read-string (slurp "jolt-toolchain.edn"))
         cmake-bin (mise-bin "cmake" (:version cmake) "cmake")
         plat (platform)
         cxx (sh "c++" "--version")
+        cc (sh "cc" "--version")
+        libcrypto (check-libcrypto! (:libcrypto native) plat
+                                    (boolean (some #{"--requalify"} args)))
         runtime (fetch! (:antlr4-cpp-runtime native))
         built (build-antlr4-runtime! runtime cmake-bin plat)
         parser (build-parser! built cmake-bin plat :test)
         release (build-parser! built cmake-bin plat :release)
+        blake3-src (fetch! (:blake3 native))
+        blake3 (build-blake3! blake3-src cmake-bin plat)
+        crypto (build-jolt-crypto! blake3 libcrypto cmake-bin plat)
         record {:platform plat
                 :cmake {:path cmake-bin :version (first (str/split-lines (sh cmake-bin "--version")))}
                 :cxx (first (str/split-lines cxx))
+                :cc (first (str/split-lines cc))
                 :antlr4-cpp-runtime (merge (select-keys runtime [:version :url :sha256 :cmake-flags])
                                            built)
                 :jolt-parser parser
-                :jolt-parser-release release}
+                :jolt-parser-release release
+                :blake3 (merge (select-keys blake3-src [:version :url :sha256 :cmake-flags :upstream])
+                               blake3)
+                :libcrypto libcrypto
+                :jolt-crypto crypto}
         record-file (str (fs/path "build/native" plat "build-record.edn"))]
     (spit record-file (with-out-str (pprint/pprint record)))
     (pprint/pprint record)

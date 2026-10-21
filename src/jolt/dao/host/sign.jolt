@@ -1,0 +1,168 @@
+(ns dao.host.sign
+  "The jolt override of src/cljc/dao/host/sign.cljc (the :jolt alias puts
+   src/jolt first, docs/design/yin.repl-jolt-implementation.md §4.2, §6.3):
+   the same public entries, arities, docstrings and refusal data
+   (docs/design/dao.stream.host-boundary.md §4.2, table A).
+
+   P entries (§2.4):
+   - `keypair-from-seed`: takes 32-byte seed (host bytes), returns
+     `{:seed <32 bytes>, :public <32 bytes>}` as fresh host bytes.
+   - `sign`: takes 32-byte seed and arbitrary message (host bytes),
+     returns 64-byte Ed25519 signature as fresh host bytes.
+   - `verify`: takes 32-byte public key, arbitrary message, and 64-byte signature
+     (all host bytes), returns boolean (true if valid, false otherwise).
+
+   Deterministic seed replay through the declared system libcrypto's raw
+   Ed25519 keys (EVP_PKEY_new_raw_private_key, one-shot EVP_DigestSign and
+   EVP_DigestVerify), behind native/jolt-crypto. The library and its
+   provenance gate are dao.host.hash's: requiring it first means no key is
+   used before that check passes.
+
+   Each native acquisition owns its own release, established as soon as it
+   is acquired, so a later allocation or copy that fails still releases
+   every earlier buffer, and each release runs whether or not another
+   failed. Native memory that held seed bytes is zeroed by the wrapper's
+   jolt_crypto_cleanse (OPENSSL_cleanse, which allocates nothing) before it
+   is freed, on every path, including a seed copy that failed part way.
+   Fresh entropy key generation (`generate`) is deferred (§9.1) and remains
+   in `yin.vm.linker.sign`."
+  (:require
+    [clojure.string :as str]
+    [dao.host.bytes :as bytes]
+    ;; loaded for its provenance gate, which must pass before any call here
+    [dao.host.hash]
+    [jolt.ffi :as ffi]))
+
+
+(def ^:private library
+  ;; the same wrapper dao.host.hash loaded and qualified (jolt's os.name and
+  ;; os.arch shim can answer nil, which reads as Linux and x86_64)
+  (let [os (str/lower-case (or (System/getProperty "os.name") ""))
+        arch (System/getProperty "os.arch")
+        darwin? (str/includes? os "mac")]
+    (str (System/getProperty "user.dir") "/build/native/"
+         (if darwin? "darwin" "linux") "-"
+         (if (#{"aarch64" "arm64"} arch) "arm64" "x86_64")
+         "/jolt-crypto/lib/libjolt_crypto" (if darwin? ".dylib" ".so"))))
+
+
+(ffi/load-library library)
+(ffi/defcfn ^:private c-public "jolt_crypto_ed25519_public"
+  [:pointer :pointer] :int :blocking)
+(ffi/defcfn ^:private c-sign "jolt_crypto_ed25519_sign"
+  [:pointer :pointer :size_t :pointer] :int :blocking)
+(ffi/defcfn ^:private c-verify "jolt_crypto_ed25519_verify"
+  [:pointer :pointer :size_t :pointer] :int :blocking)
+(ffi/defcfn ^:private c-cleanse "jolt_crypto_cleanse" [:pointer :size_t] :void)
+
+
+(defn- check-bytes!
+  [entry name-kw bs expected-len]
+  (when-not (bytes/bytes? bs)
+    (throw (ex-info (str "dao.host refused: " entry " unsupported-value (expected " (name name-kw) " host bytes)")
+                    {:dao.host/refusal :unsupported-value
+                     :dao.host/entry entry
+                     :target name-kw})))
+  (when (and expected-len (not= (bytes/length bs) expected-len))
+    (throw (ex-info (str "dao.host refused: " entry " out-of-range (expected " expected-len " bytes, got " (bytes/length bs) ")")
+                    {:dao.host/refusal :out-of-range
+                     :dao.host/entry entry
+                     :expected expected-len
+                     :actual (bytes/length bs)}))))
+
+
+(defn- acquire
+  "Caller-owned native memory of `n` bytes (at least one); throws when the
+   allocator answers NULL, so a caller never holds an unowned pointer."
+  [n]
+  (let [p (ffi/alloc (max 1 n))]
+    (when (ffi/null? p)
+      (throw (ex-info "jolt-crypto native allocation failed" {:bytes n})))
+    p))
+
+
+(defn- with-native
+  "(f p) over `n` bytes of native memory, freed however `f` exits."
+  [n f]
+  (let [p (acquire n)]
+    (try (f p) (finally (ffi/free p)))))
+
+
+(defn- with-copy
+  "(f p) over a native copy of `bs`, freed however the copy or `f` exits."
+  [bs f]
+  (let [n (alength bs)]
+    (with-native n
+      (fn [p]
+        (when (pos? n) (ffi/write-array p bs))
+        (f p)))))
+
+
+(defn- with-secret
+  "(f p) over a native copy of secret `bs`; the memory is cleansed and then
+   freed however the copy or `f` exits, and freed even if cleansing throws."
+  [bs f]
+  (let [n (alength bs)
+        p (acquire n)]
+    (try
+      (ffi/write-array p bs)
+      (f p)
+      (finally
+        (try (c-cleanse p n)
+             (finally (ffi/free p)))))))
+
+
+(defn- fail
+  [entry status]
+  (throw (ex-info (str "jolt-crypto " entry " failed") {:entry entry, :status status})))
+
+
+(defn keypair-from-seed
+  "P. Deterministic Ed25519 keypair from 32-byte seed `seed-bytes`.
+   Returns `{:seed <32-byte host bytes>, :public <32-byte host bytes>}`."
+  [seed-bytes]
+  (check-bytes! 'keypair-from-seed :seed seed-bytes 32)
+  (let [seed-copy (bytes/slice seed-bytes 0 32)]
+    (with-secret seed-copy
+      (fn [seed]
+        (with-native 32
+          (fn [out]
+            (let [status (c-public seed out)]
+              (when-not (zero? status) (fail 'keypair-from-seed status))
+              {:seed seed-copy
+               :public (ffi/read-array out 32)})))))))
+
+
+(defn sign
+  "P. Sign message `msg-bytes` with 32-byte `seed-bytes`.
+   Returns 64-byte Ed25519 signature as fresh host bytes."
+  [seed-bytes msg-bytes]
+  (check-bytes! 'sign :seed seed-bytes 32)
+  (check-bytes! 'sign :message msg-bytes nil)
+  (with-secret seed-bytes
+    (fn [seed]
+      (with-copy msg-bytes
+        (fn [msg]
+          (with-native 64
+            (fn [out]
+              (let [status (c-sign seed msg (alength msg-bytes) out)]
+                (when-not (zero? status) (fail 'sign status))
+                (ffi/read-array out 64)))))))))
+
+
+(defn verify
+  "P. Verify 64-byte `sig-bytes` against `msg-bytes` and 32-byte `public-key-bytes`.
+   Returns boolean."
+  [public-key-bytes msg-bytes sig-bytes]
+  (check-bytes! 'verify :public-key public-key-bytes 32)
+  (check-bytes! 'verify :message msg-bytes nil)
+  (check-bytes! 'verify :signature sig-bytes 64)
+  (with-copy public-key-bytes
+    (fn [pub]
+      (with-copy msg-bytes
+        (fn [msg]
+          (with-copy sig-bytes
+            (fn [sig]
+              ;; 1 valid; 0 invalid; a negative wrapper failure after
+              ;; validation is false, as the .cljc arms' catch makes it
+              (= 1 (c-verify pub msg (alength msg-bytes) sig)))))))))
