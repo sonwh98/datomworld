@@ -3,9 +3,9 @@
 {:lane :clj,
  :root yin.repl.main,
  :features #{:clj},
- :total 148,
+ :total 147,
  :shared 139,
- :lane-specific 9,
+ :lane-specific 8,
  :class-legend
  {:codec-track "codec track, untouched (§8.3)",
   :consumer "H2 (require change only)",
@@ -104,10 +104,6 @@
   {:file "src/cljc/dao/jing/cbor.cljc",
    :ns dao.jing.cbor,
    :shared true,
-   :classes #{:profile-internal-pure}}
-  {:file "src/cljc/dao/jing/cbor/boring.cljc",
-   :ns dao.jing.cbor.boring,
-   :shared false,
    :classes #{:profile-internal-pure}}
   {:file "src/cljc/dao/jing/content.cljc",
    :ns dao.jing.content,

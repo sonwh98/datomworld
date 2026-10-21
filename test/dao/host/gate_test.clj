@@ -646,8 +646,6 @@
    16 files H0 first found unlisted (no file is uncategorised)."
   {;; H1-H4 migration sources
    "src/cljc/dao/jing/cbor.cljc" (entry :migration-source "H4" "H2 moved the helpers, carriers and number API to dao.host; left: the writer (H4), :91 Dart runtimeType in refusal text, :217 JS unsafe-integral Number, :227 float64? (no dao.host.number predicate), :1026 Dart with-meta nil")
-   "src/cljc/dao/jing/cbor/boring.cljc" (entry :migration-source "H4" "deleted in H4")
-   "src/cljd/dao/jing/cbor/cljd.cljd" (entry :migration-source "H4" "Dart Jing writer, deleted in H4")
    "src/cljc/dao/jing.cljc" (entry :migration-source "H3" "hashes")
    "src/cljc/yin/vm/linker/sign.cljc" (entry :migration-source :stays "H3 migrates; generate stays (deferred entropy)")
    "src/cljc/yin/vm/debruijn.cljc" (entry :migration-source :stays "retained host number-model arms (Architect H2 review, §8.1 r11 row)")
@@ -771,7 +769,7 @@
    ;; from a fresh seed copy (never a published value)
    "src/cljc/dao/data/btree.cljc" {:m-entry 33}
    "src/cljc/dao/stream/chunks.cljc" {:m-entry 1}
-   "src/cljc/dao/jing/cbor.cljc" {:m-entry 1}
+   "src/cljc/dao/jing/cbor.cljc" {:m-entry 8}
    "src/cljc/dao/host/sign.cljc" {:secure-random 1, :m-entry 11}})
 
 
@@ -985,9 +983,9 @@
 (deftest closure-totals-are-the-design-totals
   (testing "§3.1 after H2: 146 / 144 / 145 files, 137 shared (H0's 142 / 140 / 141 and 133, minus yin.vm.integer.host, plus the five dao.host files)"
     (let [files (into {} (map (fn [l] [l (set (map :file (:files (committed-closure l))))]) lanes))]
-      (is (= 148 (count (files :clj))))
-      (is (= 146 (count (files :cljs))))
-      (is (= 147 (count (files :cljd))))
+      (is (= 147 (count (files :clj))))
+      (is (= 145 (count (files :cljs))))
+      (is (= 146 (count (files :cljd))))
       (is (= 139 (count (apply set/intersection (vals files)))))
       (doseq [l lanes]
         (is (= (count (files l)) (:total (committed-closure l))))
@@ -1005,8 +1003,8 @@
 
 (deftest gate-passes-on-the-current-tree
   (let [r @current]
-    (is (= 161 (count (closure-files))) "the union of the three lanes")
-    (is (= 161 (count (gate-files))) "no profile addition outside the closure after H3")
+    (is (= 159 (count (closure-files))) "the union of the three lanes")
+    (is (= 159 (count (gate-files))) "no profile addition outside the closure after H3")
     (is (= (count (gate-files)) (:scanned r)))
     (is (= [] (:errors r)))
     (is (= [] (:arm-violations r)))

@@ -12,10 +12,7 @@
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
-            [dao.jing.cbor-fixtures :as fx]
-            #?@(:cljd []
-                :default [[boring.core :as boring]
-                          [dao.jing.cbor.boring :as cbor-boring]]))
+            [dao.jing.cbor-fixtures :as fx])
   #?@(:cljd [(:import ["dart:core" BigInt])]))
 
 
@@ -263,16 +260,7 @@
   (fx/hex->bytes (str (hex-of a) (hex-of b))))
 
 
-#?(:cljd nil
-   :default
-   (deftest boring-profile-options-are-locked
-     (is (= {:profile :canonical :stringref false :shapes false} cbor-boring/opts))
-     (is (thrown? #?(:clj Exception :cljs :default)
-           (boring/encode 1 (assoc cbor-boring/opts :stringref true)))
-         "stringref cannot be switched on under :canonical")
-     (is (thrown? #?(:clj Exception :cljs :default)
-           (boring/encode 1 (assoc cbor-boring/opts :shapes true)))
-         "shapes cannot be switched on under :canonical")))
+
 
 
 (deftest payloads-are-one-item-then-end
