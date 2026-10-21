@@ -318,8 +318,8 @@
 
 
 (deftest negotiate-picks-endpoint-order-deterministically-or-nothing
-  (let [transit {:ws/subprotocol "dao.stream.transit-json"}
-        cbor {:ws/subprotocol "dao.stream.cbor"}]
+  (let [transit {:dao.stream.codec/name "dao.stream.transit-json"}
+        cbor {:dao.stream.codec/name "dao.stream.cbor"}]
     ;; The endpoint's table order wins regardless of the client's offer order.
     (is (= transit (jvm/negotiate [transit cbor]
                                   ["dao.stream.cbor" "dao.stream.transit-json"])))

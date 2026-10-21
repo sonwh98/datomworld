@@ -1,8 +1,8 @@
 (ns dao.stream.codec
   "The dao.stream codec contract: the numeric rule, the host-bytes predicate,
    the common portable domain D (docs/design/dao.stream.codec.md 4.4), and
-   profile accessors that read the `:dao.stream.codec/*` keys and fall back
-   to the legacy `:ws/*` keys.  No codec implementation is required here."
+   profile accessors that read the `:dao.stream.codec/*` keys.
+   No codec implementation is required here."
   (:refer-clojure :exclude [bytes?])
   (:require [clojure.string :as str]
             #?(:cljd ["dart:typed_data" :as td])))
@@ -102,36 +102,29 @@
     {:error :non-portable-value :value x}))
 
 
-(defn- lookup
-  [profile new-key old-key]
-  (if (contains? profile new-key)
-    (get profile new-key)
-    (get profile old-key)))
-
-
 (defn codec-name
   [p]
-  (lookup p :dao.stream.codec/name :ws/subprotocol))
+  (:dao.stream.codec/name p))
 
 
 (defn frame-kind
   [p]
-  (lookup p :dao.stream.codec/frame-kind :ws/frame-kind))
+  (:dao.stream.codec/frame-kind p))
 
 
 (defn portable-value-fn
   [p]
-  (lookup p :dao.stream.codec/portable-value? :ws/portable-value?))
+  (:dao.stream.codec/portable-value? p))
 
 
 (defn encode-fn
   [p]
-  (lookup p :dao.stream.codec/encode :ws/encode))
+  (:dao.stream.codec/encode p))
 
 
 (defn decode-fn
   [p]
-  (lookup p :dao.stream.codec/decode :ws/decode))
+  (:dao.stream.codec/decode p))
 
 
 (defn bytes?
@@ -147,21 +140,12 @@
 
 
 (defn profile?
-  "True for a complete modern 6-key profile or a complete legacy 5-key one."
+  "True for a profile complete under the six :dao.stream.codec/* keys."
   [x]
   (and (map? x)
-       ;; A present name key must be a token even when the other key set is
-       ;; complete: accessors read the modern key first.
-       (every? (fn [k] (or (not (contains? x k)) (token? (get x k))))
-               [:dao.stream.codec/name :ws/subprotocol])
-       (or (and (token? (:dao.stream.codec/name x))
-                (contains? #{:text :binary} (:dao.stream.codec/frame-kind x))
-                (fn? (:dao.stream.codec/portable-value? x))
-                (fn? (:dao.stream.codec/encode x))
-                (fn? (:dao.stream.codec/decode x))
-                (boolean? (:dao.stream.codec/bytes? x)))
-           (and (token? (:ws/subprotocol x))
-                (contains? #{:text :binary} (:ws/frame-kind x))
-                (fn? (:ws/portable-value? x))
-                (fn? (:ws/encode x))
-                (fn? (:ws/decode x))))))
+       (token? (:dao.stream.codec/name x))
+       (contains? #{:text :binary} (:dao.stream.codec/frame-kind x))
+       (fn? (:dao.stream.codec/portable-value? x))
+       (fn? (:dao.stream.codec/encode x))
+       (fn? (:dao.stream.codec/decode x))
+       (boolean? (:dao.stream.codec/bytes? x))))

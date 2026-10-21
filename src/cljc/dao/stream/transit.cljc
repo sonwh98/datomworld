@@ -113,12 +113,7 @@
    :dao.stream.codec/portable-value? portable-value?
    :dao.stream.codec/encode encode
    :dao.stream.codec/decode decode
-   :dao.stream.codec/bytes? false
-   :ws/subprotocol "dao.stream.transit-json"
-   :ws/frame-kind :text
-   :ws/portable-value? portable-value?
-   :ws/encode encode
-   :ws/decode decode})
+   :dao.stream.codec/bytes? false})
 
 
 (defn decode-descriptor

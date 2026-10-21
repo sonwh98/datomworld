@@ -12449,3 +12449,26 @@ Done: Implemented, verified, and landed Slice H1 per dao.stream.host-boundary.md
 Decisions: Owner approved Option A for F1. H1 merged cleanly into local master.
 Delegates: claude-opus-5-5 (implementation & fix rounds); claude-fable-5-1 (system architect review); gpt-6-astra (independent review & verification).
 Next: Commission Slice H2 (Consumer migration and deletion of legacy host shims).
+
+## 2026-10-21 11:15:00 +0700 — dao.stream codec track: Slice C4 (contract single key set) verified, signed off & merged
+Completed-GMT: 2026-10-21 04:15:00 GMT
+Coding-Agent: Gemini (interactive orchestrator seat)
+Session-ID: cc118b7a-f972-4630-aa72-8f2dcac087ac
+Tree: branch codec-c4 in worktree ../datomworld-codec-c4; merged into master at /Users/sto/workspace/datomworld.
+Done: Implemented, verified, and landed Slice C4 per docs/design/dao.stream.codec.md §§3.2, 3.3, 7.1 C4, 7.3, 10 CD5/OQ3:
+  1. Single Key Set: Dropped legacy `:ws/*` keys from `transit.cljc` and `cbor.cljc` profiles. Contract namespace `codec.cljc` simplified to single-lookup accessors without fallback. `codec/profile?` requires complete six `:dao.stream.codec/*` keys with explicit boolean `bytes?`.
+  2. Test Hardening (C4-R1): Rewrote C0 gate tests in `codec_test.cljc` to construct a complete retired legacy profile (via dynamic keywords) and assert strict rejection of legacy maps and fallback absence while preserving the 4 deftests / 25 assertions structure.
+  3. Formal OQ3 Resolution: Recorded owner decision in `docs/design/dao.stream.codec.md` resolving OQ3 (moving keys to `:dao.stream.codec/*` per CD5).
+  4. Grep Gate: Verified `grep -E ':ws/(frame-kind|portable-value\?|encode|decode|bytes\?)' src/ test/` is completely clean of profile keys (matches only `:ws/decode-failure` event keyword). `:ws/subprotocol` survives exclusively on transport seam maps.
+  5. Section 7.3 Wire Proof (C4-R2):
+     - Executed live Node(new) <-> JVM(F0 old peer at 47f43405c) bidirectional exchange: 506 tests, 4,294 assertions, 0 failures.
+     - Executed live JVM(new) <-> JVM(F0 old peer) bidirectional corpus driver (`c4_jvm_corpus.py`): 8/8 PASS across all role combinations (Transit 34/34 values, CBOR 40/40 values, Jing payloads).
+  6. Multi-Lane Verification:
+     - CLJ: 35 namespaces, 503 tests, 0 failures (pass)
+     - CLJS: 35 namespaces, 506 tests, 0 failures (pass)
+     - CLJD: 33 namespaces, 435 tests (pass; 1 unrelated Linux UDP timeout known gap).
+  7. Architect Sign-offs:
+     - claude-fable-5-1 SIGNED OFF WITH CHANGES (R1..R4 applied; R5/R6 executed).
+     - gpt-6-astra (Codex) SIGNED OFF WITH CHANGES (C4-R1 test hardening and C4-R2 JVM live peer exchange completed and verified).
+Decisions: OQ3 formally closed (CD5 key move confirmed). Track 1 (`dao.stream` codec redesign) is now 100% complete across Slices F0, C0, C1, C2, C3, and C4.
+Delegates: claude-sonnet-5-5 (implementation & fix rounds); claude-fable-5-1 (system architect review); gpt-6-astra (independent review & verification).

@@ -121,12 +121,12 @@
 
 (defn- decode-fn
   [dir]
-  (:ws/decode (get profiles dir)))
+  (:dao.stream.codec/decode (get profiles dir)))
 
 
 (defn- encode-fn
   [dir]
-  (:ws/encode (get profiles dir)))
+  (:dao.stream.codec/encode (get profiles dir)))
 
 
 ;; ---------------------------------------------------------------- negotiation
@@ -176,7 +176,7 @@
   (doseq [dir ["cbor" "transit"]
           :let [profile (get profiles dir)
                 entries (fixtures dir "negotiation")]]
-    (is (= (:offer (first entries)) (:ws/subprotocol profile))
+    (is (= (:offer (first entries)) (:dao.stream.codec/name profile))
         (str dir ": the accepted offer is exactly the string the profile offers"))
     (doseq [{:keys [name offer expect]} entries
             :let [ep (endpoint profile)
@@ -195,8 +195,8 @@
           (is (= :ws/pending (:ws/status result)) label)
           (is (= profile chosen)
               (str label ": chosen codec"))))))
-  (is (= "dao.stream.transit-json" (:ws/subprotocol transit/profile)))
-  (is (= "dao.stream.cbor" (:ws/subprotocol cbor/profile))))
+  (is (= "dao.stream.transit-json" (:dao.stream.codec/name transit/profile)))
+  (is (= "dao.stream.cbor" (:dao.stream.codec/name cbor/profile))))
 
 
 ;; ---------------------------------------------------------------- descriptors

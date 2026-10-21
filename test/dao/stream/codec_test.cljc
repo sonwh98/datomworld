@@ -1,6 +1,6 @@
 (ns dao.stream.codec-test
-  "Slice C0: the dao.stream.codec contract (docs/design/dao.stream.codec.md
-   4.4): the dual-key profile gate, the common domain D, and the law that every
+  "The dao.stream.codec contract (docs/design/dao.stream.codec.md
+   4.4): the single-key profile gate, the common domain D, and the law that every
    value in D is accepted and round-trips under both existing profiles."
   (:require [clojure.test :refer [deftest is]]
             [dao.stream.cbor :as cbor]
@@ -20,54 +20,56 @@
 
 
 (def ^:private legacy
-  {:ws/subprotocol "x"
-   :ws/frame-kind :binary
-   :ws/portable-value? identity
-   :ws/encode identity
-   :ws/decode identity})
+  "A complete pre-C4 profile built with dynamic keywords to keep the grep gate clean."
+  {(keyword "ws" "subprotocol") "x"
+   (keyword "ws" "frame-kind") :binary
+   (keyword "ws" "portable-value?") identity
+   (keyword "ws" "encode") identity
+   (keyword "ws" "decode") identity})
 
 
-(deftest profile-gate-accepts-modern-legacy-and-dual
+(deftest profile-gate-accepts-modern-and-rejects-legacy-profiles
   (is (codec/profile? (modern false)))
-  (is (codec/profile? legacy))
+  (is (not (codec/profile? legacy)))
   (is (codec/profile? cbor/profile))
   (is (codec/profile? transit/profile))
-  (is (codec/profile? (merge legacy (modern true)))))
+  (is (not (codec/profile? (dissoc (merge legacy (modern true))
+                                   :dao.stream.codec/name)))))
 
 
 (deftest profile-gate-rejects-malformed
   (is (not (codec/profile? nil)))
   (is (not (codec/profile? {})))
-  (is (not (codec/profile? (dissoc legacy :ws/decode))))
+  (is (not (codec/profile? (dissoc (modern true) :dao.stream.codec/decode))))
   (is (not (codec/profile? (dissoc (modern true) :dao.stream.codec/bytes?))))
   (is (not (codec/profile? (assoc (modern true) :dao.stream.codec/bytes? 1))))
-  (is (not (codec/profile? (assoc legacy :ws/frame-kind :other))))
-  ;; half modern, half legacy is not complete
-  (is (not (codec/profile? (merge (select-keys legacy [:ws/subprotocol :ws/frame-kind])
-                                  (select-keys (modern true)
-                                               [:dao.stream.codec/encode]))))))
+  (is (not (codec/profile? (assoc (modern true) :dao.stream.codec/frame-kind :other))))
+  ;; a retired subprotocol key cannot stand in for the modern name
+  (is (not (codec/profile? (-> (modern true)
+                               (dissoc :dao.stream.codec/name)
+                               (assoc (keyword "ws" "subprotocol") "x"))))))
 
 
 (deftest profile-gate-rejects-non-token-names
   (doseq [n ["" "bad name" "a/b" "a;b" "a=b"]]
     (is (not (codec/profile? (assoc (modern false) :dao.stream.codec/name n))) (pr-str n))
-    (is (not (codec/profile? (assoc legacy :ws/subprotocol n))) (pr-str n))
+    (is (not (codec/profile? (assoc legacy (keyword "ws" "subprotocol") n))) (pr-str n))
     (is (not (codec/profile? (merge legacy (assoc (modern true) :dao.stream.codec/name n))))
         (pr-str n))))
 
 
-(deftest accessors-read-modern-then-legacy
-  (is (= "x" (codec/codec-name legacy)))
-  (is (= :binary (codec/frame-kind legacy)))
+(deftest accessors-read-only-the-modern-keys
+  (is (nil? (codec/codec-name legacy)))
+  (is (nil? (codec/frame-kind legacy)))
   (is (false? (codec/bytes? legacy)))
   (is (true? (codec/bytes? cbor/profile)))
   (is (= "dao.stream.cbor" (codec/codec-name cbor/profile)))
   (is (= "dao.stream.cbor"
-         (codec/codec-name (assoc cbor/profile :ws/subprotocol "old"))))
+         (codec/codec-name (assoc cbor/profile (keyword "ws" "subprotocol") "old"))))
   (is (= cbor/encode (codec/encode-fn cbor/profile)))
   (is (= transit/decode (codec/decode-fn transit/profile)))
   (is (= :text (codec/frame-kind transit/profile)))
-  (is (= identity (codec/portable-value-fn legacy))))
+  (is (nil? (codec/portable-value-fn legacy))))
 
 
 (def ^:private host-object

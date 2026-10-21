@@ -113,9 +113,4 @@
    :dao.stream.codec/portable-value? portable-value?
    :dao.stream.codec/encode encode
    :dao.stream.codec/decode decode
-   :dao.stream.codec/bytes? true
-   :ws/subprotocol "dao.stream.cbor"
-   :ws/frame-kind :binary
-   :ws/portable-value? portable-value?
-   :ws/encode encode
-   :ws/decode decode})
+   :dao.stream.codec/bytes? true})

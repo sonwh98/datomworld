@@ -920,7 +920,7 @@ behaviour change is C3's, and it is at composition time, not on the wire.
 | CD4        | One capability, `bytes?`, for the consumer that exists; no other extension point until a consumer exists.     | Architect, 2026-10-20        |
 +------------+---------------------------------------------------------------------------------------------------------------+------------------------------+
 | CD5        | Profile keys move to `:dao.stream.codec/*` (§3.2), behind accessors, with both key sets present until the     | Architect, 2026-10-20; owner |
-|            | contract slice. The owner may choose the alternative in OQ3 any time before C4.                               | may overrule via OQ3         |
+|            | contract slice. The owner confirmed via OQ3 on 2026-10-21.                                                   | confirmed via OQ3 2026-10-21 |
 +------------+---------------------------------------------------------------------------------------------------------------+------------------------------+
 | CD6        | Migration is expand, migrate, contract (F0, C0-C4, §7.1); no slice removes what another slice still           | Architect, 2026-10-20, r2    |
 |            | reads; the wire is proved by frozen fixtures and bidirectional old/new peers (§7.3), never by new/new suites. |                              |
@@ -945,12 +945,12 @@ with the date and the owner's words, and the touched sections are re-edited.
 | OQ2  | Whether the 571-line cljd Transit port (`src/cljd/dao/stream/transit/cljd.cljd`) is kept once OQ1 is | Keep it while any composition or cross-host suite  |
 |      | CBOR (§6.3). Peers means both are available; removing one is a scope decision.                       | selects Transit; revisit after C5, not before.     |
 +------+------------------------------------------------------------------------------------------------------+----------------------------------------------------+
-| OQ3  | Move the profile keys to `:dao.stream.codec/*` (CD5) or keep `:ws/*` and move only the gate and the  | Move them: the profile is the codec contract for   |
-|      | domain. The review noted OQ3 is at once undecided and CD5's default. Resolution: CD5 is the          | any transport, and the repo has no compatibility   |
-|      | **provisional** direction for C0-C3, which add the new keys beside the old and so are correct under  | constraint. The owner must record a choice before  |
-|      | either answer; only C4 commits to one, and C4 does not run until the owner records the choice here.  | C4 is commissioned; nothing earlier waits on it.   |
-|      | §7.1 C4 specifies both paths with their own grep gates; under "keep", `:ws/bytes?` is added so the   | Either way C4's acceptance never asserts the       |
-|      | §3.3 capability survives.                                                                            | absence of `:ws/*` unless the keys were moved.     |
+| OQ3  | Move the profile keys to `:dao.stream.codec/*` (CD5) or keep `:ws/*` and move only the gate and the  | RESOLVED 2026-10-21 (owner): move the keys to      |
+|      | domain. The review noted OQ3 is at once undecided and CD5's default. Resolution: CD5 is the          | `:dao.stream.codec/*` (CD5 stands); C4 implemented |
+|      | **provisional** direction for C0-C3, which add the new keys beside the old and so are correct under  | under the move.                                    |
+|      | either answer; only C4 commits to one, and C4 does not run until the owner records the choice here.  |                                                    |
+|      | §7.1 C4 specifies both paths with their own grep gates; under "keep", `:ws/bytes?` is added so the   |                                                    |
+|      | §3.3 capability survives.                                                                            |                                                    |
 +------+------------------------------------------------------------------------------------------------------+----------------------------------------------------+
 
 ## 11. For a successor orchestrator

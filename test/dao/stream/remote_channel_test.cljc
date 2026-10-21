@@ -1345,6 +1345,6 @@
                an-ephemeral-serve-advertises-the-bound-port
                an-ephemeral-bind-that-reports-no-port-is-refused
                port-zero-beside-a-positive-bind-port-is-no-port]]
-      (testing (:ws/subprotocol cbor/profile) (t)))
+      (testing (:dao.stream.codec/name cbor/profile) (t)))
     (finally
       (reset! current-profile transit/profile))))
