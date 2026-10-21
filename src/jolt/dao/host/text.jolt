@@ -98,10 +98,20 @@
   "P. The host string of the UTF-16 code units `units` (each 0 to
    0xFFFF). A surrogate pair becomes its one code point. An unpaired
    surrogate has no Chez string: unimplemented on jolt (see the namespace
-   docstring), thrown as `:jolt/unimplemented`, not as a profile refusal."
+   docstring), thrown as `:jolt/unimplemented`, not as a profile refusal.
+   An integer unit outside 0 to 0xFFFF is out of the domain; it throws
+   what the JVM's `(char u)` throws, an IllegalArgumentException
+   \"Value out of range for char: u\" with no ex-data, for the first such
+   unit in order and before anything else is looked at (the JVM reaches
+   it even past an unpaired surrogate, which it can hold), where Chez's
+   `integer->char` would silently build the scalar above 0xFFFF (review
+   J1-R5)."
   [units]
   (let [units (vec units)
         n (count units)]
+    (doseq [u units]
+      (when (and (integer? u) (not (<= 0 u 0xFFFF)))
+        (throw (IllegalArgumentException. (str "Value out of range for char: " u)))))
     (loop [i 0
            out (transient [])]
       (if (< i n)

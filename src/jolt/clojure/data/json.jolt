@@ -27,7 +27,18 @@
    One difference no shim can remove: a `\\uD800`-style escape of an
    unpaired surrogate has no jolt string (a Chez string holds only Unicode
    scalar values); it throws ex-info carrying `:jolt/unimplemented`, where
-   the JVM builds a one-unit string."
+   the JVM builds a one-unit string.
+
+   Review J1-R3 (round 3), annotated, not widened; both rows are pinned in
+   jolt-json-test `write-str-review-rows`. Neither is reachable from the
+   fixture path, which only writes what `read-str` produced:
+   - U+007F (DEL): this shim writes `\\u007f`; data.json 2.5.0 writes
+     the character raw. A real difference, kept: the shim escapes every
+     character outside 0x20-0x7E.
+   - Keywords: written as their `name`, keys and values alike
+     (`{:ns/k 1}` is `{\"k\":1}`, `[:a :b/c]` is `[\"a\",\"c\"]`).
+     The review read this as a difference; data.json 2.5.0 does the
+     same on the JVM (observed), so it is not one."
   (:require
     [clojure.edn :as edn]))
 

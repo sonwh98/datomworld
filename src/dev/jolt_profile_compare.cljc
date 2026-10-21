@@ -158,7 +158,60 @@
     (for [h ["3ff0000000000000" "3fb999999999999a" "0000000000000001" "7fefffffffffffff"
              "c004000000000000" "0000000000000000"]]
       [(str "float/float-digits " h) #(float/float-digits (float/bits->float64 h))])
-    ;; number
+    ;; number: float64-of and float-value over a decimal and a ratio
+    ;; carrier (review J1-R4): ordinary, huge, tiny, negative, zero, and
+    ;; values at or next to a binary64 rounding tie
+    (for [[label [e m]] [["1.5" [-1 "15"]] ["-1.5" [-1 "-15"]] ["0" [0 "0"]]
+                         ["0E-5" [-5 "0"]] ["0.1" [-1 "1"]] ["123E7" [7 "123"]]
+                         ["1E400" [400 "1"]] ["-1E400" [400 "-1"]] ["1E-400" [-400 "1"]]
+                         ["2^53+1" [0 "9007199254740993"]]
+                         ["2^53+3" [0 "9007199254740995"]]
+                         ["2^-53 exactly" [-53 "11102230246251565404236316680908203125"]]
+                         ["1+2^-53 (tie, to even 1.0)"
+                          [-53 "100000000000000011102230246251565404236316680908203125"]]
+                         ["1+3*2^-53 (tie, to even 1+2^-51)"
+                          [-53 "100000000000000033306690738754696212708950042724609375"]]
+                         ["1+2^-53+1E-60 (just above the tie)"
+                          [-60 "1000000000000000111022302462515654042363166809082031250000001"]]
+                         ["40 digits" [-39 "1234567890123456789012345678901234567890"]]]
+          [nm f] [["float64-of" number/float64-of]
+                  ["float-value" number/float-value]]]
+      [(str "number/" nm " decimal " label)
+       #(f (number/decimal-of e (integer/demote (big m))))])
+    ;; KNOWN DIFFERENCE (J1 round 3), JVM side: Clojure's Ratio.doubleValue
+    ;; rounds to 16 decimal digits (MathContext/DECIMAL64) and then to
+    ;; binary64, twice, so the JVM's `(double ratio)` misses the nearest
+    ;; double on "2/3", "(2^53+3)/2^53" and "just above the 1+2^-53 tie";
+    ;; jolt (Chez exact->inexact) is correctly rounded and agrees with the
+    ;; profile's own kernel, `float/ratio->float reference` below, on both
+    ;; hosts. Reported to the host-boundary seat; not mimicked on jolt.
+    (for [[label [n d]] [["1/3" ["1" "3"]] ["-1/3" ["-1" "3"]] ["2/3" ["2" "3"]]
+                         ["0/5 (Rational carrier)" ["0" "5"]]
+                         ["7/1 (Rational carrier)" ["7" "1"]]
+                         ["10^400/3" [(apply str "1" (repeat 400 "0")) "3"]]
+                         ["-10^400/7" [(apply str "-1" (repeat 400 "0")) "7"]]
+                         ["1/10^400" ["1" (apply str "1" (repeat 400 "0"))]]
+                         ["(2^53+1)/2^53 (tie, to even 1.0)" ["9007199254740993" "9007199254740992"]]
+                         ["(2^53+3)/2^53 (tie, to even 1+2^-51)" ["9007199254740995" "9007199254740992"]]
+                         ["just above the 1+2^-53 tie"
+                          ["1000000000000000111022302462515654042363166809082031250000001"
+                           "1000000000000000000000000000000000000000000000000000000000000"]]
+                         ["(2^54+1)/2" ["18014398509481985" "2"]]]
+          [nm f] [["float64-of" number/float64-of]
+                  ["float-value" number/float-value]]]
+      [(str "number/" nm " ratio " label)
+       #(f (number/ratio-of (integer/demote (big n)) (integer/demote (big d))))])
+    ;; the same ratios through the profile's own correctly rounded kernel
+    ;; (dao.host.float/ratio->float): the reference float64-of is compared
+    ;; with, on both hosts
+    (for [[label [n d]] [["2/3" ["2" "3"]]
+                         ["(2^53+3)/2^53" ["9007199254740995" "9007199254740992"]]
+                         ["just above the 1+2^-53 tie"
+                          ["1000000000000000111022302462515654042363166809082031250000001"
+                           "1000000000000000000000000000000000000000000000000000000000000"]]]]
+      [(str "float/ratio->float reference " label)
+       #(let [r (number/ratio-of (integer/demote (big n)) (integer/demote (big d)))]
+          (float/ratio->float (number/ratio-numerator r) (number/ratio-denominator r) false))])
     [["number/float64-of 1" #(number/float64-of 1)]
      ["number/float-value 1.5" #(number/float-value (number/float64-of 1.5))]
      ["number/decimal-of -1 15" #(number/decimal-of -1 15)]
@@ -202,6 +255,13 @@
        #(let [s (text/units->string units)]
           [(text/unit-count s) (mapv (fn [i] (text/code-unit s i)) (range (text/unit-count s)))
            (text/code-points s)])])
+    ;; units->string on a unit outside 0..0xFFFF (review J1-R5): the class,
+    ;; message and ex-data of the JVM's `(char u)` throw, compared exactly
+    (for [units [[0xFFFF] [0] [65536] [-1] [97 1114112] [55296 65536] [56320 97 70000]]]
+      [(str "text/units->string range " units)
+       #(try (text/code-points (text/units->string units))
+             (catch #?(:clj Exception :default :default) e
+               [:threw (instance? IllegalArgumentException e) (ex-message e) (ex-data e)]))])
     (for [s ["" "héllo" "aé中" "a😀b" "﻿a"]]
       [(str "text/utf8-encode " s) #(text/utf8-encode s)])
     [["text/utf8-encode nil" #(text/utf8-encode nil)]

@@ -77,6 +77,18 @@
   (is (= "\"\\b\\f\\r\\t\\\"\\\\\"" (json/write-str "\b\f\r\t\"\\"))))
 
 
+(deftest write-str-review-rows
+  ;; review J1-R3, documented rows (the shim's header has the reasons):
+  ;; DEL is the one known difference, pinned per host; keywords are written
+  ;; by name on both, so that row holds unchanged on both
+  #?(:jolt (is (= "\"a\\u007fb\"" (json/write-str "a\u007fb"))
+               "the shim escapes DEL")
+     :clj (is (= "\"a\u007fb\"" (json/write-str "a\u007fb"))
+              "data.json 2.5.0 writes DEL raw"))
+  (is (= "{\"k\":1}" (json/write-str {:ns/k 1})))
+  (is (= "[\"kw\",\"a\",\"c\"]" (json/write-str [:kw :a :b/c]))))
+
+
 (deftest round-trip
   (let [text "{\"cases\":[{\"id\":\"uni/astral\",\"v\":\"\\ud83d\\ude00\",\"n\":[0,-1,18446744073709551616,1.5]}]}"]
     (is (= (json/read-str text) (json/read-str (json/write-str (json/read-str text)))))))
