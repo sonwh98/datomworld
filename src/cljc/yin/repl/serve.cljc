@@ -34,6 +34,7 @@
    until then the endpoint has no URL."
   (:require [dao.data :as data]
             [dao.stream :as stream]
+            [dao.stream.cbor :as cbor]
             [dao.stream.remote-channel :as remote-channel]
             [dao.stream.ringbuffer :as ring]
             [dao.stream.rpc :as rpc]
@@ -200,10 +201,11 @@
 
    The two shared media and their cursor exist before any binding is
    attempted; the channel server is composed over them and asked to bind.
+   `:codec` is the wire profile served, CBOR when absent.
    The returned value is the whole of the endpoint's observable state;
    `step` is the only thing that changes it."
-  [{:keys [bind-host bind-port advertised-host advertised-port path host repl]
-    :or {bind-host default-bind-host}}]
+  [{:keys [bind-host bind-port advertised-host advertised-port path host repl codec]
+    :or {bind-host default-bind-host codec cbor/profile}}]
   (let [path (connect/repl-target (or path ""))
         advertised-host (or advertised-host
                             (when-not (contains? wildcard-hosts bind-host) bind-host))
@@ -244,7 +246,8 @@
                               {:handle requests :surface #{:writer}}
                               connect/answers-identity
                               {:handle answers :surface #{:reader}}}
-                      :bounds repl-bounds})]
+                      :bounds repl-bounds
+                      :codecs [codec]})]
         (if (= :starting (:status server))
           (assoc base :status :starting :server server :server-seen (server-seen server))
           (refused base server))))))

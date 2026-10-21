@@ -74,6 +74,14 @@
            ;; needs one.
            :jolt {:replace-paths ["src/jolt" "src/cljc" "src/clj"]
                   :replace-deps {}}
+           ;; composed after :jolt (-M:jolt:jolt-test): the oracle tests and
+           ;; src/dev (src/dev/jolt_test_runner.clj and its sentinel)
+           :jolt-test {:extra-paths ["test" "src/dev"]}
+           ;; DIAGNOSTIC only (-M:jolt:jolt-diag:jolt-test): a jolt stand-in
+           ;; for the corpus loader dao.jing.cbor-fixtures, whose root must
+           ;; precede test (src/dev/jolt_diag/dao/jing/cbor_fixtures.cljc);
+           ;; jolt puts :extra-paths roots first, in alias order (-Spath)
+           :jolt-diag {:extra-paths ["src/dev/jolt_diag"]}
            :cljs-yin-repl
            {:extra-paths ["test" "src/dev"]
             :extra-deps {thheller/shadow-cljs {:mvn/version "3.3.5"}

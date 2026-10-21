@@ -60,8 +60,7 @@
    (yin.vm.linker.dht.head.md 6), each one call into
    `yin.vm.linker.head`: this namespace holds no rule of the head trace,
    no fold, no verification and no file write."
-  (:require #?@(:cljd [["dart:typed_data" :refer [Uint8List]]]
-                :default [])
+  (:require [dao.host.bytes :as bytes]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
             [dao.space.dht :as dht]
@@ -457,8 +456,7 @@
 
 (defn- byte-length
   [bs]
-  #?(:cljd (.-length ^Uint8List bs)
-     :default (alength bs)))
+  (bytes/length bs))
 
 
 (defn- encoded-size

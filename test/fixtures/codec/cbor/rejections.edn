@@ -1,0 +1,10 @@
+[{:name "trailing-second-item", :hex "0102"}
+ {:name "break-stop-alone", :hex "ff"}
+ {:name "duplicate-map-keys", :hex "a201020103"}
+ {:name "indefinite-array", :hex "9f01ff"}
+ {:name "indefinite-bytes", :hex "5fff"}
+ {:name "non-minimal-integer", :hex "1801"}
+ {:name "float32-where-f16-suffices", :hex "fa3fc00000"}
+ {:name "unknown-tag", :hex "d93e7101"}
+ {:name "unknown-frame-name", :hex "a1d81b82786e6f745f696e5f70726f66696c6501"}
+ {:name "truncated-map", :hex "a1"}]

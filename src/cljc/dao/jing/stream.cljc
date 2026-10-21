@@ -22,21 +22,20 @@
    unchanged by this namespace: it changes what the canonical bytes are,
    and the adapter then carries the new bytes the same way."
   (:require [dao.jing :as jing]
-            [dao.stream.cbor :as cbor]
-            [dao.stream.transit :as transit])
+            [dao.stream.codec :as codec])
   ;; :cljd first: the cljd host pass also matches :clj, so a :clj-first
   ;; conditional would still reach the Dart compiler.
   #?@(:cljd [(:import ["dart:typed_data" Uint8List])]))
 
 
-(defn- cbor-lane?
+(defn- checked-profile
+  "The profile itself, or a throw: nil, {} and malformed profiles are
+   rejected before any lane is chosen."
   [profile]
-  (= (:ws/subprotocol profile) (:ws/subprotocol cbor/profile)))
-
-
-(defn- transit-lane?
-  [profile]
-  (= (:ws/subprotocol profile) (:ws/subprotocol transit/profile)))
+  (when-not (codec/profile? profile)
+    (throw (ex-info "dao.jing.stream: not a valid stream codec profile"
+                    {:profile profile})))
+  profile)
 
 
 (defn- octets
@@ -56,15 +55,14 @@
 
 (defn wrap-bytes
   "Wrap canonical Jing bytes as one stream value for the codec profile's
-   lane: the bytes themselves as a CBOR byte string on `dao.stream.cbor`, a
-   named vector of octets on `dao.stream.transit-json`. Any other profile
-   throws — the adapter is explicit per lane, never a silent downgrade."
+   lane: the bytes themselves as a byte string when the profile carries host
+   bytes (`dao.stream.cbor`), a named vector of octets otherwise
+   (`dao.stream.transit-json`). A nil or malformed profile throws."
   [profile bs]
-  (cond
-    (cbor-lane? profile) {:dao.jing/canonical-bytes bs}
-    (transit-lane? profile) {:dao.jing/canonical-bytes (octets bs)}
-    :else (throw (ex-info "dao.jing.stream: not a known stream codec profile"
-                          {:subprotocol (:ws/subprotocol profile)}))))
+  (checked-profile profile)
+  (if (codec/bytes? profile)
+    {:dao.jing/canonical-bytes bs}
+    {:dao.jing/canonical-bytes (octets bs)}))
 
 
 (defn unwrap-bytes
@@ -73,27 +71,23 @@
    or one wrapped for the other lane: a CBOR byte string reaching the
    Transit unwrap is a payload that crossed the wrong boundary."
   [profile value]
+  (checked-profile profile)
   (let [reject (fn [detail]
                  (throw (ex-info "dao.jing.stream: value does not carry Jing bytes for this profile"
-                                 (assoc detail :subprotocol (:ws/subprotocol profile)))))]
+                                 (assoc detail :subprotocol (codec/codec-name profile)))))]
     (when-not (and (map? value) (= 1 (count value))
                    (contains? value :dao.jing/canonical-bytes))
       (reject {:value value}))
     (let [carried (:dao.jing/canonical-bytes value)]
-      (cond
-        (cbor-lane? profile)
-        (if (cbor/byte-payload? carried)
+      (if (codec/bytes? profile)
+        (if (codec/host-bytes? carried)
           carried
           (reject {:carried carried}))
-
-        (transit-lane? profile)
         (if (and (vector? carried)
-                 (not (cbor/byte-payload? carried))
+                 (not (codec/host-bytes? carried))
                  (every? #(and (int? %) (<= 0 % 255)) carried))
           (byte-payload carried)
-          (reject {:carried carried}))
-
-        :else (reject {:value value})))))
+          (reject {:carried carried}))))))
 
 
 (defn wrap-payload

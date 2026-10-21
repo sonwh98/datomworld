@@ -1,0 +1,2 @@
+[{:name "list", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",[\"~#list\",[1,2]]]", :expected {:ws/frame :ws/value, :ws/value [1 2]}, :clj :throws, :cljs :decodes, :cljd :decodes}
+ {:name "nested-list", :text "[\"^ \",\"~:ws/frame\",\"~:ws/value\",\"^1\",[[\"~#list\",[1,2]],3]]", :expected {:ws/frame :ws/value, :ws/value [[1 2] 3]}, :clj :throws, :cljs :decodes, :cljd :decodes}]

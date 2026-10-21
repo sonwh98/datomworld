@@ -11,13 +11,16 @@
    these exports only; a VM's internal counters stay VM primitives.
 
    Carriers. Every argument may be any exact-integer carrier the host has
-   (`yin.vm.integer.host`); every integer result is in its one canonical
+   (`dao.host.integer`); every integer result is in its one canonical
    carrier: native iff within signed 64 bits on the JVM and Dart, or
    within +/-(2^53 - 1) on JS, else the host big integer. Each kernel
    promotes its operands to the host big integer before it operates and
    demotes the result after, so no result ever passes through a rounded
    or wrapped native intermediate, and equal values are `=` on every
-   host. The kernels are written once here over the shim. Under a
+   host. The kernels are written once here over `dao.host.integer`;
+   the float and float-text arithmetic (`ratio->float`, `trunc-big`,
+   `float-digits`, `decimal->float`) is `dao.host.float`'s, and this
+   module keeps only the argument checks and refusals. Under a
    `::max-bits` of 53 or more, `add`, `sub`, `mul` and `compare` first
    try a native fast path on operands within +/-(2^53 - 1) whose result
    is provably exact, and fall back to the big path otherwise.
@@ -97,8 +100,9 @@
    exception."
   (:require
     [clojure.string :as str]
+    [dao.host.float :as float-kernel]
+    [dao.host.integer :as host]
     [yin.vm :as vm]
-    [yin.vm.integer.host :as host]
     [yin.vm.module :as module]))
 
 
@@ -391,31 +395,7 @@
 ;; Floats (version 3)
 ;; =============================================================================
 
-(defn- pow2
-  "2^`k` as a host double, exactly, for `k` from -1074 to 1023: every
-   intermediate is a power of two in range, and the base is squared only
-   while a higher bit of `k` remains."
-  [k]
-  (loop [result 1.0
-         base (if (neg? k) 0.5 2.0)
-         k (if (neg? k) (- k) k)]
-    (if (zero? k)
-      result
-      (recur (if (odd? k) (* result base) result)
-             (if (> k 1) (* base base) base)
-             (quot k 2)))))
-
-
-(def ^:private two-53-float (pow2 53))
-(def ^:private two-117-float (pow2 117))
-(def ^:private two-minus-64-float (pow2 -64))
-
-
-(defn- signed
-  "Host double `d`, negated when `negative?`. Multiplying by -1.0 keeps
-   the sign of a zero on every host."
-  [negative? d]
-  (if negative? (* -1.0 d) d))
+(def ^:private two-53-float (float-kernel/pow2 53))
 
 
 (defn- magnitude
@@ -423,44 +403,12 @@
   (if (neg? (sign b)) (host/sub zero b) b))
 
 
-(defn- compare-scaled
-  "The sign of `x - y * 2^k` for big `x`, `y` and native `k`."
-  [x y k]
-  (if (neg? k)
-    (host/compare-big (host/shift-left-big x (- k)) y)
-    (host/compare-big x (host/shift-left-big y k))))
-
-
 (defn- ratio->float
-  "The binary64 nearest `x / y`, ties to even, for big `x >= 0` and
-   `y > 0`, negated when `negative?`; or `::float-overflow` when it is
-   not finite. One integer division of 53 or fewer quotient bits and one
-   exact scaling, so nothing rounds twice."
+  "`dao.host.float/ratio->float`, with its overflow sentinel answered as
+   this module's `::float-overflow`."
   [x y negative?]
-  (let [e0 (- (bits x) (bits y))]
-    (cond
-      ;; x / y < 2^(e0 + 1): at least 2^1024, or below half the least
-      ;; subnormal 2^-1074
-      (zero? (sign x)) (signed negative? 0.0)
-      (> e0 1024) ::float-overflow
-      (< e0 -1076) (signed negative? 0.0)
-      :else
-      (let [;; 2^(e - 1) <= x / y < 2^e
-            e (if (neg? (compare-scaled x y e0)) e0 (inc e0))
-            ;; the quotient keeps 53 bits, fewer when subnormal
-            k (max (- e 53) -1074)
-            [num den] (if (neg? k)
-                        [(host/shift-left-big x (- k)) y]
-                        [x (host/shift-left-big y k)])
-            q (host/to-native (host/quot-trunc num den))
-            c (host/compare-big (host/shift-left-big
-                                  (host/rem-trunc num den) 1)
-                                den)
-            q (if (or (pos? c) (and (zero? c) (odd? q))) (inc q) q)]
-        ;; q <= 2^53, and q * 2^k is finite iff it is below 2^1024
-        (if (> (+ (bits (host/from-native q)) k) 1024)
-          ::float-overflow
-          (signed negative? (* (host/native->double q) (pow2 k))))))))
+  (let [f (float-kernel/ratio->float x y negative?)]
+    (if (= ::float-kernel/float-overflow f) ::float-overflow f)))
 
 
 (defn- int-to-float
@@ -484,26 +432,6 @@
   (if (host/host-float? v) v (wrong-type! op arg :float)))
 
 
-(defn- trunc-big
-  "Finite host double `v` truncated toward zero, as an exact big integer.
-   At or above 2^53 `v` is integral: halve it exactly into [2^52, 2^53),
-   where every double is an integer, and shift the integer back."
-  [v]
-  (let [negative? (neg? v)
-        av (signed negative? v)]
-    (if (< av two-53-float)
-      (host/from-native (host/trunc-native v))
-      (let [[m k] (loop [m av
-                         k 0]
-                    (cond (>= m two-117-float)
-                          (recur (* m two-minus-64-float) (+ k 64))
-                          (>= m two-53-float) (recur (* m 0.5) (inc k))
-                          :else [m k]))
-            t (host/shift-left-big (host/from-native (host/trunc-native m))
-                                   k)]
-        (if negative? (host/sub zero t) t)))))
-
-
 (defn- int-compare-float
   [_limits a f]
   (let [x (big! 'compare-float 0 a)
@@ -514,9 +442,9 @@
       :else
       ;; t = trunc(v): x < t means x < v, x > t means x >= t + 1 > v
       ;; (or x > t >= v when v is negative); x = t leaves the fraction
-      (let [c (host/compare-big x (trunc-big v))]
+      (let [c (host/compare-big x (float-kernel/trunc-big v))]
         (cond (not (zero? c)) c
-              (or (>= (signed (neg? v) v) two-53-float)
+              (or (>= (float-kernel/signed (neg? v) v) two-53-float)
                   (= v (host/native->double (host/trunc-native v))))
               0
               (pos? v) -1
@@ -528,7 +456,7 @@
   (let [v (float! 'from-float 0 f)]
     (if (or (host/nan-float? v) (host/infinite-float? v))
       (wrong-type! 'from-float 0 :finite-float)
-      (out limits (trunc-big v)))))
+      (out limits (float-kernel/trunc-big v)))))
 
 
 ;; =============================================================================
@@ -542,12 +470,6 @@
                   (let [c (subs "0123456789abcdefghijklmnopqrstuvwxyz" i (inc i))]
                     [[c i] [(str/upper-case c) i]])))
         (range 36)))
-
-
-(def ^:private chunk-digits
-  "Digits accumulated natively per step: 36^10 < 2^53, so a chunk is
-   exact on every host."
-  10)
 
 
 (defn- radix!
@@ -577,25 +499,6 @@
         (range (count s))))
 
 
-(defn- digits->big
-  "The big integer of digit values `values` in radix `r`, accumulated
-   natively `chunk-digits` at a time."
-  [values r]
-  (let [n (count values)]
-    (loop [acc zero
-           i 0]
-      (if (< i n)
-        (let [end (min n (+ i chunk-digits))
-              [chunk scale] (reduce (fn [[c s] d]
-                                      [(+ (* c r) d) (* s r)])
-                                    [0 1]
-                                    (subvec values i end))]
-          (recur (host/add (host/mul acc (host/from-native scale))
-                           (host/from-native chunk))
-                 end))
-        acc))))
-
-
 (defn- int-parse
   ([limits s] (int-parse limits s 10))
   ([limits s radix]
@@ -609,7 +512,7 @@
        (refuse! 'parse :syntax {}))
      (if (and (not (power-of-two? r)) (> n (::max-digits limits)))
        ::digit-limit
-       (let [magnitude (digits->big (digit-values! 'parse digits r) r)]
+       (let [magnitude (float-kernel/digits->big (digit-values! 'parse digits r) r)]
          (out limits
               (if negative? (host/sub zero magnitude) magnitude)))))))
 
@@ -645,125 +548,12 @@
 ;; Float text (version 4)
 ;; =============================================================================
 
-(def ^:private ten (host/from-native 10))
-
-
-(def ^:private small-powers-of-ten
-  "10^0 to 10^400 as big integers: every power `float-digits` needs."
-  (vec (take 401 (iterate #(host/mul % ten) one))))
-
-
-(defn- pow10
-  "10^`k` as a big integer, for a native `k >= 0`."
-  [k]
-  (if (< k 401)
-    (nth small-powers-of-ten k)
-    (loop [result one
-           base ten
-           k k]
-      (if (zero? k)
-        result
-        (recur (if (odd? k) (host/mul result base) result)
-               (if (> k 1) (host/mul base base) base)
-               (quot k 2))))))
-
-
-(defn- scaled
-  "`[num den]` with num / den = (x / y) * 10^`k`, for native `k`."
-  [x y k]
-  (if (neg? k)
-    [x (host/mul y (pow10 (- k)))]
-    [(host/mul x (pow10 k)) y]))
-
-
-(def ^:private two-64-float (pow2 64))
-(def ^:private two-minus-11-float (pow2 -11))
-
-
-(defn- float-ratio
-  "Finite positive host double `v` as big `[x y]`, `v = x / y` exactly
-   with `y` a power of two. Scaling by a power of two is exact, so `v` is
-   doubled (or multiplied by 2^64 while that stays below 2^53) until it
-   is an integer."
-  [v]
-  (if (>= v two-53-float)
-    [(trunc-big v) one]
-    (loop [m v
-           k 0]
-      (cond (= m (host/native->double (host/trunc-native m)))
-            [(host/from-native (host/trunc-native m))
-             (host/shift-left-big one k)]
-            (< m two-minus-11-float) (recur (* m two-64-float) (+ k 64))
-            :else (recur (* m 2.0) (inc k))))))
-
-
-(defn- decimal-exponent
-  "The `e` with 10^e <= x / y < 10^(e + 1), for big `x, y > 0`: an
-   estimate from the bit lengths, corrected exactly."
-  [x y]
-  (let [below? (fn [e]
-                 (let [[a b] (scaled x y (- e))]
-                   (neg? (host/compare-big a b))))]
-    (loop [e (quot (* (- (bits x) (bits y)) 30103) 100000)]
-      (cond (below? e) (recur (dec e))
-            (not (below? (inc e))) (recur (inc e))
-            :else e))))
-
-
-(defn- strip-trailing-zeros
-  [s]
-  (loop [end (count s)]
-    (if (and (> end 1) (= "0" (subs s (dec end) end)))
-      (recur (dec end))
-      (subs s 0 end))))
-
-
 (defn- int-float-digits
   [_limits f]
   (let [v (float! 'float-digits 0 f)]
     (when (or (host/nan-float? v) (host/infinite-float? v) (zero? v))
       (wrong-type! 'float-digits 0 :finite-nonzero-float))
-    (let [av (signed (neg? v) v)
-          [x y] (float-ratio av)
-          e (decimal-exponent x y)
-          reads-back? (fn [d k]
-                        ;; d * 10^-k is av
-                        (let [[a b] (scaled d one (- k))]
-                          (= av (ratio->float a b false))))]
-      ;; the n-digit decimals around av are floor and ceiling of
-      ;; av * 10^(n - 1 - e); any n-digit decimal that reads back lies
-      ;; between av and one of them, so they are the only candidates.
-      ;; Nearest alone is not enough: below a power of two the rounding
-      ;; interval is half the one above.
-      (loop [n 1]
-        (let [k (- n 1 e)
-              [num den] (scaled x y k)
-              lo (host/quot-trunc num den)
-              r (host/rem-trunc num den)
-              hi (host/add lo one)
-              lo? (reads-back? lo k)
-              hi? (and (not (zero? (sign r))) (reads-back? hi k))
-              c (host/compare-big (host/shift-left-big r 1) den)
-              d (cond (and lo? hi?)
-                      (cond (neg? c) lo
-                            (pos? c) hi
-                            (zero? (sign (host/bit-and-big lo one))) lo
-                            :else hi)
-                      lo? lo
-                      hi? hi
-                      :else nil)]
-          (if d
-            (let [text (host/to-radix-string d 10)]
-              ;; a ceiling of 10^n has one digit more
-              [(strip-trailing-zeros text) (+ e (- (count text) n))])
-            (recur (inc n))))))))
-
-
-(def ^:private max-significant-digits
-  "Digits `decimal->float` keeps before a sticky digit: a double's
-   midpoint has at most 768 significant digits (the design's 767 was off
-   by one; 800 plus the sticky digit leaves the margin)."
-  800)
+    (float-kernel/float-digits v)))
 
 
 (defn- int-decimal->float
@@ -773,33 +563,7 @@
   (let [e (big! 'decimal->float 1 exp10)]
     (when (zero? (count digits))
       (refuse! 'decimal->float :syntax {}))
-    (let [values (digit-values! 'decimal->float digits 10)
-          first-nonzero (first (keep-indexed (fn [i d] (when (pos? d) i))
-                                             values))]
-      (if (nil? first-nonzero)
-        0.0
-        (let [last-nonzero (last (keep-indexed (fn [i d] (when (pos? d) i))
-                                               values))
-              sig (subvec values first-nonzero (inc last-nonzero))
-              e (host/add e (host/from-native (- (count values)
-                                                 (inc last-nonzero))))
-              ;; keep 800 digits and one sticky digit for the rest,
-              ;; which is never all zeros once trailing zeros are gone
-              [sig e] (if (> (count sig) max-significant-digits)
-                        [(conj (subvec sig 0 max-significant-digits) 1)
-                         (host/add e (host/from-native
-                                       (- (count sig)
-                                          max-significant-digits 1)))]
-                        [sig e])
-              ;; 10^(s - 1) <= value < 10^s
-              s (host/add e (host/from-native (count sig)))]
-          (cond
-            (pos? (host/compare-big s (host/from-native 310))) ##Inf
-            (neg? (host/compare-big s (host/from-native -326))) 0.0
-            :else
-            (let [[x y] (scaled (digits->big sig 10) one (host/to-native e))
-                  f (ratio->float x y false)]
-              (if (keyword? f) ##Inf f))))))))
+    (float-kernel/decimal->float (digit-values! 'decimal->float digits 10) e)))
 
 
 (defn- int-max-digits

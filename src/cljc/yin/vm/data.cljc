@@ -36,9 +36,11 @@
    runtime profile normalizes guest keys before they reach these."
   (:require
     [clojure.string :as str]
+    [dao.host.float :as float]
+    [dao.host.integer :as integer-host]
+    [dao.host.text :as text]
     [dao.jing.cbor :as cbor]
     [yin.vm :as vm]
-    [yin.vm.integer.host :as integer-host]
     [yin.vm.module :as module]
     [yin.vm.values :as values])
   #?(:cljd (:import ["dart:core" BigInt])))
@@ -74,22 +76,29 @@
   9007199254740991)
 
 
+(def ^:private max-safe-big (integer-host/from-native max-safe))
+(def ^:private min-safe-big (integer-host/from-native (- max-safe)))
+
+
 (defn- integral
   "`x` as an integer when it is a number with an integral value within
    +/- `max-safe`, else nil. The bound keeps an index identical on hosts
-   whose large numbers are doubles."
+   whose large numbers are doubles. An exact integer in any carrier
+   answers its canonical carrier; a host double answers its truncation
+   when it is integral (`dao.host.float/integral?`); any other number
+   (a JVM ratio, decimal or `float`) is nil."
   [x]
-  ;; ClojureDart supplies both :clj and :cljd reader features, so its branch
-  ;; must come first in every mixed-host reader conditional here.
-  (when (and (number? x)
-             #?(:cljd (.-isFinite ^num x)
-                :clj (or (integer? x)
-                         (and (instance? Double x) (Double/isFinite x)))
-                :cljs (js/isFinite x))
-             (<= (- max-safe) x max-safe))
-    #?(:cljd (when (== x (.round ^num x)) (.toInt ^num x))
-       :clj (when (or (integer? x) (== x (Math/rint (double x)))) (long x))
-       :cljs (when (integer? x) x))))
+  (cond
+    (integer-host/safe-native? x) x
+    (integer-host/exact-integer? x)
+    (let [b (integer-host/promote x)]
+      (when (and (<= 0 (integer-host/compare-big b min-safe-big))
+                 (<= (integer-host/compare-big b max-safe-big) 0))
+        (integer-host/demote b)))
+    (integer-host/host-float? x)
+    (when (and (float/integral? x) (<= (- max-safe) x max-safe))
+      (integer-host/trunc-native x))
+    :else nil))
 
 
 (defn- index!
@@ -116,68 +125,11 @@
 ;; Code points
 ;; =============================================================================
 
-(defn- unit-count
-  [s]
-  #?(:cljd (.-length ^String s)
-     :clj (.length ^String s)
-     :cljs (.-length s)))
-
-
-(defn- code-unit
-  [s i]
-  #?(:cljd (.codeUnitAt ^String s i)
-     :clj (int (.charAt ^String s i))
-     :cljs (.charCodeAt s i)))
-
-
-(defn- high-surrogate?
-  [u]
-  (<= 0xD800 u 0xDBFF))
-
-
-(defn- low-surrogate?
-  [u]
-  (<= 0xDC00 u 0xDFFF))
-
-
-(defn- code-points
-  "The code points of string `s`: a surrogate pair decodes to one code
-   point, an unpaired surrogate is its own."
-  [s]
-  (let [n (unit-count s)]
-    (loop [i 0
-           out (transient [])]
-      (if (< i n)
-        (let [u (code-unit s i)
-              v (when (< (inc i) n) (code-unit s (inc i)))]
-          (if (and (high-surrogate? u) v (low-surrogate? v))
-            (recur (+ i 2)
-                   (conj! out (+ 0x10000
-                                 (* (- u 0xD800) 0x400)
-                                 (- v 0xDC00))))
-            (recur (inc i) (conj! out u))))
-        (persistent! out)))))
-
-
-(defn- units->string
-  "The host string of UTF-16 code units `units`."
-  [units]
-  #?(:cljd (let [sb (StringBuffer)]
-             (doseq [u units] (.writeCharCode sb u))
-             (.toString sb))
-     :clj (let [sb (StringBuilder.)]
-            (doseq [u units] (.append sb (char u)))
-            (.toString sb))
-     :cljs (let [a (array)]
-             (doseq [u units] (.push a (.fromCharCode js/String u)))
-             (.join a ""))))
-
-
 (defn- code-points->string
   "The string of code points `cps`, each already checked to lie in
    0 to 0x10FFFF."
   [cps]
-  (units->string
+  (text/units->string
     (mapcat (fn [cp]
               (if (< cp 0x10000)
                 [cp]
@@ -311,14 +263,14 @@
 
 (defn- str-length
   [s]
-  (count (code-points (string! 'str-length 0 s))))
+  (count (text/code-points (string! 'str-length 0 s))))
 
 
 (defn- substring
   ([s start]
    (substring s start (if (string? s) (str-length s) 0)))
   ([s start end]
-   (let [cps (code-points (string! 'substring 0 s))
+   (let [cps (text/code-points (string! 'substring 0 s))
          start (index! 'substring 1 start)
          end (index! 'substring 2 end)]
      (in-range! 'substring end 0 (count cps))
@@ -329,8 +281,8 @@
 (defn- str-index-of
   ([s needle] (str-index-of s needle 0))
   ([s needle from]
-   (let [hay (code-points (string! 'str-index-of 0 s))
-         needle (code-points (string! 'str-index-of 1 needle))
+   (let [hay (text/code-points (string! 'str-index-of 0 s))
+         needle (text/code-points (string! 'str-index-of 1 needle))
          from (index! 'str-index-of 2 from)]
      (in-range! 'str-index-of from 0 (count hay))
      (let [i (find-code-points hay needle from)]
@@ -339,8 +291,8 @@
 
 (defn- str-split
   [s sep]
-  (let [hay (code-points (string! 'str-split 0 s))
-        sep (code-points (string! 'str-split 1 sep))
+  (let [hay (text/code-points (string! 'str-split 0 s))
+        sep (text/code-points (string! 'str-split 1 sep))
         m (count sep)]
     (when (zero? m)
       (refuse! 'str-split :empty-separator {}))
@@ -366,7 +318,7 @@
 
 (defn- char-at
   [s i]
-  (let [cps (code-points (string! 'char-at 0 s))
+  (let [cps (text/code-points (string! 'char-at 0 s))
         i (index! 'char-at 1 i)]
     (in-range! 'char-at i 0 (dec (count cps)))
     (code-points->string [(nth cps i)])))
@@ -374,7 +326,7 @@
 
 (defn- str->code-points
   [s]
-  (code-points (string! 'str->code-points 0 s)))
+  (text/code-points (string! 'str->code-points 0 s)))
 
 
 (defn- code-points->str
@@ -393,8 +345,8 @@
 (defn- str-compare
   "-1, 0 or 1 as `a` orders before, with or after `b` by code point."
   [a b]
-  (let [x (code-points (string! 'str-compare 0 a))
-        y (code-points (string! 'str-compare 1 b))
+  (let [x (text/code-points (string! 'str-compare 0 a))
+        y (text/code-points (string! 'str-compare 1 b))
         n (min (count x) (count y))]
     (loop [i 0]
       (if (< i n)

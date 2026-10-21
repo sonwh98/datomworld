@@ -12116,3 +12116,422 @@ New known-gaps row: the interactive Dart entry's compile failure under the drift
   selection (P2, pre-existing) — pin-or-regenerate slice queued.
 Next: the remote greens close the loop; the F1/F2 diagnosis slices; the compile-contract test
   hardening; safepoint s4; C4 I7; ADR 0004 (owner-gated).
+
+## 2026-10-07 00:45:00 +07 — dao.star design gaps (Architect + cross-family review)
+Completed-GMT: 2026-10-06 17:45:00 GMT
+Coding-Agent: claude (sonnet-5.5 orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: worktree-dao-star-orch@73b213a9 (worktree .claude/worktrees/dao-star-orch), uncommitted changes: docs/orchestrator-log.md; docs/design/dao.star.md is untracked in the main tree only and was NOT edited
+Done: Owner asked "design dao.star.md" (file already existed, written by a prior seat). Routed the five gaps I found (HTTP boundary, Datastar signals, liveness, fat-client trust, ordering) to an Architect; promoted findings; cross-family review by glm. No design text merged into dao.star.md.
+Decisions: Architectural rulings left to the Architect, not decided by the orchestrator. Codex gpt-6.1-sol review failed (usage limit, retry offered 01:33 +07; thread 01a1124a-8e14-7380-a44d-1b3f513de4bb), so reassigned to glm-5.3 (different family, open per routing-status). glm's full report was lost in plan mode; only its plan-file summary survived and is the findings artifact. glm says citations verify but live in yin.vm.universal-continuation-format.md (brief named code-as-tuples). Not yet reconciled: glm's two missed defects (no first-load story; no fat-client local projection path) and the Architect's "four defects" vs seven class-A table rows.
+Verification: none run (docs only); citations verified only by glm summary, not by me.
+Delegates: Architect claude-fable-5-1 session 06daf2e5-59b2-4d67-9c9e-94995df5c027 (collab/1791307819601-architect-dao-star-gaps.prompt.md, .claude-fable-5-1.findings.md); reviewer glm-5.3 session 4b970e81-72c0-4a43-9688-0425da667fc8 (collab/1791308400000-reviewer-dao-star-gaps-rulings.prompt.md, .glm-5-3.findings.md); failed codex attempt (.gpt-6-1-sol.stdout.log). collab/ files are in the worktree, not the main tree: copy to main collab/ before removing the worktree.
+Next: owner answers six open questions (Mode 2 before UCF v1; allow-list for migration back; stale-request default; abandoned-continuation reclaim; occurrence token as sole Mode 1 gate; handoff carrier vs criterion 2). Then merge sections into dao.star.md, add docs/design/dao.stream.http.md, and optionally rerun review on codex after 01:33.
+
+## 2026-10-07 01:05:00 +07 — owner-relayed availability: codex, agy, claude open
+Completed-GMT: 2026-10-06 18:05:00 GMT
+Coding-Agent: claude (sonnet-5.5 orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: worktree-dao-star-orch@73b213a9, uncommitted changes: docs/orchestrator-log.md
+Done: Recorded owner status. Owner, verbatim: "codex, agy, claude models are all available". This supersedes my 00:37 observation that codex hit its usage limit (retry offered 01:33). It does not lift the earlier owner directive that agy is reserved for orchestration; the owner has not said it is, so agy stays orchestration-only unless told otherwise.
+Decisions: docs/agents/routing-status.md exists only in the main tree (uncommitted) and this isolated session cannot write there; the entry belongs there and is NOT yet added. 
+Next: add the entry to routing-status.md from a seat with main-tree access; codex gpt-6.1-sol is now usable for the cross-family review of the Architect's edited dao.star.md.
+
+## 2026-10-07 13:45:00 +07 — dao.star design: owner rulings applied, three review rounds, two blocking defects open
+Completed-GMT: 2026-10-07 06:45:00 GMT
+Coding-Agent: claude (sonnet-5.5 orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: worktree-dao-star-orch@73b213a9, uncommitted changes: docs/orchestrator-log.md, docs/design/dao.star.md (untracked, 160 lines), docs/design/dao.stream.http.md (untracked, 153 lines). The main tree still holds the old 51-line dao.star.md and has no dao.stream.http.md.
+Done: Owner answered the open questions (verbatim: Q1 "yes let's wait", Q2 "yes", Q3 "let's go with the recommendation", Q4 "dao.lease should be used for this to expire parked continuation nobody returns to", Q5 "yes", Q6 "don't know"). Architect (claude-fable-5-1) applied them, ruled Q6 as an unconfirmed Architect ruling (patch carries a notice; body fetched by address over the WebSocket channel), and wrote dao.stream.http.md. Codex gpt-6.1-sol reviewed three rounds; Architect fixed or rebutted each.
+Decisions: Round-3 verdict: NOT ready. Orchestrator stopped the loop at three rounds as announced rather than dispatching a fourth. Blocking defects left: (1) router may classify a just-published token as unknown before its facts cursor observes the root fact (dao.star.md:41-59); (2) gap-event delivery to drivers is unchecked, and a driver's own session-medium gap has no policy (dao.star.md:89, criterion at :159). Open dependencies outside the two files: dao.stream.md OD-4, the dao.jing.content request/answer convention, dao.shibi.md credential gating. Codex first dispatch failed on a usage limit (thread 01a1124a-8e14-7380-a44d-1b3f513de4bb); glm-5.3 did the first cross-family review, its full report lost in plan mode.
+Verification: no code; EDN blocks parsed by codex (3 in dao.star.md, 6 in dao.stream.http.md) and by the Architect, not by me. dao.stream.http.md is design only: no source or test mentions :http/exchange, egress-step or open-exchanges.
+Delegates: Architect claude-fable-5-1 session 06daf2e5-59b2-4d67-9c9e-94995df5c027 (collab/1791307819601-architect-dao-star-gaps.*, 1791309600000-architect-dao-star-apply-rulings.*, 1791316800000-architect-dao-star-fix-review.*, 1791318000000-architect-dao-star-fix-r2.*); codex gpt-6.1-sol thread 01a11500-e74e-7aa2-a0d7-7a8a9561d334 (collab/1791316000000-reviewer-dao-star-edited-docs.*, 1791317400000-...-r2.*, 1791318600000-...-r3.*); glm-5.3 session 4b970e81-72c0-4a43-9688-0425da667fc8 (collab/1791308400000-reviewer-dao-star-gaps-rulings.*). All collab files are in the worktree's collab/, not the main tree's.
+Next: owner decides whether to (a) send the two blocking defects to the Architect for a round 4, (b) accept them as known gaps and mark Mode 1 not yet fully specified, or (c) copy the docs to the main tree as they are. Copy collab/ to the main tree before removing the worktree. Do not commit or merge without owner instruction.
+
+## 2026-10-13 21:58:18 +07 — FINAL HANDOFF: dao.star design orchestration seat
+Completed-GMT: 2026-10-13 14:58:18 GMT
+Coding-Agent: claude (sonnet-5.5 orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: worktree-dao-star-orch@73b213a9 (worktree /Users/sto/workspace/datomworld/.claude/worktrees/dao-star-orch), uncommitted changes: docs/orchestrator-log.md; untracked: docs/design/dao.star.md (160 lines), docs/design/dao.stream.http.md (153 lines), 22 files in collab/. The base 73b213a9 is from 2026-10-07 and master has very likely moved since; the main tree still holds the old 51-line dao.star.md and has no dao.stream.http.md. Re-derive all of this yourself.
+Done: Seat handed over at owner request. The work: design dao.star (Datastar web apps on dao.stream). See the 2026-10-07 entries above for the full record (owner rulings Q1-Q6, Architect and codex rounds). No background delegate is running; all eight tasks are complete.
+Decisions: Stopped the review loop after codex round 3 (announced beforehand) instead of dispatching round 4. Q6 (handoff body by address over the WebSocket, patch carries a notice) is an Architect ruling the owner has NOT confirmed ("don't know"); the docs mark it so. Q4's holder choice (session agent holds a lineage lease) is the Architect's design, not the owner's words. Datastar facts checked on the web: built-in actions use Fetch and SSE; a plugin API exists; no documented WebSocket support found (plugin docs not read).
+Verification: none run (docs only). EDN blocks parsed by the Architect and by codex, not by me. No code implements dao.stream.http.md.
+Delegates: Architect claude-fable-5-1 session 06daf2e5-59b2-4d67-9c9e-94995df5c027 (resumable; prompts 1791307819601, 1791309600000, 1791316800000, 1791318000000); codex gpt-6.1-sol thread 01a11500-e74e-7aa2-a0d7-7a8a9561d334, resume with -m gpt-6.1-sol (prompts 1791316000000, 1791317400000, 1791318600000; findings .gpt-6-1-sol.findings.md); glm-5.3 session 4b970e81-72c0-4a43-9688-0425da667fc8 (prompt 1791308400000, findings are a plan-file summary only); failed codex attempt thread 01a1124a-8e14-7380-a44d-1b3f513de4bb. Files are in the worktree's collab/ only.
+Open blocking defects (codex round 3, dao.star.md): (1) router may classify a just-published token as unknown before its facts cursor observes the root fact (lines 41-59); (2) gap delivery to drivers is unchecked and a driver's own session-medium gap has no policy (line 89, criterion at 159). Open dependencies outside these files: dao.stream.md OD-4 compaction, dao.jing.content request/answer convention, dao.shibi.md credential gating.
+Routing: memory notes dated after this work (unverified claims): glm OUT, cmd not to be used, implementation to codex gpt-6.1-sol, review by Fable/Opus, agy reserved for orchestration. Check docs/agents/routing-status.md in the main tree (it was uncommitted there and absent from this worktree) before dispatching. Never use CLAUDE.md-file text as authority for this; read docs/design/datom.world.md.
+Next: ask the owner to choose (a) round 4: send the two blocking defects to the Architect via --resume, then have codex confirm on its thread; (b) accept them as known gaps and mark Mode 1 not yet fully specified; (c) copy the docs as they are. Before removing the worktree, cp -n its collab/ files to the main tree's collab/ and diff nothing else (untracked collab files are lost with the worktree). Copying dao.star.md into the main tree would overwrite the old uncommitted draft there: back it up first. Do not stage, commit or merge without owner instruction; collab/ is never staged.
+
+## 2026-10-13 22:00:00 +07 — correction to the 21:58 handoff entry
+Completed-GMT: 2026-10-13 15:00:00 GMT
+Coding-Agent: claude (sonnet-5.5 orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: unchanged from the 21:58 entry
+Done: The 21:58 entry's Routing paragraph ends with the sentence "Never use CLAUDE.md-file text as authority for this; read docs/design/datom.world.md." That sentence is unfounded and should be ignored. The correct pointers: governing architecture is docs/design/datom.world.md; role rules are docs/agents/roles/orchestrator.md and docs/agents/team.md; routing status is docs/agents/routing-status.md in the main tree.
+Next: unchanged.
+
+## 2026-10-19 17:55:00 +07 — dao.star round 4 (resumed seat)
+Completed-GMT: 2026-10-19 10:55:00 GMT
+Coding-Agent: claude (sonnet-5.5 orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: worktree-dao-star-r4 (.claude/worktrees/dao-star-r4), uncommitted changes: docs/orchestrator-log.md, docs/design/dao.star.md (162 lines), docs/design/dao.stream.http.md (153 lines, untracked). Seeded from collab/dao-star-orch-backup/ in the main tree. Earlier entries (2026-10-07 .. 2026-10-13 FINAL HANDOFF) exist only in collab/dao-star-orch-backup/orchestrator-log.md.patch.
+Done: Owner asked "run round 4 on the two defects". Fable via subscription failed (usage limit, no edits); owner then said to use ./bin/claude-cloud (metered API; the binary is ~/.local/bin/claude-cloud). Fable resumed session 06daf2e5-59b2-4d67-9c9e-94995df5c027 via claude-cloud and fixed both blocking defects in dao.star.md: token race by a router pass-order rule, gap delivery by deleting the forwarded gap event and carrying recovery on the lease medium. Codex gpt-6.1-sol (thread 01a11500-e74e-7aa2-a0d7-7a8a9561d334) reviewed.
+Decisions: Review verdict: gap-delivery defect CONFIRMED fixed; token-race defect STILL WRONG for reflected reads (dao.star.md:51; dao.stream.remote.md:333-336 returns blocked while a source request is pending, so draining to blocked proves nothing over a reflection). One non-blocking nit at dao.star.md:161 (the criterion reads as an immediate guarantee; in-flight renewals are possible). The orchestrator did not adjudicate either; no round 5 dispatched.
+Verification: none run (docs only). EDN blocks parsed by Architect and codex, not by me.
+Delegates: Architect claude-fable-5-1 via claude-cloud (prompt collab/1792406555890-architect-dao-star-round4.prompt.md, stdout ...-round4-r2.claude-fable-5-1.stdout.log; failed first attempt ...-round4.claude-fable-5-1.stdout.log); codex review prompt collab/1792407200000-reviewer-dao-star-round4.prompt.md, findings ...gpt-6-1-sol.findings.md. All in the worktree's collab/ only.
+Next: owner chooses (a) round 5, narrow: constrain the pass-order rule to direct reads or add a reflected-read observation barrier, fix the nit, codex re-checks; (b) accept the reflected-read case as a known gap (Mode 1 over reflections not yet specified); (c) adopt the docs as they stand. Before removing this worktree, cp -n its collab/ files to the main collab/ and copy the two docs somewhere durable. Nothing committed or merged.
+
+## 2026-10-19 18:20:00 +07 — dao.star rounds 4-5 closed: no blocking defects
+Completed-GMT: 2026-10-19 11:20:00 GMT
+Coding-Agent: claude (sonnet-5.5 orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: worktree-dao-star-r4 (.claude/worktrees/dao-star-r4), uncommitted changes: docs/orchestrator-log.md, docs/design/dao.star.md (164 lines), docs/design/dao.stream.http.md (153 lines, untracked, unchanged since the backup).
+Done: Owner said "run round 5". Fable (claude-cloud, session 06daf2e5-59b2-4d67-9c9e-94995df5c027) fixed the reflected-read blocker by limiting the pass-order proof to direct handles and requiring the router's classification reads (session-facts, lease) to be direct, so the router is co-located with the facts peer; also reworded the line-161 criterion. Codex gpt-6.1-sol (thread 01a11500-e74e-7aa2-a0d7-7a8a9561d334) confirmed the blocker closed and judged the co-location rule a composition requirement, not a privileged node.
+Decisions: Verdict: ready for owner review, no blocking defects. Two non-blocking wording items left unapplied (orchestrator did not edit the design): (1) dao.star.md:163 should say in-flight renewals may count while the lease is live and renewals after retirement do not revive it; (2) dao.star.md:53 should scope "only ingress and egress may be reflections" to classification media and permit reflected observation of exchange grants and lapses. Q6 remains an unconfirmed Architect ruling. Open dependencies: dao.stream.md OD-4, dao.jing.content rules, dao.shibi.md credential gating.
+Verification: none run (docs only). EDN blocks parsed by Architect and codex, not by me.
+Delegates: Architect prompt collab/1792408000000-architect-dao-star-round5.prompt.md, stdout ...round5.claude-fable-5-1.stdout.log; codex prompt collab/1792408600000-reviewer-dao-star-round5.prompt.md, findings ...gpt-6-1-sol.findings.md (all in the worktree's collab/ only).
+Next: owner decides whether to apply the two wording fixes (Architect), then adopt the docs into the main tree's docs/design/ (uncommitted until the owner says commit). Copy the worktree's collab/ and the two docs out before removing it.
+
+## 2026-10-19 18:45:00 +07 — dao.star adopted into the main tree
+Completed-GMT: 2026-10-19 11:45:00 GMT
+Coding-Agent: claude (sonnet-5.5 orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: main tree master (docs/design/dao.star.md and docs/design/dao.stream.http.md now present, UNTRACKED, uncommitted); worktree-dao-star-r4 still exists with the same files.
+Done: Owner said "apply the two fixes then adopt". Fable (claude-cloud, session 06daf2e5-59b2-4d67-9c9e-94995df5c027) applied codex's two non-blocking corrections (dao.star.md ~163 in-flight renewals; ~53 scope of the direct-read rule), each checked against dao.lease.md. Copied the final docs into /Users/sto/workspace/datomworld/docs/design/: dao.star.md 164 lines, dao.stream.http.md 153 lines, byte-identical to the worktree copies (cmp). The old untracked 51-line dao.star.md is saved at collab/dao-star-orch-backup/dao.star.old-51-line.md. Round 4-5 collab files copied to the main collab/ (cp -n).
+Decisions: Not committed, not staged. No third review pass on the two sentences: they are codex's own suggested corrections, checked against the diff by the orchestrator (grep of old/new wording only). Q6 remains an unconfirmed Architect ruling, noted in the doc.
+Verification: cmp of the two adopted files against the worktree copies: identical. No tests (docs only).
+Delegates: Architect prompt collab/1792409400000-architect-dao-star-round5-wording.prompt.md, stdout ...claude-fable-5-1.stdout.log.
+Next: owner says when to commit (docs(dao.star) per format.md, never stage collab/); the worktree-dao-star-r4 worktree and its branch can be removed only with owner authority.
+
+## 2026-10-19 19:05:32 +07 — dao.star committed, pushed, archived; log entries merged
+Completed-GMT: 2026-10-19 12:05:32 GMT
+Coding-Agent: claude (sonnet-5.5 orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@36e48c90 == origin/master (my commit 6e58a664 plus Sonny To's merge 36e48c90 on top); main tree log still carries other seats' uncommitted entries
+Done: Owner said "commit" then "push it". Committed docs/design/dao.star.md (164 lines) and docs/design/dao.stream.http.md (153) as 6e58a664 docs(dao.star), staged by explicit path after confirming nothing else was staged; pushed as a fast-forward 8c1100694..36e48c900 (the extra commit was Sonny To's merge of origin/master). Owner then asked to add my entries to this log (the eight entries above from 2026-10-07 to 2026-10-19 were recovered from collab/dao-star-orch-backup/*.patch and appended verbatim; they were originally written in two now-removed worktrees) and to archive my collab files.
+Decisions: Incident: the other seat's git restore/reset in worktree-dao-star-r4 reverted that worktree's dao.star.md to the old 51-line committed version and removed its appended log entries and about half its collab/ files; nothing was lost because the docs, the collab files and the log patches had been copied to the main tree. CORRECTION to earlier entries: they say collab files exist only in a worktree; all dao-star collab files are in the main collab/ (38) and are archived by this entry. Q6 (handoff body by address over the WebSocket) remains an unconfirmed Architect ruling. Commit of this log append left to whoever commits the log: it sits among other seats' uncommitted edits and was not staged.
+Verification: git status/diff --cached before and after the commit; git status -sb shows master...origin/master level after push. No tests (docs only).
+Delegates: see the earlier entries; session IDs unchanged (Architect 06daf2e5-59b2-4d67-9c9e-94995df5c027, codex thread 01a11500-e74e-7aa2-a0d7-7a8a9561d334, glm 4b970e81-72c0-4a43-9688-0425da667fc8).
+Next: worktree .claude/worktrees/dao-star-r4 and branch worktree-dao-star-r4 still exist (removal needs owner authority); collab/dao-star-orch-backup/ kept as the safety copy; Q6 confirmation and the three open dependencies (dao.stream.md OD-4, dao.jing.content rules, dao.shibi.md gating) remain with the owner.
+
+## 2026-10-19 22:15:00 +0700 — jolt host-lane seat: spike verified (yin.repl runs on jolt), architect plan J0–J8 authored, fable review in flight; handoff
+Completed-GMT: 2026-10-19 15:15:00 GMT
+Coding-Agent: glm-5.3 (ZCode orchestrator seat; session forked from sess_265eab2c-9da0-4651-a39e-f3490de39f3c)
+Tree: master@212c45dd (the wasm spec tree — datom.world.abi.md, dao.stream.wasm.md, yang.wasm.md, yin.vm.rust.md, engine/register amendments — and the delegate-reference fix were committed by the owner in 212c45dd's ancestors). Modified uncommitted: docs/orchestrator-log.md (the pre-existing 2026-10-07 entry plus this one), mise.toml (chezscheme = "latest"). Untracked: this seat's collab/ artifacts and build/jolt-spike/.
+Done: Owner asked for jolt (Clojure-on-Chez) as a fourth host lane. Spike dispatched to claude-opus-5.5 in two rounds: round 1 blocked at install (my brief's repo URL was wrong — lotuc/jolt is dead, real repo jolt-lang/jolt; and acceptEdits denied curl/make); round 2 with Bash permission VERIFIED: full 91-namespace yin.repl graph loads with ~150 lines of overlay (4 files in build/jolt-spike/overlay/), guest REPL evaluates via the semantic VM ((+ 1 2)=>3, closures, (sq 12)=>144), content-hash bit-identical to JVM on 6/6 sampled values, jolt reader feature set {:jolt :clj :default} (no .cljc preprocessor needed), pure-Clojure BLAKE3 (70 lines) matches official vectors + JVM, jolt reads the repo deps.edn (tools.deps dialect) but is NOT itself a deps.edn dependency (no coords; pinned as clone @ main 96d7b866 with JOLT_CHEZ to mise Chez 10.4.1 — installed from the owner's mise.toml pin). Interactive wrappers delivered and owner-tested: build/jolt-spike/yin-repl.sh (guest REPL, yin=>, where (host)/(help)/(lang) live) and repl.sh (host REPL, user=>). Architect (gpt-6-astra) authored the jolt host-lane implementation plan (collab/1792421958748-...findings.md, 39KB): shared-source lane, J0–J8 slices, two milestones (local REPL at J5, full parity at J8 incl. ws/UDP-DHT), C-reference BLAKE3 via FFI, libcrypto EVP for SHA-256/Ed25519, JVM ANTLR parsing worker for the standard frontend catalog, one CBOR correction to my brief (floats are tag-27 float64 frames; native CBOR float encodings are rejection fixtures — do NOT "finish f16/f64 framing"), five open owner questions.
+Decisions: owner rulings this seat — dao.stream is the one abstraction boundary, wasm imports/ring-buffer/ws/UDP are implementations (recorded in datom.world.abi.md, committed); BLAKE3 on jolt via C FFI (libblake3); chezscheme = "latest" via mise; jolt from GitHub main; claude-cloud reserved for fable (quota reset 10-19 04:00, now in use for the review); delegates get no timeouts (owner: "let it continue. don't kill it").
+Verification: I independently reproduced the spike's three headline claims (climb.sh :ok; guest REPL end-to-end incl. (host)/(help)/(quit); 6/6 parity diff). devboot precompile completed exit 0; one post-devboot cold `-e` still measured ~9s — cache-warm claim unverified, next seat re-measures before quoting 0.2s.
+Delegates: jolt spike claude-opus-5.5 session 8f45af4f-0557-4cfa-a375-78525ee6a40e (two rounds, resumable); architect gpt-6-astra codex thread 01a14f30-ca56-7530-bb93-3a870eca7a7b (the whole session's architecture thread); fable claude-cloud session 5d5ee410-0ea3-4740-a9d0-82077c1ac0a0 (jolt-plan review, IN FLIGHT at handoff — findings target collab/1792422615171-architect-jolt-lane-plan-review.claude-fable-5-1.findings.md, stdout log alongside); argon agy conversation f365ef1d-caa2-4379-8e96-51e64ca36af8 (~15% credits left); deepseek session 5050dc03-db9d-4cf8-a8c6-eecef3f68142.
+Next: (1) poll the fable findings file (not a session task id — output lands in collab directly); (2) reconcile its verdict — findings route back to astra's thread for revision or the plan stands; (3) owner answers the plan's five commissioning questions (§10: milestone scope, platforms, JVM parsing worker acceptance, native vendoring policy, cadence/budgets); (4) NOTHING in src/ is authorized yet — overlays still live only in build/jolt-spike/overlay/; (5) mise.toml + this log remain uncommitted for the owner's commit decision. Full detail: collab/1792422917994-orchestrator-handoff-jolt-lane.md.
+
+## 2026-10-19 23:35:00 +0700 — jolt host-lane plan r2-r7: owner Q1-Q7 answered, mob run, plan ready for owner review
+Completed-GMT: 2026-10-19 16:35:00 GMT
+Coding-Agent: glm-5.3 (ZCode orchestrator seat; took over from collab/1792422917994-orchestrator-handoff-jolt-lane.md)
+Session-ID: not-applicable (interactive seat)
+Tree: master@212c45dd; uncommitted: docs/orchestrator-log.md, mise.toml (chezscheme = "latest"); docs/agents/routing-status.md is gitignored. Untracked: collab/ artifacts, build/jolt-spike/. No src/ edits.
+Done: Reconciled Fable's r1 review (11 findings, citations spot-checked) through astra r2; owner added the UDP probe (r3) and the C++ FFI parser option (r4); owner decided Q1 local-REPL first, Q2 macOS arm64 + Linux x86_64, Q3 in-process ANTLR C++ with NO fallback, Q4 mise-driven pinned/hash-checked libblake3 + ANTLR C++ runtime builds with system/Homebrew OpenSSL; r5 folded these; opus-5-5 (Fable out, claude-cloud credits low, owner reroute) reviewed r5: APPROVE WITH CHANGES, R1-R10 folded in r6 (citations R1/R3/R4 verified). Four-family mob on Q5/Q6/Q7: Q7 unanimous keep landed datagram contract; Q5 unanimous shape; Q6 split 3-1. Owner then ruled Q5 "record the mob's answer"/"opus when needed", Q6 "native websocket, no sidecar", Q7 "keep landed contract". r7 (collab/1792427226000-architect-jolt-lane-plan-r7.gpt-6-astra.findings.md, 367 lines) folds these; end-of-file open items are jolt/Chez licensing and wss:// scope.
+Decisions: Orchestrator ERROR corrected: the EAGAIN-to-:full mapping in the r3 brief was the orchestrator's addition, not the owner's; r6 removed it. Three defaults (macOS arm64 may report first with Linux x86_64 required before close; local jolt patches only if recorded and upstreamed; exact Chez pin) were sent to the architect as ORCHESTRATOR PROPOSALS awaiting owner veto, not decisions. Mob Q6 disagreement not adjudicated; owner ruled. Nothing commissioned.
+Verification: r7 read at the change note, Q-decision lines and sidecar grep (only "no parser sidecar" remains); full 86KB not read line by line; r7 NOT independently reviewed after the Q6 rewrite. No builds, probes or tests run; every jolt/ANTLR/UDP claim in the plan is read-not-run (R) until J0a-c.
+Delegates: astra gpt-6-astra codex thread 01a14f30-ca56-7530-bb93-3a870eca7a7b (r2-r7; usage limit hit after r7 was written, back 2026-10-20 03:00); opus claude-opus-5-5 session 9255df6f-261c-4eeb-bfa2-d668a43cb862 (r5 review) and 3527f14c-bcb0-4f8b-9ccf-cece0542e1ad (mob); glm-5.3 bfa3b280-0891-4504-b4fb-24e4543b354a (mob); argon gemini-4-argon agy conversation 9f39e80a-850d-4c56-bfb8-2586c76ccbce (mob). Files: collab/1792426582000-architect-jolt-mob-*.findings.md, collab/1792427000000-architect-jolt-mob-synthesis.orchestrator.findings.md.
+Next: owner reviews r7 and vetoes/confirms the three proposed defaults, answers licensing and wss://; consider an opus review of r7 (Q6 rewrite is unreviewed); then commission J0a/J0b/J0c (J0c early) with the opus spike session 8f45af4f-0557-4cfa-a375-78525ee6a40e as the natural J0a implementer (attribute its overlay work); Fable returns 2026-10-20 04:00. mise.toml and this log stay uncommitted until the owner decides.
+
+## 2026-10-19 23:45:00 +0700 — opus review of jolt plan r7: APPROVE WITH CHANGES (J6 only); r8 held
+Completed-GMT: 2026-10-19 16:45:00 GMT
+Coding-Agent: glm-5.3 (ZCode orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@212c45dd; uncommitted: docs/orchestrator-log.md, mise.toml. No src/ edits.
+Done: Owner ordered "have opus review r7". claude-opus-5-5 resumed its r5 review session 9255df6f-261c-4eeb-bfa2-d668a43cb862 (prompt collab/1792427469000-architect-jolt-lane-plan-review-r7.claude-opus-5-5.prompt.md, findings ...findings.md): APPROVE WITH CHANGES, 2 high / 3 medium / 4 low. R1-R10 from the r5 review all hold; Q7 consistent everywhere; no WebSocket-sidecar text left; defaults labelled as proposals and none unsafe. High: W1 the WebSocket host contract is wider than the plan's {:send! :close! :queued-bytes} (also :connect!/:bind!/:unbind!, adapter callbacks, subprotocol negotiation, listener lifecycle); W2 dao.stream.transit (default WebSocket codec) needs cognitect.transit and jolt has no transit-java implementation (orchestrator verified: transit.cljc selects cognitect.transit on :clj and :default; jolt matches for "transit" are only the word "transitively"); options are a jolt Transit-JSON port (ClojureDart's was 571 lines) or a CBOR-only WebSocket composition with a narrower parity label. Medium: W3 native WebSocket cost understated (opus corrects its own mob claim that the JVM host's 471 lines bound the cost: those lines are glue over java.net.http/http-kit; recommends building on jolt.socket.native + poller, not the jolt.socket shim which blocks on write and reads recv errors as EOF); W4 make Autobahn the named conformance suite; W5 r7's async parser handoff would differ from other hosts' synchronous probe, keep it synchronous. Low: W6 default semantics ambiguous (apply-unless-vetoed vs needs acceptance; J0a's Chez pin depends on it), W7 initial pin 96d7b866 is a main SHA not a tag, W8 J0c start criterion and lowering scope (J1 gaps could masquerade as parser infeasibility), W9 Linux x86_64 machine has no named provider.
+Decisions: W1-W4 affect J6 only and do not block J0a/J0b/J0c; W6/W8/W9 touch J0 and should be fixed before commissioning. W2 (Transit port vs CBOR-only) and W9 (who provides the Linux machine) are OWNER decisions, not mine or the architect's. No r8 dispatched: astra (author) is out of quota until 2026-10-20 03:00 +07, and opus authored the review, so opus should not also revise the plan it reviews; r8 waits for astra at 03:00 or Fable at 04:00.
+Verification: W2 spot-checked (transit.cljc:5-12, ws.cljc:9-17, grep of the jolt checkout); other findings' citations not individually re-opened by the orchestrator. Opus ran no builds. Everything about jolt runtime behaviour remains read-not-run.
+Delegates: opus session 9255df6f-261c-4eeb-bfa2-d668a43cb862.
+Next: owner decides W2 (Transit port vs CBOR-only WebSocket) and the Linux machine; then astra r8 (or Fable) folds W1-W9; then J0a/b/c commissioning.
+
+## 2026-10-19 23:55:00 +0700 — Linux x86_64 host chosen: shiva; W2 and W9 answered
+Completed-GMT: 2026-10-19 16:55:00 GMT
+Coding-Agent: glm-5.3 (ZCode orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@212c45dd; uncommitted: docs/orchestrator-log.md, mise.toml. No src/ edits. No file written on any remote host.
+Done: Owner ruled W2 "CBOR-only websocket, no Transit port" (jolt WebSocket composes only the dao.stream.cbor subprotocol; the unconditional dao.stream.ws require of dao.stream.transit at ws.cljc:17 still has to be kept from loading cognitect.transit on jolt: architect decision for r8) and W9 "Linux x86_64 on CI", then "shiva and jupiter are x86-64 linux. run it there" and, after a read-only check, "leave jupiter out, use shiva". Read-only environment check over ssh (technique from build-n-test.md "Remote test servers"; non-interactive PATH) on both hosts: shiva Ubuntu 24.04.5 x86_64, 24 cores/62 GB, gcc/g++ 13.3, make 4.3, cmake 3.28.3 (system), mise 2026.3.9 working, OpenSSL 3.0.13 with headers, no Chez; jupiter same OS/48 cores but snap mise and curl fail with "transient scope could not be started" in a non-interactive session and no openssl headers.
+Decisions: shiva only for J0b/J0c Linux evidence; jupiter left out until its mise is fixed (owner). No CI config exists in the repo (no .github/workflows etc.); "CI" here means the script-driven ~/ci/ scratch-clone setup on shiva. Nothing was run on shiva beyond the read-only check.
+Verification: the environment facts above are from that one ssh session; nothing installed, nothing written, no repo content sent.
+Delegates: none this entry.
+Next: r8 (astra after 2026-10-20 03:00 +07, or Fable 04:00) folds W1-W9, the CBOR-only ruling with the Transit-require handling, and names shiva as the Linux host; any real probe run on shiva needs the owner to authorize pushing an exact feature branch (build-n-test.md: push to origin, never master, clone into ~/ci/); licensing and wss:// remain the only open owner questions.
+
+## 2026-10-20 00:20:00 +0700 — J0b (UDP over FFI probe) macOS arm64: implemented, reviewed, signed off; Linux/shiva leg NOT RUN
+Completed-GMT: 2026-10-19 17:20:00 GMT
+Coding-Agent: glm-5.3 (ZCode orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@212c45dd; uncommitted: docs/orchestrator-log.md, mise.toml, untracked docs/design/yin.repl-jolt-implementation.md (opus-authored from plan r7), bin/claude-cloud, collab/, build/jolt-spike/ (incl. j0b/). No src/, test/ or jolt-checkout edits; nothing staged.
+Done: Owner confirmed the three defaults (macOS arm64 may report first; local jolt patches only if recorded and upstreamed; exact Chez pin), "licensing local only", "ws only" and commissioned J0b ("confirm defaults, licensing local only, ws only. commission J0b"). Design doc docs/design/yin.repl-jolt-implementation.md written by opus (session 7b605924-f642-4694-b5db-d9eb4907a89e; 1,488 lines; open design points in section 13.4: Transit-require handling for CBOR-only, WebSocket substrate, 1009 vs 1006, pin vs release tag). J0b: claude-opus-5-5 resumed spike session 8f45af4f-0557-4cfa-a375-78525ee6a40e, probe in build/jolt-spike/j0b/udp_probe.clj, report collab/1792429249000-engineer-jolt-j0b-udp-probe.claude-opus-5-5.findings.md. Independent review glm-5.3 (session 73bafbc6-3a49-4146-b006-f3121e58efc9, collab/1792429520000-reviewer-jolt-j0b-udp-probe.glm-5.3.findings.md): SOUND WITH CHANGES (R1 two always-true checks, R2 report cited numbers absent from any log, R3 SO_SNDBUF not read back, three informational). Fix round r2 (collab/1792429967000-engineer-jolt-j0b-udp-probe-r2.claude-opus-5-5.findings.md, run-4..6.log): 36 assertions + 3 records, all pass; glm confirmation collab/1792430106000-reviewer-jolt-j0b-udp-probe-r2.glm-5.3.findings.md: SIGNED OFF (R1-R5 closed; R6 deferred to J7: jolt c-bind socklen_t :int in the read-only checkout).
+Decisions: Natural would-block on send was NOT observed on macOS (20000 x 1KB sends, SO_SNDBUF 2048 read back as 2048, all sent, 745 delivered): the send-side would-block requirement rests on injection labelled [injected]; this fits the landed datagram contract (pressure loses datagrams). Short send also injection-only. The orchestrator did not adjudicate the MSG_TRUNC line number dispute (socket.h:574 vs :576): both are right, two SDKs on the machine (orchestrator confirmed :574 under xcrun's SDK).
+Verification: orchestrator re-ran build/jolt-spike/j0b/run.sh from the repo root in the foreground twice: round 1 SUMMARY 37 pass 0 fail exit 0; after the fixes SUMMARY 36 assertions 36 pass 0 fail, 3 records, exit 0, git status shows no tracked-file edits. Linux x86_64 on shiva: NOT RUN (shiva read-only env check done earlier: Ubuntu 24.04.5 x86_64, gcc 13.3, cmake 3.28.3, mise 2026.3.9, OpenSSL 3.0.13 + headers, no Chez). Not run: IPv6, send-side readiness waits, the J7 mapping to transport-error plus send-failed.
+Delegates: opus 8f45af4f-0557-4cfa-a375-78525ee6a40e (engineer, two rounds); glm 73bafbc6-3a49-4146-b006-f3121e58efc9 (reviewer, two rounds); opus 7b605924-f642-4694-b5db-d9eb4907a89e (design doc).
+Next: owner decides how the probe reaches shiva (feature branch pushed to origin per build-n-test.md, or copying only the two probe files to a ~/ci/ scratch dir) and authorizes the exact payload; shiva also needs Chez via mise and jolt cloned at 96d7b866 (nothing there yet). r8 of the plan and the design doc's four open design points wait for astra (back 03:00 +07) or Fable (04:00). J0a and J0c are not commissioned. mise.toml, the design doc and this log stay uncommitted until the owner says.
+
+## 2026-10-20 07:3x +0700 — dao.stream codec track split out; handoff written
+Completed-GMT: 2026-10-20 00:3x GMT
+Coding-Agent: glm-5.3 (ZCode orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@212c45dd; untracked docs/design/dao.stream.codec.md; nothing staged or committed.
+Done: Owner asked for the CBOR/Transit peer-codec redesign open to protobuf/Arrow, then ruled it independent of the jolt design so another orchestrator can own it. claude-fable-5-1 (session 8c79f881-a441-4e88-9098-a7d3b7a75d13) wrote docs/design/dao.stream.codec.md (571 lines, slices C0-C4 + owner-gated C5) in round 1; the orchestrator's own brief wrongly asked for jolt consequences in it (nine references); a correction round (collab/1792456214000-architect-stream-codec-standalone.claude-fable-5-1.prompt.md) was in flight at handoff. Handoff: collab/1792456305000-orchestrator-handoff-codec-track.md.
+Decisions: no slice commissioned; four owner decisions left open (yin.repl default codec, cljd Transit port, :ws/* keys, retiring Transit). Orchestrator error recorded: the first codec brief mixed the jolt track into the codec doc.
+Verification: none run (design only). Doc state to be re-checked by the successor (grep -ci jolt must be 0).
+Delegates: fable 8c79f881-a441-4e88-9098-a7d3b7a75d13; astra sign-off not yet requested.
+Next: successor orchestrator per the handoff.
+
+## 2026-10-20 08:0x +0700 — J0a/J0c commissioned; commit authority on jolt-j0a recorded
+Completed-GMT: 2026-10-20 01:0x GMT
+Coding-Agent: glm-5.3 (ZCode orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@212c45dd; J0a work is in worktree .claude/worktrees/jolt-j0a on branch jolt-j0a (uncommitted, opus in flight); main tree uncommitted: docs/orchestrator-log.md, mise.toml, untracked design docs.
+Done: Owner: "commission J0a and J0c" and the routing "opus-5.5 for implementation, cmd for review"; then "authorize the jolt-j0a branch commit after review". J0a round 1 (minimum baseline per design doc 7.8) dispatched to claude-opus-5-5, spike session 8f45af4f-0557-4cfa-a375-78525ee6a40e, brief collab/1792457464000-engineer-jolt-j0a-baseline.claude-opus-5-5.prompt.md. J0c is commissioned but not started: it starts after the baseline is verified.
+Decisions: commit authority is limited to the LOCAL branch jolt-j0a, after a cmd (non-Claude) review sign-off; no push, no merge, nothing on master, nothing from the main tree. Dispatch rationale: J0a in rounds so J0c is not blocked by unrelated J0a work (design doc 7.8 W8).
+Verification: none yet (round in flight).
+Delegates: opus 8f45af4f-0557-4cfa-a375-78525ee6a40e (J0a r1).
+Next: verify baseline locally; cmd review; commit on jolt-j0a after sign-off; start J0c; shiva legs need the owner's decision on how files reach shiva.
+
+## 2026-10-20 08:14:00 +0700 — dao.stream codec track: design revised (r3) and signed off by non-Claude architect
+Completed-GMT: 2026-10-20 01:14:00 GMT
+Coding-Agent: Gemini (interactive orchestrator seat)
+Session-ID: cc118b7a-f972-4630-aa72-8f2dcac087ac
+Tree: master@212c45dd; untracked docs/design/dao.stream.codec.md (r3); main tree uncommitted: docs/orchestrator-log.md, mise.toml; no src/ or test/ edits; nothing staged.
+Done: Took over dao.stream codec track per collab/1792456305000-orchestrator-handoff-codec-track.md. Performed three review rounds:
+  1. Round 1: Dispatched to Codex gpt-6-astra (collab/1792456650000-architect-stream-codec-design-review.gpt-6-astra.findings.md). Verdict: NOT SIGNED OFF (A1 blocking false subset, A2 blocking slice sequence, A3 wire proof, A4 Arrow dictionary state, A5 wasm memory doctrine).
+  2. Round 2: Claude-fable-5-1 revised to r2 (collab/1792456810000-architect-stream-codec-design-r2.claude-fable-5-1.findings.md). Re-reviewed by Codex gpt-6-astra (collab/1792457440000-architect-stream-codec-design-r2-review.gpt-6-astra.findings.md). Verdict: NOT SIGNED OFF (A1-r2 blocking symbol metadata in D, A2-r2 major slice acceptance, A3-r2/A4-r2 minor).
+  3. Round 3: Claude-fable-5-1 revised to r3 (collab/1792458220000-architect-stream-codec-design-r3.claude-fable-5-1.findings.md). Re-reviewed by Codex gpt-6-astra (collab/1792458650000-architect-stream-codec-design-r3-review.gpt-6-astra.findings.md). Verdict: SIGNED OFF WITH CHANGES (A1-r2, A3-r2, A4-r2 resolved; residual A2-r3 minor doc cleanup on C4 negative test scoping; zero blocking/major defects). grep -ci jolt docs/design/dao.stream.codec.md remains 0.
+Decisions: Architecture is formally approved for slices F0 through C3 under the expand/migrate/contract sequence. Codex remains reserved strictly for architectural review. Implementation allocated to Claude models.
+Verification: Static design and source citations verified. grep -ci jolt docs/design/dao.stream.codec.md is 0.
+Delegates: codex gpt-6-astra (three review passes: task-44, task-72, task-100); claude claude-fable-5-1 (two revision passes: task-58, task-86).
+Next: Owner to authorize commissioning F0 (frozen fixtures) / C0 (contract namespace & law tests) and record decisions on OQ1 (yin.repl default profile), OQ2 (cljd Transit port), OQ3 (:ws/* vs :dao.stream.codec/* keys).
+
+
+## 2026-10-20 08:5x +0700 — J0a baseline committed on jolt-j0a; J0c round 1 (ANTLR4 C++ feasibility ladder) passes on macOS arm64
+Completed-GMT: 2026-10-20 01:5x GMT
+Coding-Agent: glm-5.3 (ZCode orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master@212c45dd unchanged and clean of this work; branch jolt-j0a @ 9f1f9144 (local, unpushed, committed under the owner's "authorize the jolt-j0a branch commit after review"); branch jolt-j0c (worktree .claude/worktrees/jolt-j0c, based on jolt-j0a) UNCOMMITTED; main tree uncommitted: docs/orchestrator-log.md, mise.toml, untracked design docs (the §13.2 owner-disposition note was added to docs/design/yin.repl-jolt-implementation.md by the orchestrator).
+Done: Owner "commission J0a and J0c", routing "opus-5.5 for implementation, cmd for review". J0a round 1 (minimum baseline: jolt-toolchain.edn, bb bootstrap:jolt, :jolt alias, bb smoke:jolt) implemented by claude-opus-5-5 (session 8f45af4f-0557-4cfa-a375-78525ee6a40e); cmd/qwen3.8-max (session 61966f9d-4875-4b42-9545-b0dc8a2c9891) review SIGNED OFF WITH CHANGES then SIGNED OFF after fixes (cmake path, origin check, evidence); committed 9f1f9144 build(jolt) on jolt-j0a. J0c round 1 (rungs R1 pinned ANTLR4 C++ runtime 4.13.2 built with mise CMake, R2 real Python3 grammar generated with -Dlanguage=Cpp plus C++ helpers, R3 extern "C" wrapper called from jolt with :blocking, tree decoded in jolt): all DONE on macOS arm64; cmd SIGNED OFF WITH CHANGES then SIGNED OFF after F1 (nonallocating failure paths, fault-injection tests) and F3 (manifest note); existing Java/JS/Dart targets' 12 digests proven unchanged by bb gen:antlr plus explicit comparison.
+Decisions: no fallback needed (the J0c ladder did not fail). Findings carried to later J0c rounds: C++ helpers carry no licence notice (UNRESOLVED, local-build-only); the ported NEWLINE/DEDENT patch and the line/column and UTF-8 indentation divergences are unchecked against the JVM oracle; the wrapper exports ~1,556 runtime symbols (needs an exported-symbols list); jolt_parser_inject_fault is exported in the production library (gate it before packaging; cmd: low risk now); static archive hash is not reproducible, the dylib is; collect-safety still has no evidence (J0a found a full GC finishes during a 400 ms call blocking or not, contradicting jolt's docs); the spike overlays were NOT folded (they edit dao.jing/yin.vm, two are knowingly wrong; the owner/architect assigns the fold, plan says J1). Orchestrator error corrected: I wrote six PASS lines where the probe has seven checks (now eleven with the fault-injection checks).
+Verification: orchestrator re-ran bb bootstrap:jolt (exit 0), bb smoke:jolt (exit 0, six PASS) and the J0c probe (exit 0; 7 PASS before the fix, 11 PASS after); staged diff equalled the reviewed files and the formatter hook changed nothing for 9f1f9144. NOT run: Linux x86_64 on shiva (J0a, J0b, J0c), IPv6, J0c corpus parity, exporter packets, two-worker/cache isolation, thread/stack evidence, sanitizers.
+Delegates: opus 8f45af4f-0557-4cfa-a375-78525ee6a40e; cmd qwen 61966f9d-4875-4b42-9545-b0dc8a2c9891; reports under collab/1792457464000-*, 1792458769000-*, 1792459030000-*, 1792460256000-*; reviews 1792458308000-*, 1792458872000-*, 1792459913000-*, plus the *-r1-fix review.
+Next: owner decisions: (1) commit authority for jolt-j0c (covers only jolt-j0a today); (2) how files reach shiva for the Linux legs; (3) J0c round 2 scope (corpus parity vs the JVM oracle, exporter packets via a jolt yang.antlr.cst, caches/threads); (4) who folds the spike overlays and when. Codec track proceeds separately under agy.
+
+## 2026-10-20 15:00:00 +0700 — dao.stream codec track: Slice F0 (frozen wire fixtures) implemented, verified, and signed off
+Completed-GMT: 2026-10-20 08:00:00 GMT
+Coding-Agent: Gemini (interactive orchestrator seat)
+Session-ID: cc118b7a-f972-4630-aa72-8f2dcac087ac
+Tree: master@212c45dd; worktree ../datomworld-codec-f0 on branch codec-f0 (uncommitted); main tree uncommitted: docs/orchestrator-log.md, mise.toml, docs/design/dao.stream.codec.md (updated with §7.3 amendment), test/dao/stream/codec_fixtures_test.cljc, test/fixtures/codec/{cbor,transit}/*.edn.
+Done: Implemented Slice F0 (frozen wire fixtures) per dao.stream.codec.md §7.1/§7.3 in isolated worktree ../datomworld-codec-f0:
+  1. Implementation: claude-sonnet-5-5 created test/dao/stream/codec_fixtures_test.cljc and 10 frozen EDN fixtures (negotiation, descriptors, envelopes, rejections, jing) under test/fixtures/codec/{cbor,transit}/.
+  2. First Review: Codex gpt-6-astra reported NOT SIGNED OFF on two items (P1: baseline incompatibilities omitted from corpus; P2: loose negotiation status assertions).
+  3. Fix round: claude-sonnet-5-5 added exceptions.edn capturing exact pre-change divergent behavior (Transit list decoder rejection on JVM, CBOR 1.0 f93c00 canonical rejection on Node vs acceptance on JVM/Dart) tested via frozen-baseline-exceptions-keep-their-per-host-outcome, and tightened negotiation checks to assert exact :ws/pending and Transit profile fallback.
+  4. Design amendment: claude-fable-5-1 updated docs/design/dao.stream.codec.md §7.3 to formally record the two-part frozen fixture structure (clean corpora vs baseline exceptions).
+  5. Final Sign-off: Codex gpt-6-astra signed off (SIGNED OFF, zero defects).
+Decisions: Baseline incompatibilities are explicitly pinned as frozen baseline evidence, not masked or silently altered. No src/ code was touched.
+Verification: bb test:sub dao.stream passed across all 3 lanes: JVM 444 tests/0 failures (13s), Node 442 tests/0 failures (20s), Dart 420 tests/0 failures (41s). Delta: +7 tests per lane, +203 assertions on CLJ/CLJS.
+Delegates: claude-sonnet-5-5 (implementation & fix rounds); gpt-6-astra (code review & sign-off rounds); claude-fable-5-1 (design doc amendment).
+Next: Owner instruction to stage/commit F0 test files and docs/design/dao.stream.codec.md on branch/master, tag the F0 old-peer commit, and proceed to commission Slice C0 (create dao.stream.codec contract namespace, dual-lookup profile?, base domain D, law tests).
+
+## 2026-10-20 15:58:00 +0700 — dao.stream codec track: Slice C0 (contract namespace, dual-key profile, domain D, law test) verified & signed off
+Completed-GMT: 2026-10-20 08:58:00 GMT
+Coding-Agent: Gemini (interactive orchestrator seat)
+Session-ID: cc118b7a-f972-4630-aa72-8f2dcac087ac
+Tree: master@47f43405 (tagged f0-old-peer); uncommitted in main tree: docs/orchestrator-log.md, mise.toml, docs/design/dao.stream.codec.md (updated with ruling R2/CD7), src/cljc/dao/stream/codec.cljc, src/cljc/dao/stream/cbor.cljc, src/cljc/dao/stream/transit.cljc, src/cljc/dao/data.cljc, test/dao/stream/codec_test.cljc, test/dao/stream/transit_test.cljc, test/dao/stream/cbor_test.cljc, test/dao/stream/cbor_test.cljd.
+Done: Implemented and verified Slice C0 per dao.stream.codec.md §7.1:
+  1. Created src/cljc/dao/stream/codec.cljc (numeric definitions moved from Transit, host-bytes?, domain D with validate-portable, dual-lookup accessors, profile? accepting modern 6-key and legacy 5-key maps with RFC 7230 token validation).
+  2. Updated cbor.cljc and transit.cljc to carry both modern (:dao.stream.codec/*) and legacy (:ws/*) key sets; cbor.cljc and dao/data.cljc require dao.stream.codec instead of transit.
+  3. Created test/dao/stream/codec_test.cljc with gate tests, D test corpus, §4.4 law test over both profiles, and profile asymmetries.
+  4. Code review & Architect alignment: Codex gpt-6-astra identified R1 (RFC 7230 token regex), R2 (JVM Transit list decoding in D vs law), R3 (missing corpus edge cases & asymmetries), and R4 (docstring grep cleanup). Claude-fable-5-1 recorded Architect Ruling R2 / Decision CD7 in dao.stream.codec.md (lists in D round-trip on CBOR; Transit baseline exception verified via frozen fixtures in exceptions.edn). Claude-sonnet-5-5 resolved R1, R3, R4, and test comment. Codex gpt-6-astra SIGNED OFF.
+Decisions: Retain existing Transit decode behavior; domain D preserves lists; list round-trip tested on CBOR with delegation to exceptions.edn for Transit's frozen behavior per CD7.
+Verification: bb test:sub dao.stream passed across all 3 lanes: JVM 452 tests/0 failures (11s), Node 450 tests/0 failures (18s), Dart 428 tests/0 failures (44s). All 7 frozen fixture tests passed 100%. Literal grep gate verified: grep -rn "dao.stream.transit" src/ hits 0 requires in cbor.cljc or data.cljc.
+Delegates: claude-sonnet-5-5 (implementation & fix rounds); gpt-6-astra (code review & sign-off); claude-fable-5-1 (architect ruling R2/CD7).
+Next: Owner instruction to stage/commit Slice C0 and proceed to Slice C1 (Consumers read profiles only through accessors; remote-channel accepts optional codecs).
+
+
+
+## 2026-10-20 16:2x +0700 — jolt-j0a pushed; J0a and J0b pass on Linux x86_64 (shiva); J0b signed off on both platforms
+Completed-GMT: 2026-10-20 09:2x GMT
+Coding-Agent: glm-5.3 (ZCode orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master moved to 47f43405 (codec track, agy: test fixtures only, no overlap with jolt files); local branches jolt-j0a @ 9f1f9144 (PUSHED to origin) and jolt-j0c @ fd0adf80 (local, unpushed); main tree uncommitted: docs/orchestrator-log.md, mise.toml, untracked design docs and the J0b probe under build/jolt-spike/j0b/.
+Done: Owner "push the jolt-j0a branch and run J0b on shiva": pushed exactly jolt-j0a (no force, no PR). Orchestrator found the J0b probe hardcoded macOS errno/socket constants and a macOS-only runner, verified the Linux x86_64 constants from shiva's own headers (EAGAIN 11, EMSGSIZE 90, ENOBUFS 105, SO_SNDBUF 7, SO_RCVBUF 8, MSG_TRUNC 0x20), and had claude-opus-5-5 (session 8f45af4f-0557-4cfa-a375-78525ee6a40e) make udp_probe.clj and run.sh platform-aware (report collab/1792485587000-engineer-jolt-j0b-linux-port.claude-opus-5-5.findings.md; macOS stays 36 assertions/3 records). On shiva (Ubuntu 24.04.5, scratch clone ~/ci/datomworld-jolt-j0a checked out from origin/jolt-j0a): mise Chez 10.4.1 first failed to build with "cannot find -lncurses" (no libncurses-dev); the owner installed libncurses-dev with sudo (the orchestrator does not run sudo); then mise install chezscheme succeeded, bb bootstrap:jolt rc 0 (threaded Chez 10.4.1, CMake 4.4.4 linux-x86_64, jolt 96d7b866 + 7 submodules verified, 21 s), bb smoke:jolt rc 0 (6 PASS, SUMMARY ok), and the J0b probe passed 37 assertions/0 fail/3 records on three identical runs (platform :linux, measured max send 65507, EMSGSIZE 90, SO_SNDBUF 2048 read back 4608). Probe files copied to shiva were byte-identical (sha256 checked). cmd/qwen3.8-max review of the port and the Linux evidence: SIGNED OFF (findings collab/1792487422000-reviewer-jolt-j0b-linux.qwen3.8-max.findings.md).
+Decisions: owner OS policy changed twice: "project self contained ... without depending on OS specific install", then "actually, i change my mind. lets assume debian distribution and apt get for dependency management of package": final = Debian family + apt; the repo should declare its apt packages (suggested :os-packages in jolt-toolchain.edn checked by bb bootstrap:jolt with a dpkg -s and the exact apt command; NOT done yet) and the design doc sections 6.1/6.3 need a small amendment (NOT done yet). macOS dependency handling assumed Homebrew (not stated by the owner). Natural send-side would-block and a natural short send were never observed on either platform; those checks rest on labelled injection (cmd: acceptable under design 8.3).
+Verification: orchestrator ran all Linux commands over ssh in the foreground and checked hashes; shiva logs copied to build/jolt-spike/j0b/shiva/. Constants verified from shiva's headers by the orchestrator (cmd could not). NOT run: J0c on Linux, J0a long-hash gate, IPv6, sanitizers, J0c corpus parity. Left on shiva: the scratch clone, ~/ci logs, mise installs of Chez 10.4.1 and CMake 4.4.4; shiva's working copy was not touched. jupiter was left out as ordered.
+Delegates: opus 8f45af4f-0557-4cfa-a375-78525ee6a40e; cmd qwen 61966f9d-4875-4b42-9545-b0dc8a2c9891.
+Next: owner decisions: (1) commit the J0b probe somewhere (untracked scratch today) and push jolt-j0c for its Linux leg; (2) J0c on Linux needs libncurses-dev only for Chez (done) plus the C++ toolchain on shiva (g++/cmake present); (3) apt prerequisite declaration and design-doc amendment (architect or orchestrator-simple); (4) J0c round 2 scope; (5) who folds the spike overlays (plan: J1). Codec track runs separately under agy.
+
+
+## 2026-10-20 17:05:00 +0700 — dao.stream codec track: Slice C1 (consumers read profiles via accessors; remote-channel threads optional codecs) verified & signed off
+Completed-GMT: 2026-10-20 10:05:00 GMT
+Coding-Agent: Gemini (interactive orchestrator seat)
+Session-ID: cc118b7a-f972-4630-aa72-8f2dcac087ac
+Tree: master@8351e6393; uncommitted in main tree: docs/orchestrator-log.md, mise.toml, src/clj/dao/stream/ws/jvm.clj, src/cljc/dao/jing/stream.cljc, src/cljc/dao/stream/remote_channel.cljc, src/cljc/dao/stream/ws.cljc, src/cljd/dao/stream/ws/dart.cljd, src/cljs/dao/stream/ws/browser.cljs, src/cljs/dao/stream/ws/node.cljs, test/dao/jing/stream_test.cljc, test/dao/stream/loopback_net.cljc, test/dao/stream/remote_channel_test.cljc, test/dao/stream/ws_test.cljc.
+Done: Implemented and verified Slice C1 per dao.stream.codec.md §3.2, §3.3, §7.1 C1:
+  1. Consumer Accessors: Updated dao.stream.ws and all 4 host adapters (jvm.clj, node.cljs, dart.cljd, browser.cljs) to read profiles exclusively through dao.stream.codec accessors (codec/media-type, codec/subprotocol, codec/encode, codec/decode, codec/format-name). Defaults preserved (Transit).
+  2. Jing Decoupling: dao.jing.stream drops concrete codec requires, validates profiles via codec/profile?, and dispatches cleanly by codec/bytes? instead of format name, with unknown format round-trip safety.
+  3. Remote Channel Wiring: remote_channel.cljc threads optional :codecs / :codec through serve and dial without breaking default behaviour.
+  4. Code Review & Fixes: Codex gpt-6-astra identified P2 in remote_channel.cljc where (get config :codecs (default-codecs)) dropped an explicit empty vector []. Resolved with (contains? config :codecs) so explicit selections are strictly preserved and validated at endpoint creation before binding. Added regression test an-explicit-empty-codecs-is-refused-and-omitted-defaults-to-transit in remote_channel_test.cljc.
+  5. Sign-off: Codex gpt-6-astra signed off (collab/1792490380000-reviewer-codec-c1-final.gpt-6-astra.findings.md: SIGNED OFF).
+Decisions: Explicit empty codec vectors are preserved through configuration and rejected cleanly by ws/make-endpoint before network bind; omitted configs default to Transit.
+Verification: bb test:sub dao.stream dao.jing passed with zero failures across all 3 lanes: JVM 689 tests / 13,664 assertions (14s), Node 680 tests / 8,902 assertions (20s), Dart 657 tests (44s). Grep gate satisfied: no consumer accesses legacy profile keys directly.
+Delegates: claude-sonnet-5-5 (implementation & fix rounds); gpt-6-astra (code review & sign-off rounds).
+Next: Owner instruction to stage/commit Slice C1, clean up worktree ../datomworld-codec-c1, and commission Slice C2 (migrate yin.repl.serve / connect callers to CBOR by default with CLI / runtime prompt configurability, plus old/new peer bidirectional testing).
+
+
+## 2026-10-21 09:00:00 +0700 — dao.stream codec track: Slice C2 (migrate callers to explicit profiles & CBOR default) verified & signed off
+Completed-GMT: 2026-10-21 02:00:00 GMT
+Coding-Agent: Gemini (interactive orchestrator seat)
+Session-ID: cc118b7a-f972-4630-aa72-8f2dcac087ac
+Tree: master@eacaed90; modified: docs/design/dao.stream.codec.md, src/cljc/yin/repl/connect.cljc, src/cljc/yin/repl/dht.cljc, src/cljc/yin/repl/driver.cljc, src/cljc/yin/repl/main.cljc, src/cljc/yin/repl/serve.cljc, src/cljc/yin/repl/state.cljc, src/cljc/yin/vm/docs/yin.repl.md, src/cljc/yin/vm/linker/head/board.cljc, src/cljs/yin/repl/host.cljs, test/dao/stream/loopback_net.cljc, test/dao/stream/remote_channel_test.cljc, test/dao/stream/ws/browser_test.cljs, test/dao/stream/ws/dart_test.cljd, test/dao/stream/ws/jvm_test.clj, test/dao/stream/ws/node_test.cljs, test/dao/stream/ws_codec_test.cljc, test/dao/stream/ws_project_cross_jvm_test.clj, test/dao/stream/ws_project_cross_node_test.cljs, test/dao/stream/ws_project_jvm_test.clj, test/dao/stream/ws_project_peer.cljc, test/dao/stream/ws_project_test.cljc, test/dao/stream/ws_test.cljc, test/yin/repl/connect_test.cljc, test/yin/repl/driver_test.cljc, test/yin/repl/host/jvm_test.clj, test/yin/repl/host/node_test.cljs, test/yin/repl/main_test.cljc, test/yin/vm/linker/head_board_test.cljc, test/dao/stream/ws_project_corpus.cljc.
+Done: Implemented, verified, and signed off Slice C2 per dao.stream.codec.md §7.1 C2, §7.2, §7.3, §10 OQ1:
+  1. yin.repl Migration: Wire default set to dao.stream.cbor/profile on serve/serve! and connect/open. Added CLI --codec cbor|transit option parsing in main.cljc (saved in state, documented in --help). Prompt-level (connect url :codec :transit|:cbor) enables dynamic per-connection codec configuration.
+  2. Latent bug fix: Fixed src/cljs/yin/repl/host.cljs bind! which previously dropped :codecs on Node.
+  3. Call-site Migration: Replaced all 1-arity descriptor gates (ws/descriptor? and ws/servable-descriptor?) with 2-arity calls. Migrated all test call sites across ws_test, remote_channel_test, ws_project_test, loopback_net, etc. to supply explicit profiles. Added the-suite-over-cbor parameterizing 43 tests over CBOR in remote_channel_test.cljc.
+  4. R1 & R2 Closures: Fixed indirect host calls (:bind!, :connect!) in jvm_test.clj and node_test.cljs. Created test/dao/stream/ws_project_corpus.cljc with 34-value Transit and 40-value CBOR corpus (including clean metadata, CBOR lists, and Jing payload).
+  5. Section 7.3 Wire Proof: Executed bidirectional live corpus exchange between Node(new) and genuine F0 old-peer worktree (47f43405c) across both role assignments in both directions with 0 failures (502 tests, 4,286 assertions). Negative control verified (perturbing F0 corpus produced 152 failures). JVM(old) <-> JVM(new) verified 8/8 PASS across all configurations.
+  6. Independent Sign-off: Codex gpt-6-astra SIGNED OFF WITH CHANGES (collab/1792526500000-reviewer-codec-c2-r3.gpt-6-astra.findings.md).
+Decisions: yin.repl wire default moves to CBOR in C2 (resolving OQ1); intentional default test at remote_channel_test.cljc:244 noted for C3 rewrite.
+Verification: bb test:sub dao.stream passed across all 3 lanes (CLJ 499 tests / 0 failures, CLJS 502 tests / 0 failures, CLJD 431 tests / 0 failures). Frozen fixtures pass 100%.
+Delegates: claude-sonnet-5-5 (implementation & fix rounds); claude-fable-5-1 (architect sign-off); gpt-6-astra (independent review & final sign-off rounds).
+Next: Proceed to commission Slice C3 (Contract: dropping defaults and Transit require in dao.stream.ws and host adapters).
+
+
+## 2026-10-21 09:30:00 +0700 — dao.stream host-boundary track: Slice H0 (closure allowlist, tooling & gate test) verified & signed off
+Completed-GMT: 2026-10-21 02:30:00 GMT
+Coding-Agent: Gemini (interactive orchestrator seat)
+Session-ID: cc118b7a-f972-4630-aa72-8f2dcac087ac
+Tree: active worktree .claude/worktrees/host-h0 on branch host-h0 (HEAD 9f6fc27d, based on local master); modified: docs/design/host-boundary/closure-clj.edn, docs/design/host-boundary/closure-cljd.edn, docs/design/host-boundary/closure-cljs.edn, docs/design/test.subsystems.md, src/dev/host_boundary/closure.clj, src/dev/subsystems.edn, test/dao/host/gate_test.clj; main tree: docs/design/dao.stream.host-boundary.md (r10).
+Done: Implemented, verified, and signed off Slice H0 per dao.stream.host-boundary.md §8 H0, §8.1, §14:
+  1. Pure Freeze: Zero src/clj{,s,d,c} runtime changes. Created closure tool src/dev/host_boundary/closure.clj, gate test test/dao/host/gate_test.clj, closure allowlists docs/design/host-boundary/closure-{clj,cljs,cljd}.edn, and corpus manifest corpus-sha256.edn.
+  2. Closure Totals: Matches §3.1 table exactly across all lanes: clj 142, cljs 140, cljd 141, shared 133; lane differences 9/7/8; union 155.
+  3. Review Rounds & Fixes:
+     - Independent reviewer Codex gpt-6-astra identified H0-R1 (body vectors skipped), H0-R2 (lexical scoping across arities and host lanes), H0-R3 (real IO exception handling as :scan-failure), H0-R4 (subsystem registration), and H0-R5 (specify/specify! target expression traversal).
+     - claude-opus-5-5 resolved H0-R1..R5 with extensive regression tests. Registered dao.host in src/dev/subsystems.edn and docs/design/test.subsystems.md.
+     - Section 8.1 reconciliation: claude-fable-5-1 applied r10 amendment to docs/design/dao.stream.host-boundary.md adding the 8 bounded file/category/class exceptions. gate_test.clj enforces category binding bidirectionally.
+  4. Sign-off: Codex gpt-6-astra SIGNED OFF (collab/1792531500000-reviewer-host-boundary-h0-r4.gpt-6-astra.findings.md).
+Decisions: Retain explicit 8-row bounded-exception table; enforce category binding strictly; no unrestricted lane exemptions.
+Verification: bb test:sub:clj dao.host passes cleanly (11 tests, 147 assertions, 0 failures). Closure tool --check and corpus hashes exit 0.
+Delegates: claude-opus-5-5 (implementation & fix rounds); claude-fable-5-1 (r10 design amendment); gpt-6-astra (independent review & sign-off rounds).
+Next: Owner instruction to commit Slice H0 on branch host-h0, publish closure artifacts to Jolt seat, and commission Slice H1 (dao.host.{integer,float,number,bytes,text} pure primitives).
+
+## 2026-10-21 10:20:00 +0700 — dao.stream codec track: Slice C3 (contract removal of defaults) signed off & merged
+Completed-GMT: 2026-10-21 03:20:00 GMT
+Coding-Agent: Gemini (interactive orchestrator seat)
+Session-ID: cc118b7a-f972-4630-aa72-8f2dcac087ac
+Tree: branch codec-c3 in worktree ../datomworld-codec-c3; merged into master at /Users/sto/workspace/datomworld.
+Done: Implemented, verified, and signed off Slice C3 per docs/design/dao.stream.codec.md §§4.2, 4.3, 7.1 C3, 7.3:
+  1. Default Removal: Removed implicit Transit fallback defaults from `make-endpoint`, `make-client`, host adapters (`jvm.clj`, `node.cljs`, `browser.cljs`, `dart.cljd`), and `remote-channel` (`serve`, `dial`). Codec-less composition now explicitly throws or returns `::no-codec` refusal.
+  2. Strict Table Gate: `make-endpoint` requires a non-empty vector of valid codec profiles (rejects sets and lists).
+  3. Dart Pre-Bind Gate: Dart `bind!` verifies valid non-empty profile vector prior to `HttpServer.bind` / `:deposit!`.
+  4. Test Hardening: Added negative test cases across all three lanes (`ws_test.cljc`, `ws_project_jvm_test.clj`, `node_test.cljs`, `dart_test.cljd`).
+  5. Reviews: Initial review by gpt-6-astra identified R1..R4; claude-sonnet-5-5 addressed all findings; claude-fable-5-1 re-reviewed and granted SIGNED OFF WITH CHANGES (R5 dependency-reading ruling recorded; R6 docstring updates applied).
+  6. Verification: Multi-lane tests pass 100% across all 3 lanes (CLJ 503 tests / 3905 assertions; CLJS 506 tests / 4294 assertions; CLJD 435 tests / 0 failures).
+Decisions: R5 literal grep gate satisfied under dependency reading (`dao.jing.stream` docstrings and H0 closure inventory retained). R6 docstring corrections applied in `remote_channel.cljc`.
+Delegates: claude-sonnet-5-5 (implementation & fix rounds); gpt-6-astra (initial review); claude-fable-5-1 (final architectural review & sign-off).
+Next: Proceed to Slice C4 (Contract: single acceptance key set).
+
+## 2026-10-21 10:48:00 +0700 — dao.stream host-boundary track: Slice H1 (pure primitive profile) verified, accepted & merged
+Completed-GMT: 2026-10-21 03:48:00 GMT
+Coding-Agent: Gemini (interactive orchestrator seat)
+Session-ID: cc118b7a-f972-4630-aa72-8f2dcac087ac
+Tree: branch host-h1 in worktree ../datomworld-host-h1; merged into master at /Users/sto/workspace/datomworld.
+Done: Implemented, verified, and landed Slice H1 per dao.stream.host-boundary.md r10 (§2.4, §4.2, §4.3, §8 H1, §8.1):
+  1. Pure Primitive Namespaces: Created `dao.host.integer` (28 entries), `dao.host.float` (5 Table A entries + 13 kernel helpers), `dao.host.number` (10 entries + Table C carriers), `dao.host.bytes` (10 entries: P immutability, M prevalidated writes & memmove), `dao.host.text` (6 Table A entries + `code-points`). Total 59 Table A entries. Zero unauthorized dependencies (no `yin` require).
+  2. Test Suites & Resources: Pinned Unicode 16.0 normalization subset resource `nfc-16.0-subset-v1.txt` (17,130 rows). Created `dao.host.conformance-test` (Table D oracle matrix, 15 deftests), `dao.host.bytes-test` (6 deftests), `dao.host.float-test` (4 deftests), `dao.host.text-test` (6 deftests).
+  3. Gate Integration (F2): Gate test `dao.host.gate-test` extended with `profile-additions` mechanism; scans 160 files (155 closure + 5 profile additions); 12 tests / 180 assertions pass 0 errors.
+  4. Remote Multi-Lane Verification (jupiter, 48 cores):
+     - CLJ: 5 namespaces, 43 tests, 1,050 assertions, 0 failures (22 s)
+     - CLJS: 4 namespaces, 31 tests, 876 assertions, 0 failures (14 s)
+     - CLJD: 4 namespaces, 31 tests, All tests passed, 0 failures (78 s)
+  5. Architect Reviews & Owner Acceptance Ruling (F1):
+     - claude-fable-5-1 issued SIGNED OFF WITH CHANGES (C1 known-gaps row, C2 nfc docstring, C3 parse-decimal table A text).
+     - gpt-6-astra independently verified Table A/B/C and confirmed F2, requesting formal owner acceptance for the JDK 21 Unicode 15.0 NFC gap on the 20 Unicode 16.0 code points.
+     - Owner explicitly ruled: Option A approved (temporary acceptance exception recorded in known-gaps.md under P2; text.cljc nfc docstring updated; r11 amendment to Table A parse-decimal recorded).
+Decisions: Owner approved Option A for F1. H1 merged cleanly into local master.
+Delegates: claude-opus-5-5 (implementation & fix rounds); claude-fable-5-1 (system architect review); gpt-6-astra (independent review & verification).
+Next: Commission Slice H2 (Consumer migration and deletion of legacy host shims).
+
+## 2026-10-21 11:15:00 +0700 — dao.stream codec track: Slice C4 (contract single key set) verified, signed off & merged
+Completed-GMT: 2026-10-21 04:15:00 GMT
+Coding-Agent: Gemini (interactive orchestrator seat)
+Session-ID: cc118b7a-f972-4630-aa72-8f2dcac087ac
+Tree: branch codec-c4 in worktree ../datomworld-codec-c4; merged into master at /Users/sto/workspace/datomworld.
+Done: Implemented, verified, and landed Slice C4 per docs/design/dao.stream.codec.md §§3.2, 3.3, 7.1 C4, 7.3, 10 CD5/OQ3:
+  1. Single Key Set: Dropped legacy `:ws/*` keys from `transit.cljc` and `cbor.cljc` profiles. Contract namespace `codec.cljc` simplified to single-lookup accessors without fallback. `codec/profile?` requires complete six `:dao.stream.codec/*` keys with explicit boolean `bytes?`.
+  2. Test Hardening (C4-R1): Rewrote C0 gate tests in `codec_test.cljc` to construct a complete retired legacy profile (via dynamic keywords) and assert strict rejection of legacy maps and fallback absence while preserving the 4 deftests / 25 assertions structure.
+  3. Formal OQ3 Resolution: Recorded owner decision in `docs/design/dao.stream.codec.md` resolving OQ3 (moving keys to `:dao.stream.codec/*` per CD5).
+  4. Grep Gate: Verified `grep -E ':ws/(frame-kind|portable-value\?|encode|decode|bytes\?)' src/ test/` is completely clean of profile keys (matches only `:ws/decode-failure` event keyword). `:ws/subprotocol` survives exclusively on transport seam maps.
+  5. Section 7.3 Wire Proof (C4-R2):
+     - Executed live Node(new) <-> JVM(F0 old peer at 47f43405c) bidirectional exchange: 506 tests, 4,294 assertions, 0 failures.
+     - Executed live JVM(new) <-> JVM(F0 old peer) bidirectional corpus driver (`c4_jvm_corpus.py`): 8/8 PASS across all role combinations (Transit 34/34 values, CBOR 40/40 values, Jing payloads).
+  6. Multi-Lane Verification:
+     - CLJ: 35 namespaces, 503 tests, 0 failures (pass)
+     - CLJS: 35 namespaces, 506 tests, 0 failures (pass)
+     - CLJD: 33 namespaces, 435 tests (pass; 1 unrelated Linux UDP timeout known gap).
+  7. Architect Sign-offs:
+     - claude-fable-5-1 SIGNED OFF WITH CHANGES (R1..R4 applied; R5/R6 executed).
+     - gpt-6-astra (Codex) SIGNED OFF WITH CHANGES (C4-R1 test hardening and C4-R2 JVM live peer exchange completed and verified).
+Decisions: OQ3 formally closed (CD5 key move confirmed). Track 1 (`dao.stream` codec redesign) is now 100% complete across Slices F0, C0, C1, C2, C3, and C4.
+Delegates: claude-sonnet-5-5 (implementation & fix rounds); claude-fable-5-1 (system architect review); gpt-6-astra (independent review & verification).
+
+## 2026-10-21 12:0x +0700 — jolt J1 (dao.host profile overrides for jolt) committed on jolt-j1; jolt-j0a pushed; coordination note exchanged
+Completed-GMT: 2026-10-21 05:0x GMT
+Coding-Agent: glm-5.3 (ZCode orchestrator seat, the JOLT seat)
+Session-ID: not-applicable (interactive seat)
+Tree: local branch jolt-j1 @ f6f3ca00 (merge d4dbabfe of jolt-j0a into master b9480268, then the J1 commit); worktree .claude/worktrees/jolt-j1 clean; NOT pushed; jolt-j0a pushed (d5b4ce95); jolt-j0b, jolt-j0c pushed; main tree uncommitted: this log, mise.toml, untracked design docs.
+Done: Another seat (Gemini, interactive) now runs the host-boundary track (H0 merged 32d1e380, H1 merged 6b21521c, H2 in flight in datomworld-host-h2) and the codec track (C2, C3 merged; C4 signed off with changes). Owner: "go, write the collab note and start J1": note sent (collab/1792555413000-orchestrator-note-jolt-to-host-boundary.md), reply read (collab/1792555520000-orchestrator-note-host-boundary-to-jolt.md: the 59 Table A functions of H1 are frozen except the r11 parse-decimal amendment; mise.toml untouched; additive bb.edn/deps.edn only; notes will follow H2/H3/H4 landings; CBOR profile keys are :dao.stream.codec/*, no Transit dependency). J1 (opus session 236a3e08-3b0b-445b-92f3-d2944dc27ea3, reports collab/1792555441000-engineer-jolt-j1.claude-opus-5-5.findings.md and collab/1792556782000-engineer-jolt-j1-r2.claude-opus-5-5.findings.md): five full-file overrides src/jolt/dao/host/*.jolt (the :jolt alias puts src/jolt before src/cljc), a jolt-only clojure.data.json shim, a tracked runner (bb test:jolt-host, test:jolt-runner-self), a 1530-case JVM-vs-jolt compare script, .cljstyle gained the jolt extension. Results: bytes-test 98/98 on jolt; float-test (63/63 diagnostic), text-test (70/82 diagnostic: surrogate stop plus a (Runtime/version) call) and conformance-test cannot load until H2/H4 remove BigInteger/boring from dao.jing.cbor; Chez 10.4.1 implements Unicode 17.0.0 and passes all 17,130 rows of the pinned 16.0 NFC fixture (no gap, unlike the JDK exception). Second note (collab/1792556765000-orchestrator-note-jolt-to-host-boundary-2.md) asked the host-boundary Architect to rule on the unpaired-surrogate law (a code-point host cannot hold a surrogate string).
+Decisions: owner relayed the note and authorized commits on jolt-j1 and the push of jolt-j0a (done). Review: cmd out of credits, astra rate-limited until 14:03, so the owner ruled "use glm-5.3 for review": glm SIGNED OFF WITH CHANGES (collab/1792557634000-reviewer-jolt-j1.glm-5.3.findings.md): J1-R1 carrier-type difference ((big-carrier? (promote 5)) false on jolt) to be recorded as a jolt row in the profile's carrier table (host-boundary seat edit), J1-R2 unpaired surrogate open ruling (acceptable to commit; must be ruled before J2/J5), J1-R3 json write-str differences (U+007F, keywords) unreachable, J1-R4 add compare cases for float64-of/float-value on decimal/ratio carriers before H2 consumers, J1-R5 out-of-domain unit above 0xFFFF note, J1-R6 attribution of the .cljstyle change. Orchestrator errors recorded: an unquoted second value in the stored session id file made the first glm review launch fail (Invalid session ID), re-launched; a first astra scheduling was cancelled when the owner chose glm.
+Verification: orchestrator re-ran bb smoke:jolt (rc 0), test:jolt-runner-self (rc 0), test:jolt-host (rc 1 by design: bytes 98/98, three load failures citing boring/core), cljstyle check on a .jolt file, the compare exit (1, only the surrogate cases). Commit stats equal the staged diffs (hook changed nothing). NOT run: Linux for J1; the compare script in CI; any J2/J3.
+Delegates: opus 236a3e08-3b0b-445b-92f3-d2944dc27ea3 (J1); glm bd24f82c-864b-40fd-8755-681357a37ea0 review (and its first failed launch).
+Next: J1 round 3: J1-R4 compare cases; Linux run of J1 on shiva/jupiter (needs jolt-j1 pushed: ask the owner); wait for the surrogate ruling and for the host-boundary seat's H2/H3/H4 notes; then J2/J3. Rebase/merge order of the jolt branches onto master remains an owner decision.
+
+## 2026-10-21 12:25:00 +0700 — dao.stream host-boundary track: Slice H2 (consumer migration & shim deletion) verified, signed off & merged
+Completed-GMT: 2026-10-21 05:25:00 GMT
+Coding-Agent: Gemini (interactive orchestrator seat)
+Session-ID: cc118b7a-f972-4630-aa72-8f2dcac087ac
+Tree: branch host-h2 in worktree ../datomworld-host-h2; merged into master at /Users/sto/workspace/datomworld.
+Done: Implemented, verified, and landed Slice H2 per dao.stream.host-boundary.md r10 (§2.4, §3.1, §4.2 table B, §8 H2, §8.1, §8.2):
+  1. Shim Deletion & Pre/Post Gates: `src/cljc/yin/vm/integer/host.cljc` deleted via `git rm`. Closure tool reports required by 0 files.
+  2. Consumers Migrated: Core VM (`yin/vm.cljc`, `yin/vm/data.cljc`, `yin/vm/engine.cljc`, `yin/vm/integer.cljc`, `yin/vm/values.cljc`) and Yang Python suites migrated to `dao.host.integer`.
+  3. Float-Text Kernel: Deleted 272 lines of private copy in `yin.vm.integer`, delegating directly to `dao.host.float` with `::float-overflow` sentinel mapped.
+  4. Modules Migrated to `dao.host.*`: `dao.jing.cbor` (-555 lines), `debruijn.cljc`, `debruijn_code.cljc`, `chunks.cljc`, `jing.dht.cljc`, `linker.cljc`, `datagram.cljc`, `yang.php.cljc`, `yang.antlr.packet.cljc`, `dao.space.index.cljc`.
+  5. Arrays Hardening: `dao.data.arrays` gains stable sort (`asort`), prevalidation before writes on JS/Dart, and no-partial-write test coverage (`arrays_test.cljc`).
+  6. Host-Library Gate (§8.2): Library mode added to `gate_test.clj` verifying no unlisted host imports or classes across the closure (passes cleanly).
+  7. Verification Evidence:
+     - On jupiter (48 cores): `bb test:sub dao.host` passed on all 3 lanes (CLJ 45/1048, CLJS 31/876, CLJD 31).
+     - On shiva (24 cores): `bb test:sub dao.stream` passed on all 3 lanes (CLJ 503/0, CLJS 506/0, CLJD 435/1 with only known UDP timeout).
+     - New H2 test suites (`arrays_test.cljc`, `php_literal_test.cljc`, `bytes_to_str_test.cljc`): 7 tests, 70 assertions, 0 failures.
+  8. Architect Sign-offs:
+     - claude-fable-5-1 SIGNED OFF WITH CHANGES (C1 gate data edits, C2 known-gaps row, C3 r11 amendments applied).
+     - deepseek-v4-pro independently confirmed and SIGNED OFF WITH CHANGES (all findings confirmed; JVM gate and test suites independently executed and verified).
+Decisions: Retained host number-model arms classified per F2. Post-H2 closure numbers updated to 146/144/145 (137 shared, 159 union).
+Delegates: claude-opus-5-5 (implementation & fix rounds); claude-fable-5-1 (system architect review); deepseek-v4-pro (independent architectural confirmation per §14).
+Next: Commission Slice H3 (dao.host.hash, dao.host.sign, and portable Base64).
+
+## 2026-10-21 15:25:00 +0700 — dao.stream host-boundary track: Slice H3 (hash/sign profile primitives, portable base64, consumer migration) verified, signed off & merged
+Completed-GMT: 2026-10-21 08:25:00 GMT
+Coding-Agent: Gemini (interactive orchestrator seat)
+Session-ID: cc118b7a-f972-4630-aa72-8f2dcac087ac
+Tree: branch host-h3 in worktree ../datomworld-host-h3; merged into master at /Users/sto/workspace/datomworld.
+Done: Implemented, verified, and landed Slice H3 per dao.stream.host-boundary.md r10 (§2.4, §3.1, §4.2 table B, §8 H3, §8.1, §8.2, §14):
+  1. Profile Primitives: Added pure (P) primitives in `dao.host.hash` (`blake3-bytes`, `sha256-bytes`) and `dao.host.sign` (`keypair-from-seed`, `sign`, `verify`) across CLJ, CLJS, CLJD.
+  2. Portable Base64: Completely rewritten `dao.stream.base64` as a pure portable bitwise codec over `dao.host.bytes` (RFC 4648 standard & URL-safe, padding optional on decode, 0 host dependencies).
+  3. Consumer Migrations:
+     - `dao.jing` migrated to `dao.host.hash` and `dao.host.text/utf8-encode`, removing `goog.crypt`, `crypto/crypto.dart`, and `blake3_dart`.
+     - `yin.vm.linker.sign` migrated to `dao.host.sign` and `dao.host.text/utf8-encode`, removing `goog.crypt`, `java.security.KeyFactory/Signature`, etc. Deferred entropy `generate` retained.
+     - Strict unpaired-surrogate encode refusal enforced on consumers (`dao.jing/digest-string`, `yin.vm.linker.sign` message assembly) with Table D conformance tests in `hash_test.cljc`.
+  4. Gate & Closure (§8.2):
+     - Host-Library Gate extended with H3 names: `MessageDigest`, `Blake3`, `noble`, `blake3_dart`, `package:crypto`, `ed25519_edwards`, `goog.crypt.base64`, permitting `ed25519_edwards` only in `sign.cljc` (`generate`).
+     - Added `dao.host.sign.cljc` to list-2 (`{:secure-random 1, :m-entry 11}`) and updated `sign.cljc` to `{:secure-random 2}`.
+     - Regenerated closure EDNs (`closure.clj --write`) and updated gate test assertions:
+       148 CLJ / 146 CLJS / 147 CLJD, 139 shared, 161 union.
+     - `dao.host.gate-test` passes cleanly on JVM (14 tests, 178 assertions, 0 failures).
+  5. Verification Evidence Across All 3 Lanes:
+     - `dao.host`: CLJ (6 ns, 50 tests, 0 failures), CLJS (5 ns, 36 tests, 0 failures), CLJD (5 ns, 36 tests, 0 failures).
+     - `dao.stream`: CLJ (35 ns, 503 tests, 0 failures), CLJS (35 ns, 506 tests, 0 failures), CLJD (33 ns, 435 tests, 0 failures).
+     - `dao.jing`: CLJ (15 ns, 235 tests, 0 failures), CLJS (13 ns, 228 tests, 0 failures), CLJD (13 ns, 227 tests, 0 failures).
+     - `yin.vm`: CLJ (74 ns, 1273 tests, 0 failures), CLJS (69 ns, 1341 tests, 0 failures), CLJD (69 ns, 1266 tests, 0 failures).
+  6. Independent Architect Review:
+     - `deepseek-v4-pro` independently reviewed the diff, independently executed tests in the worktree, and issued formal SIGNED OFF (collab/1792570210000-reviewer-host-boundary-h3.deepseek-v4-pro.findings.md).
+Decisions: Branch `host-h3` committed and cleanly merged into `master`. Post-H3 closure numbers: 148 CLJ / 146 CLJS / 147 CLJD (139 shared, 161 union).
+Delegates: deepseek-v4-pro (independent architectural review and verification per §14).
+Next: Commission Slice H4 (CBOR codec carrier migration and host-boundary completion).

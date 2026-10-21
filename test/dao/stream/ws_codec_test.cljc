@@ -159,7 +159,7 @@
        (let [traffic (buffer)
              adapter (atom nil)
              _ ((ws/make-attacher
-                  {:traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
+                  {:codec transit/profile :traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
                    :admission admission
                    :connect! (fn [_ a]
                                (reset! adapter a)
@@ -241,12 +241,9 @@
        (is (ws/descriptor? descriptor cbor/profile)))
 
 
-     (deftest the-transit-default-is-unchanged-when-no-subprotocol-is-named
-       ;; Direct composition and unit tests pass a plain seam; it must keep
-       ;; meaning the Transit profile, exactly as before the codec work.
-       (let [client (accept-and-ack! (dual-endpoint [transit/profile cbor/profile]) nil)]
-         (is (= :dao.stream/ok
-                (:dao.stream/outcome
-                  (stream/append! (:ws/handle (:accepted client)) :out))))
-         (is (= {:ws/frame :ws/value :ws/value :out}
-                (transit/decode (first @(:sent client)))))))))
+     (deftest no-subprotocol-named-is-refused
+       ;; There is no default profile: a seam that names nothing is refused.
+       (let [ep (dual-endpoint [transit/profile cbor/profile])
+             result (ws/accept-connection! ep "/yin/repl"
+                                           {:send! (fn [_] nil) :close! (fn [& _] nil)})]
+         (is (= :ws/unsupported-subprotocol (:ws/status result)))))))

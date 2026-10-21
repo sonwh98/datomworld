@@ -1,8 +1,15 @@
-(ns yin.vm.integer.host
-  "The per-host shim the exact-integer kernels of `yin.vm.integer` are
-   written over (C3 rulings 2 and 5): carrier recognition, promotion to
-   the host big integer, demotion to the one canonical carrier, and the
-   few exact big-integer operations each host provides natively.
+(ns dao.host.integer
+  "The exact-integer entries of the primitive profile
+   (docs/design/dao.stream.host-boundary.md §4.2, table A): carrier
+   recognition, promotion to the host big integer, demotion to the one
+   canonical carrier, the exact big-integer operations each host
+   provides natively, and decimal parsing, gcd and magnitude bytes.
+
+   Every entry is kind P (§2.4): pure, total over its declared domain,
+   synchronous, allocating only fresh values, leaving every argument
+   unchanged; equal arguments give equal results on every host. The
+   oracle is table D's integer rows, re-asserted through this namespace
+   by `dao.host.conformance-test`.
 
    Each integer value has exactly one carrier per host:
 
@@ -13,19 +20,27 @@
    | Dart | `int`, signed 64-bit                | `BigInt`             |
 
    `promote` turns any exact-integer carrier into the host big integer
-   the operations below take (`java.math.BigInteger` on the JVM, which
-   never leaves this namespace and `yin.vm.integer`); `demote` turns a
-   result back into its canonical carrier. JavaScript holds +/-2^53 as a
-   `BigInt`, never as an unsafe `Number`, and a JavaScript `-0` is
-   floating-point content, not an integer, as `dao.jing.cbor` classifies
-   it.
+   the operations below take (`java.math.BigInteger` on the JVM);
+   `demote` turns a result back into its canonical carrier. JavaScript
+   holds +/-2^53 as a `BigInt`, never as an unsafe `Number`, and a
+   JavaScript `-0` is floating-point content, not an integer.
 
-   This namespace depends on nothing: it does not reach into
-   `dao.jing.cbor`'s private big-integer helpers, so Jing stays a passive
-   codec. Every reader conditional names `:cljd` first, because the
-   ClojureDart build also reads `:clj`."
-  #?@(:cljd [(:import ["dart:core" BigInt])]
+   The entries from `big-carrier?` to `to-radix-string` were moved
+   verbatim from the former `yin.vm.integer.host` shim (slice H1); slice
+   H2 moved its consumers here and deleted it. A refusal throws `ex-info` whose data carries
+   `:dao.host/refusal`, a class keyword, and `:dao.host/entry`. This
+   namespace requires nothing in the repository. Every reader
+   conditional names `:cljd` first, because the ClojureDart build also
+   reads `:clj`."
+  #?@(:cljd [(:import ["dart:core" BigInt]
+                      ["dart:typed_data" Uint8List])]
       :clj [(:import (java.math BigInteger))]))
+
+
+(defn- refuse
+  [entry cls detail]
+  (throw (ex-info (str "dao.host refused: " entry " " (name cls) " (" detail ")")
+                  {:dao.host/refusal cls :dao.host/entry entry :detail detail})))
 
 
 ;; =============================================================================
@@ -297,3 +312,79 @@
   #?(:cljd (.toRadixString ^BigInt a radix)
      :clj (.toString ^BigInteger a (int radix))
      :cljs (.toString a radix)))
+
+
+;; =============================================================================
+;; Decimal text, gcd and magnitude bytes (from dao.jing.cbor)
+;; =============================================================================
+
+(def ^:private ascii-digits
+  #{"0" "1" "2" "3" "4" "5" "6" "7" "8" "9"})
+
+
+(defn- decimal-digits?
+  "True when `s` is a non-empty run of ASCII digits after one optional
+   leading `-`."
+  [s]
+  (let [n (count s)
+        start (if (and (pos? n) (= "-" (subs s 0 1))) 1 0)]
+    (and (< start n)
+         (every? #(contains? ascii-digits (subs s % (inc %)))
+                 (range start n)))))
+
+
+(defn parse-decimal
+  "P. The host big integer of decimal text `s`: one optional leading
+   `-` and one or more ASCII digits, nothing else. Any other text (an
+   empty string, a `+`, whitespace, a radix prefix, a non-string) is
+   refused `:malformed-number`, before the host parser sees it, so no
+   host's laxer grammar (Dart's whitespace, JS's `0x`, the JVM's `+`)
+   decides acceptance."
+  [s]
+  (when-not (and (string? s) (decimal-digits? s))
+    (refuse 'parse-decimal :malformed-number "not decimal digit text"))
+  #?(:cljd (BigInt.parse s)
+     :clj (BigInteger. ^String s)
+     :cljs (js/BigInt s)))
+
+
+(defn gcd
+  "P. The greatest common divisor of host big integers `a` and `b`,
+   never negative; `(gcd 0 0)` is 0."
+  [a b]
+  #?(:cljd (.gcd ^BigInt a b)
+     :clj (.gcd ^BigInteger a ^BigInteger b)
+     :cljs (loop [x (if (js* "(~{} < ~{})" a js-zero) (js* "(-~{})" a) a)
+                  y (if (js* "(~{} < ~{})" b js-zero) (js* "(-~{})" b) b)]
+             (if (js* "(~{} === ~{})" y js-zero)
+               x
+               (recur y (js* "(~{} % ~{})" x y))))))
+
+
+(defn magnitude-bytes
+  "P, fresh. The minimal big-endian bytes of non-negative host big
+   integer `b`, empty for zero: the payload of CBOR tags 2 and 3. A
+   negative `b` is refused `:out-of-range`. The caller holds the
+   exclusive mutation right to the result (§2.4)."
+  [b]
+  (when (neg? (compare-big b (from-native 0)))
+    (refuse 'magnitude-bytes :out-of-range "negative"))
+  #?(:cljd (let [ff (BigInt.from 255)
+                 zero (BigInt.from 0)]
+             (loop [b b acc ()]
+               (if (= 0 (.compareTo ^BigInt b zero))
+                 (Uint8List.fromList (vec acc))
+                 (recur (. ^BigInt b ">>" 8)
+                        (conj acc (.toInt ^BigInt (. ^BigInt b "&" ff)))))))
+     :clj (let [raw (.toByteArray ^BigInteger b)]
+            (if (and (pos? (alength raw)) (zero? (aget raw 0)))
+              (java.util.Arrays/copyOfRange raw 1 (alength raw))
+              raw))
+     :cljs (if (js* "(~{} === ~{})" b js-zero)
+             (js/Uint8Array. 0)
+             (let [h (.toString b 16)
+                   h (if (odd? (count h)) (str "0" h) h)
+                   out (js/Uint8Array. (quot (count h) 2))]
+               (dotimes [i (alength out)]
+                 (aset out i (js/parseInt (subs h (* 2 i) (+ 2 (* 2 i))) 16)))
+               out))))

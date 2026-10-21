@@ -1577,10 +1577,18 @@
       (is (not (contains? started :state))))))
 
 
+(deftest codec-flag-selects-the-served-wire-profile
+  (is (= nil (:codec (repl/parse-args []))) "absent means the cbor default")
+  (is (= :transit (:codec (repl/parse-args ["--codec" "transit"]))))
+  (is (= :cbor (:codec (repl/parse-args ["--codec" "cbor"]))))
+  (is (str/includes? (ex-message (refusal-of #(repl/parse-args ["--codec" "xml"])))
+                     "--codec takes cbor or transit")))
+
+
 (deftest help-documents-every-flag-and-subcommand
   (let [text (str/join "\n" repl/help-lines)]
     (doseq [word ["--vm" "--reset" "--no-state" "state.edn" "--port"
-                  "--headless" "--index-store" "--help"
+                  "--headless" "--index-store" "--help" "--codec"
                   "--dht-peer" "--dht-publish" "--dht-bind" "--dht-port"
                   "--dht-max-inbound-bytes" "--dht-manifest" "--dht-key"
                   "--dht-principal" "--dht-trust" "--dht-follow" "heads.edn"

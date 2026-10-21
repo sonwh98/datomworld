@@ -30,7 +30,7 @@
             [yin.vm.debruijn.register :as rvm]
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.integer :as integer]
-            [yin.vm.integer.host :as host]
+            [dao.host.integer :as host]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))

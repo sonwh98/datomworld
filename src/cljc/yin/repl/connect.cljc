@@ -35,8 +35,10 @@
   (:require [clojure.string :as str]
             [dao.data :as data]
             [dao.stream :as stream]
+            [dao.stream.cbor :as cbor]
             [dao.stream.remote-channel :as remote-channel]
             [dao.stream.rpc :as rpc]
+            [dao.stream.transit :as transit]
             [yin.repl.host.common :as host-common]))
 
 
@@ -295,11 +297,17 @@
     (str "Attaching to " url " answered " (pr-str (:dao.stream/outcome result)))))
 
 
+(def codec-profiles
+  "The wire profiles a REPL endpoint or connection can be asked for by name."
+  {:cbor cbor/profile :transit transit/profile})
+
+
 (defn- dial
-  "Dial `spec` by the two identities at the driver's `now`, answering
-   `[dial nil]` when attached or `[nil failure]`."
-  [url spec host now]
+  "Dial `spec` by the two identities at the driver's `now` under `codec`
+   (a profile), answering `[dial nil]` when attached or `[nil failure]`."
+  [url spec host now codec]
   (let [d (remote-channel/dial {:spec spec :host host :now now
+                                :codec codec
                                 :identities [requests-identity
                                              answers-identity]})]
     (case (:status d)
@@ -331,8 +339,8 @@
    reported `:established` without waiting on any transport event.  The
    RPC client's response cursor is the `:dao.stream/newest` anchor;
    `rpc/poll!` resolves it, retrying while the answers reflection answers
-   a retryable mint."
-  [{:keys [url host now]}]
+   a retryable mint.  `:codec` is the wire profile, CBOR when absent."
+  [{:keys [url host now codec] :or {codec cbor/profile}}]
   (let [parsed (parse-url url)]
     (cond
       (not= :yin.repl.connect/parsed (get parsed outcome-key))
@@ -344,12 +352,13 @@
 
       :else
       (let [spec (get parsed spec-key)
-            [d refusal] (dial url spec host now)]
+            [d refusal] (dial url spec host now codec)]
         (or refusal
             {outcome-key :yin.repl.connect/attached
              connection-key {:url url
                              :spec spec
                              :host host
+                             :codec codec
                              :dial d
                              :status :established
                              :detached-by nil}
@@ -421,24 +430,28 @@
   "Reattach an existing connection at the driver's `now`: the old dial is
    closed (its reflections already observed the loss), a fresh dial by the
    same identities is composed as `open` composes one, then `rpc/rebind`.
+   The dial uses `codec` when given, else the connection's own.
 
    The RPC client's response cursor and its collision-checked random id
    allocator survive; only the writer and reader reflections change."
-  [connection client now]
-  (if-not (reattachable? connection client)
-    (failure :yin.repl.connect/not-reattachable
-             (str "Only a dropped connection reattaches; this one ended as "
-                  (pr-str (:terminal client))))
-    (let [{:keys [url spec host]} connection
-          _ (some-> (:dial connection) remote-channel/close!)
-          [d refusal] (dial url spec host now)]
-      (or refusal
-          {outcome-key :yin.repl.connect/reattached
-           connection-key (assoc connection
-                                 :dial d
-                                 :status :established
-                                 :detached-by nil)
-           client-key (rpc/rebind client (requests-handle d) (answers-handle d))}))))
+  ([connection client now] (reattach connection client now nil))
+  ([connection client now codec]
+   (if-not (reattachable? connection client)
+     (failure :yin.repl.connect/not-reattachable
+              (str "Only a dropped connection reattaches; this one ended as "
+                   (pr-str (:terminal client))))
+     (let [{:keys [url spec host]} connection
+           codec (or codec (:codec connection) cbor/profile)
+           _ (some-> (:dial connection) remote-channel/close!)
+           [d refusal] (dial url spec host now codec)]
+       (or refusal
+           {outcome-key :yin.repl.connect/reattached
+            connection-key (assoc connection
+                                  :dial d
+                                  :codec codec
+                                  :status :established
+                                  :detached-by nil)
+            client-key (rpc/rebind client (requests-handle d) (answers-handle d))})))))
 
 
 ;; =============================================================================

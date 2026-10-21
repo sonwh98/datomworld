@@ -22,7 +22,7 @@
    so the transport sees one message per callback boundary, bounded by the
    composition's `:ws/max-frame-bytes`."
   (:require [clojure.string :as str]
-            [dao.stream.transit :as transit]
+            [dao.stream.codec :as codec]
             [dao.stream.ws :as ws]
             [org.httpkit.server :as http]
             [ring.websocket.protocols :as wsp])
@@ -31,11 +31,6 @@
            [java.net.http HttpClient WebSocket WebSocket$Listener]
            [java.nio ByteBuffer]
            [java.util.concurrent CompletableFuture]))
-
-
-(def default-codecs
-  "The listener's codec table when a composition names none: Transit only."
-  [transit/profile])
 
 
 (def ^:private http-kit-default-max-ws
@@ -58,7 +53,7 @@
    not a downgrade."
   [codecs offered]
   (some (fn [codec]
-          (when (some #(= (:ws/subprotocol codec) %) offered)
+          (when (some #(= (codec/codec-name codec) %) offered)
             codec))
         codecs))
 
@@ -330,8 +325,7 @@
             ((:error! adapter))))
         builder (-> (HttpClient/newHttpClient)
                     (.newWebSocketBuilder)
-                    (.subprotocols (get-in adapter [:ws/codec :ws/subprotocol]
-                                           ws/subprotocol)
+                    (.subprotocols (codec/codec-name (:ws/codec adapter))
                                    (make-array String 0)))
         future (.buildAsync builder (URI/create (socket-url descriptor)) listener)]
     (swap! connection assoc :future future)
@@ -374,7 +368,7 @@
         [_ socket]
         (try
           (let [target (or (canonical-path (:uri request)) (:uri request))
-                result (accept! target (server-socket socket (:ws/subprotocol codec))
+                result (accept! target (server-socket socket (codec/codec-name codec))
                                 (clock))]
             (when-let [handle (:ws/handle result)]
               (reset! adapter (ws/adapter handle))))
@@ -410,7 +404,7 @@
 (defn listen!
   "Bind an http-kit WebSocket listener for one composed endpoint.
 
-   `:codecs` is the endpoint's codec profile table (default Transit only).
+   `:codecs` is the endpoint's codec profile table (required).
    An upgrade offering any table subprotocol completes with the negotiated
    one; an upgrade offering none is refused before it completes — a
    mixed-version peer fails its handshake rather than being downgraded.
@@ -419,15 +413,17 @@
    reassembly (its `:max-ws`), so an oversize message is refused before it
    is assembled."
   [{:keys [bind-host bind-port accept! deposit! codecs] :as options}]
+  (when-not (seq codecs)
+    (throw (ex-info "WebSocket listener needs :codecs" {})))
   (let [clock #(System/currentTimeMillis)
-        codecs (or (seq codecs) default-codecs)
+        codecs (seq codecs)
         handler (fn [request]
                   (let [negotiated (negotiate codecs (offered-subprotocols request))]
                     (cond
                       (and (:websocket? request) negotiated)
                       {:ring.websocket/listener
                        (listener request accept! clock deposit! negotiated)
-                       :ring.websocket/protocol (:ws/subprotocol negotiated)}
+                       :ring.websocket/protocol (codec/codec-name negotiated)}
 
                       (:websocket? request)
                       (do

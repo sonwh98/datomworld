@@ -44,11 +44,14 @@
    (Unicode 16.0, owner-settled 2026-09-21) behind the one
    host-dispatched `normalize-nfc` seam."
   (:require [dao.datom :as datom]
+            [dao.host.bytes :as bytes]
+            [dao.host.float :as float]
+            [dao.host.integer :as integer]
+            [dao.host.number :as number]
+            [dao.host.text :as text]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
-            [dao.stream :as stream]
-            #?(:cljd ["package:unorm_dart/unorm_dart.dart" :as unorm]))
-  #?(:cljd (:import ["dart:typed_data" ByteData Uint8List])))
+            [dao.stream :as stream]))
 
 
 ;; =============================================================================
@@ -164,9 +167,7 @@
 
 (defn- bytes-like?
   [v]
-  #?(:clj (bytes? v)
-     :cljs (instance? js/Uint8Array v)
-     :cljd (instance? Uint8List v)))
+  (bytes/bytes? v))
 
 
 #?(:cljs
@@ -238,9 +239,7 @@
 
 (defn- code-unit-at
   [s i]
-  #?(:clj (int (.charAt ^String s i))
-     :cljs (.charCodeAt s i)
-     :cljd (.codeUnitAt s i)))
+  (text/code-unit s i))
 
 
 (defn- well-formed-utf16?
@@ -314,11 +313,10 @@
    to the unorm_dart package (Unicode 16.0, owner-settled 2026-09-21) so
    every ClojureDart target normalizes identically. NFC normalisation
    collisions — distinct inputs with one composed form — are an
-   inherited limit of the repository encoding."
-  [^String s]
-  #?(:clj (java.text.Normalizer/normalize s java.text.Normalizer$Form/NFC)
-     :cljs (.normalize s "NFC")
-     :cljd (unorm/nfc s)))
+   inherited limit of the repository encoding. The host normalizers are
+   `dao.host.text/nfc`'s (slice H2)."
+  [s]
+  (text/nfc s))
 
 
 ;; =============================================================================
@@ -845,46 +843,35 @@
   (str (get slot-tag class) (to-hex (utf8-byte-length content) 8) content))
 
 
+(def ^:private big-zero (integer/from-native 0))
+(def ^:private two-64 (integer/shift-left-big (integer/from-native 1) 64))
+
+
 (defn- int64-le-hex
   "The settled int64 byte rule: 8 bytes, two's complement, little-endian
-   (datom.md). Exact host integers go through bit ops; a :cljs number —
-   which the classifier only lets here as a safe integer — decomposes
-   exactly through floor and mod by 2^32, whose low bytes survive the
-   host's 32-bit bit ops."
+   (datom.md). The exact integer `v` (a host native the classifier
+   admits) is promoted to the host big integer, offset by 2^64 when
+   negative, and its `dao.host.integer/magnitude-bytes` read low byte
+   first and padded to eight: one portable path, no host bit width."
   [v]
-  #?(:cljs (let [lo (mod v 4294967296)
-                 hi (js/Math.floor (/ v 4294967296))
-                 byte-at (fn [x i]
-                           (to-hex (bit-and (unsigned-bit-shift-right x (* i 8))
-                                            0xff)
-                                   2))]
-             (apply str (map #(byte-at (if (< % 4) lo hi) (mod % 4)) (range 8))))
-     :default (let [n (long v)]
-                (apply str (map #(to-hex (bit-and (unsigned-bit-shift-right n (* % 8)) 0xff) 2)
-                                (range 8))))))
+  (let [b (integer/promote v)
+        b (if (neg? (integer/compare-big b big-zero)) (integer/add b two-64) b)
+        bs (integer/magnitude-bytes b)
+        n (bytes/length bs)]
+    (apply str (map #(to-hex (if (< % n) (bytes/get bs (- n 1 %)) 0) 2) (range 8)))))
 
 
 (defn- double-le-hex
   "The settled :double byte rule: the IEEE-754 bits, little-endian, with
    every NaN the one quiet encoding 7ff8000000000000 regardless of the
-   payload a host happens to hold. :clj reads the bits through
-   doubleToLongBits, :cljs through a DataView store with littleEndian
-   explicitly true, :cljd through a big-endian ByteData store read in
-   reverse — the endianness is stated, never the platform's default. On
-   :cljs the float64 carrier is unwrapped first: a DataView coerces an
-   object through its text, which loses -0.0's sign."
+   payload a host happens to hold: `dao.host.float/float64->bits`
+   (big-endian) with its byte pairs reversed, so the endianness is
+   stated, never the platform's default. Jing's float64 carrier (JS) is
+   unwrapped first through `dao.host.number/float-value`, which keeps
+   -0.0's sign."
   [x]
-  (let [v #?(:cljs (if (number? x) x (.-v ^not-native x)) :default x)]
-    (if (not= v v)
-      "000000000000f87f"
-      ;; ClojureDart reads both :cljd and :clj, so its branch comes first
-      #?(:cljd (let [bd (ByteData. 8)]
-                 (.setFloat64 bd 0 v)
-                 (apply str (map #(to-hex (.getUint8 bd %) 2) (range 7 -1 -1))))
-         :clj (int64-le-hex (Double/doubleToLongBits (double v)))
-         :cljs (let [view (js/DataView. (js/ArrayBuffer. 8))]
-                 (.setFloat64 view 0 v true)
-                 (apply str (map #(to-hex (.getUint8 view %) 2) (range 8))))))))
+  (let [be (float/float64->bits (number/float-value x))]
+    (apply str (map #(subs be (* 2 %) (+ 2 (* 2 %))) (range 7 -1 -1)))))
 
 
 (defn- ident-content

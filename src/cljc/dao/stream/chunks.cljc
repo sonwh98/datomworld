@@ -1,37 +1,33 @@
 (ns dao.stream.chunks
-  "Transport-neutral splitting and bounded reassembly of host byte payloads."
-  #?(:cljd (:import ["dart:typed_data" Uint8List])))
+  "Transport-neutral splitting and bounded reassembly of host byte payloads,
+   over the profile's `dao.host.bytes` (docs/design/dao.stream.host-boundary.md
+   §4.2). `concat-bytes` writes only the fresh array it allocates, before
+   returning it (§2.4)."
+  (:require
+    [dao.host.bytes :as bytes]))
 
 
 (defn length
   [bs]
-  #?(:cljd (.-length ^Uint8List bs)
-     :clj (alength ^bytes bs)
-     :cljs (.-length bs)))
+  (bytes/length bs))
 
 
 (defn empty-bytes
   [n]
-  #?(:cljd (Uint8List. n)
-     :clj (byte-array n)
-     :cljs (js/Uint8Array. n)))
+  (bytes/alloc n))
 
 
 (defn slice
   [bs start end]
-  #?(:cljd (Uint8List.fromList (.sublist ^Uint8List bs start end))
-     :clj (java.util.Arrays/copyOfRange ^bytes bs (int start) (int end))
-     :cljs (.slice bs start end)))
+  (bytes/slice bs start end))
 
 
 (defn concat-bytes
   [pieces]
-  (let [out (empty-bytes (reduce + (map length pieces)))]
+  (let [out (bytes/alloc (reduce + (map bytes/length pieces)))]
     (reduce (fn [offset bs]
-              (let [n (length bs)]
-                #?(:cljd (.setRange ^Uint8List out offset (+ offset n) bs)
-                   :clj (System/arraycopy bs 0 out offset n)
-                   :cljs (.set out bs offset))
+              (let [n (bytes/length bs)]
+                (bytes/copy! bs 0 out offset n)
                 (+ offset n)))
             0 pieces)
     out))
@@ -60,11 +56,11 @@
   "Return [state completed-bytes-or-nil]. Malformed, duplicate, inconsistent,
    and overbound pieces cannot increase held bytes. Evict oldest partial at
    the global count bound. Caller supplies a source-qualified key."
-  [state key part parts bytes max-bytes max-partials]
+  [state key part parts piece max-bytes max-partials]
   (if-not (and (integer? part) (integer? parts) (pos? parts)
                (<= parts max-bytes) (<= 0 part) (< part parts)
-               (some? bytes) (pos? (length bytes))
-               (<= (length bytes) max-bytes) (pos? max-partials))
+               (bytes/bytes? piece) (pos? (length piece))
+               (<= (length piece) max-bytes) (pos? max-partials))
     [state nil]
     (let [held (get-in state [:partial key])]
       (if (or (and held (not= parts (:parts-count held)))
@@ -80,11 +76,11 @@
                           (update :partial-order #(vec (rest %)))) state)
               held (get-in state [:partial key])]
           (if-not held [state nil]
-                  (let [total (+ (:bytes-total held) (length bytes))]
+                  (let [total (+ (:bytes-total held) (length piece))]
                     (if (> total max-bytes)
                       [(-> state (update :partial dissoc key)
                            (update :partial-order #(vec (remove #{key} %)))) nil]
-                      (let [state (-> state (assoc-in [:partial key :parts part] bytes)
+                      (let [state (-> state (assoc-in [:partial key :parts part] piece)
                                       (assoc-in [:partial key :bytes-total] total))
                             held (get-in state [:partial key])]
                         (if (= parts (count (:parts held)))

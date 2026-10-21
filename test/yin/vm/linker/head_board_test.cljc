@@ -148,7 +148,7 @@
 
 (defn- serve-board
   [net board port]
-  (head.board/serve {:board board
+  (head.board/serve {:codecs [transit/profile] :board board
                      :principal (principal p1)
                      :spec {:host "127.0.0.1" :port port}
                      :host (host-of net)}))
@@ -157,7 +157,7 @@
 (defn- dial-board
   ([net port] (dial-board net port {}))
   ([net port bounds]
-   (head.board/dial {:principal (principal p1)
+   (head.board/dial {:codec transit/profile :principal (principal p1)
                      :spec {:host "127.0.0.1" :port port}
                      :host (host-of net)
                      :bounds bounds})))
@@ -311,7 +311,7 @@
         board (head/board)
         _ (stream/append! board {:a :head})
         server (atom (serve-board net board ws-port))
-        d (atom (head.board/dial {:principal (principal p1)
+        d (atom (head.board/dial {:codec transit/profile :principal (principal p1)
                                   :spec {:host "127.0.0.1" :port ws-port}
                                   :host {:connect! (recording (connect-on net))}}))
         n (head.board/board-name (principal p1))]
@@ -504,7 +504,7 @@
   (let [net (loopback-net)
         board (head/board)
         server (atom (serve-board net board ws-port))
-        d (atom (head.board/dial {:principal "ed25519:another"
+        d (atom (head.board/dial {:codec transit/profile :principal "ed25519:another"
                                   :spec {:host "127.0.0.1" :port ws-port}
                                   :host (host-of net)}))]
     (drive! net [server] [d] 20)
@@ -528,14 +528,14 @@
       (testing (pr-str h)
         (is (= {:status :refused :reason :yin.head/not-loopback
                 :spec {:host h :port ws-port}}
-               (head.board/serve {:board (head/board) :principal (principal p1)
+               (head.board/serve {:codecs [transit/profile] :board (head/board) :principal (principal p1)
                                   :spec {:host h :port ws-port}
                                   :host host})))))
     (is (= 0 @calls) "nothing listened")
     (doseq [h ["127.0.0.1" "127.1.2.3" "::1" "[::1]"]]
       (testing (pr-str h)
         (is (= :starting
-               (:status (head.board/serve {:board (head/board)
+               (:status (head.board/serve {:codecs [transit/profile] :board (head/board)
                                            :principal (principal p1)
                                            :spec {:host h :port ws-port}
                                            :host host}))))))
@@ -547,14 +547,14 @@
         host {:bind! (fn [_] (swap! calls inc) {:dao.stream/outcome :dao.stream/ok})}]
     (doseq [p [nil -1 "7001"]]
       (testing (pr-str p)
-        (let [r (head.board/serve {:board (head/board) :principal (principal p1)
+        (let [r (head.board/serve {:codecs [transit/profile] :board (head/board) :principal (principal p1)
                                    :spec {:host "127.0.0.1" :port p}
                                    :host host})]
           (is (= [:refused ::rc/no-port] [(:status r) (:reason r)])))))
     (is (= 0 @calls) "nothing listened")
     (testing "port 0 is an ephemeral bind, finalized by the channel composition"
       (is (= :starting
-             (:status (head.board/serve {:board (head/board) :principal (principal p1)
+             (:status (head.board/serve {:codecs [transit/profile] :board (head/board) :principal (principal p1)
                                          :spec {:host "127.0.0.1" :port 0}
                                          :host host}))))
       (is (= 1 @calls)))))
@@ -563,12 +563,12 @@
 (deftest a-host-without-a-listener-or-a-dialer-is-a-refusal
   (is (= [:refused ::rc/no-transport]
          ((juxt :status :reason)
-          (head.board/serve {:board (head/board) :principal (principal p1)
+          (head.board/serve {:codecs [transit/profile] :board (head/board) :principal (principal p1)
                              :spec {:host "127.0.0.1" :port ws-port}
                              :host {}}))))
   (is (= [:refused ::rc/no-transport]
          ((juxt :status :reason)
-          (head.board/dial {:principal (principal p1)
+          (head.board/dial {:codec transit/profile :principal (principal p1)
                             :spec {:host "127.0.0.1" :port ws-port}
                             :host {}})))))
 
@@ -604,7 +604,7 @@
         "a refused server steps as itself")
     (testing "a bind that fails after it started is the same refusal"
       (let [late (head.board/serve
-                   {:board (head/board) :principal (principal p1)
+                   {:codecs [transit/profile] :board (head/board) :principal (principal p1)
                     :spec {:host "127.0.0.1" :port 7009}
                     :host {:bind! (fn [{:keys [deposit!]}]
                                     (deposit! :bind-failed {:code :in-use})
@@ -709,7 +709,7 @@
            free-port (with-open [s (java.net.ServerSocket. 0)]
                        (.getLocalPort s))
            spec {:host "127.0.0.1" :port free-port}
-           server (atom (head.board/serve {:board board :principal (principal p1)
+           server (atom (head.board/serve {:codecs [transit/profile] :board board :principal (principal p1)
                                            :spec spec :host seam}))
            deadline (+ (System/currentTimeMillis) 5000)
            step! (fn []
@@ -723,7 +723,7 @@
          (is (= :serving (:status @server)))
          (is (= (rc/descriptor-of (assoc spec :path head.board/path))
                 (:descriptor @server)))
-         (let [d (atom (head.board/dial {:principal (principal p1)
+         (let [d (atom (head.board/dial {:codec transit/profile :principal (principal p1)
                                          :spec spec :host seam}))
                dial! #(swap! d head.board/dial-step (System/currentTimeMillis))]
            (loop [] (step!) (dial!)
@@ -747,7 +747,7 @@
                     (:dao.stream/value
                       (settle #(stream/next h (:dao.stream/cursor c)))))))
            (testing "a TCP port already in use is a refusal as data"
-             (let [again (head.board/serve {:board (head/board)
+             (let [again (head.board/serve {:codecs [transit/profile] :board (head/board)
                                             :principal (principal p1)
                                             :spec spec :host seam})]
                (is (= :refused (:status again)))

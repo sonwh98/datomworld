@@ -5,8 +5,7 @@
    Boring on the JVM and must not differ per host."
   (:require ["dart:core" :as core]
             [clojure.test :refer [deftest is]]
-            [dao.stream.cbor :as cbor]
-            [dao.stream.transit :as transit])
+            [dao.stream.cbor :as cbor])
   (:import ["dart:typed_data" Uint8List]))
 
 
@@ -67,11 +66,11 @@
 
 
 (deftest profile-is-a-binary-codec-profile
-  (is (= "dao.stream.cbor" (:ws/subprotocol cbor/profile)))
-  (is (= :binary (:ws/frame-kind cbor/profile)))
-  (is (fn? (:ws/portable-value? cbor/profile)))
-  (is (fn? (:ws/encode cbor/profile)))
-  (is (fn? (:ws/decode cbor/profile))))
+  (is (= "dao.stream.cbor" (:dao.stream.codec/name cbor/profile)))
+  (is (= :binary (:dao.stream.codec/frame-kind cbor/profile)))
+  (is (fn? (:dao.stream.codec/portable-value? cbor/profile)))
+  (is (fn? (:dao.stream.codec/encode cbor/profile)))
+  (is (fn? (:dao.stream.codec/decode cbor/profile))))
 
 
 (deftest frozen-fixtures-decode-and-re-encode-identically
@@ -181,10 +180,3 @@
     (doseq [hex rejects]
       (is (thrown? Object (cbor/decode (from-hex hex)))
           (str "decode accepted " hex)))))
-
-
-(deftest transit-domain-stays-a-subset-of-the-cbor-domain
-  (let [base [nil true "s" :k 'k 1 -1 1.5 {:a [1] :b #{2}}]]
-    (doseq [value base]
-      (is (transit/portable-value? value))
-      (is (cbor/portable-value? value)))))

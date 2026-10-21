@@ -11,7 +11,9 @@
    reorder of `scalar-classes` was tried and reverted, and it broke every
    golden fixture below -- see the final report)."
   (:require [clojure.set :as set]
+            [clojure.string :as str]
             [clojure.test :refer [deftest is testing]]
+            [dao.host.integer :as integer]
             [yin.vm :as vm]
             [yin.vm.ast-walker :as ast-walker]
             [yin.vm.parity-test :as parity]
@@ -369,18 +371,24 @@
 ;; =============================================================================
 
 (deftest host-boundary-refusal-for-an-unsupported-class
-  ;; A ratio or bigint literal is read by the host reader itself, not just
+  ;; A ratio literal is read by the host reader itself, not just
   ;; evaluated, so a branch naming a host without that type cannot even
-  ;; contain one as a fixture -- CLJS has neither type to construct a
+  ;; contain one as a fixture -- CLJS has no ratio type to construct a
   ;; value from at all, and this dimension does not classify :cljd as
-  ;; having ratio or bigint either (see `host-ratio?`, `host-bigint?`).
-  ;; This checks the declared support set directly, then exercises the
-  ;; actual refusal/acceptance path where genuine instances are
-  ;; host-reader-safe to build (JVM).
-  (is (= (set/difference (set dc/scalar-classes) #?(:cljs #{:char :ratio :bigint}
-                                                    :cljd #{:char :ratio :bigint}
+  ;; having one either (see `host-ratio?`). A big integer is a
+  ;; `dao.host.integer` carrier on every host (slice H2), so :bigint is
+  ;; supported everywhere. This checks the declared support set
+  ;; directly, then exercises the actual refusal/acceptance path where
+  ;; genuine instances are host-reader-safe to build.
+  (is (= (set/difference (set dc/scalar-classes) #?(:cljs #{:char :ratio}
+                                                    :cljd #{:char :ratio}
                                                     :clj #{}))
          dc/host-supported-scalar-classes))
+  (let [big (integer/demote (integer/shift-left-big (integer/from-native 1) 64))]
+    (is (integer/big-carrier? big))
+    (is (= :bigint (dc/scalar-class big)))
+    (is (str/ends-with? (dc/encode-scalar big) "0000001418446744073709551616")
+        "a big integer encodes as its decimal digits, equal on every host"))
   #?(:clj
      (do
        (is (nil? (dc/validate-host-support (const-return 10000000000000000000N)))

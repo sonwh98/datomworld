@@ -43,6 +43,7 @@
   (:require [dao.data.btree :as bt]
             [dao.data.btree.storage :as bts]
             [dao.datom :as datom]
+            [dao.host.integer :as host-integer]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
             [dao.stream :as stream]))
@@ -67,20 +68,19 @@
         :else 6))
 
 
+(defn- native-integer?
+  [x]
+  (and (host-integer/exact-integer? x) (not (host-integer/big-carrier? x))))
+
+
 (defn- compare-numbers
   "Portable numeric order (dao.jing.cbor/num-compare: exact, never rounded
-   through double; -infinity < finite < +infinity < NaN), with host compare
-   kept only where it answers identically: two host integers, and on the
-   JVM and ClojureScript two non-NaN doubles (both compare exactly, with
-   0.0 and -0.0 equal). Dart's double compareTo orders -0.0 below 0.0, so
-   Dart takes the fast path for ints only."
+   through double; -infinity < finite < +infinity < NaN, 0.0 and -0.0
+   equal), with host compare kept only for two native exact integers,
+   where every host answers identically. Every float takes num-compare
+   on every host: Dart's double compareTo orders -0.0 below 0.0."
   [a b]
-  (if #?(:cljd (and (dart/is? a int) (dart/is? b int))
-         :clj (or (and (instance? Long a) (instance? Long b))
-                  (and (instance? Double a) (instance? Double b)
-                       (not (Double/isNaN ^Double a)) (not (Double/isNaN ^Double b))))
-         :cljs (and (number? a) (number? b)
-                    (not (js/isNaN a)) (not (js/isNaN b))))
+  (if (and (native-integer? a) (native-integer? b))
     (compare a b)
     (cbor/num-compare a b)))
 

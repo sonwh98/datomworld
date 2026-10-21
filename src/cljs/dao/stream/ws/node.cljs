@@ -33,7 +33,7 @@
    `maxPayload`, closing with 1009 before an oversize message is assembled."
   (:require ["ws" :as ws-package]
             [clojure.string :as str]
-            [dao.stream.transit :as transit]
+            [dao.stream.codec :as codec]
             [dao.stream.ws :as ws]))
 
 
@@ -43,11 +43,6 @@
 (def ^:private ws-default-max-payload
   "The `ws` package's own `maxPayload` default, 100 MiB."
   (* 100 1024 1024))
-
-
-(def default-codecs
-  "The listener's codec table when a composition names none: Transit only."
-  [transit/profile])
 
 
 (defn offered-subprotocols
@@ -65,7 +60,7 @@
    not a downgrade."
   [codecs offered]
   (some (fn [codec]
-          (when (some #(= (:ws/subprotocol codec) %) offered)
+          (when (some #(= (codec/codec-name codec) %) offered)
             codec))
         codecs))
 
@@ -207,7 +202,7 @@
   (let [max-frame (:ws/max-frame-bytes adapter)
         socket (new (.-WebSocket ws-package)
                     (socket-url descriptor)
-                    (get-in adapter [:ws/codec :ws/subprotocol] ws/subprotocol)
+                    (codec/codec-name (:ws/codec adapter))
                     #js {:maxPayload (or max-frame ws-default-max-payload)})]
     (wire! socket adapter)
     (raw-socket socket)))
@@ -218,8 +213,7 @@
 
    `options` are `:host` (default a loopback bind), `:port` (default 0 for an
    assigned port), `:clock` (a no-argument host clock reading, default
-   `js/Date.now`), `:codecs` (the endpoint's codec profile table, default
-   Transit only), `:accept!` (`(fn [path socket now] …)`, default this
+   `js/Date.now`), `:codecs` (the endpoint's codec profile table, required), `:accept!` (`(fn [path socket now] …)`, default this
    endpoint's `ws/accept-connection!`, so a serving composition can inject the
    same seam it owns), `:on-listening` (called with the bound address map once
    the server reports listening) and `:on-error` (the sole observer of the
@@ -245,9 +239,11 @@
   ([endpoint {:keys [host port clock codecs accept! on-listening on-error]
               :ws/keys [max-frame-bytes]
               :or {host "127.0.0.1" port 0}}]
+   (when-not (seq codecs)
+     (throw (ex-info "WebSocket listener needs :codecs" {})))
    (let [clock (or clock #(js/Date.now))
-         codecs (vec (or (seq codecs) default-codecs))
-         supported (set (map :ws/subprotocol codecs))
+         codecs (vec codecs)
+         supported (set (map codec/codec-name codecs))
          accept! (or accept!
                      (fn [path socket now]
                        (ws/accept-connection! endpoint path socket now)))
@@ -277,7 +273,7 @@
                                             (cb false 400
                                                 "dao.stream/subprotocol-required")))
                           :handleProtocols (fn [protocols _request]
-                                             (:ws/subprotocol
+                                             (codec/codec-name
                                                (negotiate codecs
                                                           (array-seq (js/Array.from protocols)))))})]
      (.on ^js server "error" (fn [_error] (when (fn? on-error) (on-error))))

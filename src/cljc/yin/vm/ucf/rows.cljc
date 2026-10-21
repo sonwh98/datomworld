@@ -18,7 +18,8 @@
    :yin.k/cursor-cell collides with them and is not portable: on encode and decode
    every literal of that shape is refused :yin.k/non-portable. Explicit
    markers use the caller value encoder."
-  (:require [dao.jing :as jing]
+  (:require [dao.host.bytes :as bytes]
+            [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
             [dao.stream.apply :as apply2]
             [yin.vm :as vm]
@@ -279,7 +280,7 @@
             (let [x (first s)
                   stack (cons (rest s) stack)
                   total (+ total (cond
-                                   (cbor/byte-payload? x) (+ 16 #?(:cljd (.-length x) :default (alength x)))
+                                   (cbor/byte-payload? x) (+ 16 (bytes/length x))
                                    (string? x) (+ 128 (* 4 (count x)))
                                    (or (keyword? x) (symbol? x)) (+ 128 (* 4 (count (str x))))
                                    :else 128))]

@@ -8,11 +8,24 @@
    and the session bounds."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
+            [dao.stream.cbor :as cbor]
+            [dao.stream.transit :as transit]
             [dao.stream.loopback-net :as net]
             [dao.stream.remote-channel :as rc]
             [dao.stream.ringbuffer :as ringbuffer]
             [dao.stream.ws :as ws]
             [dao.stream.ws-project :as ws-project]))
+
+
+;; The wire profile every helper composes with.  The suite runs over Transit,
+;; and `the-suite-over-cbor` (end of file) reruns the codec-neutral tests
+;; over CBOR; tests that name a profile themselves are not rerun.
+(def ^:private current-profile (atom transit/profile))
+
+
+(defn- profile
+  []
+  @current-profile)
 
 
 (def ^:private spec {:host "127.0.0.1" :port 9 :path "/x"})
@@ -62,7 +75,7 @@
   ([lnet source] (serve lnet source {} (host-of lnet)))
   ([lnet source bounds] (serve lnet source bounds (host-of lnet)))
   ([_lnet source bounds host]
-   (rc/serve {:spec spec :host host
+   (rc/serve {:codecs [(profile)] :spec spec :host host
               :table {(identity-of source) {:handle source :surface #{:reader}}}
               :names {n (identity-of source)}
               :bounds bounds})))
@@ -71,7 +84,7 @@
 (defn- dial
   ([lnet] (dial lnet {} nil))
   ([lnet bounds events]
-   (rc/dial {:spec spec :host (host-of lnet) :name n :bounds bounds
+   (rc/dial {:codec (profile) :spec spec :host (host-of lnet) :name n :bounds bounds
              :events events})))
 
 
@@ -171,7 +184,7 @@
                   :ws/port 9
                   :ws/path "/x"}]
     (is (= expected (rc/descriptor-of spec)))
-    (is (ws/descriptor? (rc/descriptor-of spec)))
+    (is (ws/descriptor? (rc/descriptor-of spec) (profile)))
     (is (= expected (:descriptor (serve lnet (toy)))))
     (is (not-any? #(= "ws" (namespace %)) (keys spec)) "no :ws/ key in the spec")
     (testing "loopback literals"
@@ -193,12 +206,51 @@
       (read-past-value w 0 h))))
 
 
+(deftest a-spec-codec-is-honored-end-to-end
+  (testing "a cbor-only server and a cbor dial attach and read"
+    (let [lnet (net/loopback-net)
+          source (toy)
+          server (rc/serve {:spec spec :host (host-of lnet)
+                            :table {(identity-of source) {:handle source :surface #{:reader}}}
+                            :names {n (identity-of source)}
+                            :codecs [cbor/profile]})
+          d (rc/dial {:spec spec :codec cbor/profile :host (host-of lnet) :name n})
+          w {:net lnet :source source :server (atom server) :dials [(atom d)]}]
+      (is (= [cbor/profile] (:codecs (:endpoint server))))
+      (let [h (attach! w 0)]
+        (is (= :attached (:status @(first-dial w))) (pr-str (:outcome @(first-dial w))))
+        (read-past-value w 0 h))))
+  (testing "a default-codec dial against a cbor-only server does not attach"
+    (let [lnet (net/loopback-net)
+          source (toy)
+          w {:net lnet :source source
+             :server (atom (rc/serve {:spec spec :host (host-of lnet)
+                                      :table {(identity-of source) {:handle source :surface #{:reader}}}
+                                      :names {n (identity-of source)}
+                                      :codecs [cbor/profile]}))
+             :dials [(atom (dial lnet))]}]
+      (attach! w 0)
+      (is (not= :attached (:status @(first-dial w)))))))
+
+
+(deftest absent-or-empty-codecs-are-refused-no-codec
+  (let [lnet (net/loopback-net)
+        source (toy)
+        base {:spec spec :host (host-of lnet)
+              :table {(identity-of source) {:handle source :surface #{:reader}}}
+              :names {n (identity-of source)}}]
+    (is (= ::rc/no-codec (:reason (rc/serve (assoc base :codecs [])))))
+    (is (= ::rc/no-codec (:reason (rc/serve base))))
+    (is (= ::rc/no-codec
+           (:reason (rc/dial {:spec spec :host (host-of lnet) :name n}))))))
+
+
 (deftest production-bounds-reach-every-layer
   (let [lnet (net/loopback-net)
-        server (rc/serve {:spec spec :host (host-of lnet)
+        server (rc/serve {:codecs [(profile)] :spec spec :host (host-of lnet)
                           :table {"s" {:handle (toy) :surface #{:reader}}}})
         endpoint (:endpoint server)
-        d (rc/dial {:spec spec :host (host-of lnet) :name n})
+        d (rc/dial {:codec (profile) :spec spec :host (host-of lnet) :name n})
         p rc/production-bounds]
     (is (= 21 (count p)))
     (is (= {:max-sessions 64 :idle-timeout 60000 :step-budget 64
@@ -457,7 +509,7 @@
         (is (= :stopped (:status s)))
         (is (= s (rc/stop! s)))
         (is (= s (rc/serve-step s 2)))))
-    (let [refused (rc/serve {:spec spec :host {} :table {}})]
+    (let [refused (rc/serve {:codecs [(profile)] :spec spec :host {} :table {}})]
       (is (= refused (rc/stop! refused))))))
 
 
@@ -582,17 +634,17 @@
         host (host-of lnet)
         table {"s" {:handle (toy) :surface #{:reader}}}]
     (is (= ::rc/no-transport
-           (:reason (rc/serve {:spec (assoc spec :transport :udp) :host host :table table}))))
+           (:reason (rc/serve {:codecs [(profile)] :spec (assoc spec :transport :udp) :host host :table table}))))
     (is (= ::rc/no-transport
-           (:reason (rc/serve {:spec spec :host (dissoc host :bind!) :table table}))))
+           (:reason (rc/serve {:codecs [(profile)] :spec spec :host (dissoc host :bind!) :table table}))))
     (doseq [p [-1 nil "9"]]
       (is (= {:status :refused :reason ::rc/no-port :spec (assoc spec :port p)}
-             (rc/serve {:spec (assoc spec :port p) :host host :table table}))
+             (rc/serve {:codecs [(profile)] :spec (assoc spec :port p) :host host :table table}))
           (pr-str p)))
     (is (= ::rc/invalid-table
-           (:reason (rc/serve {:spec spec :host host :table {"s" {}}}))))
+           (:reason (rc/serve {:codecs [(profile)] :spec spec :host host :table {"s" {}}}))))
     (is (empty? (:listeners @lnet)) "nothing listened")
-    (let [d (rc/dial {:spec spec :host (dissoc host :connect!) :name n})]
+    (let [d (rc/dial {:codec (profile) :spec spec :host (dissoc host :connect!) :name n})]
       (is (= :refused (:status d)))
       (is (= ::rc/no-transport (:reason d)))
       (is (= d (rc/dial-step d 0)))
@@ -645,10 +697,10 @@
          calls (atom 0)
          host (assoc (host-of lnet) :unbind! (counting-unbind lnet calls))]
      {:net lnet :req req :ans ans :calls calls
-      :server (atom (rc/serve {:spec spec :host host
+      :server (atom (rc/serve {:codecs [(profile)] :spec spec :host host
                                :table (table-of req ans)
                                :bounds bounds}))
-      :dials [(atom (rc/dial {:spec spec :host (host-of lnet)
+      :dials [(atom (rc/dial {:codec (profile) :spec spec :host (host-of lnet)
                               :identities identities :now now
                               :bounds bounds}))]})))
 
@@ -667,7 +719,7 @@
 (deftest a-writer-entry-is-validated-against-its-handle
   (let [lnet (net/loopback-net)
         host (host-of lnet)
-        serve-table (fn [t] (rc/serve {:spec spec :host host :table t}))
+        serve-table (fn [t] (rc/serve {:codecs [(profile)] :spec spec :host host :table t}))
         ro (read-only "ro")]
     (is (stream/reader? ro))
     (is (not (stream/writer? ro)))
@@ -743,7 +795,7 @@
                     {:identities [nil ans-id]}
                     {:identities [req-id nil ans-id]}
                     {:identities [req-id ans-id nil]}]]
-      (let [d (rc/dial (merge {:spec spec :host host} target))]
+      (let [d (rc/dial (merge {:codec (profile) :spec spec :host host} target))]
         (is (= :refused (:status d)) (pr-str target))
         (is (= ::rc/invalid-target (:reason d)) (pr-str target))
         (is (= d (rc/dial-step d 0)))))
@@ -791,10 +843,10 @@
                        (counting-unbind lnet calls)))
          id (identity-of src)
          w {:net lnet :src src :calls calls
-            :server (atom (rc/serve {:spec spec :host host
+            :server (atom (rc/serve {:codecs [(profile)] :spec spec :host host
                                      :table {id {:handle src :surface #{:reader}}}
                                      :bounds bounds}))
-            :dials [(atom (rc/dial {:spec spec :host (host-of lnet)
+            :dials [(atom (rc/dial {:codec (profile) :spec spec :host (host-of lnet)
                                     :identities [id] :now 0 :bounds bounds}))]}
          h (rc/handle @(first-dial w) id)
          c (:dao.stream/cursor (settle w 0 #(stream/cursor h stream/anchor-oldest)))]
@@ -952,7 +1004,7 @@
 (deftest bind-host-binds-while-host-is-advertised
   (let [seen (atom nil)
         s (assoc spec :host "10.0.0.5" :bind-host "0.0.0.0")
-        server (rc/serve {:spec s
+        server (rc/serve {:codecs [(profile)] :spec s
                           :host {:bind! (fn [opts]
                                           (reset! seen opts)
                                           {:dao.stream/outcome :dao.stream/ok})}
@@ -967,7 +1019,7 @@
 (deftest bind-port-binds-while-port-is-advertised
   (let [seen (atom nil)
         s (assoc spec :port 9090 :bind-port 8080)
-        server (rc/serve {:spec s
+        server (rc/serve {:codecs [(profile)] :spec s
                           :host {:bind! (fn [opts]
                                           (reset! seen opts)
                                           {:dao.stream/outcome :dao.stream/ok})}
@@ -1085,7 +1137,7 @@
 
 (deftest a-refused-connection-is-lost-unreachable
   (let [lnet (net/loopback-net)
-        d (atom (rc/dial {:spec spec :host (host-of lnet) :identities ["a"] :now 0}))
+        d (atom (rc/dial {:codec (profile) :spec spec :host (host-of lnet) :identities ["a"] :now 0}))
         step! (stepper lnet d)]
     (is (= :attached (:status @d)) "the attach is deferred to the connection")
     (step! 0)
@@ -1131,7 +1183,7 @@
 
 (deftest a-never-opening-connection-is-lost-expired-unopened
   (let [lnet (never-acknowledging)
-        d (atom (rc/dial {:spec spec :host (host-of lnet) :identities ["a"]
+        d (atom (rc/dial {:codec (profile) :spec spec :host (host-of lnet) :identities ["a"]
                           :now 1000 :bounds liveness}))
         step! (stepper lnet d)]
     (step! 1000)
@@ -1155,7 +1207,7 @@
 
 (deftest dialing-port-zero-is-lost-invalid-descriptor
   (let [lnet (net/loopback-net)
-        d (rc/dial {:spec (assoc spec :port 0) :host (host-of lnet)
+        d (rc/dial {:codec (profile) :spec (assoc spec :port 0) :host (host-of lnet)
                     :identities ["a"] :now 0})]
     (is (= :lost (:status d)))
     (is (= :dao.stream/invalid-descriptor (:dao.stream/outcome (:outcome d))))
@@ -1166,7 +1218,7 @@
 (deftest a-name-the-peer-does-not-serve-is-lost-without-a-cause
   (let [w (world)
         lnet (:net w)
-        d (atom (rc/dial {:spec spec :host (host-of lnet) :name "absent"}))
+        d (atom (rc/dial {:codec (profile) :spec spec :host (host-of lnet) :name "absent"}))
         w (assoc w :dials [d])]
     (run-until w 0 1 20 #(not= :resolving (:status @d)))
     (is (= :lost (:status @d)))
@@ -1183,7 +1235,7 @@
 (deftest an-ephemeral-serve-advertises-the-bound-port
   (let [lnet (net/loopback-net)
         source (toy)
-        server (atom (rc/serve {:spec (assoc spec :port 0) :host (host-of lnet)
+        server (atom (rc/serve {:codecs [(profile)] :spec (assoc spec :port 0) :host (host-of lnet)
                                 :table {(identity-of source)
                                         {:handle source :surface #{:reader}}}
                                 :names {n (identity-of source)}}))]
@@ -1200,7 +1252,7 @@
       (is (= port (:ws/port (:descriptor @server))))
       (is (false? (:ephemeral? @server)))
       (let [w {:net lnet :server server
-               :dials [(atom (rc/dial {:spec (assoc spec :port port)
+               :dials [(atom (rc/dial {:codec (profile) :spec (assoc spec :port port)
                                        :host (host-of lnet) :name n}))]}
             h (attach! w 1)]
         (is (= :attached (:status @(first-dial w))))
@@ -1218,7 +1270,7 @@
                  {:dao.stream/outcome :dao.stream/ok :port 0})
         host (assoc (host-of lnet) :bind! silent
                     :unbind! (counting-unbind lnet calls))
-        server (rc/serve {:spec (assoc spec :port 0) :host host
+        server (rc/serve {:codecs [(profile)] :spec (assoc spec :port 0) :host host
                           :table {"t" {:handle (toy) :surface #{:reader}}}})
         _ (is (= :starting (:status server)))
         s (rc/serve-step server 0)]
@@ -1233,13 +1285,66 @@
   (let [lnet (net/loopback-net)
         table {"t" {:handle (toy) :surface #{:reader}}}]
     (is (= ::rc/no-port
-           (:reason (rc/serve {:spec (assoc spec :port 0 :bind-port 9)
+           (:reason (rc/serve {:codecs [(profile)] :spec (assoc spec :port 0 :bind-port 9)
                                :host (host-of lnet) :table table}))))
     (is (empty? (:listeners @lnet)) "nothing listened")
-    (let [s (rc/serve {:spec (assoc spec :port 9 :bind-port 0)
+    (let [s (rc/serve {:codecs [(profile)] :spec (assoc spec :port 9 :bind-port 0)
                        :host (host-of lnet) :table table})]
       (is (= :starting (:status s)))
       (is (false? (:ephemeral? s)))
       (let [s (rc/serve-step s 0)]
         (is (= :serving (:status s)))
         (is (= 9 (:port (:spec s))) "the advertised port stands")))))
+
+
+(deftest the-suite-over-cbor
+  ;; The codec-neutral tests above, rerun with every helper composing the
+  ;; CBOR profile; the two tests that name their own profiles are left out.
+  (reset! current-profile cbor/profile)
+  (try
+    (doseq [t [serve-formats-the-descriptor-below-the-boundary
+               a-reader-resolves-and-attaches-over-the-stepped-composition
+               production-bounds-reach-every-layer
+               idle-healthy-board-versus-blackholed-request
+               unrelated-traffic-flood-cannot-defer-expiry
+               a-lost-close-event-is-recovered-by-the-deadline
+               a-connection-that-never-opens-is-lost-at-give-up-after
+               stop-is-explicit-and-driver-paced
+               stop-completes-without-a-close-callback
+               stop-while-starting-and-stop-twice-are-idempotent
+               a-lifecycle-gap-while-serving-is-counted-and-serving-continues
+               a-lifecycle-gap-while-starting-is-terminal
+               a-host-that-stops-under-us-is-stopped-host-stopped
+               session-cap-and-idle-expiry-hold-under-the-profile
+               a-newcomer-during-stop-is-rejected
+               no-transport-and-no-port-are-refusals-as-data
+               a-writer-entry-is-validated-against-its-handle
+               an-identities-dial-attaches-both-at-once
+               an-identities-dial-for-an-absent-identity-is-gone-not-found
+               an-identities-dial-attaches-exactly-the-requested-identities
+               dial-target-refusals
+               detach-leaves-the-reflections-to-observe-channel-gone
+               an-ended-stop-drains-before-it-closes
+               a-drain-ends-early-when-the-last-session-leaves
+               no-sessions-means-no-drain
+               the-host-stopping-under-a-drain-is-host-stopped
+               a-lifecycle-gap-under-a-drain-releases-once
+               a-lifecycle-end-under-a-drain-releases-once
+               an-unbind-refused-under-a-drain-gap-is-unbind-failed
+               bind-host-binds-while-host-is-advertised
+               bind-port-binds-while-port-is-advertised
+               diagnostic-count-is-monotonic
+               writing-through-a-reflection-answers-acceptance-only
+               a-dropped-connection-is-lost-dropped
+               an-ended-stop-is-lost-ended-when-the-end-is-missed
+               a-refused-connection-is-lost-unreachable
+               an-expired-link-is-lost-expired
+               a-never-opening-connection-is-lost-expired-unopened
+               dialing-port-zero-is-lost-invalid-descriptor
+               a-name-the-peer-does-not-serve-is-lost-without-a-cause
+               an-ephemeral-serve-advertises-the-bound-port
+               an-ephemeral-bind-that-reports-no-port-is-refused
+               port-zero-beside-a-positive-bind-port-is-no-port]]
+      (testing (:dao.stream.codec/name cbor/profile) (t)))
+    (finally
+      (reset! current-profile transit/profile))))

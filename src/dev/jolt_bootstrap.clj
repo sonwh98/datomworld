@@ -10,6 +10,12 @@
      mismatch fails the task. Advancing the pin is the upgrade gate's job.
    * build/tools/jolt-env.sh is written with JOLT_CHEZ set explicitly, so jolt
      never searches PATH for a Chez.
+   * First of all, on a Debian-family host, the :os-packages :debian
+     :required packages are checked with dpkg-query; a missing one fails the
+     task before mise is asked for anything, naming the exact
+     `sudo apt-get install -y ...` command. Nothing here runs sudo or apt.
+     Test seam: JOLT_BOOTSTRAP_TEST_DEBIAN_INSTALLED=pkg,pkg,... treats the
+     host as Debian and those packages as the installed set (no dpkg-query).
 
    Exit status is nonzero on any mismatch."
   (:require [babashka.fs :as fs]
@@ -115,9 +121,55 @@
     (println "jolt" head "with" (count submodules) "submodules verified")))
 
 
+(defn- debian-family?
+  "/etc/os-release names debian as its ID or in ID_LIKE."
+  []
+  (let [f "/etc/os-release"]
+    (when (fs/exists? f)
+      (let [kv (into {}
+                     (keep (fn [line]
+                             (when-let [[_ k v] (re-matches #"([A-Z_]+)=\"?([^\"]*)\"?" line)]
+                               [k v])))
+                     (str/split-lines (slurp f)))
+            words (set (str/split (str (get kv "ID") " " (get kv "ID_LIKE")) #"\s+"))]
+        (contains? words "debian")))))
+
+
+(defn- dpkg-installed?
+  [pkg]
+  (let [r (p/shell {:out :string :err :string :continue true}
+                   "dpkg-query" "-W" "-f=${Status}" pkg)]
+    (and (zero? (:exit r)) (= "install ok installed" (str/trim (:out r))))))
+
+
+(defn- check-os-packages
+  "Fail, before any mise build, when a declared Debian package is missing."
+  [{:keys [debian]}]
+  (let [seam (System/getenv "JOLT_BOOTSTRAP_TEST_DEBIAN_INSTALLED")
+        required (sort (keys (:required debian)))
+        installed? (cond
+                     seam (let [pkgs (set (remove str/blank? (str/split seam #",")))]
+                            (println "os-packages: [test seam] Debian path forced; installed ="
+                                     (str/join " " (sort pkgs)))
+                            pkgs)
+                     (debian-family?) dpkg-installed?
+                     :else nil)]
+    (if-not installed?
+      (println "os-packages: not a Debian-family host; package check skipped")
+      (let [missing (remove installed? required)]
+        (when (seq missing)
+          (fail! "missing Debian packages: " (str/join " " missing)
+                 "\n  needed by: "
+                 (str/join "; " (map #(str % " (" (get-in debian [:required %]) ")") missing))
+                 "\n  install them with:\n    sudo apt-get install -y " (str/join " " missing)))
+        (println "os-packages: all" (count required) "required Debian packages installed:"
+                 (str/join " " required))))))
+
+
 (defn -main
   [& _]
-  (let [{:keys [jolt chez cmake]} (edn/read-string (slurp "jolt-toolchain.edn"))
+  (let [{:keys [jolt chez cmake os-packages]} (edn/read-string (slurp "jolt-toolchain.edn"))
+        _ (check-os-packages os-packages)
         scheme (check-chez chez)
         _ (check-cmake cmake)
         dir (str (fs/absolutize (:dir jolt)))

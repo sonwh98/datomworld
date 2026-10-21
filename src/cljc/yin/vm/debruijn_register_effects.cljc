@@ -5,7 +5,8 @@
 
    This namespace is pure data construction and validation only. It reads
    no host clock, stream, namespace registry, or mutable state."
-  (:require [dao.stream.apply :as apply2]
+  (:require [dao.host.integer :as host-integer]
+            [dao.stream.apply :as apply2]
             [yin.vm :as vm]
             [yin.vm.debruijn-register-code :as rcode]))
 
@@ -125,9 +126,13 @@
 ;; =============================================================================
 
 (defn- nonneg-int?
+  "A native exact integer from 0 to 2^53 - 1, the same bound on every
+   host (dao.host.integer: any non-big exact carrier, so the JVM's boxed
+   `count` result, an Integer, passes)."
   [x]
-  (and (integer? x) (not (neg? x))
-       #?(:cljs (js/Number.isSafeInteger x) :default true)))
+  (and (host-integer/exact-integer? x)
+       (not (host-integer/big-carrier? x))
+       (<= 0 x 9007199254740991)))
 
 
 (defn- ascending-distinct?

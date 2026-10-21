@@ -38,8 +38,11 @@
             ;; used by the CLJS branch of host-double? only
             #_{:clj-kondo/ignore [:unused-namespace]}
             [dao.jing.cbor :as cbor]
-            [yin.vm :as vm])
-  #?(:cljd (:import ["dart:typed_data" ByteData])))
+            [dao.host.float :as float]
+            [dao.host.integer :as integer]
+            [dao.host.number :as number]
+            [dao.host.text :as text]
+            [yin.vm :as vm]))
 
 
 ;; =============================================================================
@@ -165,9 +168,7 @@
 
 (defn- code-unit-at
   [s i]
-  #?(:clj (int (.charAt ^String s i))
-     :cljs (.charCodeAt s i)
-     :cljd (.codeUnitAt s i)))
+  (text/code-unit s i))
 
 
 (defn- utf8-byte-length
@@ -223,23 +224,12 @@
 
 (defn- double-le-hex
   "IEEE-754 bits, little-endian, one quiet NaN encoding regardless of a
-   host's NaN payload. :clj reads the bits through doubleToLongBits,
-   :cljs through a DataView with littleEndian explicitly true, :cljd
-   through a big-endian ByteData store read in reverse. On :cljs the
-   float64 carrier is unwrapped first: a DataView coerces an object
-   through its text, which loses -0.0's sign."
+   host's NaN payload: the big-endian `dao.host.float/float64->bits`
+   with its byte pairs reversed. Jing's float64 carrier (JS) is unwrapped
+   first through `dao.host.number/float-value`, which keeps -0.0's sign."
   [x]
-  (let [v #?(:cljs (if (number? x) x (.-v ^not-native x)) :default x)]
-    (if (not= v v)
-      "000000000000f87f"
-      ;; ClojureDart reads both :cljd and :clj, so its branch comes first
-      #?(:cljd (let [bd (ByteData. 8)]
-                 (.setFloat64 bd 0 v)
-                 (apply str (map #(to-hex (.getUint8 bd %) 2) (range 7 -1 -1))))
-         :clj (int64-le-hex (Double/doubleToLongBits (double v)))
-         :cljs (let [view (js/DataView. (js/ArrayBuffer. 8))]
-                 (.setFloat64 view 0 v true)
-                 (apply str (map #(to-hex (.getUint8 view %) 2) (range 8))))))))
+  (let [be (float/float64->bits (number/float-value x))]
+    (apply str (map #(subs be (* 2 %) (+ 2 (* 2 %))) (range 7 -1 -1)))))
 
 
 ;; =============================================================================
@@ -299,22 +289,12 @@
 
 
 (defn- host-bigint?
-  "Bigint is supported only where this repo already has a host-verified,
-   unambiguous predicate for it: `clojure.lang.BigInt` / `BigInteger` on
-   the JVM, distinct from `int?` (which is also true for both on the
-   JVM, so it cannot be used to tell them apart). `yin.vm.debruijn/
-   numeric-class` -- the existing repo pattern for cross-host numeric
-   classification -- does not attempt bigint detection on :cljd either
-   (its :cljd branch falls straight to double-class for anything
-   `int?` does not claim); this dimension matches that absence rather
-   than guess an unverified ClojureDart class name that could either
-   silently misclassify or fail to compile. A Dart or JS bigint value is
-   refused with :unsupported-value rather than encoded."
-  #_{:clj-kondo/ignore [:unused-binding]}
+  "A host big-integer carrier on every host: `dao.host.integer/
+   big-carrier?` (`clojure.lang.BigInt` or `BigInteger` on the JVM, a
+   `BigInt` on JS and Dart). On the JVM it is distinct from `int?`
+   (which is also true for both there), so it is tested first."
   [v]
-  #?(:cljd false
-     :cljs false
-     :clj (or (instance? clojure.lang.BigInt v) (instance? java.math.BigInteger v))))
+  (integer/big-carrier? v))
 
 
 (defn- host-long?
@@ -386,11 +366,11 @@
 (def host-supported-scalar-classes
   "The scalar classes this host's encoder can represent (S2 item 4/5):
    every declared class except the ones this host's own predicates above
-   never return. CLJS and CLJD both exclude :char, :ratio, and :bigint
-   (see `host-char?`, `host-ratio?`, `host-bigint?`); the JVM excludes
-   none."
+   never return. CLJS and CLJD both exclude :char and :ratio (see
+   `host-char?`, `host-ratio?`); the JVM excludes none. :bigint is
+   supported on every host (`host-bigint?`, slice H2)."
   (into #{}
-        (remove #?(:cljs #{:char :ratio :bigint} :cljd #{:char :ratio :bigint} :clj #{}))
+        (remove #?(:cljs #{:char :ratio} :cljd #{:char :ratio} :clj #{}))
         scalar-classes))
 
 
@@ -444,7 +424,7 @@
                                            {:rule :unsupported-value, :value v})))
                          (framed :ratio (str (framed :long (int64-le-hex num))
                                              (framed :long (int64-le-hex den))))))
-    :bigint (framed :bigint (str v))
+    :bigint (framed :bigint (integer/to-radix-string (integer/promote v) 10))
     :char (framed :char (str v))
     :string (framed :string v)
     :keyword (framed :keyword (ident-content v))

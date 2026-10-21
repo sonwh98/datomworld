@@ -7,7 +7,7 @@
    test pumps, so every host runs the same composition
    deterministically.  `blackhole!` drops the frames toward one side;
    `flood!` delivers unrelated value frames to the clients."
-  (:require [dao.stream.transit :as transit]
+  (:require [dao.stream.codec :as codec]
             [dao.stream.ws :as ws]))
 
 
@@ -138,7 +138,11 @@
                                   :close! (fn [code reason]
                                             (enqueue! net
                                                       #(close-conn!
-                                                         conn code reason)))}
+                                                         conn code reason)))
+                                  ;; The negotiated subprotocol, as a real host
+                                  ;; names it: the dialing attacher's own.
+                                  :ws/subprotocol (codec/codec-name
+                                                    (:ws/codec client))}
                           r ((:accept! l) (:ws/path descriptor) socket 0)]
                       (when-some [h (:ws/handle r)]
                         (reset! (:server conn) (ws/adapter h))
@@ -161,4 +165,5 @@
           :when (not @(:closed? conn))
           i (range n)]
     (deliver! (:client conn)
-              (transit/encode {:ws/frame :ws/value :ws/value {:junk i}}))))
+              ((codec/encode-fn (:ws/codec (:client conn)))
+               {:ws/frame :ws/value :ws/value {:junk i}}))))

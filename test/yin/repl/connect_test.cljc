@@ -112,6 +112,17 @@
         "the answers cursor is the Linda mint, resolved by a later poll!")))
 
 
+(deftest open-defaults-to-cbor-and-takes-an-explicit-codec
+  (let [url "daostream:ws://localhost:8080"
+        opened (fn [& more]
+                 (get (connect/open (merge {:url url :host (:adapter (fake-host)) :now 0}
+                                           (apply hash-map more)))
+                      connect/connection-key))]
+    (is (= (:cbor connect/codec-profiles) (:codec (opened))))
+    (is (= (:transit connect/codec-profiles)
+           (:codec (opened :codec (:transit connect/codec-profiles)))))))
+
+
 (deftest close-ends-the-dialed-channel-and-records-who-asked
   (let [h (fake-host)
         result (connect/open {:url "daostream:ws://localhost:8080"
@@ -171,7 +182,7 @@
          answers (ring 64)]
      {:net lnet :requests requests :answers answers
       :server (atom (remote-channel/serve
-                      {:spec {:host "127.0.0.1" :port 9 :path "/repl"}
+                      {:codecs [(:cbor connect/codec-profiles)] :spec {:host "127.0.0.1" :port 9 :path "/repl"}
                        :host (host-of lnet)
                        :table (cond-> {connect/requests-identity
                                        {:handle requests :surface #{:writer}}}

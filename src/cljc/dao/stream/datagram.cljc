@@ -42,9 +42,9 @@
    so without a gate on that entry (section 8)."
 
   (:require [clojure.string :as str]
+            [dao.host.bytes :as bytes]
             [dao.stream :as stream]
-            [dao.stream.base64 :as base64])
-  #?@(:cljd [(:import ["dart:typed_data" Uint8List])]))
+            [dao.stream.base64 :as base64]))
 
 
 (def transport-type
@@ -62,8 +62,7 @@
 
 (defn- byte-length
   [bs]
-  #?(:cljd (.-length ^Uint8List bs)
-     :default (alength bs)))
+  (bytes/length bs))
 
 
 ;; =============================================================================

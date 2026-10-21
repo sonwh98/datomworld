@@ -291,7 +291,9 @@
   "Compose the serving end of `spec` and bind its listener through the
    host assembly's `:bind!`.  `:table` and `:names` are the mirror's
    table and name map (dao.stream.remote.md section 2), passed through
-   untouched.  `:bounds` merges over `production-bounds`.
+   untouched.  `:bounds` merges over `production-bounds`.  The required
+   `:codecs` (a non-empty vector of codec profiles) is the wire profiles
+   the endpoint serves; omitted or empty, `::no-codec` refusal applies.
 
    Each table entry declares a non-empty subset of `#{:reader :writer}`
    as its `:surface`, validated against its handle's own natures: a
@@ -311,16 +313,20 @@
    diagnostic kept, monotonic, while `:diagnostics` holds the last 8).
    Refusals are data, `:status :refused` with `:reason`:
    `::no-transport` (a transport other than :ws, or no `:bind!`),
+   `::no-codec` (omitted, empty, or nil `:codecs`),
    `::no-port` (not a non-negative integer, or 0 beside a positive
    `:bind-port`), `::invalid-table`,
    `::bind-failed` (`:bind!` threw or answered an outcome that is not
    ok; `:detail` nil).  An invalid bound is the composition error the
    validating layer throws, before anything listens."
-  [{:keys [spec host table names bounds]}]
+  [{:keys [spec host table names bounds codecs] :as config}]
   (let [b (merge production-bounds bounds)]
     (cond
       (not (and (ws-transport? spec) (fn? (:bind! host))))
       (refused {:spec spec} ::no-transport {})
+
+      (empty? codecs)
+      (refused {:spec spec} ::no-codec {})
 
       (not (and (integer? (:port spec)) (not (neg? (:port spec)))
                 (not (and (zero? (:port spec))
@@ -348,7 +354,8 @@
                                                :ack-admission handoff-admission
                                                :ack-cursor (:ack-cursor slot)})
                                             pool)
-                               :expiry-ms (:expiry-ms b)}))
+                               :expiry-ms (:expiry-ms b)}
+                              {:codecs codecs}))
             acceptor (ws-project/make-acceptor
                        {:endpoint endpoint
                         :slots (mapv (fn [slot]
@@ -388,6 +395,7 @@
                       :bind-port (or (:bind-port spec) (:port spec))
                       :path (:path spec)
                       :ws/max-frame-bytes (:ws/max-frame-bytes b)
+                      :codecs (:codecs endpoint)
                       :accept! (fn [request-path socket now]
                                  (ws/accept-connection!
                                    endpoint request-path socket now))
@@ -797,9 +805,10 @@
    invalid-descriptor).
 
    Without `:connect!`, or for a transport other than :ws, `{:status
-   :refused :reason ::no-transport}`.  An invalid bound is the
+   :refused :reason ::no-transport}`.  Omitted or nil `:codec` yields
+   `{:status :refused :reason ::no-codec}`.  An invalid bound is the
    composition error the validating layer throws."
-  [{:keys [spec host bounds events identities now table names] n :name :as opts}]
+  [{:keys [spec host bounds events identities now table names codec] n :name :as opts}]
   (let [b (merge production-bounds bounds)]
     (cond
       (table-refusal (or table {}) names)
@@ -816,6 +825,10 @@
       {:status :refused :reason ::no-transport :spec spec :name n
        :identities identities}
 
+      (nil? codec)
+      {:status :refused :reason ::no-codec :spec spec :name n
+       :identities identities}
+
       :else
       (let [capacity (:capacity b)
             policy (link-policy b)
@@ -824,7 +837,8 @@
                       (merge (select-keys b ws-bound-keys)
                              {:traffic (writer-target traffic)
                               :admission (admission capacity)
-                              :connect! (:connect! host)}))
+                              :connect! (:connect! host)}
+                             {:codec codec}))
             d {:status :resolving
                :spec spec
                :descriptor (descriptor-of spec)

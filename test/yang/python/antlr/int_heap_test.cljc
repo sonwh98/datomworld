@@ -17,7 +17,7 @@
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.engine :as engine]
             [yin.vm.integer :as integer]
-            [yin.vm.integer.host :as integer-host]
+            [dao.host.integer :as integer-host]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]

@@ -1,0 +1,294 @@
+(ns dao.host.integer
+  "The jolt override of src/cljc/dao/host/integer.cljc (the :jolt alias puts
+   src/jolt first, docs/design/yin.repl-jolt-implementation.md §4.2): the
+   same public entries, arities, laws and refusal data, over Chez's exact
+   integers. The laws are those of the shared namespace's docstrings
+   (docs/design/dao.stream.host-boundary.md §4.2, table A); kind P
+   throughout.
+
+   Carriers. jolt has one exact-integer representation, Chez's, and names
+   it by value: an exact integer in [-2^63, 2^63) is a `java.lang.Long`,
+   any other a `clojure.lang.BigInt` (V: `(type 9223372036854775808)`).
+   That is the JVM's canonical-carrier table, so `big-carrier?`,
+   `safe-native?` and `demote` answer as on the JVM for every canonical
+   value. The host big integer the operations take is the same exact
+   integer: `promote`, `from-native`, `demote` and `to-native` are the
+   identity. One difference from the JVM follows and is recorded in the J1
+   report: a promoted small value (`(promote 5)`) is not a distinct
+   `BigInteger` object, so `big-carrier?` answers by value, false for it.
+
+   Operations call Chez's own exact primitives through jolt.scheme (`+`,
+   `quotient`, `logand`, `ash`, `bitwise-length`, `number->string`, `gcd`),
+   never jolt's long-oriented `bit-and`/`bit-or`, which refuse a bignum
+   (V: \"bit operation not supported for: class clojure.lang.BigInt\")."
+  (:require
+    [jolt.scheme :as scheme]))
+
+
+(defn- refuse
+  [entry cls detail]
+  (throw (ex-info (str "dao.host refused: " entry " " (name cls) " (" detail ")")
+                  {:dao.host/refusal cls :dao.host/entry entry :detail detail})))
+
+
+(def ^:private chez-number? (scheme/proc "number?"))
+(def ^:private chez-exact? (scheme/proc "exact?"))
+(def ^:private chez-integer? (scheme/proc "integer?"))
+(def ^:private chez-flonum? (scheme/proc "flonum?"))
+(def ^:private chez-inexact (scheme/proc "inexact"))
+(def ^:private chez-exact (scheme/proc "exact"))
+(def ^:private chez-flnan? (scheme/proc "flnan?"))
+(def ^:private chez-flinfinite? (scheme/proc "flinfinite?"))
+(def ^:private chez-fltruncate (scheme/proc "fltruncate"))
+(def ^:private chez+ (scheme/proc "+"))
+(def ^:private chez- (scheme/proc "-"))
+(def ^:private chez* (scheme/proc "*"))
+(def ^:private chez< (scheme/proc "<"))
+(def ^:private chez<= (scheme/proc "<="))
+(def ^:private chez= (scheme/proc "="))
+(def ^:private chez-quotient (scheme/proc "quotient"))
+(def ^:private chez-remainder (scheme/proc "remainder"))
+(def ^:private chez-abs (scheme/proc "abs"))
+(def ^:private chez-logand (scheme/proc "logand"))
+(def ^:private chez-logor (scheme/proc "logor"))
+(def ^:private chez-logxor (scheme/proc "logxor"))
+(def ^:private chez-ash (scheme/proc "ash"))
+(def ^:private chez-bitwise-length (scheme/proc "bitwise-length"))
+(def ^:private chez-number->string (scheme/proc "number->string"))
+(def ^:private chez-string->number (scheme/proc "string->number"))
+(def ^:private chez-string-downcase (scheme/proc "string-downcase"))
+(def ^:private chez-gcd (scheme/proc "gcd"))
+
+
+;; =============================================================================
+;; Recognition
+;; =============================================================================
+
+(defn- chez-exact-integer?
+  [x]
+  (boolean (and (chez-number? x) (chez-exact? x) (chez-integer? x))))
+
+
+(def ^:private long-min (chez- (chez-ash 1 63)))
+(def ^:private long-max (chez- (chez-ash 1 63) 1))
+
+
+(defn big-carrier?
+  "True when `x` is a host big-integer carrier: on jolt an exact integer
+   outside [-2^63, 2^63), the values jolt types `clojure.lang.BigInt`."
+  [x]
+  (and (chez-exact-integer? x)
+       (not (and (chez<= long-min x) (chez<= x long-max)))))
+
+
+(defn exact-integer?
+  "True when `x` is an exact integer in any carrier the host has: on jolt
+   any Chez exact integer. A float with an integral value is not."
+  [x]
+  (chez-exact-integer? x))
+
+
+(defn safe-native?
+  "True when `x` is a native carrier within +/-(2^53 - 1)."
+  [x]
+  (and (chez-exact-integer? x)
+       (chez<= -9007199254740991 x)
+       (chez<= x 9007199254740991)))
+
+
+(defn host-float?
+  "True when `x` is a host binary64: a Chez flonum."
+  [x]
+  (boolean (chez-flonum? x)))
+
+
+(defn nan-float?
+  "True when host float `x` is a NaN."
+  [x]
+  (boolean (chez-flnan? (chez-inexact x))))
+
+
+(defn infinite-float?
+  "True when host float `x` is an infinity."
+  [x]
+  (boolean (chez-flinfinite? (chez-inexact x))))
+
+
+;; =============================================================================
+;; Promotion and demotion
+;; =============================================================================
+
+(defn promote
+  "The host big integer of exact-integer carrier `x`: on jolt `x` itself.
+   The caller has checked `exact-integer?`."
+  [x]
+  x)
+
+
+(defn from-native
+  "The host big integer of a native integer `n`: on jolt `n` itself."
+  [n]
+  n)
+
+
+(defn demote
+  "The canonical carrier of host big integer `b`: on jolt `b` itself, which
+   jolt already types by value (Long within 64 bits, BigInt beyond)."
+  [b]
+  b)
+
+
+(defn to-native
+  "Host big integer `b` as a native integer: on jolt `b` itself. The caller
+   has checked that `b` lies within +/-(2^53 - 1)."
+  [b]
+  b)
+
+
+(defn native->double
+  "Native integer `n`, within +/-2^53, as a host double: exact."
+  [n]
+  (chez-inexact n))
+
+
+(defn trunc-native
+  "Finite host float `x`, of magnitude below 2^53, truncated toward zero
+   to a native integer: exact (an exact integer has no -0)."
+  [x]
+  (chez-exact (chez-fltruncate (chez-inexact x))))
+
+
+;; =============================================================================
+;; Exact operations on host big integers
+;; =============================================================================
+
+(defn add
+  [a b]
+  (chez+ a b))
+
+
+(defn sub
+  [a b]
+  (chez- a b))
+
+
+(defn mul
+  [a b]
+  (chez* a b))
+
+
+(defn quot-trunc
+  "The quotient of `a` by non-zero `b`, truncated toward zero."
+  [a b]
+  (chez-quotient a b))
+
+
+(defn rem-trunc
+  "The remainder of `a` by non-zero `b`, with the sign of `a`."
+  [a b]
+  (chez-remainder a b))
+
+
+(defn compare-big
+  "-1, 0 or 1 as `a` is less than, equal to or greater than `b`."
+  [a b]
+  (cond (chez< a b) -1
+        (chez= a b) 0
+        :else 1))
+
+
+(defn bit-and-big
+  "Bitwise and over infinite two's complement (Chez `logand`)."
+  [a b]
+  (chez-logand a b))
+
+
+(defn bit-or-big
+  "Bitwise or over infinite two's complement (Chez `logor`)."
+  [a b]
+  (chez-logor a b))
+
+
+(defn bit-xor-big
+  "Bitwise exclusive or over infinite two's complement (Chez `logxor`)."
+  [a b]
+  (chez-logxor a b))
+
+
+(defn shift-left-big
+  "`a` times 2^`k`, for a native, non-negative count `k`."
+  [a k]
+  (chez-ash a k))
+
+
+(defn shift-right-big
+  "The floor of `a` divided by 2^`k`, for a native, non-negative count
+   `k` (Chez `ash` by a negative count is an arithmetic, flooring shift)."
+  [a k]
+  (chez-ash a (chez- k)))
+
+
+(defn magnitude-bit-length
+  "The number of bits of the absolute value of `a`, 0 for zero: Python's
+   `int.bit_length`."
+  [a]
+  (chez-bitwise-length (chez-abs a)))
+
+
+(defn to-radix-string
+  "The exact text of `a` in `radix` (2 to 36): lowercase digits, a
+   leading `-` only when negative, no prefix. Chez writes letters in
+   upper case, so the text is lowered."
+  [a radix]
+  (chez-string-downcase (chez-number->string a radix)))
+
+
+;; =============================================================================
+;; Decimal text, gcd and magnitude bytes (from dao.jing.cbor)
+;; =============================================================================
+
+(def ^:private ascii-digits
+  #{"0" "1" "2" "3" "4" "5" "6" "7" "8" "9"})
+
+
+(defn- decimal-digits?
+  "True when `s` is a non-empty run of ASCII digits after one optional
+   leading `-`."
+  [s]
+  (let [n (count s)
+        start (if (and (pos? n) (= "-" (subs s 0 1))) 1 0)]
+    (and (< start n)
+         (every? #(contains? ascii-digits (subs s % (inc %)))
+                 (range start n)))))
+
+
+(defn parse-decimal
+  "P. The host big integer of decimal text `s`: one optional leading
+   `-` and one or more ASCII digits, nothing else. Any other text is
+   refused `:malformed-number` before the host parser sees it."
+  [s]
+  (when-not (and (string? s) (decimal-digits? s))
+    (refuse 'parse-decimal :malformed-number "not decimal digit text"))
+  (chez-string->number s 10))
+
+
+(defn gcd
+  "P. The greatest common divisor of host big integers `a` and `b`,
+   never negative; `(gcd 0 0)` is 0."
+  [a b]
+  (chez-gcd a b))
+
+
+(defn magnitude-bytes
+  "P, fresh. The minimal big-endian bytes of non-negative host big
+   integer `b`, empty for zero: the payload of CBOR tags 2 and 3, as a
+   jolt byte array. A negative `b` is refused `:out-of-range`. The
+   caller holds the exclusive mutation right to the result (§2.4)."
+  [b]
+  (when (neg? (compare-big b (from-native 0)))
+    (refuse 'magnitude-bytes :out-of-range "negative"))
+  (loop [b b
+         acc ()]
+    (if (chez= b 0)
+      (byte-array (map unchecked-byte acc))
+      (recur (chez-ash b -8) (conj acc (chez-logand b 255))))))

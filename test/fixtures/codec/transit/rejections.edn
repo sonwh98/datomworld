@@ -1,0 +1,3 @@
+[{:name "unsafe-integer", :text "[\"~#'\",9007199254740992]"}
+ {:name "negative-unsafe-integer", :text "[\"~#'\",-9007199254740992]"}
+ {:name "uuid", :text "[\"~#'\",\"~u531a379e-31bb-4ce1-8690-a7a7f6ddd28f\"]"}]

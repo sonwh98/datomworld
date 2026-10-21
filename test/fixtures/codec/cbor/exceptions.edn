@@ -1,0 +1,1 @@
+[{:name "integral-double-one", :hex "a2d827693a77732f6672616d65d827693a77732f76616c7565d827693a77732f76616c7565f93c00", :expected {:ws/frame :ws/value, :ws/value 1}, :clj :decodes, :cljs :throws, :cljd :decodes}]

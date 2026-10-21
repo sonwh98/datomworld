@@ -55,13 +55,14 @@
 (defn serve
   "Serve `:board`, the board ring of `:principal`'s publisher, at the
    portable endpoint `:spec` `{:host h :port p}` over the host assembly
-   `:host`, with `:bounds` merged into the board profile.  Answers the
+   `:host`, with `:bounds` merged into the board profile and `:codecs` the
+   wire profiles served.  Answers the
    `dao.stream.remote-channel` server as it is, plus `:identity` (the
    ring's own) and `:name` (the board name).  A spec host that is not a
    loopback literal is refused before anything is composed,
    `{:status :refused :reason :yin.head/not-loopback}`; every other
    refusal is the channel composition's."
-  [{:keys [board principal spec host bounds]}]
+  [{:keys [board principal spec host bounds codecs]}]
   (if-not (remote-channel/loopback-literal? (:host spec))
     {:status :refused :reason :yin.head/not-loopback :spec spec}
     (let [identity (:dao.stream/identity (stream/descriptor board))
@@ -71,7 +72,8 @@
                 :host host
                 :table {identity {:handle board :surface #{:reader}}}
                 :names {n identity}
-                :bounds (board-profile bounds)})
+                :bounds (board-profile bounds)
+                :codecs codecs})
              :identity identity
              :name n))))
 
@@ -99,16 +101,17 @@
   "Compose the reader's end toward the board of `:principal` at the
    portable endpoint `:spec` `{:host h :port p}` over the host assembly
    `:host`; `:bounds` merges into the board profile and `:events`,
-   optional, is the link's event writer.  Every dial is fresh, so a lost
+   optional, is the link's event writer; `:codec` is the wire profile.  Every dial is fresh, so a lost
    source is redialed by composing another.  Answers the
    `dao.stream.remote-channel` dial, `:status :resolving`, or its
    refusal."
-  [{:keys [principal spec host bounds events]}]
+  [{:keys [principal spec host bounds events codec]}]
   (assoc (remote-channel/dial {:spec (board-spec spec)
                                :host host
                                :name (board-name principal)
                                :bounds (board-profile bounds)
-                               :events events})
+                               :events events
+                               :codec codec})
          :principal principal))
 
 

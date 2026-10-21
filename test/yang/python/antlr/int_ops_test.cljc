@@ -15,7 +15,7 @@
             [yin.vm.debruijn.stack :as dvm]
             [yin.vm.integer :as integer]
             [yin.vm.integer-v3-fixtures :as fx]
-            [yin.vm.integer.host :as integer-host]
+            [dao.host.integer :as integer-host]
             [yin.vm.module :as module]
             [yin.vm.semantic :as semantic]
             [yin.vm.test-utils :as tu]))

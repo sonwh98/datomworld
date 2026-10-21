@@ -9,6 +9,7 @@
             [dao.jing.cbor-fixtures :as fx]
             [dao.jing.stream :as jing-stream]
             [dao.stream.cbor :as cbor]
+            [dao.stream.codec :as codec]
             [dao.stream.transit :as transit]
             [yang.python.antlr.int-contract-fixtures :as f]))
 
@@ -89,7 +90,7 @@
         "octets are 0-255 integers only"))
 
   (testing "an unknown profile is refused, never a silent downgrade"
-    (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs :default) #"not a known stream codec profile"
+    (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs :default) #"not a valid stream codec profile"
           (jing-stream/wrap-bytes {:ws/subprotocol "dao.stream.base64"} nil)))))
 
 
@@ -100,3 +101,49 @@
         (is (= (f/column fixture s "cbor") (fx/bytes->hex bs)))
         (is (carried? cbor/profile cbor/encode cbor/decode bs))
         (is (carried? transit/profile transit/encode transit/decode bs))))))
+
+
+(defn- stub-profile
+  "A complete modern profile under an unfamiliar name: the adapter must pick
+   its lane from the declared capability, never from a known name."
+  [bytes?]
+  {:dao.stream.codec/name "dao.stream.custom-stub"
+   :dao.stream.codec/frame-kind (if bytes? :binary :text)
+   :dao.stream.codec/portable-value? codec/portable-value?
+   :dao.stream.codec/encode identity
+   :dao.stream.codec/decode identity
+   :dao.stream.codec/bytes? bytes?})
+
+
+(deftest malformed-profiles-are-rejected-before-any-lane
+  (let [bs (jing/canonical-bytes [:literal 1])
+        good (stub-profile true)
+        bad [nil
+             {}
+             (dissoc good :dao.stream.codec/encode)
+             (dissoc good :dao.stream.codec/bytes?)
+             (assoc good :dao.stream.codec/bytes? :yes)
+             (assoc good :dao.stream.codec/name "not a token")]]
+    (doseq [p bad]
+      (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs :default)
+                            #"not a valid stream codec profile"
+            (jing-stream/wrap-bytes p bs))
+          (pr-str p))
+      (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs :default)
+                            #"not a valid stream codec profile"
+            (jing-stream/unwrap-bytes p {:dao.jing/canonical-bytes bs}))
+          (pr-str p)))))
+
+
+(deftest the-lane-follows-the-bytes-capability-not-the-name
+  (let [bs (jing/canonical-bytes [:literal 1])]
+    (testing "bytes? true: the byte string itself"
+      (let [p (stub-profile true)
+            w (jing-stream/wrap-bytes p bs)]
+        (is (codec/host-bytes? (:dao.jing/canonical-bytes w)))
+        (is (carried? p identity identity bs))))
+    (testing "bytes? false: the named vector of octets"
+      (let [p (stub-profile false)
+            w (jing-stream/wrap-bytes p bs)]
+        (is (= (mapv #(bit-and 0xff %) bs) (:dao.jing/canonical-bytes w)))
+        (is (carried? p identity identity bs))))))

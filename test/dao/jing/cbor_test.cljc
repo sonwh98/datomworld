@@ -546,8 +546,9 @@
        (do (doseq [[label f] cases]
              (is (= :carrier-coercion (refusal-of f)) label))
            (testing "the refusal is Jing's, not a lift outcome"
-             (let [data (try (+ c 1) (catch :default e (ex-data e)))]
-               (is (= :carrier-coercion (::cbor/refusal data)))
+             (let [e (try (+ c 1) (catch :default e e))
+                   data (ex-data e)]
+               (is (= :carrier-coercion (cbor/refusal e)))
                (is (nil? (:yin.k/status data)))))
            (testing "\"\" + carrier and Number(carrier) refuse; explicit string
                      conversion works"

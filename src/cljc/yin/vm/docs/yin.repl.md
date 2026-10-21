@@ -46,6 +46,11 @@ Connected to daostream:ws://localhost:8080/repl
 
 An absent URL path means `/repl`; an explicit `/` remains `/`.
 
+The wire codec defaults to CBOR. `--codec <cbor|transit>` sets the wire profile
+of the served shell (when `--port` is used); at the prompt,
+`(connect url :codec :transit)` or `:cbor` sets the client connection's profile.
+Both ends of a connection must use the same codec.
+
 ## Using Python at the prompt
 
 The REPL starts a frontend catalog with three frontends installed: `:yang/clojure`

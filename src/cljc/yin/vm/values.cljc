@@ -23,11 +23,15 @@
    guest print: `{:type :closure}` or `{:type :continuation}`, never the
    payload, a captured value, or the owner tag (`marker-text`).
 
+   These are table C laws of docs/design/dao.stream.host-boundary.md
+   (§4.2), which a port must meet: equal iff kind, owner and payload are
+   equal; hash of `[kind owner payload]`; print the marker text.
+
    Cell, stream and cursor references stay sealed plain data: they name
    table entries, are already unforgeable, and must stay usable as keys."
-  (:require [dao.jing :as jing]
-            [dao.jing.cbor :as cbor]
-            [yin.vm.integer.host :as integer-host]))
+  (:require [dao.host.integer :as integer-host]
+            [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]))
 
 
 (def marker-text

@@ -1,0 +1,4 @@
+[{:name "offer", :offer "dao.stream.cbor", :expect :accepted}
+ {:name "refused-offer", :offer "dao.stream.transit-json", :expect :refused}
+ {:name "unknown-offer", :offer "dao.stream.bogus", :expect :refused}
+ {:name "no-offer", :offer nil, :expect :default-transit}]

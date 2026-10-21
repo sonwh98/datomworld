@@ -11,8 +11,7 @@
    (f9 for 1.5 and 5.5, fb for 1.1 and 1.0e-3), and the tag-258 / tag-27 /
    tag-39 carrier frames."
   (:require [clojure.test :refer [deftest is]]
-            [dao.stream.cbor :as cbor]
-            [dao.stream.transit :as transit]))
+            [dao.stream.cbor :as cbor]))
 
 
 #?(:cljd nil
@@ -81,11 +80,11 @@
 
 
      (deftest profile-is-a-binary-codec-profile
-       (is (= "dao.stream.cbor" (:ws/subprotocol cbor/profile)))
-       (is (= :binary (:ws/frame-kind cbor/profile)))
-       (is (fn? (:ws/portable-value? cbor/profile)))
-       (is (fn? (:ws/encode cbor/profile)))
-       (is (fn? (:ws/decode cbor/profile))))
+       (is (= "dao.stream.cbor" (:dao.stream.codec/name cbor/profile)))
+       (is (= :binary (:dao.stream.codec/frame-kind cbor/profile)))
+       (is (fn? (:dao.stream.codec/portable-value? cbor/profile)))
+       (is (fn? (:dao.stream.codec/encode cbor/profile)))
+       (is (fn? (:dao.stream.codec/decode cbor/profile))))
 
 
      (deftest frozen-fixtures-decode-and-re-encode-identically
@@ -197,14 +196,4 @@
          (doseq [hex rejects]
            (is (thrown? #?(:clj Exception :cljs :default)
                  (cbor/decode (from-hex hex)))
-               (str "decode accepted " hex)))))
-
-
-     (deftest transit-domain-stays-a-subset-of-the-cbor-domain
-       ;; The Transit profile's public predicate states the same base domain; the
-       ;; CBOR profile is that domain plus metadata. Every Transit-portable value
-       ;; the transport already carries must therefore be cbor-portable too.
-       (let [base [nil true "s" :k 'k 1 -1 1.5 {:a [1] :b #{2}}]]
-         (doseq [value base]
-           (is (transit/portable-value? value))
-           (is (cbor/portable-value? value)))))))
+               (str "decode accepted " hex)))))))
