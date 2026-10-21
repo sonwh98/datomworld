@@ -1,0 +1,191 @@
+(ns dao.host.hash
+  "The jolt override of src/cljc/dao/host/hash.cljc (the :jolt alias puts
+   src/jolt first, docs/design/yin.repl-jolt-implementation.md §4.2, §6.2,
+   §6.3): the same public entries, arities, docstrings and refusal data
+   (docs/design/dao.stream.host-boundary.md §4.2, table A).
+
+   P entries (§2.4): `blake3-bytes` and `sha256-bytes`. They take host
+   bytes (jolt's byte array) and return fresh host bytes representing the
+   32-byte digest (256 bits). They leave their arguments unmodified.
+
+   Both are `:blocking` calls into native/jolt-crypto, which `bb
+   build:jolt-native` builds: BLAKE3 is the vendored upstream C reference,
+   SHA-256 the declared system libcrypto's EVP API. The input is copied into
+   caller-owned native memory (never a C string, so embedded NUL is data),
+   the digest is read back into a fresh jolt byte array, and the memory is
+   freed on every path: each native acquisition owns its own release,
+   established as soon as it is acquired (`with-native`), so a later
+   allocation or copy that fails still frees every earlier buffer, and each
+   free runs whether or not another failed.
+
+   Loading this namespace is the provenance gate (§6.3): it refuses, by
+   throwing, unless the wrapper writes this namespace's layout and reports
+   that every EVP entry resolved to exactly the library jolt-toolchain.edn
+   qualified for this platform (:native :libcrypto :qualified): the same
+   canonical real path (which the declared :path must also resolve to), the
+   same OpenSSL_version_num and the same file SHA-256, at no lower than
+   :min-version. An upgrade, a repointed link or a replaced file therefore
+   fails until requalified (the procedure is in jolt-toolchain.edn). No
+   digest is computed before that check passes; a missing library fails the
+   load.
+
+   String digesting is a table B portable composition over `dao.host.text`
+   and these byte primitives (`blake3`, `sha256`, `digest-string`,
+   `digest-bytes`), hosted in `dao.jing`."
+  (:require
+    [clojure.edn :as edn]
+    [clojure.string :as str]
+    [dao.host.bytes :as bytes]
+    [jolt.ffi :as ffi]))
+
+
+;; =============================================================================
+;; The native library and its provenance
+;; =============================================================================
+
+(def ^:private platform
+  ;; as yang.antlr.cst decides it: jolt's os.name/os.arch shim can answer
+  ;; nil, which reads as Linux and x86_64
+  (let [os (str/lower-case (or (System/getProperty "os.name") ""))
+        arch (System/getProperty "os.arch")]
+    (str (if (str/includes? os "mac") "darwin" "linux") "-"
+         (if (#{"aarch64" "arm64"} arch) "arm64" "x86_64"))))
+
+
+(def ^:private library
+  ;; the wrapper `bb build:jolt-native` builds, under the working directory
+  (str (System/getProperty "user.dir") "/build/native/" platform
+       "/jolt-crypto/lib/libjolt_crypto"
+       (if (str/starts-with? platform "darwin") ".dylib" ".so")))
+
+
+(def ^:private libcrypto-declaration
+  (get-in (edn/read-string (slurp (str (System/getProperty "user.dir")
+                                       "/jolt-toolchain.edn")))
+          [:native :libcrypto]))
+
+
+(ffi/load-library library)
+(ffi/defcfn ^:private c-layout-version "jolt_crypto_layout_version" [] :int)
+(ffi/defcfn ^:private c-provenance "jolt_crypto_provenance" [:pointer :size_t] :int)
+(ffi/defcfn ^:private c-blake3 "jolt_crypto_blake3"
+  [:pointer :size_t :pointer] :int :blocking)
+(ffi/defcfn ^:private c-sha256 "jolt_crypto_sha256"
+  [:pointer :size_t :pointer] :int :blocking)
+
+
+(def ^:private layout 2)
+
+
+(defn- refuse-load
+  [message data]
+  (throw (ex-info (str "jolt-crypto refused: " message)
+                  (assoc data :library library))))
+
+
+(when-not (= layout (c-layout-version))
+  (refuse-load "the library writes another layout"
+               {:expected layout, :actual (c-layout-version)}))
+
+
+(defn- with-native
+  "(f p) over caller-owned native memory `p` of `n` bytes (one for an empty
+   input), freed however `f` exits. The release is established before
+   anything else can fail, so nesting one call per acquisition frees each
+   buffer independently of the others."
+  [n f]
+  (let [p (ffi/alloc (max 1 n))]
+    (try
+      (when (ffi/null? p)
+        (throw (ex-info "jolt-crypto native allocation failed" {:bytes n})))
+      (f p)
+      (finally (ffi/free p)))))
+
+
+(defn- version-number
+  "OpenSSL_version_num of a \"major.minor.patch\" text (OpenSSL 3's
+   0xMNN00PP0 form)."
+  [text]
+  (let [[major minor patch] (map #(Long/parseLong %) (str/split text #"\."))]
+    (+ (bit-shift-left major 28) (bit-shift-left minor 20) (bit-shift-left patch 4))))
+
+
+(def ^:private provenance
+  (with-native 4096
+    (fn [buf]
+      (let [n (c-provenance buf 4096)]
+        (when (neg? n)
+          (refuse-load "libcrypto provenance unavailable" {:status n}))
+        (let [[num text path digest] (str/split (ffi/read-bytes buf n) #"\t")]
+          {:version-num (Long/parseLong num), :version text, :path path,
+           :sha256 digest})))))
+
+
+(defn- canonical
+  [path]
+  (.getCanonicalPath (java.io.File. ^String path)))
+
+
+(let [declared (get-in libcrypto-declaration [:path (keyword platform)])
+      qualified (get-in libcrypto-declaration [:qualified (keyword platform)])
+      minimum (:min-version libcrypto-declaration)
+      refuse (fn [message]
+               (refuse-load message {:declared declared, :qualified qualified,
+                                     :provenance provenance}))]
+  (when-not (and declared qualified minimum)
+    (refuse "jolt-toolchain.edn qualifies no libcrypto for this platform"))
+  ;; canonical paths: dyld answers the real path behind Homebrew's opt/
+  ;; link, and a Linux loader may name the file through /lib
+  (when-not (= (canonical (:path provenance)) (:canonical-path qualified))
+    (refuse "EVP resolved to an undeclared libcrypto (canonical path differs from the qualified one)"))
+  (when-not (= (canonical declared) (:canonical-path qualified))
+    (refuse "the declared libcrypto path resolves to another file than the qualified one (repointed)"))
+  (when-not (= (:version-num provenance) (:version-num qualified))
+    (refuse "libcrypto version differs from the qualified one (upgrade or downgrade)"))
+  (when-not (= (:sha256 provenance) (:sha256 qualified))
+    (refuse "libcrypto file digest differs from the qualified one (replaced)"))
+  (when (< (:version-num provenance) (version-number minimum))
+    (refuse "libcrypto is older than the declared minimum")))
+
+
+(defn- digest
+  "The 32-byte result of wrapper entry `c-fn` over `bs`, copied into a fresh
+   jolt byte array."
+  [entry c-fn bs]
+  (let [n (alength bs)]
+    (with-native n
+      (fn [in]
+        (when (pos? n) (ffi/write-array in bs))
+        (with-native 32
+          (fn [out]
+            (let [status (c-fn in n out)]
+              (when-not (zero? status)
+                (throw (ex-info (str "jolt-crypto " entry " failed")
+                                {:entry entry, :status status})))
+              (ffi/read-array out 32))))))))
+
+
+;; =============================================================================
+;; The profile surface
+;; =============================================================================
+
+(defn- check-bytes!
+  [entry bs]
+  (when-not (bytes/bytes? bs)
+    (throw (ex-info (str "dao.host refused: " entry " unsupported-value (expected host bytes)")
+                    {:dao.host/refusal :unsupported-value
+                     :dao.host/entry entry}))))
+
+
+(defn blake3-bytes
+  "P. 32-byte BLAKE3 digest of host bytes `bs`, returning fresh host bytes."
+  [bs]
+  (check-bytes! 'blake3-bytes bs)
+  (digest 'blake3-bytes c-blake3 bs))
+
+
+(defn sha256-bytes
+  "P. 32-byte SHA-256 digest of host bytes `bs`, returning fresh host bytes."
+  [bs]
+  (check-bytes! 'sha256-bytes bs)
+  (digest 'sha256-bytes c-sha256 bs))

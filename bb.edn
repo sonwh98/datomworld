@@ -15,10 +15,27 @@
            (:exit (shell {:continue true} "sh" "-c"
                          ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt src/dev/jolt_smoke.clj")))}
 
+  jolt
+  {:doc "Run jolt -Srepro -M:jolt with the arguments given (a script path, -e ...), under build/tools/jolt-env.sh"
+   :task (System/exit
+           (:exit (apply shell {:continue true} "sh" "-c"
+                         ". build/tools/jolt-env.sh && exec \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt \"$@\""
+                         "jolt" *command-line-args*)))}
+
+  qualify:jolt-libcrypto
+  {:doc "J1b requalification: print this platform's observed libcrypto identity {:canonical-path :version-num :version :sha256} for jolt-toolchain.edn :native :libcrypto :qualified (the digest from bb and from the library, required equal); changes nothing (needs a built wrapper: bb build:jolt-native, or --requalify after a library change)"
+   :task (System/exit
+           (:exit (shell {:continue true} "bb" "native/jolt-crypto/qualify.clj")))}
+
+  probe:jolt-crypto
+  {:doc "J1b: libcrypto provenance (qualified, missing, undeclared, version-floor, wrong-library-first, Linux LD_PRELOAD) and 256 MiB :blocking hash collect-safety, each in a child jolt process (needs bb build:jolt-native)"
+   :task (System/exit
+           (:exit (shell {:continue true} "bb" "native/jolt-crypto/probes/run.clj")))}
+
   build:jolt-native
   {:doc "Fetch (by pinned SHA-256, only when absent) and build the jolt-toolchain.edn :native sources with the mise-pinned CMake into build/native/<platform>/"
    :task (System/exit
-           (:exit (shell {:continue true} "bb" "src/dev/jolt_native.clj")))}
+           (:exit (apply shell {:continue true} "bb" "src/dev/jolt_native.clj" *command-line-args*)))}
 
   test:jolt-host
   {:doc "J1: the dao.host oracle (conformance, bytes, float, text tests) under jolt -Srepro -M:jolt:jolt-test through src/dev/jolt_test_runner.clj; counts per namespace, nonzero exit on any failure, error or load failure (needs bb bootstrap:jolt)"

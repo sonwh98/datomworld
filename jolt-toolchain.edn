@@ -52,23 +52,28 @@
     "gcc" "mise Chez source build (C compiler)"
     "make" "mise Chez source build (make)"
     ;; bootstrap:jolt clones jolt and its submodules (src/dev/jolt_bootstrap.clj)
-    "git" "bootstrap:jolt clone and verification"}
+    "git" "bootstrap:jolt clone and verification"
+    ;; J1b: native/jolt-crypto compiles against the libcrypto headers
+    ;; (openssl/evp.h) and links the declared :native :libcrypto path
+    "libssl-dev" "J1b native build (libcrypto headers and link, native/jolt-crypto)"}
+   ;; J1b runtime: the package owning the declared libcrypto.so.3 differs per
+   ;; release, so any ONE of these satisfies it (dpkg -S on shiva, Ubuntu
+   ;; 24.04: libssl3t64; Debian bookworm and Ubuntu 22.04: libssl3). Checked
+   ;; by `bb build:jolt-native`, not by `bb bootstrap:jolt` (which checks
+   ;; :required only). The library itself is checked against :native
+   ;; :libcrypto :qualified.
+   :runtime-any-of
+   {"libcrypto.so.3 (J1b dao.host.hash/sign)" ["libssl3t64" "libssl3"]}
    :unverified
    {;; J0c native build (jolt-j0c branch, bb build:jolt-native) compiles the
     ;; ANTLR4 C++ runtime and wrapper and unzips the runtime source; shown on
     ;; macOS only, not yet on a Debian host
     "g++" "J0c native build (C++ compiler)"
-    "unzip" "J0c native build (runtime source archive)"
-    ;; §6.3 / Q4: system libcrypto via apt, version-checked before use (J1).
-    ;; The package NAME differs per release: on Ubuntu 24.04 libcrypto.so.3 is
-    ;; owned by libssl3t64 (dpkg -S verified on shiva) and libssl3 is not
-    ;; installed there; "libssl3" is correct for older releases. When J1
-    ;; promotes this, declare the library (soname libcrypto.so.3 plus the
-    ;; version check), not a package name.
-    "libssl3" "libcrypto for SHA-256/Ed25519 (J1); wrong name on Ubuntu 24.04"}}
-  ;; Homebrew is assumed on macOS and not enforced; nothing is checked there
-  ;; yet (Homebrew openssl@3 for libcrypto is §6.3's later gate).
-  :macos {:manager :homebrew :enforced false}}
+    "unzip" "J0c native build (runtime source archive)"}}
+  ;; Homebrew is assumed on macOS and not enforced; the libcrypto it provides
+  ;; is checked by path and version instead (:native :libcrypto, J1b).
+  :macos {:manager :homebrew :enforced false
+          :packages {"openssl@3" "libcrypto for dao.host.hash/sign (J1b)"}}}
 
  ;; Provisioned by mise from the exact pins in mise.toml. JOLT_CHEZ is always
  ;; set explicitly (build/tools/jolt-env.sh), never left to jolt's PATH search.
@@ -86,15 +91,26 @@
  {:macos-arm64 {:os "macOS 26.6.2 (25G83)"
                 :chez-path "~/.local/share/mise/installs/chezscheme/10.4.1/bin/scheme"
                 :cmake-path "~/.local/share/mise/installs/cmake/4.4.4/cmake-4.4.4-macos-universal/CMake.app/Contents/bin/cmake"
-                :cc "Apple clang version 21.0.0 (clang-2100.1.1.101)"}
-  ;; shiva.stigmergy.systems: not yet provisioned or run
-  :linux-x86_64 nil}
+                :cc "Apple clang version 21.0.0 (clang-2100.1.1.101)"
+                ;; J1b, 2026-10-21 (Homebrew openssl@3)
+                :libcrypto {:path "/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib"
+                            :resolved "/opt/homebrew/Cellar/openssl@3/3.6.3/lib/libcrypto.3.dylib"
+                            :version "OpenSSL 3.6.3 9 Jun 2026"}}
+  ;; shiva.stigmergy.systems, J1b 2026-10-21 (scratch clone ~/ci/datomworld-jolt-j1b)
+  :linux-x86_64 {:os "Ubuntu 24.04.5 LTS (kernel 6.8.0-147-generic)"
+                 :chez-path "~/.local/share/mise/installs/chezscheme/10.4.1/bin/scheme"
+                 :cmake-path "~/.local/share/mise/installs/cmake/4.4.4/cmake-4.4.4-linux-x86_64/bin/cmake"
+                 :cc "cc (Ubuntu 13.3.0-6ubuntu2~24.04.1) 13.3.0"
+                 :libcrypto {:path "/usr/lib/x86_64-linux-gnu/libcrypto.so.3"
+                             :resolved "/usr/lib/x86_64-linux-gnu/libcrypto.so.3"
+                             :version "OpenSSL 3.0.13 30 Jan 2024"
+                             :package "libssl3t64 3.0.13-0ubuntu3.16"}}}
 
  ;; Vendored native sources (§6.1, Q4): fetched by `bb build:jolt-native`
  ;; only when absent from build/native/src, accepted only at the pinned
  ;; SHA-256, built with the mise-pinned CMake into build/native/<platform>/.
- ;; Nothing downloads during namespace loading. Not yet declared: libblake3
- ;; and the libcrypto path/version per platform.
+ ;; Nothing downloads during namespace loading. :libcrypto is the one system
+ ;; (not vendored) entry: declared by path and minimum version, never fetched.
  :native
  {:antlr4-cpp-runtime
   {:version "4.13.2"
@@ -117,4 +133,82 @@
                  "-DANTLR_BUILD_SHARED=OFF"
                  "-DANTLR_BUILD_STATIC=ON"
                  "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
-                 "-DCMAKE_CXX_STANDARD=17"]}}}
+                 "-DCMAKE_CXX_STANDARD=17"]}
+
+  ;; §6.2: the upstream BLAKE3 C reference (c/ of the release), built static
+  ;; and position-independent and linked into native/jolt-crypto. Portable C
+  ;; only (BLAKE3_SIMD_TYPE=none, the option name verified in c/CMakeLists.txt
+  ;; at this tag); SIMD is a later, separately measured change.
+  :blake3
+  {:version "1.8.7"
+   :license "CC0-1.0 OR Apache-2.0 OR Apache-2.0 WITH LLVM-exception"
+   ;; GitHub's tag archive; downloaded twice 2026-10-21, both SHA-256 equal
+   :url "https://github.com/BLAKE3-team/BLAKE3/archive/refs/tags/1.8.7.tar.gz"
+   :sha256 "c6782a28842b1c0478524ac06a4f2ede784038ee298d6e2162c0b089c4306a3c"
+   ;; saved under build/native/src by this name (the URL ends in 1.8.7.tar.gz)
+   :archive-name "BLAKE3-1.8.7.tar.gz"
+   :upstream {:repo "https://github.com/BLAKE3-team/BLAKE3"
+              :tag "1.8.7"
+              ;; a lightweight tag: refs/tags/1.8.7 names the commit directly
+              :commit "f3149ec5bb5449af877ba20377a11008ff499fa2"
+              :released "2026-08-20T09:06:20Z"
+              :path "c"}
+   :cmake-flags ["-DCMAKE_BUILD_TYPE=Release"
+                 "-DBUILD_SHARED_LIBS=OFF"
+                 "-DCMAKE_POSITION_INDEPENDENT_CODE=ON"
+                 "-DCMAKE_INSTALL_LIBDIR=lib"
+                 "-DBLAKE3_SIMD_TYPE=none"
+                 "-DBLAKE3_USE_TBB=OFF"
+                 "-DBLAKE3_FETCH_TBB=OFF"
+                 "-DBUILD_TESTING=OFF"]}
+
+  ;; §6.3 / Q4: the SYSTEM libcrypto, never vendored. native/jolt-crypto links
+  ;; it by :path (install name on macOS, -rpath on Linux). Never Apple's
+  ;; libcrypto (it aborts inside EVP_Digest).
+  ;;
+  ;; :qualified is the one library per platform that passed the J1b gates:
+  ;; its canonical real path, exact OpenSSL_version_num and the SHA-256 of
+  ;; the file. Any difference fails closed until requalified, so a Homebrew
+  ;; or apt upgrade (new version, and on Homebrew a repointed opt/ link), and
+  ;; a same-path, same-version package replacement (new digest) all refuse:
+  ;;   * `bb build:jolt-native` (check-libcrypto!) fails on a canonical path
+  ;;     or digest that differs (it cannot read the version without loading
+  ;;     the library);
+  ;;   * loading dao.host.hash fails on canonical path, version or digest, as
+  ;;     the wrapper reports them for the library the EVP entries resolved to.
+  ;; :min-version is separate: the lowest version a requalification may
+  ;; accept.
+  ;;
+  ;; Requalification (the upgrade gate, §6.4), on the platform that changed:
+  ;;   1. `bb build:jolt-native --requalify` (builds against the changed
+  ;;      library; skips only the :qualified comparison, and says so in the
+  ;;      build record);
+  ;;   2. `bb qualify:jolt-libcrypto` prints the observed {:canonical-path
+  ;;      :version-num :version :sha256} (the digest computed by bb and by
+  ;;      the library, required equal; the version at least :min-version)
+  ;;      and changes nothing;
+  ;;   3. replace this platform's :qualified entry with it, review the diff;
+  ;;   4. `bb build:jolt-native`, `bb compare:jolt-host`, `bb
+  ;;      probe:jolt-crypto`, all of which must pass.
+  :libcrypto
+  {:provider :system
+   :soname {:darwin-arm64 "libcrypto.3.dylib" :linux-x86_64 "libcrypto.so.3"}
+   :path {:darwin-arm64 "/opt/homebrew/opt/openssl@3/lib/libcrypto.3.dylib"
+          :linux-x86_64 "/usr/lib/x86_64-linux-gnu/libcrypto.so.3"}
+   :include {:darwin-arm64 "/opt/homebrew/opt/openssl@3/include"
+             :linux-x86_64 "/usr/include"}
+   :min-version "3.0.0"
+   ;; qualified 2026-10-21 (J1b): macOS from this checkout, Linux on shiva
+   :qualified
+   {:darwin-arm64 {:canonical-path "/opt/homebrew/Cellar/openssl@3/3.6.3/lib/libcrypto.3.dylib"
+                   :version-num 811597872
+                   :version "OpenSSL 3.6.3 9 Jun 2026"
+                   :sha256 "a12805a18cd5e4f733fa8727b91afa08b587f9da5a760517cd79cb508a3a3f71"}
+    :linux-x86_64 {:canonical-path "/usr/lib/x86_64-linux-gnu/libcrypto.so.3"
+                   :version-num 805306576
+                   :version "OpenSSL 3.0.13 30 Jan 2024"
+                   :sha256 "6866ed711dab8927e1bf82bf1cd30e828bdfc34f3cc1e83b1c9eb01ce6c37d9a"}}
+   ;; Debian runtime packages: checked by `bb build:jolt-native`, NOT by
+   ;; `bb bootstrap:jolt` (which checks only :os-packages :debian :required,
+   ;; libssl-dev among them); macOS: Homebrew openssl@3, unenforced
+   :debian-runtime-any-of ["libssl3t64" "libssl3"]}}}

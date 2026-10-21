@@ -25,3 +25,19 @@ Contents (J1):
 - `yang/antlr/cst.jolt` (J0c round 2): the native-library facade over the
   ANTLR4 C++ Python3 parser (§7.3). Its contract is the JVM oracle corpus in
   `src/dev/jolt_j0c_parity.clj`.
+- `dao/host/{hash,sign}.jolt` (J1b): BLAKE3, SHA-256 and Ed25519 over
+  `native/jolt-crypto` (§6.2-6.3), built by `bb build:jolt-native` from the
+  pinned BLAKE3 C reference and the declared system libcrypto. Contract: the
+  hash and sign cases of `bb compare:jolt-host`; gates: `bb
+  probe:jolt-crypto`. Where each libcrypto check runs:
+  - `bb bootstrap:jolt`: the Debian `:os-packages :debian :required` set
+    only (`libssl-dev` among them), with dpkg-query;
+  - `bb build:jolt-native`: the declared path and headers exist; the Debian
+    runtime package (`libssl3t64` or `libssl3`) is installed; the library's
+    canonical path and file SHA-256 equal `:native :libcrypto :qualified`;
+  - loading `dao.host.hash`: the wrapper's layout, then the library its EVP
+    entries resolved to must equal `:qualified` by canonical path, exact
+    version and file SHA-256, the declared path must resolve to it, and its
+    version must be at least `:min-version`.
+  A changed library is requalified with `bb build:jolt-native --requalify`
+  and `bb qualify:jolt-libcrypto` (the procedure is in `jolt-toolchain.edn`).

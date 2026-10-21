@@ -1,4 +1,5 @@
-;; J1: compare the dao.host profile surface and behaviour between the JVM
+;; J1 (and J1b: dao.host.hash, dao.host.sign): compare the dao.host profile
+;; surface and behaviour between the JVM
 ;; (src/cljc/dao/host/*.cljc) and jolt (the src/jolt/dao/host/*.jolt
 ;; overrides). The same file runs on both hosts and prints one EDN form per
 ;; line, in a fixed order; `diff` of the two outputs is the comparison.
@@ -21,15 +22,19 @@
 ;;     [:threw message-class keys]   any other throw (not a profile refusal)
 (ns jolt-profile-compare
   (:require
+    [clojure.string :as str]
     [dao.host.bytes :as bytes]
     [dao.host.float :as float]
+    [dao.host.hash :as hash]
     [dao.host.integer :as integer]
     [dao.host.number :as number]
+    [dao.host.sign :as sign]
     [dao.host.text :as text]))
 
 
 (def namespaces
-  '[dao.host.integer dao.host.float dao.host.number dao.host.bytes dao.host.text])
+  '[dao.host.integer dao.host.float dao.host.number dao.host.bytes dao.host.text
+    dao.host.hash dao.host.sign])
 
 
 (defn- norm
@@ -77,6 +82,143 @@
 
 
 (def ^:private shift-counts [0 1 31 32 53 63 64 65 100 127 128])
+
+
+(defn- hex->bytes
+  [s]
+  (bytes/from-vector
+    (mapv (fn [i]
+            (let [d #(str/index-of "0123456789abcdef" (subs s % (inc %)))]
+              (+ (* 16 (d (* 2 i))) (d (inc (* 2 i))))))
+          (range (quot (count s) 2)))))
+
+
+(defn- pattern-bytes
+  "`n` bytes, byte i = (7i + 3) mod 256."
+  [n]
+  (let [b (bytes/alloc n)]
+    (dotimes [i n] (bytes/set! b i (mod (+ 3 (* 7 i)) 256)))
+    b))
+
+
+(def ^:private hash-inputs
+  ;; label and a thunk answering the input bytes (§6.2 / J1b spec §4)
+  (concat
+    [["empty" #(bytes/alloc 0)]
+     ["abc" #(text/utf8-encode "abc")]
+     ["all 256 byte values" #(bytes/from-vector (vec (range 256)))]
+     ["UTF-8 héllo 中😀" #(text/utf8-encode "héllo 中😀")]
+     ["embedded NUL" #(bytes/from-vector [97 0 98 0 0])]]
+    (for [n [63 64 65 1023 1024 1025]]
+      [(str n " bytes") #(pattern-bytes n)])
+    ;; over 2 MiB: many BLAKE3 chunks and SHA-256 blocks
+    [["2 MiB + 1 bytes" (let [b (delay (pattern-bytes (inc (* 2 1024 1024))))] #(deref b))]]))
+
+
+;; RFC 8032 §7.1 tests 1-3, as test/yin/vm/linker/sign_vectors.edn :rfc
+;; records them, plus the shared test's seed of 32 ones
+(def ^:private rfc8032
+  [{:seed "9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60"
+    :public "d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a"
+    :message ""
+    :signature "e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b"}
+   {:seed "4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb"
+    :public "3d4017c3e843895a92b70aa74d1b7ebc9c982ccf2ec4968cc0cd55f12af4660c"
+    :message "72"
+    :signature "92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00"}
+   {:seed "c5aa8df43f9f837bedb7442f31dcb7b166d38535076f094b85ce3a2e0b4458f7"
+    :public "fc51cd8e6218a1a38da47ed00230f0580816ed13ba3303ac5deb911548908025"
+    :message "af82"
+    :signature "6291d657deec24024827e69c3abe01a30ce548a284743a445e3680d7db5ac3ac18ff9b538d16f290ae67f760984dc6594a7c15e9716ed28dc027beceea1ec40a"}])
+
+
+(defn- flip
+  "A copy of `bs` with byte `i` xor 1."
+  [bs i]
+  (let [b (bytes/slice bs 0 (bytes/length bs))]
+    (bytes/set! b i (bit-xor 1 (bytes/get b i)))
+    b))
+
+
+(def ^:private hash-cases
+  (concat
+    (for [[label input] hash-inputs
+          [nm f] [["blake3-bytes" hash/blake3-bytes] ["sha256-bytes" hash/sha256-bytes]]]
+      [(str "hash/" nm " " label) #(f (input))])
+    (for [[nm f] [["blake3-bytes" hash/blake3-bytes] ["sha256-bytes" hash/sha256-bytes]]
+          [label x] [["string" "abc"] ["integer" 123] ["nil" nil] ["vector" [1 2]]]]
+      [(str "hash/" nm " refused " label) #(f x)])
+    (for [[nm f] [["blake3-bytes" hash/blake3-bytes] ["sha256-bytes" hash/sha256-bytes]]]
+      [(str "hash/" nm " argument unmodified, result fresh")
+       #(let [in (bytes/from-vector [1 2 3 4 5])
+              a (f in)
+              b (f in)]
+          [(bytes/to-vector in) (bytes/equal? a b) (identical? a b)])])))
+
+
+(defn- pair-of
+  "A keypair's keys and bytes, for `norm` (which prints no maps)."
+  [pair]
+  [(vec (sort (map str (keys pair)))) (:seed pair) (:public pair)])
+
+
+(def ^:private sign-cases
+  (concat
+    (for [{:keys [seed public message signature]} rfc8032
+          :let [s (hex->bytes seed)
+                m (hex->bytes message)
+                label (str "sign RFC 8032 seed " (subs seed 0 8))]
+          [nm f] [["keypair-from-seed" #(pair-of (sign/keypair-from-seed s))]
+                  ["public matches the vector"
+                   #(bytes/equal? (hex->bytes public) (:public (sign/keypair-from-seed s)))]
+                  ["sign" #(sign/sign s m)]
+                  ["signature matches the vector"
+                   #(bytes/equal? (hex->bytes signature) (sign/sign s m))]
+                  ;; the vector's signature, made by another implementation,
+                  ;; verifies here; and so does this host's own
+                  ["verify vector signature"
+                   #(sign/verify (hex->bytes public) m (hex->bytes signature))]
+                  ["verify own signature"
+                   #(sign/verify (:public (sign/keypair-from-seed s)) m (sign/sign s m))]
+                  ["verify tampered signature" #(sign/verify (hex->bytes public) m (flip (hex->bytes signature) 0))]
+                  ["verify tampered signature s half"
+                   #(sign/verify (hex->bytes public) m (flip (hex->bytes signature) 40))]
+                  ["verify tampered message"
+                   #(sign/verify (hex->bytes public) (text/utf8-encode "x") (hex->bytes signature))]
+                  ["verify wrong public key"
+                   #(sign/verify (:public (sign/keypair-from-seed (pattern-bytes 32))) m
+                                 (hex->bytes signature))]]]
+      [(str label " " nm) f])
+    [["sign seed of ones, hello world"
+      #(let [seed (bytes/from-vector (vec (repeat 32 1)))
+             msg (text/utf8-encode "hello world")
+             pair (sign/keypair-from-seed seed)
+             sig (sign/sign seed msg)]
+         [(pair-of pair) sig (sign/verify (:public pair) msg sig)
+          (sign/verify (:public pair) (text/utf8-encode "wrong msg") sig)])]
+     ["sign 2 MiB + 1 message"
+      #(let [seed (pattern-bytes 32)
+             msg (pattern-bytes (inc (* 2 1024 1024)))
+             sig (sign/sign seed msg)]
+         [sig (sign/verify (:public (sign/keypair-from-seed seed)) msg sig)])]
+     ["sign keypair seed is a fresh copy"
+      #(let [seed (pattern-bytes 32)
+             pair (sign/keypair-from-seed seed)]
+         [(identical? seed (:seed pair)) (bytes/equal? seed (:seed pair))])]
+     ;; a public key that is no curve point: false, never a throw
+     ["sign verify non-point public key"
+      #(sign/verify (bytes/from-vector (vec (repeat 32 255))) (bytes/alloc 0) (bytes/alloc 64))]
+     ["sign verify all-zero signature"
+      #(sign/verify (hex->bytes (:public (first rfc8032))) (bytes/alloc 0) (bytes/alloc 64))]
+     ["sign keypair-from-seed 31 bytes" #(sign/keypair-from-seed (bytes/alloc 31))]
+     ["sign keypair-from-seed 33 bytes" #(sign/keypair-from-seed (bytes/alloc 33))]
+     ["sign keypair-from-seed vector" #(sign/keypair-from-seed (vec (repeat 32 0)))]
+     ["sign sign 31-byte seed" #(sign/sign (bytes/alloc 31) (bytes/alloc 1))]
+     ["sign sign message string" #(sign/sign (bytes/alloc 32) "msg")]
+     ["sign verify 31-byte public" #(sign/verify (bytes/alloc 31) (bytes/alloc 1) (bytes/alloc 64))]
+     ["sign verify 63-byte signature" #(sign/verify (bytes/alloc 32) (bytes/alloc 1) (bytes/alloc 63))]
+     ["sign verify 65-byte signature" #(sign/verify (bytes/alloc 32) (bytes/alloc 1) (bytes/alloc 65))]
+     ["sign verify message nil" #(sign/verify (bytes/alloc 32) nil (bytes/alloc 64))]]))
 
 
 (def cases
@@ -273,13 +415,19 @@
     [["text/utf8-decode range" #(text/utf8-decode (bytes/from-vector [0x61 0xC3 0xA9 0x62]) 1 2)]
      ["text/utf8-decode range out" #(text/utf8-decode (bytes/from-vector [0x61]) 1 1)]]
     (for [s ["é" "ẛ̣" "각" "Å" "Å"]]
-      [(str "text/nfc " (text/code-points s)) #(text/nfc s)])))
+      [(str "text/nfc " (text/code-points s)) #(text/nfc s)])
+    ;; hash and sign (J1b)
+    hash-cases
+    sign-cases))
 
 
 (defn -main
   []
   (doseq [n namespaces]
-    (doseq [[sym v] (sort-by key (ns-publics n))]
+    ;; skip the name the JVM's `proxy` interns for its class (dao.host.sign's
+    ;; SunEC seed replay): a host artefact, not a profile entry
+    (doseq [[sym v] (sort-by key (ns-publics n))
+            :when (not (str/starts-with? (name sym) (str n ".proxy$")))]
       (prn [:api n sym (:arglists (meta v))])))
   (doseq [[label f] cases]
     (prn [:case label (run-case f)]))
