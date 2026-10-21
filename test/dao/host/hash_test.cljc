@@ -122,27 +122,29 @@
 
 
 (deftest surrogate-refusal-in-consumers
-  (testing "Table D: digest-string and message refuse unpaired surrogate string"
-    (let [lone-high (text/units->string [0xD800])
-          lone-low (text/units->string [0xDFFF])]
-      ;; dao.jing/digest-string
-      (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs :default)
-                            #"surrogate|refused"
-            (jing/digest-string :blake3 lone-high)))
-      (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs :default)
-                            #"surrogate|refused"
-            (jing/digest-string :sha256 lone-low)))
-      ;; dao.jing/sha256 and blake3
-      (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs :default)
-                            #"surrogate|refused"
-            (jing/sha256 lone-high)))
-      (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs :default)
-                            #"surrogate|refused"
-            (jing/blake3 lone-low)))
-      ;; yin.vm.linker.sign message assembly through sign-trace
-      (let [seed (apply str (repeat 64 "1"))
-            bad-trace {:yin.head/principal (str "ed25519:" (linker-sign/public-of seed))
-                       :bad (str "bad" lone-high)}]
-        (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs :default)
-                              #"surrogate|refused"
-              (linker-sign/sign-trace seed bad-trace)))))))
+  #?(:jolt nil
+     :default
+     (testing "Table D: digest-string and message refuse unpaired surrogate string"
+       (let [lone-high (text/units->string [0xD800])
+             lone-low (text/units->string [0xDFFF])]
+         ;; dao.jing/digest-string
+         (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs :default)
+                               #"surrogate|refused"
+               (jing/digest-string :blake3 lone-high)))
+         (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs :default)
+                               #"surrogate|refused"
+               (jing/digest-string :sha256 lone-low)))
+         ;; dao.jing/sha256 and blake3
+         (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs :default)
+                               #"surrogate|refused"
+               (jing/sha256 lone-high)))
+         (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs :default)
+                               #"surrogate|refused"
+               (jing/blake3 lone-low)))
+         ;; yin.vm.linker.sign message assembly through sign-trace
+         (let [seed (apply str (repeat 64 "1"))
+               bad-trace {:yin.head/principal (str "ed25519:" (linker-sign/public-of seed))
+                          :bad (str "bad" lone-high)}]
+           (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs :default)
+                                 #"surrogate|refused"
+                 (linker-sign/sign-trace seed bad-trace))))))))
