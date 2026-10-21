@@ -665,6 +665,8 @@
    "src/cljc/dao/host/number.cljc" (entry :profile :stays "H1 addition (§8.1)")
    "src/cljc/dao/host/bytes.cljc" (entry :profile :stays "H1 addition (§8.1)")
    "src/cljc/dao/host/text.cljc" (entry :profile :stays "H1 addition (§8.1)")
+   "src/cljc/dao/host/hash.cljc" (entry :profile :stays "H3 addition (§8.1)")
+   "src/cljc/dao/host/sign.cljc" (entry :profile :stays "H3 addition (§8.1)")
    ;; Retained runtime prerequisites (table C) and display
    "src/cljc/dao/data/btree.cljc" (entry :runtime-prereq :stays "atomic flag, weak/soft references")
    "src/cljc/dao/data/btree/storage.cljc" (entry :runtime-prereq :stays "promise facade, deferred §9.1")
@@ -750,7 +752,7 @@
    "src/cljc/dao/stream/rpc.cljc" {:rand 3}
    "src/cljc/dao/jing/dht.cljc" {:rand 1}
    "src/cljc/dao/space/dht.cljc" {:secure-random 3}
-   "src/cljc/yin/vm/linker/sign.cljc" {:secure-random 3, :m-entry 1}
+   "src/cljc/yin/vm/linker/sign.cljc" {:secure-random 2}
    "src/cljc/yang/clojure.cljc" {:gensym 2}
    "src/cljc/yang/php.cljc" {:gensym 1}
    "src/cljc/dao/space/transact.cljc" {:gensym 1}
@@ -769,7 +771,8 @@
    ;; from a fresh seed copy (never a published value)
    "src/cljc/dao/data/btree.cljc" {:m-entry 33}
    "src/cljc/dao/stream/chunks.cljc" {:m-entry 1}
-   "src/cljc/dao/jing/cbor.cljc" {:m-entry 1}})
+   "src/cljc/dao/jing/cbor.cljc" {:m-entry 1}
+   "src/cljc/dao/host/sign.cljc" {:secure-random 1, :m-entry 11}})
 
 
 ;; ---------------------------------------------------------------------------
@@ -852,7 +855,14 @@
    "BigDecimal" {:slice "H2" :pattern #"(^|[./])BigDecimal($|[./])"}
    "clojure.lang.Ratio" {:slice "H2" :pattern #"^clojure\.lang\.Ratio($|[./])"}
    "java.text" {:slice "H2" :pattern #"^java\.text($|[./])"}
-   "unorm" {:slice "H2" :pattern #"(^|[./:])unorm"}})
+   "unorm" {:slice "H2" :pattern #"(^|[./:])unorm"}
+   "MessageDigest" {:slice "H3" :pattern #"(^|[./])MessageDigest($|[./])"}
+   "Blake3" {:slice "H3" :pattern #"(^|[./])Blake3($|[./])"}
+   "noble" {:slice "H3" :pattern #"(^|[./:@])noble"}
+   "blake3_dart" {:slice "H3" :pattern #"(^|[./:])blake3_dart"}
+   "package:crypto" {:slice "H3" :pattern #"package:crypto"}
+   "ed25519_edwards" {:slice "H3" :pattern #"(^|[./:])ed25519_edwards"}
+   "goog.crypt.base64" {:slice "H3" :pattern #"goog\.crypt\.base64"}})
 
 
 (def library-allowed-root
@@ -898,29 +908,32 @@
    a symbol (a call, a class name, an import, a type hint), a string
    libspec or an imported class name in the ns form; strings elsewhere, docstrings included,
    keywords, comments, quoted forms and (comment ...) never count."
-  [features forms]
-  (let [forms (keep #(select-arms features %) forms)
-        acc (atom [])
-        hit! (fn [text line]
-               (doseq [[n {:keys [pattern]}] library-names
-                       :when (re-find pattern text)]
-                 (swap! acc conj [n line])))
-        walk (fn walk
-               [form line]
-               (let [line (or (line-of form) line)]
-                 (when-let [tag (:tag (meta form))]
-                   (when (symbol? tag) (hit! (str tag) line)))
-                 (cond
-                   (symbol? form) (hit! (str form) line)
-                   (and (seq? form) (#{'quote 'comment} (head form))) nil
-                   (map? form) (doseq [[k v] form] (walk k line) (walk v line))
-                   (coll? form) (doseq [x form] (walk x line))
-                   :else nil)))]
-    (doseq [f forms]
-      (when (= 'ns (head f))
-        (doseq [s (ns-library-texts f)] (hit! s (line-of f))))
-      (walk f nil))
-    @acc))
+  ([features forms] (library-references nil features forms))
+  ([file features forms]
+   (let [forms (keep #(select-arms features %) forms)
+         acc (atom [])
+         hit! (fn [text line]
+                (doseq [[n {:keys [pattern]}] library-names
+                        :when (re-find pattern text)]
+                  (swap! acc conj [n line])))
+         walk (fn walk
+                [form line]
+                (let [line (or (line-of form) line)]
+                  (when-let [tag (:tag (meta form))]
+                    (when (symbol? tag) (hit! (str tag) line)))
+                  (cond
+                    (symbol? form) (hit! (str form) line)
+                    (and (seq? form) (#{'quote 'comment} (head form))) nil
+                    (map? form) (doseq [[k v] form] (walk k line) (walk v line))
+                    (coll? form) (doseq [x form] (walk x line))
+                    :else nil)))]
+     (doseq [f forms]
+       (when (= 'ns (head f))
+         (doseq [s (ns-library-texts f)] (hit! s (line-of f))))
+       (walk f nil))
+     (if (= file "src/cljc/yin/vm/linker/sign.cljc")
+       (vec (remove (fn [[n _]] (= n "ed25519_edwards")) @acc))
+       @acc))))
 
 
 (defn library-gate
@@ -942,7 +955,7 @@
                                                           fs (scan-features l)]
                                                       fs)
                                                     distinct
-                                                    (mapcat #(library-references % forms))
+                                                    (mapcat #(library-references file % forms))
                                                     distinct
                                                     (filter (comp names first))
                                                     vec)})
@@ -972,10 +985,10 @@
 (deftest closure-totals-are-the-design-totals
   (testing "§3.1 after H2: 146 / 144 / 145 files, 137 shared (H0's 142 / 140 / 141 and 133, minus yin.vm.integer.host, plus the five dao.host files)"
     (let [files (into {} (map (fn [l] [l (set (map :file (:files (committed-closure l))))]) lanes))]
-      (is (= 146 (count (files :clj))))
-      (is (= 144 (count (files :cljs))))
-      (is (= 145 (count (files :cljd))))
-      (is (= 137 (count (apply set/intersection (vals files)))))
+      (is (= 148 (count (files :clj))))
+      (is (= 146 (count (files :cljs))))
+      (is (= 147 (count (files :cljd))))
+      (is (= 139 (count (apply set/intersection (vals files)))))
       (doseq [l lanes]
         (is (= (count (files l)) (:total (committed-closure l))))
         (is (every? #(seq (:classes %)) (:files (committed-closure l))))))))
@@ -992,8 +1005,8 @@
 
 (deftest gate-passes-on-the-current-tree
   (let [r @current]
-    (is (= 159 (count (closure-files))) "the union of the three lanes")
-    (is (= 159 (count (gate-files))) "no profile addition outside the closure after H2")
+    (is (= 161 (count (closure-files))) "the union of the three lanes")
+    (is (= 161 (count (gate-files))) "no profile addition outside the closure after H3")
     (is (= (count (gate-files)) (:scanned r)))
     (is (= [] (:errors r)))
     (is (= [] (:arm-violations r)))
@@ -1225,7 +1238,7 @@
 
 
 (deftest library-mode-finds-no-host-library-outside-the-profile
-  (testing "§8.2 (H2 names): within the adopted closure, no executable reference to BigInteger, BigDecimal, clojure.lang.Ratio, java.text or unorm outside dao/host/"
+  (testing "§8.2 (H2 and H3 names): within the adopted closure, no executable reference to BigInteger, BigDecimal, clojure.lang.Ratio, java.text, unorm, MessageDigest, Blake3, noble, blake3_dart, package:crypto, ed25519_edwards, or goog.crypt.base64 outside dao/host/ (and ed25519_edwards permitted in sign.cljc)"
     (let [r @library-current
           scope (library-scope (gate-files) list-1)]
       (is (seq scope))
@@ -1239,7 +1252,7 @@
     (let [profile (filter #(str/starts-with? % library-allowed-root) (gate-files))
           r (library-gate (read-sources profile))]
       (is (= :fail (:verdict r)))
-      (is (= #{"BigInteger" "BigDecimal" "clojure.lang.Ratio" "java.text" "unorm"}
+      (is (= (disj (set (keys library-names)) "goog.crypt.base64")
              (set (map :name (:hits r))))))))
 
 

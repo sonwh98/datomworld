@@ -25,19 +25,13 @@
    an address or a stored value."
   (:refer-clojure :exclude [get])
   (:require [clojure.string :as str]
+            [dao.host.bytes :as bytes]
+            [dao.host.hash :as hash]
+            [dao.host.text :as text]
             [dao.stream :as stream]
             [dao.stream.base64 :as stream-base64]
             [dao.stream.observe :as observe]
-            [dao.jing.cbor :as cbor]
-            #?@(:cljs [[goog.crypt :as crypt]
-                       goog.crypt.Sha256
-                       ["@noble/hashes/blake3.js" :as noble-blake3]
-                       ["@noble/hashes/utils.js" :as noble-utils]])
-            #?@(:cljd [["dart:convert" :as convert]
-                       ["package:blake3_dart/blake3_dart.dart"
-                        :as blake3-dart]
-                       ["package:crypto/crypto.dart" :as crypto]]))
-  #?@(:cljd [(:import ["dart:typed_data" Uint8List])]))
+            [dao.jing.cbor :as cbor]))
 
 
 (def ^:private content-missing
@@ -56,19 +50,34 @@
 ;; =============================================================================
 
 
+
+(def ^:private hex-digits "0123456789abcdef")
+
+
+(defn- bytes->hex
+  "Lowercase hex string of host bytes bs."
+  [bs]
+  (let [n (bytes/length bs)
+        sb #?(:cljd (StringBuffer.)
+              :clj (StringBuilder.)
+              :cljs (js/Array.))
+        append! #?(:cljd (fn [^String s] (.write ^StringBuffer sb s))
+                   :clj (fn [^String s] (.append ^StringBuilder sb s))
+                   :cljs (fn [s] (.push sb s)))]
+    (dotimes [i n]
+      (let [b (bytes/get bs i)]
+        (append! (str (nth hex-digits (quot b 16))
+                      (nth hex-digits (rem b 16))))))
+    #?(:cljd (.toString ^StringBuffer sb)
+       :clj (.toString ^StringBuilder sb)
+       :cljs (.join sb ""))))
+
+
 (defn sha256
-  "SHA-256 hex digest of the UTF-8 bytes of string s. Every host digests
-   the same bytes: handing goog.crypt.Sha256 the string itself hashes
-   char codes, which diverges from the JVM and Dart on any non-ASCII
-   payload and mints host-specific addresses."
+  "SHA-256 hex digest of the UTF-8 bytes of string s. Rejection on
+   unpaired surrogates via dao.host.text/utf8-encode."
   [s]
-  #?(:clj (let [digest (java.security.MessageDigest/getInstance "SHA-256")
-                bytes (.digest digest (.getBytes s "UTF-8"))]
-            (apply str (map (partial format "%02x") bytes)))
-     :cljs (let [hasher (new goog.crypt.Sha256)]
-             (.update hasher (crypt/stringToUtf8ByteArray s))
-             (crypt/byteArrayToHex (.digest hasher)))
-     :cljd (.toString (.convert crypto/sha256 (convert/utf8.encode s)))))
+  (bytes->hex (hash/sha256-bytes (text/utf8-encode s))))
 
 
 (defn sha256-bytes
@@ -76,13 +85,7 @@
    ClojureScript, Uint8List on Dart). `(sha256-bytes (canonical-bytes v))`
    is the digest for `(content-hash v {:algorithm :sha256})`."
   [bs]
-  #?(:clj (let [digest (java.security.MessageDigest/getInstance "SHA-256")
-                bytes (.digest digest ^bytes bs)]
-            (apply str (map (partial format "%02x") bytes)))
-     :cljs (let [hasher (new goog.crypt.Sha256)]
-             (.update hasher bs)
-             (crypt/byteArrayToHex (.digest hasher)))
-     :cljd (.toString (.convert crypto/sha256 bs))))
+  (bytes->hex (hash/sha256-bytes bs)))
 
 
 (def default-hash-algorithm
@@ -115,24 +118,14 @@
   "BLAKE3 lowercase hex digest of host bytes bs (byte[] on the JVM,
    Uint8Array on ClojureScript, Uint8List on Dart)."
   [bs]
-  #?(:clj (let [b (io.github.rctcwyvrn.blake3.Blake3/newInstance)]
-            (.update b ^bytes bs)
-            (.hexdigest b))
-     :cljs (noble-utils/bytesToHex (noble-blake3/blake3 bs))
-     :cljd (let [^Uint8List u8 (if (instance? Uint8List bs)
-                                 bs
-                                 (Uint8List.fromList bs))]
-             (blake3-dart/blake3Hex u8))))
+  (bytes->hex (hash/blake3-bytes bs)))
 
 
 (defn blake3
-  "BLAKE3 lowercase hex digest of the UTF-8 bytes of string s."
+  "BLAKE3 lowercase hex digest of the UTF-8 bytes of string s. Rejection
+   on unpaired surrogates via dao.host.text/utf8-encode."
   [s]
-  #?(:clj (let [b (io.github.rctcwyvrn.blake3.Blake3/newInstance)]
-            (.update b (.getBytes ^String s "UTF-8"))
-            (.hexdigest b))
-     :cljs (blake3-bytes (noble-utils/utf8ToBytes s))
-     :cljd (blake3-bytes (convert/utf8.encode s))))
+  (bytes->hex (hash/blake3-bytes (text/utf8-encode s))))
 
 
 (defn digest-bytes
