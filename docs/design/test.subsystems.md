@@ -67,6 +67,7 @@ tree on 2026-10-09; the per-lane columns are the test namespaces
 | `dao.stream` | `dao.stream` | 39 | 38 | 32 | 32 | 30 | 0 |
 | `dao.jing` | `dao.jing` | 17 | 15 | 15 | 13 | 13 | 0 |
 | `dao.data` | `dao.data` | 5 | 6 | 6 | 6 | 6 | 0 |
+| `dao.host` | `dao.host` (H0 gate, JVM only) | 0 | 1 | 1 | 0 | 0 | 0 |
 | `dao.base` | `dao.await` `dao.lease` `dao.pretty` `dao.datom` `dao.test-slow` | 5 | 4 | 4 | 4 | 4 | 0 |
 | `dao.space` | `dao.space` | 8 | 11 | 11 | 10 | 10 | 1 |
 | `dao.gui` | `dao.gui` | 17 | 15 | 14 | 13 | 12 | 1 |
