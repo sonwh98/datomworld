@@ -729,10 +729,9 @@
             " bytecode (with scene graph vocabularies established as reserved design specifications). There is no heavy, brittle C++ or C# UI framework required."]
            [:li
             [:strong "Zero-Allocation Concurrency:"]
-            " Fixed budgets, preallocated double buffers, and declared write sets (described below) keep garbage collection and locks out of the frame entirely."]
-           [:li
-            [:strong "Multiplayer Replication:"]
-            " Native to stream federation. Client and server are simply two stream observers synchronizing append-only datom logs, governed by single-writer transaction custody."]]
+            " Fixed budgets, preallocated double buffers, and declared write sets keep garbage collection and locks out of the frame entirely."]]
+          [:p
+           "Crucially, because state transitions exist as pure stream deltas, this malleability extends far beyond local editor tools into distributed deployment."]
           [:h2 "The Distributed Engine: dao.stream Across Machines"]
           [:p
            "The most profound consequence of datom.world is that it is not merely a local runtime; "
@@ -762,6 +761,9 @@
            [:strong "the Dao Engine is not a monolithic application trying to talk to the network; it is a distributed stream architecture designed to simulate at 250 ticks per second and render with zero GC pauses"]
            "."]
           [:h2 "Embracing DOOM's Restrictions: Discipline as Data"]
+          [:p
+           "Yet coordinating a distributed 250-tick simulation across machines is only possible if each physical node can hit that frame budget without compromise. "
+           "To achieve that, the engine cannot hide behind abstractions; it must confront physical silicon directly."]
           [:p
            "The Dao Engine does not try to escape the restrictions that make DOOM fast. "
            [:strong
@@ -948,8 +950,9 @@
           [:p
            "By compiling immutable datom streams into linear execution streams, the Dao Engine blueprint shows how to give the artist the power of rich, declarative queryability, "
            "while giving the silicon the pure, uninterrupted stream of instructions it was designed to devour. "
-           "It completes the circle: reconciling the relational simplicity and deterministic event streams of 1993 DOOM "
-           "with the blistering, lock-free silicon throughput of modern id Tech 7."]
+           "It synthesizes three decades of hard-won lessons: uniting the relational simplicity and deterministic event streams of 1993 DOOM, "
+           "the lock-free multicore throughput of id Tech 7, and the accessible authoring ergonomics of Unreal, Godot, and Unity "
+           "-- all without inheriting their architectural baggage."]
           [:p
            "The holy grail game engine will not be built by adding more macros to C++, bolting ECS hacks onto legacy OOP frameworks, or writing translation bakers between two alien runtimes. "
            "It will be built on the foundation that everything is data, everything is a stream, and interpretation creates semantics."]]]]}
