@@ -64,6 +64,16 @@
                     :jvm-opts ["-Dconfig=config.clj"]
                     :main-opts ["-m" "world.server"]}
            :clj-yin-repl {:main-opts ["-m" "yin.repl.main"]}
+           ;; jolt host configuration (docs/design/yin.repl-jolt-implementation.md
+           ;; §4.2-4.3), run through build/tools/jolt/bin/jolt -Srepro -M:jolt.
+           ;; src/jolt precedes src/cljc so a host override wins; src/clj is
+           ;; listed for audited portable namespaces only (its JVM namespaces
+           ;; are selected away by :jolt reader branches, never loaded). No
+           ;; generated Java parser classes, no JS/Dart roots, and no
+           ;; dependency coordinate is fetched until a jolt-loaded namespace
+           ;; needs one.
+           :jolt {:replace-paths ["src/jolt" "src/cljc" "src/clj"]
+                  :replace-deps {}}
            :cljs-yin-repl
            {:extra-paths ["test" "src/dev"]
             :extra-deps {thheller/shadow-cljs {:mvn/version "3.3.5"}
