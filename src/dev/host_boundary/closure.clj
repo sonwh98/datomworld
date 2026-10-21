@@ -119,25 +119,22 @@
    [:consumer "H2 (require change only)"
     '[yin.vm yin.vm.engine yin.vm.values yin.vm.data yin.vm.integer]]
    [:external-stream-seam "none (existing streams)"
-    '[dao.stream.ws dao.stream.datagram dao.stream.udp
-      dao.stream.ws.jvm dao.stream.ws.node dao.stream.ws.dart
-      dao.stream.ws.browser dao.stream.datagram.jvm dao.stream.datagram.node
-      dao.stream.datagram.dart yin.repl.host yin.repl.host.jvm
-      yin.repl.host.common]]
+    '[dao.stream.ws dao.stream.datagram dao.stream.ws.jvm dao.stream.ws.node
+      dao.stream.ws.dart dao.stream.datagram.jvm dao.stream.datagram.node
+      dao.stream.datagram.dart dao.stream.waitset.driver yin.repl.host
+      yin.repl.host.jvm yin.repl.host.common dao.stream.ringbuffer]]
    [:deferred-storage "deferred §9.2"
     '[dao.jing.file dao.space.store.fs dao.space.store
       dao.stream.journal.file dao.data.btree.storage]]
    [:deferred-entropy "deferred §9.1"
     '[dao.stream.ringbuffer dao.stream.memory-log dao.stream.ws
       dao.stream.remote dao.stream.remote-pair dao.stream.remote-route
-      dao.stream.journal dao.jing.content.step dao.lease dao.await
-      dao.space.store.fs yin.vm.linker yin.vm.ucf.custody
-      yin.vm.ucf.holder.driver yin.vm.ffi.remote-serve yin.vm.telemetry
+      dao.stream.journal dao.jing.content.step dao.lease dao.space.store.fs
+      yin.vm.linker yin.vm.ucf.custody yin.vm.ucf.holder.driver yin.vm.telemetry
       yin.repl yin.repl.dht dao.stream.rpc dao.jing.dht dao.space.dht
       yin.vm.linker.sign]]
    [:deferred-timers "deferred §9.1"
-    '[dao.jing.content.async dao.jing.coordinate dao.jing.content.driver
-      dao.data.btree.storage]]
+    '[dao.jing.coordinate dao.jing.content.driver dao.data.btree.storage]]
    [:driver "driver (ambient reads deferred §9.1)"
     '[yin.repl.main yin.repl yin.repl.state]]
    [:deferred-stage "deferred §9.3"
@@ -146,7 +143,15 @@
     '[yang.clojure yang.php dao.space.transact]]
    [:runtime-prereq "table C, no slice"
     '[dao.data.btree dao.jing.file dao.stream.journal dao.space.transactor
-      dao.space.schema yin.vm.ucf.authority]]
+      yin.vm.ucf.authority]]
+   ;; r7: the two rows for H0's 16 findings (rpc is in :deferred-entropy)
+   [:profile-consumer "H2 (H0 finding: consumers of table A entries)"
+    '[yin.repl.query yin.vm.linker.closure yin.vm.ucf.rows yin.vm yang.php
+      yin.vm.debruijn-register-code yin.vm.debruijn-register-effects
+      dao.space.index yang.antlr.packet]]
+   [:dialect-arm "none (H0 finding: retained dialect arms)"
+    '[dao.space.query yang.clojure yin.vm.engine yin.repl.adapter
+      yin.repl.dht]]
    ;; §3.1 names transit, cbor and codec; the rest are the codec track's
    ;; files by §8.3 (and ws-project by §8.1's codec row) and the lane twins.
    [:codec-track "codec track, untouched (§8.3)"
@@ -164,21 +169,13 @@
   [[:deferred-stage "yang.python.antlr."]])
 
 
-(def lane-rows
-  "Lane-specific files the §3.1 table does not name in a row but §3.1's
-   lane-specific list and §8.1's \"Seams and driver\" row place: the
-   waitset timer drivers (setTimeout, Timer) are seams of dao.stream.waitset."
-  '{dao.stream.waitset.driver #{:external-stream-seam}})
-
-
 (defn classes-of
   [ns-sym]
   (let [s (name ns-sym)
         cs (into (set (keep (fn [[c _ nss]] (when (some #{ns-sym} nss) c))
                             class-rows))
                  (keep (fn [[c pre]] (when (str/starts-with? s pre) c))
-                       prefix-rows))
-        cs (into cs (lane-rows ns-sym))]
+                       prefix-rows))]
     (if (seq cs) cs #{:none})))
 
 

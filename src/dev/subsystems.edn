@@ -16,6 +16,10 @@
    :prefixes ["dao.data"]
    :layer 0}
 
+  {:name "dao.host"
+   :prefixes ["dao.host"]
+   :layer 0}
+
   {:name "dao.base"
    :prefixes ["dao.await" "dao.lease" "dao.pretty" "dao.datom" "dao.test-slow"]
    :layer 0}

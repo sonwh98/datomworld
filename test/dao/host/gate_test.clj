@@ -294,37 +294,31 @@
 (def m-entry-names #{"aset" "acopy" "asort" "set!" "copy!"})
 
 
-(defn all-arms
-  "form with every reader conditional replaced by all its arms, so every
-   lane's text is seen: a splicing conditional's elements are spliced into
-   the enclosing collection; a non-splicing one becomes (do arm ...), or,
-   with splice-all?, is spliced too (for ns clauses, where position does
-   not bind)."
-  ([form] (all-arms false form))
-  ([splice-all? form]
-   (let [expand (fn [xs]
-                  (mapcat (fn [x]
-                            (if (and (rc? x) (or splice-all? (splicing? x)))
-                              (map #(all-arms splice-all? %)
-                                   (mapcat (fn [[_ v]] (if (splicing? x) v [v])) (rc-arms x)))
-                              [(all-arms splice-all? x)]))
-                          xs))]
-     (cond
-       (rc? form) (cons 'do (map #(all-arms splice-all? %)
-                                 (mapcat (fn [[_ v]] (if (splicing? form) v [v]))
-                                         (rc-arms form))))
-       (seq? form) (with-meta (apply list (expand form)) (meta form))
-       (vector? form) (vec (expand form))
-       (map? form) (into {} (map (fn [[k v]] [(all-arms splice-all? k) (all-arms splice-all? v)])
-                                 form))
-       :else form))))
+(def scan-features
+  "The feature sets the effect scan resolves a file under, by its lane:
+   one set per lane, and for :cljd both the traversal's {:cljd :clj}
+   (the host-eval pass, where :clj may be picked first) and :cljd alone
+   (so a :cljd arm behind a :clj arm is seen too)."
+  {:clj [#{:clj}], :cljs [#{:cljs}], :cljd [#{:cljd :clj} #{:cljd}]})
+
+
+(defn file-lanes
+  "The lanes a file is read on: its own for a lane-specific file, every
+   lane for .cljc."
+  [file]
+  (condp #(str/ends-with? %2 %1) file
+    ".clj" [:clj]
+    ".cljs" [:cljs]
+    ".cljd" [:cljd]
+    lanes))
 
 
 (defn file-scope
-  "{:aliases {alias ns} :refers {sym ns} :shadowed #{sym}} of a file:
-   every lane's ns arms, its top-level defs, its :refer-clojure excludes."
+  "{:aliases {alias ns} :refers {sym ns} :shadowed #{sym}} of a file's
+   forms as one lane reads them (arms already selected): its ns form,
+   its top-level defs, its :refer-clojure excludes."
   [forms]
-  (let [ns-form (all-arms true (first (filter #(= 'ns (head %)) forms)))
+  (let [ns-form (first (filter #(= 'ns (head %)) forms))
         specs (->> (rest ns-form)
                    (filter seq?)
                    (filter #(#{:require :use} (first %)))
@@ -335,7 +329,6 @@
                       (filter #(and (seq? %) (= :refer-clojure (first %))))
                       (mapcat #(:exclude (apply hash-map (rest %)))))
         defs (->> forms
-                  (map all-arms)
                   (mapcat (fn [f] (if (= 'do (head f)) (rest f) [f])))
                   (keep (fn [f]
                           (when (#{'def 'defn 'defn- 'defmacro 'defonce 'declare
@@ -354,8 +347,17 @@
   [b]
   (cond
     (symbol? b) (if (= '& b) [] [b])
-    (map? b) (mapcat binding-syms (concat (keys b) (vals b)))
+    (map? b) (let [b (dissoc b :or)] (mapcat binding-syms (concat (keys b) (vals b))))
     (coll? b) (mapcat binding-syms b)
+    :else []))
+
+
+(defn binding-exprs
+  "The :or default expressions in a binding form, which are evaluated."
+  [b]
+  (cond
+    (map? b) (concat (vals (:or b)) (mapcat binding-exprs (keys (dissoc b :or))))
+    (vector? b) (mapcat binding-exprs b)
     :else []))
 
 
@@ -367,12 +369,20 @@
 (def fn-heads '#{fn fn* defn defn- defmacro defmethod})
 
 
-(defn effect-calls
-  "[[kind line] ...] for the resolved effect calls in forms."
-  [forms]
-  (let [{:keys [aliases refers shadowed]} (file-scope forms)
+(defn- arity?
+  [x]
+  (and (seq? x) (vector? (first x))))
+
+
+(defn lane-effect-calls
+  "[[kind line column] ...] for the resolved effect calls in forms as a
+   reader with features reads them: arms selected, then names resolved
+   against that lane's ns form, defs and locals only."
+  [features forms]
+  (let [forms (keep #(select-arms features %) forms)
+        {:keys [aliases refers shadowed]} (file-scope forms)
         acc (atom [])
-        hit! (fn [kind sym] (swap! acc conj [kind (line-of sym)]))
+        hit! (fn [kind sym] (swap! acc conj [kind (line-of sym) (:column (meta sym))]))
         resolve-m (fn [sym]
                     (if-let [q (namespace sym)]
                       (get aliases (symbol q) (symbol q))
@@ -394,15 +404,19 @@
                     (let-heads h) (walk-let (second form) (nnext form) bound)
                     (= 'letfn h) (let [fns (second form)
                                        b (into bound (map first fns))]
-                                   (doseq [f fns] (walk-fn (rest f) b))
+                                   (doseq [f fns] (walk-arities (rest f) b))
                                    (walk-all (nnext form) b))
-                    (fn-heads h) (walk-fn (rest form) bound)
+                    (fn-heads h) (walk-fn h (rest form) bound)
                     (= 'catch h) (walk-all (drop 3 form) (conj bound (nth form 2 nil)))
                     (deftype-heads h) (let [fields (filter vector? (take 3 form))
                                             b (into bound (mapcat binding-syms fields))]
+                                        ;; specify's target is an expression
+                                        ;; evaluated in the enclosing scope
+                                        (when (#{'specify 'specify!} h) (walk (second form) bound))
                                         (doseq [x (drop 2 form)]
-                                          (if (and (seq? x) (vector? (second x)))
-                                            (walk-fn x b)
+                                          (if (and (seq? x) (symbol? (first x))
+                                                   (or (vector? (second x)) (arity? (second x))))
+                                            (walk-arities (rest x) b)
                                             (walk x b))))
                     :else (walk-all form bound)))
 
@@ -416,120 +430,266 @@
                                 (case lhs
                                   :let (do (walk-let rhs nil b) (into b (binding-syms (take-nth 2 rhs))))
                                   (:when :while) (do (walk rhs b) b)
-                                  (do (walk rhs b) (into b (binding-syms lhs)))))
+                                  (do (walk rhs b)
+                                      (walk-all (binding-exprs lhs) b)
+                                      (into b (binding-syms lhs)))))
                               bound
                               (partition 2 (if (vector? bvec) bvec [])))]
                 (walk-all body b)))
             (walk-fn
+              [h tail bound]
+              ;; tail: name? [defmethod: dispatch] doc? attrs? then one
+              ;; arity ([params] body...) or several (([params] body...) ...)
+              (let [nm (when (symbol? (first tail)) (first tail))
+                    tail (if nm (rest tail) tail)
+                    tail (if (= 'defmethod h) (do (walk (first tail) bound) (rest tail)) tail)]
+                (walk-arities (drop-while #(or (string? %) (map? %)) tail)
+                              (if nm (conj bound nm) bound))))
+            (walk-arities
               [tail bound]
-              ;; tail: [name? doc? attrs? params body...] or [name? (params body...)...]
-              (let [params (concat (filter vector? tail)
-                                   (keep #(when (and (seq? %) (vector? (first %))) (first %)) tail))
-                    b (into (into bound (filter symbol? (take 1 tail)))
-                            (mapcat binding-syms params))]
-                (walk-all (remove #(or (vector? %) (symbol? %)
-                                       (and (seq? %) (vector? (first %))))
-                                  tail)
-                          b)
-                (doseq [x tail :when (and (seq? x) (vector? (first x)))]
-                  (walk-all (rest x) b))))]
-      (doseq [f forms] (walk (all-arms f) #{})))
+              (if (vector? (first tail))
+                (walk-arity tail bound)
+                (doseq [x tail]
+                  (if (arity? x) (walk-arity x bound) (walk x bound)))))
+            (walk-arity
+              ;; each arity's parameters bind in its own body only
+              [[params & body] bound]
+              (let [b (into bound (binding-syms params))]
+                (walk-all (binding-exprs params) b)
+                (walk-all body b)))]
+      (doseq [f forms] (walk f #{})))
     @acc))
+
+
+(defn effect-calls
+  "[[kind line] ...] for the resolved effect calls in forms, read on
+   lanes (default all): each lane resolves its own arms, ns form, defs and
+   locals, and a source site any lane resolves to an effect counts once."
+  ([forms] (effect-calls lanes forms))
+  ([ls forms]
+   (->> (for [l ls, fs (scan-features l)] fs)
+        (distinct)
+        (mapcat #(lane-effect-calls % forms))
+        (distinct)
+        (mapv (fn [[k line _]] [k line])))))
 
 
 ;; ---------------------------------------------------------------------------
 ;; List 1 and list 2
 ;; ---------------------------------------------------------------------------
 
+(defn lane-specific?
+  [file]
+  (not (str/ends-with? file ".cljc")))
+
+
+(def list-1-categories
+  "The §8.1 rows (r9): what the row means, the slices that may clear its
+   files from list 1 (\"H2\" \"H3\" \"H4\": removed by that slice; :stays:
+   retained by design; :pending: H2 migrates the file but a JVM arm
+   survives until the owner decides OQ11, §13), and the §3.1 closure
+   classes a file in the row may carry (:classes, §8.1's category-to-class
+   table). A file must carry at least one of them on every lane whose
+   closure holds it."
+  {:migration-source {:row "H1-H4 migration sources (incl. H0's profile consumers)"
+                      :clears #{"H2" "H3" "H4" :stays :pending}
+                      :classes #{:profile-internal-pure :profile-hash-sign :consumer :profile-consumer}}
+   :profile {:row "Profile: the arms belong here by design"
+             :clears #{:stays}
+             :classes #{:profile-internal-pure}}
+   :runtime-prereq {:row "Retained runtime prerequisites (table C) and display"
+                    :clears #{:stays}
+                    :classes #{:runtime-prereq :internal-pure-display :deferred-storage}}
+   :codec-track {:row "Codec-track files, untouched by this track"
+                 :clears #{:stays}
+                 :classes #{:codec-track}}
+   :dialect-arm {:row "Dialect arms (H0 finding, retained): diagnostic type names, the dialect's EDN reader"
+                 :clears #{:stays}
+                 :classes #{:dialect-arm}}
+   :seam-driver {:row "Seams, stream implementations and driver"
+                 :clears #{:stays}
+                 :classes #{:external-stream-seam :driver}}
+   :deferred-scope {:row "Deferred-scope files (§9)"
+                    :clears #{:stays}
+                    :classes #{:deferred-storage :deferred-entropy :deferred-timers
+                               :deferred-stage :deferred-gensym}}})
+
+
+(def list-1-exceptions
+  "The §8.1 bounded exceptions (r10): the eight files whose §3.1 closure
+   class the category-to-class table does not admit for the §8.1 row that
+   places them. {file {:category c :class k :reason r}}. An exception
+   admits k for that file only while its list-1 category is c; it widens
+   no other category, file or class. An exception the bare table makes
+   unnecessary, or whose file is not in category c, fails (the table
+   cannot go stale silently). A new row here is a §8.1 amendment."
+  {"src/cljc/dao/space/transactor.cljc"
+   {:category :deferred-scope :class :runtime-prereq
+    :reason "§8.1 deferred row (locking); §3.1 table C"}
+   "src/cljc/yin/vm/ucf/authority.cljc"
+   {:category :deferred-scope :class :runtime-prereq
+    :reason "§8.1 deferred row (locking); §3.1 table C"}
+   "src/clj/dao/jing/content/driver.clj"
+   {:category :seam-driver :class :deferred-timers
+    :reason "§8.1 seams row takes every lane file; §3.1 deferred §9.1"}
+   "src/clj/yang/antlr/cst.clj"
+   {:category :seam-driver :class :deferred-stage
+    :reason "§8.1 seams row takes every lane file; §3.1 deferred §9.3"}
+   "src/cljs/yang/antlr/cst.cljs"
+   {:category :seam-driver :class :deferred-stage
+    :reason "§8.1 seams row takes every lane file; §3.1 deferred §9.3"}
+   "src/cljd/yang/antlr/cst.cljd"
+   {:category :seam-driver :class :deferred-stage
+    :reason "§8.1 seams row takes every lane file; §3.1 deferred §9.3"}
+   "src/cljd/dao/stream/cbor/cljd.cljd"
+   {:category :seam-driver :class :codec-track
+    :reason "§8.1 seams row takes every lane file; §3.1 codec track (§8.3)"}
+   "src/cljd/dao/stream/transit/cljd.cljd"
+   {:category :seam-driver :class :codec-track
+    :reason "§8.1 seams row takes every lane file; §3.1 codec track (§8.3)"}})
+
+
+(defn list-1-problems
+  "Every way list-1 disagrees with list-1-categories (plus the §8.1
+   bounded exceptions, default list-1-exceptions, each admitting its one
+   class only for its file in its category) and the per-lane closure
+   classes {lane {file classes}}: [kind file detail]. Lanes are checked
+   one at a time; a lane's tags are never merged with another's. An
+   exception whose file is not in list-1 under its category is
+   :exception-category, so the table is enforced, not merely consulted."
+  ([list-1 lane-classes] (list-1-problems list-1 lane-classes list-1-exceptions))
+  ([list-1 lane-classes exceptions]
+   (vec
+     (concat
+       (for [[f {:keys [category clears]}] list-1
+             problem (cond
+                       (not (contains? list-1-categories category))
+                       [[:unknown-category f category]]
+                       (not (contains? (get-in list-1-categories [category :clears]) clears))
+                       [[:slice-not-allowed f [category clears]]]
+                       :else [])]
+         problem)
+       (for [[f {:keys [category]}] list-1
+             :when (contains? list-1-categories category)
+             :let [ex (exceptions f)
+                   allowed (cond-> (:classes (list-1-categories category))
+                             (and ex (= (:category ex) category)) (conj (:class ex)))
+                   on-lanes (keep (fn [[l m]] (when (contains? m f) [l (get m f)])) lane-classes)]
+             problem (if (empty? on-lanes)
+                       [[:in-no-lane f nil]]
+                       (for [[l cs] (sort-by first on-lanes)
+                             :let [kind (cond (empty? cs) :empty-classes
+                                              (= #{:none} (set cs)) :class-none
+                                              (not-any? allowed cs) :class-not-in-category
+                                              :else nil)]
+                             :when kind]
+                         [kind f [l category (set cs)]]))]
+         problem)
+       (for [[f {:keys [category]}] exceptions
+             :when (not= category (get-in list-1 [f :category]))]
+         [:exception-category f [category (get-in list-1 [f :category])]])))))
+
+
+(defn committed-lane-classes
+  []
+  (into {} (map (fn [l] [l (into {} (map (juxt :file :classes) (:files (committed-closure l))))])
+                lanes)))
+
+
+(defn- entry
+  ([category clears] {:category category :clears clears})
+  ([category clears reason] {:category category :clears clears :reason reason}))
+
+
 (def list-1
-  "The closure files permitted non-exempt host arms (§8.1), by category.
-   Generated from the H0 tree by the gate and reconciled against the §8.1
-   baseline; :h0-unlisted marks the files with real arms that §8.1 does
-   not name (an H0 finding, to resolve before H1)."
+  "The closure files permitted non-exempt host arms (§8.1 r7), each with
+   its row, the slice that clears it, and for H0's 16 findings the site
+   and reason. Generated from the H0 tree by the gate; r7 categorised the
+   16 files H0 first found unlisted (no file is uncategorised)."
   {;; H1-H4 migration sources
-   "src/cljc/yin/vm/integer/host.cljc" :migration-source
-   "src/cljc/dao/jing/cbor.cljc" :migration-source
-   "src/cljc/dao/jing/cbor/boring.cljc" :migration-source
-   "src/cljd/dao/jing/cbor/cljd.cljd" :migration-source
-   "src/cljc/dao/jing.cljc" :migration-source
-   "src/cljc/yin/vm/linker/sign.cljc" :migration-source
-   "src/cljc/yin/vm/debruijn.cljc" :migration-source
-   "src/cljc/yin/vm/debruijn_code.cljc" :migration-source
-   "src/cljc/yin/vm/data.cljc" :migration-source
-   "src/cljc/yin/vm/values.cljc" :migration-source
-   "src/cljc/dao/stream/chunks.cljc" :migration-source
-   "src/cljc/dao/stream/base64.cljc" :migration-source
-   "src/cljc/dao/jing/dht.cljc" :migration-source
-   "src/cljc/yin/vm/linker.cljc" :migration-source
-   "src/cljc/dao/stream/datagram.cljc" :migration-source
+   "src/cljc/yin/vm/integer/host.cljc" (entry :migration-source "H2" "deleted in H2")
+   "src/cljc/dao/jing/cbor.cljc" (entry :migration-source "H2" "helpers H2, writer H4")
+   "src/cljc/dao/jing/cbor/boring.cljc" (entry :migration-source "H4" "deleted in H4")
+   "src/cljd/dao/jing/cbor/cljd.cljd" (entry :migration-source "H4" "Dart Jing writer, deleted in H4")
+   "src/cljc/dao/jing.cljc" (entry :migration-source "H3" "hashes")
+   "src/cljc/yin/vm/linker/sign.cljc" (entry :migration-source :stays "H3 migrates; generate stays (deferred entropy)")
+   "src/cljc/yin/vm/debruijn.cljc" (entry :migration-source "H2")
+   "src/cljc/yin/vm/debruijn_code.cljc" (entry :migration-source "H2")
+   "src/cljc/yin/vm/data.cljc" (entry :migration-source "H2")
+   "src/cljc/yin/vm/values.cljc" (entry :migration-source "H2" "table C blocks stay as exempt protocol syntax")
+   "src/cljc/dao/stream/chunks.cljc" (entry :migration-source "H2")
+   "src/cljc/dao/stream/base64.cljc" (entry :migration-source "H3" "base64 made portable")
+   "src/cljc/dao/jing/dht.cljc" (entry :migration-source "H2")
+   "src/cljc/yin/vm/linker.cljc" (entry :migration-source "H2" ":1232")
+   "src/cljc/dao/stream/datagram.cljc" (entry :migration-source "H2" "bytes arms :63-66 only")
+   ;; H0 finding, profile consumers (r7 §3.1, §8.1 first row): H2 migrates
+   "src/cljc/yin/vm.cljc" (entry :migration-source :pending "OQ11; :404 bytes->str; H2 migrates the one-arity to strict UTF-8 (named behaviour change), the JVM encoding arity stays behind a retained arm until OQ11")
+   "src/cljc/yang/php.cljc" (entry :migration-source "H2" ":95,98 number parsing; named behaviour change: js/parseInt loses precision above 2^53, becomes exact")
+   "src/cljc/dao/space/index.cljc" (entry :migration-source "H2" ":78 number fast path")
+   "src/cljc/yin/repl/query.cljc" (entry :migration-source "H2" ":460 byte length")
+   "src/cljc/yin/vm/linker/closure.cljc" (entry :migration-source "H2" ":32 byte length")
+   "src/cljc/yin/vm/ucf/rows.cljc" (entry :migration-source "H2" ":282 byte length")
+   "src/cljc/yin/vm/debruijn_register_code.cljc" (entry :migration-source "H2" ":439 safe-integer check")
+   "src/cljc/yin/vm/debruijn_register_effects.cljc" (entry :migration-source "H2" ":130 safe-integer check")
+   "src/cljc/yang/antlr/packet.cljc" (entry :migration-source "H2" ":67 code points (portable code-points moves to table B)")
    ;; Profile
-   "src/cljc/dao/data/arrays.cljc" :profile
+   "src/cljc/dao/data/arrays.cljc" (entry :profile :stays)
    ;; Retained runtime prerequisites (table C) and display
-   "src/cljc/dao/data/btree.cljc" :runtime-prereq
-   "src/cljc/dao/data/btree/storage.cljc" :runtime-prereq
-   "src/cljc/dao/pretty.cljc" :runtime-prereq
+   "src/cljc/dao/data/btree.cljc" (entry :runtime-prereq :stays "atomic flag, weak/soft references")
+   "src/cljc/dao/data/btree/storage.cljc" (entry :runtime-prereq :stays "promise facade, deferred §9.1")
+   "src/cljc/dao/pretty.cljc" (entry :runtime-prereq :stays "display only")
    ;; Codec-track files
-   "src/cljc/dao/stream/ws.cljc" :codec-track
-   "src/cljc/dao/stream/transit.cljc" :codec-track
-   "src/cljc/dao/stream/cbor.cljc" :codec-track
-   "src/cljc/dao/stream/cbor/boring.cljc" :codec-track
-   "src/cljc/dao/stream/codec.cljc" :codec-track
+   "src/cljc/dao/stream/ws.cljc" (entry :codec-track :stays)
+   "src/cljc/dao/stream/transit.cljc" (entry :codec-track :stays)
+   "src/cljc/dao/stream/cbor.cljc" (entry :codec-track :stays)
+   "src/cljc/dao/stream/cbor/boring.cljc" (entry :codec-track :stays)
+   "src/cljc/dao/stream/codec.cljc" (entry :codec-track :stays ":45 after C4")
+   ;; H0 finding, retained dialect arms (r7 §8.1 "dialect arms" row)
+   "src/cljc/dao/space/query.cljc" (entry :dialect-arm :stays ":808 runtime type name in diagnostic text")
+   "src/cljc/yang/clojure.cljc" (entry :dialect-arm :stays ":375 runtime type name in diagnostic text")
+   "src/cljc/yin/vm/engine.cljc" (entry :dialect-arm :stays ":929 runtime type name in diagnostic text")
+   "src/cljc/yin/repl/adapter.cljc" (entry :dialect-arm :stays ":58 the dialect's EDN reader")
+   "src/cljc/yin/repl/dht.cljc" (entry :dialect-arm :stays ":104 the dialect's EDN reader")
    ;; Seams and driver: every lane-specific file, the selector, the driver
-   "src/clj/dao/jing/content/driver.clj" :seam-driver
-   "src/clj/dao/stream/datagram/jvm.clj" :seam-driver
-   "src/clj/dao/stream/waitset/driver.clj" :seam-driver
-   "src/clj/dao/stream/ws/jvm.clj" :seam-driver
-   "src/clj/yang/antlr/cst.clj" :seam-driver
-   "src/clj/yin/repl/host/jvm.clj" :seam-driver
-   "src/cljs/dao/stream/datagram/node.cljs" :seam-driver
-   "src/cljs/dao/stream/waitset/driver.cljs" :seam-driver
-   "src/cljs/dao/stream/ws/node.cljs" :seam-driver
-   "src/cljs/yang/antlr/cst.cljs" :seam-driver
-   "src/cljs/yin/repl/host.cljs" :seam-driver
-   "src/cljd/dao/stream/cbor/cljd.cljd" :seam-driver
-   "src/cljd/dao/stream/transit/cljd.cljd" :seam-driver
-   "src/cljd/dao/stream/datagram/dart.cljd" :seam-driver
-   "src/cljd/dao/stream/waitset/driver.cljd" :seam-driver
-   "src/cljd/dao/stream/ws/dart.cljd" :seam-driver
-   "src/cljd/yang/antlr/cst.cljd" :seam-driver
-   "src/cljd/yin/repl/host.cljd" :seam-driver
-   "src/cljc/yin/repl/main.cljc" :seam-driver
-   "src/cljc/yin/repl/host.cljc" :seam-driver
-   "src/cljc/yin/repl/state.cljc" :seam-driver
+   "src/clj/dao/jing/content/driver.clj" (entry :seam-driver :stays)
+   "src/clj/dao/stream/datagram/jvm.clj" (entry :seam-driver :stays)
+   "src/clj/dao/stream/waitset/driver.clj" (entry :seam-driver :stays)
+   "src/clj/dao/stream/ws/jvm.clj" (entry :seam-driver :stays)
+   "src/clj/yang/antlr/cst.clj" (entry :seam-driver :stays)
+   "src/clj/yin/repl/host/jvm.clj" (entry :seam-driver :stays)
+   "src/cljs/dao/stream/datagram/node.cljs" (entry :seam-driver :stays)
+   "src/cljs/dao/stream/waitset/driver.cljs" (entry :seam-driver :stays)
+   "src/cljs/dao/stream/ws/node.cljs" (entry :seam-driver :stays)
+   "src/cljs/yang/antlr/cst.cljs" (entry :seam-driver :stays)
+   "src/cljs/yin/repl/host.cljs" (entry :seam-driver :stays)
+   "src/cljd/dao/stream/cbor/cljd.cljd" (entry :seam-driver :stays)
+   "src/cljd/dao/stream/transit/cljd.cljd" (entry :seam-driver :stays)
+   "src/cljd/dao/stream/datagram/dart.cljd" (entry :seam-driver :stays)
+   "src/cljd/dao/stream/waitset/driver.cljd" (entry :seam-driver :stays)
+   "src/cljd/dao/stream/ws/dart.cljd" (entry :seam-driver :stays)
+   "src/cljd/yang/antlr/cst.cljd" (entry :seam-driver :stays)
+   "src/cljd/yin/repl/host.cljd" (entry :seam-driver :stays)
+   "src/cljc/dao/stream/ringbuffer.cljc" (entry :seam-driver :stays ":168 the in-memory stream implementation's own host atom test (§4.1, implementation-private)")
+   "src/cljc/yin/repl/main.cljc" (entry :seam-driver :stays)
+   "src/cljc/yin/repl/host.cljc" (entry :seam-driver :stays)
+   "src/cljc/yin/repl/state.cljc" (entry :seam-driver :stays)
    ;; Deferred-scope files (§9)
-   "src/cljc/dao/jing/file.cljc" :deferred-scope
-   "src/cljc/dao/space/store/fs.cljc" :deferred-scope
-   "src/cljc/dao/space/store.cljc" :deferred-scope
-   "src/cljc/dao/stream/journal/file.cljc" :deferred-scope
-   "src/cljc/dao/jing/coordinate.cljc" :deferred-scope
-   "src/cljc/dao/space/dht.cljc" :deferred-scope
-   "src/cljc/yin/repl.cljc" :deferred-scope
-   "src/cljc/yang/python/antlr/parser.cljc" :deferred-scope
-   "src/cljc/yang/python/antlr/lower.cljc" :deferred-scope
-   "src/cljc/yang/python/antlr/prelude.cljc" :deferred-scope
-   "src/cljc/yang/python/antlr/render.cljc" :deferred-scope
-   "src/cljc/yang/python/antlr/repl_probe.cljc" :deferred-scope
-   "src/cljc/dao/stream/journal.cljc" :deferred-scope
-   "src/cljc/dao/space/transactor.cljc" :deferred-scope
-   "src/cljc/yin/vm/ucf/authority.cljc" :deferred-scope
-   ;; H0 finding: real host arms in closure files §8.1 does not name
-   "src/cljc/dao/space/index.cljc" :h0-unlisted ; :78 host numeric predicates
-   "src/cljc/dao/space/query.cljc" :h0-unlisted ; :808 runtime type name
-   "src/cljc/dao/stream/ringbuffer.cljc" :h0-unlisted ; :168 host atom type
-   "src/cljc/dao/stream/rpc.cljc" :h0-unlisted ; :114 rand (entropy, §9.1)
-   "src/cljc/yang/antlr/packet.cljc" :h0-unlisted ; :67 code points
-   "src/cljc/yang/clojure.cljc" :h0-unlisted ; :375 runtime type name
-   "src/cljc/yang/php.cljc" :h0-unlisted ; :95,98 number parsing
-   "src/cljc/yin/repl/adapter.cljc" :h0-unlisted ; :58 edn reader
-   "src/cljc/yin/repl/dht.cljc" :h0-unlisted ; :104 edn reader
-   "src/cljc/yin/repl/query.cljc" :h0-unlisted ; :460 byte length
-   "src/cljc/yin/vm.cljc" :h0-unlisted ; :404 bytes->str decoding
-   "src/cljc/yin/vm/debruijn_register_code.cljc" :h0-unlisted ; :439 safe integer
-   "src/cljc/yin/vm/debruijn_register_effects.cljc" :h0-unlisted ; :130 safe integer
-   "src/cljc/yin/vm/engine.cljc" :h0-unlisted ; :929 runtime type name
-   "src/cljc/yin/vm/linker/closure.cljc" :h0-unlisted ; :32 byte length
-   "src/cljc/yin/vm/ucf/rows.cljc" :h0-unlisted ; :282 byte length
-   })
+   "src/cljc/dao/jing/file.cljc" (entry :deferred-scope :stays)
+   "src/cljc/dao/space/store/fs.cljc" (entry :deferred-scope :stays)
+   "src/cljc/dao/space/store.cljc" (entry :deferred-scope :stays)
+   "src/cljc/dao/stream/journal/file.cljc" (entry :deferred-scope :stays)
+   "src/cljc/dao/jing/coordinate.cljc" (entry :deferred-scope :stays)
+   "src/cljc/dao/space/dht.cljc" (entry :deferred-scope :stays)
+   "src/cljc/dao/stream/rpc.cljc" (entry :deferred-scope :stays ":114 rand, deferred entropy (§9.1); H0 finding")
+   "src/cljc/yin/repl.cljc" (entry :deferred-scope :stays)
+   "src/cljc/yang/python/antlr/parser.cljc" (entry :deferred-scope :stays)
+   "src/cljc/yang/python/antlr/lower.cljc" (entry :deferred-scope :stays)
+   "src/cljc/yang/python/antlr/prelude.cljc" (entry :deferred-scope :stays)
+   "src/cljc/yang/python/antlr/render.cljc" (entry :deferred-scope :stays)
+   "src/cljc/yang/python/antlr/repl_probe.cljc" (entry :deferred-scope :stays)
+   "src/cljc/dao/stream/journal.cljc" (entry :deferred-scope :stays "locking")
+   "src/cljc/dao/space/transactor.cljc" (entry :deferred-scope :stays)
+   "src/cljc/yin/vm/ucf/authority.cljc" (entry :deferred-scope :stays "locking")})
 
 
 (def list-2
@@ -581,11 +741,6 @@
 ;; The gate
 ;; ---------------------------------------------------------------------------
 
-(defn lane-specific?
-  [file]
-  (not (str/ends-with? file ".cljc")))
-
-
 (defn scan
   "{file {:arms [line ...] :effects {kind [line ...]}}} for sources
    {file text}, or {file {:error msg}} for a file that cannot be read."
@@ -593,15 +748,17 @@
   (into (sorted-map)
         (map (fn [[file text]]
                [file (try
-                       (let [forms (if text
-                                     (read-forms text)
-                                     (throw (ex-info "cannot read file" {:file file})))]
+                       (let [forms (cond
+                                     (string? text) (read-forms text)
+                                     (:read-error text) (throw (ex-info (str "cannot read file: " (:read-error text))
+                                                                        {:file file}))
+                                     :else (throw (ex-info "cannot read file" {:file file})))]
                          {:arms (if (lane-specific? file)
                                   [:whole-file]
                                   (non-exempt-arms forms))
                           :effects (reduce (fn [m [k line]] (update m k (fnil conj []) line))
                                            {}
-                                           (effect-calls forms))})
+                                           (effect-calls (file-lanes file) forms))})
                        (catch Exception e {:error (or (ex-message e) (str e))}))]))
         sources))
 
@@ -633,10 +790,15 @@
 
 
 (defn read-sources
-  "{file text} for files; an unreadable file maps to nil text, which the
-   gate reports as a scan failure."
+  "{file text} for files. A missing file maps to nil text and a file whose
+   read throws to {:read-error msg}; the gate reports both as scan
+   failures, naming the file."
   [files]
-  (into {} (map (fn [f] [f (when (.isFile (io/file f)) (slurp f))])) files))
+  (into {} (map (fn [f]
+                  [f (when (.isFile (io/file f))
+                       (try (slurp f)
+                            (catch Exception e {:read-error (or (ex-message e) (str e))})))]))
+        files))
 
 
 (def current
@@ -681,7 +843,44 @@
 (deftest list-1-equals-the-observed-arms
   (testing "every list-1 file is in the closure and still holds a host arm"
     (let [observed (set (keep (fn [[f r]] (when (seq (:arms r)) f)) (:observed @current)))]
-      (is (= (set (keys list-1)) observed)))))
+      (is (= (set (keys list-1)) observed))))
+  (testing "every list-1 file has a known category, an allowed slice and, on every lane, a class its category admits"
+    (is (= [] (list-1-problems list-1 (committed-lane-classes)))))
+  (testing "each check fails on a deliberately wrong entry (in memory)"
+    (let [lc (committed-lane-classes)
+          f "src/cljc/yin/vm.cljc"
+          kinds (fn [l1 lc] (set (map first (list-1-problems l1 lc))))]
+      (is (= #{:unknown-category} (kinds (assoc-in list-1 [f :category] :h0-unlisted) lc)))
+      (is (= #{:slice-not-allowed} (kinds (assoc-in list-1 [f :clears] "H9") lc)))
+      (is (= #{:slice-not-allowed}
+             (kinds (assoc-in list-1 ["src/cljc/dao/pretty.cljc" :clears] :pending) lc))
+          "the OQ11 retention is allowed only in the migration-source row")
+      (is (= #{:class-not-in-category}
+             (kinds (assoc-in list-1 ["src/cljc/dao/stream/ringbuffer.cljc" :category] :dialect-arm) lc)))
+      (is (= [[:class-none f [:cljs :migration-source #{:none}]]]
+             (list-1-problems list-1 (assoc-in lc [:cljs f] #{:none})))
+          "a :none on one lane is not masked by the other lanes")
+      (is (= [[:empty-classes f [:cljd :migration-source #{}]]]
+             (list-1-problems list-1 (assoc-in lc [:cljd f] #{}))))
+      (is (= #{:in-no-lane}
+             (kinds (assoc list-1 "src/cljc/no/such.cljc" (entry :dialect-arm :stays)) lc)))))
+  (testing "the §8.1 bounded exceptions: exactly the eight files, each needed, each bound to its category"
+    (let [lc (committed-lane-classes)
+          bare (list-1-problems list-1 lc {})]
+      (is (= (set (keys list-1-exceptions)) (set (map second bare)))
+          "the bare table fails on the exception files and no others")
+      (is (= #{:class-not-in-category} (set (map first bare))))
+      (is (= 12 (count bare)) "eight files, twelve lane rows (§8.1)")
+      (doseq [[f {:keys [category]}] list-1-exceptions]
+        (is (= category (get-in list-1 [f :category])) f)
+        (is (seq (list-1-problems list-1 lc (dissoc list-1-exceptions f))) f)
+        (is (= #{:class-not-in-category :exception-category}
+               (set (map first (list-1-problems (assoc-in list-1 [f :category] :dialect-arm) lc))))
+            "an exception does not travel with the file to another category")
+        (let [ps (list-1-problems list-1 lc (assoc-in list-1-exceptions [f :category] :profile))]
+          (is (some #{[:exception-category f [:profile category]]} ps) f)
+          (is (= #{:class-not-in-category :exception-category} (set (map first ps)))
+              "an exception bound to a category the file is not in admits nothing"))))))
 
 
 (deftest list-2-equals-the-observed-calls
@@ -725,6 +924,41 @@
     (is (= [] (:arm-violations r)))))
 
 
+(defn- inject-effect
+  "The gate over the closure with text appended to the first closure .cljc
+   file outside list 2."
+  [text]
+  (let [target (outside list-2)]
+    [target (gate (update (read-sources (closure-files)) target str text) list-1 list-2)]))
+
+
+(deftest effect-calls-escape-neither-body-vectors-nor-other-scopes
+  (testing "H0-R1: a call inside a function-body vector"
+    (let [[target r] (inject-effect "\n(defn injected [] [(random-uuid)])\n")]
+      (is (= :fail (:verdict r)))
+      (is (= [{:file target :kind :random-uuid :count 1 :allowed 0}]
+             (map #(dissoc % :lines) (:effect-violations r))))
+      (is (= [] (:arm-violations r)))))
+  (testing "H0-R2: one arity's parameter does not shadow core in another arity"
+    (let [[target r] (inject-effect "\n(defn injected\n  ([random-uuid] random-uuid)\n  ([] (random-uuid)))\n")]
+      (is (= :fail (:verdict r)))
+      (is (= [{:file target :kind :random-uuid :count 1 :allowed 0}]
+             (map #(dissoc % :lines) (:effect-violations r))))
+      (is (= [] (:arm-violations r)))))
+  (testing "H0-R2: a :cljs definition does not shadow core on :clj"
+    (let [[target r] (inject-effect "\n#?(:cljs (defn random-uuid [] 1))\n(defn injected [] (random-uuid))\n")]
+      (is (= :fail (:verdict r)))
+      (is (= [{:file target :kind :random-uuid :count 1 :allowed 0}]
+             (map #(dissoc % :lines) (:effect-violations r))))
+      (is (= [target] (map :file (:arm-violations r))) "the definition's arm is a host arm too")))
+  (testing "H0-R5: specify!'s target expression is walked"
+    (let [[target r] (inject-effect "\n(defn injected [] (specify! (do (random-uuid) (js-obj)) Object (toString [this] \"x\")))\n")]
+      (is (= :fail (:verdict r)))
+      (is (= [{:file target :kind :random-uuid :count 1 :allowed 0}]
+             (map #(dissoc % :lines) (:effect-violations r))))
+      (is (= [] (:arm-violations r))))))
+
+
 (deftest a-scan-failure-is-not-a-pass
   (testing "zero files read"
     (let [r (gate {} list-1 list-2)]
@@ -734,7 +968,19 @@
     (let [r (gate (assoc (read-sources (closure-files)) "src/cljc/no/such.cljc" nil)
                   list-1 list-2)]
       (is (= :scan-failure (:verdict r)))
-      (is (= ["src/cljc/no/such.cljc"] (map first (:errors r)))))))
+      (is (= ["src/cljc/no/such.cljc"] (map first (:errors r))))))
+  (testing "H0-R3: a closure file whose read throws"
+    (let [f "src/cljc/dao/data.cljc"
+          slurp' slurp
+          sources (with-redefs [slurp (fn [x & opts]
+                                        (if (= f (str x))
+                                          (throw (java.io.IOException. "injected read failure"))
+                                          (apply slurp' x opts)))]
+                    (read-sources (closure-files)))
+          r (gate sources list-1 list-2)]
+      (is (= :scan-failure (:verdict r)))
+      (is (= [[f "cannot read file: injected read failure"]] (:errors r)))
+      (is (= (dec (count (closure-files))) (:scanned r))))))
 
 
 (defn- sha-256
@@ -769,4 +1015,27 @@
     (is (= [] (effect-calls (read-forms "(let [gensym inc] (gensym 1))"))))
     (is (= [] (effect-calls (read-forms "(declare gensym) (gensym)"))))
     (is (= [] (effect-calls (read-forms "(def code '(println 1))"))))
-    (is (= [:random-uuid :print] (map first (effect-calls (read-forms "(random-uuid) (println 1)")))))))
+    (is (= [:random-uuid :print] (map first (effect-calls (read-forms "(random-uuid) (println 1)"))))))
+  (testing "arities scope their own parameters; bodies, defaults and dispatch values are walked"
+    (is (= [] (effect-calls (read-forms "(defn f ([pr] (pr 1)) ([pr x] (pr x)))"))))
+    (is (= [:print] (map first (effect-calls (read-forms "(fn ([pr] (pr 1)) ([] (pr 2)))")))))
+    (is (= [:rand] (map first (effect-calls (read-forms "(fn [] [1 (rand)])")))))
+    (is (= [:rand] (map first (effect-calls (read-forms "(fn [{:keys [a] :or {a (rand)}}] a)")))))
+    (is (= [:rand] (map first (effect-calls (read-forms "(let [{:keys [a] :or {a (rand)}} {}] a)")))))
+    (is (= [] (effect-calls (read-forms "(defmethod m [:a] [rand] (rand))"))))
+    (is (= [:rand] (map first (effect-calls (read-forms "(extend-type T P (m ([x] x) ([x rand] (rand)) ([y] (rand))))")))))
+    (is (= [:rand :rand] (map first (effect-calls (read-forms "(specify (rand) P (m [x] (rand)))"))))
+        "specify's target and its method body")
+    (is (= [] (effect-calls (read-forms "(fn [rand] (specify! (rand) P (m [x] (rand))))")))
+        "the target sees the enclosing locals")
+    (is (= [:rand] (map first (effect-calls (read-forms "(specify! (rand) P (m [rand] (rand)))"))))
+        "a method parameter shadows only within its method"))
+  (testing "each lane resolves its own arms and definitions"
+    (is (= [:gensym] (map first (effect-calls (read-forms "#?(:clj (declare gensym)) (gensym)")))))
+    (is (= [] (effect-calls [:clj] (read-forms "#?(:clj (declare gensym)) (gensym)"))))
+    (is (= [:gensym] (map first (effect-calls (read-forms "(ns a (:refer-clojure #?@(:cljs [:exclude [gensym]]))) (gensym)")))))
+    (is (= [:random-uuid] (map first (effect-calls (read-forms "#?(:clj 1 :cljd (random-uuid))"))))
+        "a :cljd arm behind a :clj arm is read on the cljd lane")
+    (is (= [[:rand 1] [:rand 1]] (effect-calls (read-forms "#?(:clj (rand) :cljs (rand))")))
+        "two source sites count twice")
+    (is (= 1 (count (effect-calls (read-forms "(rand)")))) "one site read on three lanes counts once")))

@@ -14,10 +14,12 @@
   :deferred-stage "deferred §9.3",
   :deferred-storage "deferred §9.2",
   :deferred-timers "deferred §9.1",
+  :dialect-arm "none (H0 finding: retained dialect arms)",
   :driver "driver (ambient reads deferred §9.1)",
   :external-stream-seam "none (existing streams)",
   :internal-pure-display "none (list 1, display only)",
   :none "no host contact beyond §3.3",
+  :profile-consumer "H2 (H0 finding: consumers of table A entries)",
   :profile-hash-sign "H3",
   :profile-internal-pure "H1-H2 (writer H4)",
   :runtime-prereq "table C, no slice"},
@@ -97,11 +99,11 @@
   {:file "src/cljc/dao/space/index.cljc",
    :ns dao.space.index,
    :shared true,
-   :classes #{:none}}
+   :classes #{:profile-consumer}}
   {:file "src/cljc/dao/space/query.cljc",
    :ns dao.space.query,
    :shared true,
-   :classes #{:none}}
+   :classes #{:dialect-arm}}
   {:file "src/cljc/dao/space/store.cljc",
    :ns dao.space.store,
    :shared true,
@@ -193,7 +195,7 @@
   {:file "src/cljc/dao/stream/ringbuffer.cljc",
    :ns dao.stream.ringbuffer,
    :shared true,
-   :classes #{:deferred-entropy}}
+   :classes #{:deferred-entropy :external-stream-seam}}
   {:file "src/cljc/dao/stream/rpc.cljc",
    :ns dao.stream.rpc,
    :shared true,
@@ -225,11 +227,11 @@
   {:file "src/cljc/yang/antlr/packet.cljc",
    :ns yang.antlr.packet,
    :shared true,
-   :classes #{:none}}
+   :classes #{:profile-consumer}}
   {:file "src/cljc/yang/clojure.cljc",
    :ns yang.clojure,
    :shared true,
-   :classes #{:deferred-gensym}}
+   :classes #{:deferred-gensym :dialect-arm}}
   {:file "src/cljc/yang/frontend.cljc",
    :ns yang.frontend,
    :shared true,
@@ -237,7 +239,7 @@
   {:file "src/cljc/yang/php.cljc",
    :ns yang.php,
    :shared true,
-   :classes #{:deferred-gensym}}
+   :classes #{:deferred-gensym :profile-consumer}}
   {:file "src/cljc/yang/python/antlr/lower.cljc",
    :ns yang.python.antlr.lower,
    :shared true,
@@ -285,7 +287,7 @@
   {:file "src/cljc/yin/repl/adapter.cljc",
    :ns yin.repl.adapter,
    :shared true,
-   :classes #{:none}}
+   :classes #{:dialect-arm}}
   {:file "src/cljc/yin/repl/ast_index.cljc",
    :ns yin.repl.ast-index,
    :shared true,
@@ -297,7 +299,7 @@
   {:file "src/cljc/yin/repl/dht.cljc",
    :ns yin.repl.dht,
    :shared true,
-   :classes #{:deferred-entropy}}
+   :classes #{:deferred-entropy :dialect-arm}}
   {:file "src/cljc/yin/repl/driver.cljc",
    :ns yin.repl.driver,
    :shared true,
@@ -321,7 +323,7 @@
   {:file "src/cljc/yin/repl/query.cljc",
    :ns yin.repl.query,
    :shared true,
-   :classes #{:none}}
+   :classes #{:profile-consumer}}
   {:file "src/cljc/yin/repl/serve.cljc",
    :ns yin.repl.serve,
    :shared true,
@@ -337,7 +339,7 @@
   {:file "src/cljc/yin/vm.cljc",
    :ns yin.vm,
    :shared true,
-   :classes #{:consumer}}
+   :classes #{:consumer :profile-consumer}}
   {:file "src/cljc/yin/vm/ast_walker.cljc",
    :ns yin.vm.ast-walker,
    :shared true,
@@ -365,11 +367,11 @@
   {:file "src/cljc/yin/vm/debruijn_register_code.cljc",
    :ns yin.vm.debruijn-register-code,
    :shared true,
-   :classes #{:none}}
+   :classes #{:profile-consumer}}
   {:file "src/cljc/yin/vm/debruijn_register_effects.cljc",
    :ns yin.vm.debruijn-register-effects,
    :shared true,
-   :classes #{:none}}
+   :classes #{:profile-consumer}}
   {:file "src/cljc/yin/vm/effect.cljc",
    :ns yin.vm.effect,
    :shared true,
@@ -381,7 +383,7 @@
   {:file "src/cljc/yin/vm/engine.cljc",
    :ns yin.vm.engine,
    :shared true,
-   :classes #{:consumer}}
+   :classes #{:consumer :dialect-arm}}
   {:file "src/cljc/yin/vm/ffi.cljc",
    :ns yin.vm.ffi,
    :shared true,
@@ -413,7 +415,7 @@
   {:file "src/cljc/yin/vm/linker/closure.cljc",
    :ns yin.vm.linker.closure,
    :shared true,
-   :classes #{:none}}
+   :classes #{:profile-consumer}}
   {:file "src/cljc/yin/vm/linker/dht.cljc",
    :ns yin.vm.linker.dht,
    :shared true,
@@ -553,7 +555,7 @@
   {:file "src/cljc/yin/vm/ucf/rows.cljc",
    :ns yin.vm.ucf.rows,
    :shared true,
-   :classes #{:none}}
+   :classes #{:profile-consumer}}
   {:file "src/cljc/yin/vm/ucf/rows/checkpoint.cljc",
    :ns yin.vm.ucf.rows.checkpoint,
    :shared true,
