@@ -12506,3 +12506,32 @@ Done: Implemented, verified, and landed Slice H2 per dao.stream.host-boundary.md
 Decisions: Retained host number-model arms classified per F2. Post-H2 closure numbers updated to 146/144/145 (137 shared, 159 union).
 Delegates: claude-opus-5-5 (implementation & fix rounds); claude-fable-5-1 (system architect review); deepseek-v4-pro (independent architectural confirmation per §14).
 Next: Commission Slice H3 (dao.host.hash, dao.host.sign, and portable Base64).
+
+## 2026-10-21 15:25:00 +0700 — dao.stream host-boundary track: Slice H3 (hash/sign profile primitives, portable base64, consumer migration) verified, signed off & merged
+Completed-GMT: 2026-10-21 08:25:00 GMT
+Coding-Agent: Gemini (interactive orchestrator seat)
+Session-ID: cc118b7a-f972-4630-aa72-8f2dcac087ac
+Tree: branch host-h3 in worktree ../datomworld-host-h3; merged into master at /Users/sto/workspace/datomworld.
+Done: Implemented, verified, and landed Slice H3 per dao.stream.host-boundary.md r10 (§2.4, §3.1, §4.2 table B, §8 H3, §8.1, §8.2, §14):
+  1. Profile Primitives: Added pure (P) primitives in `dao.host.hash` (`blake3-bytes`, `sha256-bytes`) and `dao.host.sign` (`keypair-from-seed`, `sign`, `verify`) across CLJ, CLJS, CLJD.
+  2. Portable Base64: Completely rewritten `dao.stream.base64` as a pure portable bitwise codec over `dao.host.bytes` (RFC 4648 standard & URL-safe, padding optional on decode, 0 host dependencies).
+  3. Consumer Migrations:
+     - `dao.jing` migrated to `dao.host.hash` and `dao.host.text/utf8-encode`, removing `goog.crypt`, `crypto/crypto.dart`, and `blake3_dart`.
+     - `yin.vm.linker.sign` migrated to `dao.host.sign` and `dao.host.text/utf8-encode`, removing `goog.crypt`, `java.security.KeyFactory/Signature`, etc. Deferred entropy `generate` retained.
+     - Strict unpaired-surrogate encode refusal enforced on consumers (`dao.jing/digest-string`, `yin.vm.linker.sign` message assembly) with Table D conformance tests in `hash_test.cljc`.
+  4. Gate & Closure (§8.2):
+     - Host-Library Gate extended with H3 names: `MessageDigest`, `Blake3`, `noble`, `blake3_dart`, `package:crypto`, `ed25519_edwards`, `goog.crypt.base64`, permitting `ed25519_edwards` only in `sign.cljc` (`generate`).
+     - Added `dao.host.sign.cljc` to list-2 (`{:secure-random 1, :m-entry 11}`) and updated `sign.cljc` to `{:secure-random 2}`.
+     - Regenerated closure EDNs (`closure.clj --write`) and updated gate test assertions:
+       148 CLJ / 146 CLJS / 147 CLJD, 139 shared, 161 union.
+     - `dao.host.gate-test` passes cleanly on JVM (14 tests, 178 assertions, 0 failures).
+  5. Verification Evidence Across All 3 Lanes:
+     - `dao.host`: CLJ (6 ns, 50 tests, 0 failures), CLJS (5 ns, 36 tests, 0 failures), CLJD (5 ns, 36 tests, 0 failures).
+     - `dao.stream`: CLJ (35 ns, 503 tests, 0 failures), CLJS (35 ns, 506 tests, 0 failures), CLJD (33 ns, 435 tests, 0 failures).
+     - `dao.jing`: CLJ (15 ns, 235 tests, 0 failures), CLJS (13 ns, 228 tests, 0 failures), CLJD (13 ns, 227 tests, 0 failures).
+     - `yin.vm`: CLJ (74 ns, 1273 tests, 0 failures), CLJS (69 ns, 1341 tests, 0 failures), CLJD (69 ns, 1266 tests, 0 failures).
+  6. Independent Architect Review:
+     - `deepseek-v4-pro` independently reviewed the diff, independently executed tests in the worktree, and issued formal SIGNED OFF (collab/1792570210000-reviewer-host-boundary-h3.deepseek-v4-pro.findings.md).
+Decisions: Branch `host-h3` committed and cleanly merged into `master`. Post-H3 closure numbers: 148 CLJ / 146 CLJS / 147 CLJD (139 shared, 161 union).
+Delegates: deepseek-v4-pro (independent architectural review and verification per §14).
+Next: Commission Slice H4 (CBOR codec carrier migration and host-boundary completion).
