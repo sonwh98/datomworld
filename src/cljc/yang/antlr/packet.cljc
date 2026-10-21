@@ -51,7 +51,9 @@
         not appear in the packet. Target equivalence is the contract.
 
    Portable and language-agnostic: child edges are data, so the tree is
-   validated before anything walks it.")
+   validated before anything walks it."
+  (:require
+    [dao.host.text :as text]))
 
 
 (def packet-version 1)
@@ -62,11 +64,10 @@
 ;; =============================================================================
 
 (defn code-points
-  "The code points of `s` as a vector of integers."
+  "The code points of `s` as a vector of integers (`dao.host.text`: a
+   surrogate pair is one code point, an unpaired surrogate its own)."
   [s]
-  #?(:cljd (vec (.-runes ^String s))
-     :clj (mapv long (.toArray (.codePoints ^String s)))
-     :cljs (mapv #(.codePointAt % 0) (js/Array.from s))))
+  (text/code-points s))
 
 
 (defn utf8-length

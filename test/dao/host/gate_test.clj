@@ -605,11 +605,9 @@
    committed closure holds one, its entry here is stale and
    `profile-additions-are-scanned-until-the-closure-reaches-them` fails:
    delete it, and the closure's own class governs. H3 adds hash and sign."
-  {"src/cljc/dao/host/integer.cljc" {:slice "H1" :classes #{:profile-internal-pure}}
-   "src/cljc/dao/host/float.cljc" {:slice "H1" :classes #{:profile-internal-pure}}
-   "src/cljc/dao/host/number.cljc" {:slice "H1" :classes #{:profile-internal-pure}}
-   "src/cljc/dao/host/bytes.cljc" {:slice "H1" :classes #{:profile-internal-pure}}
-   "src/cljc/dao/host/text.cljc" {:slice "H1" :classes #{:profile-internal-pure}}})
+  ;; H2: the closure reaches all five H1 files, so their entries are
+  ;; retired and closure.clj's class-rows classes them
+  {})
 
 
 (def profile-root
@@ -647,31 +645,19 @@
    and reason. Generated from the H0 tree by the gate; r7 categorised the
    16 files H0 first found unlisted (no file is uncategorised)."
   {;; H1-H4 migration sources
-   "src/cljc/yin/vm/integer/host.cljc" (entry :migration-source "H2" "deleted in H2")
-   "src/cljc/dao/jing/cbor.cljc" (entry :migration-source "H2" "helpers H2, writer H4")
+   "src/cljc/dao/jing/cbor.cljc" (entry :migration-source "H4" "H2 moved the helpers, carriers and number API to dao.host; left: the writer (H4), :91 Dart runtimeType in refusal text, :217 JS unsafe-integral Number, :227 float64? (no dao.host.number predicate), :1026 Dart with-meta nil")
    "src/cljc/dao/jing/cbor/boring.cljc" (entry :migration-source "H4" "deleted in H4")
    "src/cljd/dao/jing/cbor/cljd.cljd" (entry :migration-source "H4" "Dart Jing writer, deleted in H4")
    "src/cljc/dao/jing.cljc" (entry :migration-source "H3" "hashes")
    "src/cljc/yin/vm/linker/sign.cljc" (entry :migration-source :stays "H3 migrates; generate stays (deferred entropy)")
-   "src/cljc/yin/vm/debruijn.cljc" (entry :migration-source "H2")
-   "src/cljc/yin/vm/debruijn_code.cljc" (entry :migration-source "H2")
-   "src/cljc/yin/vm/data.cljc" (entry :migration-source "H2")
-   "src/cljc/yin/vm/values.cljc" (entry :migration-source "H2" "table C blocks stay as exempt protocol syntax")
-   "src/cljc/dao/stream/chunks.cljc" (entry :migration-source "H2")
+   "src/cljc/yin/vm/debruijn.cljc" (entry :migration-source :stays "retained host number-model arms (Architect H2 review, §8.1 r11 row)")
+   "src/cljc/yin/vm/debruijn_code.cljc" (entry :migration-source :stays "retained host number-model arms (Architect H2 review, §8.1 r11 row); :213 int64 hex ported in H2b")
+   "src/cljc/yin/vm/data.cljc" (entry :migration-source :pending "H2b: :388 float-value over the profile")
+   "src/cljc/yin/vm/values.cljc" (entry :migration-source :pending "H2b: category move to :runtime-prereq (table C print laws at :116,122)")
    "src/cljc/dao/stream/base64.cljc" (entry :migration-source "H3" "base64 made portable")
-   "src/cljc/dao/jing/dht.cljc" (entry :migration-source "H2")
-   "src/cljc/yin/vm/linker.cljc" (entry :migration-source "H2" ":1232")
-   "src/cljc/dao/stream/datagram.cljc" (entry :migration-source "H2" "bytes arms :63-66 only")
-   ;; H0 finding, profile consumers (r7 §3.1, §8.1 first row): H2 migrates
-   "src/cljc/yin/vm.cljc" (entry :migration-source :pending "OQ11; :404 bytes->str; H2 migrates the one-arity to strict UTF-8 (named behaviour change), the JVM encoding arity stays behind a retained arm until OQ11")
-   "src/cljc/yang/php.cljc" (entry :migration-source "H2" ":95,98 number parsing; named behaviour change: js/parseInt loses precision above 2^53, becomes exact")
-   "src/cljc/dao/space/index.cljc" (entry :migration-source "H2" ":78 number fast path")
-   "src/cljc/yin/repl/query.cljc" (entry :migration-source "H2" ":460 byte length")
-   "src/cljc/yin/vm/linker/closure.cljc" (entry :migration-source "H2" ":32 byte length")
-   "src/cljc/yin/vm/ucf/rows.cljc" (entry :migration-source "H2" ":282 byte length")
-   "src/cljc/yin/vm/debruijn_register_code.cljc" (entry :migration-source "H2" ":439 safe-integer check")
-   "src/cljc/yin/vm/debruijn_register_effects.cljc" (entry :migration-source "H2" ":130 safe-integer check")
-   "src/cljc/yang/antlr/packet.cljc" (entry :migration-source "H2" ":67 code points (portable code-points moves to table B)")
+   ;; H0 finding, profile consumers (r7 §3.1, §8.1 first row): H2 migrated
+   ;; eight and removed them from this list; yin/vm.cljc stays for OQ11
+   "src/cljc/yin/vm.cljc" (entry :migration-source :pending "OQ11; :409 bytes->str: H2 moved the one-arity to strict UTF-8 (named behaviour change); the JVM encoding arity stays behind this arm until OQ11")
    ;; Profile
    "src/cljc/dao/data/arrays.cljc" (entry :profile :stays)
    "src/cljc/dao/host/integer.cljc" (entry :profile :stays "H1 addition (§8.1)")
@@ -764,7 +750,7 @@
    "src/cljc/dao/stream/rpc.cljc" {:rand 3}
    "src/cljc/dao/jing/dht.cljc" {:rand 1}
    "src/cljc/dao/space/dht.cljc" {:secure-random 3}
-   "src/cljc/yin/vm/linker/sign.cljc" {:secure-random 3}
+   "src/cljc/yin/vm/linker/sign.cljc" {:secure-random 3, :m-entry 1}
    "src/cljc/yang/clojure.cljc" {:gensym 2}
    "src/cljc/yang/php.cljc" {:gensym 1}
    "src/cljc/dao/space/transact.cljc" {:gensym 1}
@@ -777,9 +763,13 @@
    "src/cljs/dao/stream/waitset/driver.cljs" {:timer 2}
    "src/cljd/dao/stream/ws/dart.cljd" {:clock 1}
    "src/cljd/dao/stream/waitset/driver.cljd" {:timer 1}
-   ;; §2.4 M-entry callers resolved today (dao.data.arrays); chunks, cbor
-   ;; and sign mutate host arrays directly and call no M entry yet
-   "src/cljc/dao/data/btree.cljc" {:m-entry 33}})
+   ;; §2.4 M-entry callers (H2 audit): btree's owned node arrays, never
+   ;; appended; chunks and cbor each fill an array they just allocated,
+   ;; before returning it; sign fills the provider's nextBytes buffer
+   ;; from a fresh seed copy (never a published value)
+   "src/cljc/dao/data/btree.cljc" {:m-entry 33}
+   "src/cljc/dao/stream/chunks.cljc" {:m-entry 1}
+   "src/cljc/dao/jing/cbor.cljc" {:m-entry 1}})
 
 
 ;; ---------------------------------------------------------------------------
@@ -851,16 +841,141 @@
 
 
 ;; ---------------------------------------------------------------------------
+;; Library mode: the host-library gate (§8.2, built in H2)
+;; ---------------------------------------------------------------------------
+
+(def library-names
+  "§8.2's host-library names by slice, each with the pattern a symbol's or
+   a libspec string's text must match to name it. H3 adds the hash and
+   signature libraries."
+  {"BigInteger" {:slice "H2" :pattern #"(^|[./])BigInteger($|[./])"}
+   "BigDecimal" {:slice "H2" :pattern #"(^|[./])BigDecimal($|[./])"}
+   "clojure.lang.Ratio" {:slice "H2" :pattern #"^clojure\.lang\.Ratio($|[./])"}
+   "java.text" {:slice "H2" :pattern #"^java\.text($|[./])"}
+   "unorm" {:slice "H2" :pattern #"(^|[./:])unorm"}})
+
+
+(def library-allowed-root
+  "Only the profile may name a host library (§8.2)."
+  "src/cljc/dao/host/")
+
+
+(defn library-scope
+  "The closure files library mode scans: every gate file outside the
+   profile root and outside the codec track (whose arms are that track's,
+   §8.2)."
+  [files list-1]
+  (into (sorted-set)
+        (remove #(or (str/starts-with? % library-allowed-root)
+                     (= :codec-track (get-in list-1 [% :category]))))
+        files))
+
+
+(defn- ns-library-texts
+  "The texts an ns form names libraries by: its string libspecs, and each
+   import's full class name (`(java.text Normalizer)` names
+   java.text.Normalizer)."
+  [ns-form]
+  (let [clauses (filter #(and (seq? %) (#{:require :import :use :require-macros} (first %)))
+                        (rest ns-form))]
+    (concat
+      (->> clauses
+           (mapcat rest)
+           (mapcat (fn [spec] (if (sequential? spec) spec [spec])))
+           (filter string?))
+      (for [c clauses
+            :when (= :import (first c))
+            spec (rest c)
+            :when (and (sequential? spec) (symbol? (first spec)))
+            cls (rest spec)
+            :when (symbol? cls)]
+        (str (first spec) "." cls)))))
+
+
+(defn library-references
+  "[[name line] ...]: every reference in forms, as a reader with features
+   reads them, that names a host library of library-names. A reference is
+   a symbol (a call, a class name, an import, a type hint), a string
+   libspec or an imported class name in the ns form; strings elsewhere, docstrings included,
+   keywords, comments, quoted forms and (comment ...) never count."
+  [features forms]
+  (let [forms (keep #(select-arms features %) forms)
+        acc (atom [])
+        hit! (fn [text line]
+               (doseq [[n {:keys [pattern]}] library-names
+                       :when (re-find pattern text)]
+                 (swap! acc conj [n line])))
+        walk (fn walk
+               [form line]
+               (let [line (or (line-of form) line)]
+                 (when-let [tag (:tag (meta form))]
+                   (when (symbol? tag) (hit! (str tag) line)))
+                 (cond
+                   (symbol? form) (hit! (str form) line)
+                   (and (seq? form) (#{'quote 'comment} (head form))) nil
+                   (map? form) (doseq [[k v] form] (walk k line) (walk v line))
+                   (coll? form) (doseq [x form] (walk x line))
+                   :else nil)))]
+    (doseq [f forms]
+      (when (= 'ns (head f))
+        (doseq [s (ns-library-texts f)] (hit! s (line-of f))))
+      (walk f nil))
+    @acc))
+
+
+(defn library-gate
+  "Library mode over sources {file text} (the files already in scope):
+   {:verdict :pass|:fail|:scan-failure :scanned n :errors [...]
+   :hits [{:file f :name n :lines [...]} ...]}. An empty source set or an
+   unreadable file is a scan failure, never a pass."
+  ([sources] (library-gate sources (set (keys library-names))))
+  ([sources names]
+   (let [scanned (into (sorted-map)
+                       (map (fn [[file text]]
+                              [file (try
+                                      (when-not (string? text)
+                                        (throw (ex-info (str "cannot read file"
+                                                             (when-let [e (:read-error text)] (str ": " e)))
+                                                        {:file file})))
+                                      (let [forms (read-forms text)]
+                                        {:refs (->> (for [l (file-lanes file)
+                                                          fs (scan-features l)]
+                                                      fs)
+                                                    distinct
+                                                    (mapcat #(library-references % forms))
+                                                    distinct
+                                                    (filter (comp names first))
+                                                    vec)})
+                                      (catch Exception e {:error (or (ex-message e) (str e))}))]))
+                       sources)
+         errors (vec (keep (fn [[f r]] (when (:error r) [f (:error r)])) scanned))
+         hits (vec (for [[f r] scanned
+                         :when (seq (:refs r))
+                         [n refs] (group-by first (:refs r))]
+                     {:file f :name n :lines (vec (sort (distinct (keep second refs))))}))]
+     {:verdict (cond (or (empty? scanned) (seq errors)) :scan-failure
+                     (seq hits) :fail
+                     :else :pass)
+      :scanned (- (count scanned) (count errors))
+      :errors errors
+      :hits hits})))
+
+
+(def library-current
+  (delay (library-gate (read-sources (library-scope (gate-files) list-1)))))
+
+
+;; ---------------------------------------------------------------------------
 ;; Tests
 ;; ---------------------------------------------------------------------------
 
 (deftest closure-totals-are-the-design-totals
-  (testing "§3.1: 142 / 140 / 141 files, 133 shared"
+  (testing "§3.1 after H2: 146 / 144 / 145 files, 137 shared (H0's 142 / 140 / 141 and 133, minus yin.vm.integer.host, plus the five dao.host files)"
     (let [files (into {} (map (fn [l] [l (set (map :file (:files (committed-closure l))))]) lanes))]
-      (is (= 142 (count (files :clj))))
-      (is (= 140 (count (files :cljs))))
-      (is (= 141 (count (files :cljd))))
-      (is (= 133 (count (apply set/intersection (vals files)))))
+      (is (= 146 (count (files :clj))))
+      (is (= 144 (count (files :cljs))))
+      (is (= 145 (count (files :cljd))))
+      (is (= 137 (count (apply set/intersection (vals files)))))
       (doseq [l lanes]
         (is (= (count (files l)) (:total (committed-closure l))))
         (is (every? #(seq (:classes %)) (:files (committed-closure l))))))))
@@ -877,8 +992,8 @@
 
 (deftest gate-passes-on-the-current-tree
   (let [r @current]
-    (is (= 155 (count (closure-files))) "the union of the three lanes")
-    (is (= 160 (count (gate-files))) "plus the five H1 profile files")
+    (is (= 159 (count (closure-files))) "the union of the three lanes")
+    (is (= 159 (count (gate-files))) "no profile addition outside the closure after H2")
     (is (= (count (gate-files)) (:scanned r)))
     (is (= [] (:errors r)))
     (is (= [] (:arm-violations r)))
@@ -1107,3 +1222,52 @@
     (is (= [[:rand 1] [:rand 1]] (effect-calls (read-forms "#?(:clj (rand) :cljs (rand))")))
         "two source sites count twice")
     (is (= 1 (count (effect-calls (read-forms "(rand)")))) "one site read on three lanes counts once")))
+
+
+(deftest library-mode-finds-no-host-library-outside-the-profile
+  (testing "§8.2 (H2 names): within the adopted closure, no executable reference to BigInteger, BigDecimal, clojure.lang.Ratio, java.text or unorm outside dao/host/"
+    (let [r @library-current
+          scope (library-scope (gate-files) list-1)]
+      (is (seq scope))
+      (is (not-any? #(str/starts-with? % library-allowed-root) scope))
+      (is (not-any? #(= :codec-track (get-in list-1 [% :category])) scope))
+      (is (= (count scope) (:scanned r)))
+      (is (= [] (:errors r)))
+      (is (= [] (:hits r)))
+      (is (= :pass (:verdict r)))))
+  (testing "the profile itself names them (so the scope exclusion is what passes it)"
+    (let [profile (filter #(str/starts-with? % library-allowed-root) (gate-files))
+          r (library-gate (read-sources profile))]
+      (is (= :fail (:verdict r)))
+      (is (= #{"BigInteger" "BigDecimal" "clojure.lang.Ratio" "java.text" "unorm"}
+             (set (map :name (:hits r))))))))
+
+
+(deftest library-mode-negative-fixtures
+  (let [fixture "src/cljc/fixture/library.cljc"]
+    (testing "an executable BigInteger reference outside the allowlist fails"
+      (doseq [text ["(ns fixture.library)\n(defn f [x] (BigInteger/valueOf x))\n"
+                    "(ns fixture.library (:import (java.math BigInteger)))\n(defn f [] 1)\n"
+                    "(ns fixture.library)\n(defn f [^java.math.BigInteger x] (.signum x))\n"
+                    "(ns fixture.library)\n(def n #?(:clj (java.math.BigInteger. \"1\") :cljs 1))\n"
+                    "(ns fixture.library (:require [\"unorm\" :as u]))\n(defn f [s] (u/nfc s))\n"
+                    "(ns fixture.library)\n(defn f [s] (java.text.Normalizer/normalize s java.text.Normalizer$Form/NFC))\n"]]
+        (let [r (library-gate {fixture text})]
+          (is (= :fail (:verdict r)) text)
+          (is (= [fixture] (distinct (map :file (:hits r)))) text))))
+    (testing "BigInteger only in a docstring, a string, a comment, a keyword or a quoted form passes"
+      (let [r (library-gate {fixture (str "(ns fixture.library\n  \"Uses no BigInteger; see java.text and unorm.\")\n"
+                                          "(defn f\n  \"BigInteger BigDecimal clojure.lang.Ratio\"\n  []\n"
+                                          "  ;; BigInteger in a comment\n"
+                                          "  [:BigInteger :rgba8unorm \"java.math.BigInteger\" '(BigInteger/ONE)])\n"
+                                          "(comment (BigInteger/valueOf 1))\n")})]
+        (is (= :pass (:verdict r)))
+        (is (= [] (:hits r)))
+        (is (= 1 (:scanned r)))))
+    (testing "a scan failure is distinct from no hits"
+      (is (= :scan-failure (:verdict (library-gate {}))))
+      (let [r (library-gate {fixture nil})]
+        (is (= :scan-failure (:verdict r)))
+        (is (= [fixture] (map first (:errors r)))))
+      (let [r (library-gate {fixture "(ns fixture.library) (defn f [] "})]
+        (is (= :scan-failure (:verdict r)))))))

@@ -24,12 +24,13 @@
    - **`call-in-cursor-key` is dropped.** v1 wrote it and nothing read it."
   (:refer-clojure :exclude [eval])
   (:require [dao.datom :as datom]
+            [dao.host.integer :as integer-host]
+            [dao.host.text :as text]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
             [dao.space.query :as query]
             [dao.stream :as stream]
             [yin.vm.effect :as effect]
-            [yin.vm.integer.host :as integer-host]
             [yin.vm.values :as values]))
 
 
@@ -400,12 +401,13 @@
            (pure 'assoc assoc [3 :variadic])
            (pure 'get get [2 3])
            (pure 'vec vec [1])
+           ;; one arity: strict UTF-8 on every host (dao.host.text, slice
+           ;; H2); the JVM-only encoding arity is retained pending OQ11
            (pure 'bytes->str
-                 #?(:clj (fn
-                           ([b] (String. ^bytes b "UTF-8"))
-                           ([b enc] (String. ^bytes b ^String enc)))
-                    :cljs (fn [b] (.apply js/String.fromCharCode nil b))
-                    :cljd (fn [b] (dart:core/String.fromCharCodes b)))
+                 (fn
+                   ([b] (text/utf8-decode b))
+                   #?@(:cljd []
+                       :clj [([b enc] (String. ^bytes b ^String enc))]))
                  [1 2])
            ['require (primitive-entry
                        'require

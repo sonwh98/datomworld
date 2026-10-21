@@ -3,8 +3,8 @@
 {:lane :cljd,
  :root yin.repl.main,
  :features #{:cljd :clj},
- :total 141,
- :shared 133,
+ :total 145,
+ :shared 137,
  :lane-specific 8,
  :class-legend
  {:codec-track "codec track, untouched (§8.3)",
@@ -21,7 +21,8 @@
   :none "no host contact beyond §3.3",
   :profile-consumer "H2 (H0 finding: consumers of table A entries)",
   :profile-hash-sign "H3",
-  :profile-internal-pure "H1-H2 (writer H4)",
+  :profile-internal-pure
+  "H1-H2 (writer H4); the dao.host profile (H1, reached at H2)",
   :runtime-prereq "table C, no slice"},
  :files
  [{:file "src/cljc/dao/data.cljc",
@@ -44,6 +45,26 @@
    :ns dao.datom,
    :shared true,
    :classes #{:none}}
+  {:file "src/cljc/dao/host/bytes.cljc",
+   :ns dao.host.bytes,
+   :shared true,
+   :classes #{:profile-internal-pure}}
+  {:file "src/cljc/dao/host/float.cljc",
+   :ns dao.host.float,
+   :shared true,
+   :classes #{:profile-internal-pure}}
+  {:file "src/cljc/dao/host/integer.cljc",
+   :ns dao.host.integer,
+   :shared true,
+   :classes #{:profile-internal-pure}}
+  {:file "src/cljc/dao/host/number.cljc",
+   :ns dao.host.number,
+   :shared true,
+   :classes #{:profile-internal-pure}}
+  {:file "src/cljc/dao/host/text.cljc",
+   :ns dao.host.text,
+   :shared true,
+   :classes #{:profile-internal-pure}}
   {:file "src/cljc/dao/jing.cljc",
    :ns dao.jing,
    :shared true,
@@ -384,10 +405,6 @@
    :ns yin.vm.integer,
    :shared true,
    :classes #{:consumer}}
-  {:file "src/cljc/yin/vm/integer/host.cljc",
-   :ns yin.vm.integer.host,
-   :shared true,
-   :classes #{:profile-internal-pure}}
   {:file "src/cljc/yin/vm/ledger.cljc",
    :ns yin.vm.ledger,
    :shared true,

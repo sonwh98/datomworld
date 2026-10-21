@@ -35,7 +35,7 @@
             [dao.stream.waitset :as waitset]
             [yin.vm :as vm]
             [yin.vm.ffi :as ffi]
-            [yin.vm.integer.host :as integer-host]
+            [dao.host.integer :as integer-host]
             [yin.vm.linker :as linker]
             [yin.vm.module :as module]
             [yin.vm.telemetry :as telemetry]

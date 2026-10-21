@@ -46,6 +46,14 @@
    operations are explicit functions: `num=`, `num-hash`, `num-compare`, and
    the recursive `equiv` / `equiv-hash`.
 
+   Host contact goes through the primitive profile
+   (docs/design/dao.stream.host-boundary.md §4.2, slice H2): big
+   integers through `dao.host.integer`, the Float64, Decimal and Rational
+   carriers through `dao.host.number`, float bits and fields through
+   `dao.host.float`, byte arrays through `dao.host.bytes` and strict
+   UTF-8 through `dao.host.text`; a profile refusal is answered as this
+   codec's refusal of the same class.
+
    Dart (J2): the same reader, profile and portable operations run on
    ClojureDart. The byte writer there is the pinned `cbor` 6.5.1 package
    behind `dao.jing.cbor.cljd`, which implements the same wire vocabulary as
@@ -55,22 +63,13 @@
    conditional names `:cljd` first."
   (:refer-clojure :exclude [decimal? ratio?])
   (:require
-    #?@(:cljd [["dart:convert" :as convert]
-               [dao.jing.cbor.cljd :as wire]]
-        :default [[dao.jing.cbor.boring :as wire]]))
-  #?@(:cljd [(:import
-               ["dart:core" BigInt FormatException String]
-               ["dart:typed_data" ByteData Uint8List])]
-      :clj [(:import
-              (java.math
-                BigDecimal
-                BigInteger)
-              (java.nio
-                ByteBuffer)
-              (java.nio.charset
-                CharacterCodingException
-                CodingErrorAction
-                StandardCharsets))]))
+    [dao.host.bytes :as bytes]
+    [dao.host.float :as float]
+    [dao.host.integer :as integer]
+    [dao.host.number :as number]
+    [dao.host.text :as text]
+    #?@(:cljd [[dao.jing.cbor.cljd :as wire]]
+        :default [[dao.jing.cbor.boring :as wire]])))
 
 
 ;; ==========================================================================
@@ -94,115 +93,53 @@
 
 
 (defn refusal
-  "The refusal class keyword of a thrown codec refusal, or nil."
+  "The refusal class keyword of a thrown codec refusal, or nil. A refusal
+   the `dao.host` profile throws outside any codec call (on JS, the
+   `Float64` carrier refusing implicit numeric coercion) carries the same
+   corpus class under `:dao.host/refusal` and reads the same here."
   [ex]
-  (::refusal (ex-data ex)))
+  (let [d (ex-data ex)]
+    (or (::refusal d) (:dao.host/refusal d))))
+
+
+(defn- host
+  "(f & args) through the primitive profile: a `dao.host` refusal comes
+   back as this codec's refusal of the same class (the profile reuses the
+   corpus refusal vocabulary)."
+  [f & args]
+  (try
+    (apply f args)
+    (catch #?(:cljd Object :clj Exception :cljs :default) e
+      (if-let [cls (:dao.host/refusal (ex-data e))]
+        (refuse cls (:detail (ex-data e)))
+        (throw e)))))
 
 
 ;; ==========================================================================
-;; Exact host big integers: BigInteger on the JVM, BigInt on JavaScript
+;; Exact host big integers (dao.host.integer)
 ;; ==========================================================================
-
-#?(:cljs
-   (defn- bigint?
-     [x]
-     (identical? "bigint" (js* "typeof ~{}" x))))
-
 
 (defn- big
-  "An exact host big integer from a host integer or a decimal string.
-   Anything else (a float, a non-integral number) is refused loudly
-   rather than truncated."
+  "An exact host big integer from an exact-integer carrier or decimal
+   text (`dao.host.integer/parse-decimal`'s grammar). Anything else (a
+   float, a non-integral number) is refused loudly rather than
+   truncated."
   [x]
-  #?(:cljd (cond (dart/is? x BigInt) x
-                 (dart/is? x int) (BigInt.from x)
-                 (string? x) (BigInt.parse x)
-                 :else (refuse :unsupported-value
-                               (str "not an exact integer: " x)))
-     :clj (cond (instance? BigInteger x) x
-                (instance? clojure.lang.BigInt x)
-                (.toBigInteger ^clojure.lang.BigInt x)
-                (string? x) (BigInteger. ^String x)
-                (or (instance? Long x) (instance? Integer x)
-                    (instance? Short x) (instance? Byte x))
-                (BigInteger/valueOf (long x))
-                :else (refuse :unsupported-value
-                              (str "not an exact integer: " (type x))))
-     :cljs (if (and (number? x) (not (js/Number.isInteger x)))
-             (refuse :unsupported-value (str "not an exact integer: " x))
-             (js/BigInt x))))
+  (cond (integer/exact-integer? x) (integer/promote x)
+        (string? x) (host integer/parse-decimal x)
+        :else (refuse :unsupported-value
+                      (str "not an exact integer: " (type-name x)))))
 
 
-(def ^:private zero (big 0))
-(def ^:private one (big 1))
-(def ^:private two (big 2))
-(def ^:private ten (big 10))
-
-
-(defn- b+
-  [a b]
-  #?(:cljd (. ^BigInt a "+" b)
-     :clj (.add ^BigInteger a ^BigInteger b)
-     :cljs (js* "(~{} + ~{})" a b)))
-
-
-(defn- b-
-  [a b]
-  #?(:cljd (. ^BigInt a "-" b)
-     :clj (.subtract ^BigInteger a ^BigInteger b)
-     :cljs (js* "(~{} - ~{})" a b)))
-
-
-(defn- b*
-  [a b]
-  #?(:cljd (. ^BigInt a "*" b)
-     :clj (.multiply ^BigInteger a ^BigInteger b)
-     :cljs (js* "(~{} * ~{})" a b)))
-
-
-(defn- bquot
-  "Quotient truncated toward zero."
-  [a b]
-  #?(:cljd (. ^BigInt a "~/" b)
-     :clj (.divide ^BigInteger a ^BigInteger b)
-     :cljs (js* "(~{} / ~{})" a b)))
-
-
-(defn- bcmp
-  [a b]
-  ;; Dart's BigInt.compareTo returns any negative or positive int, not
-  ;; just -1 or 1; every host answers exactly -1, 0 or 1.
-  #?(:cljd (let [c (.compareTo ^BigInt a b)]
-             (cond (neg? c) -1 (pos? c) 1 :else 0))
-     :clj (.compareTo ^BigInteger a ^BigInteger b)
-     :cljs (cond (js* "(~{} < ~{})" a b) -1
-                 (js* "(~{} > ~{})" a b) 1
-                 :else 0)))
+(def ^:private zero (integer/from-native 0))
+(def ^:private one (integer/from-native 1))
+(def ^:private two (integer/from-native 2))
+(def ^:private ten (integer/from-native 10))
 
 
 (defn- bsign
   [a]
-  (bcmp a zero))
-
-
-#?(:cljs
-   (defn- brem
-     [a b]
-     (js* "(~{} % ~{})" a b)))
-
-
-#?(:cljs
-   (defn- babs
-     [a]
-     (if (neg? (bsign a)) (b- zero a) a)))
-
-
-(defn- bgcd
-  [a b]
-  #?(:cljd (.gcd ^BigInt a b)
-     :clj (.gcd ^BigInteger a ^BigInteger b)
-     :cljs (loop [x (babs a) y (babs b)]
-             (if (zero? (bsign y)) x (recur y (brem x y))))))
+  (integer/compare-big a zero))
 
 
 (defn- bpow
@@ -211,74 +148,30 @@
   (loop [result one b base n n]
     (if (zero? n)
       result
-      (recur (if (odd? n) (b* result b) result)
-             (b* b b)
+      (recur (if (odd? n) (integer/mul result b) result)
+             (integer/mul b b)
              (quot n 2)))))
 
 
 (def ^:private two-64 (bpow two 64))
-(def ^:private neg-two-64 (b- zero two-64))
-
-
-(defn- b->int
-  "The host integer for exact b: long or BigInt on the JVM, a safe
-   integer number or BigInt on JavaScript, a 64-bit int or BigInt on Dart."
-  [b]
-  #?(:cljd (if (.-isValidInt ^BigInt b) (.toInt ^BigInt b) b)
-     :clj (if (< (.bitLength ^BigInteger b) 64)
-            (.longValue ^BigInteger b)
-            (clojure.lang.BigInt/fromBigInteger b))
-     :cljs (let [n (js/Number b)]
-             (if (js/Number.isSafeInteger n) n b))))
-
-
-(defn- magnitude-bytes
-  "Minimal big-endian bytes of non-negative b; empty for zero."
-  [b]
-  #?(:cljd (let [ff (BigInt.from 255)]
-             (loop [b b acc ()]
-               (if (zero? (bsign b))
-                 (Uint8List.fromList (vec acc))
-                 (recur (. ^BigInt b ">>" 8)
-                        (conj acc (.toInt ^BigInt (. ^BigInt b "&" ff)))))))
-     :clj (let [raw (.toByteArray ^BigInteger b)]
-            (if (and (pos? (alength raw)) (zero? (aget raw 0)))
-              (java.util.Arrays/copyOfRange raw 1 (alength raw))
-              raw))
-     :cljs (if (zero? (bsign b))
-             (js/Uint8Array. 0)
-             (let [h (.toString b 16)
-                   h (if (odd? (count h)) (str "0" h) h)
-                   out (js/Uint8Array. (quot (count h) 2))]
-               (dotimes [i (alength out)]
-                 (aset out i (js/parseInt (subs h (* 2 i) (+ 2 (* 2 i))) 16)))
-               out))))
+(def ^:private neg-two-64 (integer/sub zero two-64))
 
 
 ;; ==========================================================================
-;; Host byte arrays
+;; Host byte arrays (dao.host.bytes)
 ;; ==========================================================================
 
-(defn- blen
-  "The length of a host byte array."
-  [bs]
-  #?(:cljd (.-length ^Uint8List bs)
-     :clj (alength ^bytes bs)
-     :cljs (alength bs)))
+(def ^:private hex-digits "0123456789abcdef")
 
 
-(defn- byte-at
-  [bs i]
-  #?(:cljd (. ^Uint8List bs "[]" i)
-     :clj (bit-and (aget ^bytes bs i) 0xff)
-     :cljs (aget bs i)))
+(def ^:private hex-value
+  (into {} (map (fn [i] [(subs hex-digits i (inc i)) i])) (range 16)))
 
 
-(defn- copy-range
-  [bs start end]
-  #?(:cljd (Uint8List.fromList (.sublist ^Uint8List bs start end))
-     :clj (java.util.Arrays/copyOfRange ^bytes bs (int start) (int end))
-     :cljs (.slice bs start end)))
+(defn- byte-hex
+  [b]
+  (str (subs hex-digits (quot b 16) (inc (quot b 16)))
+       (subs hex-digits (rem b 16) (inc (rem b 16)))))
 
 
 (defn- span-big
@@ -287,186 +180,47 @@
   (loop [i start acc zero]
     (if (= i end)
       acc
-      (recur (inc i) (b+ (b* acc (big 256)) (big (byte-at bs i)))))))
+      (recur (inc i) (integer/add (integer/mul acc (integer/from-native 256))
+                                  (integer/from-native (bytes/get bs i)))))))
 
 
 (defn- span-key
   "A string naming the exact bytes bs[start, end), for duplicate checks."
   [bs start end]
-  (apply str (map #(let [b (byte-at bs %)]
-                     (str (when (< b 16) "0")
-                          #?(:cljd (.toRadixString ^int b 16)
-                             :clj (Integer/toHexString b)
-                             :cljs (.toString b 16))))
-                  (range start end))))
+  (apply str (map #(byte-hex (bytes/get bs %)) (range start end))))
 
 
 (defn- bytes-hex
   [bs]
-  (span-key bs 0 (blen bs)))
+  (span-key bs 0 (bytes/length bs)))
 
 
 (defn bytes=
   "True when two host byte arrays hold the same bytes."
   [a b]
-  (let [n (blen a)]
-    (and (= n (blen b))
-         (loop [i 0]
-           (or (= i n)
-               (and (= (byte-at a i) (byte-at b i))
-                    (recur (inc i))))))))
+  (bytes/equal? a b))
 
 
 ;; ==========================================================================
 ;; Numeric kinds and carriers
 ;; ==========================================================================
 
-#?(:cljs
-   (defn- neg-zero?
-     [x]
-     (and (zero? x) (neg? (/ 1 x)))))
-
-
-#?(:cljs
-   (defn- double-bits-hex
-     "The 16 hex digits of a JS number's IEEE-754 bits."
-     [d]
-     (let [view (js/DataView. (js/ArrayBuffer. 8))]
-       (.setFloat64 view 0 d)
-       (apply str (map #(let [b (.getUint8 view %)]
-                          (str (when (< b 16) "0") (.toString b 16)))
-                       (range 8))))))
-
-
-#?(:cljs
-   (deftype Float64
-     [v]
-
-     Object
-
-     (toString [_] (str v))
-
-
-     ;; numeric and default coercion refuses: `carrier + 1`, `carrier < 3`
-     ;; and `"" + carrier` would otherwise go through toString and answer
-     ;; a string or a bare Number that lost the float's kind. String
-     ;; conversion (`str`, `String`, `.toString`) asks toString first and is
-     ;; unaffected; read the value through an explicit accessor instead.
-     (valueOf
-       [_]
-       (refuse :carrier-coercion
-               "a float64 carrier has no implicit numeric value"))
-
-
-     IEquiv
-
-     (-equiv
-       [_ other]
-       (and (instance? Float64 other)
-            (or (and (js/isNaN v) (js/isNaN (.-v ^Float64 other)))
-                (js/Object.is v (.-v ^Float64 other)))))
-
-
-     IHash
-
-     (-hash [_] (hash (if (js/isNaN v) "nan" (double-bits-hex v))))
-
-
-     IPrintWithWriter
-
-     (-pr-writer
-       [_ writer _]
-       (-write writer (str "#dao.jing/float64 " (pr-str v))))))
-
-
-(deftype Rational
-  [numerator denominator]
-  #?@(:cljd [cljd.core/IEquiv
-             (-equiv [_ other]
-                     (and (instance? Rational other)
-                          (= numerator (.-numerator ^Rational other))
-                          (= denominator (.-denominator ^Rational other))))
-             cljd.core/IHash
-             (-hash [_] (hash [(str numerator) (str denominator)]))]
-      :clj [Object
-            (equals [_ other]
-                    (and (instance? Rational other)
-                         (= numerator (.-numerator ^Rational other))
-                         (= denominator (.-denominator ^Rational other))))
-            (hashCode [_] (hash [numerator denominator]))
-            (toString [_] (str numerator "/" denominator))
-            clojure.lang.IHashEq
-            (hasheq [_] (hash [numerator denominator]))]
-      :cljs [IEquiv
-             (-equiv [_ other]
-                     (and (instance? Rational other)
-                          (= numerator (.-numerator ^Rational other))
-                          (= denominator (.-denominator ^Rational other))))
-             IHash
-             (-hash [_] (hash [(str numerator) (str denominator)]))
-             IPrintWithWriter
-             (-pr-writer [_ writer _]
-                         (-write writer (str "#dao.jing/ratio [" numerator " "
-                                             denominator "]")))]))
-
-
-#?(:cljd
-   (deftype Decimal
-     [exponent mantissa]
-
-     cljd.core/IEquiv
-
-     (-equiv
-       [_ other]
-       (and (instance? Decimal other)
-            (= exponent (.-exponent ^Decimal other))
-            (= mantissa (.-mantissa ^Decimal other))))
-
-
-     cljd.core/IHash
-
-     (-hash [_] (hash [exponent (str mantissa)])))
-   :cljs
-   (deftype Decimal
-     [exponent mantissa]
-
-     IEquiv
-
-     (-equiv
-       [_ other]
-       (and (instance? Decimal other)
-            (= exponent (.-exponent ^Decimal other))
-            (= mantissa (.-mantissa ^Decimal other))))
-
-
-     IHash
-
-     (-hash [_] (hash [exponent (str mantissa)]))
-
-
-     IPrintWithWriter
-
-     (-pr-writer
-       [_ writer _]
-       (-write writer (str "#dao.jing/decimal [" exponent " " mantissa "]")))))
-
-
-#?(:cljd nil
-   :clj
-   (defmethod print-method Rational
-     [^Rational r ^java.io.Writer w]
-     (.write w (str "#dao.jing/ratio [" (.-numerator r) " "
-                    (.-denominator r) "]"))))
+(def ->Rational
+  "The `dao.host.number` rational carrier's constructor, unreduced (a
+   hand-built carrier such as (->Rational 2 4) still keys, hashes and
+   compares as 1/2)."
+  number/->Rational)
 
 
 (defn- host-integer?
+  "True for an exact integer in any host carrier, and on JavaScript also
+   for an integral Number beyond +/-(2^53 - 1), which is integer content
+   whose value is already rounded (callers refuse it); never a JS -0."
   [x]
-  #?(:cljd (or (dart/is? x int) (dart/is? x BigInt))
-     :clj (or (instance? Long x) (instance? Integer x) (instance? Short x)
-              (instance? Byte x) (instance? clojure.lang.BigInt x)
-              (instance? BigInteger x))
-     :cljs (or (bigint? x)
-               (and (number? x) (js/Number.isInteger x) (not (neg-zero? x))))))
+  (or (integer/exact-integer? x)
+      #?(:cljs (and (number? x) (js/Number.isInteger x)
+                    (not (js/Number.isSafeInteger x)))
+         :default false)))
 
 
 (defn float64?
@@ -476,7 +230,7 @@
   [x]
   #?(:cljd (dart/is? x double)
      :clj (or (instance? Double x) (instance? Float x))
-     :cljs (or (instance? Float64 x)
+     :cljs (or (instance? number/Float64 x)
                (and (number? x) (not (host-integer? x))))))
 
 
@@ -484,17 +238,13 @@
   "True for decimal content: BigDecimal on the JVM, the Decimal carrier on
    JavaScript and Dart."
   [x]
-  #?(:cljd (instance? Decimal x)
-     :clj (instance? BigDecimal x)
-     :cljs (instance? Decimal x)))
+  (number/decimal? x))
 
 
 (defn ratio?
   "True for rational content: clojure.lang.Ratio or the Rational carrier."
   [x]
-  #?(:cljd (instance? Rational x)
-     :clj (or (instance? clojure.lang.Ratio x) (instance? Rational x))
-     :cljs (instance? Rational x)))
+  (number/ratio? x))
 
 
 (defn numeric?
@@ -508,56 +258,25 @@
    the JVM, the Float64 carrier on JavaScript (so integral floats such as
    1.0 keep their kind)."
   [x]
-  #?(:cljd (.toDouble ^num x)
-     :clj (double x)
-     :cljs (Float64. (if (instance? Float64 x) (.-v x) (js/Number x)))))
-
-
-#?(:cljd
-   (def ^:private hex-digit
-     {"0" 0 "1" 1 "2" 2 "3" 3 "4" 4 "5" 5 "6" 6 "7" 7
-      "8" 8 "9" 9 "a" 10 "b" 11 "c" 12 "d" 13 "e" 14 "f" 15}))
-
-
-#?(:cljd
-   (defn- hex-int
-     "The value of a short lowercase hex string."
-     [h]
-     (reduce (fn [acc i] (+ (* 16 acc) (get hex-digit (subs h i (inc i)))))
-             0 (range (count h)))))
+  (number/float64-of x))
 
 
 (defn float64-from-bits
-  "Floating-point content with the IEEE-754 bits given as 16 hex digits."
+  "Floating-point content with the IEEE-754 bits given as 16 lowercase
+   hex digits."
   [hex]
-  #?(:cljd (let [bd (ByteData. 8)]
-             (.setUint32 bd 0 (hex-int (subs hex 0 8)))
-             (.setUint32 bd 4 (hex-int (subs hex 8 16)))
-             (.getFloat64 bd 0))
-     :clj (Double/longBitsToDouble (Long/parseUnsignedLong hex 16))
-     :cljs (let [view (js/DataView. (js/ArrayBuffer. 8))]
-             (.setUint32 view 0 (js/parseInt (subs hex 0 8) 16))
-             (.setUint32 view 4 (js/parseInt (subs hex 8 16) 16))
-             (Float64. (.getFloat64 view 0)))))
-
-
-(defn- float-value
-  "The host double of floating-point content."
-  [x]
-  #?(:cljd x
-     :clj (double x)
-     :cljs (if (instance? Float64 x) (.-v x) x)))
+  (number/float64-of (host float/bits->float64 hex)))
 
 
 (def decimal-exponent-min
   "Smallest decimal exponent either host accepts: the JVM scale
    (-exponent) is a 32-bit int, so -(2^31 - 1)."
-  -2147483647)
+  number/decimal-exponent-min)
 
 
 (def decimal-exponent-max
   "Largest decimal exponent either host accepts: 2^31 (scale -2^31)."
-  2147483648)
+  number/decimal-exponent-max)
 
 
 (defn decimal
@@ -568,29 +287,18 @@
    window, so acceptance never depends on the host; outside it the
    value is refused :malformed-number."
   [exponent mantissa]
-  (let [e (big exponent)]
-    (when-not (and (<= 0 (bcmp e (big decimal-exponent-min)))
-                   (<= (bcmp e (big decimal-exponent-max)) 0))
-      (refuse :malformed-number "decimal exponent out of range"))
-    #?(:cljd (Decimal. (.toInt ^BigInt e) (big mantissa))
-       :clj (BigDecimal. ^BigInteger (big mantissa)
-                         (int (- (.longValue ^BigInteger e))))
-       :cljs (Decimal. (js/Number e) (big mantissa)))))
+  (host number/decimal-of (big exponent) (big mantissa)))
 
 
 (defn decimal-exponent
   [d]
-  #?(:cljd (.-exponent ^Decimal d)
-     :clj (- (.scale ^BigDecimal d))
-     :cljs (.-exponent ^Decimal d)))
+  (number/decimal-exponent d))
 
 
 (defn decimal-mantissa
   "The exact mantissa as a host big integer."
   [d]
-  #?(:cljd (.-mantissa ^Decimal d)
-     :clj (.unscaledValue ^BigDecimal d)
-     :cljs (.-mantissa ^Decimal d)))
+  (number/decimal-mantissa d))
 
 
 (defn ratio
@@ -599,72 +307,29 @@
    on the JVM other ratios are clojure.lang.Ratio. A zero denominator is
    refused."
   [numerator denominator]
-  (let [n (big numerator)
-        d (big denominator)]
-    (when (zero? (bsign d))
-      (refuse :malformed-number "zero denominator"))
-    (let [[n d] (if (neg? (bsign d)) [(b- zero n) (b- zero d)] [n d])
-          g (bgcd n d)
-          n (bquot n g)
-          d (bquot d g)]
-      #?(:cljd (Rational. n d)
-         :clj (if (= one d)
-                (Rational. n d)
-                (clojure.lang.Ratio. ^BigInteger n ^BigInteger d))
-         :cljs (Rational. n d)))))
+  (host number/ratio-of (big numerator) (big denominator)))
 
 
 (defn ratio-numerator
   [r]
-  #?(:cljd (.-numerator ^Rational r)
-     :clj (if (instance? Rational r)
-            (.-numerator ^Rational r)
-            (.numerator ^clojure.lang.Ratio r))
-     :cljs (.-numerator ^Rational r)))
+  (number/ratio-numerator r))
 
 
 (defn ratio-denominator
   [r]
-  #?(:cljd (.-denominator ^Rational r)
-     :clj (if (instance? Rational r)
-            (.-denominator ^Rational r)
-            (.denominator ^clojure.lang.Ratio r))
-     :cljs (.-denominator ^Rational r)))
+  (number/ratio-denominator r))
 
 
 ;; ==========================================================================
 ;; Portable numeric operations
 ;; ==========================================================================
 
-(defn- float-fields
-  "[negative? biased-exponent fraction-big] of a host double."
-  [d]
-  #?(:cljd (let [bd (ByteData. 8)]
-             (.setFloat64 bd 0 d)
-             (let [hi (.getUint32 bd 0)
-                   lo (.getUint32 bd 4)]
-               [(>= hi 0x80000000)
-                (bit-and (bit-shift-right hi 20) 0x7ff)
-                (b+ (b* (big (bit-and hi 0xfffff)) (bpow two 32)) (big lo))]))
-     :clj (let [bits (Double/doubleToRawLongBits (double d))]
-            [(neg? bits)
-             (bit-and (bit-shift-right bits 52) 0x7ff)
-             (big (bit-and bits 0xfffffffffffff))])
-     :cljs (let [view (js/DataView. (js/ArrayBuffer. 8))]
-             (.setFloat64 view 0 d)
-             (let [hi (.getUint32 view 0)
-                   lo (.getUint32 view 4)]
-               [(>= hi 0x80000000)
-                (bit-and (unsigned-bit-shift-right hi 20) 0x7ff)
-                (b+ (b* (big (bit-and hi 0xfffff)) (bpow two 32)) (big lo))]))))
-
-
 (defn- reduced-fraction
   [n d]
-  (let [g (bgcd n d)]
+  (let [g (integer/gcd n d)]
     (if (zero? (bsign g))
       [:finite zero one]
-      [:finite (bquot n g) (bquot d g)])))
+      [:finite (integer/quot-trunc n g) (integer/quot-trunc d g)])))
 
 
 (defn- exact
@@ -673,25 +338,25 @@
   [x]
   (cond
     (host-integer? x)
-    (do #?(:cljs (when (and (number? x) (not (js/Number.isSafeInteger x)))
-                   (refuse :unsupported-value
-                           (str "unsafe integral JavaScript number: "
-                                "its value is already rounded"))))
+    (do (when-not (integer/exact-integer? x)
+          (refuse :unsupported-value
+                  (str "unsafe integral JavaScript number: "
+                       "its value is already rounded")))
         [:finite (big x) one])
-    (float64? x) (let [[neg e f] (float-fields (float-value x))]
+    (float64? x) (let [[neg e f] (float/fields (number/float-value x))]
                    (cond
                      (and (= e 0x7ff) (pos? (bsign f))) [:nan]
                      (= e 0x7ff) [:inf (if neg -1 1)]
-                     :else (let [m (if (zero? e) f (b+ f (bpow two 52)))
+                     :else (let [m (if (zero? e) f (integer/add f (bpow two 52)))
                                  p (if (zero? e) -1074 (- e 1075))
-                                 m (if neg (b- zero m) m)]
+                                 m (if neg (integer/sub zero m) m)]
                              (if (>= p 0)
-                               [:finite (b* m (bpow two p)) one]
+                               [:finite (integer/mul m (bpow two p)) one]
                                (reduced-fraction m (bpow two (- p)))))))
     (decimal? x) (let [e (decimal-exponent x)
                        m (big (decimal-mantissa x))]
                    (if (>= e 0)
-                     [:finite (b* m (bpow ten e)) one]
+                     [:finite (integer/mul m (bpow ten e)) one]
                      (reduced-fraction m (bpow ten (- e)))))
     ;; Reduced here too, so a hand-built unreduced carrier such as
     ;; (->Rational 2 4) still keys, hashes and compares as 1/2.
@@ -700,7 +365,7 @@
                  (when (zero? (bsign d))
                    (refuse :malformed-number "zero denominator"))
                  (if (neg? (bsign d))
-                   (reduced-fraction (b- zero n) (b- zero d))
+                   (reduced-fraction (integer/sub zero n) (integer/sub zero d))
                    (reduced-fraction n d)))
     :else (refuse :unsupported-value
                   (str "not a portable number: " (type-name x)))))
@@ -754,7 +419,7 @@
       (> rx ry) 1
       (= :finite (first x)) (let [[_ n1 d1] x
                                   [_ n2 d2] y]
-                              (bcmp (b* n1 d2) (b* n2 d1)))
+                              (integer/compare-big (integer/mul n1 d2) (integer/mul n2 d1)))
       :else 0)))
 
 
@@ -863,13 +528,12 @@
    keywords, so equal content gives equal keys on every host."
   [x]
   (case (numeric-kind x)
-    :integer (do #?(:cljs (when (and (number? x)
-                                     (not (js/Number.isSafeInteger x)))
-                            (refuse :unsupported-value
-                                    (str "unsafe integral JavaScript number: "
-                                         "its value is already rounded"))))
+    :integer (do (when-not (integer/exact-integer? x)
+                   (refuse :unsupported-value
+                           (str "unsafe integral JavaScript number: "
+                                "its value is already rounded")))
                  [::integer (str (big x))])
-    :float64 (let [[neg e f] (float-fields (float-value x))]
+    :float64 (let [[neg e f] (float/fields (number/float-value x))]
                (if (and (= e 0x7ff) (pos? (bsign f)))
                  [::float64 :nan]
                  [::float64 neg e (str f)]))
@@ -929,23 +593,16 @@
   [:line :column :end-line :end-column])
 
 
-(defn- char-code
-  [s i]
-  #?(:cljd (.codeUnitAt ^String s i)
-     :clj (int (.charAt ^String s (int i)))
-     :cljs (.charCodeAt s i)))
-
-
 (defn- check-text
   "s itself, after refusing any unpaired UTF-16 surrogate."
   [s]
-  (let [n (count s)]
+  (let [n (text/unit-count s)]
     (loop [i 0]
       (when (< i n)
-        (let [c (char-code s i)]
+        (let [c (text/code-unit s i)]
           (cond
             (<= 0xD800 c 0xDBFF)
-            (if (and (< (inc i) n) (<= 0xDC00 (char-code s (inc i)) 0xDFFF))
+            (if (and (< (inc i) n) (<= 0xDC00 (text/code-unit s (inc i)) 0xDFFF))
               (recur (+ i 2))
               (refuse :unpaired-surrogate
                       (str "unpaired high surrogate at " i)))
@@ -980,35 +637,23 @@
   "The wire node, at depth d, of exact integer b (a host big integer)."
   [b d]
   (cond
-    (and (<= 0 (bcmp b neg-two-64)) (neg? (bcmp b two-64)))
-    (do (deep! d :unsupported-value) (wire/integer (b->int b)))
+    (and (<= 0 (integer/compare-big b neg-two-64)) (neg? (integer/compare-big b two-64)))
+    (do (deep! d :unsupported-value) (wire/integer (integer/demote b)))
     (pos? (bsign b)) (do (deep! (inc d) :unsupported-value)
-                         (wire/tagged 2 (magnitude-bytes b)))
+                         (wire/tagged 2 (integer/magnitude-bytes b)))
     :else (do (deep! (inc d) :unsupported-value)
-              (wire/tagged 3 (magnitude-bytes (b- (b- zero b) one))))))
+              (wire/tagged 3 (integer/magnitude-bytes (integer/sub (integer/sub zero b) one))))))
 
 
 (defn- float-wire
   [x d]
   (deep! (+ d 2) :unsupported-value)
-  (let [f (float-value x)
-        bs #?(:cljd (let [bd (ByteData. 8)]
-                      (if (.-isNaN ^double f)
-                        (do (.setUint32 bd 0 0x7ff80000) (.setUint32 bd 4 0))
-                        (.setFloat64 bd 0 f))
-                      (.asUint8List (.-buffer bd)))
-              :clj (let [buf (ByteBuffer/allocate 8)]
-                     (.putLong buf (if (Double/isNaN f)
-                                     0x7ff8000000000000
-                                     (Double/doubleToRawLongBits f)))
-                     (.array buf))
-              :cljs (let [out (js/Uint8Array. 8)
-                          view (js/DataView. (.-buffer out))]
-                      (if (js/isNaN f)
-                        (do (.setUint32 view 0 0x7ff80000)
-                            (.setUint32 view 4 0))
-                        (.setFloat64 view 0 f))
-                      out))]
+  ;; float64->bits reads every NaN as 7ff8000000000000
+  (let [h (float/float64->bits (number/float-value x))
+        bs (bytes/from-vector
+             (mapv #(+ (* 16 (hex-value (subs h (* 2 %) (inc (* 2 %)))))
+                       (hex-value (subs h (inc (* 2 %)) (+ 2 (* 2 %)))))
+                   (range 8)))]
     (wire/frame 'dao.jing/float64 bs)))
 
 
@@ -1016,10 +661,10 @@
   [x d]
   (cond
     (host-integer? x)
-    (do #?(:cljs (when (and (number? x) (not (js/Number.isSafeInteger x)))
-                   (refuse :unsupported-value
-                           (str "unsafe integral JavaScript number; "
-                                "pass a BigInt or float64"))))
+    (do (when-not (integer/exact-integer? x)
+          (refuse :unsupported-value
+                  (str "unsafe integral JavaScript number; "
+                       "pass a BigInt or float64")))
         (int-wire (big x) d))
     (float64? x) (float-wire x d)
     (decimal? x) (do (deep! (inc d) :unsupported-value)
@@ -1124,7 +769,7 @@
     (keyword? x) (identifier-wire 'dao.jing/keyword x d)
     (symbol? x) (meta-wire x d #(identifier-wire 'dao.jing/symbol x %))
     (wire/byte-payload? x) (do (deep! d :unsupported-value)
-                               (wire/byte-string (copy-range x 0 (blen x))))
+                               (wire/byte-string (bytes/slice x 0 (bytes/length x))))
     (numeric? x) (number-wire x d)
     (record? x) (refuse :unsupported-value "record")
     (map? x) (meta-wire x d #(map-wire x %))
@@ -1157,7 +802,7 @@
   "A fresh copy of host byte array bs, so a holder's snapshot cannot be
    changed through the array a caller keeps."
   [bs]
-  (copy-range bs 0 (blen bs)))
+  (bytes/slice bs 0 (bytes/length bs)))
 
 
 (defn encoded-compare
@@ -1169,8 +814,8 @@
   [a b]
   (let [ea (encode a)
         eb (encode b)
-        la (blen ea)
-        lb (blen eb)]
+        la (bytes/length ea)
+        lb (bytes/length eb)]
     (cond
       (< la lb) -1
       (> la lb) 1
@@ -1184,11 +829,11 @@
 
 (defn- need
   [bs pos n]
-  (when (> (+ pos n) (blen bs))
+  (when (> (+ pos n) (bytes/length bs))
     (refuse :malformed-cbor (str "truncated at byte " pos))))
 
 
-(def ^:private max-length (big 9007199254740991))
+(def ^:private max-length (integer/from-native 9007199254740991))
 
 
 (defn- read-head
@@ -1196,7 +841,7 @@
    a host big integer for eight-byte arguments, or nil for indefinite."
   [bs pos]
   (need bs pos 1)
-  (let [ib (byte-at bs pos)
+  (let [ib (bytes/get bs pos)
         major (bit-shift-right ib 5)
         ai (bit-and ib 31)
         pos (inc pos)]
@@ -1205,7 +850,7 @@
       (<= ai 26) (let [size (case ai 24 1 25 2 26 4)]
                    (need bs pos size)
                    [major ai
-                    (reduce (fn [acc i] (+ (* acc 256) (byte-at bs (+ pos i))))
+                    (reduce (fn [acc i] (+ (* acc 256) (bytes/get bs (+ pos i))))
                             0 (range size))
                     (+ pos size)])
       (= ai 27) (do (need bs pos 8)
@@ -1215,65 +860,26 @@
                     (str "reserved additional information " ai)))))
 
 
-(defn- host-big?
-  "True for a host big integer: read-head returns one exactly for an
-   eight-byte argument."
-  [x]
-  #?(:cljd (dart/is? x BigInt)
-     :clj (instance? BigInteger x)
-     :cljs (bigint? x)))
-
-
 (defn- length-of
   "A byte or item count as a host number; larger than any input can hold
    means truncated."
   [arg pos]
-  (if-not (host-big? arg)
+  (if-not (integer/big-carrier? arg)
     arg
-    (if (pos? (bcmp arg max-length))
+    (if (pos? (integer/compare-big arg max-length))
       (refuse :malformed-cbor (str "truncated at byte " pos))
-      #?(:cljd (.toInt ^BigInt arg)
-         :clj (.longValue ^BigInteger arg)
-         :cljs (js/Number arg)))))
+      (integer/to-native arg))))
 
 
 (defn- utf8
   "Strict UTF-8 decode of bs[start, start+len)."
   [bs start len]
-  ;; Dart's decoder drops a U+FEFF at the start of what it decodes; a BOM
-  ;; is content here (the corpus pins uni/bom), so leading BOM bytes are
-  ;; taken one by one and the decoder only ever starts after them.
-  #?(:cljd (let [end (+ start len)]
-             (loop [at start boms 0]
-               (if (and (<= (+ at 3) end)
-                        (= 0xef (byte-at bs at))
-                        (= 0xbb (byte-at bs (+ at 1)))
-                        (= 0xbf (byte-at bs (+ at 2))))
-                 (recur (+ at 3) (inc boms))
-                 (str (apply str (repeat boms (String.fromCharCode 0xfeff)))
-                      (try
-                        (.convert (convert/Utf8Decoder.) bs at end)
-                        (catch FormatException e
-                          (refuse :invalid-utf8 (str e))))))))
-     :clj (try
-            (str (.decode (-> StandardCharsets/UTF_8
-                              .newDecoder
-                              (.onMalformedInput CodingErrorAction/REPORT)
-                              (.onUnmappableCharacter CodingErrorAction/REPORT))
-                          (ByteBuffer/wrap ^bytes bs (int start) (int len))))
-            (catch CharacterCodingException e
-              (refuse :invalid-utf8 (.getMessage e))))
-     :cljs (try
-             (.decode (js/TextDecoder. "utf-8"
-                                       #js {:fatal true :ignoreBOM true})
-                      (.subarray bs start (+ start len)))
-             (catch :default e
-               (refuse :invalid-utf8 (str e))))))
+  (host text/utf8-decode bs start len))
 
 
 (defn- arg->big
   [arg]
-  (if (host-big? arg) arg (big arg)))
+  (if (integer/big-carrier? arg) arg (big arg)))
 
 
 (defn- read-item
@@ -1294,28 +900,22 @@
         (refuse :malformed-cbor "indefinite integer")
         (let [b (arg->big arg)]
           (item (if (zero? major) :uint :nint)
-                (if (zero? major) b (b- (b- zero b) one))
+                (if (zero? major) b (integer/sub (integer/sub zero b) one))
                 pos)))
 
       (2 3)
       (if (nil? arg)
         (loop [pos pos chunks []]
           (need bs pos 1)
-          (if (= 0xff (byte-at bs pos))
+          (if (= 0xff (bytes/get bs pos))
             (let [pos (inc pos)]
               (item (if (= 2 major) :bytes :text)
                     (if (= 2 major)
-                      (let [n (reduce + (map blen chunks))
-                            out #?(:cljd (Uint8List. n)
-                                   :clj (byte-array n)
-                                   :cljs (js/Uint8Array. n))]
+                      (let [n (reduce + (map bytes/length chunks))
+                            out (bytes/alloc n)]
                         (reduce (fn [off c]
-                                  #?(:cljd (.setRange ^Uint8List out
-                                                      off (+ off (blen c)) c)
-                                     :clj (System/arraycopy
-                                            c 0 out off (alength ^bytes c))
-                                     :cljs (.set out c off))
-                                  (+ off (blen c)))
+                                  (bytes/copy! c 0 out off (bytes/length c))
+                                  (+ off (bytes/length c)))
                                 0 chunks)
                         out)
                       (apply str chunks))
@@ -1327,19 +927,19 @@
                 (need bs cpos n)
                 (recur (+ cpos n)
                        (conj chunks (if (= 2 major)
-                                      (copy-range bs cpos (+ cpos n))
+                                      (bytes/slice bs cpos (+ cpos n))
                                       (utf8 bs cpos n))))))))
         (let [n (length-of arg pos)]
           (need bs pos n)
           (item (if (= 2 major) :bytes :text)
-                (if (= 2 major) (copy-range bs pos (+ pos n)) (utf8 bs pos n))
+                (if (= 2 major) (bytes/slice bs pos (+ pos n)) (utf8 bs pos n))
                 (+ pos n))))
 
       (4 5)
       (let [n (when arg (length-of arg pos))]
         (loop [pos pos acc []]
           (cond
-            (and (nil? n) (do (need bs pos 1) (= 0xff (byte-at bs pos))))
+            (and (nil? n) (do (need bs pos 1) (= 0xff (bytes/get bs pos))))
             (item (if (= 4 major) :array :map) acc (inc pos))
 
             (and n (= n (count acc)))
@@ -1359,7 +959,7 @@
         (let [[inner pos] (read-item bs pos (inc d))]
           ;; [tag-or-nil inner raw-argument]: an eight-byte tag number is
           ;; a host big integer and never one of the profile's tags.
-          (item :tag [(when-not (host-big? arg) arg) inner arg] pos)))
+          (item :tag [(when-not (integer/big-carrier? arg) arg) inner arg] pos)))
 
       7
       (cond
@@ -1447,7 +1047,7 @@
 
     "dao.jing/float64"
     (let [b (:value p)]
-      (if (and (= :bytes (:kind p)) (= 8 (blen b)))
+      (if (and (= :bytes (:kind p)) (= 8 (bytes/length b)))
         (float64-from-bits (bytes-hex b))
         (refuse :malformed-frame "float64 payload is not eight bytes")))
 
@@ -1474,7 +1074,7 @@
   [bs x]
   (let [v (:value x)]
     (case (:kind x)
-      (:uint :nint) (b->int v)
+      (:uint :nint) (integer/demote v)
       :float (refuse :native-float)
       :simple (case (int v)
                 20 false
@@ -1493,8 +1093,8 @@
       (let [[tag p raw] v]
         (case tag
           (2 3) (if (= :bytes (:kind p))
-                  (let [mag (span-big (:value p) 0 (blen (:value p)))]
-                    (b->int (if (= 2 tag) mag (b- (b- zero mag) one))))
+                  (let [mag (span-big (:value p) 0 (bytes/length (:value p)))]
+                    (integer/demote (if (= 2 tag) mag (integer/sub (integer/sub zero mag) one))))
                   (refuse :malformed-number
                           "bignum payload is not a byte string"))
           4 (let [[e m] (or (pair-items p)
@@ -1506,7 +1106,7 @@
               (when (or (nil? e) (nil? m))
                 (refuse :malformed-number
                         "decimal component is not an integer"))
-              (decimal (b->int e) m))
+              (decimal (integer/demote e) m))
           30 (let [[n d] (or (pair-items p)
                              (refuse
                                :malformed-number
@@ -1542,11 +1142,11 @@
    ran once at ingress (docs/design/dao.jing.cbor.md, Layering and
    interfaces). Returned byte strings are fresh copies."
   [bs]
-  (when (zero? (blen bs))
+  (when (zero? (bytes/length bs))
     (refuse :malformed-cbor "empty input"))
   (let [[item pos] (read-item bs 0 1)]
-    (when (not= pos (blen bs))
-      (refuse :trailing-data (str (- (blen bs) pos) " bytes after the item")))
+    (when (not= pos (bytes/length bs))
+      (refuse :trailing-data (str (- (bytes/length bs) pos) " bytes after the item")))
     (item->value bs item)))
 
 

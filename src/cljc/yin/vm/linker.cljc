@@ -35,7 +35,7 @@
    is an explicit argument. There is no global loader, registry,
    callback, or cache here, and every outcome -- success or refusal --
    is a returned plain data map (section 4.3)."
-  (:require #?@(:cljd [["dart:typed_data" :as typed]])
+  (:require [dao.host.bytes :as bytes]
             [dao.jing :as jing]
             [dao.jing.content :as jing-content]
             [dao.jing.cbor :as cbor]
@@ -1229,9 +1229,7 @@
 (defn- byte-count
   "The length of host bytes bs, for the `:max-bytes` bound."
   [bs]
-  #?(:clj (alength ^bytes bs)
-     :cljs (.-length bs)
-     :cljd (.-length ^typed/Uint8List bs)))
+  (bytes/length bs))
 
 
 (defn- identity-of

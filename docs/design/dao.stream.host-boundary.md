@@ -391,7 +391,8 @@ under `src/dev/` with the repo's other dev tools), and its output as
 that the committed output lists exactly the 142/140/141 files above, and
 that the two traversals (the committed tool and the r3 reviewer's method)
 agree, recorded in the slice report. Until that lands, the totals here are
-R.
+R. (r11 note: post-H2, with `yin.vm.integer.host` deleted and the five profile
+files added to the closure, the totals are 146/144/145, 137 shared, 159 union).
 
 Classification of every file in the closure that has any host contact (the
 remaining files have none beyond §3.3 syntax; the committed H0 output marks
@@ -1079,6 +1080,11 @@ Two placements from the r8 code review (H0-1, H0-2): `dao/stream/
 ringbuffer.cljc` is `:seam-driver` with `:stays` (its closure class
 `:external-stream-seam`), not `:dialect-arm`; `yin/vm.cljc` is
 `:migration-source` with `:pending` as above.
+
+Host number-model arms (r11 H2 finding, retained): `debruijn.cljc` and
+`debruijn_code.cljc` remain on list 1 under `:migration-source` with `:stays`
+(encoding which number classes a host carries; `cbor.cljc:217,227` joins after H4).
+H2b moves `data.cljc` and `values.cljc` off list 1.
 
 **Bounded exceptions to the mapping (r10, H0-R3 reconciliation).** The
 file rows above and the §3.1 closure classes disagree for eight files: the

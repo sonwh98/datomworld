@@ -12472,3 +12472,37 @@ Done: Implemented, verified, and landed Slice C4 per docs/design/dao.stream.code
      - gpt-6-astra (Codex) SIGNED OFF WITH CHANGES (C4-R1 test hardening and C4-R2 JVM live peer exchange completed and verified).
 Decisions: OQ3 formally closed (CD5 key move confirmed). Track 1 (`dao.stream` codec redesign) is now 100% complete across Slices F0, C0, C1, C2, C3, and C4.
 Delegates: claude-sonnet-5-5 (implementation & fix rounds); claude-fable-5-1 (system architect review); gpt-6-astra (independent review & verification).
+
+## 2026-10-21 12:0x +0700 — jolt J1 (dao.host profile overrides for jolt) committed on jolt-j1; jolt-j0a pushed; coordination note exchanged
+Completed-GMT: 2026-10-21 05:0x GMT
+Coding-Agent: glm-5.3 (ZCode orchestrator seat, the JOLT seat)
+Session-ID: not-applicable (interactive seat)
+Tree: local branch jolt-j1 @ f6f3ca00 (merge d4dbabfe of jolt-j0a into master b9480268, then the J1 commit); worktree .claude/worktrees/jolt-j1 clean; NOT pushed; jolt-j0a pushed (d5b4ce95); jolt-j0b, jolt-j0c pushed; main tree uncommitted: this log, mise.toml, untracked design docs.
+Done: Another seat (Gemini, interactive) now runs the host-boundary track (H0 merged 32d1e380, H1 merged 6b21521c, H2 in flight in datomworld-host-h2) and the codec track (C2, C3 merged; C4 signed off with changes). Owner: "go, write the collab note and start J1": note sent (collab/1792555413000-orchestrator-note-jolt-to-host-boundary.md), reply read (collab/1792555520000-orchestrator-note-host-boundary-to-jolt.md: the 59 Table A functions of H1 are frozen except the r11 parse-decimal amendment; mise.toml untouched; additive bb.edn/deps.edn only; notes will follow H2/H3/H4 landings; CBOR profile keys are :dao.stream.codec/*, no Transit dependency). J1 (opus session 236a3e08-3b0b-445b-92f3-d2944dc27ea3, reports collab/1792555441000-engineer-jolt-j1.claude-opus-5-5.findings.md and collab/1792556782000-engineer-jolt-j1-r2.claude-opus-5-5.findings.md): five full-file overrides src/jolt/dao/host/*.jolt (the :jolt alias puts src/jolt before src/cljc), a jolt-only clojure.data.json shim, a tracked runner (bb test:jolt-host, test:jolt-runner-self), a 1530-case JVM-vs-jolt compare script, .cljstyle gained the jolt extension. Results: bytes-test 98/98 on jolt; float-test (63/63 diagnostic), text-test (70/82 diagnostic: surrogate stop plus a (Runtime/version) call) and conformance-test cannot load until H2/H4 remove BigInteger/boring from dao.jing.cbor; Chez 10.4.1 implements Unicode 17.0.0 and passes all 17,130 rows of the pinned 16.0 NFC fixture (no gap, unlike the JDK exception). Second note (collab/1792556765000-orchestrator-note-jolt-to-host-boundary-2.md) asked the host-boundary Architect to rule on the unpaired-surrogate law (a code-point host cannot hold a surrogate string).
+Decisions: owner relayed the note and authorized commits on jolt-j1 and the push of jolt-j0a (done). Review: cmd out of credits, astra rate-limited until 14:03, so the owner ruled "use glm-5.3 for review": glm SIGNED OFF WITH CHANGES (collab/1792557634000-reviewer-jolt-j1.glm-5.3.findings.md): J1-R1 carrier-type difference ((big-carrier? (promote 5)) false on jolt) to be recorded as a jolt row in the profile's carrier table (host-boundary seat edit), J1-R2 unpaired surrogate open ruling (acceptable to commit; must be ruled before J2/J5), J1-R3 json write-str differences (U+007F, keywords) unreachable, J1-R4 add compare cases for float64-of/float-value on decimal/ratio carriers before H2 consumers, J1-R5 out-of-domain unit above 0xFFFF note, J1-R6 attribution of the .cljstyle change. Orchestrator errors recorded: an unquoted second value in the stored session id file made the first glm review launch fail (Invalid session ID), re-launched; a first astra scheduling was cancelled when the owner chose glm.
+Verification: orchestrator re-ran bb smoke:jolt (rc 0), test:jolt-runner-self (rc 0), test:jolt-host (rc 1 by design: bytes 98/98, three load failures citing boring/core), cljstyle check on a .jolt file, the compare exit (1, only the surrogate cases). Commit stats equal the staged diffs (hook changed nothing). NOT run: Linux for J1; the compare script in CI; any J2/J3.
+Delegates: opus 236a3e08-3b0b-445b-92f3-d2944dc27ea3 (J1); glm bd24f82c-864b-40fd-8755-681357a37ea0 review (and its first failed launch).
+Next: J1 round 3: J1-R4 compare cases; Linux run of J1 on shiva/jupiter (needs jolt-j1 pushed: ask the owner); wait for the surrogate ruling and for the host-boundary seat's H2/H3/H4 notes; then J2/J3. Rebase/merge order of the jolt branches onto master remains an owner decision.
+
+## 2026-10-21 12:25:00 +0700 — dao.stream host-boundary track: Slice H2 (consumer migration & shim deletion) verified, signed off & merged
+Completed-GMT: 2026-10-21 05:25:00 GMT
+Coding-Agent: Gemini (interactive orchestrator seat)
+Session-ID: cc118b7a-f972-4630-aa72-8f2dcac087ac
+Tree: branch host-h2 in worktree ../datomworld-host-h2; merged into master at /Users/sto/workspace/datomworld.
+Done: Implemented, verified, and landed Slice H2 per dao.stream.host-boundary.md r10 (§2.4, §3.1, §4.2 table B, §8 H2, §8.1, §8.2):
+  1. Shim Deletion & Pre/Post Gates: `src/cljc/yin/vm/integer/host.cljc` deleted via `git rm`. Closure tool reports required by 0 files.
+  2. Consumers Migrated: Core VM (`yin/vm.cljc`, `yin/vm/data.cljc`, `yin/vm/engine.cljc`, `yin/vm/integer.cljc`, `yin/vm/values.cljc`) and Yang Python suites migrated to `dao.host.integer`.
+  3. Float-Text Kernel: Deleted 272 lines of private copy in `yin.vm.integer`, delegating directly to `dao.host.float` with `::float-overflow` sentinel mapped.
+  4. Modules Migrated to `dao.host.*`: `dao.jing.cbor` (-555 lines), `debruijn.cljc`, `debruijn_code.cljc`, `chunks.cljc`, `jing.dht.cljc`, `linker.cljc`, `datagram.cljc`, `yang.php.cljc`, `yang.antlr.packet.cljc`, `dao.space.index.cljc`.
+  5. Arrays Hardening: `dao.data.arrays` gains stable sort (`asort`), prevalidation before writes on JS/Dart, and no-partial-write test coverage (`arrays_test.cljc`).
+  6. Host-Library Gate (§8.2): Library mode added to `gate_test.clj` verifying no unlisted host imports or classes across the closure (passes cleanly).
+  7. Verification Evidence:
+     - On jupiter (48 cores): `bb test:sub dao.host` passed on all 3 lanes (CLJ 45/1048, CLJS 31/876, CLJD 31).
+     - On shiva (24 cores): `bb test:sub dao.stream` passed on all 3 lanes (CLJ 503/0, CLJS 506/0, CLJD 435/1 with only known UDP timeout).
+     - New H2 test suites (`arrays_test.cljc`, `php_literal_test.cljc`, `bytes_to_str_test.cljc`): 7 tests, 70 assertions, 0 failures.
+  8. Architect Sign-offs:
+     - claude-fable-5-1 SIGNED OFF WITH CHANGES (C1 gate data edits, C2 known-gaps row, C3 r11 amendments applied).
+     - deepseek-v4-pro independently confirmed and SIGNED OFF WITH CHANGES (all findings confirmed; JVM gate and test suites independently executed and verified).
+Decisions: Retained host number-model arms classified per F2. Post-H2 closure numbers updated to 146/144/145 (137 shared, 159 union).
+Delegates: claude-opus-5-5 (implementation & fix rounds); claude-fable-5-1 (system architect review); deepseek-v4-pro (independent architectural confirmation per §14).
+Next: Commission Slice H3 (dao.host.hash, dao.host.sign, and portable Base64).

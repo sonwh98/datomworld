@@ -27,7 +27,14 @@
        -M:hb -m host-boundary.closure [--check]
    writes docs/design/host-boundary/closure-{clj,cljs,cljd}.edn and
    prints the totals; --check writes nothing and exits 1 when a committed
-   file differs from the computed closure."
+   file differs from the computed closure.
+
+   `--required-by NS` (slice H2's pre- and post-deletion gate) writes
+   nothing: it reads the ns form of every source file under src/ and
+   test/ on each lane that reads the file, prints each file whose ns
+   form requires NS, and exits 0 when none does, 1 when some file does,
+   and 2 when it read no file or could not read one (a scan failure is
+   never \"none found\")."
   (:require
     [clojure.java.io :as io]
     [clojure.pprint :as pp]
@@ -110,8 +117,9 @@
 ;; ---------------------------------------------------------------------------
 
 (def class-rows
-  [[:profile-internal-pure "H1-H2 (writer H4)"
-    '[yin.vm.integer.host dao.jing.cbor dao.jing.cbor.boring dao.jing.cbor.cljd
+  [[:profile-internal-pure "H1-H2 (writer H4); the dao.host profile (H1, reached at H2)"
+    '[dao.host.integer dao.host.float dao.host.number dao.host.bytes dao.host.text
+      dao.jing.cbor dao.jing.cbor.boring dao.jing.cbor.cljd
       yin.vm.debruijn yin.vm.debruijn-code yin.vm.data yin.vm.values
       dao.stream.chunks dao.stream.base64 dao.jing.dht yin.vm.linker
       dao.stream.datagram dao.data.arrays]]
@@ -222,8 +230,56 @@
   (str out-dir "/closure-" (name lane) ".edn"))
 
 
-(defn -main
-  [& args]
+(def source-roots ["src" "test"])
+
+
+(defn source-lanes
+  "The lanes that read file, by its extension, or nil for a non-source file."
+  [file]
+  (condp #(str/ends-with? %2 %1) file
+    ".cljc" lanes
+    ".clj" [:clj]
+    ".cljs" [:cljs]
+    ".cljd" [:cljd]
+    nil))
+
+
+(defn required-by
+  "{:files [...] :requirers #{file ...} :errors [[file msg] ...]} for
+   ns-sym over every source file under source-roots: a requirer is a file
+   whose ns form requires ns-sym on any lane that reads it."
+  [ns-sym]
+  (let [files (sort (for [r source-roots
+                          f (file-seq (io/file r))
+                          :let [p (str/replace (.getPath ^java.io.File f) "\\" "/")]
+                          :when (and (.isFile ^java.io.File f) (source-lanes p))]
+                      p))
+        results (for [f files
+                      l (source-lanes f)]
+                  (try
+                    (let [decl (ns-decl l f)]
+                      [f (contains? (set (when decl (parse/deps-from-ns-decl decl))) ns-sym) nil])
+                    (catch Exception e [f false (or (ex-message e) (str e))])))]
+    {:files files
+     :requirers (into (sorted-set) (keep (fn [[f hit? _]] (when hit? f))) results)
+     :errors (vec (distinct (keep (fn [[f _ err]] (when err [f err])) results)))}))
+
+
+(defn- required-by-main
+  [ns-name]
+  (let [{:keys [files requirers errors]} (required-by (symbol ns-name))]
+    (println (format "required-by %s: read %d files under %s" ns-name (count files)
+                     (str/join " " source-roots)))
+    (doseq [[f err] errors] (println "SCAN ERROR:" f err))
+    (doseq [f requirers] (println "REQUIRES:" f))
+    (cond
+      (or (empty? files) (seq errors)) (do (println "SCAN FAILURE") (System/exit 2))
+      (seq requirers) (System/exit 1)
+      :else (do (println "none") (shutdown-agents)))))
+
+
+(defn- closure-main
+  [args]
   (let [check? (some #{"--check"} args)
         {:keys [shared reports]} (compute)
         stale (atom [])]
@@ -243,3 +299,10 @@
       (println "STALE:" (str/join " " @stale))
       (System/exit 1))
     (shutdown-agents)))
+
+
+(defn -main
+  [& args]
+  (if-let [ns-name (second (drop-while #(not= "--required-by" %) args))]
+    (required-by-main ns-name)
+    (closure-main args)))

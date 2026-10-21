@@ -25,9 +25,9 @@
    holds +/-2^53 as a `BigInt`, never as an unsafe `Number`, and a
    JavaScript `-0` is floating-point content, not an integer.
 
-   The entries from `big-carrier?` to `to-radix-string` are those of
-   `yin.vm.integer.host`, moved verbatim (slice H1; the shim is deleted
-   in H2). A refusal throws `ex-info` whose data carries
+   The entries from `big-carrier?` to `to-radix-string` were moved
+   verbatim from the former `yin.vm.integer.host` shim (slice H1); slice
+   H2 moved its consumers here and deleted it. A refusal throws `ex-info` whose data carries
    `:dao.host/refusal`, a class keyword, and `:dao.host/entry`. This
    namespace requires nothing in the repository. Every reader
    conditional names `:cljd` first, because the ClojureDart build also

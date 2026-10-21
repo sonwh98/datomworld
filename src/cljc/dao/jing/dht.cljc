@@ -25,8 +25,8 @@
    (store-handle ...) is the portable dao.jing byte-store handle over the
    same composition: its put returns the local verdict at once and appends
    a replicate request; its get reads :local only."
-  (:require #?@(:cljd [["dart:typed_data" :as typed]])
-            [clojure.string :as str]
+  (:require [clojure.string :as str]
+            [dao.host.bytes :as bytes]
             [dao.jing :as jing]
             [dao.jing.dht.kad :as kad]
             [dao.stream :as stream]
@@ -97,30 +97,22 @@
 
 (defn- byte-ints
   [bs]
-  #?(:cljd (vec bs)
-     :clj (mapv #(bit-and (int %) 0xff) bs)
-     :cljs (vec (js/Array.from bs))))
+  (bytes/to-vector bs))
 
 
 (defn- ints->bytes
   [ints]
-  #?(:cljd (typed/Uint8List.fromList ints)
-     :clj (byte-array (map unchecked-byte ints))
-     :cljs (js/Uint8Array.from (clj->js ints))))
+  (bytes/from-vector (vec ints)))
 
 
 (defn- byte-count
   [bs]
-  #?(:cljd (.-length ^typed/Uint8List bs)
-     :clj (alength ^bytes bs)
-     :cljs (.-length bs)))
+  (bytes/length bs))
 
 
 (defn- zero-bytes
   [n]
-  #?(:cljd (typed/Uint8List n)
-     :clj (byte-array n)
-     :cljs (js/Uint8Array. n)))
+  (bytes/alloc n))
 
 
 (defn bytes->hex

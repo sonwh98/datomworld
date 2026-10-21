@@ -15,7 +15,9 @@
   - Type hints (parsed and ignored)"
   (:refer-clojure :exclude [compile])
   (:require
-    [clojure.string :as str]))
+    [clojure.string :as str]
+    [dao.host.float :as host-float]
+    [dao.host.integer :as host-integer]))
 
 
 ;; Forward declarations
@@ -87,17 +89,23 @@
                     {:token (first tokens), :all (take 5 tokens)}))))
 
 
+(defn php-number
+  "The value of a PHP number token, `digits[.digits]` or `digits.` as the
+   lexer cuts it: the nearest double when it has a point (`\"1.\"` reads
+   as `\"1.0\"`), else the exact integer in its canonical carrier, on
+   every host (a big carrier past the native range, never a rounded
+   double)."
+  [text]
+  (if (str/includes? text ".")
+    (host-float/decimal-text->float (if (str/ends-with? text ".") (str text "0") text))
+    (host-integer/demote (host-integer/parse-decimal text))))
+
+
 (defn parse-php-literal
   [[type val]]
   (case type
     :number {:php-type :literal,
-             :value (if (str/includes? val ".")
-                      #?(:cljd (double/parse val)
-                         :clj (Double/parseDouble val)
-                         :cljs (js/parseFloat val))
-                      #?(:cljd (int/parse val)
-                         :clj (Long/parseLong val)
-                         :cljs (js/parseInt val)))}
+             :value (php-number val)}
     :string {:php-type :literal, :value val}
     :keyword (case val
                "true" {:php-type :literal, :value true}

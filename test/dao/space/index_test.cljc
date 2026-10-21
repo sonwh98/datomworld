@@ -790,6 +790,30 @@
 ;; Preserved public pure functions
 ;; ---------------------------------------------------------------------------
 
+(deftest compare-vals-orders-floats-by-num-compare-on-every-lane
+  ;; host-boundary H2 (R7-3): only two native exact integers take host
+  ;; compare; every float takes dao.jing.cbor/num-compare on every host
+  (let [neg-zero (* -1.0 0.0)]
+    (testing "signed zeros are equal and tie in sort order"
+      (is (zero? (index/compare-vals 0.0 neg-zero)))
+      (is (zero? (index/compare-vals neg-zero 0.0)))
+      (is (= [neg-zero 0.0] (sort index/compare-vals [neg-zero 0.0])))
+      (is (= [0.0 neg-zero] (sort index/compare-vals [0.0 neg-zero]))))
+    (testing "-inf < finite < +inf < NaN"
+      (is (= [##-Inf -1.5 0.0 2 ##Inf]
+             (sort index/compare-vals [##Inf 2 0.0 ##-Inf -1.5])))
+      (is (pos? (index/compare-vals ##NaN ##Inf)))
+      (is (neg? (index/compare-vals 1.0 ##NaN)))
+      (let [sorted (sort index/compare-vals [##NaN 1.0 ##-Inf])]
+        (is (= [##-Inf 1.0] (vec (take 2 sorted))))
+        (is (let [x (last sorted)] (not (== x x))) "NaN last")))
+    (testing "1 and 1.0 tie; native integers order natively"
+      (is (zero? (index/compare-vals 1 1.0)))
+      (is (zero? (index/compare-vals 1.0 1)))
+      (is (neg? (index/compare-vals 1 2)))
+      (is (pos? (index/compare-vals 3 2.5))))))
+
+
 (deftest comparators-index-datoms-and-subseq-from
   (testing "heterogeneous value comparison is type-ranked and total"
     (is (neg? (index/compare-vals nil 0)))

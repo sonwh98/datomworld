@@ -3,12 +3,12 @@
    traces, each under its own domain-separation prefix."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
+            [dao.host.bytes :as bytes]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
             #?@(:cljd [["dart:convert" :as convert]
                        ["package:ed25519_edwards/ed25519_edwards.dart" :as ed]])
             #?@(:cljs [[goog.crypt :as crypt]]))
-  #?@(:cljd [(:import ["dart:typed_data" Uint8List])])
   #?@(:cljd []
       :clj [(:import [java.security KeyFactory KeyPairGenerator
                       SecureRandom Signature]
@@ -53,10 +53,12 @@
 
 
 (defn- host-bytes
+  "Fresh host bytes of `xs`: a host byte array, or a seq of byte values
+   (signed JVM bytes read as their unsigned value)."
   [xs]
-  #?(:cljd (Uint8List.fromList (vec xs))
-     :clj (byte-array (map unchecked-byte xs))
-     :cljs (js/Uint8Array.from (clj->js xs))))
+  (if (bytes/bytes? xs)
+    (bytes/slice xs 0 (bytes/length xs))
+    (bytes/from-vector (mapv #(bit-and % 0xff) xs))))
 
 
 (defn- utf8
@@ -75,11 +77,11 @@
 #?(:cljd nil :clj
    (defn- jvm-pair
      [seed]
-     (let [bytes (host-bytes (from-hex seed))
+     (let [seed-bytes (host-bytes (from-hex seed))
            random (proxy [SecureRandom] []
                     (nextBytes
                       [dst]
-                      (System/arraycopy bytes 0 dst 0 (alength dst))))
+                      (bytes/copy! seed-bytes 0 dst 0 (bytes/length dst))))
            ;; SunEC's generator draws the 32 seed bytes from this random.
            ;; The RFC vectors guard that provider-specific dependency.
            generator (KeyPairGenerator/getInstance "Ed25519" "SunEC")]

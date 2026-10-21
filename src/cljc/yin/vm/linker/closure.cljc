@@ -12,7 +12,7 @@
    It verifies shape and address only.  It does not re-lower, discharge
    or judge names: `yin.vm.linker/link-manifest` does, afterwards, against
    the same store."
-  (:require #?@(:cljd [["dart:typed_data" :as typed]])
+  (:require [dao.host.bytes :as bytes]
             [dao.jing :as jing]
             [yin.vm :as vm]
             [yin.vm.linker :as linker]
@@ -29,9 +29,7 @@
 
 (defn- byte-count
   [bs]
-  #?(:cljd (.-length ^typed/Uint8List bs)
-     :clj (alength ^bytes bs)
-     :cljs (.-length bs)))
+  (bytes/length bs))
 
 
 (defn- stop

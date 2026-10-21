@@ -36,7 +36,8 @@
    writes, rather than reimplementing or forking any part of its framing
    -- so, unlike B1, this file defines no private hex or byte-framing
    helpers of its own at all; there is nothing left for them to do."
-  (:require [dao.jing :as jing]
+  (:require [dao.host.integer :as host-integer]
+            [dao.jing :as jing]
             [yin.vm :as vm]
             [yin.vm.debruijn-code :as debruijn-code]))
 
@@ -434,9 +435,13 @@
 
 
 (defn- nonneg-int?
+  "A native exact integer from 0 to 2^53 - 1, the same bound on every
+   host (dao.host.integer: any non-big exact carrier, so the JVM's boxed
+   `count` result, an Integer, passes)."
   [x]
-  (and (integer? x) (not (neg? x))
-       #?(:cljs (js/Number.isSafeInteger x) :default true)))
+  (and (host-integer/exact-integer? x)
+       (not (host-integer/big-carrier? x))
+       (<= 0 x 9007199254740991)))
 
 
 (def ^:private operand-kind-checks

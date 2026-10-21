@@ -29,9 +29,9 @@
 
    Cell, stream and cursor references stay sealed plain data: they name
    table entries, are already unforgeable, and must stay usable as keys."
-  (:require [dao.jing :as jing]
-            [dao.jing.cbor :as cbor]
-            [yin.vm.integer.host :as integer-host]))
+  (:require [dao.host.integer :as integer-host]
+            [dao.jing :as jing]
+            [dao.jing.cbor :as cbor]))
 
 
 (def marker-text
