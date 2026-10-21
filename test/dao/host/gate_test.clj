@@ -596,6 +596,46 @@
                 lanes)))
 
 
+(def profile-additions
+  "§8.1's planned additions that have landed: the dao.host profile files,
+   permitted host arms by design (list 1, :profile). Nothing in the
+   closure requires them until H2 migrates their consumers, so the gate
+   scans them beside the closure files and gives them the closure class
+   §8.1 maps :profile to, on every lane that reads them. Once a lane's
+   committed closure holds one, its entry here is stale and
+   `profile-additions-are-scanned-until-the-closure-reaches-them` fails:
+   delete it, and the closure's own class governs. H3 adds hash and sign."
+  {"src/cljc/dao/host/integer.cljc" {:slice "H1" :classes #{:profile-internal-pure}}
+   "src/cljc/dao/host/float.cljc" {:slice "H1" :classes #{:profile-internal-pure}}
+   "src/cljc/dao/host/number.cljc" {:slice "H1" :classes #{:profile-internal-pure}}
+   "src/cljc/dao/host/bytes.cljc" {:slice "H1" :classes #{:profile-internal-pure}}
+   "src/cljc/dao/host/text.cljc" {:slice "H1" :classes #{:profile-internal-pure}}})
+
+
+(def profile-root
+  "Where the profile files live; every source file under it is scanned."
+  "src/cljc/dao/host")
+
+
+(defn lane-classes
+  "committed-lane-classes plus each profile addition on every lane that
+   reads it and whose closure does not hold it."
+  []
+  (reduce (fn [lc [f {:keys [classes]}]]
+            (reduce (fn [lc l]
+                      (if (contains? (get lc l) f) lc (assoc-in lc [l f] classes)))
+                    lc
+                    (file-lanes f)))
+          (committed-lane-classes)
+          profile-additions))
+
+
+(defn gate-files
+  "The files the gate reads: the closure and the profile additions."
+  []
+  (into (closure-files) (keys profile-additions)))
+
+
 (defn- entry
   ([category clears] {:category category :clears clears})
   ([category clears reason] {:category category :clears clears :reason reason}))
@@ -634,6 +674,11 @@
    "src/cljc/yang/antlr/packet.cljc" (entry :migration-source "H2" ":67 code points (portable code-points moves to table B)")
    ;; Profile
    "src/cljc/dao/data/arrays.cljc" (entry :profile :stays)
+   "src/cljc/dao/host/integer.cljc" (entry :profile :stays "H1 addition (§8.1)")
+   "src/cljc/dao/host/float.cljc" (entry :profile :stays "H1 addition (§8.1)")
+   "src/cljc/dao/host/number.cljc" (entry :profile :stays "H1 addition (§8.1)")
+   "src/cljc/dao/host/bytes.cljc" (entry :profile :stays "H1 addition (§8.1)")
+   "src/cljc/dao/host/text.cljc" (entry :profile :stays "H1 addition (§8.1)")
    ;; Retained runtime prerequisites (table C) and display
    "src/cljc/dao/data/btree.cljc" (entry :runtime-prereq :stays "atomic flag, weak/soft references")
    "src/cljc/dao/data/btree/storage.cljc" (entry :runtime-prereq :stays "promise facade, deferred §9.1")
@@ -802,7 +847,7 @@
 
 
 (def current
-  (delay (gate (read-sources (closure-files)) list-1 list-2)))
+  (delay (gate (read-sources (gate-files)) list-1 list-2)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -833,7 +878,8 @@
 (deftest gate-passes-on-the-current-tree
   (let [r @current]
     (is (= 155 (count (closure-files))) "the union of the three lanes")
-    (is (= (count (closure-files)) (:scanned r)))
+    (is (= 160 (count (gate-files))) "plus the five H1 profile files")
+    (is (= (count (gate-files)) (:scanned r)))
     (is (= [] (:errors r)))
     (is (= [] (:arm-violations r)))
     (is (= [] (:effect-violations r)))
@@ -845,9 +891,9 @@
     (let [observed (set (keep (fn [[f r]] (when (seq (:arms r)) f)) (:observed @current)))]
       (is (= (set (keys list-1)) observed))))
   (testing "every list-1 file has a known category, an allowed slice and, on every lane, a class its category admits"
-    (is (= [] (list-1-problems list-1 (committed-lane-classes)))))
+    (is (= [] (list-1-problems list-1 (lane-classes)))))
   (testing "each check fails on a deliberately wrong entry (in memory)"
-    (let [lc (committed-lane-classes)
+    (let [lc (lane-classes)
           f "src/cljc/yin/vm.cljc"
           kinds (fn [l1 lc] (set (map first (list-1-problems l1 lc))))]
       (is (= #{:unknown-category} (kinds (assoc-in list-1 [f :category] :h0-unlisted) lc)))
@@ -865,7 +911,7 @@
       (is (= #{:in-no-lane}
              (kinds (assoc list-1 "src/cljc/no/such.cljc" (entry :dialect-arm :stays)) lc)))))
   (testing "the §8.1 bounded exceptions: exactly the eight files, each needed, each bound to its category"
-    (let [lc (committed-lane-classes)
+    (let [lc (lane-classes)
           bare (list-1-problems list-1 lc {})]
       (is (= (set (keys list-1-exceptions)) (set (map second bare)))
           "the bare table fails on the exception files and no others")
@@ -881,6 +927,28 @@
           (is (some #{[:exception-category f [:profile category]]} ps) f)
           (is (= #{:class-not-in-category :exception-category} (set (map first ps)))
               "an exception bound to a category the file is not in admits nothing"))))))
+
+
+(deftest profile-additions-are-scanned-until-the-closure-reaches-them
+  (let [on-disk (into (sorted-set)
+                      (comp (filter #(.isFile ^java.io.File %))
+                            (map #(str/replace (.getPath ^java.io.File %) "\\" "/"))
+                            (filter #(re-find #"\.clj[cs]?$|\.cljd$" %)))
+                      (file-seq (io/file profile-root)))
+        closure (closure-files)]
+    (testing "every profile file is a closure file or a listed addition, so none escapes the gate"
+      (is (seq on-disk))
+      (is (= #{} (set/difference on-disk closure (set (keys profile-additions))))))
+    (testing "each addition exists, is outside every lane's closure (else delete the entry), and is on list 1 as :profile"
+      (doseq [[f {:keys [classes]}] profile-additions]
+        (is (contains? on-disk f) f)
+        (is (not (contains? closure f)) (str f ": the closure reaches it; delete its profile-additions entry"))
+        (is (= :profile (get-in list-1 [f :category])) f)
+        (is (= #{:profile-internal-pure} classes) f)))
+    (testing "the gate scanned them and found their arms"
+      (doseq [f (keys profile-additions)]
+        (is (seq (get-in @current [:observed f :arms])) f)
+        (is (= {} (get-in @current [:observed f :effects])) f)))))
 
 
 (deftest list-2-equals-the-observed-calls

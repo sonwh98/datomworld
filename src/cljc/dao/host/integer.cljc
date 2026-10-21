@@ -1,0 +1,390 @@
+(ns dao.host.integer
+  "The exact-integer entries of the primitive profile
+   (docs/design/dao.stream.host-boundary.md §4.2, table A): carrier
+   recognition, promotion to the host big integer, demotion to the one
+   canonical carrier, the exact big-integer operations each host
+   provides natively, and decimal parsing, gcd and magnitude bytes.
+
+   Every entry is kind P (§2.4): pure, total over its declared domain,
+   synchronous, allocating only fresh values, leaving every argument
+   unchanged; equal arguments give equal results on every host. The
+   oracle is table D's integer rows, re-asserted through this namespace
+   by `dao.host.conformance-test`.
+
+   Each integer value has exactly one carrier per host:
+
+   | Host | Native carrier                      | Big carrier          |
+   |------|-------------------------------------|----------------------|
+   | JVM  | `long`, signed 64-bit               | `clojure.lang.BigInt`|
+   | JS   | `Number`, within +/-(2^53 - 1)      | host `BigInt`        |
+   | Dart | `int`, signed 64-bit                | `BigInt`             |
+
+   `promote` turns any exact-integer carrier into the host big integer
+   the operations below take (`java.math.BigInteger` on the JVM);
+   `demote` turns a result back into its canonical carrier. JavaScript
+   holds +/-2^53 as a `BigInt`, never as an unsafe `Number`, and a
+   JavaScript `-0` is floating-point content, not an integer.
+
+   The entries from `big-carrier?` to `to-radix-string` are those of
+   `yin.vm.integer.host`, moved verbatim (slice H1; the shim is deleted
+   in H2). A refusal throws `ex-info` whose data carries
+   `:dao.host/refusal`, a class keyword, and `:dao.host/entry`. This
+   namespace requires nothing in the repository. Every reader
+   conditional names `:cljd` first, because the ClojureDart build also
+   reads `:clj`."
+  #?@(:cljd [(:import ["dart:core" BigInt]
+                      ["dart:typed_data" Uint8List])]
+      :clj [(:import (java.math BigInteger))]))
+
+
+(defn- refuse
+  [entry cls detail]
+  (throw (ex-info (str "dao.host refused: " entry " " (name cls) " (" detail ")")
+                  {:dao.host/refusal cls :dao.host/entry entry :detail detail})))
+
+
+;; =============================================================================
+;; Recognition
+;; =============================================================================
+
+#?(:cljs
+   (defn- js-bigint?
+     [x]
+     (identical? "bigint" (js* "typeof ~{}" x))))
+
+
+(defn big-carrier?
+  "True when `x` is a host big-integer carrier: `clojure.lang.BigInt` or
+   `BigInteger` on the JVM, a `BigInt` on JS and Dart. On JS and Dart
+   such a value answers false to `number?`."
+  [x]
+  #?(:cljd (dart/is? x BigInt)
+     :clj (or (instance? clojure.lang.BigInt x) (instance? BigInteger x))
+     :cljs (js-bigint? x)))
+
+
+(defn exact-integer?
+  "True when `x` is an exact integer in any carrier the host has: a JVM
+   `long`, `int`, `short`, `byte`, `BigInt` or `BigInteger`; a JS
+   safe-integer `Number` other than `-0`, or a `BigInt`; a Dart `int` or
+   `BigInt`. A float with an integral value is not, except on JS, which
+   cannot tell `1.0` from `1`."
+  [x]
+  #?(:cljd (or (dart/is? x int) (dart/is? x BigInt))
+     :clj (or (instance? Long x) (instance? Integer x) (instance? Short x)
+              (instance? Byte x) (instance? clojure.lang.BigInt x)
+              (instance? BigInteger x))
+     :cljs (or (js-bigint? x)
+               (and (number? x)
+                    (js/Number.isSafeInteger x)
+                    ;; -0 is the one zero whose reciprocal is negative
+                    (not (and (zero? x) (neg? (/ 1 x))))))))
+
+
+(defn safe-native?
+  "True when `x` is a native carrier within +/-(2^53 - 1): a JVM `long`,
+   a Dart `int`, or exactly the `Number` arm of `exact-integer?` on JS.
+   Two such values add, subtract and compare natively without rounding
+   or wrapping on every host."
+  [x]
+  #?(:cljd (and (dart/is? x int)
+                (<= -9007199254740991 x)
+                (<= x 9007199254740991))
+     :clj (and (instance? Long x)
+               (let [n (.longValue ^Long x)]
+                 (and (<= -9007199254740991 n) (<= n 9007199254740991))))
+     :cljs (and (number? x)
+                (js/Number.isSafeInteger x)
+                (not (and (zero? x) (neg? (/ 1 x)))))))
+
+
+(defn host-float?
+  "True when `x` is a host binary64: a JVM `Double`, a Dart `double`, any
+   JS `Number`."
+  [x]
+  #?(:cljd (dart/is? x double)
+     :clj (instance? Double x)
+     :cljs (number? x)))
+
+
+(defn nan-float?
+  "True when host float `x` is a NaN."
+  [x]
+  #?(:cljd (.-isNaN ^double x)
+     :clj (Double/isNaN (double x))
+     :cljs (js/isNaN x)))
+
+
+(defn infinite-float?
+  "True when host float `x` is an infinity."
+  [x]
+  #?(:cljd (.-isInfinite ^double x)
+     :clj (Double/isInfinite (double x))
+     :cljs (and (not (js/isFinite x)) (not (js/isNaN x)))))
+
+
+;; =============================================================================
+;; Promotion and demotion
+;; =============================================================================
+
+(defn promote
+  "The host big integer of exact-integer carrier `x`. The caller has
+   checked `exact-integer?`."
+  [x]
+  #?(:cljd (if (dart/is? x BigInt) x (BigInt.from x))
+     :clj (cond (instance? BigInteger x) x
+                (instance? clojure.lang.BigInt x)
+                (.toBigInteger ^clojure.lang.BigInt x)
+                :else (BigInteger/valueOf (long x)))
+     :cljs (if (js-bigint? x) x (js/BigInt x))))
+
+
+(defn from-native
+  "The host big integer of a native integer `n` the kernels computed
+   themselves, such as a digit or a chunk value."
+  [n]
+  #?(:cljd (BigInt.from n)
+     :clj (BigInteger/valueOf (long n))
+     :cljs (js/BigInt n)))
+
+
+#?(:cljs
+   (def ^:private js-zero (js/BigInt 0)))
+
+
+#?(:cljs
+   (def ^:private js-max-safe (js/BigInt 9007199254740991)))
+
+
+#?(:cljs
+   (def ^:private js-min-safe (js/BigInt -9007199254740991)))
+
+
+(defn demote
+  "The canonical carrier of host big integer `b`: native iff `b` is in
+   the host's native range, else the host big carrier."
+  [b]
+  #?(:cljd (if (.-isValidInt ^BigInt b) (.toInt ^BigInt b) b)
+     :clj (if (< (.bitLength ^BigInteger b) 64)
+            (.longValue ^BigInteger b)
+            (clojure.lang.BigInt/fromBigInteger b))
+     :cljs (if (js* "(~{} <= ~{} && ~{} <= ~{})" js-min-safe b b js-max-safe)
+             (js/Number b)
+             b)))
+
+
+(defn to-native
+  "Host big integer `b` as a native integer. The caller has checked that
+   `b` lies within +/-(2^53 - 1)."
+  [b]
+  #?(:cljd (.toInt ^BigInt b)
+     :clj (.longValue ^BigInteger b)
+     :cljs (js/Number b)))
+
+
+(defn native->double
+  "Native integer `n`, within +/-2^53, as a host double: exact."
+  [n]
+  #?(:cljd (.toDouble ^int n)
+     :clj (double n)
+     :cljs n))
+
+
+(defn trunc-native
+  "Finite host float `x`, of magnitude below 2^53, truncated toward zero
+   to a native integer: exact, and never a JS `-0`."
+  [x]
+  #?(:cljd (.truncate ^double x)
+     :clj (long x)
+     :cljs (+ (js/Math.trunc x) 0)))
+
+
+;; =============================================================================
+;; Exact operations on host big integers
+;; =============================================================================
+
+(defn add
+  [a b]
+  #?(:cljd (. ^BigInt a "+" b)
+     :clj (.add ^BigInteger a ^BigInteger b)
+     :cljs (js* "(~{} + ~{})" a b)))
+
+
+(defn sub
+  [a b]
+  #?(:cljd (. ^BigInt a "-" b)
+     :clj (.subtract ^BigInteger a ^BigInteger b)
+     :cljs (js* "(~{} - ~{})" a b)))
+
+
+(defn mul
+  [a b]
+  #?(:cljd (. ^BigInt a "*" b)
+     :clj (.multiply ^BigInteger a ^BigInteger b)
+     :cljs (js* "(~{} * ~{})" a b)))
+
+
+(defn quot-trunc
+  "The quotient of `a` by non-zero `b`, truncated toward zero."
+  [a b]
+  #?(:cljd (. ^BigInt a "~/" b)
+     :clj (.divide ^BigInteger a ^BigInteger b)
+     :cljs (js* "(~{} / ~{})" a b)))
+
+
+(defn rem-trunc
+  "The remainder of `a` by non-zero `b`, with the sign of `a`."
+  [a b]
+  #?(:cljd (.remainder ^BigInt a b)
+     :clj (.remainder ^BigInteger a ^BigInteger b)
+     :cljs (js* "(~{} % ~{})" a b)))
+
+
+(defn compare-big
+  "-1, 0 or 1 as `a` is less than, equal to or greater than `b`."
+  [a b]
+  ;; Dart's compareTo answers any negative or positive int.
+  #?(:cljd (let [c (.compareTo ^BigInt a b)]
+             (cond (neg? c) -1 (pos? c) 1 :else 0))
+     :clj (long (.compareTo ^BigInteger a ^BigInteger b))
+     :cljs (cond (js* "(~{} < ~{})" a b) -1
+                 (js* "(~{} > ~{})" a b) 1
+                 :else 0)))
+
+
+(defn bit-and-big
+  "Bitwise and over infinite two's complement."
+  [a b]
+  #?(:cljd (. ^BigInt a "&" b)
+     :clj (.and ^BigInteger a ^BigInteger b)
+     :cljs (js* "(~{} & ~{})" a b)))
+
+
+(defn bit-or-big
+  "Bitwise or over infinite two's complement."
+  [a b]
+  #?(:cljd (. ^BigInt a "|" b)
+     :clj (.or ^BigInteger a ^BigInteger b)
+     :cljs (js* "(~{} | ~{})" a b)))
+
+
+(defn bit-xor-big
+  "Bitwise exclusive or over infinite two's complement."
+  [a b]
+  #?(:cljd (. ^BigInt a "^" b)
+     :clj (.xor ^BigInteger a ^BigInteger b)
+     :cljs (js* "(~{} ^ ~{})" a b)))
+
+
+(defn shift-left-big
+  "`a` times 2^`k`, for a native, non-negative count `k`."
+  [a k]
+  #?(:cljd (. ^BigInt a "<<" k)
+     :clj (.shiftLeft ^BigInteger a (int k))
+     :cljs (js* "(~{} << ~{})" a (js/BigInt k))))
+
+
+(defn shift-right-big
+  "The floor of `a` divided by 2^`k`, for a native, non-negative count
+   `k`."
+  [a k]
+  #?(:cljd (. ^BigInt a ">>" k)
+     :clj (.shiftRight ^BigInteger a (int k))
+     :cljs (js* "(~{} >> ~{})" a (js/BigInt k))))
+
+
+(defn magnitude-bit-length
+  "The number of bits of the absolute value of `a`, 0 for zero: Python's
+   `int.bit_length`."
+  [a]
+  #?(:cljd (.-bitLength (.abs ^BigInt a))
+     :clj (long (.bitLength (.abs ^BigInteger a)))
+     :cljs (let [m (if (js* "(~{} < ~{})" a js-zero) (js* "(-~{})" a) a)]
+             (if (js* "(~{} === ~{})" m js-zero)
+               0
+               (.-length (.toString m 2))))))
+
+
+(defn to-radix-string
+  "The exact text of `a` in `radix` (2 to 36): lowercase digits, a
+   leading `-` only when negative, no prefix."
+  [a radix]
+  #?(:cljd (.toRadixString ^BigInt a radix)
+     :clj (.toString ^BigInteger a (int radix))
+     :cljs (.toString a radix)))
+
+
+;; =============================================================================
+;; Decimal text, gcd and magnitude bytes (from dao.jing.cbor)
+;; =============================================================================
+
+(def ^:private ascii-digits
+  #{"0" "1" "2" "3" "4" "5" "6" "7" "8" "9"})
+
+
+(defn- decimal-digits?
+  "True when `s` is a non-empty run of ASCII digits after one optional
+   leading `-`."
+  [s]
+  (let [n (count s)
+        start (if (and (pos? n) (= "-" (subs s 0 1))) 1 0)]
+    (and (< start n)
+         (every? #(contains? ascii-digits (subs s % (inc %)))
+                 (range start n)))))
+
+
+(defn parse-decimal
+  "P. The host big integer of decimal text `s`: one optional leading
+   `-` and one or more ASCII digits, nothing else. Any other text (an
+   empty string, a `+`, whitespace, a radix prefix, a non-string) is
+   refused `:malformed-number`, before the host parser sees it, so no
+   host's laxer grammar (Dart's whitespace, JS's `0x`, the JVM's `+`)
+   decides acceptance."
+  [s]
+  (when-not (and (string? s) (decimal-digits? s))
+    (refuse 'parse-decimal :malformed-number "not decimal digit text"))
+  #?(:cljd (BigInt.parse s)
+     :clj (BigInteger. ^String s)
+     :cljs (js/BigInt s)))
+
+
+(defn gcd
+  "P. The greatest common divisor of host big integers `a` and `b`,
+   never negative; `(gcd 0 0)` is 0."
+  [a b]
+  #?(:cljd (.gcd ^BigInt a b)
+     :clj (.gcd ^BigInteger a ^BigInteger b)
+     :cljs (loop [x (if (js* "(~{} < ~{})" a js-zero) (js* "(-~{})" a) a)
+                  y (if (js* "(~{} < ~{})" b js-zero) (js* "(-~{})" b) b)]
+             (if (js* "(~{} === ~{})" y js-zero)
+               x
+               (recur y (js* "(~{} % ~{})" x y))))))
+
+
+(defn magnitude-bytes
+  "P, fresh. The minimal big-endian bytes of non-negative host big
+   integer `b`, empty for zero: the payload of CBOR tags 2 and 3. A
+   negative `b` is refused `:out-of-range`. The caller holds the
+   exclusive mutation right to the result (§2.4)."
+  [b]
+  (when (neg? (compare-big b (from-native 0)))
+    (refuse 'magnitude-bytes :out-of-range "negative"))
+  #?(:cljd (let [ff (BigInt.from 255)
+                 zero (BigInt.from 0)]
+             (loop [b b acc ()]
+               (if (= 0 (.compareTo ^BigInt b zero))
+                 (Uint8List.fromList (vec acc))
+                 (recur (. ^BigInt b ">>" 8)
+                        (conj acc (.toInt ^BigInt (. ^BigInt b "&" ff)))))))
+     :clj (let [raw (.toByteArray ^BigInteger b)]
+            (if (and (pos? (alength raw)) (zero? (aget raw 0)))
+              (java.util.Arrays/copyOfRange raw 1 (alength raw))
+              raw))
+     :cljs (if (js* "(~{} === ~{})" b js-zero)
+             (js/Uint8Array. 0)
+             (let [h (.toString b 16)
+                   h (if (odd? (count h)) (str "0" h) h)
+                   out (js/Uint8Array. (quot (count h) 2))]
+               (dotimes [i (alength out)]
+                 (aset out i (js/parseInt (subs h (* 2 i) (+ 2 (* 2 i))) 16)))
+               out))))

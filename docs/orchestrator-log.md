@@ -12428,3 +12428,24 @@ Done: Implemented, verified, and signed off Slice C3 per docs/design/dao.stream.
 Decisions: R5 literal grep gate satisfied under dependency reading (`dao.jing.stream` docstrings and H0 closure inventory retained). R6 docstring corrections applied in `remote_channel.cljc`.
 Delegates: claude-sonnet-5-5 (implementation & fix rounds); gpt-6-astra (initial review); claude-fable-5-1 (final architectural review & sign-off).
 Next: Proceed to Slice C4 (Contract: single acceptance key set).
+
+## 2026-10-21 10:48:00 +0700 — dao.stream host-boundary track: Slice H1 (pure primitive profile) verified, accepted & merged
+Completed-GMT: 2026-10-21 03:48:00 GMT
+Coding-Agent: Gemini (interactive orchestrator seat)
+Session-ID: cc118b7a-f972-4630-aa72-8f2dcac087ac
+Tree: branch host-h1 in worktree ../datomworld-host-h1; merged into master at /Users/sto/workspace/datomworld.
+Done: Implemented, verified, and landed Slice H1 per dao.stream.host-boundary.md r10 (§2.4, §4.2, §4.3, §8 H1, §8.1):
+  1. Pure Primitive Namespaces: Created `dao.host.integer` (28 entries), `dao.host.float` (5 Table A entries + 13 kernel helpers), `dao.host.number` (10 entries + Table C carriers), `dao.host.bytes` (10 entries: P immutability, M prevalidated writes & memmove), `dao.host.text` (6 Table A entries + `code-points`). Total 59 Table A entries. Zero unauthorized dependencies (no `yin` require).
+  2. Test Suites & Resources: Pinned Unicode 16.0 normalization subset resource `nfc-16.0-subset-v1.txt` (17,130 rows). Created `dao.host.conformance-test` (Table D oracle matrix, 15 deftests), `dao.host.bytes-test` (6 deftests), `dao.host.float-test` (4 deftests), `dao.host.text-test` (6 deftests).
+  3. Gate Integration (F2): Gate test `dao.host.gate-test` extended with `profile-additions` mechanism; scans 160 files (155 closure + 5 profile additions); 12 tests / 180 assertions pass 0 errors.
+  4. Remote Multi-Lane Verification (jupiter, 48 cores):
+     - CLJ: 5 namespaces, 43 tests, 1,050 assertions, 0 failures (22 s)
+     - CLJS: 4 namespaces, 31 tests, 876 assertions, 0 failures (14 s)
+     - CLJD: 4 namespaces, 31 tests, All tests passed, 0 failures (78 s)
+  5. Architect Reviews & Owner Acceptance Ruling (F1):
+     - claude-fable-5-1 issued SIGNED OFF WITH CHANGES (C1 known-gaps row, C2 nfc docstring, C3 parse-decimal table A text).
+     - gpt-6-astra independently verified Table A/B/C and confirmed F2, requesting formal owner acceptance for the JDK 21 Unicode 15.0 NFC gap on the 20 Unicode 16.0 code points.
+     - Owner explicitly ruled: Option A approved (temporary acceptance exception recorded in known-gaps.md under P2; text.cljc nfc docstring updated; r11 amendment to Table A parse-decimal recorded).
+Decisions: Owner approved Option A for F1. H1 merged cleanly into local master.
+Delegates: claude-opus-5-5 (implementation & fix rounds); claude-fable-5-1 (system architect review); gpt-6-astra (independent review & verification).
+Next: Commission Slice H2 (Consumer migration and deletion of legacy host shims).
