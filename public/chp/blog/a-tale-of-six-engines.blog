@@ -761,10 +761,13 @@
             " In traditional engines, shipping a game or mod requires fracturing the universe into two distinct, brittle pipelines: static asset bundles (pak files) distributed over CDNs, and compiled platform-locked native binaries (DLLs or shared objects). In Dao Engine, because code in yin.vm is structured datoms (Axiom 3), the boundary between an asset and an executable routine dissolves completely. A 3D demon mesh, a 4K texture, an audio sample, and a gameplay AI script are all identical in kind: immutable, content-addressed byte segments in dao.jing. Clients and servers form a peer-to-peer distributed hash table mesh (dao.jing.dht) over UDP, fetching and caching both art assets and executable kernels by cryptographic hash. Verification is guaranteed before materialization (ensuring segment-hash matches content-hash), enabling community modding, dynamic asset streaming, and live gameplay hot-patching with zero downtime and perfect cross-game deduplication."]
            [:li
             [:strong "Distributed Authority and Lifecycle (dao.lease):"]
-            " Managing entity ownership, player disconnects, and collaborative editor locks across a network is notoriously prone to race conditions, split-brain desynchronization, and callback deadlocks. In Dao Engine, distributed coordination is governed by dao.lease: a grant that lapses upon silence unless explicitly renewed. Authority over an entity, a player session, or a scene-editor selection is simply a lease fact on a stream. Because time enters lease logic strictly as discrete simulation tick events (never reading non-deterministic host system clocks or triggering asynchronous timer callbacks), timeout detection and custody handoffs are completely deterministic and replayable bit-for-bit. If a server node crashes or a player drops off the network, their leases lapse quietly at the next simulation pass, cleanly returning custody to the world without ghost entities or orphaned locks."]]
+            " Managing entity ownership, player disconnects, and collaborative editor locks across a network is notoriously prone to race conditions, split-brain desynchronization, and callback deadlocks. In Dao Engine, distributed coordination is governed by dao.lease: a grant that lapses upon silence unless explicitly renewed. Authority over an entity, a player session, or a scene-editor selection is simply a lease fact on a stream. Because time enters lease logic strictly as discrete simulation tick events (never reading non-deterministic host system clocks or triggering asynchronous timer callbacks), timeout detection and custody handoffs are completely deterministic and replayable bit-for-bit. If a server node crashes or a player drops off the network, their leases lapse quietly at the next simulation pass, cleanly returning custody to the world without ghost entities or orphaned locks."]
+           [:li
+            [:strong "Autonomous AI Agents and Infinite Real-Time Creation:"]
+            " Unity's greatest contribution was democratizing game development for human creators through component scripting and the Asset Store, but it was fundamentally trapped by its imperative runtime: introducing assets required offline baking in the slow Asset Database, while dynamic code generation risked crashing the runtime with unhandled exceptions or required freezing domain reloads. In Dao Engine, autonomous AI agents interact not through brittle external SDKs or pixel-scraping, but as first-class peer observers and producers on dao.stream. An agent queries live simulation facts via Datalog on dao.space.index, publishes procedurally generated 3D meshes or audio lumps to dao.jing.dht, and emits new gameplay routines as Universal AST datoms directly into yin.vm. Because hot kernels are statically verified against budget schemas and cold continuations run in a sandboxed, preemptible VM, the agent cannot corrupt engine memory, cause pointer leaks, or introduce frame-time jitter. Write authority is partitioned via dao.lease (lapsing safely on silence if an agent hangs), and hallucinated or unbalanced state is rolled back cleanly to a previous epoch seal with zero data loss. Swarms of specialized agents--from procedural dungeon masters to automated QA playtesters--co-create living worlds in real time alongside human designers, unlocking an order of autonomous creation that even Unity could never achieve."]]
           [:p
            "The ultimate implication is a paradigm shift: "
-           [:strong "the Dao Engine is not a monolithic application trying to talk to the network; it is a distributed stream architecture designed to simulate at 250 ticks per second and render with zero GC pauses"]
+           [:strong "the Dao Engine is not a monolithic application trying to talk to the network; it is a distributed stream architecture where humans, servers, and autonomous AI agents co-simulate and co-create at 250 ticks per second with zero GC pauses"]
            "."]
           [:h2 "Embracing DOOM's Restrictions: Discipline as Data"]
           [:p
@@ -821,7 +824,7 @@
             [:code "yin.vm"]
             " continuations outside the frame budget. Quest logic, dialogue, and UI flow live here. All continuation wakeups are stream-recorded events. Cold effects buffer their state mutations and commit at scheduled epoch boundaries in canonical order, governed by explicit attribute write-precedence rules so that asynchronous cold logic never introduces non-deterministic frame-time jitter."]]
           [:p
-           "The tier is a property the compiler verifies, not a rewrite into another language. "
+           "Whether authored by a human developer or generated by an autonomous AI agent, the tier is a property the compiler verifies, not a rewrite into another language. "
            "Where Unreal forces a Blueprint prototype to be rewritten in C++ by a different engineer, "
            "the Dao Engine reports why a script cannot run hot (for example, \"allocates at line 12\") and the author fixes that line."]
           [:p
@@ -881,15 +884,15 @@
               [:td "C# reflection for MonoBehaviours; complex external bakers and code generators for DOTS entities."]
               [:td "GDScript and C#; lightweight runtime ClassDB reflection, but tightly coupled to the C++ node hierarchy."]
               [:td "Rust only; compile-time type reflection (bevy_reflect); no runtime REPL, no dynamic scripting, and no mature visual editor."]
-              [:td "Polyglot via Yang (Clojure and Python supported today, any ANTLR4 language pluggable); Datalog query engine (dao.space) observes the stream independently with zero runtime tax on the execution kernel."]]
+              [:td "Polyglot via Yang (Clojure and Python supported today, any ANTLR4 language pluggable); Datalog query engine (dao.space) observes the stream independently; AI agents interact as native stream peers emitting code datoms directly."]]
              [:tr
               [:td [:strong "Developer Accessibility"]]
               [:td "Extremely high engineering barrier; completely impossible without specialized C++ systems engineers for all mechanics, memory pools, and fiber jobs."]
               [:td "Highly accessible to non-programmers; artists and designers can build and ship full games with Blueprints."]
-              [:td "Accessible via C# and visual scripting, but fractured when trying to author high-performance DOTS ECS code."]
+              [:td "Accessible via C# and visual scripting, but fractured when trying to author high-performance DOTS ECS code; trapped in offline baking and freezing domain reloads."]
               [:td "Extremely accessible and beginner-friendly with GDScript and node scenes, but hits a hard wall when scaling to high-performance simulation."]
               [:td "High engineering barrier; requires deep Rust expertise, wrestling with the borrow checker and archetype migration rules."]
-              [:td "Disciplined but accessible; designers work within declared budgets and a verifiable hot-kernel subset, while the lowering compiler, not a team of systems engineers, enforces DOOM's restrictions."]]
+              [:td "Disciplined but accessible; designers work within declared budgets and a verifiable hot-kernel subset, while peer AI agents co-create code and assets live on the stream without freezing or crashing the engine."]]
              [:tr
               [:td [:strong "Memory & Concurrency"]]
               [:td "Lock-free fiber job scheduler; flat 144 to 250 FPS frame pacing."]
@@ -913,7 +916,7 @@
           [:p
            "Unreal proved that developers will tolerate massive architectural complexity and sluggish runtimes if the tooling allows them to build worlds quickly. "
            "DOOM proved that modern hardware is capable of astounding, buttery-smooth cinematic simulation when freed from object-oriented baggage. "
-           "Unity proved that developers crave composition and rapid scripting, but suffered because it could not reconcile an OOP authoring model with a data-oriented hardware reality. "
+           "Unity proved that developers crave composition and rapid scripting, but suffered because it could not reconcile an OOP authoring model with a data-oriented hardware reality--confining democratization to static, human-only asset pipelines. "
            "Godot proved the joy of a lightweight, modular scene tree, but demonstrated the hard ceiling of pointer-chasing nodes and dynamic signal webs. "
            "Bevy proved that pure ECS in Rust can achieve unmatched concurrency and cache locality, but underscored the painful creative tax of locking state into a static type system without live visual authoring."]
           [:p
@@ -922,7 +925,7 @@
            "Just as we proved in Yin.vm that an AST does not need to be tree-walked to remain queryable, "
            "a game entity does not need to be a heavy C++ or C# object to be inspectable and editable."]
           [:p
-           "By compiling immutable datom streams into linear execution streams, the Dao Engine blueprint shows how to give the artist the power of rich, declarative queryability, "
+           "By compiling immutable datom streams into linear execution streams, the Dao Engine blueprint shows how to give human artists and autonomous AI agents the power of rich, declarative queryability and unbounded creation, "
            "while giving the silicon the pure, uninterrupted stream of instructions it was designed to devour. "
            "It synthesizes three decades of hard-won lessons: uniting the relational simplicity and deterministic event streams of 1993 DOOM, "
            "the lock-free multicore throughput of id Tech 7, and the accessible authoring ergonomics of Unreal, Godot, and Unity "

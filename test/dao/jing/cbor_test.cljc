@@ -6,16 +6,13 @@
    encode and decode refusals raise the frozen class. A case is skipped only
    by id, with its reason, and only where the README (or a recorded host
    limitation reported with this phase) says the host cannot build the
-   input. The remaining tests prove the effective Boring options (JVM and
-   Node), byte isolation, independence from print settings, the hardening
+   input. The remaining tests prove canonical encoding, writer ownership,
+   byte isolation, independence from print settings, the hardening
    limits, and the portable numeric operations, on every host."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
-            [dao.jing.cbor-fixtures :as fx]
-            #?@(:cljd []
-                :default [[boring.core :as boring]
-                          [dao.jing.cbor.boring :as cbor-boring]]))
+            [dao.jing.cbor-fixtures :as fx])
   #?@(:cljd [(:import ["dart:core" BigInt])]))
 
 
@@ -263,18 +260,6 @@
   (fx/hex->bytes (str (hex-of a) (hex-of b))))
 
 
-#?(:cljd nil
-   :default
-   (deftest boring-profile-options-are-locked
-     (is (= {:profile :canonical :stringref false :shapes false} cbor-boring/opts))
-     (is (thrown? #?(:clj Exception :cljs :default)
-           (boring/encode 1 (assoc cbor-boring/opts :stringref true)))
-         "stringref cannot be switched on under :canonical")
-     (is (thrown? #?(:clj Exception :cljs :default)
-           (boring/encode 1 (assoc cbor-boring/opts :shapes true)))
-         "shapes cannot be switched on under :canonical")))
-
-
 (deftest payloads-are-one-item-then-end
   (let [v {:xs ["abc" "abc" "abc"] :m [{:a 1 :b 2} {:a 3 :b 4}]}
         bs (cbor/encode v)
@@ -313,6 +298,26 @@
         (set-byte! encoded 5 9)
         (is (= "0102030405" (hex-of again))
             "mutating the payload leaves an earlier decoded array")))))
+
+
+(deftest writer-ownership-and-transitive-isolation-test
+  (testing "§2.4(iii) writer ownership: repeated encoding preserves input, returns independent outputs, transitive isolation"
+    (doseq [wrap [identity vector (fn [b] {:payload b}) (fn [b] #{b})
+                  (fn [b] (with-meta [b] {:payload b}))]]
+      (let [input (fx/hex->bytes "007f80ff")
+            value (wrap input)
+            snapshot (hex-of input)
+            enc1 (cbor/encode value)
+            enc2 (cbor/encode value)
+            expected-hex (hex-of enc2)]
+        (is (= snapshot (hex-of input)) "input unchanged after encodes")
+        (is (= (hex-of enc1) expected-hex) "enc1 and enc2 produce identical bytes")
+        ;; Mutating enc1 leaves input and enc2 untouched
+        (set-byte! enc1 0 (mod (inc #?(:cljd (. enc1 "[]" 0)
+                                       :clj (aget ^bytes enc1 0)
+                                       :cljs (aget enc1 0))) 256))
+        (is (= snapshot (hex-of input)) "mutating output leaves input unchanged")
+        (is (= expected-hex (hex-of enc2)) "mutating first output leaves second output unchanged")))))
 
 
 (deftest encoding-ignores-ambient-print-settings

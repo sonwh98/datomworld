@@ -73,7 +73,7 @@ int main(int argc, char** argv) {
   const std::string bom = "\xef\xbb\xbfx = 1\n";
   const std::string nul = std::string("s = 'a\0b'\n", 10);
   const std::string utf8bad = "s = '\xff'\n";
-  uint64_t stats[8];
+  uint64_t stats[13];
 
   for (long c = 0; c < cycles; ++c) {
     void* w = jolt_parser_worker_new();
@@ -94,6 +94,10 @@ int main(int argc, char** argv) {
       jolt_parser_inject_fault(0);
     }
     expect(jolt_parser_static_cache_stats(stats) == 0, "static cache stats", 0);
+    // every shared memo was filled before the first worker existed
+    expect(stats[6] == stats[8] && stats[7] == stats[9] && stats[10] == stats[11] &&
+               stats[12] == 1,
+           "shared memos published complete", 0);
     expect(jolt_parser_worker_cache_stats(w, stats) == 0, "worker cache stats", 0);
     expect(jolt_parser_thread_info(stats) == 0, "thread info", 0);
     (void)jolt_parser_heap_in_use();

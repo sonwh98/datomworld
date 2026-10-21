@@ -67,6 +67,13 @@
            (:exit (shell {:continue true} "sh" "-c"
                          ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-test src/dev/jolt_test_runner.clj --self-test")))}
 
+  jolt:run
+  {:doc "Run the bootstrapped jolt with build/tools/jolt-env.sh, passing every argument through (e.g. bb jolt:run -Srepro -M:jolt src/dev/jolt_j0c_workers.clj)"
+   :task (System/exit
+           (:exit (apply shell {:continue true} "sh" "-c"
+                         ". build/tools/jolt-env.sh && exec \"$JOLT_HOME/bin/jolt\" \"$@\"" "jolt"
+                         *command-line-args*)))}
+
   build:yin-repl-node
   {:doc "Compile the Node yin.repl (shadow-cljs build :yin-repl) to target/yin-repl.js"
    ;; The Node lanes (test:cljs and its variants) depend on this task, so the

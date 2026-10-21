@@ -42,8 +42,10 @@
 // from jolt_parser_worker_new that owns its lexer and parser DFA vectors and
 // PredictionContextCaches; each call installs fresh Lexer/ParserATNSimulators
 // over them in place of the generated defaults (which point at the static
-// caches) before recognition. The ATNs are the generated immutable tables and
-// stay shared. jolt_parser_worker_free disposes the handle.
+// caches) before recognition. The ATNs are the generated tables and stay
+// shared; the memos the runtime would fill in them lazily are filled once,
+// before the first worker exists (published_atns), so recognition only reads
+// them (round 5). jolt_parser_worker_free disposes the handle.
 //
 // TEST SEAMS, compiled only with -DJOLT_PARSER_TEST_SEAMS=ON (CMake option,
 // default OFF): jolt_parser_inject_fault makes the next parses fail
@@ -87,6 +89,7 @@
 #include <cstdlib>
 #include <cstring>
 #include <limits>
+#include <mutex>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -340,19 +343,47 @@ std::vector<antlr4::dfa::DFA> fresh_dfa(const antlr4::atn::ATN& atn) {
   return dfa;
 }
 
-// The generated, immutable ATNs (static data initialized once by the
-// generated constructors).
+// The generated ATNs (static data initialized once by the generated
+// constructors), shared by every worker.
 struct Atns {
   const antlr4::atn::ATN* lexer;
   const antlr4::atn::ATN* parser;
 };
 
-Atns generated_atns() {
-  antlr4::ANTLRInputStream input("");
-  Python3Lexer lexer(&input);
-  antlr4::CommonTokenStream tokens(&lexer);
-  Python3Parser parser(&tokens);
-  return {&lexer.getATN(), &parser.getATN()};
+// The ATNs, published only after every memo the runtime would otherwise fill
+// lazily in shared state during recognition has been filled (§7.4: no shared
+// mutable cache):
+//   * ATNState::_nextTokenWithinRule, set by ATN::nextTokens(s) (ATN.cpp:40-49)
+//     for every state of both ATNs;
+//   * LexerAction::_hashCode (LexerAction.cpp:5-15) for every action the
+//     lexer ATN owns, hashed when the lexer builds an action executor;
+//   * the hash of the process-wide PredictionContext::EMPTY
+//     (PredictionContext.cpp:157-167).
+// Each is a pure function of immutable data, so filling it early changes no
+// result. std::call_once runs this once and makes it happen-before every
+// return, so no worker (and no round-1 parse) exists until it has finished;
+// after it, recognition only reads these. A throw leaves the flag unset and
+// the next call retries.
+Atns published_atns() {
+  static Atns atns{nullptr, nullptr};
+  static std::once_flag once;
+  std::call_once(once, [] {
+    antlr4::ANTLRInputStream input("");
+    Python3Lexer lexer(&input);
+    antlr4::CommonTokenStream tokens(&lexer);
+    Python3Parser parser(&tokens);
+    const antlr4::atn::ATN& l = lexer.getATN();
+    const antlr4::atn::ATN& p = parser.getATN();
+    for (auto* s : l.states)
+      if (s) l.nextTokens(s);
+    for (auto* s : p.states)
+      if (s) p.nextTokens(s);
+    for (const auto& a : l.lexerActions)
+      if (a) a->hashCode();
+    antlr4::atn::PredictionContext::EMPTY->hashCode();
+    atns = {&l, &p};
+  });
+  return atns;
 }
 
 struct Worker {
@@ -396,7 +427,7 @@ struct Hold {
 // it cannot be made (nothing throws across the boundary).
 JOLT_EXPORT void* jolt_parser_worker_new(void) {
   try {
-    return new Worker(generated_atns());
+    return new Worker(published_atns());
   } catch (...) {
     return nullptr;
   }
@@ -504,6 +535,7 @@ JOLT_EXPORT int32_t jolt_parser_parse(const uint8_t* src, size_t len,
   *out = nullptr;
   *out_len = 0;
   try {
+    published_atns();
     maybe_fault();
     SourceStream input(
         std::string_view(reinterpret_cast<const char*>(src), len));
@@ -578,10 +610,16 @@ struct Peek {
 };
 struct CtxData {};
 struct NextUpdated {};
+struct ActionHash {};
+struct ContextHash {};
 auto peek(CtxData);
 auto peek(NextUpdated);
+auto peek(ActionHash);
+auto peek(ContextHash);
 template struct Peek<&antlr4::atn::PredictionContextCache::_data, CtxData>;
 template struct Peek<&antlr4::atn::ATNState::_nextTokenUpdated, NextUpdated>;
+template struct Peek<&antlr4::atn::LexerAction::_hashCode, ActionHash>;
+template struct Peek<&antlr4::atn::PredictionContext::_hashCode, ContextHash>;
 
 void dfa_counts(const std::vector<antlr4::dfa::DFA>& dfas, uint64_t& states,
                 uint64_t& edges) {
@@ -603,13 +641,30 @@ uint64_t memo_count(const antlr4::atn::ATN& atn) {
   return n;
 }
 
+uint64_t state_count(const antlr4::atn::ATN& atn) {
+  uint64_t n = 0;
+  for (auto* st : atn.states)
+    if (st) ++n;
+  return n;
+}
+
+uint64_t hashed_actions(const antlr4::atn::ATN& atn) {
+  uint64_t n = 0;
+  for (const auto& a : atn.lexerActions)
+    if (a && (a.get()->*peek(ActionHash{})).load() != 0) ++n;
+  return n;
+}
+
 }  // namespace
 
-// TEST SEAM: the generated static caches and the shared ATNs' lazily filled
-// next-token memo. out[0..7] = lexer DFA states, lexer DFA edges, lexer
-// context-cache entries, parser DFA states, parser DFA edges, parser
-// context-cache entries, lexer ATN states with a filled next-token memo,
-// parser ATN states with one. Call with no parse running.
+// TEST SEAM: the generated static caches and the shared lazily filled memos
+// (published_atns fills the memos). out[0..12] = lexer DFA states, lexer DFA
+// edges, lexer context-cache entries, parser DFA states, parser DFA edges,
+// parser context-cache entries, lexer ATN states with a filled next-token
+// memo, parser ATN states with one, lexer ATN states, parser ATN states,
+// lexer actions with a cached hash, lexer actions, and 1 when
+// PredictionContext::EMPTY's hash is cached. Reading publishes nothing. Call
+// with no parse running.
 JOLT_EXPORT int32_t jolt_parser_static_cache_stats(uint64_t* out) {
   if (!out) return -1;
   try {
@@ -619,13 +674,18 @@ JOLT_EXPORT int32_t jolt_parser_static_cache_stats(uint64_t* out) {
     Python3Parser parser(&tokens);
     auto* ls = lexer.getInterpreter<antlr4::atn::LexerATNSimulator>();
     auto* ps = parser.getInterpreter<antlr4::atn::ParserATNSimulator>();
-    for (int i = 0; i < 8; ++i) out[i] = 0;
+    for (int i = 0; i < 13; ++i) out[i] = 0;
     dfa_counts(ls->_decisionToDFA, out[0], out[1]);
     out[2] = ctx_size(ls->getSharedContextCache());
     dfa_counts(ps->decisionToDFA, out[3], out[4]);
     out[5] = ctx_size(ps->getSharedContextCache());
     out[6] = memo_count(lexer.getATN());
     out[7] = memo_count(parser.getATN());
+    out[8] = state_count(lexer.getATN());
+    out[9] = state_count(parser.getATN());
+    out[10] = hashed_actions(lexer.getATN());
+    out[11] = lexer.getATN().lexerActions.size();
+    out[12] = (antlr4::atn::PredictionContext::EMPTY.get()->*peek(ContextHash{})).load() != 0;
     return 0;
   } catch (...) {
     return -3;

@@ -3,9 +3,9 @@
 {:lane :cljd,
  :root yin.repl.main,
  :features #{:cljd :clj},
- :total 147,
+ :total 146,
  :shared 139,
- :lane-specific 8,
+ :lane-specific 7,
  :class-legend
  {:codec-track "codec track, untouched (§8.3)",
   :consumer "H2 (require change only)",
@@ -581,10 +581,6 @@
    :ns yin.vm.values,
    :shared true,
    :classes #{:consumer :profile-internal-pure}}
-  {:file "src/cljd/dao/jing/cbor/cljd.cljd",
-   :ns dao.jing.cbor.cljd,
-   :shared false,
-   :classes #{:profile-internal-pure}}
   {:file "src/cljd/dao/stream/cbor/cljd.cljd",
    :ns dao.stream.cbor.cljd,
    :shared false,

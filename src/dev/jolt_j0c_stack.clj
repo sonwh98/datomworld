@@ -2,7 +2,14 @@
 ;; grammar shape and per parsing thread, in child processes
 ;; (docs/design/yin.repl-jolt-implementation.md §7.6).
 ;;
-;;   bb src/dev/jolt_j0c_stack.clj [shape ...]
+;;   bb src/dev/jolt_j0c_stack.clj [--max-ms N] [--top N]
+;;                                 [--thread main|thread] [--out path]
+;;                                 [shape ...]
+;;
+;; (JOLT_HOME from build/tools/jolt-env.sh.) Round 5: the bracket names the
+;; child that actually ended it (:fail-kind :crash or :no-crash), and a
+;; refinement stopped by the time cap is reported (:refinement-time-limited)
+;; instead of as a failure with exit 0.
 ;;
 ;; Needs bb build:jolt-native (the test build: jolt_parser_thread_info).
 ;; Every parse runs in a child jolt process (src/dev/jolt_j0c_stack_child.clj)
@@ -21,7 +28,7 @@
 ;; whose single parse passes 20 s before it overflows is reported as
 ;; time-limited instead ({:time-limited ...}: the depth and its time). No
 ;; bound is chosen or enforced here; that is J5's.
-;; Writes build/j0c/r4/stack-budget.edn and prints a table.
+;; Writes build/j0c/r5/stack-budget.edn (or --out) and prints a table.
 (ns jolt-j0c-stack
   (:require
     [babashka.fs :as fs]
@@ -30,7 +37,16 @@
     [clojure.string :as str]))
 
 
-(def jolt (str (System/getenv "JOLT_HOME") "/bin/jolt"))
+;; the exports of build/tools/jolt-env.sh, for the children when the caller
+;; did not source it
+(def jolt-env
+  (if (System/getenv "JOLT_HOME")
+    {}
+    (into {} (keep #(when-let [[_ k v] (re-matches #"export (\w+)='(.*)'" %)] [k v]))
+          (str/split-lines (slurp "build/tools/jolt-env.sh")))))
+
+
+(def jolt (str (or (System/getenv "JOLT_HOME") (jolt-env "JOLT_HOME")) "/bin/jolt"))
 
 (def shapes ["parens" "list" "call" "unary" "not" "power" "lambda" "ternary" "indent"])
 
@@ -39,13 +55,17 @@
 (def ladder-max {"indent" 8192})
 
 
-;; per-parse time cap, ms
-(def max-ms 20000)
+;; per-parse time cap, ms (--max-ms)
+(def ^:dynamic max-ms 20000)
+
+
+;; the doubling ladder's top, overriding ladder-max (--top)
+(def ^:dynamic *top* nil)
 
 
 (defn- child
   [shape where mode depths]
-  (let [r (apply p/shell {:out :string :err :string :continue true}
+  (let [r (apply p/shell {:out :string :err :string :continue true :extra-env jolt-env}
                  jolt "-Srepro" "-M:jolt" "src/dev/jolt_j0c_stack_child.clj"
                  shape where mode (str max-ms) (map str depths))
         lines (str/split-lines (:out r))
@@ -64,7 +84,7 @@
 
 (defn- measure
   [shape where]
-  (let [top (get ladder-max shape 65536)
+  (let [top (or *top* (get ladder-max shape 65536))
         ladder (vec (take-while #(<= % top) (iterate #(* 2 %) 8)))
         r1 (child shape where "native" ladder)
         last-ok (or (:depth (peek (:oks r1))) 0)
@@ -86,8 +106,13 @@
             fine (vec (range (+ last-ok step) fail step))
             r2 (child shape where "native" fine)
             last-ok2 (or (:depth (peek (:oks r2))) last-ok)
-            fail2 (or (first (filter #(> % last-ok2) fine)) fail)
-            dying (if (seq fine) r2 r1)
+            ;; the child that ended the bracket: the refinement when it died
+            ;; inside it; otherwise the ladder child, which died at `fail`
+            ;; (also when the refinement stopped at the time cap, leaving the
+            ;; bracket [last-ok2, fail] coarse)
+            r2-died (and (seq fine) (not (zero? (:exit r2))))
+            fail2 (if r2-died (or (first (filter #(> % last-ok2) fine)) fail) fail)
+            dying (if r2-died r2 r1)
             r3 (child shape where "full" [last-ok2])]
         {:shape shape, :thread where,
          :stack-bytes (get-in r1 [:info :stack-bytes]),
@@ -95,6 +120,8 @@
          :passes last-ok2, :fails fail2,
          :fail-exit (:exit dying), :fail-errs (:errs dying),
          :fail-stderr (:stderr-tail dying),
+         :fail-kind (if (zero? (:exit dying)) :no-crash :crash),
+         :refinement-time-limited (:slow r2),
          :bytes-per-level (when (pos? last-ok2)
                             (long (/ (get-in r1 [:info :stack-bytes]) fail2))),
          :fresh-full-at-passes (if (and (zero? (:exit r3)) (= [last-ok2] (mapv :depth (:oks r3))))
@@ -102,17 +129,34 @@
                                  {:failed (:exit r3), :errs (:errs r3)})}))))
 
 
-(let [only (seq *command-line-args*)
-      results (vec (for [shape (or only shapes)
-                         where ["main" "thread"]]
-                     (let [r (measure shape where)]
-                       (println (pr-str r))
-                       (flush)
-                       r)))]
-  (fs/create-dirs "build/j0c/r4")
-  (spit "build/j0c/r4/stack-budget.edn" (with-out-str (pprint/pprint results)))
-  (pprint/print-table [:shape :thread :stack-bytes :passes :fails :fail-exit :bytes-per-level
-                       :time-limited :fresh-full-at-passes]
-                      results)
-  (println "wrote build/j0c/r4/stack-budget.edn")
-  (System/exit (if (every? #(or (:no-failure-up-to %) (:time-limited %) (:ok (:fresh-full-at-passes %))) results) 0 1)))
+(defn- options
+  "[--max-ms N] [--top N] [--thread main|thread] [--out path] [shape ...]"
+  [args]
+  (loop [[a b & more :as args] args, o {:shapes []}]
+    (cond (empty? args) o
+          (= "--max-ms" a) (recur more (assoc o :max-ms (parse-long b)))
+          (= "--top" a) (recur more (assoc o :top (parse-long b)))
+          (= "--thread" a) (recur more (assoc o :thread b))
+          (= "--out" a) (recur more (assoc o :out b))
+          :else (recur (rest args) (update o :shapes conj a)))))
+
+
+(let [{only :shapes, :keys [thread out], :as o} (options *command-line-args*)
+      out (or out "build/j0c/r5/stack-budget.edn")]
+  (binding [max-ms (or (:max-ms o) max-ms)
+            *top* (:top o)]
+    (let [results (vec (for [shape (if (seq only) only shapes)
+                             where (if thread [thread] ["main" "thread"])]
+                         (let [r (cond-> (assoc (measure shape where) :max-ms max-ms)
+                                   *top* (assoc :top *top*))]
+                           (println (pr-str r))
+                           (flush)
+                           r)))]
+      (fs/create-dirs (fs/parent out))
+      (spit out (with-out-str (pprint/pprint results)))
+      (pprint/print-table [:shape :thread :stack-bytes :passes :fails :fail-kind :fail-exit
+                           :bytes-per-level :time-limited :refinement-time-limited
+                           :no-failure-up-to :fresh-full-at-passes]
+                          results)
+      (println "wrote" out)
+      (System/exit (if (every? #(or (:no-failure-up-to %) (:time-limited %) (:ok (:fresh-full-at-passes %))) results) 0 1)))))

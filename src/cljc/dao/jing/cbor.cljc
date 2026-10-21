@@ -1,7 +1,6 @@
 (ns dao.jing.cbor
   "DaoJing's canonical CBOR value codec and portable numeric operations
-   (docs/design/dao.jing.cbor.md, phases J1 and J2: JVM, ClojureScript
-   and Dart).
+   (docs/design/dao.jing.cbor.md, phases J1 and J2; portable writer in slice H4).
 
    `encode` turns one supported value into its canonical payload bytes;
    `decode` accepts exactly one canonical payload and returns its value.
@@ -9,8 +8,8 @@
    and the rulings in its README; this namespace implements it, it does not
    define it.
 
-   Encoding normalizes a value into a wire tree (see `dao.jing.cbor.boring`)
-   and lets Boring write the bytes:
+   Encoding normalizes a value and directly emits canonical CBOR bytes over
+   `dao.host.*`:
 
    * keywords and symbols: tag 27 `dao.jing/keyword` / `dao.jing/symbol`
      over `[namespace name]`, read from the identifier's fields;
@@ -29,10 +28,7 @@
    Decoding reads the bytes with Jing's own structural reader, which checks
    every tag, frame name and payload shape before any host conversion (the
    plan's \"validate before any lossy host conversion\"), then requires the
-   decoded value to re-encode to the identical bytes. Boring's decoder is not
-   used: its native mappings (tag-30 ratios collapsing denominator 1,
-   stringref and date tags, with-meta, a dropped trailing index frame, and
-   JavaScript numbers that cannot tell 1.0 from 1) would decide Jing bytes.
+   decoded value to re-encode to the identical bytes.
 
    Every refusal is an ex-info whose data carries `::refusal`, one of the
    corpus refusal classes as a keyword (`:non-canonical`,
@@ -52,24 +48,14 @@
    carriers through `dao.host.number`, float bits and fields through
    `dao.host.float`, byte arrays through `dao.host.bytes` and strict
    UTF-8 through `dao.host.text`; a profile refusal is answered as this
-   codec's refusal of the same class.
-
-   Dart (J2): the same reader, profile and portable operations run on
-   ClojureDart. The byte writer there is the pinned `cbor` 6.5.1 package
-   behind `dao.jing.cbor.cljd`, which implements the same wire vocabulary as
-   `dao.jing.cbor.boring`. Dart integers are 64-bit ints and BigInt, floats
-   are native doubles (a distinct type from int on the Dart VM), and decimals
-   and ratios use the Decimal and Rational carriers. Every host reader
-   conditional names `:cljd` first."
+   codec's refusal of the same class."
   (:refer-clojure :exclude [decimal? ratio?])
   (:require
     [dao.host.bytes :as bytes]
     [dao.host.float :as float]
     [dao.host.integer :as integer]
     [dao.host.number :as number]
-    [dao.host.text :as text]
-    #?@(:cljd [[dao.jing.cbor.cljd :as wire]]
-        :default [[dao.jing.cbor.boring :as wire]])))
+    [dao.host.text :as text]))
 
 
 ;; ==========================================================================
@@ -436,12 +422,19 @@
 (declare equiv)
 
 
+(defn byte-payload?
+  "True for the host byte array `encode` returns and `decode` accepts:
+   byte[] on the JVM, Uint8Array on JavaScript, Uint8List on Dart."
+  [x]
+  (bytes/bytes? x))
+
+
 (defn equiv-hash
   "A hash consistent with equiv."
   [x]
   (cond
     (numeric? x) (num-hash x)
-    (wire/byte-payload? x) (hash (bytes-hex x))
+    (byte-payload? x) (hash (bytes-hex x))
     (or (keyword? x) (symbol? x)) (hash (identifier-key x))
     (sequential-value? x) (hash (mapv equiv-hash x))
     (map? x) (hash (set (map (fn [[k v]] [(equiv-hash k) (equiv-hash v)]) x)))
@@ -464,8 +457,8 @@
   [a b]
   (cond
     (or (numeric? a) (numeric? b)) (and (numeric? a) (numeric? b) (num= a b))
-    (or (wire/byte-payload? a) (wire/byte-payload? b))
-    (and (wire/byte-payload? a) (wire/byte-payload? b) (bytes= a b))
+    (or (byte-payload? a) (byte-payload? b))
+    (and (byte-payload? a) (byte-payload? b) (bytes= a b))
     (or (keyword? a) (symbol? a))
     (and (or (keyword? b) (symbol? b))
          (= (identifier-key a) (identifier-key b)))
@@ -557,7 +550,7 @@
   [x]
   (cond
     (numeric? x) (numeric-content-key x)
-    (wire/byte-payload? x) [::bytes (bytes-hex x)]
+    (byte-payload? x) [::bytes (bytes-hex x)]
     (or (keyword? x) (symbol? x)) [::identifier (identifier-key x)]
     (sequential-value? x) (mapv content-key x)
     (map? x) (into {} (map (fn [[k v]] [(content-key k) (content-key v)])) x)
@@ -586,7 +579,7 @@
 
 
 ;; ==========================================================================
-;; Encode: normalize a value into a wire tree, then Boring writes it
+;; Encode: direct canonical CBOR byte writer (RFC 8949) over dao.host.*
 ;; ==========================================================================
 
 (def ^:private reader-position-keys
@@ -630,34 +623,129 @@
     (refuse cls (str "nesting deeper than " max-depth))))
 
 
-(declare wire-of)
+;; ==========================================================================
+;; Canonical CBOR byte writer (RFC 8949) over dao.host.*
+;; ==========================================================================
+
+(def ^:private two-32 (bpow two 32))
+(def ^:private c24 (integer/from-native 24))
+(def ^:private c256 (integer/from-native 256))
+(def ^:private c65536 (integer/from-native 65536))
 
 
-(defn- int-wire
-  "The wire node, at depth d, of exact integer b (a host big integer)."
+(defn- write-head
+  "Emits canonical shortest header bytes for major type `major` (0..7)
+   and argument `n` (a non-negative host integer or host big integer)."
+  [major n]
+  (let [major-byte (bit-shift-left (int major) 5)
+        b (if (integer/big-carrier? n) n (integer/promote n))]
+    (cond
+      (neg? (integer/compare-big b c24))
+      (bytes/from-vector [(bit-or major-byte (integer/to-native b))])
+
+      (neg? (integer/compare-big b c256))
+      (bytes/from-vector [(bit-or major-byte 24) (integer/to-native b)])
+
+      (neg? (integer/compare-big b c65536))
+      (let [v (integer/to-native b)]
+        (bytes/from-vector [(bit-or major-byte 25) (bit-shift-right v 8) (bit-and v 255)]))
+
+      (neg? (integer/compare-big b two-32))
+      (let [mb (integer/magnitude-bytes b)
+            pad (- 4 (bytes/length mb))
+            out (bytes/alloc 5)]
+        (bytes/set! out 0 (bit-or major-byte 26))
+        (bytes/copy! mb 0 out (+ 1 pad) (bytes/length mb))
+        out)
+
+      :else
+      (let [mb (integer/magnitude-bytes b)
+            pad (- 8 (bytes/length mb))
+            out (bytes/alloc 9)]
+        (bytes/set! out 0 (bit-or major-byte 27))
+        (bytes/copy! mb 0 out (+ 1 pad) (bytes/length mb))
+        out))))
+
+
+(defn- concat-buffers
+  "Concatenates a vector/sequence of host byte arrays into one host byte array."
+  [buffers]
+  (let [total (reduce + 0 (map bytes/length buffers))
+        out (bytes/alloc total)]
+    (loop [bufs (seq buffers)
+           pos 0]
+      (if-let [b (first bufs)]
+        (let [len (bytes/length b)]
+          (bytes/copy! b 0 out pos len)
+          (recur (next bufs) (+ pos len)))
+        out))))
+
+
+(defn- compare-canonical-bytes
+  "Total ordering over host byte arrays: pure unsigned bytewise lexicographical order,
+   a proper prefix sorting first (RFC 8949 canonical order)."
+  [x y]
+  (let [nx (bytes/length x)
+        ny (bytes/length y)
+        n (min nx ny)]
+    (loop [i 0]
+      (if (< i n)
+        (let [bx (bytes/get x i)
+              by (bytes/get y i)]
+          (if (= bx by)
+            (recur (inc i))
+            (if (< bx by) -1 1)))
+        (cond
+          (< nx ny) -1
+          (> nx ny) 1
+          :else 0)))))
+
+
+(defn- int-bytes
+  "Canonical CBOR bytes of exact integer `b` (a host big integer) at depth `d`."
   [b d]
   (cond
     (and (<= 0 (integer/compare-big b neg-two-64)) (neg? (integer/compare-big b two-64)))
-    (do (deep! d :unsupported-value) (wire/integer (integer/demote b)))
-    (pos? (bsign b)) (do (deep! (inc d) :unsupported-value)
-                         (wire/tagged 2 (integer/magnitude-bytes b)))
-    :else (do (deep! (inc d) :unsupported-value)
-              (wire/tagged 3 (integer/magnitude-bytes (integer/sub (integer/sub zero b) one))))))
+    (do (deep! d :unsupported-value)
+        (if (<= 0 (integer/compare-big b zero))
+          (write-head 0 b)
+          (write-head 1 (integer/sub (integer/sub (integer/from-native -1) b) zero))))
+
+    (pos? (bsign b))
+    (do (deep! (inc d) :unsupported-value)
+        (let [mb (integer/magnitude-bytes b)]
+          (concat-buffers [(write-head 6 2)
+                           (write-head 2 (bytes/length mb))
+                           mb])))
+
+    :else
+    (do (deep! (inc d) :unsupported-value)
+        (let [mb (integer/magnitude-bytes (integer/sub (integer/sub zero b) one))]
+          (concat-buffers [(write-head 6 3)
+                           (write-head 2 (bytes/length mb))
+                           mb])))))
 
 
-(defn- float-wire
+(defn- float-bytes
   [x d]
   (deep! (+ d 2) :unsupported-value)
   ;; float64->bits reads every NaN as 7ff8000000000000
   (let [h (float/float64->bits (number/float-value x))
-        bs (bytes/from-vector
-             (mapv #(+ (* 16 (hex-value (subs h (* 2 %) (inc (* 2 %)))))
-                       (hex-value (subs h (inc (* 2 %)) (+ 2 (* 2 %)))))
-                   (range 8)))]
-    (wire/frame 'dao.jing/float64 bs)))
+        payload (bytes/from-vector
+                  (mapv #(+ (* 16 (hex-value (subs h (* 2 %) (inc (* 2 %)))))
+                            (hex-value (subs h (inc (* 2 %)) (+ 2 (* 2 %)))))
+                        (range 8)))
+        tag-name (host text/utf8-encode "dao.jing/float64")
+        frame-content (concat-buffers [(write-head 4 2)
+                                       (write-head 3 (bytes/length tag-name))
+                                       tag-name
+                                       (write-head 2 (bytes/length payload))
+                                       payload])]
+    (concat-buffers [(write-head 6 27)
+                     frame-content])))
 
 
-(defn- number-wire
+(defn- number-bytes
   [x d]
   (cond
     (host-integer? x)
@@ -665,58 +753,70 @@
           (refuse :unsupported-value
                   (str "unsafe integral JavaScript number; "
                        "pass a BigInt or float64")))
-        (int-wire (big x) d))
-    (float64? x) (float-wire x d)
-    (decimal? x) (do (deep! (inc d) :unsupported-value)
-                     (wire/tagged 4
-                                  [(int-wire (big (decimal-exponent x))
-                                             (+ d 2))
-                                   (int-wire (big (decimal-mantissa x))
-                                             (+ d 2))]))
-    :else (let [[_ n den] (exact x)]
-            (deep! (inc d) :unsupported-value)
-            (wire/tagged 30 [(int-wire n (+ d 2)) (int-wire den (+ d 2))]))))
+        (int-bytes (big x) d))
+    (float64? x) (float-bytes x d)
+    (decimal? x)
+    (do (deep! (inc d) :unsupported-value)
+        (let [eb (int-bytes (big (decimal-exponent x)) (+ d 2))
+              mb (int-bytes (big (decimal-mantissa x)) (+ d 2))
+              arr (concat-buffers [(write-head 4 2) eb mb])]
+          (concat-buffers [(write-head 6 4) arr])))
+    :else
+    (let [[_ n den] (exact x)]
+      (deep! (inc d) :unsupported-value)
+      (let [nb (int-bytes n (+ d 2))
+            db (int-bytes den (+ d 2))
+            arr (concat-buffers [(write-head 4 2) nb db])]
+        (concat-buffers [(write-head 6 30) arr])))))
 
 
-(defn- members-wire
-  "Wire the [key value] pairs (value nil for set elements) of one
-   collection, members at depth d, refusing duplicate canonical encodings
-   (dup-class) and portable-equality collapses before the collection is
-   built. Returns [[key-bytes-hex key-wire value-wire] ...]."
+(declare value-bytes)
+
+
+(defn- members-bytes
+  "Encodes [key value] pairs (value nil for set elements), members at depth d,
+   refusing duplicate canonical encodings (dup-class) and portable-equality
+   collapses before the collection is built.
+   Returns [[key-bytes key-bytes-hex value-bytes-or-nil] ...]."
   [pairs set? dup-class d]
   (let [wired (mapv (fn [[k v]]
-                      (let [kw (wire-of k d)
-                            vw (when-not set? (wire-of v d))]
-                        [(bytes-hex (wire/encode kw)) kw vw]))
+                      (let [kb (value-bytes k d)
+                            vb (when-not set? (value-bytes v d))]
+                        [kb (bytes-hex kb) vb]))
                     pairs)]
-    (when (< (count (set (map first wired))) (count wired))
+    (when (< (count (set (map second wired))) (count wired))
       (refuse dup-class))
     (when (collapse? (map first pairs))
       (refuse :equality-collapse))
     wired))
 
 
-(defn- map-wire
+(defn- map-bytes
   "A map at depth d; keys and values one level deeper."
   [m d]
   (deep! d :unsupported-value)
-  (let [wired (members-wire (seq m) false :duplicate-key (inc d))]
-    (wire/map-node wired)))
+  (let [wired (members-bytes (seq m) false :duplicate-key (inc d))
+        sorted (sort #(compare-canonical-bytes (first %1) (first %2)) wired)
+        pair-buffers (mapcat (fn [[kb _ vb]] [kb vb]) sorted)]
+    (concat-buffers (cons (write-head 5 (count wired)) pair-buffers))))
 
 
-(defn- set-wire
+(defn- set-bytes
   "Tag 258 at depth d over an array at d+1; elements at d+2."
   [s d]
   (deep! (inc d) :unsupported-value)
-  (let [wired (members-wire (map (fn [x] [x nil]) s)
-                            true
-                            :duplicate-element
-                            (+ d 2))]
-    (wire/tagged 258 (mapv second (sort-by first wired)))))
+  (let [wired (members-bytes (map (fn [x] [x nil]) s)
+                             true
+                             :duplicate-element
+                             (+ d 2))
+        sorted (sort #(compare-canonical-bytes (first %1) (first %2)) wired)
+        item-buffers (map first sorted)
+        arr (concat-buffers (cons (write-head 4 (count wired)) item-buffers))]
+    (concat-buffers [(write-head 6 258) arr])))
 
 
-(defn- meta-wire
-  "The wire node of x at depth d, where (build depth) wires x's own
+(defn- meta-bytes
+  "The bytes of x at depth d, where (build depth) encodes x's own
    content starting at that depth. If x carries metadata that survives
    stripping, a with-meta frame sits at d and x's content moves two
    levels deeper (tag, [meta value]). Stripped values are validated
@@ -730,55 +830,83 @@
             (refuse :malformed-frame "metadata map carries metadata"))
           (doseq [k reader-position-keys
                   :when (contains? m k)]
-            (wire-of (get m k) (+ d 3)))
+            (value-bytes (get m k) (+ d 3)))
           (let [kept (apply dissoc m reader-position-keys)]
             (if (empty? kept)
               (build d)
-              (wire/frame 'clojure/with-meta
-                          [(map-wire kept (+ d 2)) (build (+ d 2))])))))))
+              (let [name-bytes (host text/utf8-encode "clojure/with-meta")
+                    mb (map-bytes kept (+ d 2))
+                    vb (build (+ d 2))
+                    frame-arr (concat-buffers [(write-head 4 2)
+                                               (write-head 3 (bytes/length name-bytes))
+                                               name-bytes
+                                               (concat-buffers [(write-head 4 2) mb vb])])]
+                (concat-buffers [(write-head 6 27) frame-arr]))))))))
 
 
-(defn- identifier-wire
+(defn- identifier-bytes
   "Tag 27 at depth d over [name [ns name]]: the components at d+3."
-  [tag-symbol x d]
+  [tag-name-str x d]
   (deep! (+ d 3) :unsupported-value)
-  (wire/frame tag-symbol
-              (wire/array-node [(if-some [ns (namespace x)]
-                                  (wire/text (check-text ns))
-                                  (wire/null))
-                                (wire/text (check-text (name x)))])))
+  (let [tag-name-bytes (host text/utf8-encode tag-name-str)
+        ns (namespace x)
+        ns-bytes (if-some [ns-str ns]
+                   (let [ub (host text/utf8-encode (check-text ns-str))]
+                     (concat-buffers [(write-head 3 (bytes/length ub)) ub]))
+                   (bytes/from-vector [0xf6]))
+        name-str (check-text (name x))
+        name-ub (host text/utf8-encode name-str)
+        name-bytes (concat-buffers [(write-head 3 (bytes/length name-ub)) name-ub])
+        inner-arr (concat-buffers [(write-head 4 2) ns-bytes name-bytes])
+        frame-arr (concat-buffers [(write-head 4 2)
+                                   (write-head 3 (bytes/length tag-name-bytes))
+                                   tag-name-bytes
+                                   inner-arr])]
+    (concat-buffers [(write-head 6 27) frame-arr])))
 
 
-(defn- list-wire
+(defn- list-bytes
   "Tag 27 at depth d over [\"dao.jing/list\" items]: items at d+3."
   [x d]
   (deep! (+ d 2) :unsupported-value)
-  (wire/frame 'dao.jing/list (mapv #(wire-of % (+ d 3)) x)))
+  (let [tag-name-bytes (host text/utf8-encode "dao.jing/list")
+        items (mapv #(value-bytes % (+ d 3)) x)
+        items-arr (concat-buffers (cons (write-head 4 (count items)) items))
+        frame-arr (concat-buffers [(write-head 4 2)
+                                   (write-head 3 (bytes/length tag-name-bytes))
+                                   tag-name-bytes
+                                   items-arr])]
+    (concat-buffers [(write-head 6 27) frame-arr])))
 
 
-(defn- wire-of
-  "The wire tree of one value whose outermost item sits at depth d, or a
-   refusal."
+(defn- value-bytes
+  "The canonical CBOR bytes of one value whose outermost item sits at depth d,
+   or a refusal."
   [x d]
   (cond
-    (nil? x) (do (deep! d :unsupported-value) (wire/null))
-    (boolean? x) (do (deep! d :unsupported-value) (wire/bool x))
-    (string? x) (do (deep! d :unsupported-value) (wire/text (check-text x)))
-    ;; Keywords cannot carry metadata on any host (not IObj / IWithMeta;
-    ;; pinned by a test), so there is none to wrap.
-    (keyword? x) (identifier-wire 'dao.jing/keyword x d)
-    (symbol? x) (meta-wire x d #(identifier-wire 'dao.jing/symbol x %))
-    (wire/byte-payload? x) (do (deep! d :unsupported-value)
-                               (wire/byte-string (bytes/slice x 0 (bytes/length x))))
-    (numeric? x) (number-wire x d)
+    (nil? x) (do (deep! d :unsupported-value) (bytes/from-vector [0xf6]))
+    (boolean? x) (do (deep! d :unsupported-value) (bytes/from-vector [(if x 0xf5 0xf4)]))
+    (string? x) (do (deep! d :unsupported-value)
+                    (let [ub (host text/utf8-encode (check-text x))]
+                      (concat-buffers [(write-head 3 (bytes/length ub)) ub])))
+    (keyword? x) (identifier-bytes "dao.jing/keyword" x d)
+    (symbol? x) (meta-bytes x d #(identifier-bytes "dao.jing/symbol" x %))
+    (byte-payload? x) (do (deep! d :unsupported-value)
+                          (let [len (bytes/length x)
+                                head (write-head 2 len)
+                                out (bytes/alloc (+ (bytes/length head) len))]
+                            (bytes/copy! head 0 out 0 (bytes/length head))
+                            (bytes/copy! x 0 out (bytes/length head) len)
+                            out))
+    (numeric? x) (number-bytes x d)
     (record? x) (refuse :unsupported-value "record")
-    (map? x) (meta-wire x d #(map-wire x %))
-    (vector? x) (meta-wire x d (fn [d]
-                                 (deep! d :unsupported-value)
-                                 (wire/array-node
-                                   (mapv #(wire-of % (inc d)) x))))
-    (set? x) (meta-wire x d #(set-wire x %))
-    (or (list? x) (seq? x)) (meta-wire x d #(list-wire x %))
+    (map? x) (meta-bytes x d #(map-bytes x %))
+    (vector? x) (meta-bytes x d (fn [d]
+                                  (deep! d :unsupported-value)
+                                  (let [items (mapv #(value-bytes % (inc d)) x)]
+                                    (concat-buffers (cons (write-head 4 (count items)) items)))))
+    (set? x) (meta-bytes x d #(set-bytes x %))
+    (or (list? x) (seq? x)) (meta-bytes x d #(list-bytes x %))
     :else (refuse :unsupported-value (type-name x))))
 
 
@@ -788,14 +916,7 @@
    values, unpaired surrogates, nesting deeper than max-depth, and
    collections whose members collide after normalization."
   [value]
-  (wire/encode (wire-of value 1)))
-
-
-(defn byte-payload?
-  "True for the host byte array `encode` returns and `decode` accepts:
-   byte[] on the JVM, Uint8Array on JavaScript, Uint8List on Dart."
-  [x]
-  (wire/byte-payload? x))
+  (value-bytes value 1))
 
 
 (defn copy-bytes
@@ -807,10 +928,10 @@
 
 (defn encoded-compare
   "Order two supported values by their canonical encodings: the shorter
-   encoding first, then unsigned bytewise (the order this profile already
-   uses for map keys and set elements). Returns -1, 0 or 1. It encodes both
-   values, so callers reserve it for the rare case that needs it (the
-   min/max tie-break after numeric order has already tied)."
+   encoding first, then unsigned bytewise (note: canonical map and set encoding
+   uses pure unsigned bytewise lexicographical order per RFC 8949, not length-first).
+   Returns -1, 0 or 1. It encodes both values, so callers reserve it for the
+   rare case that needs it (the min/max tie-break after numeric order has already tied)."
   [a b]
   (let [ea (encode a)
         eb (encode b)

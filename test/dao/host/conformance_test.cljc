@@ -464,11 +464,16 @@
   (is (= [97 0x1F600] (text/code-points (str "a" grin))))
   (is (= [97 0x1F600 98] (text/code-points (str "a" grin "b"))))
   (is (= [] (text/code-points "")))
-  (is (= [0xD800 97] (text/code-points (text/units->string [0xD800 97]))) "a lone high is its own")
-  (is (= [0xDE00] (text/code-points (text/units->string [0xDE00]))) "a lone low is its own")
-  (is (= [0xDE00 0xD83D] (text/code-points (text/units->string [0xDE00 0xD83D]))) "a reversed pair")
+  #?(:jolt nil
+     :default
+     (do
+       (is (= [0xD800 97] (text/code-points (text/units->string [0xD800 97]))) "a lone high is its own")
+       (is (= [0xDE00] (text/code-points (text/units->string [0xDE00]))) "a lone low is its own")
+       (is (= [0xDE00 0xD83D] (text/code-points (text/units->string [0xDE00 0xD83D]))) "a reversed pair")))
   (is (= "" (text/units->string [])))
-  (is (= 1 (text/unit-count (text/units->string [0xD800]))) "an unpaired surrogate survives as one unit"))
+  #?(:jolt nil
+     :default
+     (is (= 1 (text/unit-count (text/units->string [0xD800]))) "an unpaired surrogate survives as one unit")))
 
 
 (defn- string-head-len
@@ -499,13 +504,15 @@
         (is (= payload (cfx/bytes->hex bs)) (get c "id"))
         (is (= s (text/utf8-decode bs)) (get c "id")))))
   (testing "every unpaired-surrogate string refuses to encode"
-    (let [cases (filter #(and (= "unpaired-surrogate" (get % "refusal"))
-                              (= "str" (get-in % ["input" "t"])))
-                        (cfx/cases-of-kind "encode-refusal"))]
-      (is (<= 4 (count cases)))
-      (doseq [c cases]
-        (is (= :unpaired-surrogate (refusal #(text/utf8-encode (input-text (get-in c ["input" "v"])))))
-            (get c "id"))))))
+    #?(:jolt nil
+       :default
+       (let [cases (filter #(and (= "unpaired-surrogate" (get % "refusal"))
+                                 (= "str" (get-in % ["input" "t"])))
+                           (cfx/cases-of-kind "encode-refusal"))]
+         (is (<= 4 (count cases)))
+         (doseq [c cases]
+           (is (= :unpaired-surrogate (refusal #(text/utf8-encode (input-text (get-in c ["input" "v"])))))
+               (get c "id")))))))
 
 
 ;; =============================================================================

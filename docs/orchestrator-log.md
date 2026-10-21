@@ -12535,3 +12535,38 @@ Done: Implemented, verified, and landed Slice H3 per dao.stream.host-boundary.md
 Decisions: Branch `host-h3` committed and cleanly merged into `master`. Post-H3 closure numbers: 148 CLJ / 146 CLJS / 147 CLJD (139 shared, 161 union).
 Delegates: deepseek-v4-pro (independent architectural review and verification per §14).
 Next: Commission Slice H4 (CBOR codec carrier migration and host-boundary completion).
+
+## 2026-10-21 18:10:00 +0700 — dao.stream host-boundary track: Slice H4 (portable Jing CBOR writer, shim deletion, gate & closure) verified, signed off & merged
+Completed-GMT: 2026-10-21 11:10:00 GMT
+Coding-Agent: Gemini (interactive orchestrator seat)
+Session-ID: cc118b7a-f972-4630-aa72-8f2dcac087ac
+Tree: branch host-h4 in worktree ../datomworld-host-h4; merged into master at /Users/sto/workspace/datomworld.
+Done: Implemented, verified, and landed Slice H4 per dao.stream.host-boundary.md r10/r11 (§2.4, §3.1, §4.2 table B, §8 H4, §8.1, §8.2, §14):
+  1. Portable Byte Writer: Built a pure, self-contained canonical CBOR byte writer directly in `src/cljc/dao/jing/cbor.cljc` using only `dao.host.*` (`dao.host.bytes`, `dao.host.text`, `dao.host.float`, `dao.host.integer`, `dao.host.number`). Zero host-library imports, no Boring, no Dart CBOR, no Java IO, no Node Buffer.
+  2. Canonical Ordering: Bytewise lexicographical order implemented strictly per RFC 8949 (`compare-canonical-bytes`) for maps and sets.
+  3. Shim Deletion: Deleted `src/cljc/dao/jing/cbor/boring.cljc` and `src/cljd/dao/jing/cbor/cljd.cljd` via `git rm`. `dao.stream.cbor.boring` remains untouched (owned by codec track).
+  4. Conformance & Parity: 100% byte-identical against `test/resources/dao/jing/cbor-v1.json` across all 3 lanes (CLJ, CLJS, CLJD) with skips unchanged.
+  5. Performance Measurements (§8 H4 row):
+     - JVM:
+       - Canonical corpus (209 cases x 100 iter): Old writer (Boring) 370 ms vs New writer 372 ms (parity).
+       - Module image (`dht-import-v1.edn`, 192 forms x 20 iter): Old writer (Boring) 297 ms vs New writer 382 ms (~1.28x).
+     - Node:
+       - Canonical corpus (208 cases x 100 iter): Old writer 217 ms vs New writer 232 ms (~1.07x).
+       - Module image (`dht-import-v1.edn`, 192 forms x 20 iter): Old writer 360 ms vs New writer 521 ms (~1.44x).
+  6. Gate & Closure (§8.2):
+     - `src/dev/host_boundary/closure.clj` updated; closure regenerated (`closure.clj --write`):
+       CLJ 147 (139 shared, 8 specific), CLJS 145 (139 shared, 6 specific), CLJD 146 (139 shared, 7 specific).
+     - Host-library gate `test/dao/host/gate_test.clj` updated: list-1 deleted files removed, `dao.jing.cbor` classified `:stays` with retained number-model/runtime arms documented, list-2 `:m-entry` updated to 8 (6 `bytes/copy!`, 2 `bytes/set!`).
+  7. Verification Evidence Across All 3 Lanes:
+     - `dao.host`, `dao.jing`, and `dao.stream` subsystems:
+       - CLJ: 56 namespaces, 788 tests, 0 failures (pass)
+       - CLJS: 53 namespaces, 770 tests, 0 failures (pass)
+       - CLJD: 51 namespaces, 699 tests, 0 failures (pass)
+  8. Independent Review & Reconciliation:
+     - Independent Architect Review conducted by Codex (`gpt-6-astra`): SIGNED OFF WITH CHANGES (collab/1792580209000-reviewer-host-boundary-h4.gpt-6-astra.findings.md).
+     - H4-R1 reconciled: Added §2.4(iii) writer ownership and transitive isolation test in `test/dao/jing/cbor_test.cljc` (`writer-ownership-and-transitive-isolation-test`).
+     - H4-R2 reconciled: Measured and recorded both JVM and Node old vs new performance figures on both corpus and `dht-import-v1.edn` image.
+     - H4-R3 reconciled: Updated `gate_test.clj` classification for `dao.jing.cbor.cljc` to `:stays` and updated docstrings in `cbor.cljc` and `cbor_test.cljc`.
+Decisions: Branch `host-h4` rebased and merged into `master` at 7e7fd4be. Post-H4 closure: 147 CLJ / 145 CLJS / 146 CLJD (139 shared, 159 union).
+Delegates: Codex (gpt-6-astra, independent architect review).
+Next: Reply to Jolt team note regarding pure `dao.jing.cbor` and `hash_consumer_test.cljc` separation.
