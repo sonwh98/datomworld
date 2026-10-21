@@ -632,6 +632,7 @@
 (def ^:private c256 (integer/from-native 256))
 (def ^:private c65536 (integer/from-native 65536))
 
+
 (defn- write-head
   "Emits canonical shortest header bytes for major type `major` (0..7)
    and argument `n` (a non-negative host integer or host big integer)."
@@ -665,6 +666,7 @@
         (bytes/copy! mb 0 out (+ 1 pad) (bytes/length mb))
         out))))
 
+
 (defn- concat-buffers
   "Concatenates a vector/sequence of host byte arrays into one host byte array."
   [buffers]
@@ -677,6 +679,7 @@
           (bytes/copy! b 0 out pos len)
           (recur (next bufs) (+ pos len)))
         out))))
+
 
 (defn- compare-canonical-bytes
   "Total ordering over host byte arrays: pure unsigned bytewise lexicographical order,
@@ -696,6 +699,7 @@
           (< nx ny) -1
           (> nx ny) 1
           :else 0)))))
+
 
 (defn- int-bytes
   "Canonical CBOR bytes of exact integer `b` (a host big integer) at depth `d`."
@@ -721,6 +725,7 @@
                            (write-head 2 (bytes/length mb))
                            mb])))))
 
+
 (defn- float-bytes
   [x d]
   (deep! (+ d 2) :unsupported-value)
@@ -738,6 +743,7 @@
                                        payload])]
     (concat-buffers [(write-head 6 27)
                      frame-content])))
+
 
 (defn- number-bytes
   [x d]
@@ -763,7 +769,9 @@
             arr (concat-buffers [(write-head 4 2) nb db])]
         (concat-buffers [(write-head 6 30) arr])))))
 
+
 (declare value-bytes)
+
 
 (defn- members-bytes
   "Encodes [key value] pairs (value nil for set elements), members at depth d,
@@ -782,6 +790,7 @@
       (refuse :equality-collapse))
     wired))
 
+
 (defn- map-bytes
   "A map at depth d; keys and values one level deeper."
   [m d]
@@ -790,6 +799,7 @@
         sorted (sort #(compare-canonical-bytes (first %1) (first %2)) wired)
         pair-buffers (mapcat (fn [[kb _ vb]] [kb vb]) sorted)]
     (concat-buffers (cons (write-head 5 (count wired)) pair-buffers))))
+
 
 (defn- set-bytes
   "Tag 258 at depth d over an array at d+1; elements at d+2."
@@ -803,6 +813,7 @@
         item-buffers (map first sorted)
         arr (concat-buffers (cons (write-head 4 (count wired)) item-buffers))]
     (concat-buffers [(write-head 6 258) arr])))
+
 
 (defn- meta-bytes
   "The bytes of x at depth d, where (build depth) encodes x's own
@@ -832,6 +843,7 @@
                                                (concat-buffers [(write-head 4 2) mb vb])])]
                 (concat-buffers [(write-head 6 27) frame-arr]))))))))
 
+
 (defn- identifier-bytes
   "Tag 27 at depth d over [name [ns name]]: the components at d+3."
   [tag-name-str x d]
@@ -852,6 +864,7 @@
                                    inner-arr])]
     (concat-buffers [(write-head 6 27) frame-arr])))
 
+
 (defn- list-bytes
   "Tag 27 at depth d over [\"dao.jing/list\" items]: items at d+3."
   [x d]
@@ -864,6 +877,7 @@
                                    tag-name-bytes
                                    items-arr])]
     (concat-buffers [(write-head 6 27) frame-arr])))
+
 
 (defn- value-bytes
   "The canonical CBOR bytes of one value whose outermost item sits at depth d,
@@ -888,12 +902,13 @@
     (record? x) (refuse :unsupported-value "record")
     (map? x) (meta-bytes x d #(map-bytes x %))
     (vector? x) (meta-bytes x d (fn [d]
-                                 (deep! d :unsupported-value)
-                                 (let [items (mapv #(value-bytes % (inc d)) x)]
-                                   (concat-buffers (cons (write-head 4 (count items)) items)))))
+                                  (deep! d :unsupported-value)
+                                  (let [items (mapv #(value-bytes % (inc d)) x)]
+                                    (concat-buffers (cons (write-head 4 (count items)) items)))))
     (set? x) (meta-bytes x d #(set-bytes x %))
     (or (list? x) (seq? x)) (meta-bytes x d #(list-bytes x %))
     :else (refuse :unsupported-value (type-name x))))
+
 
 (defn encode
   "The canonical CBOR payload bytes of one supported value (byte[] on the
@@ -913,10 +928,10 @@
 
 (defn encoded-compare
   "Order two supported values by their canonical encodings: the shorter
-   encoding first, then unsigned bytewise (the order this profile already
-   uses for map keys and set elements). Returns -1, 0 or 1. It encodes both
-   values, so callers reserve it for the rare case that needs it (the
-   min/max tie-break after numeric order has already tied)."
+   encoding first, then unsigned bytewise (note: canonical map and set encoding
+   uses pure unsigned bytewise lexicographical order per RFC 8949, not length-first).
+   Returns -1, 0 or 1. It encodes both values, so callers reserve it for the
+   rare case that needs it (the min/max tie-break after numeric order has already tied)."
   [a b]
   (let [ea (encode a)
         eb (encode b)

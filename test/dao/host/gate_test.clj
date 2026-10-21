@@ -645,7 +645,7 @@
    and reason. Generated from the H0 tree by the gate; r7 categorised the
    16 files H0 first found unlisted (no file is uncategorised)."
   {;; H1-H4 migration sources
-   "src/cljc/dao/jing/cbor.cljc" (entry :migration-source "H4" "H2 moved the helpers, carriers and number API to dao.host; left: the writer (H4), :91 Dart runtimeType in refusal text, :217 JS unsafe-integral Number, :227 float64? (no dao.host.number predicate), :1026 Dart with-meta nil")
+   "src/cljc/dao/jing/cbor.cljc" (entry :migration-source :stays "H4 migrated writer to dao.host.*; retained: number-model/runtime compatibility arms (§8.1 r11 row; :91 Dart runtimeType in refusal text, :217 JS unsafe-integral Number, :227 float64? (no dao.host.number predicate), :1026 Dart with-meta nil")
    "src/cljc/dao/jing.cljc" (entry :migration-source "H3" "hashes")
    "src/cljc/yin/vm/linker/sign.cljc" (entry :migration-source :stays "H3 migrates; generate stays (deferred entropy)")
    "src/cljc/yin/vm/debruijn.cljc" (entry :migration-source :stays "retained host number-model arms (Architect H2 review, §8.1 r11 row)")
@@ -981,7 +981,7 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest closure-totals-are-the-design-totals
-  (testing "§3.1 after H2: 146 / 144 / 145 files, 137 shared (H0's 142 / 140 / 141 and 133, minus yin.vm.integer.host, plus the five dao.host files)"
+  (testing "§3.1 after H4: 147 / 145 / 146 files, 139 shared"
     (let [files (into {} (map (fn [l] [l (set (map :file (:files (committed-closure l))))]) lanes))]
       (is (= 147 (count (files :clj))))
       (is (= 145 (count (files :cljs))))
