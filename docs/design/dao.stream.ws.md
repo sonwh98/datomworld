@@ -577,8 +577,8 @@ serves exactly the profiles it was composed with, concurrently and through
 the same served paths. The endpoint negotiates deterministically: a named
 offer it does not serve is refused before the upgrade completes, never
 silently downgraded to a codec the client did not select, and an absent
-name is the `dao.stream.transit-json` default for sockets that negotiated
-nothing.
+name is refused the same way: there is no default profile. Codec profiles
+are specified in `dao.stream.codec.md`.
 
 After upgrade, the first WebSocket message sent by the server is exactly one
 frame in the negotiated codec — one Transit-JSON text frame or one CBOR

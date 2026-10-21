@@ -8,19 +8,17 @@
    the adapter map returned to the host while it constructs a connection.
 
    The wire codec is a composition choice carried as an explicit codec profile
-   (see `codec-profile?`): the `dao.stream.transit-json` text subprotocol and
+   (see `codec-profile?`): the Transit-JSON text subprotocol and
    the additive `dao.stream.cbor` binary subprotocol run the same state
    machine, envelopes, and lifecycle.  Selection is explicit on both ends — a
    client offers exactly its selected subprotocol, an endpoint serves exactly
    the profiles it was composed with — so no silent downgrade exists."
   (:require [dao.stream :as stream]
             [dao.stream.codec :as codec]
-            [dao.stream.transit :as transit]
             [clojure.string :as str]))
 
 
 (def transport-type :dao.stream/ws)
-(def subprotocol "dao.stream.transit-json")
 (def ended-close-code 4000)
 (def protocol-close-code 4002)
 
@@ -35,12 +33,11 @@
 
 
 (defn checked-codec
-  "Validate one composition-supplied codec profile, defaulting to Transit."
+  "Validate one composition-supplied codec profile; there is no default."
   [x]
-  (let [codec (or x transit/profile)]
-    (when-not (codec-profile? codec)
-      (throw (ex-info "invalid DaoStream WebSocket codec profile" {:codec x})))
-    codec))
+  (when-not (codec-profile? x)
+    (throw (ex-info "invalid DaoStream WebSocket codec profile" {:codec x})))
+  x)
 
 
 (defn- outcome
@@ -65,19 +62,16 @@
 (defn descriptor?
   "The settled WebSocket descriptor gate.  It names a served stream, not a
    particular connection, and contains only portable reachability data.
-   The one-argument form keeps the Transit domain as the public default; a
-   composition selecting a codec profile gates the same descriptor against
-   that profile's domain."
-  ([x] (descriptor? x transit/profile))
-  ([x codec]
-   (and (map? x)
-        (= transport-type (:dao.stream/type x))
-        (string? (:dao.stream/identity x))
-        (string? (:ws/host x))
-        (integer? (:ws/port x))
-        (pos? (:ws/port x))
-        (canonical-path? (:ws/path x))
-        ((codec/portable-value-fn codec) x))))
+   The descriptor is gated against the selected codec profile's domain."
+  [x codec]
+  (and (map? x)
+       (= transport-type (:dao.stream/type x))
+       (string? (:dao.stream/identity x))
+       (string? (:ws/host x))
+       (integer? (:ws/port x))
+       (pos? (:ws/port x))
+       (canonical-path? (:ws/path x))
+       ((codec/portable-value-fn codec) x)))
 
 
 (defn servable-descriptor?
@@ -85,11 +79,10 @@
    0, an endpoint bound ephemerally that names its port once the host
    reports it (`endpoint-bound!`).  A dialed descriptor never names port
    0; `descriptor?` stays the attacher's gate."
-  ([x] (servable-descriptor? x transit/profile))
-  ([x codec]
-   (or (descriptor? x codec)
-       (and (= 0 (:ws/port x))
-            (descriptor? (assoc x :ws/port 1) codec)))))
+  [x codec]
+  (or (descriptor? x codec)
+      (and (= 0 (:ws/port x))
+           (descriptor? (assoc x :ws/port 1) codec))))
 
 
 (defn admission?
@@ -504,7 +497,7 @@
    connection establishment, and synchronously returns a raw-socket adapter
    containing `:send!` and `:close!`.  It must not wait for the peer.
 
-   `:codec` selects the wire profile explicitly (default: Transit).  The
+   `:codec` selects the wire profile explicitly (required).  The
    offer is exactly the selected subprotocol, so a peer that does not speak
    it fails the handshake rather than being downgraded.
 
@@ -550,12 +543,11 @@
 (defn make-endpoint
   [{:keys [descriptor control control-admission slots codecs] :as config}]
   (let [control-target (checked-target control control-admission)
-        codecs (or codecs [transit/profile])
         bounds (checked-bounds config)]
     (when-not (seq slots)
       (throw (ex-info "WebSocket endpoint needs handoff slots" {:config config})))
-    (when-not (and (seq codecs) (every? codec-profile? codecs))
-      (throw (ex-info "WebSocket endpoint needs at least one codec profile" {:codecs codecs})))
+    (when-not (and (vector? codecs) (seq codecs) (every? codec-profile? codecs))
+      (throw (ex-info "WebSocket endpoint needs a vector of at least one codec profile" {:codecs codecs})))
     (when-not (apply distinct? (map codec/codec-name codecs))
       (throw (ex-info "WebSocket endpoint codec subprotocols must be distinct" {:codecs codecs})))
     (when-not (= :portable-values (:value-domain control-admission))
@@ -632,16 +624,13 @@
    The socket seam may carry `:ws/subprotocol`, the subprotocol the host
    negotiated for this upgrade.  An endpoint serves every profile it was
    composed with, concurrently; a named subprotocol it does not speak is a
-   refused handshake, never a downgrade, and an absent name is the Transit
-   default for sockets that negotiated nothing (direct composition and
-   tests)."
+   refused handshake, never a downgrade, and an absent name is refused the
+   same way: there is no default profile."
   ([endpoint path socket] (accept-connection! endpoint path socket nil))
   ([endpoint _path socket now]
    (let [descriptor (:descriptor (endpoint-state endpoint))
          offered (:ws/subprotocol socket)
-         codec (if (nil? offered)
-                 transit/profile
-                 (get (:codec-index endpoint) offered))]
+         codec (get (:codec-index endpoint) offered)]
      (cond
        (nil? codec)
        (do (invoke-close! socket protocol-close-code "dao.stream/subprotocol-unsupported")

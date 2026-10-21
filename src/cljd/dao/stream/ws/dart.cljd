@@ -19,14 +19,8 @@
             ["dart:core" :as core]
             ["dart:io" :as io]
             [clojure.string :as str]
-            [dao.stream.transit :as transit]
             [dao.stream.codec :as codec]
             [dao.stream.ws :as ws]))
-
-
-(def default-codecs
-  "The listener's codec table when a composition names none: Transit only."
-  [transit/profile])
 
 
 (def ^:private unreserved
@@ -141,7 +135,7 @@
   [descriptor adapter]
   (let [socket-ref (atom nil)
         close-request (atom nil)
-        subprotocol (if-some [c (:ws/codec adapter)] (codec/codec-name c) ws/subprotocol)
+        subprotocol (codec/codec-name (:ws/codec adapter))
         raw (socket-view
               (fn [payload]
                 (if-let [^io/WebSocket socket @socket-ref]
@@ -221,9 +215,11 @@
 
 (defn- handle-request!
   [{:keys [accept! deposit! codecs] :as config} request]
+  (when-not (seq codecs)
+    (throw (ex-info "WebSocket listener needs :codecs" {})))
   (let [request ^io/HttpRequest request
         summary (request-summary request)
-        codecs (or (seq codecs) default-codecs)
+        codecs (seq codecs)
         negotiated (negotiate codecs (offered-subprotocols request))]
     (if-not (and (io/WebSocketTransformer.isUpgradeRequest request)
                  negotiated)
@@ -269,7 +265,9 @@
 
 (defn bind!
   "Begin binding one dart:io listener and return its explicit resource value."
-  [{:keys [bind-host bind-port deposit!] :as config}]
+  [{:keys [bind-host bind-port deposit! codecs] :as config}]
+  (when-not (and (vector? codecs) (seq codecs) (every? ws/codec-profile? codecs))
+    (throw (ex-info "WebSocket listener needs a vector of codec profiles" {:codecs codecs})))
   (let [server-ref (atom nil)
         connections (atom #{})
         config (assoc config :ws.dart/connections connections)

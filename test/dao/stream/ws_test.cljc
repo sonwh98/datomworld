@@ -596,3 +596,48 @@
     (is (= :ws/pending (:ws/status accepted)))
     (is (= "ws://127.0.0.1:4567/yin/repl" (:dao.stream/identity d)))
     (is (= 4567 (get-in d [:dao.stream/descriptor :ws/port])))))
+
+
+(deftest a-codec-less-attacher-or-endpoint-throws
+  (is (thrown? #?(:cljd Object :clj Exception :cljs :default)
+        (ws/make-attacher {:traffic {:dao.stream/handle (buffer) :dao.stream/surface #{:writer}}
+                           :admission admission
+                           :connect! (fn [_ _] {:send! (fn [_]) :close! (fn [& _] nil)})})))
+  (is (thrown? #?(:cljd Object :clj Exception :cljs :default) (one-slot-endpoint (buffer) (buffer) (buffer) {:codecs nil})))
+  (is (thrown? #?(:cljd Object :clj Exception :cljs :default) (one-slot-endpoint (buffer) (buffer) (buffer) {:codecs []}))))
+
+
+(deftest a-seam-without-a-name-is-refused
+  (let [endpoint (one-slot-endpoint (buffer) (buffer) (buffer))
+        closed (atom nil)
+        socket {:send! (fn [_]) :close! (fn [& args] (reset! closed args) nil)}]
+    (is (= :ws/unsupported-subprotocol
+           (:ws/status (ws/accept-connection! endpoint "/yin/repl" socket))))
+    (is (some? @closed))))
+
+
+(deftest make-endpoint-requires-a-vector-of-codec-profiles
+  (let [control (ring/create! {:dao.stream/type :dao.stream/ringbuffer
+                               :dao.stream.ringbuffer/capacity 16})
+        offer (ring/create! {:dao.stream/type :dao.stream/ringbuffer
+                             :dao.stream.ringbuffer/capacity 16})
+        ack (ring/create! {:dao.stream/type :dao.stream/ringbuffer
+                           :dao.stream.ringbuffer/capacity 16})
+        build (fn [codecs]
+                (ws/make-endpoint
+                  {:codecs codecs :descriptor descriptor
+                   :control {:dao.stream/handle (:dao.stream/handle control)
+                             :dao.stream/surface #{:writer}}
+                   :control-admission admission
+                   :slots [{:offer {:dao.stream/handle (:dao.stream/handle offer)
+                                    :dao.stream/surface #{:writer}}
+                            :offer-admission (assoc admission :value-domain :host-values :capacity 1)
+                            :ack {:dao.stream/handle (:dao.stream/handle ack)
+                                  :dao.stream/surface #{:writer}}
+                            :ack-admission (assoc admission :value-domain :host-values :capacity 1)
+                            :ack-cursor (:dao.stream/cursor
+                                          (stream/cursor (:dao.stream/handle ack) stream/anchor-newest))}]
+                   :expiry-ms nil}))]
+    (is (some? (build [transit/profile])))
+    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object) (build (list transit/profile))))
+    (is (thrown? #?(:clj Exception :cljs js/Error :cljd Object) (build #{transit/profile})))))

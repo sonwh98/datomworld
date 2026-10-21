@@ -22,7 +22,6 @@
    so the transport sees one message per callback boundary, bounded by the
    composition's `:ws/max-frame-bytes`."
   (:require [clojure.string :as str]
-            [dao.stream.transit :as transit]
             [dao.stream.codec :as codec]
             [dao.stream.ws :as ws]
             [org.httpkit.server :as http]
@@ -32,11 +31,6 @@
            [java.net.http HttpClient WebSocket WebSocket$Listener]
            [java.nio ByteBuffer]
            [java.util.concurrent CompletableFuture]))
-
-
-(def default-codecs
-  "The listener's codec table when a composition names none: Transit only."
-  [transit/profile])
 
 
 (def ^:private http-kit-default-max-ws
@@ -331,7 +325,7 @@
             ((:error! adapter))))
         builder (-> (HttpClient/newHttpClient)
                     (.newWebSocketBuilder)
-                    (.subprotocols (if-some [c (:ws/codec adapter)] (codec/codec-name c) ws/subprotocol)
+                    (.subprotocols (codec/codec-name (:ws/codec adapter))
                                    (make-array String 0)))
         future (.buildAsync builder (URI/create (socket-url descriptor)) listener)]
     (swap! connection assoc :future future)
@@ -410,7 +404,7 @@
 (defn listen!
   "Bind an http-kit WebSocket listener for one composed endpoint.
 
-   `:codecs` is the endpoint's codec profile table (default Transit only).
+   `:codecs` is the endpoint's codec profile table (required).
    An upgrade offering any table subprotocol completes with the negotiated
    one; an upgrade offering none is refused before it completes — a
    mixed-version peer fails its handshake rather than being downgraded.
@@ -419,8 +413,10 @@
    reassembly (its `:max-ws`), so an oversize message is refused before it
    is assembled."
   [{:keys [bind-host bind-port accept! deposit! codecs] :as options}]
+  (when-not (seq codecs)
+    (throw (ex-info "WebSocket listener needs :codecs" {})))
   (let [clock #(System/currentTimeMillis)
-        codecs (or (seq codecs) default-codecs)
+        codecs (seq codecs)
         handler (fn [request]
                   (let [negotiated (negotiate codecs (offered-subprotocols request))]
                     (cond

@@ -187,12 +187,13 @@
                             :ws/subprotocol offer}
                            0)
                   label (str dir "/" name ": offer " (pr-str offer) " expected " expect)]]
-      (if (= :refused expect)
+      ;; C3: the frozen no-offer entry is :default-transit; the default is
+      ;; deleted, so a seam that names nothing is now refused.
+      (if (or (= :refused expect) (nil? offer))
         (is (= :ws/unsupported-subprotocol (:ws/status result)) label)
         (let [chosen (:codec (first (:slots (ws/endpoint-state ep))))]
           (is (= :ws/pending (:ws/status result)) label)
-          ;; no offer is the hardcoded Transit default, even on a CBOR-only endpoint
-          (is (= (if (nil? offer) transit/profile profile) chosen)
+          (is (= profile chosen)
               (str label ": chosen codec"))))))
   (is (= "dao.stream.transit-json" (:ws/subprotocol transit/profile)))
   (is (= "dao.stream.cbor" (:ws/subprotocol cbor/profile))))

@@ -29,8 +29,7 @@
    judged by the transport on each whole message.  DOM `close` takes only
    1000 or 3000-4999, so the overflow teardowns reach the wire as 1000 with
    the transport's reason (see `raw-socket`)."
-  (:require [dao.stream.codec :as codec]
-            [dao.stream.ws :as ws]))
+  (:require [dao.stream.codec :as codec]))
 
 
 (defn socket-url
@@ -106,7 +105,7 @@
    caller's composition, not arguments here."
   [descriptor adapter]
   (let [socket (js/WebSocket. (socket-url descriptor)
-                              (if-some [c (:ws/codec adapter)] (codec/codec-name c) ws/subprotocol))]
+                              (codec/codec-name (:ws/codec adapter)))]
     (set! (.-binaryType ^js socket) "arraybuffer")
     (wire! socket adapter)
     (raw-socket socket)))

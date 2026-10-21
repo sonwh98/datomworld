@@ -418,3 +418,9 @@
                   "the second connection serves the toy again")))))
       (finally
         (jvm/stop-listening! (:listener toy) (fn []))))))
+
+
+(deftest a-codec-less-listen-throws
+  (is (thrown? Exception
+        (jvm/listen! {:bind-host "127.0.0.1" :bind-port 0
+                      :accept! (fn [& _]) :deposit! (fn [& _])}))))

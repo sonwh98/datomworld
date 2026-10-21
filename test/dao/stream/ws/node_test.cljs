@@ -326,15 +326,16 @@
    the listener the start policy retains.  The adapter owns none of it.
 
    `:codecs` (an optional key of the map arity) selects the endpoint's codec
-   table and therefore the subprotocols its listener negotiates; the default
-   is the Transit-only table, exactly as before the dual-profile work.
+   table and therefore the subprotocols its listener negotiates; the fixture
+   passes `[transit/profile]` explicitly when none is supplied.
 
    The served descriptor carries a placeholder port because the bound port is
    only known after listening; each test repairs reachability for its client
    from the bound address, exactly as the R4 bind/advertised split prescribes."
   ([] (server-fixture {}))
   ([{:keys [codecs slot-count] :or {slot-count 1} :as _options}]
-   (let [echo (buffer)
+   (let [codecs (or codecs [transit/profile])
+         echo (buffer)
          control (buffer)
          handoffs (mapv (fn [_] {:offer (buffer 1) :ack (buffer 1)}) (range slot-count))
          table-descriptor (assoc (descriptor) :ws/port 1)
@@ -352,7 +353,7 @@
                                              :ack-cursor (newest ack)})
                                           handoffs)
                              :expiry-ms nil}
-                      codecs (assoc :codecs codecs)))
+                      true (assoc :codecs codecs)))
          traffic-media (atom {})
          listener-errors (atom [])
          acceptor (project/make-acceptor
@@ -403,17 +404,17 @@
   "Dial the endpoint and attach one reflection of `\"echo\"`, over a fresh
    traffic medium and channel ring, before any attach! -- the boundary
    composition discipline of dao.stream.ws.md.  The optional map arity
-   selects the wire codec profile (default Transit)."
+   selects the wire codec profile (Transit when none is given, passed explicitly)."
   ([client-descriptor] (make-client client-descriptor {}))
   ([client-descriptor {:keys [codec] :as _options}]
    (let [traffic (buffer)
          cursor (newest traffic)
          ring (buffer)
          attach! (ws/make-attacher
-                   (cond-> {:traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
-                            :admission admission
-                            :connect! node/connect!}
-                     codec (assoc :codec codec)))
+                   {:traffic {:dao.stream/handle traffic :dao.stream/surface #{:writer}}
+                    :admission admission
+                    :connect! node/connect!
+                    :codec (or codec transit/profile)})
          dial (project/dial {:attach! attach!
                              :traffic {:dao.stream/handle traffic}
                              :cursor cursor
@@ -1025,3 +1026,21 @@
                                      (is (empty? @(:traffic-media fixture)))
                                      (teardown! fixture [] server)
                                      (finish)))))))))
+
+
+(deftest a-codec-less-endpoint-or-listener-throws
+  (let [control (buffer)
+        offer (buffer 1)
+        ack (buffer 1)
+        config {:descriptor (assoc (descriptor) :ws/port 1)
+                :control {:dao.stream/handle control :dao.stream/surface #{:writer}}
+                :control-admission admission
+                :slots [{:offer {:dao.stream/handle offer :dao.stream/surface #{:writer}}
+                         :offer-admission handoff-admission
+                         :ack {:dao.stream/handle ack :dao.stream/surface #{:writer}}
+                         :ack-admission handoff-admission
+                         :ack-cursor (newest ack)}]
+                :expiry-ms nil}]
+    (is (thrown? js/Error (ws/make-endpoint config)))
+    (let [endpoint (ws/make-endpoint (assoc config :codecs [transit/profile]))]
+      (is (thrown? js/Error (node/listen! endpoint {:host "127.0.0.1" :port 0}))))))

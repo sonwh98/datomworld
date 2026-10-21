@@ -233,15 +233,16 @@
       (is (not= :attached (:status @(first-dial w)))))))
 
 
-(deftest an-explicit-empty-codecs-is-refused-and-omitted-defaults-to-transit
+(deftest absent-or-empty-codecs-are-refused-no-codec
   (let [lnet (net/loopback-net)
         source (toy)
         base {:spec spec :host (host-of lnet)
               :table {(identity-of source) {:handle source :surface #{:reader}}}
               :names {n (identity-of source)}}]
-    (is (thrown? #?(:cljd Object :clj Exception :cljs :default)
-          (rc/serve (assoc base :codecs []))))
-    (is (= [transit/profile] (:codecs (:endpoint (rc/serve base)))))))
+    (is (= ::rc/no-codec (:reason (rc/serve (assoc base :codecs [])))))
+    (is (= ::rc/no-codec (:reason (rc/serve base))))
+    (is (= ::rc/no-codec
+           (:reason (rc/dial {:spec spec :host (host-of lnet) :name n}))))))
 
 
 (deftest production-bounds-reach-every-layer

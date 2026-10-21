@@ -114,3 +114,13 @@
     (is (= :dao.stream/ok
            (:dao.stream/outcome (stream/close! (:ws/handle accepted)))))
     (is (= [[1000 "dao.stream/detached"]] @closes))))
+
+
+(deftest a-codec-less-bind-throws-before-allocating-a-listener
+  (let [deposits (atom [])
+        base {:bind-host "127.0.0.1" :bind-port 0
+              :accept! (fn [& _]) :deposit! (fn [& args] (swap! deposits conj args))}]
+    (is (thrown? Object (dart/bind! base)))
+    (is (thrown? Object (dart/bind! (assoc base :codecs []))))
+    (is (thrown? Object (dart/bind! (assoc base :codecs (list transit/profile)))))
+    (is (= [] @deposits))))

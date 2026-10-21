@@ -12393,3 +12393,38 @@ Decisions: yin.repl wire default moves to CBOR in C2 (resolving OQ1); intentiona
 Verification: bb test:sub dao.stream passed across all 3 lanes (CLJ 499 tests / 0 failures, CLJS 502 tests / 0 failures, CLJD 431 tests / 0 failures). Frozen fixtures pass 100%.
 Delegates: claude-sonnet-5-5 (implementation & fix rounds); claude-fable-5-1 (architect sign-off); gpt-6-astra (independent review & final sign-off rounds).
 Next: Proceed to commission Slice C3 (Contract: dropping defaults and Transit require in dao.stream.ws and host adapters).
+
+
+## 2026-10-21 09:30:00 +0700 — dao.stream host-boundary track: Slice H0 (closure allowlist, tooling & gate test) verified & signed off
+Completed-GMT: 2026-10-21 02:30:00 GMT
+Coding-Agent: Gemini (interactive orchestrator seat)
+Session-ID: cc118b7a-f972-4630-aa72-8f2dcac087ac
+Tree: active worktree .claude/worktrees/host-h0 on branch host-h0 (HEAD 9f6fc27d, based on local master); modified: docs/design/host-boundary/closure-clj.edn, docs/design/host-boundary/closure-cljd.edn, docs/design/host-boundary/closure-cljs.edn, docs/design/test.subsystems.md, src/dev/host_boundary/closure.clj, src/dev/subsystems.edn, test/dao/host/gate_test.clj; main tree: docs/design/dao.stream.host-boundary.md (r10).
+Done: Implemented, verified, and signed off Slice H0 per dao.stream.host-boundary.md §8 H0, §8.1, §14:
+  1. Pure Freeze: Zero src/clj{,s,d,c} runtime changes. Created closure tool src/dev/host_boundary/closure.clj, gate test test/dao/host/gate_test.clj, closure allowlists docs/design/host-boundary/closure-{clj,cljs,cljd}.edn, and corpus manifest corpus-sha256.edn.
+  2. Closure Totals: Matches §3.1 table exactly across all lanes: clj 142, cljs 140, cljd 141, shared 133; lane differences 9/7/8; union 155.
+  3. Review Rounds & Fixes:
+     - Independent reviewer Codex gpt-6-astra identified H0-R1 (body vectors skipped), H0-R2 (lexical scoping across arities and host lanes), H0-R3 (real IO exception handling as :scan-failure), H0-R4 (subsystem registration), and H0-R5 (specify/specify! target expression traversal).
+     - claude-opus-5-5 resolved H0-R1..R5 with extensive regression tests. Registered dao.host in src/dev/subsystems.edn and docs/design/test.subsystems.md.
+     - Section 8.1 reconciliation: claude-fable-5-1 applied r10 amendment to docs/design/dao.stream.host-boundary.md adding the 8 bounded file/category/class exceptions. gate_test.clj enforces category binding bidirectionally.
+  4. Sign-off: Codex gpt-6-astra SIGNED OFF (collab/1792531500000-reviewer-host-boundary-h0-r4.gpt-6-astra.findings.md).
+Decisions: Retain explicit 8-row bounded-exception table; enforce category binding strictly; no unrestricted lane exemptions.
+Verification: bb test:sub:clj dao.host passes cleanly (11 tests, 147 assertions, 0 failures). Closure tool --check and corpus hashes exit 0.
+Delegates: claude-opus-5-5 (implementation & fix rounds); claude-fable-5-1 (r10 design amendment); gpt-6-astra (independent review & sign-off rounds).
+Next: Owner instruction to commit Slice H0 on branch host-h0, publish closure artifacts to Jolt seat, and commission Slice H1 (dao.host.{integer,float,number,bytes,text} pure primitives).
+
+## 2026-10-21 10:20:00 +0700 — dao.stream codec track: Slice C3 (contract removal of defaults) signed off & merged
+Completed-GMT: 2026-10-21 03:20:00 GMT
+Coding-Agent: Gemini (interactive orchestrator seat)
+Session-ID: cc118b7a-f972-4630-aa72-8f2dcac087ac
+Tree: branch codec-c3 in worktree ../datomworld-codec-c3; merged into master at /Users/sto/workspace/datomworld.
+Done: Implemented, verified, and signed off Slice C3 per docs/design/dao.stream.codec.md §§4.2, 4.3, 7.1 C3, 7.3:
+  1. Default Removal: Removed implicit Transit fallback defaults from `make-endpoint`, `make-client`, host adapters (`jvm.clj`, `node.cljs`, `browser.cljs`, `dart.cljd`), and `remote-channel` (`serve`, `dial`). Codec-less composition now explicitly throws or returns `::no-codec` refusal.
+  2. Strict Table Gate: `make-endpoint` requires a non-empty vector of valid codec profiles (rejects sets and lists).
+  3. Dart Pre-Bind Gate: Dart `bind!` verifies valid non-empty profile vector prior to `HttpServer.bind` / `:deposit!`.
+  4. Test Hardening: Added negative test cases across all three lanes (`ws_test.cljc`, `ws_project_jvm_test.clj`, `node_test.cljs`, `dart_test.cljd`).
+  5. Reviews: Initial review by gpt-6-astra identified R1..R4; claude-sonnet-5-5 addressed all findings; claude-fable-5-1 re-reviewed and granted SIGNED OFF WITH CHANGES (R5 dependency-reading ruling recorded; R6 docstring updates applied).
+  6. Verification: Multi-lane tests pass 100% across all 3 lanes (CLJ 503 tests / 3905 assertions; CLJS 506 tests / 4294 assertions; CLJD 435 tests / 0 failures).
+Decisions: R5 literal grep gate satisfied under dependency reading (`dao.jing.stream` docstrings and H0 closure inventory retained). R6 docstring corrections applied in `remote_channel.cljc`.
+Delegates: claude-sonnet-5-5 (implementation & fix rounds); gpt-6-astra (initial review); claude-fable-5-1 (final architectural review & sign-off).
+Next: Proceed to Slice C4 (Contract: single acceptance key set).
