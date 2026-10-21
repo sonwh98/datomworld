@@ -249,7 +249,7 @@
    so byte identity is unmakeable there: such a string classifies
    unsupported, in a value or in an ident's parts alike."
   [s]
-  (let [n (count s)]
+  (let [n (text/unit-count s)]
     (loop [i 0]
       (if (>= i n)
         true
