@@ -167,55 +167,9 @@
            "If you want rapid prototyping and modular assembly, you accept Unity's garbage collection hitches and native-to-managed boundary taxes, or Godot's pointer-chasing node trees and dynamic signal sprawl."]
           [:p
            "All five paradigms have painted themselves into architectural dead ends. "
-           "The sections that follow analyze why Unreal, DOOM, Unity, Godot, and Bevy each hit a fundamental wall, and why the solutions of the past three decades have only deepened the fracture."]
-          [:h2 "1. The Anatomy of Unreal: The Monolithic OOP Facade"]
-          [:p
-           "Unreal Engine won the commercial AAA market because it catered to content creators: artists, level designers, and technical animators. "
-           "To make life intuitive for humans, Unreal adopted the classical Object-Oriented Programming (OOP) paradigm."]
-          [:p
-           "In Unreal, everything in the world is an "
-           [:code "AActor"]
-           ". "
-           "An Actor is a massive C++ object packed with virtual function pointer tables, component arrays, and reflection metadata. "
-           "Actors inherit through deep, rigid taxonomies:"]
-          [:pre
-           [:code
-            {:class "language-text"}
-            "UObject -> AActor -> APawn -> ACharacter -> APlayerCharacter"]]
-          [:p
-           "To allow the editor to inspect properties, serialize levels, and expose variables to Blueprints visual scripting, "
-           "Epic created the Unreal Header Tool (UHT). Every property annotated with "
-           [:code "UPROPERTY()"]
-           " "
-           "is tracked by generated reflection metadata. While this makes building an editor UI relatively straightforward, "
-           "it exacts a devastating architectural toll at runtime:"]
-          [:ul.bulleted
-           [:li
-            [:strong "Cache Destruction:"]
-            " Game entities live scattered across the heap behind pointers. Iterating over actors means chasing pointers through memory, incurring constant L1 and L2 cache misses."]
-           [:li
-            [:strong "Hidden Re-entrancy and Tick Hell:"]
-            " Because entities encapsulate mutable state, calling a method like "
-            [:code "TakeDamage()"]
-            " triggers cascades of delegates and side effects. If Actor A mutates Actor B during an iteration loop, iterator invalidation and order-of-execution bugs follow. Unreal had to invent complex TickGroup staging and prerequisite arrays just to keep its game loop from collapsing."]
-           [:li
-            [:strong "The State Synchronization Tax:"]
-            " Over half of all gameplay bugs stem from state desynchronization. A character died on the server, but the client animation blueprint is still in the Run state, while the UI health bar shows five percent. Keeping mutable C++ object graphs in sync across network boundaries requires thousands of lines of fragile boilerplate."]
-           [:li
-            [:strong "Micro-Stutter and Frame Pacing:"]
-            " Periodic garbage collection sweeps, runtime memory allocation, and heavy Game Thread actor ticks cause random frame-time spikes that break the visual illusion of real-time simulation."]]
-          [:p
-           "The supreme irony is that Tim Sweeney himself has long recognized this flaw. "
-           "In his famous 2006 POPL keynote, "
-           [:a
-            {:href
-             "https://www.cs.princeton.edu/~dpw/popl/06/Tim-POPL.pdf"}
-            "The Next Mainstream Programming Language: A Game Developer's Perspective"]
-           ", Sweeney argued that shared mutable state is the primary obstacle to concurrent software, "
-           "praising functional programming and immutability. "
-           "Yet the commercial reality of Unreal Engine's legacy codebase kept it chained to mutable OOP for twenty more years."]
+           "The sections that follow analyze why DOOM, Unreal, Unity, Godot, and Bevy each hit a fundamental wall, and why the solutions of the past three decades have only deepened the fracture."]
           [:h2
-           "2. The Anatomy of DOOM: From 1993 Data Purity to Modern Titanium"]
+           "1. The Anatomy of DOOM: From 1993 Data Purity to Modern Titanium"]
           [:h3
            "The 1993 Epiphany: When Classic DOOM Anticipated Datoms"]
           [:p
@@ -326,6 +280,52 @@
            "DOOM's data layouts are so tightly coupled to the silicon and frozen at map load that they offer no natural hook for dynamic inspection or live, visual iteration. "
            "Because the engine has no runtime reflection layer and no dynamic scripting VM, "
            "content creation demands an elite, expensive team of systems engineers, technical artists, and custom offline baking pipelines."]
+          [:h2 "2. The Anatomy of Unreal: The Monolithic OOP Facade"]
+          [:p
+           "Unreal Engine won the commercial AAA market because it catered to content creators: artists, level designers, and technical animators. "
+           "To make life intuitive for humans, Unreal adopted the classical Object-Oriented Programming (OOP) paradigm."]
+          [:p
+           "In Unreal, everything in the world is an "
+           [:code "AActor"]
+           ". "
+           "An Actor is a massive C++ object packed with virtual function pointer tables, component arrays, and reflection metadata. "
+           "Actors inherit through deep, rigid taxonomies:"]
+          [:pre
+           [:code
+            {:class "language-text"}
+            "UObject -> AActor -> APawn -> ACharacter -> APlayerCharacter"]]
+          [:p
+           "To allow the editor to inspect properties, serialize levels, and expose variables to Blueprints visual scripting, "
+           "Epic created the Unreal Header Tool (UHT). Every property annotated with "
+           [:code "UPROPERTY()"]
+           " "
+           "is tracked by generated reflection metadata. While this makes building an editor UI relatively straightforward, "
+           "it exacts a devastating architectural toll at runtime:"]
+          [:ul.bulleted
+           [:li
+            [:strong "Cache Destruction:"]
+            " Game entities live scattered across the heap behind pointers. Iterating over actors means chasing pointers through memory, incurring constant L1 and L2 cache misses."]
+           [:li
+            [:strong "Hidden Re-entrancy and Tick Hell:"]
+            " Because entities encapsulate mutable state, calling a method like "
+            [:code "TakeDamage()"]
+            " triggers cascades of delegates and side effects. If Actor A mutates Actor B during an iteration loop, iterator invalidation and order-of-execution bugs follow. Unreal had to invent complex TickGroup staging and prerequisite arrays just to keep its game loop from collapsing."]
+           [:li
+            [:strong "The State Synchronization Tax:"]
+            " Over half of all gameplay bugs stem from state desynchronization. A character died on the server, but the client animation blueprint is still in the Run state, while the UI health bar shows five percent. Keeping mutable C++ object graphs in sync across network boundaries requires thousands of lines of fragile boilerplate."]
+           [:li
+            [:strong "Micro-Stutter and Frame Pacing:"]
+            " Periodic garbage collection sweeps, runtime memory allocation, and heavy Game Thread actor ticks cause random frame-time spikes that break the visual illusion of real-time simulation."]]
+          [:p
+           "The supreme irony is that Tim Sweeney himself has long recognized this flaw. "
+           "In his famous 2006 POPL keynote, "
+           [:a
+            {:href
+             "https://www.cs.princeton.edu/~dpw/popl/06/Tim-POPL.pdf"}
+            "The Next Mainstream Programming Language: A Game Developer's Perspective"]
+           ", Sweeney argued that shared mutable state is the primary obstacle to concurrent software, "
+           "praising functional programming and immutability. "
+           "Yet the commercial reality of Unreal Engine's legacy codebase kept it chained to mutable OOP for twenty more years."]
           [:h2 "3. The Anatomy of Unity: The Managed Component Trap"]
           [:p
            "Unity entered the industry with a revolutionary insight: "
