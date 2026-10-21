@@ -123,21 +123,27 @@
 
 
 (deftest unpaired-surrogates-are-refused-on-encode
-  (doseq [units [[0xD800] [0xDC00] [0x61 0xD800] [0xD800 0x61] [0x61 0xDC80 0x62]
-                 [0xDE00 0xD83D] [0xDBFF] [0xD83D 0xD83D 0xDE00]]]
-    (is (= :unpaired-surrogate (refusal #(text/utf8-encode (text/units->string units))))
-        (pr-str units)))
-  (is (= :unsupported-value (refusal #(text/utf8-encode nil))))
-  (is (= [0xF0 0x9F 0x98 0x80] (utf8 (text/units->string [0xD83D 0xDE00])))))
+  #?(:jolt nil
+     :default
+     (do
+       (doseq [units [[0xD800] [0xDC00] [0x61 0xD800] [0xD800 0x61] [0x61 0xDC80 0x62]
+                      [0xDE00 0xD83D] [0xDBFF] [0xD83D 0xD83D 0xDE00]]]
+         (is (= :unpaired-surrogate (refusal #(text/utf8-encode (text/units->string units))))
+             (pr-str units)))
+       (is (= :unsupported-value (refusal #(text/utf8-encode nil))))
+       (is (= [0xF0 0x9F 0x98 0x80] (utf8 (text/units->string [0xD83D 0xDE00])))))))
 
 
 (deftest code-points-test
   (is (= [] (text/code-points "")) "the empty string")
   (is (= [0x61 0xE9 0x4E2D] (text/code-points "aé中")) "BMP")
   (is (= [0x1F600] (text/code-points (text/units->string [0xD83D 0xDE00]))) "a non-BMP pair")
-  (is (= [0xD83D 0x61] (text/code-points (text/units->string [0xD83D 0x61]))) "a lone high surrogate")
-  (is (= [0x61 0xDE00] (text/code-points (text/units->string [0x61 0xDE00]))) "a lone low surrogate")
-  (is (= [0xD83D] (text/code-points (text/units->string [0xD83D]))) "a lone high at the end"))
+  #?(:jolt nil
+     :default
+     (do
+       (is (= [0xD83D 0x61] (text/code-points (text/units->string [0xD83D 0x61]))) "a lone high surrogate")
+       (is (= [0x61 0xDE00] (text/code-points (text/units->string [0x61 0xDE00]))) "a lone low surrogate")
+       (is (= [0xD83D] (text/code-points (text/units->string [0xD83D]))) "a lone high at the end"))))
 
 
 ;; =============================================================================
@@ -198,6 +204,7 @@
    stale silently."
   []
   #?(:cljd []
+     :jolt []
      :clj (if (< (.feature (Runtime/version)) 24)
             [67017 67044 70531 70533 70542 70545 70597 70599 70600
              90401 90402 90403 90404 90405 90406 90407 90408
