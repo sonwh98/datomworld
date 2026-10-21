@@ -32,8 +32,8 @@
 
 
 ;; 1. tracked load
-(check "the closure of yang.antlr.export is exactly it and yang.antlr.packet (no transit)"
-       (= '(yang.antlr.export yang.antlr.packet) added)
+(check "the closure of yang.antlr.export is exactly it, yang.antlr.packet, dao.host.text and jolt.scheme (no transit)"
+       (= '(dao.host.text jolt.scheme yang.antlr.export yang.antlr.packet) added)
        added)
 
 
