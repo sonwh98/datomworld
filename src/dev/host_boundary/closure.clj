@@ -119,6 +119,7 @@
 (def class-rows
   [[:profile-internal-pure "H1-H2 (writer H4); the dao.host profile (H1, reached at H2)"
     '[dao.host.integer dao.host.float dao.host.number dao.host.bytes dao.host.text
+      dao.host.hash dao.host.sign
       dao.jing.cbor dao.jing.cbor.boring dao.jing.cbor.cljd
       yin.vm.debruijn yin.vm.debruijn-code yin.vm.data yin.vm.values
       dao.stream.chunks dao.stream.base64 dao.jing.dht yin.vm.linker

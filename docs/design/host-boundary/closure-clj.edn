@@ -3,8 +3,8 @@
 {:lane :clj,
  :root yin.repl.main,
  :features #{:clj},
- :total 146,
- :shared 137,
+ :total 148,
+ :shared 139,
  :lane-specific 9,
  :class-legend
  {:codec-track "codec track, untouched (§8.3)",
@@ -77,12 +77,20 @@
    :ns dao.host.float,
    :shared true,
    :classes #{:profile-internal-pure}}
+  {:file "src/cljc/dao/host/hash.cljc",
+   :ns dao.host.hash,
+   :shared true,
+   :classes #{:profile-internal-pure}}
   {:file "src/cljc/dao/host/integer.cljc",
    :ns dao.host.integer,
    :shared true,
    :classes #{:profile-internal-pure}}
   {:file "src/cljc/dao/host/number.cljc",
    :ns dao.host.number,
+   :shared true,
+   :classes #{:profile-internal-pure}}
+  {:file "src/cljc/dao/host/sign.cljc",
+   :ns dao.host.sign,
    :shared true,
    :classes #{:profile-internal-pure}}
   {:file "src/cljc/dao/host/text.cljc",

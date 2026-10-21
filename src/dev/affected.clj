@@ -520,7 +520,7 @@
       (any? texts #"yin-repl\.js") (conj :build:yin-repl-node)
       (any? texts #"yin-repl-peer") (conj :build:yin-repl-peer)
       (any? clj-texts #"Python3Parser|Python3Lexer|build/antlr")
-      (conj :gen:python-antlr))))
+      (conj :gen:antlr))))
 
 
 (defn serialized-pairs
@@ -799,7 +799,7 @@
                 prereqs (prerequisites index run)
                 serial (serialized-pairs index run)]
             (doseq [task [:build:yin-repl-peer :build:yin-repl-node
-                          :gen:python-antlr]]
+                          :gen:antlr]]
               (if (prereqs task)
                 (do (println "Prerequisite" (name task)
                              "(a selected test or its requires name its output)")
@@ -855,7 +855,7 @@
                 prereqs (prerequisites index run)
                 serial (serialized-pairs index run)]
             (doseq [task [:build:yin-repl-peer :build:yin-repl-node
-                          :gen:python-antlr]]
+                          :gen:antlr]]
               (if (prereqs task)
                 (do (println "Prerequisite" (name task)
                              "(a selected test or its requires name its output)")
