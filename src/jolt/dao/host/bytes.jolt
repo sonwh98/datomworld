@@ -1,0 +1,166 @@
+(ns dao.host.bytes
+  "The jolt override of src/cljc/dao/host/bytes.cljc (the :jolt alias puts
+   src/jolt first, docs/design/yin.repl-jolt-implementation.md §4.2): the
+   same public entries, arities, laws and refusal data
+   (docs/design/dao.stream.host-boundary.md §4.2, table A; §2.4).
+
+   The host byte array on jolt is jolt's own byte array (`byte-array`,
+   class `byte/1`, signed elements like the JVM's `byte[]`), so shared code
+   that reads one with `aget`/`alength`, and the test fixtures, see the
+   same value. A byte is read and written as a native integer 0 to 255.
+   Every entry is written over jolt's core array functions only, with the
+   prevalidation and memmove the laws require spelled out, rather than over
+   the `System/arraycopy` and `java.util.Arrays` shims the shared :clj arms
+   would reach."
+  (:refer-clojure :exclude [bytes? get set!]))
+
+
+(defn- refuse
+  [entry cls detail]
+  (throw (ex-info (str "dao.host refused: " entry " " (name cls) " (" detail ")")
+                  {:dao.host/refusal cls :dao.host/entry entry :detail detail})))
+
+
+(defn bytes?
+  "P. True when `x` is a host byte array."
+  [x]
+  (clojure.core/bytes? x))
+
+
+(defn- native-int?
+  [x]
+  (int? x))
+
+
+(defn- check-bytes!
+  [entry bs]
+  (when-not (bytes? bs)
+    (refuse entry :unsupported-value "not a host byte array")))
+
+
+(defn- check-index!
+  "Refuse unless native integer `i` lies in [lo, hi]."
+  [entry i lo hi]
+  (when-not (and (native-int? i) (<= lo i) (<= i hi))
+    (refuse entry :out-of-range (str i " not in [" lo ", " hi "]"))))
+
+
+(defn- check-byte!
+  [entry v]
+  (when-not (and (native-int? v) (<= 0 v) (<= v 255))
+    (refuse entry :out-of-range (str v " is not a byte 0-255"))))
+
+
+(defn length
+  "P. The number of bytes in `bs`."
+  [bs]
+  (check-bytes! 'length bs)
+  (alength bs))
+
+
+(defn alloc
+  "P, fresh. A new host byte array of `n` zero bytes, `n` a native
+   integer from 0."
+  [n]
+  (when-not (and (native-int? n) (<= 0 n))
+    (refuse 'alloc :out-of-range (str n " is not a length")))
+  (byte-array n))
+
+
+(defn- byte-at
+  "The byte at an index already checked."
+  [bs i]
+  (bit-and (aget bs i) 0xff))
+
+
+(defn- put!
+  "Write byte `v` at an index already checked."
+  [bs i v]
+  (aset bs i (unchecked-byte v)))
+
+
+(defn get
+  "P. The byte at index `i` of `bs`, 0 to 255."
+  [bs i]
+  (check-index! 'get i 0 (dec (length bs)))
+  (byte-at bs i))
+
+
+(defn slice
+  "P, fresh. A new host byte array holding `bs[start, end)`, for
+   0 <= start <= end <= length."
+  [bs start end]
+  (let [n (length bs)]
+    (check-index! 'slice start 0 n)
+    (check-index! 'slice end start n))
+  (let [out (byte-array (- end start))]
+    (dotimes [i (- end start)]
+      (aset out i (aget bs (+ start i))))
+    out))
+
+
+(defn equal?
+  "P. True when byte arrays `a` and `b` hold the same bytes."
+  [a b]
+  (let [n (length a)]
+    (and (= n (length b))
+         (loop [i 0]
+           (or (= i n)
+               (and (= (byte-at a i) (byte-at b i))
+                    (recur (inc i))))))))
+
+
+(defn from-vector
+  "P, fresh. A new host byte array of `xs`, a vector of native integers
+   0 to 255; any other element is refused `:out-of-range` before
+   anything is built."
+  [xs]
+  (when-not (vector? xs)
+    (refuse 'from-vector :unsupported-value "not a vector"))
+  (run! #(check-byte! 'from-vector %) xs)
+  (let [out (byte-array (count xs))]
+    (dotimes [i (count xs)]
+      (put! out i (nth xs i)))
+    out))
+
+
+(defn to-vector
+  "P. The bytes of `bs` as a vector of native integers 0 to 255."
+  [bs]
+  (let [n (length bs)]
+    (loop [i 0
+           out (transient [])]
+      (if (< i n)
+        (recur (inc i) (conj! out (byte-at bs i)))
+        (persistent! out)))))
+
+
+(defn set!
+  "M. Write byte `v`, 0 to 255, at index `i` of target `bs`; nil. A bad
+   index or byte is refused before the write."
+  [bs i v]
+  (check-index! 'set! i 0 (dec (length bs)))
+  (check-byte! 'set! v)
+  (put! bs i v)
+  nil)
+
+
+(defn copy!
+  "M. Copy `len` bytes from `src[src-pos ...]` into target
+   `dest[dest-pos ...]`; nil. Both ranges are checked before any write,
+   and overlapping ranges in one array copy as memmove: backward when the
+   destination starts after the source, forward otherwise."
+  [src src-pos dest dest-pos len]
+  (let [sn (length src)
+        dn (length dest)]
+    (check-index! 'copy! len 0 (min sn dn))
+    (check-index! 'copy! src-pos 0 (- sn len))
+    (check-index! 'copy! dest-pos 0 (- dn len)))
+  (if (and (identical? src dest) (> dest-pos src-pos))
+    (loop [i (dec len)]
+      (when (<= 0 i)
+        (aset dest (+ dest-pos i) (aget src (+ src-pos i)))
+        (recur (dec i))))
+    (dotimes [i len]
+      (aset dest (+ dest-pos i) (aget src (+ src-pos i)))))
+  nil)

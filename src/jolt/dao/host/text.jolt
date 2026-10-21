@@ -1,0 +1,247 @@
+(ns dao.host.text
+  "The jolt override of src/cljc/dao/host/text.cljc (the :jolt alias puts
+   src/jolt first, docs/design/yin.repl-jolt-implementation.md §4.2): the
+   same public entries, arities and refusal data
+   (docs/design/dao.stream.host-boundary.md §4.2, table A).
+
+   A jolt string is a Chez string: a sequence of Unicode scalar values
+   (code points), not of UTF-16 code units; `(count \"😀\")` is 1, and no
+   Chez string can hold a surrogate code point (V: `integer->char` refuses
+   #xD800). The code-unit entries are therefore computed over the UTF-16
+   view of the scalar values: `unit-count` counts a code point above
+   U+FFFF as two units and `code-unit` answers its high or low surrogate.
+   Exactly the strings with every surrogate paired are representable, so:
+
+   - `units->string` builds every string the profile admits EXCEPT one
+     holding an unpaired surrogate, which a Chez string cannot hold. It
+     does not invent a value for that input: it throws an ex-info whose
+     data carries `:jolt/unimplemented` (and no `:dao.host/refusal`). J1
+     stopped on that entry; the options are in the J1 report.
+   - `utf8-encode`'s unpaired-surrogate refusal can never be reached on
+     jolt, because no jolt string has an unpaired surrogate; the check is
+     kept, verbatim, over the code-unit view.
+   - `utf8-decode` is a strict RFC 3629 decoder written here over the
+     bytes (Unicode table 3-7), never Chez's `utf8->string`, which
+     substitutes; a leading BOM is content.
+   - `nfc` is Chez's `string-normalize-nfc`. Chez 10.4 implements Unicode
+     17.0.0 (release notes, \"Unicode 17.0.0 support (10.4.0)\"), not the
+     profile's pinned 16.0; by the Unicode normalization stability policy
+     the two agree on every string of 16.0-assigned code points, and may
+     differ only on code points first assigned in 17.0."
+  (:require
+    [jolt.scheme :as scheme]))
+
+
+(defn- refuse
+  [entry cls detail]
+  (throw (ex-info (str "dao.host refused: " entry " " (name cls) " (" detail ")")
+                  {:dao.host/refusal cls :dao.host/entry entry :detail detail})))
+
+
+(def ^:private chez-string-length (scheme/proc "string-length"))
+(def ^:private chez-string-ref (scheme/proc "string-ref"))
+(def ^:private chez-char->integer (scheme/proc "char->integer"))
+(def ^:private chez-integer->char (scheme/proc "integer->char"))
+(def ^:private chez-string->utf8 (scheme/proc "string->utf8"))
+(def ^:private chez-bytevector-length (scheme/proc "bytevector-length"))
+(def ^:private chez-bytevector-u8-ref (scheme/proc "bytevector-u8-ref"))
+(def ^:private chez-string-normalize-nfc (scheme/proc "string-normalize-nfc"))
+
+
+(defn- scalar-at
+  [s i]
+  (chez-char->integer (chez-string-ref s i)))
+
+
+;; =============================================================================
+;; Code units
+;; =============================================================================
+
+(defn unit-count
+  "P. The number of UTF-16 code units of string `s`: one per code point,
+   two for a code point above U+FFFF."
+  [s]
+  (let [n (chez-string-length s)]
+    (loop [i 0
+           units 0]
+      (if (< i n)
+        (recur (inc i) (if (< (scalar-at s i) 0x10000) (inc units) (+ units 2)))
+        units))))
+
+
+(defn code-unit
+  "P. The UTF-16 code unit at index `i` of `s`, 0 to 0xFFFF; the caller
+   has checked 0 <= i < `unit-count`. A code point above U+FFFF answers
+   its high surrogate at its first unit and its low at its second."
+  [s i]
+  (loop [ci 0
+         at 0]
+    (let [cp (scalar-at s ci)]
+      (if (< cp 0x10000)
+        (if (= at i) cp (recur (inc ci) (inc at)))
+        (cond (= at i) (+ 0xD800 (quot (- cp 0x10000) 0x400))
+              (= (inc at) i) (+ 0xDC00 (rem (- cp 0x10000) 0x400))
+              :else (recur (inc ci) (+ at 2)))))))
+
+
+(defn- high-surrogate?
+  [u]
+  (<= 0xD800 u 0xDBFF))
+
+
+(defn- low-surrogate?
+  [u]
+  (<= 0xDC00 u 0xDFFF))
+
+
+(defn units->string
+  "P. The host string of the UTF-16 code units `units` (each 0 to
+   0xFFFF). A surrogate pair becomes its one code point. An unpaired
+   surrogate has no Chez string: unimplemented on jolt (see the namespace
+   docstring), thrown as `:jolt/unimplemented`, not as a profile refusal."
+  [units]
+  (let [units (vec units)
+        n (count units)]
+    (loop [i 0
+           out (transient [])]
+      (if (< i n)
+        (let [u (nth units i)
+              v (when (< (inc i) n) (nth units (inc i)))]
+          (cond
+            (and (high-surrogate? u) v (low-surrogate? v))
+            (recur (+ i 2)
+                   (conj! out (chez-integer->char (+ 0x10000
+                                                     (* (- u 0xD800) 0x400)
+                                                     (- v 0xDC00)))))
+            (or (high-surrogate? u) (low-surrogate? u))
+            (throw (ex-info (str "jolt: units->string cannot build a string holding the unpaired surrogate "
+                                 u " at unit " i ": a Chez string holds only Unicode scalar values")
+                            {:jolt/unimplemented 'dao.host.text/units->string
+                             :unit u
+                             :index i}))
+            :else (recur (inc i) (conj! out (chez-integer->char u)))))
+        (apply str (persistent! out))))))
+
+
+(defn code-points
+  "P, table B. The code points of string `s` as a vector: a surrogate
+   pair decodes to one code point, an unpaired surrogate is its own."
+  [s]
+  (let [n (unit-count s)]
+    (loop [i 0
+           out (transient [])]
+      (if (< i n)
+        (let [u (code-unit s i)
+              v (when (< (inc i) n) (code-unit s (inc i)))]
+          (if (and (high-surrogate? u) v (low-surrogate? v))
+            (recur (+ i 2)
+                   (conj! out (+ 0x10000
+                                 (* (- u 0xD800) 0x400)
+                                 (- v 0xDC00))))
+            (recur (inc i) (conj! out u))))
+        (persistent! out)))))
+
+
+;; =============================================================================
+;; UTF-8
+;; =============================================================================
+
+(defn- check-surrogates!
+  "Refuse `:unpaired-surrogate` unless every surrogate of `s` is paired."
+  [entry s]
+  (let [n (unit-count s)]
+    (loop [i 0]
+      (when (< i n)
+        (let [c (code-unit s i)]
+          (cond
+            (high-surrogate? c)
+            (if (and (< (inc i) n) (low-surrogate? (code-unit s (inc i))))
+              (recur (+ i 2))
+              (refuse entry :unpaired-surrogate (str "unpaired high surrogate at " i)))
+            (low-surrogate? c)
+            (refuse entry :unpaired-surrogate (str "unpaired low surrogate at " i))
+            :else (recur (inc i))))))))
+
+
+(defn utf8-encode
+  "P, fresh. The UTF-8 bytes of string `s`, as a jolt byte array (Chez's
+   `string->utf8`, copied out of its bytevector). A string holding an
+   unpaired surrogate is refused `:unpaired-surrogate` before any host
+   encoder sees it; on jolt no such string exists."
+  [s]
+  (when-not (string? s)
+    (refuse 'utf8-encode :unsupported-value "not a string"))
+  (check-surrogates! 'utf8-encode s)
+  (let [bv (chez-string->utf8 s)
+        n (chez-bytevector-length bv)
+        out (byte-array n)]
+    (dotimes [i n]
+      (aset out i (unchecked-byte (chez-bytevector-u8-ref bv i))))
+    out))
+
+
+(defn- byte-count
+  [bs]
+  (alength bs))
+
+
+(defn- decode-strict
+  "The code points of the UTF-8 bytes `bs[start, end)`, or nil when they
+   are ill-formed by RFC 3629 (Unicode table 3-7: no overlong form, no
+   encoded surrogate, nothing above U+10FFFF, no truncation)."
+  [bs start end]
+  (let [b (fn [i] (bit-and (aget bs i) 0xff))
+        cont? (fn [i lo hi] (and (< i end) (<= lo (b i) hi)))]
+    (loop [i start
+           out (transient [])]
+      (if (= i end)
+        (persistent! out)
+        (let [b0 (b i)]
+          (cond
+            (<= b0 0x7F) (recur (inc i) (conj! out b0))
+            (<= 0xC2 b0 0xDF)
+            (when (cont? (+ i 1) 0x80 0xBF)
+              (recur (+ i 2) (conj! out (+ (* (- b0 0xC0) 0x40) (- (b (+ i 1)) 0x80)))))
+            (<= 0xE0 b0 0xEF)
+            (let [[lo hi] (case b0 0xE0 [0xA0 0xBF] 0xED [0x80 0x9F] [0x80 0xBF])]
+              (when (and (cont? (+ i 1) lo hi) (cont? (+ i 2) 0x80 0xBF))
+                (recur (+ i 3)
+                       (conj! out (+ (* (- b0 0xE0) 0x1000)
+                                     (* (- (b (+ i 1)) 0x80) 0x40)
+                                     (- (b (+ i 2)) 0x80))))))
+            (<= 0xF0 b0 0xF4)
+            (let [[lo hi] (case b0 0xF0 [0x90 0xBF] 0xF4 [0x80 0x8F] [0x80 0xBF])]
+              (when (and (cont? (+ i 1) lo hi) (cont? (+ i 2) 0x80 0xBF)
+                         (cont? (+ i 3) 0x80 0xBF))
+                (recur (+ i 4)
+                       (conj! out (+ (* (- b0 0xF0) 0x40000)
+                                     (* (- (b (+ i 1)) 0x80) 0x1000)
+                                     (* (- (b (+ i 2)) 0x80) 0x40)
+                                     (- (b (+ i 3)) 0x80))))))
+            :else nil))))))
+
+
+(defn utf8-decode
+  "P. The string of the UTF-8 bytes `bs`, or of `bs[start, start+len)`.
+   Strict: any ill-formed sequence is refused `:invalid-utf8`, never
+   substituted; a range outside `bs` is refused `:out-of-range`."
+  ([bs] (utf8-decode bs 0 (byte-count bs)))
+  ([bs start len]
+   (let [n (byte-count bs)]
+     (when-not (and (int? start) (int? len) (<= 0 start) (<= 0 len) (<= (+ start len) n))
+       (refuse 'utf8-decode :out-of-range (str "[" start ", +" len ") outside " n " bytes"))))
+   (if-let [cps (decode-strict bs start (+ start len))]
+     (apply str (map chez-integer->char cps))
+     (refuse 'utf8-decode :invalid-utf8 "ill-formed UTF-8 (RFC 3629)"))))
+
+
+;; =============================================================================
+;; Normalization
+;; =============================================================================
+
+(defn nfc
+  "P. Unicode Normalization Form C of string `s`: Chez's
+   `string-normalize-nfc` (Unicode 17.0.0 in Chez 10.4; the profile pins
+   16.0, see the namespace docstring)."
+  [s]
+  (chez-string-normalize-nfc s))
