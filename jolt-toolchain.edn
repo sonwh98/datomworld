@@ -40,7 +40,10 @@
                     "host/chez/seed/image.ss" {:before "a790ba2980830e059ec224cabf9a02892a653a06cd35e5ec74aa2c795adce190" :after "a75740b60a11a1d0152d03403ff12ec1cebea11c748ee254644d74b92afe93e5"}
                     "host/gambit/seed/prelude.ss" {:before "a3eb8b8a19003a252a08700f49cb83834a092d721598f20c57a96e41a9d057f2" :after "27e7762437fde68b65554c17e2c03e95ca79117e565cc1c96eaf1117e9f8ed6e"}
                     "host/gambit/seed/image.ss" {:before "42e90f5a4efa06763e0259137ba54c4656e181041b1b2e4e8a42adf35d9905cd" :after "3b806aa5d8f9cf6bfd09189461ec9e22696ebce21e2ceaba94f512321dd98543"}}
-     :linux-x86_64 nil} ; filled by the first shiva bootstrap
+     :linux-x86_64 {"host/chez/seed/prelude.ss" {:before "63655544e5dd7e33558d908acba31fbd1e7e204a416deab243c63fcab690c381" :after "7a8674c6f335def790a28d97a9e573377bf6f482afe91f6c17f93f9322a96926"}
+                    "host/chez/seed/image.ss" {:before "a790ba2980830e059ec224cabf9a02892a653a06cd35e5ec74aa2c795adce190" :after "a75740b60a11a1d0152d03403ff12ec1cebea11c748ee254644d74b92afe93e5"}
+                    "host/gambit/seed/prelude.ss" {:before "a3eb8b8a19003a252a08700f49cb83834a092d721598f20c57a96e41a9d057f2" :after "27e7762437fde68b65554c17e2c03e95ca79117e565cc1c96eaf1117e9f8ed6e"}
+                    "host/gambit/seed/image.ss" {:before "42e90f5a4efa06763e0259137ba54c4656e181041b1b2e4e8a42adf35d9905cd" :after "3b806aa5d8f9cf6bfd09189461ec9e22696ebce21e2ceaba94f512321dd98543"}}} ; identical to darwin-arm64: the Linux re-mint on shiva (Chez 10.4.1) reproduced the same seed digests, 2026-10-22
     :smoke {:form "(let [s (reify clojure.lang.Sorted (comparator [_] compare) (entryKey [_ e] e) (seq [_ asc] (seq (if asc [1 2 3] [3 2 1]))) (seqFrom [_ k asc] (seq (drop-while #(if asc (< % k) (> % k)) (if asc [1 2 3] [3 2 1])))))] [(sorted? s) (subseq s > 1) (rsubseq s < 3)])"
             :expect "[true (2 3) (2 1)]"}}]}
 
