@@ -15,8 +15,16 @@
 (defn- finite-number?
   [x]
   ;; ClojureDart supplies both :clj and :cljd reader features, so its branch
-  ;; must come first in every mixed-host reader conditional in this namespace.
+  ;; must come first in every mixed-host reader conditional in this
+  ;; namespace. The :jolt arm (design 9.4: the host number predicate every
+  ;; codec uses is jolt-portable work) exists because jolt 96d7b866 has no
+  ;; Double/isFinite static: exact integers are java.lang.Long (the safe
+  ;; domain never reaches a BigInt), and a Double is finite when it is
+  ;; neither infinity and not the one value that differs from itself.
   #?(:cljd (and (number? x) (.-isFinite ^num x))
+     :jolt (or (instance? java.lang.Long x)
+               (and (instance? java.lang.Double x)
+                    (not (or (== x ##Inf) (== x ##-Inf) (not= x x)))))
      :clj (or (instance? java.lang.Byte x)
               (instance? java.lang.Short x)
               (instance? java.lang.Integer x)
