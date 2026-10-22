@@ -193,9 +193,12 @@
 ;; =============================================================================
 
 (def ^:private lone-surrogate
-  "An unpaired UTF-16 high surrogate: constructible on every host, and
-   refused everywhere by `well-formed-utf16?` (S2's own UTF-16 guard)."
-  #?(:clj "\uD800"
+  "An unpaired UTF-16 high surrogate: constructible on hosts with UTF-16 string
+   representations, and refused everywhere by `well-formed-utf16?`.
+   On Jolt (Chez Scheme strings hold Unicode scalar values), lone surrogates cannot
+   be constructed, so this is nil."
+  #?(:jolt nil
+     :clj "\uD800"
      :cljs (js/String.fromCharCode 0xD800)
      :cljd (String.fromCharCode 0xD800)))
 
@@ -208,20 +211,21 @@
 
 
 (deftest unsupported-value-is-refused-not-silently-hashed
-  (testing "encode-scalar refuses a lone UTF-16 surrogate directly"
-    (is (= :unsupported-value (unsupported-value-rule #(dc/encode-scalar lone-surrogate)))))
-  (testing "image-hash refuses it inside a :const operand"
-    (is (= :unsupported-value
-           (unsupported-value-rule #(dc/image-hash (const-return lone-surrogate))))))
-  (testing "image-defect rejects it inside a :str operand before hashing (P1-1's
-            first entry point: the structural :str kind check)"
-    (is (= {:rule :operand-kind, :pc 0}
-           (dc/image-defect [[:gensym lone-surrogate] [:return]]))))
-  (testing "image-hash also refuses it inside a :str operand (P1-1's second
-            entry point: encode-operand, independent of whether image-defect
-            ran first)"
-    (is (= :unsupported-value
-           (unsupported-value-rule #(dc/image-hash [[:gensym lone-surrogate] [:return]])))))
+  (when lone-surrogate
+    (testing "encode-scalar refuses a lone UTF-16 surrogate directly"
+      (is (= :unsupported-value (unsupported-value-rule #(dc/encode-scalar lone-surrogate)))))
+    (testing "image-hash refuses it inside a :const operand"
+      (is (= :unsupported-value
+             (unsupported-value-rule #(dc/image-hash (const-return lone-surrogate))))))
+    (testing "image-defect rejects it inside a :str operand before hashing (P1-1's
+              first entry point: the structural :str kind check)"
+      (is (= {:rule :operand-kind, :pc 0}
+             (dc/image-defect [[:gensym lone-surrogate] [:return]]))))
+    (testing "image-hash also refuses it inside a :str operand (P1-1's second
+              entry point: encode-operand, independent of whether image-defect
+              ran first)"
+      (is (= :unsupported-value
+             (unsupported-value-rule #(dc/image-hash [[:gensym lone-surrogate] [:return]]))))))
   (testing "the JVM refuses a BigDecimal/Float instead of silently folding it
             to the nearest double (debruijn-b1-fix P2-1), pinning host-double?
             against a regression to the old complement rule"
