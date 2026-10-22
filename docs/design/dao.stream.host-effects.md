@@ -597,3 +597,7 @@ search); `dao/jing/content/step.cljc:1-60`; `src/clj/dao/jing/dht/facade.clj:1-2
   creation spec.
 - **OQ-H4 (2026-10-22, owner: "accept as recommended")**: H8b fixtures are written with the
   first binary, not now.
+- **OQ-H5 (2026-10-22, owner: "accept as recommended")**: after-rename sync failure is retried by
+  the publisher (`store` handle, `index` rounds; three attempts) and the follower (`repl/dht`
+  `waiting` schedule; five attempts), bounded, under the held lock, then surfaced. The settings
+  file (`state/save!`) warns only, with no retry. The seam never retries.
