@@ -588,3 +588,8 @@ search); `dao/jing/content/step.cljc:1-60`; `src/clj/dao/jing/dht/facade.clj:1-2
 (Owner decisions on §9 are appended here as they are made.)
 - **OQ-H1 (2026-10-22, owner: "accept as recommended")**: Table A grows 76 -> 78 with
   `blake3-keyed [key bytes]` and `blake3-derive-key [context material]` (§2.3).
+- **OQ-H2 (2026-10-22, owner: "accept as recommended")**: one driver root with per-composition
+  subroots and purpose-separated keys, on the §2.2 conditions as written (one minter per
+  (kind, purpose) issued only by an allocator; root allocator in the driver, sub-allocator per
+  composition; u64 counters with `:exhausted`; root never persisted, persisted identities read
+  back). A non-Claude reviewer with crypto background checks the contexts before H5a closes.
