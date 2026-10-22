@@ -93,6 +93,16 @@
                                       ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-test src/dev/jolt_carrier_test.clj --verify"))
                (do (println "pass encode or verify") 2))))}
 
+  test:jolt-cbor-override
+  {:doc "Babashka-only J2 preflight: verify the reviewed shared CBOR SHA-256, public vars/arglists/def initializers and documented parity exceptions; after parity review, --update \"<who, date>\" writes the digest and fresh reviewer note (checks must pass)"
+   :task (System/exit
+           (:exit (apply shell {:continue true :shutdown nil} "bb" "src/dev/jolt_cbor_override_check.clj" *command-line-args*)))}
+
+  test:jolt-cbor-override-self-test
+  {:doc "Self-test the CBOR override review gate in temporary worktree copies; no jolt or natives needed"
+   :task (System/exit
+           (:exit (shell {:continue true :shutdown nil} "bb" "src/dev/jolt_cbor_override_self_test.clj")))}
+
   test:jolt-cbor-parity
   {:doc "J2: differential parity of the jolt dao.stream.cbor host seam (src/jolt/dao/stream/cbor/boring.jolt) against the JVM's pinned Boring: `emit` encodes the shared corpus on the JVM (writes build/j2-logs/cbor-parity.edn), `check` re-encodes it on jolt byte-for-byte, round-trips each row and refuses a battery of non-canonical frames"
    :task (let [mode (or (first *command-line-args*) "emit")]

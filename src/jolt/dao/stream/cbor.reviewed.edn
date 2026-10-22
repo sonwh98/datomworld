@@ -1,0 +1,12 @@
+{:sha256 "7b9ed33f605b3f2ba295adfa6bf50795f0838d56e251a951330f0e66b9f2005f"
+ :reviewer-note "J2 landing review 2026-10-22 (Fable, astra)"
+ :update-instruction "Diff shared cbor.cljc against cbor.jolt; re-check public vars, arglists, def initializers and admission/refusal parity (including :parity-exceptions), run bb test:jolt-cbor-parity and dao.stream.cbor-test on jolt, then regenerate with bb test:jolt-cbor-override --update \"<who, date>\"."
+ :parity-exceptions
+ [{:exception :wire-nesting-budget
+   :limit 64
+   :depth-accounting "Root depth zero; tags and frame arrays count."
+   :refusal {:reason :too-deep :limit 64}
+   :shared-counterpart nil}
+  {:exception :metadata-strictness
+   :difference "Jolt validates symbol and collection metadata iteratively before recursion and refuses malformed metadata that the shared gate admits."}]
+ :api-allowlist {}}

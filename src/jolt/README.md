@@ -62,13 +62,23 @@ seeds `697b91ee`), so bootstrap applies no patches and does no re-mint. The form
 mechanism remains available for future patches. `bb test:jolt-bootstrap-neg`
 uses its own temporary synthetic patch to exercise the refusal gates.
 
-J2 round-3 safety: `dao/stream/cbor.jolt` overrides the public gate so iterative
-portable validation (including symbol metadata) runs before recursion. The jolt
-CBOR seam enforces a 64-level **wire** nesting budget (root depth zero; tags and
-frame arrays count), refusing `{:reason :too-deep :limit 64}`. This local resource
-bound has no shared-host counterpart yet. Canonical keys/elements retain their
+J2 round-3 safety: `dao/stream/cbor.jolt` overrides the public gate; its admission
+exceptions are recorded in [`dao/stream/cbor.reviewed.edn`](dao/stream/cbor.reviewed.edn)
+under `:parity-exceptions`. Canonical keys/elements retain their
 encoded bytes and must increase strictly, including byte-array duplicates.
 `src/dev/jolt_cbor_safety.clj` exercises performance and main/worker boundaries.
 The crypto provenance gate now checks all 19 libcrypto symbol origins, including
 `RAND_bytes`; the exported wrapper surface remains nine entries, layout 3.
 Seeds use native nonallocating cleanse before free, including failed draws.
+
+`bb test:jolt-cbor-override` is a babashka-only review gate, also run before
+J2 list/core/probe/jvm work: it checks the exact shared-source SHA-256 recorded
+in `dao/stream/cbor.reviewed.edn`, public vars and literal argument vectors,
+and every public def initializer. Extraction reads top-level defn/def forms for each
+host reader branch without evaluating them; it cannot infer macro-generated
+vars or alias arities. On drift, diff the whole-file override, run
+`bb test:jolt-cbor-parity` (emit/check) and `dao.stream.cbor-test` on jolt,
+review admission/refusal parity including the recorded `:parity-exceptions`, then
+acknowledge that review with `bb test:jolt-cbor-override --update "<who, date>"`. Document any
+API exception with exact shared/jolt signatures and a reason in the explicit
+`:api-allowlist` (currently empty).
