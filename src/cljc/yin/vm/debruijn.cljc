@@ -821,7 +821,7 @@
                       (cond (< c 0x80) 1
                             (< c 0x800) 2
                             :else 3))
-        n (count s)]
+        n (text/unit-count s)]
     (loop [i 0, total 0]
       (if (>= i n)
         total

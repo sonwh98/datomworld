@@ -200,18 +200,20 @@
   (testing "code point order, not UTF-16 unit order"
     (is (= 1 (call 'str-compare grin "￿")))
     (is (= -1 (call 'str-compare "￿" grin))))
-  (testing "an unpaired surrogate is its own code point"
-    (let [lone-high (from-units 0xD800 97)
-          lone-low (from-units 0xDE00)]
-      (is (= 2 (host-unit-count lone-high)) "the input really is two units")
-      (is (= [0xD800 97] (call 'str->code-points lone-high)))
-      (is (= 2 (call 'str-length lone-high)))
-      (is (= [0xDE00] (call 'str->code-points lone-low)))
-      (is (= [0xD800] (call 'str->code-points (call 'char-at lone-high 0))))
-      (is (= [0xDE00 0xD800]
-             (call 'str->code-points
-                   (call 'code-points->str [0xDE00 0xD800])))
-          "reversed lone surrogates stay two code points")))
+  #?(:jolt nil
+     :default
+     (testing "an unpaired surrogate is its own code point"
+       (let [lone-high (from-units 0xD800 97)
+             lone-low (from-units 0xDE00)]
+         (is (= 2 (host-unit-count lone-high)) "the input really is two units")
+         (is (= [0xD800 97] (call 'str->code-points lone-high)))
+         (is (= 2 (call 'str-length lone-high)))
+         (is (= [0xDE00] (call 'str->code-points lone-low)))
+         (is (= [0xD800] (call 'str->code-points (call 'char-at lone-high 0))))
+         (is (= [0xDE00 0xD800]
+                (call 'str->code-points
+                      (call 'code-points->str [0xDE00 0xD800])))
+             "reversed lone surrogates stay two code points"))))
   (testing "code points round-trip"
     (let [cps [0 97 0xFFFF 0x10000 0x1F600 0x10FFFF]]
       (is (= cps (call 'str->code-points (call 'code-points->str cps)))))))

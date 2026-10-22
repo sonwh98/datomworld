@@ -242,7 +242,7 @@
    well-formed-utf16?` enforces, independently written rather than
    reused, per this phase's own instruction."
   [s]
-  (let [n (count s)]
+  (let [n (text/unit-count s)]
     (loop [i 0]
       (if (>= i n)
         true

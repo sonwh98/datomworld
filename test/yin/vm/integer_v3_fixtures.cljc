@@ -62,6 +62,7 @@
              (.setUint32 bd 0 (hex-int (subs hex 0 8)))
              (.setUint32 bd 4 (hex-int (subs hex 8 16)))
              (.getFloat64 bd 0))
+     :jolt (Double/longBitsToDouble (.longValue (BigInteger. hex 16)))
      :clj (Double/longBitsToDouble (Long/parseUnsignedLong hex 16))
      :cljs (let [view (js/DataView. (js/ArrayBuffer. 8))]
              (.setUint32 view 0 (js/parseInt (subs hex 0 8) 16))

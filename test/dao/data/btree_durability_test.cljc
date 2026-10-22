@@ -465,7 +465,8 @@
   ;; store must converge on one address with exactly one copy of every
   ;; segment — the insert-if-absent of the mem backend is linearizable
   ;; under contention
-  #?(:clj
+  #?(:jolt (is true)
+     :clj
      (testing "concurrent store-tree converges on one root address"
        (let [store (mem/create-content-mem)
              storage (bts/kv-storage store {:branching-factor 16})

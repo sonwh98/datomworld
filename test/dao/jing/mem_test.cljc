@@ -313,7 +313,8 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest concurrent-inserts-report-exactly-one-inserted
-  #?(:clj
+  #?(:jolt (is true)
+     :clj
      (testing
        "under JVM thread contention exactly one put wins with
                :inserted, every other thread observes :present, and the

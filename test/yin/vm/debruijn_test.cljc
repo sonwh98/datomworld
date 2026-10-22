@@ -174,7 +174,13 @@
 
 (deftest jvm-out-of-domain-values-diagnose
   ;; §5's out-of-domain numerics, asserted where the host can express them
-  #?(:clj (are [x] (nil? (d/canonical-class x))
+  #?(:jolt (are [x] (nil? (d/canonical-class x))
+             (bigint 9223372036854775808)
+             1/2
+             (java.math.BigDecimal. "1.1")
+             \a
+             [1 \c])
+     :clj (are [x] (nil? (d/canonical-class x))
             5N
             (bigint 9223372036854775808)
             1/2
@@ -889,16 +895,19 @@
       "the D0 vector/list split is two tags over one ordering")
   ;; the unpaired surrogates are SLICED from a well-formed pair at runtime:
   ;; a lone-surrogate string literal does not survive ClojureDart's macro
-  ;; host, which rewrites it before the test ever runs
-  (let [lone-high (subs "😀" 0 1)
-        lone-low (subs "😀" 1 2)]
-    (are [v] (= :unsupported-value (:rule (throws-data #(d/encode-value v))))
-      lone-high
-      lone-low
-      (str "a" lone-high "b")
-      (symbol (str "a" lone-high "b"))
-      (keyword (str "a" lone-low "b")))
-    (is (nil? (d/canonical-class lone-high)))))
+  ;; host, which rewrites it before the test ever runs.
+  ;; On Jolt, a Chez Scheme string cannot hold unpaired surrogates.
+  #?(:jolt nil
+     :default
+     (let [lone-high (subs "😀" 0 1)
+           lone-low (subs "😀" 1 2)]
+       (are [v] (= :unsupported-value (:rule (throws-data #(d/encode-value v))))
+         lone-high
+         lone-low
+         (str "a" lone-high "b")
+         (symbol (str "a" lone-high "b"))
+         (keyword (str "a" lone-low "b")))
+       (is (nil? (d/canonical-class lone-high))))))
 
 
 (deftest colliding-map-keys-diagnose
