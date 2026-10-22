@@ -60,7 +60,8 @@
     (nil? x) true
     (or (true? x) (false? x) (string? x)) true
     (impl/byte-payload? x) true
-    (or (keyword? x) (symbol? x)) (portable-identifier? x)
+    (or (keyword? x) (symbol? x)) (and (portable-identifier? x)
+                                       (or (keyword? x) (portable-meta? x)))
     (number? x) (codec/safe-number? x)
     (map? x) (and (not (record? x)) (portable-meta? x)
                   (every? (fn [[k v]] (and (portable-value? k) (portable-value? v))) x))
