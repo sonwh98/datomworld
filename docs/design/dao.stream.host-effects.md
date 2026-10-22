@@ -593,3 +593,5 @@ search); `dao/jing/content/step.cljc:1-60`; `src/clj/dao/jing/dht/facade.clj:1-2
   (kind, purpose) issued only by an allocator; root allocator in the driver, sub-allocator per
   composition; u64 counters with `:exhausted`; root never persisted, persisted identities read
   back). A non-Claude reviewer with crypto background checks the contexts before H5a closes.
+- **OQ-H3 (2026-10-22, owner: "accept as recommended")**: stream identity is required in every
+  creation spec.
