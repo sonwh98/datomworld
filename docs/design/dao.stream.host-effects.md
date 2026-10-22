@@ -603,3 +603,6 @@ search); `dao/jing/content/step.cljc:1-60`; `src/clj/dao/jing/dht/facade.clj:1-2
   file (`state/save!`) warns only, with no retry. The seam never retries.
 - **OQ-H6 (2026-10-22, owner: "accept as recommended")**: the JVM blocking driver stays outside
   the closure for `facade.clj`, with `facade.clj:21,58` re-pointed.
+- **OQ-H7 (2026-10-22, owner: "accept as recommended")**: reserved-namespace hygiene is one
+  frontend policy: refuse user bindings and free references in `yang.*` in generated-syntax
+  positions; preserve quoted user data.
