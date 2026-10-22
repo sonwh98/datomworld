@@ -184,8 +184,12 @@
             :depends [build:yin-repl-node gen:antlr]
             :task (shell "clojure -M:test -e :slow")}
 
+  check:node-discovery
+  {:doc "Babashka-only, no natives: scan deps.edn :paths + :cljs :extra-paths for .cljc/.cljs namespaces outside test/ matching shadow-cljs.edn :test :ns-regexp (default -test$); fail before Node discovery can load JVM-only code. Rename the ns or guard it with reader conditionals. Self-test: bb src/dev/check_node_discovery_test.clj"
+   :task (shell {:shutdown nil} "bb src/dev/check_node_discovery.clj")}
+
   test:cljs {:doc "Node tests, fast: dao.test-slow guarded bodies print SKIP; needs the Node REPL build"
-             :depends [build:yin-repl-node]
+             :depends [check:node-discovery build:yin-repl-node]
              :task (shell "clj -M:cljs -m shadow.cljs.devtools.cli compile test")}
 
   test:cljd {:doc "Dart tests, fast: aggregated shards via src/dev/cljd_agg.clj; guarded bodies print SKIP"
@@ -198,7 +202,7 @@
                 :task (shell "clojure -M:test")}
 
   test:all:cljs {:doc "Every Node test, guarded slow bodies included (sets DATOM_SLOW_TESTS=1)"
-                 :depends [build:yin-repl-node]
+                 :depends [check:node-discovery build:yin-repl-node]
                  :task (shell {:extra-env {"DATOM_SLOW_TESTS" "1"}}
                               "clj -M:cljs -m shadow.cljs.devtools.cli compile test")}
 
@@ -214,7 +218,7 @@
                  :task (shell "clojure -M:test -i :slow")}
 
   test:slow:cljs {:doc "Node: only namespaces with dao.test-slow/guard, bodies enabled (DATOM_SLOW_TESTS=1)"
-                  :depends [build:yin-repl-node]
+                  :depends [check:node-discovery build:yin-repl-node]
                   :task (let [re (-> (shell {:out :string}
                                             "bb src/dev/cljd_agg.clj --slow-regex")
                                      :out
@@ -243,6 +247,7 @@
   ;; with master. Extra args pass through (--base REF, --changed FILE...).
   ;; Exit 2 on a wide change (deps.edn, bb.edn, src/dev/, ...): run bb test.
   test:changed {:doc "Fast tests a change can affect, three lanes in parallel"
+                :depends [check:node-discovery]
                 :task (System/exit
                         (:exit (apply shell {:continue true}
                                       "bb" "src/dev/affected.clj"
@@ -255,6 +260,7 @@
                                           "--lane" "clj" *command-line-args*)))}
 
   test:changed:cljs {:doc "Node lane of test:changed"
+                     :depends [check:node-discovery]
                      :task (System/exit
                              (:exit (apply shell {:continue true}
                                            "bb" "src/dev/affected.clj"
@@ -278,6 +284,7 @@
   ;; in src/dev/subsystems.edn. Positional arguments name subsystems; flags
   ;; pass through (--lane L, --list, --slow).
   test:sub {:doc "Subsystem tests, three lanes in parallel: bb test:sub <subsystem>... [--slow]"
+            :depends [check:node-discovery]
             :task (let [[subs flags] (split-with (fn [arg] (not (clojure.string/starts-with? arg "--")))
                                                  *command-line-args*)
                         sub-args (mapcat (fn [s] ["--subsystem" s]) subs)]
@@ -297,6 +304,7 @@
                                         (concat sub-args flags)))))}
 
   test:sub:cljs {:doc "Node lane of test:sub: bb test:sub:cljs <subsystem>... [--slow]"
+                 :depends [check:node-discovery]
                  :task (let [[subs flags] (split-with (fn [arg] (not (clojure.string/starts-with? arg "--")))
                                                       *command-line-args*)
                              sub-args (mapcat (fn [s] ["--subsystem" s]) subs)]
