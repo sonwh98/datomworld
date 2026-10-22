@@ -48,6 +48,63 @@
            (:exit (shell {:continue true} "sh" "-c"
                          ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-test src/dev/jolt_test_runner.clj dao.host.conformance-test dao.host.bytes-test dao.host.float-test dao.host.text-test")))}
 
+  ;; J2: the shared core lane (architect 1792644000000; owner rulings Q1-Q4
+  ;; of 1792655000000). The driver owns the namespace lists, the exclusion
+  ;; manifest (reason/capability/owner per excluded suite) and the logs under
+  ;; build/j2-logs/; every step is its own jolt process.
+  probe:jolt-j2
+  {:doc "J2: staged load probe of the J2 load order under -M:jolt:jolt-test, one namespace per process (load-ok / first failing require / first unresolved symbol / first load-time error + the loaded-libs delta asserting dao.stream.transit absent); logs under build/j2-logs/probe (src/dev/jolt_j2_probe.clj; needs bb bootstrap:jolt)"
+   :task (System/exit
+           (:exit (apply shell {:continue true} "bb" "src/dev/jolt_j2_lane.clj" "probe" *command-line-args*)))}
+
+  test:jolt-core
+  {:doc "J2: every applicable pure suite (test/dao/host, jing, data, space, portable stream, yin/vm) under jolt, one namespace per process through src/dev/jolt_test_runner.clj, fast and ^:slow alike (Q3), nonzero exit on any failure; excluded suites are printed and recorded with reason/capability/owner"
+   :task (System/exit
+           (:exit (apply shell {:continue true} "bb" "src/dev/jolt_j2_lane.clj" "core" *command-line-args*)))}
+
+  test:jolt-core:diag
+  {:doc "J2 DIAGNOSTIC: test:jolt-core with the :jolt-diag alias added (the J1 corpus-loader stand-in for dao.jing.cbor-fixtures)"
+   :task (System/exit
+           (:exit (apply shell {:continue true} "bb" "src/dev/jolt_j2_lane.clj" "core" "--diag" *command-line-args*)))}
+
+  test:jolt-j2-jvm
+  {:doc "J2: the JVM counts baseline — the same included namespaces on the JVM, one process, clojure.test run-tests per namespace (src/dev/jolt_j2_jvm_runner.clj), per-namespace counts to build/j2-logs/jvm-summary.edn for the jolt-vs-JVM diff"
+   :task (System/exit
+           (:exit (apply shell {:continue true} "bb" "src/dev/jolt_j2_lane.clj" "jvm" *command-line-args*)))}
+
+  test:jolt-j2-manifest
+  {:doc "J2: self-test the applicability manifest guard with a temporary test tree; no jolt or natives needed"
+   :task (System/exit
+           (:exit (shell {:continue true} "bb" "src/dev/jolt_j2_manifest_check.clj")))}
+
+  report:jolt-j2
+  {:doc "J2: the jolt-vs-JVM per-namespace count table from build/j2-logs/{core,jvm}-summary.edn; runs nothing"
+   :task (System/exit
+           (:exit (shell {:continue true} "bb" "src/dev/jolt_j2_lane.clj" "report")))}
+
+  test:jolt-carrier
+  {:doc "J2: the cross-host integer-carrier test (Q1: carriers named by value). `encode` runs the JVM side (java -cp over the test:dev classpath, writes build/j2-logs/carrier-fixtures.edn); `verify` runs the jolt side (decode both rows, assert equal bytes and equal results)"
+   :task (let [mode (or (first *command-line-args*) "encode")]
+           (System/exit
+             (case mode
+               "encode" (:exit (shell {:continue true} "sh" "-c"
+                                      "mkdir -p build/j2-logs && java -cp \"$(clojure -Spath -A:test -A:dev)\" clojure.main src/dev/jolt_carrier_test.clj --encode"))
+               "verify" (:exit (shell {:continue true} "sh" "-c"
+                                      ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-test src/dev/jolt_carrier_test.clj --verify"))
+               (do (println "pass encode or verify") 2))))}
+
+  test:jolt-cbor-parity
+  {:doc "J2: differential parity of the jolt dao.stream.cbor host seam (src/jolt/dao/stream/cbor/boring.jolt) against the JVM's pinned Boring: `emit` encodes the shared corpus on the JVM (writes build/j2-logs/cbor-parity.edn), `check` re-encodes it on jolt byte-for-byte, round-trips each row and refuses a battery of non-canonical frames"
+   :task (let [mode (or (first *command-line-args*) "emit")]
+           (System/exit
+             (case mode
+               "emit" (:exit (shell {:continue true} "sh" "-c"
+                                     "mkdir -p build/j2-logs && java -cp \"$(clojure -Spath -A:test -A:dev)\" clojure.main src/dev/jolt_cbor_parity.clj --emit"))
+               "check" (:exit (shell {:continue true} "sh" "-c"
+                                      ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-test src/dev/jolt_cbor_parity.clj --check"))
+               (do (println "pass emit or check") 2))))}
+
+
   test:jolt-text-perf
   {:doc "Linearity guard for the jolt dao.host.text override: code-points, unit-count, an ascending code-unit walk and utf8-encode on BMP, astral and mixed strings of 64/256/1024 Ki code points; each 4x input under 8x the time, 1024 Ki under 5 s (src/dev/jolt_text_perf.clj; needs bb bootstrap:jolt)"
    :task (System/exit
@@ -61,7 +118,7 @@
                          "mkdir -p build/j1-logs && clojure -M src/dev/jolt_profile_compare.cljc | grep '^\\[' > build/j1-logs/compare-jvm.edn && . build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt src/dev/jolt_profile_compare.cljc | grep '^\\[' > build/j1-logs/compare-jolt.edn && diff build/j1-logs/compare-jvm.edn build/j1-logs/compare-jolt.edn > build/j1-logs/compare.diff; s=$?; cat build/j1-logs/compare.diff; exit $s")))}
 
   test:jolt-host-diag
-  {:doc "J1 DIAGNOSTIC, not the oracle verdict: dao.host.float-test and dao.host.text-test, unchanged, under jolt with the :jolt-diag stand-in for the corpus loader dao.jing.cbor-fixtures (which cannot load on jolt); see src/dev/jolt_diag/dao/jing/cbor_fixtures.cljc"
+  {:doc "J1 DIAGNOSTIC, not the oracle verdict: dao.host.float-test and dao.host.text-test, unchanged, under jolt with the :jolt-diag stand-in for the corpus loader dao.jing.cbor-fixtures (isolates these checks from the real corpus loader); see src/dev/jolt_diag/dao/jing/cbor_fixtures.cljc"
    :task (System/exit
            (:exit (shell {:continue true} "sh" "-c"
                          ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-diag:jolt-test src/dev/jolt_test_runner.clj dao.host.float-test dao.host.text-test")))}
