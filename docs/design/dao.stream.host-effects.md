@@ -586,3 +586,5 @@ search); `dao/jing/content/step.cljc:1-60`; `src/clj/dao/jing/dht/facade.clj:1-2
 ## Decision log
 
 (Owner decisions on §9 are appended here as they are made.)
+- **OQ-H1 (2026-10-22, owner: "accept as recommended")**: Table A grows 76 -> 78 with
+  `blake3-keyed [key bytes]` and `blake3-derive-key [context material]` (§2.3).
