@@ -1,6 +1,7 @@
 (ns clojure.data.json
   "jolt only: the subset of org.clojure/data.json 2.5.0 this repository's
-   tests call, because the library does not load on jolt 96d7b866 (its
+   tests call, because the library failed to load on the former jolt pin
+   96d7b866 (its
    reader requires java.time.format.DateTimeFormatter, which jolt does not
    provide). The `.jolt` extension keeps it off every other host; on jolt
    the :jolt alias puts src/jolt first, so it is found before any jar.

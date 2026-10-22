@@ -10,7 +10,7 @@
            (:exit (shell {:continue true} "bb" "src/dev/jolt_bootstrap.clj")))}
 
   test:jolt-bootstrap-neg
-  {:doc "Copy/revert the jolt clone under gitignored build/bootstrap-neg (deleted on success, retained on failure) and prove bootstrap refuses an unapplied declared patch and a corrupted patch digest (JOLT_BOOTSTRAP_TEST_DIR selects the source clone)"
+  {:doc "Copy/revert the jolt clone under gitignored build/bootstrap-neg (deleted on success, retained on failure) and declare a synthetic patch and prove bootstrap refuses it unapplied or corrupted, then accepts it applied (JOLT_BOOTSTRAP_TEST_DIR selects the source clone)"
    :task (System/exit
            (:exit (shell {:continue true} "bb" "src/dev/jolt_bootstrap.clj" "--test-negative")))}
 
