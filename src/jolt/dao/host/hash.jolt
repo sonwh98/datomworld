@@ -74,7 +74,10 @@
   [:pointer :size_t :pointer] :int :blocking)
 
 
-(def ^:private layout 2)
+;; 3 (J2): the random entry joined the exported set (jolt_crypto_random for
+;; yin.vm.linker.sign/generate's :jolt arm); a J1b-built wrapper answers 2 and
+;; is refused here rather than at a missing-symbol error in the linker.
+(def ^:private layout 3)
 
 
 (defn- refuse-load

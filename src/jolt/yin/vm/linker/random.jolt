@@ -1,0 +1,65 @@
+(ns yin.vm.linker.random
+  "The jolt-only fresh-entropy adapter behind `yin.vm.linker.sign/generate`'s
+   `:jolt` arm (owner ruling of 2026-10-22, collab/1792655000000).
+
+   Fresh key generation stays in `yin.vm.linker.sign` (the deferred entropy
+   design, yin.repl-jolt-implementation.md 9.1); this namespace is the narrow
+   bridge that makes its jolt arm draw seed bytes from the SAME qualified
+   system libcrypto every dao.host.hash / dao.host.sign call already resolved
+   to, through the native/jolt-crypto wrapper's `jolt_crypto_random`
+   (libcrypto RAND_bytes). jolt's own java.security.SecureRandom shim
+   (host/chez/java/host-static-classes.ss, /dev/urandom backed) exists and
+   works at this pin, but it sits outside the provenance gate, so this
+   namespace requires `dao.host.hash` first — no seed byte is drawn before
+   that gate has passed, exactly the dao.host.sign discipline — and a failed
+   draw is an error (ex-info), never a silent substitute."
+  (:require
+    [clojure.string :as str]
+    [dao.host.bytes :as bytes]
+    ;; loaded for its provenance gate, which must pass before any draw
+    [dao.host.hash]
+    [jolt.ffi :as ffi]))
+
+
+(def ^:private library
+  ;; the same wrapper dao.host.hash loaded and qualified (jolt's os.name and
+  ;; os.arch shim can answer nil, which reads as Linux and x86_64)
+  (let [os (str/lower-case (or (System/getProperty "os.name") ""))
+        arch (System/getProperty "os.arch")
+        darwin? (str/includes? os "mac")]
+    (str (System/getProperty "user.dir") "/build/native/"
+         (if darwin? "darwin" "linux") "-"
+         (if (#{"aarch64" "arm64"} arch) "arm64" "x86_64")
+         "/jolt-crypto/lib/libjolt_crypto" (if darwin? ".dylib" ".so"))))
+
+
+(ffi/load-library library)
+
+
+(ffi/defcfn ^:private c-random "jolt_crypto_random"
+            [:pointer :size_t] :int :blocking)
+
+
+(ffi/defcfn ^:private c-cleanse "jolt_crypto_cleanse" [:pointer :size_t] :void)
+
+
+(defn rand-bytes
+  "A fresh jolt byte array of `n` random bytes (n >= 0) from the qualified
+   libcrypto's CSPRNG. Randomness failure is an error: a nonzero wrapper
+   status throws."
+  [n]
+  (when (neg? n)
+    (throw (ex-info "yin.vm.linker.random/rand-bytes negative count" {:n n})))
+  (let [size (max 1 n)
+        p (ffi/alloc size)]
+    (try
+      (when (ffi/null? p)
+        (throw (ex-info "jolt-crypto native allocation failed" {:bytes n})))
+      (let [status (c-random p n)]
+        (when-not (zero? status)
+          (throw (ex-info "jolt-crypto random failed" {:entry 'rand-bytes
+                                                       :status status})))
+        (if (pos? n) (ffi/read-array p n) (bytes/alloc 0)))
+      (finally
+        (try (c-cleanse p size)
+             (finally (ffi/free p)))))))

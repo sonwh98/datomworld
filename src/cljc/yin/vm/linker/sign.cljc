@@ -6,7 +6,10 @@
      `keypair-from-seed`, `sign`, `verify`.
    String UTF-8 encoding delegates to `dao.host.text/utf8-encode`.
    Fresh key generation (`generate`) remains here pending deferred
-   entropy design (§9.1)."
+   entropy design (§9.1); on jolt its `:jolt` arm draws the seed from the
+   qualified libcrypto through `yin.vm.linker.random` (the jolt-only
+   bridge over native/jolt-crypto's random entry), so entropy sits behind
+   the same provenance gate as every other crypto call."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
             [dao.host.bytes :as bytes]
@@ -14,8 +17,10 @@
             [dao.host.text :as text]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
-            #?@(:cljd [["package:ed25519_edwards/ed25519_edwards.dart" :as ed]]))
+            #?@(:cljd [["package:ed25519_edwards/ed25519_edwards.dart" :as ed]]
+                :jolt [[yin.vm.linker.random :as jolt-random]]))
   #?@(:cljd []
+      :jolt []
       :clj [(:import [java.security SecureRandom])]))
 
 
@@ -110,6 +115,9 @@
   #?(:cljd (let [pair (ed/generateKey)]
              {:seed (to-hex (bytes/from-vector (vec (take 32 (.-bytes (.-privateKey pair))))))
               :public (to-hex (bytes/from-vector (vec (.-bytes (.-publicKey pair)))))})
+     :jolt (let [seed (jolt-random/rand-bytes 32)]
+             (let [hex (to-hex seed)]
+               {:seed hex :public (public-of hex)}))
      :clj (let [seed (byte-array 32)]
             (.nextBytes (SecureRandom.) seed)
             (let [hex (to-hex seed)]

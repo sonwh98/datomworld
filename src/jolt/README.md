@@ -16,7 +16,7 @@ The `.jolt` extension keeps these files out of JVM, ClojureScript and Dart
 tooling (clj-kondo does not lint them as `.cljc`); `.cljstyle` lists `jolt`
 among its extensions so the formatter still checks them.
 
-Contents (J1):
+Contents (J0c–J2):
 - `dao/host/{integer,bytes,text,float,number}.jolt`: the primitive profile
   (docs/design/dao.stream.host-boundary.md §4.2, table A) over Chez's exact
   integers, flonums, strings and jolt byte arrays.
@@ -30,7 +30,9 @@ Contents (J1):
   `native/jolt-crypto` (§6.2-6.3), built by `bb build:jolt-native` from the
   pinned BLAKE3 C reference and the declared system libcrypto. Contract: the
   hash and sign cases of `bb compare:jolt-host`; gates: `bb
-  probe:jolt-crypto`. Where each libcrypto check runs:
+  probe:jolt-crypto`. The wrapper exports nine narrow entries (the J1b eight
+  plus `jolt_crypto_random`, J2); its layout version is 3. Where each
+  libcrypto check runs:
   - `bb bootstrap:jolt`: the Debian `:os-packages :debian :required` set
     only (`libssl-dev` among them), with dpkg-query;
   - `bb build:jolt-native`: the declared path and headers exist; the Debian
@@ -43,6 +45,15 @@ Contents (J1):
   A changed library is requalified with `bb build:jolt-native --requalify`
   and `bb qualify:jolt-libcrypto` (the procedure is in `jolt-toolchain.edn`).
 
+- `yin/vm/linker/random.jolt` (J2): `rand-bytes` over the wrapper's
+  `jolt_crypto_random` (libcrypto RAND_bytes), used by
+  `yin.vm.linker.sign/generate` on jolt. Requires `dao.host.hash` first so
+  the provenance gate passes before any draw; entropy failure throws.
+- `dao/stream/cbor/boring.jolt` (J2): canonical CBOR writer and strict
+  decoder over jolt primitives, replacing the JVM Boring adapter. The
+  decoder re-encodes to refuse non-canonical bytes; `bb test:jolt-cbor-parity`
+  compares the JVM and jolt bytes against the same cases.
+
 The toolchain pins the owner's fork, `https://github.com/sonwh98/jolt`, at
 `697b91eefabf3e964acea787cbc9cb1b6b85a28c` (`jolt-toolchain.edn`). Fork PR
 `sonwh98/jolt#2` carries the Sorted user-type fix (source `7b7100c1`, regenerated
@@ -50,3 +61,14 @@ seeds `697b91ee`), so bootstrap applies no patches and does no re-mint. The form
 `0001-sorted-user-types` patch against `96d7b866` is retired; the verified patch
 mechanism remains available for future patches. `bb test:jolt-bootstrap-neg`
 uses its own temporary synthetic patch to exercise the refusal gates.
+
+J2 round-3 safety: `dao/stream/cbor.jolt` overrides the public gate so iterative
+portable validation (including symbol metadata) runs before recursion. The jolt
+CBOR seam enforces a 64-level **wire** nesting budget (root depth zero; tags and
+frame arrays count), refusing `{:reason :too-deep :limit 64}`. This local resource
+bound has no shared-host counterpart yet. Canonical keys/elements retain their
+encoded bytes and must increase strictly, including byte-array duplicates.
+`src/dev/jolt_cbor_safety.clj` exercises performance and main/worker boundaries.
+The crypto provenance gate now checks all 19 libcrypto symbol origins, including
+`RAND_bytes`; the exported wrapper surface remains nine entries, layout 3.
+Seeds use native nonallocating cleanse before free, including failed draws.
