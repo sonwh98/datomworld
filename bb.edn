@@ -124,10 +124,10 @@
                          ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-diag:jolt-test src/dev/jolt_test_runner.clj dao.host.float-test dao.host.text-test")))}
 
   test:jolt-json
-  {:doc "J1: the jolt clojure.data.json shim (src/jolt/clojure/data/json.jolt) against src/dev/jolt_json_test.cljc, under jolt; the same file passes against the real data.json on the JVM (clojure -M:dev, see its header)"
+  {:doc "J1: the jolt clojure.data.json shim (src/jolt/clojure/data/json.jolt) against src/dev/jolt_json_shim_check.cljc, under jolt; the same file passes against the real data.json on the JVM (clojure -M:dev, see its header)"
    :task (System/exit
            (:exit (shell {:continue true} "sh" "-c"
-                         ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-test src/dev/jolt_test_runner.clj jolt-json-test")))}
+                         ". build/tools/jolt-env.sh && \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-test src/dev/jolt_test_runner.clj jolt-json-shim-check")))}
 
   test:jolt-runner-self
   {:doc "J1: prove src/dev/jolt_test_runner.clj counts a throwing test as one error and keeps running (the jolt-runner-sentinel namespace)"
