@@ -12,11 +12,14 @@
   #?@(:cljd [(:require ["dart:convert" :as dart-convert]
                        ["dart:io" :as dart-io]
                        ["dart:typed_data" :as typed]
+                       [dao.host.text :as text]
                        [dao.jing.cbor :as cbor])
              (:import ["dart:core" BigInt DateTime String])]
       :clj [(:require [clojure.data.json :as json]
+                      [dao.host.text :as text]
                       [dao.jing.cbor :as cbor])]
-      :cljs [(:require [dao.jing.cbor :as cbor])]))
+      :cljs [(:require [dao.host.text :as text]
+                       [dao.jing.cbor :as cbor])]))
 
 
 (def path
@@ -161,9 +164,10 @@
     t
     (let [codes (mapv (fn [u] (let [[hi lo] (hex->ints u)] (+ (* 256 hi) lo)))
                       (get t "utf16"))]
-      #?(:cljd (String.fromCharCodes codes)
-         :clj (String. (char-array (map char codes)))
-         :cljs (apply js/String.fromCharCode codes)))))
+      (try
+        (text/units->string codes)
+        (catch #?(:cljd Object :clj Throwable :cljs :default) _
+          not-constructible)))))
 
 
 (defn- host-int
@@ -248,8 +252,16 @@
                           (host-int (get node "den") true))
       "str" (text (get node "v"))
       "bytes" (hex->bytes (get node "hex"))
-      "keyword" (keyword (some-> (get node "ns") text) (text (get node "name")))
-      "symbol" (build (symbol (some-> (get node "ns") text) (text (get node "name"))))
+      "keyword" (let [ns-val (some-> (get node "ns") text)
+                      name-val (text (get node "name"))]
+                  (if (or (= not-constructible ns-val) (= not-constructible name-val))
+                    not-constructible
+                    (keyword ns-val name-val)))
+      "symbol" (let [ns-val (some-> (get node "ns") text)
+                     name-val (text (get node "name"))]
+                 (if (or (= not-constructible ns-val) (= not-constructible name-val))
+                   not-constructible
+                   (build (symbol ns-val name-val))))
       "vector" (build (items))
       "list" (build (fresh-list (items)))
       "seq" (build (lazy-seq (seq (items))))
@@ -260,11 +272,24 @@
       "host" (host-value (get node "kind") (get node "v")))))
 
 
+(defn- value-seq
+  "Every subform of `v`, including metadata maps and their entries."
+  [v]
+  (tree-seq (fn [x] (or (coll? x) (some? (meta x))))
+            (fn [x]
+              (let [m (meta x)]
+                (cond
+                  (and (coll? x) m) (concat x [m])
+                  (coll? x) x
+                  m [m]
+                  :else nil)))
+            v))
+
+
 (defn constructible?
   "False when the input contains a host value this host cannot build."
   [value]
-  (not (some #(= not-constructible %)
-             (tree-seq coll? seq value))))
+  (not (some #(= not-constructible %) (value-seq value))))
 
 
 (defn dsl-member-count

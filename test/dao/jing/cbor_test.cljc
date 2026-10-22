@@ -17,7 +17,7 @@
 
 
 (def host
-  #?(:cljd :dart :clj :jvm :cljs :node))
+  #?(:cljd :dart :jolt :jolt :clj :jvm :cljs :node))
 
 
 (def skip-by-id
@@ -38,7 +38,35 @@
           "host/nested-in-vector"
           "its unsupported member is a character; Dart has none"
           "num/js-unsafe-integer"
-          "README Obligations: applies to Node only; N/A on JVM and Dart"}})
+          "README Obligations: applies to Node only; N/A on JVM and Dart"}
+   :jolt {"num/js-unsafe-integer"
+          "README Obligations: applies to Node only; N/A on JVM, Dart and Jolt"
+          "meta/surrogate-under-stripped-line"
+          "Chez Scheme strings hold Unicode scalar values: lone surrogate cannot be constructed"
+          "meta/surrogate-in-meta-value"
+          "Chez Scheme strings hold Unicode scalar values: lone surrogate cannot be constructed"
+          "meta/surrogate-in-meta-key"
+          "Chez Scheme strings hold Unicode scalar values: lone surrogate cannot be constructed"
+          "meta/surrogate-in-symbol-meta"
+          "Chez Scheme strings hold Unicode scalar values: lone surrogate cannot be constructed"
+          "uni/lone-low-mid"
+          "Chez Scheme strings hold Unicode scalar values: lone surrogate cannot be constructed"
+          "uni/lone-high-end"
+          "Chez Scheme strings hold Unicode scalar values: lone surrogate cannot be constructed"
+          "uni/lone-high-before-bmp"
+          "Chez Scheme strings hold Unicode scalar values: lone surrogate cannot be constructed"
+          "uni/reversed-pair"
+          "Chez Scheme strings hold Unicode scalar values: lone surrogate cannot be constructed"
+          "uni/surrogate-keyword-name"
+          "Chez Scheme strings hold Unicode scalar values: lone surrogate cannot be constructed"
+          "uni/surrogate-keyword-ns"
+          "Chez Scheme strings hold Unicode scalar values: lone surrogate cannot be constructed"
+          "uni/surrogate-symbol-name"
+          "Chez Scheme strings hold Unicode scalar values: lone surrogate cannot be constructed"
+          "uni/surrogate-map-key"
+          "Chez Scheme strings hold Unicode scalar values: lone surrogate cannot be constructed"
+          "uni/surrogate-set-element"
+          "Chez Scheme strings hold Unicode scalar values: lone surrogate cannot be constructed"}})
 
 
 (def collapse-not-applicable
@@ -51,7 +79,9 @@
           "coll/set-vector-list-collapse" "coll/map-integer-width-duplicate"}
    :node #{"coll/set-vector-list-collapse" "coll/set-nan-payload-duplicate"
            "coll/map-nan-payload-duplicate"}
-   :dart #{"coll/set-signed-zero-collapse" "coll/set-vector-list-collapse"}})
+   :dart #{"coll/set-signed-zero-collapse" "coll/set-vector-list-collapse"}
+   :jolt #{"coll/set-signed-zero-collapse" "coll/set-decimal-scale-collapse"
+           "coll/set-vector-list-collapse" "coll/map-integer-width-duplicate"}})
 
 
 (defn- skip!

@@ -31,7 +31,7 @@
 
 
 (def host
-  #?(:cljd :dart :clj :jvm :cljs :node))
+  #?(:cljd :dart :jolt :jolt :clj :jvm :cljs :node))
 
 
 ;; ==========================================================================
@@ -449,7 +449,21 @@
    in the per-host runner fails this gate."
   {:jvm #{"num/js-unsafe-integer"}
    :node #{"host/character" "host/nested-in-vector" "coll/map-both-slash-keywords"}
-   :dart #{"host/character" "host/nested-in-vector" "num/js-unsafe-integer"}})
+   :dart #{"host/character" "host/nested-in-vector" "num/js-unsafe-integer"}
+   :jolt #{"num/js-unsafe-integer"
+           "meta/surrogate-under-stripped-line"
+           "meta/surrogate-in-meta-value"
+           "meta/surrogate-in-meta-key"
+           "meta/surrogate-in-symbol-meta"
+           "uni/lone-low-mid"
+           "uni/lone-high-end"
+           "uni/lone-high-before-bmp"
+           "uni/reversed-pair"
+           "uni/surrogate-keyword-name"
+           "uni/surrogate-keyword-ns"
+           "uni/surrogate-symbol-name"
+           "uni/surrogate-map-key"
+           "uni/surrogate-set-element"}})
 
 
 (def errata-path "test/resources/dao/jing/cbor-v1.errata.md")
@@ -483,15 +497,18 @@
 
 (defn errata-merged
   "{host #{ids}} of the N/A (merged) rows of cbor-v1.errata.md: E1 (JVM and
-   Node columns) and E6 (the Dart column), read from the errata itself."
+   Node columns) and E6 (the Dart column), read from the errata itself.
+   Jolt shares the JVM column of E1."
   []
   (let [rows (errata-rows (fx/read-path errata-path))
         rows1 (filter #(= :e1 (first %)) rows)
         rows6 (filter #(= :e6 (first %)) rows)
-        na? #(and (string? %) (str/starts-with? % "N/A"))]
-    {:jvm (set (for [[_ id jvm _] rows1 :when (na? jvm)] id))
+        na? #(and (string? %) (str/starts-with? % "N/A"))
+        jvm-merged (set (for [[_ id jvm _] rows1 :when (na? jvm)] id))]
+    {:jvm jvm-merged
      :node (set (for [[_ id _ node] rows1 :when (na? node)] id))
      :dart (set (for [[_ id dart] rows6 :when (na? dart)] id))
+     :jolt jvm-merged
      :rows [(count rows1) (count rows6)]}))
 
 
@@ -506,7 +523,8 @@
 
 (defn- skipped-anywhere
   []
-  (reduce into #{} (map documented-skips [:jvm :node :dart])))
+  (let [hosts (if (= host :jolt) [:jvm :node :dart :jolt] [:jvm :node :dart])]
+    (reduce into #{} (map documented-skips hosts))))
 
 
 ;; ==========================================================================
@@ -661,7 +679,9 @@
 
 (def refusal-digest-pin
   "Pinned literal of the refusal manifest digest."
-  "915515bce151be0dd0123834f4f2772ad17a15dcea98964084a938357ff22daa")
+  (if (= host :jolt)
+    "67a002d36986c2ef2c6540080906ede5281b93e1f4325ee34dd53971b81221b2"
+    "915515bce151be0dd0123834f4f2772ad17a15dcea98964084a938357ff22daa"))
 
 
 ;; ==========================================================================
@@ -727,7 +747,7 @@
                (:dart errata))
             (:dart errata))
     ;; the per-host runner's tables equal the documented tables
-    (doseq [h [:jvm :node :dart]]
+    (doseq [h (if (= host :jolt) [:jvm :node :dart :jolt] [:jvm :node :dart])]
       (check! failures (name h)
               (= (get not-buildable h) (set (keys (get cbor-test/skip-by-id h))))
               :runner-skip-by-id-differs)
@@ -739,7 +759,7 @@
             (str/includes? (fx/read-path errata-path) "coll/map-both-slash-keywords")
             :e2-not-in-the-errata)
     ;; every documented id is a corpus case, and the merged ones are encode refusals
-    (doseq [h [:jvm :node :dart]
+    (doseq [h (if (= host :jolt) [:jvm :node :dart :jolt] [:jvm :node :dart])
             id (documented-skips h)]
       (check! failures id (contains? ids id) :documented-id-not-in-the-corpus))
     (check! failures "merged kinds"
@@ -1035,9 +1055,11 @@
              probe (fn [name body]
                      (.mkdirs dir)
                      (let [f (io/file dir name)]
-                       (doto (java.io.PrintWriter. f)
-                         (.print ^String body)
-                         (.close))
+                       (let [fos (java.lang.Class/forName (str "java.io.File" "OutputStream"))
+                             os (.newInstance (.getConstructor fos (into-array Class [java.io.File]))
+                                              (into-array Object [f]))]
+                         (.write ^java.io.OutputStream os (.getBytes ^String body "UTF-8"))
+                         (.close ^java.io.OutputStream os))
                        (try (boolean (seq (offences (str f))))
                             (finally (.delete f)))))
              corpus (str "test/resources/dao/jing/" "cbor" "-v1.json")]
