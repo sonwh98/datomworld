@@ -12,8 +12,15 @@
  * except ed25519_verify (1 valid, 0 invalid, negative failure) and provenance
  * (the byte count written).
  *
+ * Export policy: nine narrow entries and nothing else — layout_version,
+ * cleanse, blake3, sha256, ed25519_{public,sign,verify}, provenance (the
+ * J1b eight) and random (J2: fresh entropy for yin.vm.linker.sign/generate's
+ * :jolt arm, owner ruling 1792655000000; libcrypto RAND_bytes from the same
+ * qualified library every other entry resolved to). A new export is a
+ * documented, reviewable event, never a general-purpose surface.
+ *
  * jolt_crypto_provenance reports OpenSSL_version_num(), the dladdr path of
- * every EVP entry this file resolved and the SHA-256 of that library file, so
+ * all 19 libcrypto entries (including RAND_bytes) this file resolved and the SHA-256 of that library file, so
  * dao.host.hash can refuse to load when the process bound them to a library
  * other than the qualified one. The digest is computed by the library being
  * checked: it detects an upgrade or a replaced file, not an adversary able to
@@ -21,9 +28,14 @@
  *
  * jolt_crypto_cleanse zeroes caller-owned memory without allocating, so
  * secret-holding native buffers can be cleansed on every release path.
+ *
+ * jolt_crypto_random fills a caller-owned buffer with n bytes from the same
+ * libcrypto's CSPRNG (RAND_bytes). A failed draw is an error status, never
+ * silent: randomness failure zeroes the output and is an error (owner ruling).
  */
 #define _GNU_SOURCE
 #include <dlfcn.h>
+#include <limits.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <string.h>
@@ -31,6 +43,7 @@
 #include <openssl/crypto.h>
 #include <openssl/evp.h>
 #include <openssl/opensslv.h>
+#include <openssl/rand.h>
 
 #include "blake3.h"
 
@@ -40,16 +53,18 @@
 
 #define JOLT_CRYPTO_EXPORT __attribute__((visibility("default")))
 
-/* Bump when an entry's signature or a status meaning changes; hash.jolt
-   refuses a library that answers another layout. */
-#define JOLT_CRYPTO_LAYOUT 2
+/* Bump when an entry's signature, a status meaning, or the exported set
+   changes (J2: the random entry added it to 3); hash.jolt refuses a library
+   that answers another layout, so a stale prebuilt wrapper fails the load
+   gate instead of a missing-symbol error far from it. */
+#define JOLT_CRYPTO_LAYOUT 3
 
 enum {
   JC_OK = 0,
   JC_ARG = -1,     /* a NULL pointer argument */
   JC_OPENSSL = -2, /* libcrypto reported failure */
   JC_SPACE = -3,   /* provenance buffer too small */
-  JC_SPLIT = -4,   /* EVP entries resolved to more than one library */
+  JC_SPLIT = -4,   /* libcrypto entries resolved to more than one library */
   JC_DLADDR = -5,  /* dladdr could not place an entry */
   JC_READ = -6     /* the resolved library file could not be read */
 };
@@ -60,6 +75,18 @@ JOLT_CRYPTO_EXPORT int jolt_crypto_layout_version(void) {
 
 JOLT_CRYPTO_EXPORT void jolt_crypto_cleanse(void *p, size_t n) {
   if (p) OPENSSL_cleanse(p, n);
+}
+
+JOLT_CRYPTO_EXPORT int jolt_crypto_random(uint8_t *out, size_t n) {
+  if (!out || n > INT_MAX) return JC_ARG;
+  /* The same libcrypto every EVP entry resolved to: RAND_bytes draws from its
+     DRBG seeded by the OS. 1 success, 0 or negative failure; a failed draw is
+     the caller's error, never a silent substitute. */
+  if (RAND_bytes(out, (int)n) != 1) {
+    OPENSSL_cleanse(out, n);
+    return JC_OPENSSL;
+  }
+  return JC_OK;
 }
 
 JOLT_CRYPTO_EXPORT int jolt_crypto_blake3(const uint8_t *in, size_t n,
@@ -156,11 +183,12 @@ static int file_sha256(const char *path, char hex[65]) {
 /*
  * "<OpenSSL_version_num decimal>\t<OpenSSL_version text>\t<library path>\t
  *  <SHA-256 hex of that file>" into buf (not NUL-terminated); answers the
- * byte count or a negative status. The path is the one library every EVP
- * entry below resolved to.
+ * byte count or a negative status. The path is the one library all 19 libcrypto
+ * entries below resolved to.
  */
 JOLT_CRYPTO_EXPORT int jolt_crypto_provenance(char *buf, size_t cap) {
   if (!buf) return JC_ARG;
+  /* All 19 libcrypto entries, including entropy, must share one origin. */
   void *entries[] = {
       (void *)&EVP_DigestInit_ex,           (void *)&EVP_Digest,
       (void *)&EVP_DigestUpdate,            (void *)&EVP_DigestFinal_ex,
@@ -170,7 +198,7 @@ JOLT_CRYPTO_EXPORT int jolt_crypto_provenance(char *buf, size_t cap) {
       (void *)&EVP_DigestVerifyInit,        (void *)&EVP_DigestVerify,
       (void *)&EVP_MD_CTX_new,              (void *)&EVP_MD_CTX_free,
       (void *)&EVP_PKEY_free,               (void *)&OPENSSL_cleanse,
-      (void *)&OpenSSL_version_num,         (void *)&OpenSSL_version};
+      (void *)&OpenSSL_version_num,         (void *)&OpenSSL_version, (void *)&RAND_bytes};
   const char *path = NULL;
   for (size_t i = 0; i < sizeof entries / sizeof entries[0]; i++) {
     Dl_info info;

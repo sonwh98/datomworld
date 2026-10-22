@@ -238,6 +238,52 @@
   (println "RECORD LD_PRELOAD gate: Linux only, not run on" plat))
 
 
+;; Compile the real C wrapper with RAND_bytes substituted only in this probe.
+(let [prefix (str (fs/path root "build/native" plat))
+      executable (str (fs/path root "build/j1b-probe/random-failure"))
+      cc (p/shell {:out :string :err :string :continue true}
+                  "cc" "-Wall" "-Wextra" "-Werror"
+                  (str "-I" prefix "/blake3/include")
+                  (str "-I" (fs/parent (fs/parent declared)) "/include")
+                  (str probes "/random_failure.c")
+                  (str prefix "/blake3/lib/libblake3.a") declared
+                  "-ldl" "-o" executable)
+      result (when (zero? (:exit cc))
+               (p/shell {:out :string :err :string :continue true} executable))]
+  (check "failed native draw zeroes output"
+         (and result (zero? (:exit result)))
+         {:compile-exit (:exit cc) :exit (:exit result)
+          :out (str (:out cc) (:err cc) (:out result) (:err result))}))
+
+
+;; RAND-only interposition must refuse before even invoking RAND_bytes.
+(if linux?
+  (let [so (str (fs/path root "build/j1b-probe/rand-only.so"))
+        marker (str (fs/path root "build/j1b-probe/rand-called"))
+        cc (p/shell {:out :string :err :string :continue true}
+                    "cc" "-shared" "-fPIC" "-Wall" "-Wextra" "-Werror"
+                    "-o" so (str probes "/rand_only.c"))]
+    (check "RAND-only interposer builds" (zero? (:exit cc)) {:exit (:exit cc)})
+    (when (zero? (:exit cc))
+      (fs/delete-if-exists marker)
+      (let [{:keys [exit out]} (jolt root {"LD_PRELOAD" so "JOLT_RAND_MARKER" marker}
+                                     (str probes "/random_load.clj"))]
+        (check "RAND-only preload refused before any seed draw"
+               (and (not (zero? exit))
+                    (str/includes? out "libcrypto provenance unavailable")
+                    (str/includes? out ":status -4")
+                    (not (str/includes? out "SEED-RETURNED"))
+                    (not (fs/exists? marker)))
+               {:exit exit :out out}))))
+  (println "RECORD RAND-only preload gate: not applicable on macOS; LD_PRELOAD is a Linux loader mechanism. Linux execution UNRUN."))
+
+
+(let [{:keys [exit out]} (jolt root {} (str probes "/random_faults.clj"))]
+  (run! println (filter #(re-find #"^(PASS|FAIL)" %) (str/split-lines out)))
+  (check "random fault injection: freed once, zero before free, no cleanup allocation"
+         (and (zero? exit) (line out "SUMMARY ok")) {:exit exit :out (when-not (zero? exit) out)}))
+
+
 ;; 13. fault injection over every native acquisition
 (let [{:keys [exit out]} (jolt root {} (str probes "/faults.clj"))]
   (run! println (map #(str "  " %) (filter #(re-find #"^(PASS|FAIL)" %) (str/split-lines out))))

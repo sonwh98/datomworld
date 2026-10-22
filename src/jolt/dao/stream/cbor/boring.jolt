@@ -1,0 +1,673 @@
+(ns dao.stream.cbor.boring
+  "The jolt half of the `dao.stream.cbor` codec: the whole-file override of
+   src/cljc/dao/stream/cbor/boring.cljc (the :jolt alias puts src/jolt
+   first), replacing the pinned Java Boring dependency exactly as the
+   jolt design plans ('a narrow .jolt wire writer over the existing
+   host-value vocabulary'; see also design 4.4 and 9.4: the jolt host
+   composes only this CBOR profile).
+
+   The byte-level contract is the one `dao.stream.cbor`'s doc pins and the
+   Dart half (src/cljd/dao/stream/cbor/cljd.cljd) already implements
+   from scratch over the pub.dev cbor package; this is the fourth host's
+   from-scratch implementation of the same bytes:
+
+   * definite-length containers only; bytewise-sorted map keys and set
+     elements (proper prefix first) — Boring's :canonical rules;
+   * minimal integer heads; identifiers ride tag 39 text (colon-prefixed
+     for keywords); sets ride tag 258; metadata rides the
+     `clojure/with-meta` tag 27 frame `[metadata value]`; lists ride the
+     stream's own `dao.stream/list` tag 27 frame `[metadata elements]` to
+     stay distinct from vectors;
+   * host byte payloads are CBOR byte strings (major 2);
+   * floats: RFC 8949 4.2.2 shortest form that round-trips — f16 when the
+     double is exactly representable as one, else f32 when exact, else f64
+     (Boring 0.1.30 :canonical emits `f9 7bff` for 65504.0, per its own
+     Writer comment). The portable domain has no NaN or infinities
+     (dao.stream.codec/safe-number?), and decode's canonicality guard
+     rejects any non-shortest float anyway.
+
+   Decoding re-encodes and byte-compares, the same canonicality guard the
+   Boring and Dart halves apply: that one check rejects non-minimal heads,
+   indefinite lengths, wrong key order, duplicate map keys and set elements (compared by encoded bytes) and every non-canonical float.
+
+   Cross-host proof: the suites and fixtures of dao.stream.cbor-test and
+   the codec corpus, unchanged, over these bytes (no jolt-only corpus)."
+  (:require [clojure.string :as str]
+            [dao.host.bytes :as bytes]
+            [dao.host.float :as float]
+            [dao.host.text :as text]
+            [dao.stream.codec :as codec]))
+
+
+(def opts
+  "The one encode option map the Boring halves use (kept for surface parity;
+   this implementation is always canonical, never stringref, never shaped)."
+  {:profile :canonical :stringref false :shapes false})
+
+
+(def list-frame-tag
+  "The symbol naming the list frame on both the encode and decode sides."
+  'dao.stream/list)
+
+
+(defn byte-payload?
+  "True for the host byte payload written as a CBOR byte string (major 2):
+   jolt's byte array. The carrier dao.jing.stream's boundary adapter rides
+   Jing's canonical bytes on."
+  [x]
+  (bytes/bytes? x))
+
+
+;; ---------------------------------------------------------------------------
+;; Byte vectors (ints 0-255) are the encoding medium; dao.host.bytes turns
+;; the finished vector into a fresh jolt byte array.
+;; ---------------------------------------------------------------------------
+
+
+(defn- bcompare
+  "Bytewise order, a proper prefix sorting first — Boring's canonical rule."
+  [a b]
+  (let [n (min (count a) (count b))]
+    (loop [i 0]
+      (if (= i n)
+        (- (count a) (count b))
+        (let [d (- (nth a i) (nth b i))]
+          (if (zero? d) (recur (inc i)) d))))))
+
+
+(defn- head-bytes
+  "The minimal head of `major` with unsigned value `v` (0 <= v < 2^64)."
+  [major v]
+  (let [m (bit-shift-left major 5)]
+    (cond
+      (< v 24) [(bit-or m v)]
+      (< v 0x100) [(bit-or m 24) v]
+      (< v 0x10000) [(bit-or m 25)
+                     (bit-shift-right v 8) (bit-and v 0xff)]
+      (< v 0x100000000) [(bit-or m 26)
+                         (bit-and (bit-shift-right v 24) 0xff)
+                         (bit-and (bit-shift-right v 16) 0xff)
+                         (bit-and (bit-shift-right v 8) 0xff)
+                         (bit-and v 0xff)]
+      :else (into [(bit-or m 27)]
+                  (map #(bit-and (bit-shift-right v (* % 8)) 0xff)
+                       [7 6 5 4 3 2 1 0])))))
+
+
+;; ---------------------------------------------------------------------------
+;; Floats: RFC 8949 4.2.2 shortest form, via exact integer arithmetic over
+;; the double's bits. dao.host.float's carriers are 16-hex-digit strings
+;; (table A law), so the words are parsed/built as two unsigned 32-bit
+;; halves and every intermediate stays a Chez exact integer below 2^53.
+;; ---------------------------------------------------------------------------
+
+
+(def ^:private p2-52 4503599627370496)   ; 2^52
+(def ^:private p2-32 4294967296)         ; 2^32
+(def ^:private hex-digits "0123456789abcdef")
+
+
+(defn- bit-length
+  "The number of bits of positive integer `x`."
+  [x]
+  (loop [x x, n 0]
+    (if (> x 1) (recur (quot x 2) (inc n)) (inc n))))
+
+
+(defn- word
+  "The unsigned value of 8 hex digits `s`."
+  [s]
+  (reduce (fn [acc c] (+ (* acc 16) (str/index-of hex-digits c))) 0 s))
+
+
+(defn- word-hex
+  "8 lowercase hex digits of `n` (< 2^32)."
+  [n]
+  (apply str (map #(nth hex-digits (bit-and (bit-shift-right n (* % 4)) 0xf))
+                  (reverse (range 8)))))
+
+
+(defn- words
+  "The [hi lo] unsigned halves of double `d`, from its 16-hex-digit bits."
+  [d]
+  (let [s (float/float64->bits d)]
+    [(word (subs s 0 8)) (word (subs s 8 16))]))
+
+
+(defn- words->double
+  "The double of unsigned [hi lo] bit halves, through the 16-digit hex
+   carrier."
+  [[hi lo]]
+  (float/bits->float64 (str (word-hex hi) (word-hex lo))))
+
+
+(defn- decompose
+  "The exact magnitude of double `d` as [m e] with m odd (or [0 0] for
+   0.0/-0.0): |d| = m * 2^e."
+  [d]
+  (let [[hi lo] (words d)
+        biased (bit-and (bit-shift-right hi 20) 0x7ff)
+        mant (+ (* (bit-and hi 0xfffff) p2-32) lo)]
+    (if (zero? biased)
+      (if (zero? mant)
+        [0 0]
+        (loop [m mant, e -1074]
+          (if (even? m) (recur (quot m 2) (inc e)) [m e])))
+      (loop [m (+ p2-52 mant), e (- biased 1075)]
+        (if (even? m) (recur (quot m 2) (inc e)) [m e])))))
+
+
+(defn- exact-at-width
+  "Exact [q E] of positive odd-mantissa (m * 2^e) at a p-bit-mantissa width
+   with normal exponent range [emin, emax] (f16: 10/-14/15, f32:
+   23/-126/127), where the value is q * 2^E — q in [2^p, 2^(p+1)) normal,
+   q < 2^p at the subnormal spacing floor E = emin - p. :overflow past the
+   finite exponent range, :lossy when no float of this width holds the
+   value exactly (an odd m cannot survive a right shift)."
+  [[m e] p emin emax]
+  (let [binexp (+ e (bit-length m) -1)]
+    (cond
+      (> binexp emax) :overflow
+      :else (let [E (max (- binexp p) (- emin p))]
+              (if (< e E)
+                :lossy
+                [(bit-shift-left m (- e E)) E])))))
+
+
+(defn- sign-of
+  "The sign bit (1 negative) of double `d` — read from the bits, because
+   (neg? -0.0) is false."
+  [d]
+  (bit-shift-right (first (words d)) 31))
+
+
+(defn- f16-bits
+  "The IEEE 754 half-precision bits of double `d`, or nil when d is not
+   exactly representable (or finite-half overflow)."
+  [d]
+  (let [sign (sign-of d)
+        [m e] (decompose (abs d))]
+    (if (zero? m)
+      (bit-shift-left sign 15)
+      (let [r (exact-at-width [m e] 10 -14 15)]
+        (if-not (vector? r)
+          nil
+          (let [[q E] r]
+            (if (< q 1024)
+              (bit-or (bit-shift-left sign 15) q)
+              (let [expf (+ E 25)]
+                (when (<= 1 expf 30)
+                  (bit-or (bit-shift-left sign 15)
+                          (bit-shift-left expf 10)
+                          (- q 1024)))))))))))
+
+
+(defn- f32-bits
+  "The IEEE 754 single-precision bits of double `d`, or nil when d is not
+   exactly representable."
+  [d]
+  (let [sign (sign-of d)
+        [m e] (decompose (abs d))]
+    (if (zero? m)
+      (bit-shift-left sign 31)
+      (let [r (exact-at-width [m e] 23 -126 127)]
+        (if-not (vector? r)
+          nil
+          (let [[q E] r]
+            (if (< q 0x800000)
+              (bit-or (bit-shift-left sign 31) q)
+              (let [expf (+ E 150)]
+                (when (<= 1 expf 254)
+                  (bit-or (bit-shift-left sign 31)
+                          (bit-shift-left expf 23)
+                          (- q 0x800000)))))))))))
+
+
+(defn- float-bytes
+  "The bytes of double `d` at its shortest exact width (major 7; the args
+   25/26/27 are direct additional-info values, f16 first: RFC 8949 4.2.2)."
+  [d]
+  (if-some [h (f16-bits d)]
+    [(bit-or 0xe0 25) (bit-shift-right h 8) (bit-and h 0xff)]
+    (if-some [w (f32-bits d)]
+      (into [(bit-or 0xe0 26)]
+            (map #(bit-and (bit-shift-right w (* % 8)) 0xff) [3 2 1 0]))
+      (let [[hi lo] (words d)]
+        (into [(bit-or 0xe0 27)]
+              (concat (map #(bit-and (bit-shift-right hi (* % 8)) 0xff) [3 2 1 0])
+                      (map #(bit-and (bit-shift-right lo (* % 8)) 0xff) [3 2 1 0])))))))
+
+
+(defn- qE->double
+  "The exact double of sign * q * 2^E (q > 0), rebuilt through the f64 bit
+   pattern (every f16/f32 value is a normal f64)."
+  [sign q E]
+  (let [s (- 53 (bit-length q))
+        Es (- E s)
+        mant (- (bit-shift-left q s) p2-52)]
+    (words->double [(bit-or (bit-shift-left sign 31)
+                            (bit-shift-left (+ Es 1075) 20)
+                            (quot mant p2-32))
+                    (mod mant p2-32)])))
+
+
+(defn- from-f16
+  "The exact double of half-precision bits `h` (infinites and NaN included;
+   decode's canonicality re-encode refuses them)."
+  [h]
+  (let [sign (bit-and (bit-shift-right h 15) 1)
+        expf (bit-and (bit-shift-right h 10) 0x1f)
+        mant (bit-and h 0x3ff)]
+    (cond
+      (zero? expf) (if (zero? mant)
+                     (words->double [(bit-shift-left sign 31) 0])
+                     (qE->double sign mant -24))
+      (= expf 31) (if (zero? mant)
+                    (words->double [(bit-or (bit-shift-left sign 31) 0x7ff00000) 0])
+                    ##NaN)
+      :else (qE->double sign (+ 1024 mant) (- expf 25)))))
+
+
+(defn- from-f32
+  "The exact double of single-precision bits `w`."
+  [w]
+  (let [sign (bit-and (bit-shift-right w 31) 1)
+        expf (bit-and (bit-shift-right w 23) 0xff)
+        mant (bit-and w 0x7fffff)]
+    (cond
+      (zero? expf) (if (zero? mant)
+                     (words->double [(bit-shift-left sign 31) 0])
+                     (qE->double sign mant -149))
+      (= expf 255) (if (zero? mant)
+                     (words->double [(bit-or (bit-shift-left sign 31) 0x7ff00000) 0])
+                     ##NaN)
+      :else (qE->double sign (+ 0x800000 mant) (- expf 150)))))
+
+
+;; ---------------------------------------------------------------------------
+;; Encoding: portable value -> byte vector
+;; ---------------------------------------------------------------------------
+
+
+(defn- identifier-text
+  "The tag 39 text for one identifier: Boring's colon-prefix + slash-joined
+   form. The domain gate has already rejected identifiers this form cannot
+   round-trip."
+  [x]
+  (let [body (if-some [ns (namespace x)]
+               (str ns "/" (name x))
+               (name x))]
+    (if (keyword? x) (str ":" body) body)))
+
+
+(defn- text-bytes
+  "The major-3 bytes of string `s` (definite, UTF-8 length in the head)."
+  [s]
+  (let [u (text/utf8-encode s)]
+    (into (head-bytes 3 (bytes/length u)) (bytes/to-vector u))))
+
+
+(defn- bflat
+  "One flat byte vector from a collection of byte vectors."
+  [vecs]
+  (into [] (mapcat identity) vecs))
+
+
+(defn- array-body
+  "The head-4 definite array of each item of `xs` already encoded."
+  [encoded]
+  (into (head-bytes 4 (count encoded)) (bflat encoded)))
+
+
+(defn- named-frame
+  "One tag 27 frame: tag, then the 2-item array [name payload], where
+   `payload` is the already-encoded byte vector of the payload array."
+  [name payload]
+  (into (head-bytes 6 27)
+        (array-body [(text-bytes name) payload])))
+
+
+(def max-nesting
+  "Maximum wire nesting (root depth zero), including tags and frame arrays.
+   No shared CBOR depth contract exists. 64 is conservative relative to the
+   measured 544-level CBOR main/worker probes; preflight uses an explicit
+   stack before any recursive validation/encoding. Decode checks before descent."
+  64)
+
+
+(defn- check-depth! [depth]
+  (when (> depth max-nesting)
+    (throw (ex-info "cbor nesting budget exceeded"
+                    {:reason :too-deep :limit max-nesting}))))
+
+
+(defn check-value!
+  "Iterative portable validation, including identifier metadata and wire depth.
+   The bare flag suppresses metadata when visiting a frame's underlying value."
+  [value]
+  (loop [pending (list [value 0 false])]
+    (when-let [[x depth bare?] (first pending)]
+      (check-depth! depth)
+      (let [m (when-not bare? (meta x))
+            identifier? (or (symbol? x) (keyword? x))
+            valid? (cond
+                     (nil? x) true
+                     (or (boolean? x) (string? x) (bytes/bytes? x)) true
+                     (number? x) (codec/safe-number? x)
+                     identifier? (let [n (name x) ns (namespace x)]
+                                   (and (pos? (count n))
+                                        (not (str/starts-with? n ":"))
+                                        (not (str/includes? n "/"))
+                                        (or (nil? ns)
+                                            (and (pos? (count ns))
+                                                 (not (str/starts-with? ns ":"))
+                                                 (not (str/includes? ns "/"))))))
+                     (map? x) (not (record? x))
+                     :else (or (vector? x) (list? x) (set? x)))]
+        (when-not valid?
+          (throw (ex-info "value is outside the dao.stream.cbor portable domain"
+                          {:error :non-portable-value :value x})))
+        (let [children
+              (cond
+                (list? x) (concat [[m (+ depth 3) false]]
+                                  (map #(vector % (+ depth 4) false) x))
+                (and m (not bare?)) [[m (+ depth 3) false] [x (+ depth 3) true]]
+                (map? x) (mapcat (fn [[k v]] [[k (inc depth) false]
+                                              [v (inc depth) false]]) x)
+                (set? x) (map #(vector % (+ depth 2) false) x)
+                (vector? x) (map #(vector % (inc depth) false) x)
+                :else nil)]
+          ;; Tags/empty containers also consume wire levels.
+          (check-depth! (+ depth (cond (list? x) 3 (set? x) 1
+                                      identifier? 1 :else 0)))
+          (recur (concat children (rest pending)))))))
+  value)
+
+
+(declare node-bytes)
+
+
+(defn- strictly-increasing!
+  [encoded duplicate-type]
+  (loop [xs (seq encoded), previous nil]
+    (when-let [x (first xs)]
+      (when previous
+        (let [order (bcompare previous x)]
+          (when-not (neg? order)
+            (throw (ex-info "cbor value outside the stream profile"
+                            (if (zero? order)
+                              {:reason :non-canonical :type duplicate-type}
+                              {:reason :non-canonical}))))))
+      (recur (next xs) x)))
+  encoded)
+
+
+(defn- in-canonical-order
+  "Return sorted [encoded-key item] pairs, retaining each encoding once."
+  [items key-fn]
+  (let [pairs (sort (fn [a b] (bcompare (first a) (first b)))
+                    (mapv (fn [it] [(key-fn it) it]) items))]
+    (strictly-increasing! (map first pairs) :boring/canonical-duplicate)
+    pairs))
+
+
+(defn- node-bytes
+  "The canonical byte vector of one portable value."
+  [x]
+  (cond
+    (nil? x) [0xf6]
+    (true? x) [0xf5]
+    (false? x) [0xf4]
+    (integer? x) (if (neg? x)
+                   (head-bytes 1 (- -1 x))
+                   (head-bytes 0 x))
+    (number? x) (float-bytes (double x))
+    (string? x) (text-bytes x)
+    ;; before the identifier branch and as a plain value: a host byte
+    ;; payload is a CBOR byte string (major 2), never a tagged carrier
+    (bytes/bytes? x) (into (head-bytes 2 (bytes/length x))
+                           (bytes/to-vector x))
+    (symbol? x) (if-some [m (meta x)]
+                  (named-frame "clojure/with-meta"
+                               (array-body [(node-bytes m)
+                                            (into (head-bytes 6 39)
+                                                  (text-bytes (identifier-text x)))]))
+                  (into (head-bytes 6 39) (text-bytes (identifier-text x))))
+    (keyword? x) (into (head-bytes 6 39) (text-bytes (identifier-text x)))
+    (list? x) (named-frame "dao.stream/list"
+                           (array-body [(node-bytes (some-> (meta x)))
+                                        (array-body (mapv node-bytes x))]))
+    (vector? x) (if-some [m (meta x)]
+                  (named-frame "clojure/with-meta"
+                               (array-body [(node-bytes m)
+                                            (array-body (mapv node-bytes x))]))
+                  (array-body (mapv node-bytes x)))
+    (set? x) (let [elems (into (head-bytes 6 258)
+                               (array-body (mapv first (in-canonical-order x node-bytes))))]
+               (if-some [m (meta x)]
+                 (named-frame "clojure/with-meta" (array-body [(node-bytes m) elems]))
+                 elems))
+    (map? x) (let [body (bflat (mapcat identity
+                                       (->> (in-canonical-order x #(node-bytes (key %)))
+                                            (mapv (fn [[encoded-key e]]
+                                                    [encoded-key
+                                                     (node-bytes (val e))])))))]
+               (if-some [m (meta x)]
+                 (named-frame "clojure/with-meta"
+                              (array-body [(node-bytes m)
+                                           (into (head-bytes 5 (count x)) body)]))
+                 (into (head-bytes 5 (count x)) body)))
+    :else (throw (ex-info "value is outside the dao.stream.cbor portable domain"
+                          {:value x}))))
+
+
+(defn encode
+  "Encode one portable value as canonical CBOR bytes."
+  [value]
+  (check-value! value)
+  (bytes/from-vector (node-bytes value)))
+
+
+;; ---------------------------------------------------------------------------
+;; Decoding: bytes -> portable value (strict, then the canonicality guard)
+;; ---------------------------------------------------------------------------
+
+
+(def ^:private max-safe 9007199254740991)
+
+
+(defn- out-of-profile
+  [detail]
+  (throw (ex-info "cbor value outside the stream profile" detail)))
+
+
+(defn- from-tag39
+  "Rebuild an identifier from its tag 39 text, splitting the namespace at
+   the first slash exactly as Boring's reader does."
+  [s]
+  (let [body (if (str/starts-with? s ":") (subs s 1) s)
+        slash (str/index-of body "/")]
+    (if slash
+      ((if (str/starts-with? s ":") keyword symbol)
+       (subs body 0 slash) (subs body (inc slash)))
+      ((if (str/starts-with? s ":") keyword symbol) body))))
+
+
+(defn- raw-bytes
+  "`n` bytes of vector `v` from index `i`, as a fresh jolt byte array."
+  [v i n]
+  (bytes/from-vector (subvec v i (+ i n))))
+
+
+(defn- head-arg
+  "The head argument at `i`: [value next-index]. Additional-info 28-30
+   (reserved) and 31 (indefinite) are refused: canonical bytes are
+   definite."
+  [v i]
+  (let [ai (bit-and (nth v i) 0x1f)]
+    (if (< ai 24)
+      [ai (inc i)]
+      (if (<= ai 27)
+        (let [n (bit-shift-left 1 (- ai 24))]
+          (when (> (+ i 1 n) (count v))
+            (out-of-profile {:reason :truncated}))
+          [(reduce (fn [acc k] (bit-or (bit-shift-left acc 8) (nth v (+ i 1 k))))
+                   0 (range n))
+           (+ i 1 n)])
+        (out-of-profile {:reason (if (= ai 31) :indefinite :reserved-ai)})))))
+
+
+(declare item)
+
+
+(defn- parse-array
+  "The n items of a definite array from `i`: [vector next-index]. A helper,
+   not an inline clause: jolt 96d7b866 scrambles control flow when a
+   case/cond mixes recur-carrying branches with later clauses (the J2
+   repro is src/dev/jolt_case_try.clj), so `item` itself carries no recur."
+  [v n i depth]
+  (loop [k 0, i i, acc (transient [])]
+    (if (= k n)
+      [(persistent! acc) i]
+      (let [[x next] (item v i (inc depth))]
+        (recur (inc k) next (conj! acc x))))))
+
+
+(defn- parse-map
+  "The n key-value pairs of a definite map from `i`: [map next-index]."
+  [v n i depth]
+  (loop [k 0, i i, acc (transient {}), previous nil]
+    (if (= k n)
+      [(persistent! acc) i]
+      (let [[kk i1] (item v i (inc depth))
+            [vv i2] (item v i1 (inc depth))
+            encoded (subvec v i i1)]
+        (when previous (strictly-increasing! [previous encoded] :boring/duplicate-map-key))
+        (recur (inc k) i2 (assoc! acc kk vv) encoded)))))
+
+
+(defn- parse-set
+  [v i depth]
+  (when (or (>= i (count v)) (not= 4 (bit-shift-right (nth v i) 5)))
+    (out-of-profile {:tag 258}))
+  (check-depth! depth)
+  (let [[n start] (head-arg v i)]
+    (loop [k 0, i start, acc #{}, previous nil]
+      (if (= k n)
+        [acc i]
+        (let [[x end] (item v i (inc depth))
+              encoded (subvec v i end)]
+          (when previous (strictly-increasing! [previous encoded] :boring/duplicate-set-element))
+          (recur (inc k) end (conj acc x) encoded))))))
+
+
+(defn- item
+  "Decode one item of byte vector `v` at index `i`: [value next-index]."
+  [v i depth]
+  (check-depth! depth)
+  (when (>= i (count v)) (out-of-profile {:reason :truncated}))
+  (let [major (bit-shift-right (nth v i) 5)]
+    (if (= 7 major)
+      ;; floats and simple values: the args 25-27 are direct widths
+      (let [ai (bit-and (nth v i) 0x1f)]
+        (cond
+          (= ai 20) [false (inc i)]
+          (= ai 21) [true (inc i)]
+          (= ai 22) [nil (inc i)]
+          (= ai 25) (do (when (> (+ i 3) (count v)) (out-of-profile {:reason :truncated}))
+                        [(from-f16 (bit-or (bit-shift-left (nth v (inc i)) 8)
+                                           (nth v (+ i 2))))
+                         (+ i 3)])
+          (= ai 26) (do (when (> (+ i 5) (count v)) (out-of-profile {:reason :truncated}))
+                        [(from-f32 (reduce (fn [acc k]
+                                             (bit-or (bit-shift-left acc 8)
+                                                     (nth v (+ i 1 k))))
+                                           0 (range 4)))
+                         (+ i 5)])
+          (= ai 27) (do (when (> (+ i 9) (count v)) (out-of-profile {:reason :truncated}))
+                        [(words->double
+                           [(reduce (fn [acc k]
+                                      (bit-or (bit-shift-left acc 8)
+                                              (nth v (+ i 1 k))))
+                                    0 (range 4))
+                            (reduce (fn [acc k]
+                                      (bit-or (bit-shift-left acc 8)
+                                              (nth v (+ i 5 k))))
+                                    0 (range 4))])
+                         (+ i 9)])
+          ;; simple values and undefined (23): no producer in this profile
+          :else (out-of-profile {:simple ai})))
+      (let [[n i] (head-arg v i)]
+        (cond
+          (= major 0) (do (when (> n max-safe) (out-of-profile {:int n}))
+                          [n i])
+          (= major 1) (do (when (>= n max-safe) (out-of-profile {:int (- -1 n)}))
+                          [(- -1 n) i])
+          (= major 2) (do (when (> (+ i n) (count v)) (out-of-profile {:reason :truncated}))
+                          [(raw-bytes v i n) (+ i n)])
+          (= major 3) (do (when (> (+ i n) (count v)) (out-of-profile {:reason :truncated}))
+                          [(text/utf8-decode (raw-bytes v i n)) (+ i n)])
+          (= major 4) (parse-array v n i depth)
+          (= major 5) (parse-map v n i depth)
+          (and (= major 6) (= n 258)) (parse-set v i (inc depth))
+          (= major 6) (let [[x i] (item v i (inc depth))]
+                        (cond
+                          (= n 39) (if (string? x)
+                                     [(from-tag39 x) i]
+                                     (out-of-profile {:tag 39}))
+                          (= n 258) (if (vector? x)
+                                      [(into #{} x) i]
+                                      (out-of-profile {:tag 258}))
+                          (= n 27) (if (and (vector? x) (= 2 (count x)) (string? (nth x 0)))
+                                     (let [name (nth x 0)
+                                           payload (nth x 1)]
+                                       (if (= name "dao.stream/list")
+                                         (if (and (vector? payload) (= 2 (count payload))
+                                                  (or (nil? (nth payload 0)) (map? (nth payload 0)))
+                                                  (vector? (nth payload 1)))
+                                           [(with-meta (apply list (nth payload 1)) (nth payload 0))
+                                            i]
+                                           (out-of-profile {:frame name}))
+                                         (if (= name "clojure/with-meta")
+                                           (if (and (vector? payload) (= 2 (count payload))
+                                                    (or (nil? (nth payload 0)) (map? (nth payload 0)))
+                                                    (let [target (nth payload 1)]
+                                                      (or (symbol? target) (coll? target))))
+                                             [(with-meta (nth payload 1) (nth payload 0)) i]
+                                             (out-of-profile {:frame name}))
+                                           (out-of-profile {:frame name}))))
+                                     (out-of-profile {:tag 27}))
+                          :else (out-of-profile {:tag n})))
+          :else (out-of-profile {:major major}))))))
+
+
+(defn convert
+  "Walk one decoded value rejecting everything the profile does not define.
+   The parser above yields portable values only (identifiers, sets, frames
+   and byte payloads included), so this is the surface-parity guard: the
+   records and host carriers Boring's own decoder can surface — and which
+   boring.cljc's convert rejects — have no producer here."
+  [x]
+  (when (record? x)
+    (out-of-profile {:value x}))
+  x)
+
+
+(defn decode
+  "Decode exactly one canonical CBOR item into the portable domain. Trailing
+   items, malformed input, unknown tags or names, duplicate keys and
+   out-of-domain values are errors.
+
+   The trailing byte-compare is the canonicality guard the Boring and Dart
+   halves also apply: re-encoding the decoded value rejects every frame a
+   canonical peer never emits — non-minimal heads, indefinite lengths,
+   bytewise-unsorted keys, collapsed duplicates, non-shortest floats."
+  [bs]
+  (let [v (bytes/to-vector bs)
+        [value i] (item v 0 0)]
+    (when-not (= i (count v))
+      (out-of-profile {:reason :trailing-bytes :at i :of (count v)}))
+    (let [value (convert value)]
+      (when-not (bytes/equal? bs (encode value))
+        (out-of-profile {:reason :non-canonical}))
+      value)))
