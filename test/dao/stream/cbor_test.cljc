@@ -172,6 +172,8 @@
                       (keyword ":lead")
                       (symbol "" "n")
                       (keyword "n" "")
+                      (with-meta 'sym {:n 9223372036854775807})  ; symbol with unsafe-number metadata
+                      (with-meta 'sym {:bad #?(:clj (Object.) :cljs (js-obj))}) ; symbol with non-portable metadata
                       (with-meta [1] {:k #?(:clj (Object.) :cljs (js-obj))})
                       #?(:clj (Object.) :cljs (js-obj))]]
          (doseq [value rejects]

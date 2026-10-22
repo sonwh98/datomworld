@@ -158,6 +158,8 @@
                  (keyword ":lead")
                  (symbol "" "n")
                  (keyword "n" "")
+                 (with-meta 'sym {:n 9007199254740992})
+                 (with-meta 'sym {:bad (Object.)})
                  (with-meta [1] {:k (Object.)})]]
     (doseq [value rejects]
       (is (not (cbor/portable-value? value))
