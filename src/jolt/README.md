@@ -42,3 +42,11 @@ Contents (J1):
     version must be at least `:min-version`.
   A changed library is requalified with `bb build:jolt-native --requalify`
   and `bb qualify:jolt-libcrypto` (the procedure is in `jolt-toolchain.edn`).
+
+The toolchain pins the owner's fork, `https://github.com/sonwh98/jolt`, at
+`697b91eefabf3e964acea787cbc9cb1b6b85a28c` (`jolt-toolchain.edn`). Fork PR
+`sonwh98/jolt#2` carries the Sorted user-type fix (source `7b7100c1`, regenerated
+seeds `697b91ee`), so bootstrap applies no patches and does no re-mint. The former
+`0001-sorted-user-types` patch against `96d7b866` is retired; the verified patch
+mechanism remains available for future patches. `bb test:jolt-bootstrap-neg`
+uses its own temporary synthetic patch to exercise the refusal gates.

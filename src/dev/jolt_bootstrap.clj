@@ -110,12 +110,19 @@
 (defn- verify!
   [{:keys [origin sha dir submodules]}]
   (let [head (sh "git" "-C" dir "rev-parse" "HEAD")
-        remote (sh "git" "-C" dir "remote" "get-url" "origin")]
+        remote (sh "git" "-C" dir "remote" "get-url" "origin")
+        remedy (str "\nRemedy: git -C build/tools/jolt checkout -- ."
+                    " && git -C build/tools/jolt remote set-url origin " origin
+                    " && git -C build/tools/jolt fetch origin " sha
+                    " && git -C build/tools/jolt checkout --detach " sha
+                    " && git -C build/tools/jolt submodule update --init --recursive"
+                    " && bb bootstrap:jolt"
+                    "\nAlternatively: rm -rf build/tools/jolt && bb bootstrap:jolt"
+                    "\nPin changes go through qualify:jolt-upgrade.")]
     (when-not (= origin remote)
-      (fail! dir " has origin " remote ", declared " origin))
+      (fail! dir " has origin " remote ", declared " origin remedy))
     (when-not (= sha head)
-      (fail! dir " is at " head ", declared " sha
-             "; ordinary runs never pull — advance the pin through qualify:jolt-upgrade"))
+      (fail! dir " is at " head ", declared " sha remedy))
     (let [actual (submodule-shas dir)]
       (when-not (= submodules actual)
         (fail! "submodule SHAs differ from jolt-toolchain.edn: " (pr-str actual))))
@@ -342,27 +349,45 @@
     (println "negative gate temporary directory (retained on failure):" (str root))
     (fs/copy-tree source clone)
     (sh "git" "-C" clone "checkout" "--" ".")
-    (spit (str (fs/path root "jolt-toolchain.edn")) (pr-str toolchain))
-    (doseq [{:keys [path]} (get-in toolchain [:jolt :patches])]
-      (let [dest (fs/path root path)]
-        (fs/create-dirs (fs/parent dest))
-        (fs/copy path dest)))
-    (doseq [[label no-apply expected] [["unpatched" "1" "patch declared, not live"]
-                                       ["corrupt" "" (str (get-in toolchain [:jolt :patches 0 :path])
-                                                          " sha256 mismatch")]]]
-      (when (= label "corrupt")
-        (spit (str (fs/path root (get-in toolchain [:jolt :patches 0 :path])))
-              "\ncorrupt patch\n" :append true))
-      (let [r (p/shell {:dir (str root) :out :string :err :string :continue true
-                        :extra-env {"JOLT_BOOTSTRAP_TEST_DIR" clone
-                                    "JOLT_BOOTSTRAP_TEST_NO_APPLY" no-apply}}
-                       "bb" script)
-            output (str (:out r) (:err r))]
-        (spit (str (fs/path root (str label ".log"))) output)
-        (when-not (and (= 1 (:exit r)) (str/includes? output expected))
-          (fail! "negative gate " label " expected exit 1 / " expected
-                 ", got " (:exit r) "\n" output))
-        (println "PASS" label "exit 1:" expected)))
+    ;; Independent of the live pin's patches: a harmless tracked comment,
+    ;; with a behavioural probe that reads exactly the patched file. No mint.
+    (let [path ".gitmodules"
+          target (fs/path clone path)
+          before (sha256 target)
+          contents (str (slurp (str target)) "\n# bootstrap negative gate synthetic patch\n")
+          patch-path "synthetic.patch"
+          patch-file (fs/path root patch-path)
+          _ (spit (str target) contents)
+          after (sha256 target)
+          patch-text (str (sh "git" "-C" clone "diff" "--" path) "\n")
+          _ (spit (str patch-file) patch-text)
+          patch {:id "bootstrap-negative-synthetic"
+                 :path patch-path :sha256 (sha256 patch-file)
+                 :base (get-in toolchain [:jolt :sha])
+                 :files {path {:before before :after after}}
+                 :remint false
+                 :smoke {:form (str "(= " (pr-str contents) " (slurp "
+                                    (pr-str (str target)) "))")
+                         :expect "true"}}
+          test-toolchain (assoc-in toolchain [:jolt :patches] [patch])]
+      (sh "git" "-C" clone "checkout" "--" path)
+      (spit (str (fs/path root "jolt-toolchain.edn")) (pr-str test-toolchain))
+      (println "synthetic patch digests:" (pr-str (select-keys patch [:sha256 :files])))
+      (doseq [[label no-apply expected-exit expected]
+              [["unpatched" "1" 1 "patch declared, not live"]
+               ["corrupt" "" 1 (str patch-path " sha256 mismatch")]
+               ["applied" "" 0 "=> true"]]]
+        (spit (str patch-file) (str patch-text (when (= label "corrupt") "\ncorrupt patch\n")))
+        (let [r (p/shell {:dir (str root) :out :string :err :string :continue true
+                          :extra-env {"JOLT_BOOTSTRAP_TEST_DIR" clone
+                                      "JOLT_BOOTSTRAP_TEST_NO_APPLY" no-apply}}
+                         "bb" script)
+              output (str (:out r) (:err r))]
+          (spit (str (fs/path root (str label ".log"))) output)
+          (when-not (and (= expected-exit (:exit r)) (str/includes? output expected))
+            (fail! "negative gate " label " expected exit " expected-exit " / " expected
+                   ", got " (:exit r) "\n" output))
+          (println "PASS" label (str "exit " expected-exit ":") expected))))
     (fs/delete-tree root)
     (println "negative gates passed; deleted temporary directory:" (str root))))
 
