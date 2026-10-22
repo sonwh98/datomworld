@@ -11,14 +11,27 @@ in-process ANTLR4 C++ parser over FFI, with no fallback. The first milestone is
 a local REPL (through J5). Host-lane parity, with native WebSocket and UDP/DHT,
 follows at J8.
 
-Status: design only; not implemented; nothing commissioned. This document
-consolidates the architect plan r7
+Status (2026-10-22): implementation in progress; local REPL and host-lane
+parity are not yet qualified. Landed on master: J0a toolchain/bootstrap
+(`9f1f9144`, Debian prerequisites through `d5b4ce95`); J0c C++ parser probe
+(`9fbee557`, probe-only); J1 dao.host overrides (`0d07e55d`); J1b hash/sign
+with pinned libblake3 and qualified system libcrypto (`97c7b902`); linear
+text walks (`f6e29391`); J2 test lane, CBOR host seam and libcrypto random bytes
+(wrapper layout 3, `a0a49b8e`); CBOR override drift guard (`4682c583`). J0b
+is not merged: the UDP probe stays on `jolt-j0b` (`6fa97400`). J2 is landed,
+not closed: gate (b), every applicable test passing with expected counts, is
+open with a rerun in progress; the safepoint harness result is pending. The
+14 J4-blocked namespaces are excluded to J4 by owner ruling (§13.5); the
+landed exclusion table still needs that update. J2b comparisons must close
+before J5 acceptance. Slice states are in §10.1.
+
+This document consolidates the architect plan r7
 (`collab/1792427226000-architect-jolt-lane-plan-r7.gpt-6-astra.findings.md`),
 its independent review
 (`collab/1792427469000-architect-jolt-lane-plan-review-r7.claude-opus-5-5.findings.md`,
 findings W1-W9) and the owner decisions of 2026-10-19. The four design points
 the review left open are ruled on in §13.4 (Architect, 2026-10-20; the owner
-may overrule). Owner decisions remain the owner's; §13.3 is empty. The codec
+may overrule). Later owner rulings are recorded in §13.5. The codec
 track ([dao.stream.codec.md](./dao.stream.codec.md)) is independent of this
 document and keeps its own owner questions; this document states only J6's
 dependency on it (§9.4).
@@ -78,6 +91,10 @@ the version check retained. macOS assumes Homebrew, unenforced. Amended:
 §6.1, §6.3 (Linux bullet) and §13.1 (new row). Trigger: on shiva the mise Chez
 build failed with "cannot find -lncurses" until `libncurses-dev` was installed.
 Nothing else changed.
+
+Change note 2026-10-22 (Engineer: codex, docs only): refreshed landed slice
+states and open gates, the owner-fork pin (`63301597`) and the owner's dated
+rulings (§13.5). Acceptance text and historical measurements are retained.
 
 Authorities:
 - [datom.world.md](./datom.world.md) and
@@ -157,13 +174,17 @@ Every claim carries the plan's label.
 |       | recorded by J0; this document invents no version pin.                                                                                                          |
 +-------+----------------------------------------------------------------------------------------------------------------------------------------------------------------+
 
+Rows measured at the old pin `96d7b866` are historical measurements.
+
 Citation status. The repository lines this document reopened while being written
 are listed in Appendix B; one drift was found and corrected (`btree.cljc`). All
 other line cites are carried from r7 and its review and were not rechecked here.
 No build, probe, test or benchmark was run for this document. The 2026-10-20
 rulings reopened the lines listed under "Reopened 2026-10-20" in Appendix B and
 ran read-only `git log`/`git tag`/`git describe` in the jolt checkout; nothing
-else was executed.
+else was executed. The 2026-10-22 refresh read the landed commits, current
+source/toolchain declarations and the cited collab reports; no runtime gate
+was rerun for this documentation change.
 
 `docs/jolt-experiment.md:11-21,60-75` reports failures and timings for jolt
 v0.8.3 (BTSet/subseq, interop gaps). Those are regression candidates, not
@@ -274,6 +295,12 @@ adds test and runner paths; `:jolt-yin-repl` adds `:main-opts`. The alias
 mechanisms exist in jolt (`jolt-core/jolt/deps.clj:8-9,1737-1792`, V). The
 supported launch is always through the explicit alias so dependencies and native
 libraries are reproducible.
+
+Current implementation (V): `deps.edn` and `bb.edn` now contain the jolt host
+and test aliases, bootstrap/native tasks and J2 lane (`0d07e55d`, `a0a49b8e`).
+`bb test:jolt-core` runs every included test, including `^:slow` (§13.5);
+`probe:jolt-j2`, `test:jolt-j2-jvm` and `report:jolt-j2` expose load order,
+JVM counts and comparison. The remaining task family below is the plan (P).
 
 Proposed tasks (P):
 
@@ -413,7 +440,11 @@ V (r7): `integer/host.cljc:239-298` needs infinite two's-complement AND/OR/XOR,
 exact left multiplication, floor right division, magnitude bit length and exact
 radix output.
 
-P: the first implementation uses exact arithmetic only.
+V: the dao.host integer override landed in `0d07e55d` over Chez exact
+primitives (`jolt.scheme`); for in-range values, `big-carrier?` is host-defined
+(owner Q1 version B, §13.5).
+
+P (original arithmetic proposal; the landed override uses Chez primitives):
 
 - AND/OR/XOR: take `w = 1 + max(bit-length(|a|), bit-length(|b|))`; form
   nonnegative residues modulo `2^w`; consume base-2 digits with `quot`/`rem`,
@@ -484,6 +515,14 @@ and decode/re-encode identity against JVM boring output and frozen vectors, not
 digests alone; exercise both hash algorithms and tampered/noncanonical refusals.
 Expected bytes are never regenerated to make jolt pass.
 
+Current seam (V, `a0a49b8e`): `src/jolt/dao/stream/cbor/boring.jolt` is the
+host-value writer; `src/jolt/dao/stream/cbor.jolt` is a whole-file override of
+the stream codec facade, with the jolt require as its host seam. The shared
+Jing codec stays shared. `4682c583` adds the drift guard and reviewed digests
+(`src/jolt/dao/stream/cbor.reviewed.edn`); changes to the shared facade require
+review and guard renewal. Libcrypto random bytes and wrapper layout 3 also
+landed in J2; this does not close J4's file or authority integration gates.
+
 ### 5.3 Arrays, B-tree and display
 
 - `asort` (P): stable mergesort over a temporary array, copied back into **the
@@ -509,8 +548,8 @@ Expected bytes are never regenerated to make jolt pass.
 
 Owner Q4 policy (settled): mise-driven vendored builds of the upstream **BLAKE3
 C reference sources** and the **ANTLR4 C++ runtime**, each with license, pinned
-source revision and hash in a tracked toolchain file (proposed
-`jolt-toolchain.edn`), built with a mise-pinned CMake into
+source revision and hash in the tracked toolchain file
+`jolt-toolchain.edn`, built with a mise-pinned CMake into
 `build/native/<platform>/` by `bb build:jolt-native`, for macOS arm64 and Linux
 x86_64. System/Homebrew OpenSSL libcrypto stays external, with a pre-digest path
 and version check.
@@ -528,19 +567,20 @@ the missing packages and the exact `sudo apt-get install -y …` command. It
 never runs sudo or apt itself. On macOS, Homebrew is assumed and not enforced.
 Chez and CMake remain mise-provided on both platforms.
 
-`jolt-toolchain.edn` (P) records:
+`jolt-toolchain.edn` (V; J0a, J1b and the fork re-pin) records:
 
-- the full jolt SHA (initially `96d7b8662d7c491722445bf976b2e25e36ce5d63`), the
-  GitHub main origin and recursive submodule SHAs;
+- the full jolt SHA `697b91eefabf3e964acea787cbc9cb1b6b85a28c`, the owner
+  fork origin `https://github.com/sonwh98/jolt` and recursive submodule SHAs;
 - the Chez version actually resolved, and `JOLT_CHEZ` set explicitly;
 - libblake3 and ANTLR4 C++ runtime source revisions and hashes; ANTLR tool and
   runtime both 4.13.2;
-- the exact mise CMake pin (V: `mise.toml` has no CMake today), compiler
+- the exact mise CMake pin (`4.4.4`), compiler
   versions and flags, and build output digests per platform;
 - the expected libcrypto path and version per platform;
 - the Debian apt packages the host needs (`:os-packages`), each with the step
   that needs it, and the macOS Homebrew assumption;
-- any local jolt patches, only if proposed default 2 is accepted (§13.2).
+- any local jolt patches, declared and verified under the accepted §13.2
+  policy; currently `:patches []` because the fork pin carries the Sorted fix.
 
 Mise provisions Chez and CMake; the repo task compiles the vendored libraries
 (there is no presumed mise libblake3 package). A mise git plugin for jolt is
@@ -642,8 +682,8 @@ and rollback coordinates. No unavailable test passes silently. Early pins
 qualify only for the implemented milestone; J8 promotion needs every parity
 gate. No numeric JVM-ratio budget exists before J8 evidence.
 
-Pin and tag (W7; ruled, §13.4 ruling 4). V (read-only git in the local
-checkout, 2026-10-20): `96d7b866` is the checkout's `main`/`origin/main` head,
+Historical pin and tag (W7; §13.4 ruling 4, 2026-10-20). V (read-only git
+in the local checkout, 2026-10-20): `96d7b866` is the checkout's `main`/`origin/main` head,
 committed 2026-10-19, carries **no tag**, and `git describe --tags` answers
 `vnightly-16-g96d7b866`; the nearest release tag the checkout knows is
 `v0.8.23` (`a0ac71c3`, 2026-10-17), with `vnightly` (`5ae108e5`, 2026-10-18) a
@@ -657,12 +697,34 @@ is admissible when it carries a needed upstream fix and is explicitly qualified
 through the gate (astra A5). No rule here mandates the newest release. A re-pin
 before that first gate run happens only under the reversal condition in §13.4.
 
-Chez status (R): `mise.toml:8` reads `chezscheme = "latest"` (V; the change is
-uncommitted per r7); the spike observed 10.4.1. Replacing `latest` with an exact
-pin is proposed default 3 (§13.2), not a decision. Until it is disposed of,
-nobody changes the selector or claims a repository pin exists; every result
-records the resolved version and path, and any resolved Chez change goes through
-the upgrade gate.
+Pin and tag (owner decision, 2026-10-22; landed `63301597`). The current
+toolchain pins the owner fork `https://github.com/sonwh98/jolt` at
+`697b91eefabf3e964acea787cbc9cb1b6b85a28c`
+(2026-10-22T15:11:38+07:00; tag none; describe `vnightly-16-g697b91ee`;
+nearest release `v0.8.23`, `a0ac71c3f638fe55158bd01b4ecbb0dd3d7545e5`).
+Fork PR `sonwh98/jolt#2` carries the Sorted fix `7b7100c1` and regenerated
+seeds `697b91ee` on upstream `75c8b610`; origin/main head `d69e5eaa`
+(PR #2 merge, tree identical to `697b91ee`); `vnightly` is now `cd4b7743`.
+The former `0001-sorted-user-types` patch against `96d7b866` is retired;
+`:patches []` applies nothing and re-mints nothing. The patch mechanism
+(`patches/jolt/<sha>/`, `apply-patches!` in `src/dev/jolt_bootstrap.clj`,
+`:patches` in `jolt-toolchain.edn`) remains for future patches. Seven
+submodule SHAs are unchanged. Seed re-mint with Chez 10.4.1 is deterministic
+across macOS and Linux (Linux digest record `e7a39cb9`; fork seed commit
+`697b91ee`). Historical S and J0b evidence still describes `96d7b866` and is
+not re-established by this pin move.
+
+This re-pin precedes the first `qualify:jolt-upgrade` run under an explicit
+owner ruling (§13.5). It was requalified by the manual gate in
+`collab/1792692000000-architect-jolt-pin-fork-review.claude-fable-5-1.findings.md`
+section 6: local macOS bootstrap and negative gates passed; Linux
+requalification is UNRUN until that checklist passes. Q5's suitable
+release-tag preference and explicit qualification still apply; the automated
+upgrade task remains proposed.
+
+Chez status (V): `mise.toml` pins Chez `10.4.1` (J0a, `9f1f9144`); default 3
+was accepted (§13.2). Every result records the resolved version and path;
+a Chez change remains an upgrade-gate trigger.
 
 ### 6.5 Commands
 
@@ -869,6 +931,11 @@ yet verified). If none exist, any hand-port is disclosed and reviewed against
 the Java helper behaviour; it is a helper port, not a handwritten parser.
 
 ### 7.8 J0c probe and J5 gate
+
+Current state (V): `9fbee557` landed the C++ parser probe only. Node/Dart
+oracle comparison and restricted lowering comparison remain open in
+`docs/agents/known-gaps.md`; the owner split these into J2b on 2026-10-22
+(§13.5). Both must close before J5 acceptance. The gates below remain intact.
 
 J0c (P, required, both platforms):
 
@@ -1237,6 +1304,10 @@ change.
 
 ### 10.1 Slice table
 
+States describe landed code and current work, not acceptance closure. The J0a
+pin cell below records its original gate; the current pin is in §6.4. J1/J1b
+landings and J0c's probe do not discharge J2b or J5 acceptance.
+
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | Slice                                       | Boundary          | Falsifiable acceptance                                                                              |
 +=============================================+===================+=====================================================================================================+
@@ -1244,7 +1315,7 @@ change.
 |                                             |                   | is commissioned; jolt requires nothing else of it (§9.4). Not jolt work; not restated here.          |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J0a: tracked load and toolchain             | Manifest and      | Precondition: the owner's disposition of the §13.2 defaults that J0a would apply is recorded.       |
-|                                             | bootstrap, branch | Clean-cache core require without overlays; standard/main dependency audit, naming                   |
+| landed                                      | bootstrap, branch | Clean-cache core require without overlays; standard/main dependency audit, naming                   |
 |                                             | inventory, narrow | runtime-unexercised dependencies; after C0-C4, proving `cognitect.transit`/transit-clj/transit-java  |
 |                                             | source            | absent from the jolt closure (ruling 1); pin `96d7b866` recorded with "tag: none; nearest v0.8.23"   |
 |                                             |                   | (ruling 4); S arithmetic and six hashes                                                             |
@@ -1255,13 +1326,13 @@ change.
 |                                             |                   | qualification.                                                                                      |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J0b: UDP FFI feasibility                    | Small raw         | §8.3 on both platforms: packet boundaries, N=1200 and configured-N truncation sentinel, EMSGSIZE,   |
-|                                             | transport on      | landed transport-error and send-failed on EAGAIN/EWOULDBLOCK and macOS ENOBUFS, nonblocking         |
+| probe-only; not merged                      | transport on      | landed transport-error and send-failed on EAGAIN/EWOULDBLOCK and macOS ENOBUFS, nonblocking         |
 |                                             | existing          | receive, cleanup. Injected versus natural results labelled. No `full`, no send wait inside          |
 |                                             | socket/poller     | `append!`.                                                                                          |
 |                                             | groundwork        |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J0c: early C++ feasibility                  | Python Cpp target | Starts at the §7.8 minimum baseline. §7.8 on both platforms: packet and completeness parity,        |
-|                                             | and helpers,      | restricted lowering corpus, two-worker/cache isolation, collect-safe calls, thread/stack budget,    |
+| probe-only; landed                          | and helpers,      | restricted lowering corpus, two-worker/cache isolation, collect-safe calls, thread/stack budget,    |
 |                                             | raw-tree wrapper, | exception/lifetime tests, helper provenance, generated digests. No C++ Jing encoder. Failure        |
 |                                             | jolt cst adapter  | returns to the owner; no fallback.                                                                  |
 |                                             | over the shared   |                                                                                                     |
@@ -1269,15 +1340,18 @@ change.
 |                                             | worker isolation  |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J1: numeric and content correctness         | Exact integer     | Existing numeric/CBOR/hash corpus bytes and refusals match JVM/CLJS/CLJD; official hash boundaries; |
-|                                             | algorithms, full  | every scalar class and host-value wire node (byte arrays anywhere); decode seams                    |
+| landed                                      | algorithms, full  | every scalar class and host-value wire node (byte arrays anywhere); decode seams                    |
 |                                             | Jing              | `cbor.cljc:537,649-652`; >64-bit integers and `~x` identities; correct code-index sort. No SHA      |
 |                                             | representation    | stub, no native-float wire shortcut.                                                                |
 |                                             | and wire, C       |                                                                                                     |
 |                                             | BLAKE3, libcrypto |                                                                                                     |
 |                                             | SHA, `asort`      |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
+| J1b: hash/sign                              | Native crypto     | Pinned libblake3 and qualified system libcrypto; J1 content/hash gates remain above.                |
+| landed                                      |                   | Landed `97c7b902`; no change to J4 authority acceptance.                                            |
++---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J2: pure test lane and VM conformance       | `test:jolt`       | Every applicable pure test loads and passes; semantic and register boundary traces match. No silent |
-|                                             | family, shared    | excludes, unchanged goldens, expected counts, nonzero failure exit. A throwing test is an error and |
+| in progress; landed                         | family, shared    | excludes, unchanged goldens, expected counts, nonzero failure exit. A throwing test is an error and |
 |                                             | fixture adapter,  | later tests still run: reproduce `docs/jolt-experiment.md:70` with sentinel tests after it and a    |
 |                                             | B-tree/space/VM   | nonzero final status. Shared source changes keep the existing three lanes green. On jolt:           |
 |                                             | pure suites,      | `dao.stream.transit` is not loaded; codec-less `make-attacher`/`make-endpoint` throw at             |
@@ -1286,26 +1360,29 @@ change.
 |                                             | pure suites,      |                                                                                                     |
 |                                             | runtime bug fixes |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
+| J2b: deferred comparisons                   | Oracle/lowering   | Node/Dart oracle comparison and restricted lowering comparison (§7.8); both close before J5.        |
+| not started                                 |                   | Owner split from J2, 2026-10-22 (§13.5).                                                            |
++---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J3: local shell and demo                    | Jolt main/stdin/w | API and CLI from tracked roots; demo = 5050; EOF/quit; no duplicate eval; cadence/wake/pending      |
-|                                             | ake/banner, local | semantics; all VM modes; published code index without workaround. Clojure/PHP explicit; Python      |
+| not started                                 | ake/banner, local | semantics; all VM modes; published code index without workaround. Clojure/PHP explicit; Python      |
 |                                             | catalog, shell    | unavailable until J5.                                                                               |
 |                                             | driver, index,    |                                                                                                     |
 |                                             | query             |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J4: persistence and authority               | File/store FS,    | Existing file/B-tree/store crash, recovery and lock fixtures and RFC/envelope/signature vectors     |
-|                                             | Ed25519 keygen    | pass; cross-host reopen and two-way signing; no security stubs; local storage options and shutdown  |
+| not started                                 | Ed25519 keygen    | pass; cross-host reopen and two-way signing; no security stubs; local storage options and shutdown  |
 |                                             | and key files,    | work.                                                                                               |
 |                                             | lifecycle cleanup |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J5: complete standard frontends             | The selected      | §7.8 J5 gate. Standard catalog loads and `(lang :yang/python)` works;                               |
-|                                             | in-process C++    | frontend_catalog/python_antlr/main suites; synchronous probe sequences equal the JVM's;             |
+| not started                                 | in-process C++    | frontend_catalog/python_antlr/main suites; synchronous probe sequences equal the JVM's;             |
 |                                             | parser, standard  | local-build-only packaging. **Local REPL milestone**, native C++ parser library disclosed; no       |
 |                                             | catalog, complete | process crash isolation claimed.                                                                    |
 |                                             | ness-probe        |                                                                                                     |
 |                                             | integration       |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J6: native WebSocket and network REPL peers | RFC 6455 host     | Preconditions: C0-C4 on master; the Autobahn release, case list and exception list pinned in the    |
-|                                             | adapter on the    | brief (§9.5). §9.6 on both platforms, including the frame-too-large matrix (ruling 3, A4 wording).  |
+| not started                                 | adapter on the    | brief (§9.5). §9.6 on both platforms, including the frame-too-large matrix (ruling 3, A4 wording).  |
 |                                             | native socket +   | Native deployment only. ws:// only (owner-settled). The adapter's closure contains                  |
 |                                             | poller substrate  | `jolt.socket.native`, `jolt.io-poller` and `jolt.ffi` and not `jolt.socket` (ruling 2); `send!`     |
 |                                             |                   | never waits; `:queued-bytes` is exact and drains on readiness.                                      |
@@ -1314,13 +1391,13 @@ change.
 |                                             | subprotocol only  |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J7: UDP and DHT                             | Integrate the J0b | §8.4; J0b regressions retained; would-block/ENOBUFS is transport-error plus send-failed; no `full`, |
-|                                             | transport;        | no hidden retries. If deferred, network parity stays incomplete.                                    |
+| not started                                 | transport;        | no hidden retries. If deferred, network parity stays incomplete.                                    |
 |                                             | datagram contract |                                                                                                     |
 |                                             | and DHT/linker    |                                                                                                     |
 |                                             | composition       |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J8: repo lane qualification                 | All-task, changed | Full supported fast/all/slow suites green; reviewed host-only applicability list; every entry path  |
-|                                             | and subsystem     | and J1-J7 gate on both platforms; existing three lanes green; same shared kit, no overlays/stubs,   |
+| not started                                 | and subsystem     | and J1-J7 gate on both platforms; existing three lanes green; same shared kit, no overlays/stubs,   |
 |                                             | integration,      | no unexpected skips; native WebSocket deployment, no JVM network helper; "ws:// only, CBOR          |
 |                                             | clean repro,      | subprotocol only" stated. Benchmarks and proposed thresholds recorded; no speed gate. **Host-lane   |
 |                                             | package checks,   | parity.**                                                                                           |
@@ -1330,9 +1407,10 @@ change.
 
 ### 10.2 Order, dependencies and platforms
 
-J0a, J0b and J0c are independently commissionable and reportable; nothing is
-commissioned here. The codec track is external (§9.4): J6 depends on its C0-C4
-having landed, nothing else here does, and it runs on its own schedule. J0c starts at its minimum baseline (§7.8), before unrelated
+J0a, J0b and J0c are independently commissionable and reportable; their
+current states are in §10.1. The codec track is external (§9.4): J6 depends on
+its C0-C4 having landed, nothing else here does, and it runs on its own schedule.
+J0c starts at its minimum baseline (§7.8), before unrelated
 UDP/codec work, because its no-fallback failure is the earliest owner decision.
 J1 depends on J0a; J5 on J0c plus the correctness and CLI slices; J7 on J0b. A
 J0b or J0c failure does not erase a tracked-load result.
@@ -1371,7 +1449,11 @@ selected branches and actual assertions. JVM reflection/compiler tests, JS DOM
 tests, Dart compiler tests and JDK-adapter unit tests are not run as Chez code;
 their portable behavioural equivalents and cross-process peer legs are required.
 Every excluded namespace or test has a reason, capability, replacement gate and
-owner; zero unexplained skips.
+owner; zero unexplained skips. The owner moved the 14 J4-blocked namespaces to
+the exclusion table with owner J4 (§13.5); applying that ruling to the landed
+lane table remains open. `test:jolt-core` includes `^:slow`; J2 gate (b) remains
+open pending the rerun and expected counts, and the safepoint harness result is
+pending (`a0a49b8e`; `docs/agents/known-gaps.md`, J2 classification rows).
 
 External oracles are test-time peers only: JVM/Node/Dart for packets, bytes,
 hashes and peer suites; official BLAKE3, SHA, RFC 8032 vectors; Autobahn for
@@ -1435,7 +1517,7 @@ time. J8 records thresholds; a later commissioned slice gates them.
 
 ### 13.1 Settled owner decisions (2026-10-19)
 
-None of these commissions implementation.
+These are the original scope decisions; implementation status is in §10.1.
 
 +------------+---------------------------------------+------------------------------------------------------------------------------------------------------------------+
 | Id         | Owner's words                         | Recorded meaning                                                                                                 |
@@ -1601,7 +1683,8 @@ never imitates a peer's limitation.** Applied in §9.2 and §9.6 (matrix).
 **Ruling 4 (A5 wording, 2026-10-20): J0a keeps `96d7b866`; from the first
 upgrade-gate run onward Q5 governs as stated, a suitable release tag preferred
 and an explicitly qualified untagged fix admissible.** Applied in §6.4 and the
-J0a row.
+J0a row. Historical: superseded for the current pin by the owner ruling of
+2026-10-22 (§13.5); retained as the original qualification policy.
 
 - Reasons. (i) `96d7b866` is untagged (V, `git describe`:
   `vnightly-16-g96d7b866`; nearest release tag `v0.8.23`, two days older) and
@@ -1623,6 +1706,35 @@ J0a row.
   owner instruction that pins must be tags from the start. Either way the
   re-pin goes through the gate and the S claims are re-established at the new
   pin, as §6.4 already requires.
+
+### 13.5 Owner rulings (2026-10-22)
+
+These rulings update the implementation scope and gates; they do not claim
+closure. Evidence: `a0a49b8e` (J2 lane and its owner-ruling comments),
+`9460bcb8` (`docs/agents/known-gaps.md`, J2 classification and patch ruling),
+`63301597` (fork re-pin), the pin reports cited in §6.4, and the owner-directed
+refresh brief `collab/1792740000000-engineer-jolt-design-refresh.codex.prompt.md`
+(J2b split and PHP reaffirmation).
+
+1. **Q1 version B, integer carriers (2026-10-22).** For in-range values,
+   whether `big-carrier?` answers true is host-defined. Portable code must not
+   rely on it. This carrier ruling is distinct from the milestone Q1 in §13.1.
+2. **J2b split (2026-10-22).** Node/Dart oracle comparison and restricted
+   lowering comparison move out of J2 into J2b. Both must close before J5
+   acceptance (§7.8); landing J0c probe-only did not waive either comparison.
+3. **Full core lane (2026-10-22).** `test:jolt-core` runs everything in its
+   included surface, including `^:slow`; no fast-tier shortcut.
+4. **Pinned jolt patches (2026-10-22).** jolt-lang patches are allowed under
+   the pinned-SHA policy (§13.2), now carried via the owner's fork. The current
+   fork pin and retired Sorted patch are recorded in §6.4. The re-pin is an
+   explicit exception ahead of the first `qualify:jolt-upgrade` run, with the
+   manual review section 6 checklist as its gate.
+5. **J4 exclusions (2026-10-22).** The 14 namespaces blocked on J4 file seams
+   move to the exclusion table with owner J4, rather than pulling those seams
+   into J2. File random access, locking and UTF-8 decoding stay J4 work. The
+   landed table still needs the ruling applied; J2 gate (b) remains open.
+6. **PHP (2026-10-22).** PHP stays supported in the standard catalog and
+   local shell/frontends acceptance (§3, J3/J5); no scope reduction.
 
 ---
 
