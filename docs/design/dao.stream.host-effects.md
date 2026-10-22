@@ -606,3 +606,6 @@ search); `dao/jing/content/step.cljc:1-60`; `src/clj/dao/jing/dht/facade.clj:1-2
 - **OQ-H7 (2026-10-22, owner: "accept as recommended")**: reserved-namespace hygiene is one
   frontend policy: refuse user bindings and free references in `yang.*` in generated-syntax
   positions; preserve quoted user data.
+- **OQ-H8 (2026-10-22, owner: "accept as recommended")**: the fixed root flag is test-only by
+  default (`--insecure-root` only under the test runner). All eight owner questions are now
+  answered; commissioning of H5a/H5b/H5c/H5d-1/H5e/H6/H7/H8a remains the owner's call.
