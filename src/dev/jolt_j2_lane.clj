@@ -38,6 +38,11 @@
             [clojure.string :as str]))
 
 
+;; Resolve relative to this script so the manifest self-test can run the
+;; driver against its temporary working directory.
+(load-file (str (fs/path (fs/parent *file*) "jolt_cbor_override_check.clj")))
+
+
 ;; The J2 load order (architect 1792644000000 section 2): dao.host
 ;; primitives, dao.jing.cbor -> dao.jing, dao.host.hash/sign, linker.sign,
 ;; the dao.data/datom closure, the portable dao.stream tree, the jing
@@ -664,6 +669,8 @@
     (when (contains? #{"list" "core" "probe" "jvm"} mode)
       (try
         (println "J2 manifest OK:" (pr-str (check-manifest! "test" included excluded)))
+        (println "Jolt CBOR override OK:"
+                 (pr-str ((resolve 'jolt-cbor-override-check/check!) false)))
         (catch clojure.lang.ExceptionInfo e
           (binding [*out* *err*] (println (ex-message e)))
           (System/exit 1))))
