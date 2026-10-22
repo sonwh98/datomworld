@@ -198,7 +198,7 @@
    On Jolt (Chez Scheme strings hold Unicode scalar values), lone surrogates cannot
    be constructed, so this is nil."
   #?(:jolt nil
-     :clj "\uD800"
+     :clj (str (char 0xD800))
      :cljs (js/String.fromCharCode 0xD800)
      :cljd (String.fromCharCode 0xD800)))
 
