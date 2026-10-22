@@ -14,7 +14,7 @@
    rather than ignored.
 
    Behaviour follows data.json 2.5.0 as observed on the JVM (the same
-   cases run on both hosts in jolt-json-test):
+   cases run on both hosts in jolt-json-shim-check):
    - `read-str`: string keys, integers as exact integers (a Long or, past
      64 bits, a BigInt), numbers with a fraction or exponent as doubles,
      the JSON number grammar (no leading zero, no `+`, no bare `.`),
@@ -31,7 +31,7 @@
    the JVM builds a one-unit string.
 
    Review J1-R3 (round 3), annotated, not widened; both rows are pinned in
-   jolt-json-test `write-str-review-rows`. Neither is reachable from the
+   jolt-json-shim-check `write-str-review-rows`. Neither is reachable from the
    fixture path, which only writes what `read-str` produced:
    - U+007F (DEL): this shim writes `\\u007f`; data.json 2.5.0 writes
      the character raw. A real difference, kept: the shim escapes every

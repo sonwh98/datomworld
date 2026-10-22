@@ -3,11 +3,11 @@
 ;; the real data.json 2.5.0 on the JVM as well as against the shim on jolt:
 ;;
 ;;   bb test:jolt-json   (jolt, through src/dev/jolt_test_runner.clj)
-;;   clojure -M:dev -e "(require 'jolt-json-test) (clojure.test/run-tests 'jolt-json-test)"
+;;   clojure -M:dev -e "(require 'jolt-json-shim-check) (clojure.test/run-tests 'jolt-json-shim-check)"
 ;;
 ;; The one host difference, an unpaired-surrogate escape, takes a :jolt arm
 ;; (this is a jolt dev file, not shared code).
-(ns jolt-json-test
+(ns jolt-json-shim-check
   (:require
     [clojure.data.json :as json]
     [clojure.test :refer [deftest is]]))
