@@ -7,7 +7,11 @@
    * jolt is cloned from the declared origin into build/tools/jolt and checked
      out at the declared full SHA with its recursive submodules. An existing
      checkout is verified, never pulled: a HEAD, submodule or dirty-tree
-     mismatch fails the task. Advancing the pin is the upgrade gate's job.
+     mismatch fails the task. Declared patches and re-minted seeds are accepted
+     only at their recorded digests and after behavioural smoke tests.
+     The one-time nil-platform acceptance is remembered in
+     build/tools/jolt-patches.edn; deleting that record resets it.
+     Advancing the pin is the upgrade gate's job.
    * build/tools/jolt-env.sh is written with JOLT_CHEZ set explicitly, so jolt
      never searches PATH for a Chez.
    * First of all, on a Debian-family host, the :os-packages :debian
@@ -18,9 +22,11 @@
      host as Debian and those packages as the installed set (no dpkg-query).
 
    Exit status is nonzero on any mismatch."
-  (:require [babashka.fs :as fs]
+  (:require [clojure.java.io]
+            [babashka.fs :as fs]
             [babashka.process :as p]
             [clojure.edn :as edn]
+            [clojure.set :as set]
             [clojure.string :as str]))
 
 
@@ -38,7 +44,8 @@
         cmd (if (map? (first args)) (rest args) args)
         r (apply p/shell (merge {:out :string :err :string :continue true} opts) cmd)]
     (when-not (zero? (:exit r))
-      (fail! (str/join " " cmd) " exited " (:exit r) "\n" (:err r)))
+      (fail! (str/join " " cmd) " exited " (:exit r) "\n" (:err r)
+             "\nRemedy: git -C build/tools/jolt checkout -- . && bb bootstrap:jolt"))
     (str/trim (:out r))))
 
 
@@ -101,7 +108,7 @@
 
 
 (defn- verify!
-  [{:keys [origin sha dir submodules patches]}]
+  [{:keys [origin sha dir submodules]}]
   (let [head (sh "git" "-C" dir "rev-parse" "HEAD")
         remote (sh "git" "-C" dir "remote" "get-url" "origin")]
     (when-not (= origin remote)
@@ -109,16 +116,154 @@
     (when-not (= sha head)
       (fail! dir " is at " head ", declared " sha
              "; ordinary runs never pull — advance the pin through qualify:jolt-upgrade"))
-    (when (seq patches)
-      (fail! "patches are declared but this task does not apply them yet"))
-    ;; Known gap (input to the §6.4 gate hardening): `status --porcelain`
-    ;; does not see changes to gitignored files inside the clone.
-    (let [dirty (sh "git" "-C" dir "status" "--porcelain")]
-      (when-not (str/blank? dirty) (fail! dir " has local changes:\n" dirty)))
     (let [actual (submodule-shas dir)]
       (when-not (= submodules actual)
         (fail! "submodule SHAs differ from jolt-toolchain.edn: " (pr-str actual))))
     (println "jolt" head "with" (count submodules) "submodules verified")))
+
+
+(defn- patch-fail!
+  [& msg]
+  (apply fail! (concat msg ["\nRemedy: git -C build/tools/jolt checkout -- . && bb bootstrap:jolt"])))
+
+
+(defn- sha256
+  [path]
+  (when (fs/regular-file? path)
+    (let [digest (java.security.MessageDigest/getInstance "SHA-256")]
+      (with-open [in (clojure.java.io/input-stream (str path))]
+        (let [buf (byte-array 65536)]
+          (loop []
+            (let [n (.read in buf)]
+              (when (pos? n) (.update digest buf 0 n) (recur))))))
+      (apply str (map #(format "%02x" (bit-and 255 %)) (.digest digest))))))
+
+
+(defn- platform
+  []
+  (case [(System/getProperty "os.name") (System/getProperty "os.arch")]
+    ["Mac OS X" "aarch64"] :darwin-arm64
+    ["Linux" "amd64"] :linux-x86_64
+    (patch-fail! "unsupported patch platform")))
+
+
+(defn- check-digests!
+  [dir files phase]
+  (doseq [[path hashes] files]
+    (when-not (= (phase hashes) (sha256 (fs/path dir path)))
+      (patch-fail! path " sha256 mismatch (" (name phase) ")"))))
+
+
+(defn- smoke!
+  [dir scheme form expect message]
+  (let [r (p/shell {:out :string :err :string :continue true
+                    :extra-env {"JOLT_CHEZ" scheme "JOLT_HOME" dir}}
+                   (str (fs/path dir "bin" "jolt")) "-e" form)]
+    (when-not (and (zero? (:exit r)) (= expect (str/trim (:out r))))
+      (patch-fail! message ": " (pr-str (:out r)) " " (:err r)))
+    (println "jolt smoke" form "=>" expect)))
+
+
+(defn- apply-patches!
+  [{:keys [sha dir patches]} scheme]
+  (let [plat (platform)
+        record-file (str (fs/path (fs/parent dir) "jolt-patches.edn"))
+        prior (when (fs/exists? record-file) (edn/read-string (slurp record-file)))
+        ;; -z preserves the status column, spaces and rename paths. Renames
+        ;; cannot be a declared patch state and fail below as unknown paths.
+        ;; Gitignored undeclared files in the clone are invisible to git status.
+        status-result (p/shell {:out :string :err :string :continue true}
+                               "git" "-C" dir "status" "--porcelain=v1" "-z")
+        _ (when-not (zero? (:exit status-result))
+            (patch-fail! "git status failed: " (:err status-result)))
+        status (:out status-result)
+        entries (remove str/blank? (str/split status #"\u0000"))
+        _ (doseq [entry entries]
+            (when (or (< (count entry) 3)
+                      (not= \space (nth entry 2))
+                      (some #{\R \C} (take 2 entry)))
+              (patch-fail! "unsupported dirty/renamed path: " (pr-str entry))))
+        dirty (set (map #(subs % 3) entries))
+        allowed (set (mapcat #(concat (keys (:files %))
+                                      (mapcat keys (vals (:generated %)))) patches))
+        unknown (set/difference dirty allowed)]
+    (when (seq unknown) (patch-fail! "unknown dirty paths: " (pr-str (sort unknown))))
+    (doseq [{:keys [id base path] expected :sha256} patches]
+      (when-not (= sha base) (patch-fail! id " patch base " base " differs from pin " sha))
+      (when-not (= expected (sha256 path)) (patch-fail! path " sha256 mismatch")))
+    (let [skip-requested? (= "1" (System/getenv "JOLT_BOOTSTRAP_TEST_NO_APPLY"))
+          test-dir (System/getenv "JOLT_BOOTSTRAP_TEST_DIR")
+          _ (when (and skip-requested? (nil? test-dir))
+              (binding [*out* *err*]
+                (println "WARNING: JOLT_BOOTSTRAP_TEST_NO_APPLY ignored without JOLT_BOOTSTRAP_TEST_DIR")))
+          no-apply? (and skip-requested? (some? test-dir))
+          live? (and (seq patches)
+                     (every? (fn [patch]
+                               (every? (fn [[path hashes]]
+                                         (= (:after hashes) (sha256 (fs/path dir path))))
+                                       (:files patch))) patches))
+          applied
+          (cond
+            no-apply? [] ; deliberately reach the behavioural gate on the old seed
+            live?
+            (do
+              (doseq [patch patches]
+                (check-digests! dir (get-in patch [:generated plat]) :after))
+              (println "patches live")
+              (mapv (fn [patch]
+                      (or (when (and (= sha (:base prior)) (= plat (:platform prior)))
+                            (some #(when (and (= (:id patch) (:id %))
+                                              (= (:sha256 patch) (:sha256 %))) %)
+                                  (:applied prior)))
+                          {:remint-passes 0})) patches))
+            :else
+            (do
+              (when (seq dirty) (patch-fail! "partial patch state: " (pr-str (sort dirty))))
+              (mapv
+                (fn [{:keys [id path files remint generated] :as patch}]
+                  (check-digests! dir files :before)
+                  (check-digests! dir (get generated plat) :before)
+                  (let [r (p/shell {:out :string :err :string :continue true}
+                                   "git" "-C" dir "apply" "--check" (str (fs/absolutize path)))]
+                    (when-not (zero? (:exit r)) (patch-fail! path " patch rejected: " (:err r))))
+                  (sh "git" "-C" dir "apply" (str (fs/absolutize path)))
+                  (let [output (when remint
+                                 (let [tmp (str (fs/path dir ".git" "bootstrap-tmp"))]
+                                   (fs/create-dirs tmp)
+                                   (sh {:dir dir :extra-env {"JOLT_CHEZ" scheme "TMPDIR" tmp}}
+                                       "sh" "host/chez/remint.sh")))
+                        passes (if remint
+                                 (some-> (re-find #"converged after ([0-9]+) pass" output) second parse-long)
+                                 0)]
+                    (when remint (println output))
+                    (when-not (and passes (<= 0 passes 8))
+                      (patch-fail! id " remint did not report convergence within 8 passes"))
+                    (check-digests! dir files :after)
+                    (check-digests! dir (get generated plat) :after)
+                    {:id id :sha256 (:sha256 patch) :remint-passes passes})) patches)))]
+      (smoke! dir scheme "(+ 1 2)" "3" "jolt smoke failed")
+      (doseq [{:keys [smoke]} patches]
+        (smoke! dir scheme (:form smoke) (:expect smoke) "patch declared, not live"))
+      (let [applied (mapv
+                      (fn [patch entry]
+                        (let [known (get-in patch [:generated plat])
+                              paths (keys (or known (some identity (vals (:generated patch)))))]
+                          (when (and (:remint patch) (nil? known))
+                            (println (:id patch) plat "generated digests nil: :requalify; record and fill jolt-toolchain.edn")
+                            (when (some #(and (= (:id patch) (:id %)) (:requalify %)) (:applied prior))
+                              (patch-fail! (:id patch) " nil platform entry cannot be accepted twice; fill :generated " plat)))
+                          (cond-> (assoc (dissoc entry :requalify) :id (:id patch) :sha256 (:sha256 patch)
+                                         :generated
+                                         (into {} (map (fn [path]
+                                                         (let [digest (sha256 (fs/path dir path))]
+                                                           (when-not digest (patch-fail! path " generated file missing"))
+                                                           [path {:before (get-in (or known (some identity (vals (:generated patch)))) [path :before])
+                                                                  :after digest}])) paths)))
+                            (and (:remint patch) (nil? known)) (assoc :requalify true))))
+                      patches applied)]
+        (spit record-file (str (pr-str {:base sha :applied applied :platform plat
+                                        :chez scheme :at (str (java.time.Instant/now))}) "\n"))
+        record-file))))
 
 
 (defn- debian-family?
@@ -172,22 +317,56 @@
         _ (check-os-packages os-packages)
         scheme (check-chez chez)
         _ (check-cmake cmake)
-        dir (str (fs/absolutize (:dir jolt)))
+        dir (str (fs/absolutize (or (System/getenv "JOLT_BOOTSTRAP_TEST_DIR") (:dir jolt))))
         jolt (assoc jolt :dir dir)
         env-file (str (fs/path (fs/parent dir) "jolt-env.sh"))]
     (materialize! jolt)
     (verify! jolt)
-    (spit env-file
-          (str "# written by bb bootstrap:jolt from jolt-toolchain.edn; do not edit\n"
-               "export JOLT_CHEZ='" scheme "'\n"
-               "export JOLT_HOME='" dir "'\n"))
-    (println "wrote" env-file)
-    (let [r (p/shell {:out :string :err :string :continue true
-                      :extra-env {"JOLT_CHEZ" scheme}}
-                     (str (fs/path dir "bin" "jolt")) "-e" "(+ 1 2)")]
-      (when-not (= "3" (str/trim (:out r)))
-        (fail! "jolt smoke (+ 1 2) answered " (pr-str (:out r)) " " (:err r)))
-      (println "jolt smoke (+ 1 2) => 3"))))
+    (let [record (apply-patches! jolt scheme)]
+      (spit env-file
+            (str "# written by bb bootstrap:jolt from jolt-toolchain.edn; do not edit\n"
+                 "export JOLT_CHEZ='" scheme "'\n"
+                 "export JOLT_HOME='" dir "'\n"
+                 "export JOLT_PATCHES='" record "'\n"))
+      (println "wrote" env-file))))
 
 
-(apply -main *command-line-args*)
+(defn- test-negative!
+  []
+  (let [toolchain (edn/read-string (slurp "jolt-toolchain.edn"))
+        source (or (System/getenv "JOLT_BOOTSTRAP_TEST_DIR") (get-in toolchain [:jolt :dir]))
+        script (str (fs/absolutize "src/dev/jolt_bootstrap.clj"))
+        root (fs/create-temp-dir {:dir (doto "build/bootstrap-neg" fs/create-dirs)
+                                  :prefix "neg-"})
+        clone (str (fs/absolutize (fs/path root "jolt")))]
+    (println "negative gate temporary directory (retained on failure):" (str root))
+    (fs/copy-tree source clone)
+    (sh "git" "-C" clone "checkout" "--" ".")
+    (spit (str (fs/path root "jolt-toolchain.edn")) (pr-str toolchain))
+    (doseq [{:keys [path]} (get-in toolchain [:jolt :patches])]
+      (let [dest (fs/path root path)]
+        (fs/create-dirs (fs/parent dest))
+        (fs/copy path dest)))
+    (doseq [[label no-apply expected] [["unpatched" "1" "patch declared, not live"]
+                                       ["corrupt" "" (str (get-in toolchain [:jolt :patches 0 :path])
+                                                          " sha256 mismatch")]]]
+      (when (= label "corrupt")
+        (spit (str (fs/path root (get-in toolchain [:jolt :patches 0 :path])))
+              "\ncorrupt patch\n" :append true))
+      (let [r (p/shell {:dir (str root) :out :string :err :string :continue true
+                        :extra-env {"JOLT_BOOTSTRAP_TEST_DIR" clone
+                                    "JOLT_BOOTSTRAP_TEST_NO_APPLY" no-apply}}
+                       "bb" script)
+            output (str (:out r) (:err r))]
+        (spit (str (fs/path root (str label ".log"))) output)
+        (when-not (and (= 1 (:exit r)) (str/includes? output expected))
+          (fail! "negative gate " label " expected exit 1 / " expected
+                 ", got " (:exit r) "\n" output))
+        (println "PASS" label "exit 1:" expected)))
+    (fs/delete-tree root)
+    (println "negative gates passed; deleted temporary directory:" (str root))))
+
+
+(if (= ["--test-negative"] (vec *command-line-args*))
+  (test-negative!)
+  (apply -main *command-line-args*))

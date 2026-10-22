@@ -1381,7 +1381,11 @@
                     (if-some [v (lookup this k)]
                       v
                       not-found))
-            (applyTo [this args] (clojure.lang.AFn/applyToHelper this args))
+            #?(:jolt (applyTo [this args]
+                              (apply (fn
+                                       ([k] (lookup this k))
+                                       ([k nf] (if-some [v (lookup this k)] v nf))) args))
+               :clj (applyTo [this args] (clojure.lang.AFn/applyToHelper this args)))
             clojure.lang.IHashEq (hasheq [this]
                                          (if (nil? hmemo)
                                            (let [h (clojure.lang.Murmur3/hashUnordered
@@ -1399,7 +1403,8 @@
             java.util.Set
             (size [_] (int cnt)) (isEmpty [_] (zero? cnt))
             (containsAll [this c] (every? #(contains? this %) c))
-            (^objects toArray [this] (clojure.lang.RT/seqToArray (seq this)))
+            #?(:jolt (toArray [this] (to-array (seq this)))
+               :clj (^objects toArray [this] (clojure.lang.RT/seqToArray (seq this))))
             (^objects toArray
              [this ^objects a]
              (clojure.lang.RT/seqToPassedArray (seq this) a))

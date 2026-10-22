@@ -1,0 +1,92 @@
+diff --git a/jolt-core/clojure/core/20-coll.clj b/jolt-core/clojure/core/20-coll.clj
+index ae0f5e8f..76d9e9b8 100644
+--- a/jolt-core/clojure/core/20-coll.clj
++++ b/jolt-core/clojure/core/20-coll.clj
+@@ -479,7 +479,7 @@
+ (defn indexed? [x] (vector? x))
+ ;; sorted? is defined by the next tier (25-sorted) — declared here so this
+ ;; tier compiles (forward references are analysis errors).
+-(declare sorted?)
++(declare sorted? tree-sorted?)
+ 
+ (defn reversible? [x] (or (vector? x) (sorted? x)))
+ (defn seqable? [x]
+diff --git a/jolt-core/clojure/core/22-coll.clj b/jolt-core/clojure/core/22-coll.clj
+index 94ecccbe..c9461afd 100644
+--- a/jolt-core/clojure/core/22-coll.clj
++++ b/jolt-core/clojure/core/22-coll.clj
+@@ -28,7 +28,7 @@
+     (nil? m) nil
+     ;; associative? is false for a sorted SET, so one falls through to the throw
+     (associative? m)
+-    (if (sorted? m)
++    (if (tree-sorted? m)
+       ((get (jolt.host/ref-get m :ops) :entry-at) m k)
+       (when (contains? m k) (jolt.host/map-entry k (get m k))))
+     ;; a java.util.Map has no Clojure key object to preserve, and neither does a
+@@ -177,7 +177,7 @@
+     ;; a defrecord without its own empty can't have one (RT: UnsupportedOperation)
+     (record? coll) (throw (new UnsupportedOperationException
+                                (str "Can't create empty: " (.getName (class coll)))))
+-    (sorted? coll) ((get (jolt.host/ref-get coll :ops) :empty) coll)
++    (tree-sorted? coll) ((get (jolt.host/ref-get coll :ops) :empty) coll)
+     (map? coll) (with-meta {} (meta coll))
+     (set? coll) (with-meta #{} (meta coll))
+     (vector? coll) (with-meta [] (meta coll))
+diff --git a/jolt-core/clojure/core/25-sorted.clj b/jolt-core/clojure/core/25-sorted.clj
+index c36e83b7..7c392595 100644
+--- a/jolt-core/clojure/core/25-sorted.clj
++++ b/jolt-core/clojure/core/25-sorted.clj
+@@ -377,7 +377,12 @@
+ 
+ (defn sorted-map? [x] (= :jolt/sorted-map (sfield x :jolt/type)))
+ (defn sorted-set? [x] (= :jolt/sorted-set (sfield x :jolt/type)))
+-(defn sorted? [x] (or (sorted-map? x) (sorted-set? x)))
++;; jolt's own red-black tier (htable + :ops); the fast paths below need it
++(defn- tree-sorted? [x] (or (sorted-map? x) (sorted-set? x)))
++;; Clojure: (instance? clojure.lang.Sorted coll). Any deftype/reify declaring
++;; Sorted qualifies (data.priority-map, user B-trees). instance-check: the
++;; instance? macro is tier 30.
++(defn sorted? [x] (or (tree-sorted? x) (instance-check clojure.lang.Sorted x)))
+ 
+ ;; --- subseq / rsubseq ---------------------------------------------------------
+ ;; test is one of < <= > >= applied Clojure-style to the comparator result:
+@@ -392,14 +397,21 @@
+ 
+ ;; clojure.core/mk-bound-fn
+ (defn- mk-bound-fn [sc test k]
+-  (let [cmp (the-cmp sc) map? (sorted-map? sc)]
+-    (fn [e] (test (cmp (if map? (key e) e) k) 0))))
++  (if (tree-sorted? sc)
++    (let [cmp (the-cmp sc) map? (sorted-map? sc)]
++      (fn [e] (test (cmp (if map? (key e) e) k) 0)))
++    (let [cmp (.comparator sc)]                 ; clojure.core/mk-bound-fn
++      (fn [e] (test (.compare cmp (.entryKey sc e) k) 0)))))
+ 
+ (defn- seq-from [sc k asc?]
+-  (jolt.host/sorted-seq-from (sfield sc :tree) asc? (sc-mode sc) (the-cmp sc) k))
++  (if (tree-sorted? sc)
++    (jolt.host/sorted-seq-from (sfield sc :tree) asc? (sc-mode sc) (the-cmp sc) k)
++    (.seqFrom sc k asc?)))
+ 
+ (defn- sc-seq [sc asc?]
+-  (jolt.host/sorted-seq (sfield sc :tree) asc? (sc-mode sc)))
++  (if (tree-sorted? sc)
++    (jolt.host/sorted-seq (sfield sc :tree) asc? (sc-mode sc))
++    (.seq sc asc?)))
+ 
+ (defn- assert-sorted [sc]
+   (when-not (sorted? sc)
+diff --git a/test/chez/sorted-test.ss b/test/chez/sorted-test.ss
+index 742b3a45..5535b629 100644
+--- a/test/chez/sorted-test.ss
++++ b/test/chez/sorted-test.ss
+@@ -68,6 +68,8 @@
+ (is "[(take 3 (.seqFrom ss 10 true)) (take 3 (.seqFrom sm 10 false)) (.seqFrom ss 100 true) (take 2 (.seq ss false))]"
+     "[(12 15 18) ([9 90] [6 60] [3 30]) nil (99 96)]")
+ 
++(is "(do (deftype UserSorted [xs] clojure.lang.Sorted (comparator [_] compare) (entryKey [_ e] e) (seq [_ asc] (seq (if asc xs (reverse xs)))) (seqFrom [_ k asc] (seq (drop-while #(if asc (neg? (compare % k)) (pos? (compare % k))) (if asc xs (reverse xs)))))) (let [s (UserSorted. [1 2 3])] [(sorted? s) (subseq s > 1) (rsubseq s < 3) (subseq s >= 1 < 3) (rsubseq s > 1 <= 3)]))" "[true (2 3) (2 1) (1 2) (3 2)]")
++
+ ;; --- hash: the hash of the equivalent hash map/set, cached ------------------
+ (is "[(= (hash sm) (hash (into {} sm))) (= (hash ss) (hash (into #{} ss)))]" "[true true]")
+ (is "[(= (hash (sorted-map)) (hash {})) (= (hash (sorted-set)) (hash #{}))]" "[true true]")

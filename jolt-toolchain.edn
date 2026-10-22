@@ -23,8 +23,29 @@
                "vendor/irregex" "c948a704fc732914a243c1643bfe359913d11c7b"
                "vendor/process" "43bdd65e189f2ccacc56662c53a21f5470ff1500"
                "vendor/sci" "32d62a5136ad3dc148588752f5bcc4cc30b14752"}
-  ;; proposed default 2 (§13.2): none recorded, so none applied
-  :patches []}
+  :patches
+  [{:id "0001-sorted-user-types"
+    :path "patches/jolt/96d7b866/0001-sorted-user-types.patch"
+    :sha256 "2f5e9be8561424a5f1b7ef23b6cba18cd4ab7f7e64dc07ce1555877bcea725f7"
+    :base "96d7b8662d7c491722445bf976b2e25e36ce5d63"
+    :why "subseq/rsubseq/sorted? accept any clojure.lang.Sorted (btree.cljc:1365; 129/131 btree-protocols errors)"
+    :upstream {:issue "https://github.com/jolt-lang/jolt/issues/TBD" :pr nil :status :open-pending}
+    :files {"jolt-core/clojure/core/25-sorted.clj" {:before "9cf841bf6ea89c20a2832be70a4ed0b8cd465b1304567cc7e03e399c85800e76" :after "b515396790c116ff179cc1c2506d2f8f5abd34b66a1e5209c82867399ef68ebc"}
+            "jolt-core/clojure/core/22-coll.clj" {:before "90a067fde9f3d2968852bcab261e460ec3c7e4dfb7ba608241c9f606d945fcb4" :after "8a289181b178eb6fb20f4fd2aa35da41225c30633e359b75ddb0e3cdc3ddb408"}
+            "jolt-core/clojure/core/20-coll.clj" {:before "c5594a201e26f7bc16ede1dc2f8465fedf20984752d5755e22a3d673c0728ac0" :after "5f117d5a960009932048af43193e1760467252418adfd6f3c894a9e521e81e38"}
+            "test/chez/sorted-test.ss" {:before "b2e7514e23b9ef044007811a8ebeb0a166216ac82fe692d1b607d5b0e0ee7a3e" :after "9164f0d8f52757876a29013fb3da5d30d8403fea13399b6e4e17ef32ffa66192"}}
+    :remint true
+    :generated
+    {:darwin-arm64 {"host/chez/seed/prelude.ss" {:before "63655544e5dd7e33558d908acba31fbd1e7e204a416deab243c63fcab690c381" :after "7a8674c6f335def790a28d97a9e573377bf6f482afe91f6c17f93f9322a96926"}
+                    "host/chez/seed/image.ss" {:before "a790ba2980830e059ec224cabf9a02892a653a06cd35e5ec74aa2c795adce190" :after "a75740b60a11a1d0152d03403ff12ec1cebea11c748ee254644d74b92afe93e5"}
+                    "host/gambit/seed/prelude.ss" {:before "a3eb8b8a19003a252a08700f49cb83834a092d721598f20c57a96e41a9d057f2" :after "27e7762437fde68b65554c17e2c03e95ca79117e565cc1c96eaf1117e9f8ed6e"}
+                    "host/gambit/seed/image.ss" {:before "42e90f5a4efa06763e0259137ba54c4656e181041b1b2e4e8a42adf35d9905cd" :after "3b806aa5d8f9cf6bfd09189461ec9e22696ebce21e2ceaba94f512321dd98543"}}
+     :linux-x86_64 {"host/chez/seed/prelude.ss" {:before "63655544e5dd7e33558d908acba31fbd1e7e204a416deab243c63fcab690c381" :after "7a8674c6f335def790a28d97a9e573377bf6f482afe91f6c17f93f9322a96926"}
+                    "host/chez/seed/image.ss" {:before "a790ba2980830e059ec224cabf9a02892a653a06cd35e5ec74aa2c795adce190" :after "a75740b60a11a1d0152d03403ff12ec1cebea11c748ee254644d74b92afe93e5"}
+                    "host/gambit/seed/prelude.ss" {:before "a3eb8b8a19003a252a08700f49cb83834a092d721598f20c57a96e41a9d057f2" :after "27e7762437fde68b65554c17e2c03e95ca79117e565cc1c96eaf1117e9f8ed6e"}
+                    "host/gambit/seed/image.ss" {:before "42e90f5a4efa06763e0259137ba54c4656e181041b1b2e4e8a42adf35d9905cd" :after "3b806aa5d8f9cf6bfd09189461ec9e22696ebce21e2ceaba94f512321dd98543"}}} ; identical to darwin-arm64: the Linux re-mint on shiva (Chez 10.4.1) reproduced the same seed digests, 2026-10-22
+    :smoke {:form "(let [s (reify clojure.lang.Sorted (comparator [_] compare) (entryKey [_ e] e) (seq [_ asc] (seq (if asc [1 2 3] [3 2 1]))) (seqFrom [_ k asc] (seq (drop-while #(if asc (< % k) (> % k)) (if asc [1 2 3] [3 2 1])))))] [(sorted? s) (subseq s > 1) (rsubseq s < 3)])"
+            :expect "[true (2 3) (2 1)]"}}]}
 
  ;; Host OS packages (owner 2026-10-20: Linux = the Debian family with apt).
  ;; `bb bootstrap:jolt` checks :required with dpkg-query on hosts whose
