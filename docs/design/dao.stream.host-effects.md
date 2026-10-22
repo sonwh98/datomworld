@@ -595,3 +595,5 @@ search); `dao/jing/content/step.cljc:1-60`; `src/clj/dao/jing/dht/facade.clj:1-2
   back). A non-Claude reviewer with crypto background checks the contexts before H5a closes.
 - **OQ-H3 (2026-10-22, owner: "accept as recommended")**: stream identity is required in every
   creation spec.
+- **OQ-H4 (2026-10-22, owner: "accept as recommended")**: H8b fixtures are written with the
+  first binary, not now.
