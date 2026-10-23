@@ -35,7 +35,7 @@
 ;; =============================================================================
 
 (defn- fresh-dfa
-  [atn]
+  [^js atn]
   (.map (.-decisionToState atn)
         (fn [state i] (new (.. antlr4-default -dfa -DFA) state i))))
 
@@ -46,8 +46,8 @@
    The worker is host state owned by one parser stage; it is not data and
    never crosses a stream."
   [profile]
-  (let [lexer ((:make-lexer profile) (char-stream ""))
-        parser ((:make-parser profile) (new (.-CommonTokenStream antlr4) lexer))
+  (let [^js lexer ((:make-lexer profile) (char-stream ""))
+        ^js parser ((:make-parser profile) (new (.-CommonTokenStream antlr4) lexer))
         lexer-atn (.. lexer -_interp -atn)
         parser-atn (.. parser -_interp -atn)]
     {:profile profile,
@@ -60,14 +60,14 @@
 
 
 (defn- own-lexer!
-  [lexer {:keys [lexer-atn lexer-dfa lexer-cache]}]
+  [^js lexer {:keys [lexer-atn lexer-dfa lexer-cache]}]
   (set! (.-_interp lexer)
         (new (.. antlr4-default -atn -LexerATNSimulator)
              lexer lexer-atn lexer-dfa lexer-cache)))
 
 
 (defn- own-parser!
-  [parser {:keys [parser-atn parser-dfa parser-cache]}]
+  [^js parser {:keys [parser-atn parser-dfa parser-cache]}]
   (set! (.-_interp parser)
         (new (.. antlr4-default -atn -ParserATNSimulator)
              parser parser-atn parser-dfa parser-cache)))
@@ -94,7 +94,7 @@
   "Collects syntax errors as data into `errors` (a volatile)."
   [errors offsets]
   (listener
-    (fn [recognizer offending line column msg _e]
+    (fn [^js recognizer ^js offending line column msg _e]
       (let [span (cond
                    (token? offending)
                    (export/token-span offsets (.-start offending)
@@ -109,13 +109,13 @@
 
 
 (defn- ops
-  [parser]
+  [^js parser]
   (let [rule-names (.-ruleNames parser)
         symbolic (.-symbolicNames parser)
         literal (.-literalNames parser)]
     {:token? (fn [t] (instance? (.. antlr4-default -tree -TerminalNode) t)),
-     :token (fn [t]
-              (let [tok (.-symbol t)
+     :token (fn [^js t]
+              (let [^js tok (.-symbol t)
                     type (.-type tok)]
                 {:type-name (if (= type -1)
                               "EOF"
@@ -125,9 +125,9 @@
                  :start (.-start tok),
                  :stop (.-stop tok),
                  :text (.-text tok)})),
-     :rule-name (fn [ctx] (aget rule-names (.-ruleIndex ctx))),
-     :children (fn [ctx] (vec (.-children ctx))),
-     :start (fn [ctx] (some-> (.-start ctx) (.-start)))}))
+     :rule-name (fn [^js ctx] (aget rule-names (.-ruleIndex ctx))),
+     :children (fn [^js ctx] (vec (.-children ctx))),
+     :start (fn [^js ctx] (some-> (.-start ctx) (.-start)))}))
 
 
 (defn parse-unit
@@ -178,7 +178,7 @@
         ^js lexer ((:make-lexer profile) (char-stream source))
         tokens (new (.-CommonTokenStream antlr4) lexer)
         l (listener
-            (fn [_recognizer offending _line _column _msg _e]
+            (fn [_recognizer ^js offending _line _column _msg _e]
               (when-not @failure
                 (vreset! failure
                          (cond
@@ -194,7 +194,7 @@
     ((:start profile) parser)
     (export/failure-kind
       @failure
-      (keep (fn [t]
+      (keep (fn [^js t]
               (when (not= -1 (.-type t))
                 {:index (.-tokenIndex t), :start (.-start t), :stop (.-stop t)}))
             (.-tokens tokens)))))
