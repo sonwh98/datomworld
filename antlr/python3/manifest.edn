@@ -78,7 +78,8 @@
    :out "build/antlr/python3/js/yang/antlr/gen/python3",
    :patches
    {"JavaScript/Python3ParserBase.js" [["import antlr4 from 'antlr4';"
-      "import antlr4Module from 'antlr4';\nconst antlr4 = antlr4Module.default || antlr4Module;"]],
+      "import antlr4Module from 'antlr4';\nconst antlr4 = antlr4Module.default || antlr4Module;"]
+     ["import Python3Parser from './Python3Parser.js';\n" ""]],
     "JavaScript/Python3LexerBase.js"
     [["import antlr4 from 'antlr4';"
       "import antlr4Module from 'antlr4';\nconst antlr4 = antlr4Module.default || antlr4Module;"]
@@ -106,7 +107,7 @@
                "Python3Parser.js"
                "37f27bdb7036ae9907b231aade8401ab50f81b4061db16c926ba70fe12067972",
                "Python3ParserBase.js"
-               "a569e60fdf199334f96147bf1d4b1ed028a4b99f70a9f85c88eb3871a47b7a58"}},
+               "c4bf3da1fd7c4b61e84194fe6197af957e07534673090b001566f470fb8d308e"}},
 
   :dart
   {:runtime "antlr4 4.13.2 (pub)",

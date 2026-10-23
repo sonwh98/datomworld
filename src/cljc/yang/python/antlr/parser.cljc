@@ -35,7 +35,7 @@
                    :default (fn [ts] (Python3Parser. ts))),
    :start #?(:cljd (fn [p] (.file_input ^parser-ns/Python3Parser p))
              :clj (fn [^Python3Parser p] (.file_input p))
-             :cljs (fn [p] (.file_input p)))})
+             :cljs (fn [^js p] (.file_input p)))})
 
 
 (def rule-names

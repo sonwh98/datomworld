@@ -85,7 +85,7 @@
 (defn- listener
   "An error listener whose `syntaxError` is `f`."
   [f]
-  (let [l (new (.. antlr4-default -error -ErrorListener))]
+  (let [^js l (new (.. antlr4-default -error -ErrorListener))]
     (set! (.-syntaxError l) f)
     l))
 
@@ -138,11 +138,11 @@
         offsets (export/byte-offsets cps)
         errors (volatile! [])
         l (error-listener errors offsets)
-        lexer ((:make-lexer profile) (char-stream source))
+        ^js lexer ((:make-lexer profile) (char-stream source))
         _ (own-lexer! lexer worker)
         _ (.removeErrorListeners lexer)
         _ (.addErrorListener lexer l)
-        parser ((:make-parser profile) (new (.-CommonTokenStream antlr4) lexer))
+        ^js parser ((:make-parser profile) (new (.-CommonTokenStream antlr4) lexer))
         _ (own-parser! parser worker)
         _ (.removeErrorListeners parser)
         _ (.addErrorListener parser l)
@@ -175,7 +175,7 @@
   [worker source]
   (let [{:keys [profile]} worker
         failure (volatile! nil)
-        lexer ((:make-lexer profile) (char-stream source))
+        ^js lexer ((:make-lexer profile) (char-stream source))
         tokens (new (.-CommonTokenStream antlr4) lexer)
         l (listener
             (fn [_recognizer offending _line _column _msg _e]
@@ -187,7 +187,7 @@
         _ (own-lexer! lexer worker)
         _ (.removeErrorListeners lexer)
         _ (.addErrorListener lexer l)
-        parser ((:make-parser profile) tokens)
+        ^js parser ((:make-parser profile) tokens)
         _ (own-parser! parser worker)
         _ (.removeErrorListeners parser)
         _ (.addErrorListener parser l)]
