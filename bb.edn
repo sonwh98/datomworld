@@ -193,6 +193,14 @@
              (shell "clojure -M:clojuredart:cljd compile yin.repl.slice-peer")
              (shell "dart compile exe lib/cljd-out/yin/repl/slice-peer.dart -o build/yin-repl-peer"))}
 
+  build:demo
+  {:doc "Release-compile the browser demo (shadow-cljs build :demo) to public/js/main.js"
+   ;; The demo pulls in yang.python.antlr.parser, whose JavaScript
+   ;; recognizers live in build/antlr/python3/js (a :cljs classpath root),
+   ;; so a clean checkout generates them before compiling.
+   :depends [gen:antlr]
+   :task (shell "clj -M:cljs -m shadow.cljs.devtools.cli release demo")}
+
   ;; Fast default lanes: no ^:slow test, no dao.test-slow/guard body.
   test:clj {:doc "JVM tests, fast: skips ^:slow ones; the DHT process test needs the Node REPL build"
             :depends [build:yin-repl-node gen:antlr]
