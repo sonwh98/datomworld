@@ -53,7 +53,7 @@ The Orchestrator routes work using these cost profiles. Flat subscriptions are p
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | claude          | Flat: Pro Max plan ($100/mo)           | Use freely within budget. Invoked only through `claude` or `agy`.                                           |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
-| claude-cloud    | Metered: Anthropic API ($242 balance)  | Dedicated API credits. Invoked via `claude-cloud`. Reserved strictly for Fable until Tuesday reset           |
+| claude-api      | Metered: Anthropic API (balance per owner)  | Dedicated API credits. Reached through the `claude-cloud` wrapper script (Anthropic API endpoint); the wrapper name stays even though the billing lane is called claude-api. Reserved strictly for Fable until reset           |
 |                 |                                        | (Architect & security sign-offs). Do not assign general implementation or routine reviews.                   |
 +-----------------+----------------------------------------+-------------------------------------------------------------------------------------------------------------+
 | cmd             | Flat: CommandCode.ai Go plan ($1/mo)   | Use freely within budget. Used to invoke any LLMs not directly listed in this table.                        |

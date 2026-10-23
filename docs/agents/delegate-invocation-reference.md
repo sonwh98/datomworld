@@ -135,7 +135,7 @@ listed CLIs.
 |                |                            |                            | *)" "Bash(git status |                            |                      |                    |
 |                |                            |                            | *)"`                 |                            |                      |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
-| `claude-cloud` | Anthropic Cloud API        | `--model <model>`          | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
+| `claude-cloud` | Anthropic API (billing lane: **claude-api**) | `--model <model>`          | same as `claude`     | same as `claude`           | same as `claude`     | same as `claude`   |
 |                | (metered credits); default |                            |                      |                            |                      |                    |
 |                | **claude-sonnet-5-5** /    |                            |                      |                            |                      |                    |
 |                | **claude-opus-5-5**        |                            |                      |                            |                      |                    |
@@ -179,7 +179,7 @@ listed CLIs.
 |                | `gemini-3.8-flash`         |                            |                      |                            |                      |                    |
 +----------------+----------------------------+----------------------------+----------------------+----------------------------+----------------------+--------------------+
 
-The wrapper scripts (`claude-cloud`, `glm`, `deepseek`, `muse`) configure provider endpoints and credentials, then execute
+Naming: the **billing lane** is `claude-api` (the metered Anthropic API account, a routing-status concept); the **wrapper script** is `claude-cloud` (its on-disk name — do not rename the executable), reached via `CLAUDE_BIN="claude-cloud"`. The wrapper scripts (`claude-cloud`, `glm`, `deepseek`, `muse`) configure provider endpoints and credentials, then execute
 `claude --model "$MODEL" "$@"`, so `claude`/`claude-cloud`/`glm`/`deepseek`/`muse` share one CLI base: none needs a PTY, all
 accept redirected stdin under `-p` (pass `< /dev/null` to prevent hangs), and their startup warning
 `claude-code:unrecognized_model` is expected and benign. `claude-cloud` scrubs wrapper routing overrides (`ANTHROPIC_BASE_URL`,

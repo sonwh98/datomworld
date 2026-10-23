@@ -95,7 +95,7 @@ Every prompt starts with:
 ```text
 Created-GMT: <actual timestamp>
 Created-Local: <actual timestamp and named timezone>
-Coding-Agent: <claude|claude-cloud|codex|agy|glm|cmd|muse|deepseek|interactive>
+Coding-Agent: <claude|claude-cloud (claude-api lane)|codex|agy|glm|cmd|muse|deepseek|interactive>
 Session-ID: <exact caller UUID | pending (provider-generated) | not-applicable (interactive seat)>
 # Task: <name>
 Role: <constant role>
@@ -164,7 +164,7 @@ them), then state what `git log` alone cannot re-derive:
 ```text
 ## <YYYY-MM-DD HH:MM:SS local-timezone-name> — <task name>
 Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>
-Coding-Agent: <claude|claude-cloud|codex|agy|glm|cmd|muse|deepseek|interactive>
+Coding-Agent: <claude|claude-cloud (claude-api lane)|codex|agy|glm|cmd|muse|deepseek|interactive>
 Session-ID: <exact Session-ID | not-applicable (interactive seat)>
 Tree: <branch>@<short-sha>, <committed | uncommitted changes: <files>>
 Done: <what changed and why, with paths>
@@ -355,7 +355,7 @@ responding.
 ## Delegate Invocation Reference
 
 CLI flags, canonical recipes, and known quirks for every delegate CLI
-(claude, claude-cloud, glm, deepseek, muse, codex, cmd, agy) live in
+(claude, claude-cloud [the claude-api lane wrapper], glm, deepseek, muse, codex, cmd, agy) live in
 [`delegate-invocation-reference.md`](../delegate-invocation-reference.md),
 not here — read it before shelling out to any delegate CLI. It is reference
 material needed at the moment of dispatch, not on every orchestrator turn,
