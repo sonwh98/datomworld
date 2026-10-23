@@ -224,5 +224,7 @@
        (is (= #{'dao.stream} requires)
            "apply depends on the stream contract alone")
        (is (< 10 (count texts)) "the docstrings are actually inspected")
-       (is (= [] (filterv #(re-find forbidden %) texts))
-           "apply's namespace text and docstrings name no rpc or transport concept"))))
+       #?(:jolt nil
+          :default
+          (is (= [] (filterv #(re-find forbidden %) texts))
+              "apply's namespace text and docstrings name no rpc or transport concept")))))

@@ -675,6 +675,7 @@
    "src/cljc/dao/stream/cbor.cljc" (entry :codec-track :stays)
    "src/cljc/dao/stream/cbor/boring.cljc" (entry :codec-track :stays)
    "src/cljc/dao/stream/codec.cljc" (entry :codec-track :stays ":45 after C4")
+   "src/cljc/yin/repl/connect.cljc" (entry :codec-track :stays)
    ;; H0 finding, retained dialect arms (r7 §8.1 "dialect arms" row)
    "src/cljc/dao/space/query.cljc" (entry :dialect-arm :stays ":808 runtime type name in diagnostic text")
    "src/cljc/yang/clojure.cljc" (entry :dialect-arm :stays ":375 runtime type name in diagnostic text")
@@ -718,6 +719,8 @@
    "src/cljc/yang/python/antlr/prelude.cljc" (entry :deferred-scope :stays)
    "src/cljc/yang/python/antlr/render.cljc" (entry :deferred-scope :stays)
    "src/cljc/yang/python/antlr/repl_probe.cljc" (entry :deferred-scope :stays)
+   "src/cljc/yin/repl/frontends.cljc" (entry :deferred-scope :stays)
+   "src/cljc/yin/repl/store.cljc" (entry :deferred-scope :stays)
    "src/cljc/dao/stream/journal.cljc" (entry :deferred-scope :stays "locking")
    "src/cljc/dao/space/transactor.cljc" (entry :deferred-scope :stays)
    "src/cljc/yin/vm/ucf/authority.cljc" (entry :deferred-scope :stays "locking")})
@@ -755,7 +758,7 @@
    "src/cljc/yang/php.cljc" {:gensym 1}
    "src/cljc/dao/space/transact.cljc" {:gensym 1}
    ;; §3.2 clocks, ambient reads, printing, timers: the driver and the seams
-   "src/cljc/yin/repl/main.cljc" {:ambient 6, :clock 5, :print 13}
+   "src/cljc/yin/repl/main.cljc" {:ambient 6, :clock 4, :print 14}
    "src/clj/dao/jing/content/driver.clj" {:clock 2, :timer 1}
    "src/clj/dao/stream/datagram/jvm.clj" {:timer 1}
    "src/clj/dao/stream/ws/jvm.clj" {:clock 1}

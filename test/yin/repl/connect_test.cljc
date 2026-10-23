@@ -119,8 +119,10 @@
                                            (apply hash-map more)))
                       connect/connection-key))]
     (is (= (:cbor connect/codec-profiles) (:codec (opened))))
-    (is (= (:transit connect/codec-profiles)
-           (:codec (opened :codec (:transit connect/codec-profiles)))))))
+    ;; jolt-applicability.edn :host-expectations / J6: Transit is not installed.
+    #?(:jolt nil
+       :default (is (= (:transit connect/codec-profiles)
+                       (:codec (opened :codec (:transit connect/codec-profiles))))))))
 
 
 (deftest close-ends-the-dialed-channel-and-records-who-asked

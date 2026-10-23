@@ -12,9 +12,13 @@
     [yang.clojure :as yang.clojure]
     [yang.frontend :as frontend]
     [yang.php :as yang.php]
-    [yang.python.antlr.repl :as python.antlr.repl]
-    [yang.python.antlr.parser :as python.antlr.parser]
-    [yang.python.antlr.repl-probe :as python.antlr.probe]
+    #?@(:cljd [[yang.python.antlr.repl :as python.antlr.repl]
+               [yang.python.antlr.parser :as python.antlr.parser]
+               [yang.python.antlr.repl-probe :as python.antlr.probe]]
+        :jolt [] ; J5 installs the native Python parser.
+        :default [[yang.python.antlr.repl :as python.antlr.repl]
+                  [yang.python.antlr.parser :as python.antlr.parser]
+                  [yang.python.antlr.repl-probe :as python.antlr.probe]])
     [yin.repl :as repl]))
 
 
@@ -65,14 +69,23 @@
                             :lower clojure-lower})
     true (frontend/install (manifest :yang/php :php)
                            {:parse identity, :lower yang.php/compile})
-    true (frontend/install
-           (antlr-manifest)
-           {:parse (fn [source]
-                     (python.antlr.parser/parse-source (str source "\n"))),
-            :lower python.antlr.repl/lower,
-            :lower-session python.antlr.repl/lower-session,
-            :render python.antlr.repl/display-value,
-            :probe python.antlr.probe/probe})))
+    #?@(:cljd [true (frontend/install
+                      (antlr-manifest)
+                      {:parse (fn [source]
+                                (python.antlr.parser/parse-source (str source "\n"))),
+                       :lower python.antlr.repl/lower,
+                       :lower-session python.antlr.repl/lower-session,
+                       :render python.antlr.repl/display-value,
+                       :probe python.antlr.probe/probe})]
+        :jolt [] ; J5: Python is not installed, never a parser fallback.
+        :default [true (frontend/install
+                         (antlr-manifest)
+                         {:parse (fn [source]
+                                   (python.antlr.parser/parse-source (str source "\n"))),
+                          :lower python.antlr.repl/lower,
+                          :lower-session python.antlr.repl/lower-session,
+                          :render python.antlr.repl/display-value,
+                          :probe python.antlr.probe/probe})])))
 
 
 (defn create-state
@@ -83,4 +96,6 @@
    (repl/create-state
      (-> opts
          (update :frontends #(or % (standard)))
-         (update :primitives #(merge python.antlr.repl/primitives %))))))
+         (update :primitives #?(:cljd #(merge python.antlr.repl/primitives %)
+                                :jolt identity
+                                :default #(merge python.antlr.repl/primitives %)))))))

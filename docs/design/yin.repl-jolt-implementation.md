@@ -1364,7 +1364,7 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 | not started                                 |                   | Owner split from J2, 2026-10-22 (§13.5).                                                            |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J3: local shell and demo                    | Jolt main/stdin/w | API and CLI from tracked roots; demo = 5050; EOF/quit; no duplicate eval; cadence/wake/pending      |
-| not started                                 | ake/banner, local | semantics; all VM modes; published code index without workaround. Clojure/PHP explicit; Python      |
+| implemented; gates open                     | ake/banner, local | semantics; all VM modes; published code index without workaround. Clojure/PHP explicit; Python      |
 |                                             | catalog, shell    | unavailable until J5.                                                                               |
 |                                             | driver, index,    |                                                                                                     |
 |                                             | query             |                                                                                                     |
@@ -1429,6 +1429,21 @@ Tests land in their earliest owning slice and rerun as dependencies change. A
 namespace load never counts as behavioural acceptance. List output gains
 capability-qualified reporting so a slow exclusion, an unsupported host
 capability and a failure are distinguishable.
+
+J3 implementation note (2026-10-22; macOS only, Linux unrun): the tracked
+local CLI selects a Clojure/PHP catalog, refuses Python until J5 and durable
+stores until J4/J7, and runs one plain-thread owner through `run-owner!`.
+The wake implementation multiplexes stdin and a self-pipe using jolt's existing
+native `poll` binding: `io-poller/wait-ready` accepts one fd only. It uses
+poller monotonic deadlines and checks Chez buffered input before fd readiness.
+Partial lines block until newline; no line editing or signal drain is claimed.
+The five tracked namespace probes load with Transit absent. Shared reader
+failures, the demo's JVM-and-jolt foreign-task closure failure, and H0's
+frozen host-arm/effect-count admission leave J3 acceptance open; see the
+engineer findings for the current gate evidence. No H0 assertion was changed.
+The `yin.repl`, host, catalog, codec-selection and startup-store fold sites in
+§4.4 now have J3 arms; file, signing and network mechanisms remain their owning
+slices' work. No Linux qualification is inferred from the macOS evidence.
 
 ## 11. Test and conformance strategy
 

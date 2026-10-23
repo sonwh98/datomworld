@@ -119,7 +119,16 @@
 ;; `included` (run, fast and ^:slow alike) or below in `excluded` with a
 ;; reason, the missing capability and its owner. Zero unexplained skips.
 (def excluded
-  [{:ns "dao.host.gate-test"
+  [{:ns "yin.repl.shell-session-test" :reason "JVM process corpus runs on JVM lane; bb test:jolt-shell runs both hosts" :capability "JVM subprocess harness" :owner "J3"}
+   {:ns "yin.repl.python-antlr-test" :reason "Python parser fixture" :capability "Python parser" :owner "J5"}
+   {:ns "yin.repl.dht-test" :reason "UDP + durable store fixture" :capability "UDP + durable store" :owner "J7"}
+   {:ns "yin.repl.dht-head-test" :reason "WebSocket + durable store fixture" :capability "WebSocket + durable store" :owner "J6/J7"}
+   {:ns "yin.repl.dht-process-test" :reason "JVM process + UDP fixture" :capability "JVM process + UDP" :owner "J7"}
+   {:ns "yin.repl.serve-connect-wire-test" :reason "JVM WebSocket peers fixture" :capability "JVM WebSocket peers" :owner "J6"}
+   {:ns "yin.repl.build-test" :reason "JVM build tool fixture" :capability "JVM build tool" :owner "J8"}
+   {:ns "yin.repl.host.jvm-test" :reason "JDK host fixture" :capability "JDK host" :owner "J6"}
+   {:ns "yin.repl.host.node-test" :reason "Node host fixture" :capability "Node host" :owner "J6"}
+   {:ns "dao.host.gate-test"
     :reason "the H0 freeze gate reads src text via tools.reader; its own docstring says JVM lane only"
     :capability "source-text gate (tools.reader)" :owner "host-boundary seat"}
    {:ns "yin.vm.linker.layering-test"
@@ -206,17 +215,60 @@
     :capability "udp datagram host seam" :owner "J6/J7"}
    {:ns "yin.vm.linker.head-follow-test"
     :reason "socket behaviour on jolt is unproven; deferred to J6/J7"
-    :capability "udp datagram host seam" :owner "J6/J7"}])
+    :capability "udp datagram host seam" :owner "J6/J7"}
+   {:ns "dao.space.stigmergy-test"
+    :reason "file-backed fixture requires RandomAccessFile.writeInt"
+    :capability "file random access (writeInt)" :owner "J4"}
+   {:ns "yin.vm.macro-build-test"
+    :reason "file-backed fixture requires RandomAccessFile.writeInt"
+    :capability "file random access (writeInt)" :owner "J4"}
+   {:ns "dao.jing.file-test"
+    :reason "file-backed fixture requires RandomAccessFile.writeInt"
+    :capability "file random access (writeInt)" :owner "J4"}
+   {:ns "dao.stream.journal.file-test"
+    :reason "durable journal fixture requires FileChannel.tryLock"
+    :capability "file lock (tryLock)" :owner "J4"}
+   {:ns "yin.vm.ucf.durability-test"
+    :reason "durable journal fixture requires FileChannel.tryLock"
+    :capability "file lock (tryLock)" :owner "J4"}
+   {:ns "yin.vm.ucf.stage-e-rows-test"
+    :reason "durable journal fixture requires FileChannel.tryLock"
+    :capability "file lock (tryLock)" :owner "J4"}
+   {:ns "yin.vm.ucf.ledger-fixture-test"
+    :reason "durable journal fixture requires FileChannel.tryLock"
+    :capability "file lock (tryLock)" :owner "J4"}
+   {:ns "yin.vm.ucf.compose-rows-test"
+    :reason "durable journal fixture requires FileChannel.tryLock"
+    :capability "file lock (tryLock)" :owner "J4"}
+   {:ns "yin.vm.ucf.compose-test"
+    :reason "durable journal fixture requires FileChannel.tryLock"
+    :capability "file lock (tryLock)" :owner "J4"}
+   {:ns "dao.space.store.fs-test"
+    :reason "UTF-8 decoder fails and dangling symlink returns absence instead of refusal"
+    :capability "UTF-8 decoder + symlink refusal" :owner "J4"}
+   {:ns "yin.vm.host-typed-values-test"
+    :reason "requires yin.repl, which requires dao.stream.transit (found by the round-2 load evidence)"
+    :capability "transit codec via yin.repl" :owner "J3"}
+   {:ns "yin.vm.linker.head-test"
+    :reason "requires yin.repl, which requires dao.stream.transit (found by the round-2 load evidence)"
+    :capability "transit codec via yin.repl" :owner "J3"}
+   {:ns "yin.vm.linker.publish-test"
+    :reason "requires yin.repl, which requires dao.stream.transit (found by the round-2 load evidence)"
+    :capability "transit codec via yin.repl" :owner "J3"}
+   {:ns "yin.vm.linker.admission-test"
+    :reason "requires yin.repl, which requires dao.stream.transit (found by the round-2 load evidence)"
+    :capability "transit codec via yin.repl" :owner "J3"}])
 
 
 ;; Dependency order (the max rank of each suite's source requires), so a low
 ;; failure is reported before the suites that ride on it.
 (def included
-  ["dao.jing.dht.facade-test" "dao.space.stigmergy-test" "dao.stream.waitset.driver-test"
-   "yin.vm.linker.production-pipeline-test" "yin.vm.macro-build-test"
+  ["yin.repl-test" "yin.repl.owner-test" "yin.repl.state-test" "yin.repl.index-test" "yin.repl.query-test" "yin.repl.ast-index-test" "yin.repl.ast-query-e2e-test" "yin.repl.driver-test" "yin.repl.adapter-test" "yin.repl.embed-test" "yin.repl.trust-test" "yin.repl.require-test" "yin.repl.frontend-catalog-test" "yin.repl.main-test" "yin.repl.connect-test" "yin.repl.serve-test" "yin.repl.store-test"
+   "dao.jing.dht.facade-test" "dao.stream.waitset.driver-test"
+   "yin.vm.linker.production-pipeline-test"
    "dao.data.arrays-test" "dao.data.sorted-user-type-test"
    "dao.host.bytes-test" "dao.host.text-test"
-   "dao.jing.dht.kad-test" "dao.space.store.fs-test" "dao.stream-test"
+   "dao.jing.dht.kad-test" "dao.stream-test"
    "dao.stream.memory-log-test" "dao.stream.waitset.cadence-test" "dao.data-test"
    "dao.data.btree-protocols-test" "dao.data.btree-test" "dao.data.btree-transients-test"
    "dao.host.float-test" "dao.stream.apply-test" "dao.stream.cbor-test"
@@ -228,12 +280,12 @@
    "dao.jing-test" "dao.jing.cbor-conformance-test" corpus-suite-name
    "dao.jing.cbor-test" "dao.jing.hash-registry-contract-test" "dao.stream.base64-test"
    "dao.stream.journal-test" "dao.data.btree-durability-test" "dao.host.hash-test"
-   "dao.jing.content.step-test" "dao.jing.dht-test" "dao.jing.file-test"
+   "dao.jing.content.step-test" "dao.jing.dht-test"
    "dao.jing.mem-test" "yin.vm.linker-authority-test"
    "yin.vm.linker.sign-test" "dao.data.btree-async-test" "dao.jing.content-test"
-   "dao.space.index-numeric-test" "dao.stream.journal.file-test"
+   "dao.space.index-numeric-test"
    "dao.space.transactor-test" "dao.space.index-test" "dao.space.positional-query-test"
-   "dao.space.query-numeric-test" "yin.vm.ucf.durability-test" "dao.space.schema-test"
+   "dao.space.query-numeric-test" "dao.space.schema-test"
    "dao.space.transact-test" "yin.vm.bytes-to-str-test" "yin.vm.debruijn-code-test"
    "yin.vm.linker-authority-ingestion-test" "yin.vm.parity-test" "yin.vm.ast-walker-test"
    "yin.vm.module-test" "yin.vm.pipeline-test" "yin.vm.semantic.code-test"
@@ -255,21 +307,19 @@
    "yin.vm.semantic.parity-test" "yin.vm.semantic.vm-test"
    "yin.vm.semantic.walker-trace-test" "yin.vm.stream-poll-test"
    "yin.vm.telemetry-test" "yin.vm.ucf.remote-test" "yin.vm.ucf.rows-custody-test"
-   "yin.vm.ucf.rows-test" "yin.vm.ucf.stage-e-rows-test" "yin.vm.semantic.layout-test"
+   "yin.vm.ucf.rows-test" "yin.vm.semantic.layout-test"
    "yin.vm.semantic.safepoint-harness-test" "yin.vm.ucf.rows-checkpoint-test"
    "yin.vm.linker.admission-doc-test" "yin.vm.semantic.derive-test"
    "yin.vm.ucf.holder.export-test" "yin.vm.ucf.authority.grant-test"
    "yin.vm.ucf.authority.completion-fold-test" "yin.vm.ucf.authority.reclaim-test"
-   "yin.vm.ucf.crash-cut-test" "yin.vm.ucf.custody-test" "yin.vm.ucf.ledger-fixture-test"
+   "yin.vm.ucf.crash-cut-test" "yin.vm.ucf.custody-test"
    "yin.vm.ucf.ledger-test" "yin.vm.ucf.authority-test"
    "yin.vm.ucf.authority.admission-test" "yin.vm.ucf.authority.completion-test"
    "yin.vm.ucf.authority.inherited-test" "yin.vm.ucf.authority.input-test"
-   "yin.vm.ucf.holder.evidence-test" "yin.vm.host-typed-values-test"
-   "yin.vm.linker.head-test" "yin.vm.linker.publish-test" "yin.vm.ucf.authority.front-test"
+   "yin.vm.ucf.holder.evidence-test"
+   "yin.vm.ucf.authority.front-test"
    "yin.vm.ucf.fencing-rows-test" "yin.vm.ucf.holder.reader-test"
-   "yin.vm.ucf.holder.writer-test" "yin.vm.ucf.holder.driver-test"
-   "yin.vm.ucf.compose-rows-test" "yin.vm.ucf.compose-test"
-   "yin.vm.linker.admission-test"])
+   "yin.vm.ucf.holder.writer-test" "yin.vm.ucf.holder.driver-test"])
 
 
 ;; Read only namespace tokens, never evaluate forms or resolve reader branches.
@@ -278,8 +328,8 @@
   "Check the applicability manifest against a test root; throw with every
    unlisted namespace (and path) and stale entry before any lane work."
   [test-root included-nses excluded-suites]
-  (let [dirs ["dao/host" "dao/jing" "dao/data" "dao/space" "dao/stream" "yin/vm"]
-        bare ["dao/jing_test" "dao/stream_test" "dao/data_test" "yin/vm_test"]
+  (let [dirs ["dao/host" "dao/jing" "dao/data" "dao/space" "dao/stream" "yin/vm" "yin/repl"]
+        bare ["dao/jing_test" "dao/stream_test" "dao/data_test" "yin/vm_test" "yin/repl_test"]
         extensions ["clj" "cljc" "cljs" "cljd"]
         files (->> (concat
                      (mapcat #(->> (fs/glob (fs/path test-root %) "**")
@@ -541,6 +591,11 @@
                    ns (pr-str counts)
                    (when (seq survivors) (str "(still alive after kill: " survivors ")"))))
         (println)
+        (when (some #(str/starts-with? % "yin.repl") nses)
+          (println "J3 per-deftest capability decisions: test/resources/yin/repl/jolt-applicability.edn")
+          (doseq [row (:test-exclusions (edn/read-string
+                                          (slurp "test/resources/yin/repl/jolt-applicability.edn")))]
+            (println "EXCLUDED-TEST" (pr-str row))))
         (println "CORE-SUMMARY" summary)
         (spit (str logs "/core-summary.edn")
               (pr-str {:included (count nses)

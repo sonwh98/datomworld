@@ -57,6 +57,20 @@
    :task (System/exit
            (:exit (apply shell {:continue true} "bb" "src/dev/jolt_j2_lane.clj" "probe" *command-line-args*)))}
 
+  demo
+  {:doc "JVM: cooperative sum across two execution sites of one logical task"
+   :task (shell {:shutdown nil} "clj" "-M" "-m" "yin.demo")}
+
+  demo:jolt
+  {:doc "J3: tracked yin.demo on JVM and jolt; require SUCCESS: sum(0..100) = 5050"
+   :task (System/exit (:exit (shell {:continue true :shutdown nil}
+                                    "bb" "src/dev/jolt_shell_session.clj" "--demo")))}
+
+  test:jolt-shell
+  {:doc "J3: one deadline-bounded transcript corpus on JVM and jolt, held stdin, exact output/exit checks and startup timings"
+   :task (System/exit (:exit (apply shell {:continue true :shutdown nil}
+                                    "bb" "src/dev/jolt_shell_session.clj" *command-line-args*)))}
+
   test:jolt-core
   {:doc "J2: every applicable pure suite (test/dao/host, jing, data, space, portable stream, yin/vm) under jolt, one namespace per process through src/dev/jolt_test_runner.clj, fast and ^:slow alike (Q3), nonzero exit on any failure; excluded suites are printed and recorded with reason/capability/owner"
    :task (System/exit

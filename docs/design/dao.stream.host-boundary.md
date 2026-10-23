@@ -980,10 +980,10 @@ marked as such in the table.
 | prerequisites (table C)    | arms, not protocol syntax, retained by design); `dao/data/btree/storage.cljc` (promise facade,  | reason recorded in the      |
 |                            | deferred §9.1); `dao/pretty.cljc` (`StringWriter`/pprint, display only, §3.1).                  | gate's list.                |
 +----------------------------+-------------------------------------------------------------------------------------------------+-----------------------------+
-| Codec-track files          | `dao/stream/ws.cljc`, `transit.cljc`, `cbor.cljc`, `cbor/boring.cljc`, `codec.cljc`. (H0:       | Stay; owned by that track;  |
-| (untouched by this track)  | `remote_channel.cljc` and `ws_project.cljc` carry only exempt `catch` arms and are not on the   | `codec.cljc:45` after C4.   |
-|                            | generated list; `jing/stream.cljc` is not in the closure. All three remain codec-track files    |                             |
-|                            | under §8.3; they are simply not list-1 entries.)                                                |                             |
+| Codec-track files          | `dao/stream/ws.cljc`, `transit.cljc`, `cbor.cljc`, `cbor/boring.cljc`, `codec.cljc`,            | Stay; owned by that track;  |
+| (untouched by this track)  | `yin/repl/connect.cljc` (J3). (H0: `remote_channel.cljc` and `ws_project.cljc` carry only        | `codec.cljc:45` after C4.   |
+|                            | exempt `catch` arms and are not on the generated list; `jing/stream.cljc` is not in the        |                             |
+|                            | closure. All remain codec-track files under §8.3; they are simply not list-1 entries.)         |                             |
 +----------------------------+-------------------------------------------------------------------------------------------------+-----------------------------+
 | Dialect arms (H0 finding,  | `dao/space/query.cljc` (`:808`), `yang/clojure.cljc` (`:375`), `yin/vm/engine.cljc` (`:929`): a | Stay.                       |
 | retained)                  | runtime type name in diagnostic text; `yin/repl/adapter.cljc` (`:58`), `yin/repl/dht.cljc`      |                             |
@@ -1002,10 +1002,11 @@ marked as such in the table.
 |                            | `dao/stream/rpc.cljc` (`:114`, the `rand` arm), `yin/repl.cljc`,                                |                             |
 |                            | `yang/python/antlr/parser.cljc` and the other `yang/python/antlr/*.cljc` with arms,             |                             |
 |                            | `dao/stream/journal.cljc` (`locking`), `dao/space/transactor.cljc`, `yin/vm/ucf/authority.cljc` |                             |
-|                            | (`locking`). (H0: `dao/jing/content/ async.cljc`, `dao/stream/udp.cljc` and                     |                             |
-|                            | `dao/space/schema.cljc` are not in the closure and are dropped from list 1; the deferred design |                             |
-|                            | records them, §9.) Every remaining closure file whose arms are only `catch`/hint/protocol       |                             |
-|                            | syntax is **not** on list 1 (exempt by pattern).                                                |                             |
+|                            | (`locking`), `yin/repl/frontends.cljc` (J3/J5), `yin/repl/store.cljc` (J3/J4). (H0:            |                             |
+|                            | `dao/jing/content/ async.cljc`, `dao/stream/udp.cljc` and `dao/space/schema.cljc` are not in   |                             |
+|                            | the closure and are dropped from list 1; the deferred design records them, §9.) Every           |                             |
+|                            | remaining closure file whose arms are only `catch`/hint/protocol syntax is **not** on list 1   |                             |
+|                            | (exempt by pattern).                                                                            |                             |
 +----------------------------+-------------------------------------------------------------------------------------------------+-----------------------------+
 
 **Baseline versus additions and deletions.** The H0 baseline is the set of

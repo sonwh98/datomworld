@@ -38,7 +38,9 @@
             [dao.stream.cbor :as cbor]
             [dao.stream.remote-channel :as remote-channel]
             [dao.stream.rpc :as rpc]
-            [dao.stream.transit :as transit]
+            #?@(:cljd [[dao.stream.transit :as transit]]
+                :jolt []
+                :default [[dao.stream.transit :as transit]])
             [yin.repl.host.common :as host-common]))
 
 
@@ -299,7 +301,9 @@
 
 (def codec-profiles
   "The wire profiles a REPL endpoint or connection can be asked for by name."
-  {:cbor cbor/profile :transit transit/profile})
+  #?(:cljd {:cbor cbor/profile :transit transit/profile}
+     :jolt {:cbor cbor/profile}
+     :default {:cbor cbor/profile :transit transit/profile}))
 
 
 (defn- dial

@@ -1,0 +1,95 @@
+(ns dao.stream.waitset.driver
+  "Jolt wait-set wake policy: a nonblocking self-pipe carrying contentless
+   tokens. No interpreter state or dispatch lives here. Plain-thread waits
+   use the poller's monotonic deadline; stdin waits multiplex the same pipe
+   with fd 0 through jolt's existing native poll binding. No reader thread.
+   Accepted shell limitation: a partial line blocks its owner until newline."
+  (:require [jolt.ffi :as ffi]
+            [jolt.io-poller :as poller]
+            [jolt.socket.native :as native]))
+
+
+(ffi/load-library)
+(ffi/defcfn c-pipe "pipe" [:pointer] :int)
+
+
+(defn make-wake
+  []
+  (let [fds (ffi/alloc 8)]
+    (try
+      (when (neg? (c-pipe fds))
+        (throw (ex-info "wake pipe creation failed" {:errno (ffi/errno)})))
+      (let [r (ffi/read fds :int 0) w (ffi/read fds :int 4)]
+        (poller/nonblock! r)
+        (poller/nonblock! w)
+        {:read r :write w})
+      (finally (ffi/free fds)))))
+
+
+(defn close!
+  [wake]
+  (poller/forget! (:read wake))
+  (poller/c-close (:read wake))
+  (poller/c-close (:write wake))
+  nil)
+
+
+(defn nudge!
+  [wake]
+  (let [b (ffi/alloc 1)]
+    (try
+      (ffi/write b :uint8 1)
+      (loop []
+        (let [n (poller/c-write (:write wake) b 1) e (ffi/errno)]
+          (cond
+            (= n 1) nil
+            (poller/eintr? e) (recur)
+            (poller/eagain? e) nil ; a full pipe already owes a wake
+            :else (throw (ex-info "wake pipe write failed" {:errno e})))))
+      (finally (ffi/free b)))))
+
+
+(defn- drain!
+  [wake]
+  (let [b (ffi/alloc 256)]
+    (try
+      (loop [woken? false]
+        (let [n (poller/c-read (:read wake) b 256) e (ffi/errno)]
+          (cond
+            (pos? n) (recur true)
+            (poller/eintr? e) (recur woken?)
+            (poller/eagain? e) woken?
+            :else (throw (ex-info "wake pipe read failed" {:errno e :read n})))))
+      (finally (ffi/free b)))))
+
+
+(defn sleep!
+  [wake sleep-ms]
+  (poller/wait-ready (:read wake) :read (poller/deadline-ms sleep-ms))
+  (drain! wake))
+
+
+(defn sleep-input!
+  "Wait for a nudge, stdin, or the cadence deadline. `line!` only deposits
+   one line (nil at EOF). Check Chez's buffered port before the fd: read-line
+   can have prefetched the next submission. Never evaluate from this seam."
+  [wake sleep-ms line!]
+  (let [ready? #(pos? (.available System/in))
+        fds (native/alloc-pollfds 2)
+        deadline (poller/deadline-ms sleep-ms)]
+    (try
+      (when-not (ready?)
+        (native/init-pollfd! fds 0 (:read wake) native/pollin)
+        (native/init-pollfd! fds 1 0 native/pollin)
+        (loop []
+          (let [remaining (max 0 (long (Math/ceil (- deadline (poller/clock-ms)))))
+                [rc e] (native/c-poll fds 2 remaining)]
+            (cond
+              (and (neg? rc) (native/eintr? e)) (recur)
+              (neg? rc) (throw (ex-info "stdin/wake poll failed" {:errno e}))
+              :else nil))))
+      (let [woken? (drain! wake)
+            stdin? (or (ready?) (pos? (native/pollfd-revents fds 1)))]
+        (when stdin? (line! (read-line)))
+        (or woken? stdin?))
+      (finally (ffi/free fds)))))

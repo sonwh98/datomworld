@@ -182,18 +182,19 @@
         (is (true? (:running? state')))))))
 
 
-(deftest language-and-compile-commands-behave-as-they-do-in-v1
-  (let [[_ result] (repl/eval-input (repl.frontends/create-state) "(lang :yang/python)")
-        [_ refused] (repl/eval-input (repl.frontends/create-state) "(lang :python)")
-        [state _] (repl/eval-input (repl.frontends/create-state) "(lang :yang/php)")
-        [_ compiled] (repl/eval-input state "(compile \"1 + 2;\")")]
-    (is (= "Switched to :yang/python" result))
-    (is (str/includes? refused "unavailable-parser")
-        "a language keyword is not a selector")
-    (is (str/includes? compiled "AST:"))
-    (is (str/includes? compiled "Input rows:"))
-    (is (str/includes? compiled "Expanded rows:"))
-    (is (str/includes? compiled "Events:"))))
+#?(:jolt nil ; J5 Python: capability unavailable in J3; cljd takes :default.
+   :default (deftest language-and-compile-commands-behave-as-they-do-in-v1
+              (let [[_ result] (repl/eval-input (repl.frontends/create-state) "(lang :yang/python)")
+                    [_ refused] (repl/eval-input (repl.frontends/create-state) "(lang :python)")
+                    [state _] (repl/eval-input (repl.frontends/create-state) "(lang :yang/php)")
+                    [_ compiled] (repl/eval-input state "(compile \"1 + 2;\")")]
+                (is (= "Switched to :yang/python" result))
+                (is (str/includes? refused "unavailable-parser")
+                    "a language keyword is not a selector")
+                (is (str/includes? compiled "AST:"))
+                (is (str/includes? compiled "Input rows:"))
+                (is (str/includes? compiled "Expanded rows:"))
+                (is (str/includes? compiled "Events:")))))
 
 
 (deftest reset-rebuilds-the-vm-and-its-attachment
@@ -728,10 +729,11 @@
         (is (= ["1" "42" "5"] (rest texts)))))))
 
 
-(deftest a-python-submission-cannot-see-a-clojure-defined-name
-  (let [[state _] (evaluate (repl.frontends/create-state) ["(def clj_only 41)"])
-        [_ texts] (results state ["(lang :yang/python)" "print(clj_only)"])]
-    (is (= "NameError: name 'clj_only' is not defined\n" (nth texts 1)))))
+#?(:jolt nil ; J5 Python: capability unavailable in J3; cljd takes :default.
+   :default (deftest a-python-submission-cannot-see-a-clojure-defined-name
+              (let [[state _] (evaluate (repl.frontends/create-state) ["(def clj_only 41)"])
+                    [_ texts] (results state ["(lang :yang/python)" "print(clj_only)"])]
+                (is (= "NameError: name 'clj_only' is not defined\n" (nth texts 1))))))
 
 
 (deftest a-host-function-renders-as-a-named-portable-marker
@@ -803,4 +805,5 @@
 (deftest host-command-names-the-runtime
   (let [[_ text] (repl/eval-input (repl.frontends/create-state) "(host)")]
     (is (str/starts-with? text
-                          #?(:clj "Host: JVM " :cljs "Host: Node " :cljd "Host: Dart")))))
+                          #?(:cljd "Host: Dart" :jolt "Host: jolt "
+                             :clj "Host: JVM " :cljs "Host: Node ")))))
