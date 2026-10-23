@@ -216,22 +216,25 @@
 
 
 (deftest file-close-reopen-recovery-test
-  ;; durability across the handle boundary: a tree stored through a content
-  ;; file reads back after close + reopen (framed-file replay)
-  (let [path (temp-path "roundtrip")]
-    (try (let [h (jing-file/create-content-file path)
-               storage (bts/kv-storage h {:branching-factor 16})
-               s (into (bt/restore-tree compare nil storage 0) (range 300))
-               addr (bt/store-tree s storage)]
-           (is (= addr (jing/segment-key (jing/get h addr nil))))
-           (jing/close! h)
-           (let [h2 (jing-file/create-content-file path)
-                 storage2 (bts/kv-storage h2 {:branching-factor 16})
-                 r (bt/restore-tree compare addr storage2 300)]
-             (is (= (range 300) (seq r)))
-             (is (== 300 (count r)))
-             (jing/close! h2)))
-         (finally (cleanup-file path)))))
+  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
+  #?(:jolt nil
+     :default
+     ;; durability across the handle boundary: a tree stored through a content
+     ;; file reads back after close + reopen (framed-file replay)
+     (let [path (temp-path "roundtrip")]
+       (try (let [h (jing-file/create-content-file path)
+                  storage (bts/kv-storage h {:branching-factor 16})
+                  s (into (bt/restore-tree compare nil storage 0) (range 300))
+                  addr (bt/store-tree s storage)]
+              (is (= addr (jing/segment-key (jing/get h addr nil))))
+              (jing/close! h)
+              (let [h2 (jing-file/create-content-file path)
+                    storage2 (bts/kv-storage h2 {:branching-factor 16})
+                    r (bt/restore-tree compare addr storage2 300)]
+                (is (= (range 300) (seq r)))
+                (is (== 300 (count r)))
+                (jing/close! h2)))
+            (finally (cleanup-file path))))))
 
 
 (deftest mixed-state-incremental-store-test

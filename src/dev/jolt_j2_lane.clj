@@ -215,18 +215,60 @@
     :capability "udp datagram host seam" :owner "J6/J7"}
    {:ns "yin.vm.linker.head-follow-test"
     :reason "socket behaviour on jolt is unproven; deferred to J6/J7"
-    :capability "udp datagram host seam" :owner "J6/J7"}])
+    :capability "udp datagram host seam" :owner "J6/J7"}
+   {:ns "dao.space.stigmergy-test"
+    :reason "file-backed fixture requires RandomAccessFile.writeInt"
+    :capability "file random access (writeInt)" :owner "J4"}
+   {:ns "yin.vm.macro-build-test"
+    :reason "file-backed fixture requires RandomAccessFile.writeInt"
+    :capability "file random access (writeInt)" :owner "J4"}
+   {:ns "dao.jing.file-test"
+    :reason "file-backed fixture requires RandomAccessFile.writeInt"
+    :capability "file random access (writeInt)" :owner "J4"}
+   {:ns "dao.stream.journal.file-test"
+    :reason "durable journal fixture requires FileChannel.tryLock"
+    :capability "file lock (tryLock)" :owner "J4"}
+   {:ns "yin.vm.ucf.durability-test"
+    :reason "durable journal fixture requires FileChannel.tryLock"
+    :capability "file lock (tryLock)" :owner "J4"}
+   {:ns "yin.vm.ucf.stage-e-rows-test"
+    :reason "durable journal fixture requires FileChannel.tryLock"
+    :capability "file lock (tryLock)" :owner "J4"}
+   {:ns "yin.vm.ucf.ledger-fixture-test"
+    :reason "durable journal fixture requires FileChannel.tryLock"
+    :capability "file lock (tryLock)" :owner "J4"}
+   {:ns "yin.vm.ucf.compose-rows-test"
+    :reason "durable journal fixture requires FileChannel.tryLock"
+    :capability "file lock (tryLock)" :owner "J4"}
+   {:ns "yin.vm.ucf.compose-test"
+    :reason "durable journal fixture requires FileChannel.tryLock"
+    :capability "file lock (tryLock)" :owner "J4"}
+   {:ns "dao.space.store.fs-test"
+    :reason "UTF-8 decoder fails and dangling symlink returns absence instead of refusal"
+    :capability "UTF-8 decoder + symlink refusal" :owner "J4"}
+   {:ns "yin.vm.host-typed-values-test"
+    :reason "requires yin.repl, which requires dao.stream.transit (found by the round-2 load evidence)"
+    :capability "transit codec via yin.repl" :owner "J3"}
+   {:ns "yin.vm.linker.head-test"
+    :reason "requires yin.repl, which requires dao.stream.transit (found by the round-2 load evidence)"
+    :capability "transit codec via yin.repl" :owner "J3"}
+   {:ns "yin.vm.linker.publish-test"
+    :reason "requires yin.repl, which requires dao.stream.transit (found by the round-2 load evidence)"
+    :capability "transit codec via yin.repl" :owner "J3"}
+   {:ns "yin.vm.linker.admission-test"
+    :reason "requires yin.repl, which requires dao.stream.transit (found by the round-2 load evidence)"
+    :capability "transit codec via yin.repl" :owner "J3"}])
 
 
 ;; Dependency order (the max rank of each suite's source requires), so a low
 ;; failure is reported before the suites that ride on it.
 (def included
   ["yin.repl-test" "yin.repl.owner-test" "yin.repl.state-test" "yin.repl.index-test" "yin.repl.query-test" "yin.repl.ast-index-test" "yin.repl.ast-query-e2e-test" "yin.repl.driver-test" "yin.repl.adapter-test" "yin.repl.embed-test" "yin.repl.trust-test" "yin.repl.require-test" "yin.repl.frontend-catalog-test" "yin.repl.main-test" "yin.repl.connect-test" "yin.repl.serve-test" "yin.repl.store-test"
-   "dao.jing.dht.facade-test" "dao.space.stigmergy-test" "dao.stream.waitset.driver-test"
-   "yin.vm.linker.production-pipeline-test" "yin.vm.macro-build-test"
+   "dao.jing.dht.facade-test" "dao.stream.waitset.driver-test"
+   "yin.vm.linker.production-pipeline-test"
    "dao.data.arrays-test" "dao.data.sorted-user-type-test"
    "dao.host.bytes-test" "dao.host.text-test"
-   "dao.jing.dht.kad-test" "dao.space.store.fs-test" "dao.stream-test"
+   "dao.jing.dht.kad-test" "dao.stream-test"
    "dao.stream.memory-log-test" "dao.stream.waitset.cadence-test" "dao.data-test"
    "dao.data.btree-protocols-test" "dao.data.btree-test" "dao.data.btree-transients-test"
    "dao.host.float-test" "dao.stream.apply-test" "dao.stream.cbor-test"
@@ -238,12 +280,12 @@
    "dao.jing-test" "dao.jing.cbor-conformance-test" corpus-suite-name
    "dao.jing.cbor-test" "dao.jing.hash-registry-contract-test" "dao.stream.base64-test"
    "dao.stream.journal-test" "dao.data.btree-durability-test" "dao.host.hash-test"
-   "dao.jing.content.step-test" "dao.jing.dht-test" "dao.jing.file-test"
+   "dao.jing.content.step-test" "dao.jing.dht-test"
    "dao.jing.mem-test" "yin.vm.linker-authority-test"
    "yin.vm.linker.sign-test" "dao.data.btree-async-test" "dao.jing.content-test"
-   "dao.space.index-numeric-test" "dao.stream.journal.file-test"
+   "dao.space.index-numeric-test"
    "dao.space.transactor-test" "dao.space.index-test" "dao.space.positional-query-test"
-   "dao.space.query-numeric-test" "yin.vm.ucf.durability-test" "dao.space.schema-test"
+   "dao.space.query-numeric-test" "dao.space.schema-test"
    "dao.space.transact-test" "yin.vm.bytes-to-str-test" "yin.vm.debruijn-code-test"
    "yin.vm.linker-authority-ingestion-test" "yin.vm.parity-test" "yin.vm.ast-walker-test"
    "yin.vm.module-test" "yin.vm.pipeline-test" "yin.vm.semantic.code-test"
@@ -265,21 +307,19 @@
    "yin.vm.semantic.parity-test" "yin.vm.semantic.vm-test"
    "yin.vm.semantic.walker-trace-test" "yin.vm.stream-poll-test"
    "yin.vm.telemetry-test" "yin.vm.ucf.remote-test" "yin.vm.ucf.rows-custody-test"
-   "yin.vm.ucf.rows-test" "yin.vm.ucf.stage-e-rows-test" "yin.vm.semantic.layout-test"
+   "yin.vm.ucf.rows-test" "yin.vm.semantic.layout-test"
    "yin.vm.semantic.safepoint-harness-test" "yin.vm.ucf.rows-checkpoint-test"
    "yin.vm.linker.admission-doc-test" "yin.vm.semantic.derive-test"
    "yin.vm.ucf.holder.export-test" "yin.vm.ucf.authority.grant-test"
    "yin.vm.ucf.authority.completion-fold-test" "yin.vm.ucf.authority.reclaim-test"
-   "yin.vm.ucf.crash-cut-test" "yin.vm.ucf.custody-test" "yin.vm.ucf.ledger-fixture-test"
+   "yin.vm.ucf.crash-cut-test" "yin.vm.ucf.custody-test"
    "yin.vm.ucf.ledger-test" "yin.vm.ucf.authority-test"
    "yin.vm.ucf.authority.admission-test" "yin.vm.ucf.authority.completion-test"
    "yin.vm.ucf.authority.inherited-test" "yin.vm.ucf.authority.input-test"
-   "yin.vm.ucf.holder.evidence-test" "yin.vm.host-typed-values-test"
-   "yin.vm.linker.head-test" "yin.vm.linker.publish-test" "yin.vm.ucf.authority.front-test"
+   "yin.vm.ucf.holder.evidence-test"
+   "yin.vm.ucf.authority.front-test"
    "yin.vm.ucf.fencing-rows-test" "yin.vm.ucf.holder.reader-test"
-   "yin.vm.ucf.holder.writer-test" "yin.vm.ucf.holder.driver-test"
-   "yin.vm.ucf.compose-rows-test" "yin.vm.ucf.compose-test"
-   "yin.vm.linker.admission-test"])
+   "yin.vm.ucf.holder.writer-test" "yin.vm.ucf.holder.driver-test"])
 
 
 ;; Read only namespace tokens, never evaluate forms or resolve reader branches.
