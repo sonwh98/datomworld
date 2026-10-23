@@ -119,7 +119,16 @@
 ;; `included` (run, fast and ^:slow alike) or below in `excluded` with a
 ;; reason, the missing capability and its owner. Zero unexplained skips.
 (def excluded
-  [{:ns "dao.host.gate-test"
+  [{:ns "yin.repl.shell-session-test" :reason "JVM process corpus runs on JVM lane; bb test:jolt-shell runs both hosts" :capability "JVM subprocess harness" :owner "J3"}
+   {:ns "yin.repl.python-antlr-test" :reason "Python parser fixture" :capability "Python parser" :owner "J5"}
+   {:ns "yin.repl.dht-test" :reason "UDP + durable store fixture" :capability "UDP + durable store" :owner "J7"}
+   {:ns "yin.repl.dht-head-test" :reason "WebSocket + durable store fixture" :capability "WebSocket + durable store" :owner "J6/J7"}
+   {:ns "yin.repl.dht-process-test" :reason "JVM process + UDP fixture" :capability "JVM process + UDP" :owner "J7"}
+   {:ns "yin.repl.serve-connect-wire-test" :reason "JVM WebSocket peers fixture" :capability "JVM WebSocket peers" :owner "J6"}
+   {:ns "yin.repl.build-test" :reason "JVM build tool fixture" :capability "JVM build tool" :owner "J8"}
+   {:ns "yin.repl.host.jvm-test" :reason "JDK host fixture" :capability "JDK host" :owner "J6"}
+   {:ns "yin.repl.host.node-test" :reason "Node host fixture" :capability "Node host" :owner "J6"}
+   {:ns "dao.host.gate-test"
     :reason "the H0 freeze gate reads src text via tools.reader; its own docstring says JVM lane only"
     :capability "source-text gate (tools.reader)" :owner "host-boundary seat"}
    {:ns "yin.vm.linker.layering-test"
@@ -212,7 +221,8 @@
 ;; Dependency order (the max rank of each suite's source requires), so a low
 ;; failure is reported before the suites that ride on it.
 (def included
-  ["dao.jing.dht.facade-test" "dao.space.stigmergy-test" "dao.stream.waitset.driver-test"
+  ["yin.repl-test" "yin.repl.owner-test" "yin.repl.state-test" "yin.repl.index-test" "yin.repl.query-test" "yin.repl.ast-index-test" "yin.repl.ast-query-e2e-test" "yin.repl.driver-test" "yin.repl.adapter-test" "yin.repl.embed-test" "yin.repl.trust-test" "yin.repl.require-test" "yin.repl.frontend-catalog-test" "yin.repl.main-test" "yin.repl.connect-test" "yin.repl.serve-test" "yin.repl.store-test"
+   "dao.jing.dht.facade-test" "dao.space.stigmergy-test" "dao.stream.waitset.driver-test"
    "yin.vm.linker.production-pipeline-test" "yin.vm.macro-build-test"
    "dao.data.arrays-test" "dao.data.sorted-user-type-test"
    "dao.host.bytes-test" "dao.host.text-test"
@@ -278,8 +288,8 @@
   "Check the applicability manifest against a test root; throw with every
    unlisted namespace (and path) and stale entry before any lane work."
   [test-root included-nses excluded-suites]
-  (let [dirs ["dao/host" "dao/jing" "dao/data" "dao/space" "dao/stream" "yin/vm"]
-        bare ["dao/jing_test" "dao/stream_test" "dao/data_test" "yin/vm_test"]
+  (let [dirs ["dao/host" "dao/jing" "dao/data" "dao/space" "dao/stream" "yin/vm" "yin/repl"]
+        bare ["dao/jing_test" "dao/stream_test" "dao/data_test" "yin/vm_test" "yin/repl_test"]
         extensions ["clj" "cljc" "cljs" "cljd"]
         files (->> (concat
                      (mapcat #(->> (fs/glob (fs/path test-root %) "**")
@@ -541,6 +551,11 @@
                    ns (pr-str counts)
                    (when (seq survivors) (str "(still alive after kill: " survivors ")"))))
         (println)
+        (when (some #(str/starts-with? % "yin.repl") nses)
+          (println "J3 per-deftest capability decisions: test/resources/yin/repl/jolt-applicability.edn")
+          (doseq [row (:test-exclusions (edn/read-string
+                                          (slurp "test/resources/yin/repl/jolt-applicability.edn")))]
+            (println "EXCLUDED-TEST" (pr-str row))))
         (println "CORE-SUMMARY" summary)
         (spit (str logs "/core-summary.edn")
               (pr-str {:included (count nses)

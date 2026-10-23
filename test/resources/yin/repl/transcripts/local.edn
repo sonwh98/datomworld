@@ -1,0 +1,63 @@
+[{:id :vm-corpus
+  :vms [:ast-walker :semantic :stack :register]
+  :in ["(host)" "(+ 1 2)" "((fn [x] (* x x)) 7)"
+       "(let [x 2 y 3] (* x y))" "(if (< 1 2) :yes :no)"
+       "(println \"hi\" 1)" "(def j3x 101)" "(+ j3x 1)"
+       "(def inc100 (fn [x] (+ x 100)))" "(inc100 1)"
+       "(defn sum-to [n] (if (= n 0) 0 (+ n (sum-to (- n 1)))))" "(sum-to 10)"
+       "(do (println \"before\") 42)" "(lang :yang/php)" "1 + 2;"
+       "(lang :yang/clojure)" "(reset)" "(+ 2 3)"]
+  :out ["<host>" "3" "49" "6" ":yes" "hi 1\nnil" "101" "102"
+        "{:type :closure}" "101" "{:type :closure}" "55"
+        "before\n42" "Switched to :yang/php" "3" "Switched to :yang/clojure"
+        {:re ".* reset"} "5"]
+  :exit 0 :quit :typed}
+ {:id :index-publication
+  :in ["(require (quote dao.space.query))" "(def j3alpha 1001)"
+       "(dao.space.query/q (quote [:find ?v . :where [?e :yin/value 1001] [?e :yin/value ?v]]))"
+       "(repl-state)"]
+  :out ["'dao.space.query" "1001" "1001"
+        {:re "(?s).*:index\\s+.*:published\\? true.*"}]
+  :exit 0 :quit :eof}
+ {:id :pending-abandon
+  :in ["(require (quote j3nosuch))" "(abandon)" "(+ 1 2)"]
+  :out [{:re "(?s);; require pending: j3nosuch \\(link .*\\); lines typed meanwhile run when it completes, \\(abandon\\) gives up"}
+        {:re "(?s).*abandoned.*"} "3"]
+  :idle-ms 450 :exit 0 :quit :typed}
+ {:id :pending-eof :in ["(require (quote j3nosuch))"]
+  :out [{:re "(?s);; require pending: j3nosuch \\(link .*"}]
+  :idle-ms 450 :exit 0 :quit :eof}
+ {:id :empty-eof :in [] :out [] :exit 0 :quit :eof}
+ {:id :empty-eof-warm :in [] :out [] :exit 0 :quit :eof}
+ {:id :open-stdin-quit :in [] :out [] :exit 0 :quit :typed}
+ {:id :python
+  :in ["(lang :yang/python)"]
+  :out [{:jolt "Error: unavailable-parser: Yin REPL language :yang/python is not in the frontend catalog; installed: :clojure :php (ids :yang/clojure :yang/php)"
+         :jvm "Switched to :yang/python"}]
+  :capability {:owner :J5 :reason "Python parser not installed on jolt"}
+  :exit 0 :quit :typed}
+ {:id :bigint-reader :in ["(quote 5N)"]
+  :out [{:jvm "5N" :jolt "5"}]
+  :jolt-divergence {:owner :jolt-lang :reason "small bigint N carrier/printing"}
+  :exit 0 :quit :typed}
+ {:id :surrogate-reader :in ["\"\\uD800\""]
+  :out [{:jvm "Error: dao.jing.cbor refused: unpaired-surrogate (unpaired high surrogate at 0)" :jolt "Error: Invalid character constant: lone surrogate \\u escape"}]
+  :jolt-divergence {:owner :jolt-lang :reason "lone surrogate escape reader refusal"}
+  :exit 0 :quit :typed}
+ {:id :help :args ["--help"] :startup-only true
+  :out {:re "(?s).*--codec.*--vm.*"} :exit 0}
+ {:id :transit-refusal :args ["--codec" "transit"]
+  :startup-only true :hosts [:jolt] :out "--codec takes cbor, not \"transit\"" :exit 1
+  :capability {:owner :J6 :reason "CBOR only on jolt"}}
+ {:id :port-refusal :args ["--port" "8080"]
+  :startup-only true :hosts [:jolt]
+  :out {:re "(?s)no host WebSocket package is composed for this build:.*"} :exit 1
+  :capability {:owner :J6 :reason "no jolt socket adapter yet"}}
+ {:id :file-refusal :args ["--index-store" "file:x"]
+  :startup-only true :hosts [:jolt]
+  :out "durable index stores arrive at J4 (dht: J7) on jolt" :exit 1
+  :capability {:owner :J4 :reason "durable stores refused before composition"}}
+ {:id :dht-refusal :args ["--index-store" "dht:x"]
+  :startup-only true :hosts [:jolt]
+  :out "durable index stores arrive at J4 (dht: J7) on jolt" :exit 1
+  :capability {:owner :J7 :reason "DHT stores refused before composition"}}]

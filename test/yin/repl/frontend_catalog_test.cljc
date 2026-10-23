@@ -62,19 +62,20 @@
           (is (= "4" result)))))))
 
 
-(deftest the-standard-languages-select-by-id-test
-  (let [state (repl.frontends/create-state)
-        [python switched] (run state "(lang :yang/python)")
-        [_ value] (run python "1 + 2")
-        [_ compiled] (run (first (run state "(lang :yang/php)")) "(compile \"1 + 2;\")")]
-    (is (= "Switched to :yang/python" switched))
-    (is (= "3" value))
-    (is (str/includes? compiled "AST:"))
-    (testing "a language keyword is not a selector"
-      (let [[_ refused] (run state "(lang :python)")]
-        (is (str/includes? refused "unavailable-parser")))
-      (testing "the frontend renders the ANTLR Python repr"
-        (is (= "'ab'" (second (run python "'a' + 'b'"))))))))
+#?(:jolt nil ; J5 Python: capability unavailable in J3; cljd takes :default.
+   :default (deftest the-standard-languages-select-by-id-test
+              (let [state (repl.frontends/create-state)
+                    [python switched] (run state "(lang :yang/python)")
+                    [_ value] (run python "1 + 2")
+                    [_ compiled] (run (first (run state "(lang :yang/php)")) "(compile \"1 + 2;\")")]
+                (is (= "Switched to :yang/python" switched))
+                (is (= "3" value))
+                (is (str/includes? compiled "AST:"))
+                (testing "a language keyword is not a selector"
+                  (let [[_ refused] (run state "(lang :python)")]
+                    (is (str/includes? refused "unavailable-parser")))
+                  (testing "the frontend renders the ANTLR Python repr"
+                    (is (= "'ab'" (second (run python "'a' + 'b'")))))))))
 
 
 (deftest a-newer-revision-leaves-a-live-session-unchanged-test
@@ -117,11 +118,12 @@
         (is (str/includes? result "unavailable-parser"))))))
 
 
-(deftest the-antlr-id-is-installed-on-every-host-test
-  (let [[state answer] (run (repl.frontends/create-state)
-                            "(lang :yang/python)")]
-    (is (= :yang/python (:lang state)))
-    (is (not (str/includes? answer "unavailable-parser")))))
+#?(:jolt nil ; J5 Python: capability unavailable in J3; cljd takes :default.
+   :default (deftest the-antlr-id-is-installed-on-every-host-test
+              (let [[state answer] (run (repl.frontends/create-state)
+                                        "(lang :yang/python)")]
+                (is (= :yang/python (:lang state)))
+                (is (not (str/includes? answer "unavailable-parser"))))))
 
 
 (deftest a-core-session-with-no-catalog-has-no-frontend-test

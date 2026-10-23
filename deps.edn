@@ -74,6 +74,7 @@
            ;; needs one.
            :jolt {:replace-paths ["src/jolt" "src/cljc" "src/clj"]
                   :replace-deps {}}
+           :jolt-yin-repl {:main-opts ["-m" "yin.repl.main"]}
            ;; composed after :jolt (-M:jolt:jolt-test): the oracle tests and
            ;; src/dev (src/dev/jolt_test_runner.clj and its sentinel)
            :jolt-test {:extra-paths ["test" "src/dev"]}

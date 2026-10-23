@@ -482,67 +482,68 @@
                (.readFileSync fs path "utf8")))))
 
 
-(deftest a-durable-round-writes-head-only-after-the-manifest-read-back
-  (testing "a healthy round: blobs, read-back, then HEAD names the manifest"
-    (let [dir (temp-store-dir)
-          opened (store/open {:type :file :dir dir})]
-      (try
-        (let [[state text] (repl/eval-input
-                             (repl.frontends/create-state {:index-store opened})
-                             "(+ 1 2)")
-              manifest (get-in state [:indexer :manifest-address])]
-          (is (= "3" text))
-          (is (true? (get-in (repl/repl-state state) [:index :published?])))
-          (is (str/includes? (str (head-text dir)) (str manifest))
-              "HEAD names the manifest the round published"))
-        (finally
-          (store/close! opened)
-          (cleanup-store-dir! dir)))))
-  (testing "a round whose manifest cannot be read back writes no HEAD"
-    (let [dir (temp-store-dir)
-          opened (store/open {:type :file :dir dir})]
-      (try
-        (let [broken (assoc opened
-                            :get-bytes-fn (fn [_address _not-found]
-                                            (throw (ex-info
-                                                     "store refused the read"
-                                                     {}))))
-              [state text] (repl/eval-input
-                             (repl.frontends/create-state {:index-store broken})
-                             "(+ 1 2)")]
-          (is (str/starts-with? text "3\nWarning: ")
-              "the round evaluates and says what its publication lost")
-          (is (= :publish (get-in (repl/repl-state state)
-                                  [:index :failure :stage])))
-          (is (nil? (head-text dir))
-              "no manifest read-back, no HEAD — never a HEAD naming an
+#?(:jolt nil ; J4 durable index: capability unavailable in J3; cljd takes :default.
+   :default (deftest a-durable-round-writes-head-only-after-the-manifest-read-back
+              (testing "a healthy round: blobs, read-back, then HEAD names the manifest"
+                (let [dir (temp-store-dir)
+                      opened (store/open {:type :file :dir dir})]
+                  (try
+                    (let [[state text] (repl/eval-input
+                                         (repl.frontends/create-state {:index-store opened})
+                                         "(+ 1 2)")
+                          manifest (get-in state [:indexer :manifest-address])]
+                      (is (= "3" text))
+                      (is (true? (get-in (repl/repl-state state) [:index :published?])))
+                      (is (str/includes? (str (head-text dir)) (str manifest))
+                          "HEAD names the manifest the round published"))
+                    (finally
+                      (store/close! opened)
+                      (cleanup-store-dir! dir)))))
+              (testing "a round whose manifest cannot be read back writes no HEAD"
+                (let [dir (temp-store-dir)
+                      opened (store/open {:type :file :dir dir})]
+                  (try
+                    (let [broken (assoc opened
+                                        :get-bytes-fn (fn [_address _not-found]
+                                                        (throw (ex-info
+                                                                 "store refused the read"
+                                                                 {}))))
+                          [state text] (repl/eval-input
+                                         (repl.frontends/create-state {:index-store broken})
+                                         "(+ 1 2)")]
+                      (is (str/starts-with? text "3\nWarning: ")
+                          "the round evaluates and says what its publication lost")
+                      (is (= :publish (get-in (repl/repl-state state)
+                                              [:index :failure :stage])))
+                      (is (nil? (head-text dir))
+                          "no manifest read-back, no HEAD — never a HEAD naming an
                unreadable snapshot")
-          (is (pos? (count (jing.file/records (durable/content-path dir))))
-              "the blobs themselves did land"))
-        (finally
-          (store/close! opened)
-          (cleanup-store-dir! dir)))))
-  (testing "a round whose HEAD write fails reports the round unpublished"
-    (let [dir (temp-store-dir)
-          opened (store/open {:type :file :dir dir})]
-      (try
-        (let [[first-state _] (repl/eval-input
-                                (repl.frontends/create-state {:index-store opened})
-                                "(+ 1 2)")
-              first-manifest (get-in first-state [:indexer :manifest-address])
-              failing (assoc opened
-                             :head-fn (fn [_manifest]
-                                        (throw (ex-info "disk gone" {}))))
-              [second-state text] (repl/eval-input
-                                    (repl.frontends/create-state {:index-store failing})
-                                    "(+ 2 3)")]
-          (is (str/starts-with? text "5\nWarning: "))
-          (is (false? (get-in (repl/repl-state second-state)
-                              [:index :published?])))
-          (is (nil? (get-in second-state [:indexer :manifest-address]))
-              "the round whose HEAD did not move reports no manifest")
-          (is (str/includes? (str (head-text dir)) (str first-manifest))
-              "the previous published snapshot keeps the HEAD"))
-        (finally
-          (store/close! opened)
-          (cleanup-store-dir! dir))))))
+                      (is (pos? (count (jing.file/records (durable/content-path dir))))
+                          "the blobs themselves did land"))
+                    (finally
+                      (store/close! opened)
+                      (cleanup-store-dir! dir)))))
+              (testing "a round whose HEAD write fails reports the round unpublished"
+                (let [dir (temp-store-dir)
+                      opened (store/open {:type :file :dir dir})]
+                  (try
+                    (let [[first-state _] (repl/eval-input
+                                            (repl.frontends/create-state {:index-store opened})
+                                            "(+ 1 2)")
+                          first-manifest (get-in first-state [:indexer :manifest-address])
+                          failing (assoc opened
+                                         :head-fn (fn [_manifest]
+                                                    (throw (ex-info "disk gone" {}))))
+                          [second-state text] (repl/eval-input
+                                                (repl.frontends/create-state {:index-store failing})
+                                                "(+ 2 3)")]
+                      (is (str/starts-with? text "5\nWarning: "))
+                      (is (false? (get-in (repl/repl-state second-state)
+                                          [:index :published?])))
+                      (is (nil? (get-in second-state [:indexer :manifest-address]))
+                          "the round whose HEAD did not move reports no manifest")
+                      (is (str/includes? (str (head-text dir)) (str first-manifest))
+                          "the previous published snapshot keeps the HEAD"))
+                    (finally
+                      (store/close! opened)
+                      (cleanup-store-dir! dir)))))))

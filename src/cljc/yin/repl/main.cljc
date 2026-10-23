@@ -11,7 +11,8 @@
   (:require #?@(:cljd [["dart:async" :as async]
                        ["dart:convert" :as convert]
                        ["dart:core" :as dart-core]
-                       ["dart:io" :as io]])
+                       ["dart:io" :as io]]
+                :jolt [[yin.repl.host.common :as host-common]])
             [clojure.string :as str]
             [dao.space.store.fs :as fs]
             [dao.stream.datagram :as datagram]
@@ -509,7 +510,9 @@
   (let [k (some-> value keyword)]
     (if (contains? connect/codec-profiles k)
       k
-      (throw (ex-info (str "--codec takes cbor or transit, not " (pr-str value))
+      (throw (ex-info (str #?(:cljd "--codec takes cbor or transit, not "
+                              :jolt "--codec takes cbor, not "
+                              :default "--codec takes cbor or transit, not ") (pr-str value))
                       {:value value})))))
 
 
@@ -893,6 +896,7 @@
   [refusal]
   (println refusal)
   #?(:cljd (io/exit 1)
+     :jolt (do (flush) (System/exit 1))
      :clj (.halt (Runtime/getRuntime) 1)
      :cljs (.exit js/process 1)))
 
@@ -962,7 +966,9 @@
                  (:publisher opts) " (key from " (:dht-key-file opts) ")"))
       (and dht? (not (:publisher opts)))
       (conj (str "dht: no --dht-key: (yin.link/publish ...) is refused; names"
-                 " are still read, resolved, loaded and linked")))))
+                 " are still read, resolved, loaded and linked"))
+      #?(:cljd false :jolt true :default false)
+      (into [shell/host-text "python: not installed on this host until J5"]))))
 
 
 (defn- exit-with!
@@ -972,6 +978,7 @@
   (doseq [line lines]
     (println line))
   #?(:cljd (io/exit exit)
+     :jolt (do (flush) (System/exit exit))
      :clj (.halt (Runtime/getRuntime) (int exit))
      :cljs (.exit js/process exit)))
 
@@ -1226,17 +1233,8 @@
 ;; clj: a reader thread that only appends, and one owned poller thread
 ;; =============================================================================
 
-#?(:cljd
-   nil
-   :clj
-   (do
-     (defn- print-prompt!
-       []
-       (print prompt)
-       (flush))
-
-     (defn- drain!
-       "The shell has quit, so the head board, the endpoint and the custody
+(defn- drain-owner!
+  "The shell has quit, so the head board, the endpoint and the custody
         control plane stop before the host exits: ask the board and the
         endpoint once, then keep stepping all three until the endpoint has
         stopped AND the board owes nothing AND custody owes no further
@@ -1250,63 +1248,73 @@
         (`shutdown-tick`); the state it reaches is durable in the progress
         journal, so what the budget leaves outstanding is a restart's to
         resend.  Answers the drained state."
-       [state server w]
-       (if (shutdown-enter? state server)
-         (loop [state (update state :repl repl.dht/stop!)
-                server (some-> server serve/stop!)
-                remaining stop-ticks]
-           (let [[state' server' lines _stopped?]
-                 (shutdown-tick state server (System/currentTimeMillis))]
-             (doseq [line lines]
-               (println line))
-             (cond
-               (shutdown-drained? state' server') state'
-               (zero? remaining) (do (println stop-timeout-text) state')
-               :else (do (wake/sleep! w tick-millis)
-                         (recur state' server' (dec remaining))))))
-         state))
+  [state server now sleep!]
+  (if (shutdown-enter? state server)
+    (loop [state (update state :repl repl.dht/stop!)
+           server (some-> server serve/stop!)
+           remaining stop-ticks]
+      (let [[state' server' lines _stopped?]
+            (shutdown-tick state server (now))]
+        (doseq [line lines]
+          (println line))
+        (flush)
+        (cond
+          (shutdown-drained? state' server') state'
+          (zero? remaining) (do (println stop-timeout-text) state')
+          :else (do (sleep! tick-millis)
+                    (recur state' server' (dec remaining))))))
+    state))
+
+
+(defn run-owner!
+  "Serial shell owner shared by the JVM and jolt. Host policy supplies
+   clock, interruptible sleep and status-aware exit. No producer evaluates."
+  [state server headless? now sleep! exit!]
+  (loop [state state
+         server server
+         cadence (cadence/init default-cadence)]
+    (let [[state' server' lines] (step-all state server
+                                           (now))]
+      (doseq [line lines]
+        (println line))
+      (flush)
+      (if (:running? state')
+        (do (when (and (not headless?) (prompt-owed? state state' lines))
+              (do (print prompt) (flush)))
+            (let [{:keys [cadence-state sleep-ms]}
+                  (cadence/cadence-step cadence
+                                        (moved? state' server' lines))]
+              (sleep! sleep-ms)
+              (recur state' server' cadence-state)))
+        (let [state' (drain-owner! state' server' now sleep!)]
+          (println)
+          (close-index-store! state')
+          (flush)
+          (exit! (exit-status state')))))))
+
+
+#?(:cljd
+   nil
+   :jolt nil
+   :clj
+   (do
+     (defn- print-prompt!
+       []
+       (print prompt)
+       (flush))
 
      (defn poll-loop!
-       "The sole owner of REPL and endpoint state on the JVM.  It carries both
-        values through serial steps; nothing is shared with the reader.
-
-        Its cadence is `cadence/cadence-step` over `default-cadence`, slept
-        through the wake source `w` (one is made when the caller supplied
-        none): any line the reader deposits, and the explicit stop trigger,
-        nudges it, so operator actions never wait out the idle curve.
-
-        It also owns the exit.  The reader is parked in `read-line` and cannot
-        observe that the shell has quit, so a typed `(quit)` would otherwise
-        stop the endpoint and then wait for end-of-input that only Ctrl-D
-        produces.  `exit!` is called once, by this thread, after the endpoint
-        has drained."
+       "JVM policy wrapper around the portable serial owner."
        ([state server headless?]
         (poll-loop! state server headless? #(.halt (Runtime/getRuntime) 0)))
        ([state server headless? exit!]
         (poll-loop! state server headless? exit! (wake/make-wake)))
        ([state server headless? exit! w]
-        (loop [state state
-               server server
-               cadence (cadence/init default-cadence)]
-          (let [[state' server' lines] (step-all state server
-                                                 (System/currentTimeMillis))]
-            (doseq [line lines]
-              (println line))
-            (if (:running? state')
-              (do (when (and (not headless?) (prompt-owed? state state' lines))
-                    (print-prompt!))
-                  (let [{:keys [cadence-state sleep-ms]}
-                        (cadence/cadence-step cadence
-                                              (moved? state' server' lines))]
-                    (wake/sleep! w sleep-ms)
-                    (recur state' server' cadence-state)))
-              (let [state' (drain! state' server' w)]
-                (println)
-                (close-index-store! state')
-                (let [status (exit-status state')]
-                  (if (zero? status)
-                    (exit!)
-                    (.halt (Runtime/getRuntime) (int status))))))))))
+        (run-owner! state server headless? #(System/currentTimeMillis)
+                    #(wake/sleep! w %)
+                    (fn [status]
+                      (if (zero? status) (exit!)
+                          (.halt (Runtime/getRuntime) (int status)))))))
 
      (defn- read-loop!
        "The reader parks in `read-line` and appends, nudging the step owner's
@@ -1374,6 +1382,40 @@
                      (read-loop! (:input state) w)
                      (.join poller))))
              (.halt (Runtime/getRuntime) 0)))))))
+
+
+#?(:jolt
+   (defn -main
+     "One plain-thread owner. Stdin deposits only; EOF deposits (quit).
+      A partial line without newline blocks the owner until its newline.
+      Flag persistence, --reset and --no-state are inert until J4."
+     [& args]
+     (let [started (startup args)]
+       (when (contains? started :exit) (exit-with! started))
+       (when (:port (:opts started))
+         (refuse! host-common/missing-text))
+       (if-some [refusal (:refusal started)]
+         (refuse! refusal)
+         (let [{:keys [opts state server]} started
+               headless? (boolean (:headless? opts))
+               eof? (atom false)
+               w (wake/make-wake)
+               line! (fn [line]
+                       (if (nil? line)
+                         (do (reset! eof? true)
+                             (driver/submit-line! (:input state) "(quit)"))
+                         (driver/submit-line! (:input state) line)))
+               sleep! (fn [ms]
+                        (if (or headless? @eof?)
+                          (wake/sleep! w ms)
+                          (wake/sleep-input! w ms line!)))]
+           (doseq [line (banner opts)] (println line))
+           (when-not headless? (print prompt))
+           (flush)
+           (try
+             (run-owner! state server headless? #(System/currentTimeMillis)
+                         sleep! (fn [status] (flush) (System/exit status)))
+             (finally (wake/close! w))))))))
 
 
 ;; =============================================================================

@@ -13,6 +13,7 @@
    the one thing that differs per build.  The portable contract every build
    shares lives in `yin.repl.host.common`."
   (:require #?@(:cljd []
+                :jolt []
                 :clj [[yin.repl.host.jvm :as jvm]]
                 :default [])))
 
@@ -33,5 +34,6 @@
      whose close completion deposits `:stopped`."
   []
   #?(:cljd nil
+     :jolt nil
      :clj (jvm/websocket)
      :default nil))

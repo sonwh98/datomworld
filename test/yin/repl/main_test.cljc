@@ -11,7 +11,9 @@
             [dao.stream.rpc :as rpc]
             #?@(:cljs [[dao.stream.waitset.driver :as waitset]]
                 :cljd [[dao.stream.waitset.driver :as waitset]])
-            [dao.stream.transit :as transit]
+            #?@(:cljd [[dao.stream.transit :as transit]]
+                :jolt []
+                :default [[dao.stream.transit :as transit]])
             [yin.repl.main :as repl]
             [yin.repl.dht :as repl.dht]
             [yin.repl :as shell]
@@ -152,70 +154,75 @@
 ;; server, or host loop composes (yin.repl.store).
 ;; =============================================================================
 
-(deftest the-index-store-flag-parses-on-every-hosts-arguments
-  (testing "omission means mem, today's behaviour"
-    (is (= :mem (:index-store-spec (repl/parse-args [])))))
-  (testing "the flag's values parse to specs"
-    (is (= :mem (:index-store-spec (repl/parse-args ["--index-store" "mem"]))))
-    (is (= {:type :file :dir "idx"}
-           (:index-store-spec (repl/parse-args ["--index-store" "file:idx"])))))
-  (testing "a missing value, an unknown scheme, and an empty dir are refused"
-    (is (str/includes? (ex-message (refusal-of #(repl/parse-args
-                                                  ["--index-store"])))
-                       "--index-store needs a value"))
-    (is (str/includes? (ex-message (refusal-of
-                                     #(repl/parse-args
-                                        ["--index-store" "bogus"])))
-                       "Unknown --index-store"))
-    (is (str/includes? (ex-message (refusal-of
-                                     #(repl/parse-args
-                                        ["--index-store" "file:"])))
-                       "--index-store file:<dir> needs a directory"))))
+#?(:jolt nil ; J4/J7 durable CLI: capability unavailable in J3; cljd takes :default.
+   :default (deftest the-index-store-flag-parses-on-every-hosts-arguments
+              (testing "omission means mem, today's behaviour"
+                (is (= :mem (:index-store-spec (repl/parse-args [])))))
+              (testing "the flag's values parse to specs"
+                (is (= :mem (:index-store-spec (repl/parse-args ["--index-store" "mem"]))))
+                (is (= {:type :file :dir "idx"}
+                       (:index-store-spec (repl/parse-args ["--index-store" "file:idx"])))))
+              (testing "a missing value, an unknown scheme, and an empty dir are refused"
+                (is (str/includes? (ex-message (refusal-of #(repl/parse-args
+                                                              ["--index-store"])))
+                                   "--index-store needs a value"))
+                (is (str/includes? (ex-message (refusal-of
+                                                 #(repl/parse-args
+                                                    ["--index-store" "bogus"])))
+                                   "Unknown --index-store"))
+                (is (str/includes? (ex-message (refusal-of
+                                                 #(repl/parse-args
+                                                    ["--index-store" "file:"])))
+                                   "--index-store file:<dir> needs a directory")))))
 
 
-(deftest startup-composes-or-refuses-before-any-shell-or-server
-  (testing "no flag composes the memory store of today"
-    (let [started (repl/startup [])]
-      (is (nil? (:refusal started)))
-      (is (= :mem (get-in started [:state :repl :index-store-spec])))
-      (is (some? (get-in started [:state :input])))
-      (is (nil? (:server started)) "no port was asked for")))
-  (testing "every refused spec composes nothing"
-    (doseq [args [["--index-store"]
-                  ["--index-store" "bogus"]
-                  ["--index-store" "file:"]]]
-      (let [started (repl/startup args)]
-        (is (string? (:refusal started)) (pr-str args))
-        (is (nil? (:state started)) (pr-str args))
-        (is (nil? (:server started)) (pr-str args))
-        (is (str/includes? (:refusal started) "--index-store") (pr-str args)))))
-  (testing "an unopenable directory refuses startup the same way"
-    (let [blocker (temp-file)]
-      (try
-        (write-file! blocker)
-        (let [started (repl/startup ["--index-store" (str "file:" blocker)])]
-          (is (str/includes? (:refusal started) "not a directory"))
-          (is (nil? (:state started))))
-        (finally
-          (cleanup-file! blocker)))))
-  (testing "a valid file:<dir> composes a shell whose store is that file"
-    (let [dir (temp-dir)]
-      (try
-        (let [started (repl/startup ["--index-store" (str "file:" dir)])]
-          (is (nil? (:refusal started)))
-          (is (= {:type :file :dir dir}
-                 (get-in started [:state :repl :index-store-spec]))))
-        (finally
-          (cleanup-dir! dir))))))
+#?(:jolt nil ; J4/J7 durable CLI: capability unavailable in J3; cljd takes :default.
+   :default (deftest startup-composes-or-refuses-before-any-shell-or-server
+              (testing "no flag composes the memory store of today"
+                (let [started (repl/startup [])]
+                  (is (nil? (:refusal started)))
+                  (is (= :mem (get-in started [:state :repl :index-store-spec])))
+                  (is (some? (get-in started [:state :input])))
+                  (is (nil? (:server started)) "no port was asked for")))
+              (testing "every refused spec composes nothing"
+                (doseq [args [["--index-store"]
+                              ["--index-store" "bogus"]
+                              ["--index-store" "file:"]]]
+                  (let [started (repl/startup args)]
+                    (is (string? (:refusal started)) (pr-str args))
+                    (is (nil? (:state started)) (pr-str args))
+                    (is (nil? (:server started)) (pr-str args))
+                    (is (str/includes? (:refusal started) "--index-store") (pr-str args)))))
+              (testing "an unopenable directory refuses startup the same way"
+                (let [blocker (temp-file)]
+                  (try
+                    (write-file! blocker)
+                    (let [started (repl/startup ["--index-store" (str "file:" blocker)])]
+                      (is (str/includes? (:refusal started) "not a directory"))
+                      (is (nil? (:state started))))
+                    (finally
+                      (cleanup-file! blocker)))))
+              (testing "a valid file:<dir> composes a shell whose store is that file"
+                (let [dir (temp-dir)]
+                  (try
+                    (let [started (repl/startup ["--index-store" (str "file:" dir)])]
+                      (is (nil? (:refusal started)))
+                      (is (= {:type :file :dir dir}
+                             (get-in started [:state :repl :index-store-spec]))))
+                    (finally
+                      (cleanup-dir! dir)))))))
 
 
 (deftest booting-yields-one-shell-one-input-medium-and-one-cursor
   (let [state (repl/boot (repl/parse-args []))]
     (is (some? (:input state)))
     (is (some? (:input-cursor state)))
-    (is (host-common/adapter? (:host state)))
+    #?(:jolt (is (nil? (:host state)))
+       :default (is (host-common/adapter? (:host state))))
     (is (true? (:running? state)))
-    (is (empty? (repl/banner (repl/parse-args []))))
+    #?(:jolt (is (= [shell/host-text "python: not installed on this host until J5"]
+                    (repl/banner (repl/parse-args []))))
+       :default (is (empty? (repl/banner (repl/parse-args [])))))
     (testing "the composition is drivable without any host loop"
       (driver/submit-line! (:input state) "(+ 40 2)")
       (let [[entries _] (driver/take-outbox (driver/repl-step state 0))]
@@ -269,6 +276,7 @@
 
 
 #?(:cljd nil
+   :jolt nil ; J4/J6: JVM process/socket or durable journal fixture.
    :clj
    (deftest a-typed-quit-exits-without-waiting-for-end-of-input
      (let [state (repl/boot {})
@@ -325,37 +333,38 @@
       out)))
 
 
-(deftest the-interactive-composition-holds-every-standard-language
-  (let [t (transcript ["(host)"
-                       "(lang :yang/python)"
-                       "1 + 2"
-                       "[x * x for x in range(4)]"
-                       "'a' + 'b'"
-                       "(lang :python)"
-                       "1 + 2"
-                       "(lang :yang/php)"
-                       "1 + 2;"
-                       "(lang :yang/clojure)"
-                       "1 + 2"
-                       "(+ 1 2)"])]
-    (is (str/starts-with? (first (get-in t [0 1])) "Host: "))
-    (is (= "Switched to :yang/python" (first (get-in t [1 1]))))
-    (is (= ["3"] (get-in t [2 1])))
-    (is (= ["[0, 1, 4, 9]"] (get-in t [3 1])))
-    (is (= ["'ab'"] (get-in t [4 1])))
-    (testing "a language keyword is not a selector: the refusal names what
+#?(:jolt nil ; J5 Python: capability unavailable in J3; cljd takes :default.
+   :default (deftest the-interactive-composition-holds-every-standard-language
+              (let [t (transcript ["(host)"
+                                   "(lang :yang/python)"
+                                   "1 + 2"
+                                   "[x * x for x in range(4)]"
+                                   "'a' + 'b'"
+                                   "(lang :python)"
+                                   "1 + 2"
+                                   "(lang :yang/php)"
+                                   "1 + 2;"
+                                   "(lang :yang/clojure)"
+                                   "1 + 2"
+                                   "(+ 1 2)"])]
+                (is (str/starts-with? (first (get-in t [0 1])) "Host: "))
+                (is (= "Switched to :yang/python" (first (get-in t [1 1]))))
+                (is (= ["3"] (get-in t [2 1])))
+                (is (= ["[0, 1, 4, 9]"] (get-in t [3 1])))
+                (is (= ["'ab'"] (get-in t [4 1])))
+                (testing "a language keyword is not a selector: the refusal names what
               is installed, and the session keeps its frontend"
-      (is (= [(str "Error: unavailable-parser: Yin REPL language :python"
-                   " is not in the frontend catalog; installed: :clojure :php"
-                   " :python (ids :yang/clojure :yang/php :yang/python)")]
-             (get-in t [5 1])))
-      (is (= ["3"] (get-in t [6 1]))))
-    (is (= "Switched to :yang/php" (first (get-in t [7 1]))))
-    (is (= ["3"] (get-in t [8 1])))
-    (is (= "Switched to :yang/clojure" (first (get-in t [9 1]))))
-    (testing "Clojure reads `1 + 2` as three forms; the last value prints"
-      (is (= ["2"] (get-in t [10 1]))))
-    (is (= ["3"] (get-in t [11 1])))))
+                  (is (= [(str "Error: unavailable-parser: Yin REPL language :python"
+                               " is not in the frontend catalog; installed: :clojure :php"
+                               " :python (ids :yang/clojure :yang/php :yang/python)")]
+                         (get-in t [5 1])))
+                  (is (= ["3"] (get-in t [6 1]))))
+                (is (= "Switched to :yang/php" (first (get-in t [7 1]))))
+                (is (= ["3"] (get-in t [8 1])))
+                (is (= "Switched to :yang/clojure" (first (get-in t [9 1]))))
+                (testing "Clojure reads `1 + 2` as three forms; the last value prints"
+                  (is (= ["2"] (get-in t [10 1]))))
+                (is (= ["3"] (get-in t [11 1]))))))
 
 
 ;; =============================================================================
@@ -396,117 +405,121 @@
         (cleanup-dir! dir)))))
 
 
-(deftest a-key-file-loads-the-stable-key-or-refuses-startup-with-its-reason
-  (let [key (sign/generate)
-        principal (sign/principal (:public key))
-        good (temp-file)
-        malformed (temp-file)
-        mismatched (temp-file)
-        absent (temp-file)]
-    (try
-      (write-text! good (sign/key-text key))
-      (write-text! malformed "{:version 1 :algorithm :ed25519")
-      (write-text! mismatched (sign/key-text (assoc key :public
-                                                    (:public (sign/generate)))))
-      (testing "a well-formed file is the node's key; the banner prints the principal"
-        (let [started (key-start good)]
-          (is (nil? (:refusal started)))
-          (is (= key (get-in started [:state :repl :dht-key])))
-          (is (some #(str/includes? % principal) (repl/banner (:opts started))))
-          (is (not-any? #(str/includes? % (:seed key))
-                        (repl/banner (:opts started))))))
-      (doseq [[path reason] [[absent "does not exist"]
-                             [malformed "malformed-key"]
-                             [mismatched "public-mismatch"]]]
-        (testing reason
-          (let [started (key-start path)]
-            (is (nil? (:state started)) "nothing falls back to a fresh key")
-            (is (str/includes? (str (:refusal started)) reason) (:refusal started))
-            (is (str/includes? (str (:refusal started)) path)))))
-      (testing "the seed of a refused file appears in no output"
-        (is (not (str/includes? (str (:refusal (key-start mismatched)))
-                                (:seed key)))))
-      (testing "--dht-key needs the dht store"
-        (is (str/includes? (str (:refusal (repl/startup ["--dht-key" good])))
-                           "dht:<dir>")))
-      (finally
-        (run! cleanup-file! [good malformed mismatched absent])))))
+#?(:jolt nil ; J4/J7 durable CLI: capability unavailable in J3; cljd takes :default.
+   :default (deftest a-key-file-loads-the-stable-key-or-refuses-startup-with-its-reason
+              (let [key (sign/generate)
+                    principal (sign/principal (:public key))
+                    good (temp-file)
+                    malformed (temp-file)
+                    mismatched (temp-file)
+                    absent (temp-file)]
+                (try
+                  (write-text! good (sign/key-text key))
+                  (write-text! malformed "{:version 1 :algorithm :ed25519")
+                  (write-text! mismatched (sign/key-text (assoc key :public
+                                                                (:public (sign/generate)))))
+                  (testing "a well-formed file is the node's key; the banner prints the principal"
+                    (let [started (key-start good)]
+                      (is (nil? (:refusal started)))
+                      (is (= key (get-in started [:state :repl :dht-key])))
+                      (is (some #(str/includes? % principal) (repl/banner (:opts started))))
+                      (is (not-any? #(str/includes? % (:seed key))
+                                    (repl/banner (:opts started))))))
+                  (doseq [[path reason] [[absent "does not exist"]
+                                         [malformed "malformed-key"]
+                                         [mismatched "public-mismatch"]]]
+                    (testing reason
+                      (let [started (key-start path)]
+                        (is (nil? (:state started)) "nothing falls back to a fresh key")
+                        (is (str/includes? (str (:refusal started)) reason) (:refusal started))
+                        (is (str/includes? (str (:refusal started)) path)))))
+                  (testing "the seed of a refused file appears in no output"
+                    (is (not (str/includes? (str (:refusal (key-start mismatched)))
+                                            (:seed key)))))
+                  (testing "--dht-key needs the dht store"
+                    (is (str/includes? (str (:refusal (repl/startup ["--dht-key" good])))
+                                       "dht:<dir>")))
+                  (finally
+                    (run! cleanup-file! [good malformed mismatched absent]))))))
 
 
-(deftest keygen-writes-a-new-key-file-and-never-overwrites-one
-  (let [path (temp-file)]
-    (try
-      (let [made (repl/startup ["--dht-keygen" path])
-            text (read-text path)
-            key (sign/key-from-text text)]
-        (is (nil? (:refusal made)))
-        (is (nil? (:state made)) "keygen composes no shell: it writes and exits")
-        (is (= 0 (:exit made)))
-        (is (string? (:seed key)) "the file is a well-formed key")
-        (is (some #(str/includes? % (sign/principal (:public key))) (:lines made)))
-        (is (not-any? #(str/includes? % (:seed key)) (:lines made))
-            "the seed is never printed")
-        (testing "a host that cannot set the file's permissions says what to do"
-          (is (= #?(:cljd true :default false)
-                 (boolean (some #(str/includes? % (str "chmod 600 " path))
-                                (:lines made))))))
-        (testing "a second keygen refuses to overwrite it"
-          (let [again (repl/startup ["--dht-keygen" path])]
-            (is (str/includes? (str (:refusal again)) "exists"))
-            (is (= text (read-text path)) "the file is unchanged"))))
-      (finally
-        (cleanup-file! path)))))
+#?(:jolt nil ; J4/J7 durable CLI: capability unavailable in J3; cljd takes :default.
+   :default (deftest keygen-writes-a-new-key-file-and-never-overwrites-one
+              (let [path (temp-file)]
+                (try
+                  (let [made (repl/startup ["--dht-keygen" path])
+                        text (read-text path)
+                        key (sign/key-from-text text)]
+                    (is (nil? (:refusal made)))
+                    (is (nil? (:state made)) "keygen composes no shell: it writes and exits")
+                    (is (= 0 (:exit made)))
+                    (is (string? (:seed key)) "the file is a well-formed key")
+                    (is (some #(str/includes? % (sign/principal (:public key))) (:lines made)))
+                    (is (not-any? #(str/includes? % (:seed key)) (:lines made))
+                        "the seed is never printed")
+                    (testing "a host that cannot set the file's permissions says what to do"
+                      (is (= #?(:cljd true :default false)
+                             (boolean (some #(str/includes? % (str "chmod 600 " path))
+                                            (:lines made))))))
+                    (testing "a second keygen refuses to overwrite it"
+                      (let [again (repl/startup ["--dht-keygen" path])]
+                        (is (str/includes? (str (:refusal again)) "exists"))
+                        (is (= text (read-text path)) "the file is unchanged"))))
+                  (finally
+                    (cleanup-file! path))))))
 
 
-(deftest declared-principals-are-strict-hex-and-reach-the-composition
-  (let [public (:public (sign/generate))
-        dir (temp-dir)]
-    (try
-      (let [started (repl/startup ["--index-store" (str "dht:" dir)
-                                   "--dht-principal" public])]
-        (is (= [public] (get-in started [:state :repl :link-source :principals])))
-        (repl/close-index-store! (:state started)))
-      (doseq [bad [(str/upper-case public) (subs public 1) (str public "0") "xyz"]]
-        (is (str/includes? (str (:refusal (repl/startup ["--index-store" (str "dht:" dir)
-                                                         "--dht-principal" bad])))
-                           "--dht-principal")
-            bad))
-      (finally
-        (cleanup-dir! dir)))))
+#?(:jolt nil ; J4/J7 durable CLI: capability unavailable in J3; cljd takes :default.
+   :default (deftest declared-principals-are-strict-hex-and-reach-the-composition
+              (let [public (:public (sign/generate))
+                    dir (temp-dir)]
+                (try
+                  (let [started (repl/startup ["--index-store" (str "dht:" dir)
+                                               "--dht-principal" public])]
+                    (is (= [public] (get-in started [:state :repl :link-source :principals])))
+                    (repl/close-index-store! (:state started)))
+                  (doseq [bad [(str/upper-case public) (subs public 1) (str public "0") "xyz"]]
+                    (is (str/includes? (str (:refusal (repl/startup ["--index-store" (str "dht:" dir)
+                                                                     "--dht-principal" bad])))
+                                       "--dht-principal")
+                        bad))
+                  (finally
+                    (cleanup-dir! dir))))))
 
 
-(deftest trusted-principals-are-strict-and-apart-from-declared-ones
-  (let [public (:public (sign/generate))
-        trusted (str "ed25519:" public)
-        dir (temp-dir)
-        decision #(get-in % [:state :repl :link-source :admission :decision])]
-    (try
-      (testing "a declaration alone trusts nothing"
-        (let [started (repl/startup ["--index-store" (str "dht:" dir)
-                                     "--dht-principal" public])]
-          (is (= #{} (decision started)))
-          (repl/close-index-store! (:state started))))
-      (testing "--dht-trust, repeatable, with or without its ed25519: tag"
-        (let [other (:public (sign/generate))
-              started (repl/startup ["--index-store" (str "dht:" dir)
-                                     "--dht-trust" trusted
-                                     "--dht-trust" other])]
-          (is (= #{trusted (str "ed25519:" other)} (decision started)))
-          (is (empty? (get-in started [:state :repl :link-source
-                                       :principals])))
-          (repl/close-index-store! (:state started))))
-      (doseq [bad [(str/upper-case public) (subs public 1) "ed25519:xyz"]]
-        (is (str/includes? (str (:refusal (repl/startup
-                                            ["--index-store" (str "dht:" dir)
-                                             "--dht-trust" bad])))
-                           "invalid principal id")
-            bad))
-      (is (str/includes? (str (:refusal (repl/startup ["--dht-trust"
-                                                       trusted])))
-                         "dht:")
-          "--dht-trust needs the DHT store")
-      (finally
-        (cleanup-dir! dir)))))
+#?(:jolt nil ; J4/J7 durable CLI: capability unavailable in J3; cljd takes :default.
+   :default (deftest trusted-principals-are-strict-and-apart-from-declared-ones
+              (let [public (:public (sign/generate))
+                    trusted (str "ed25519:" public)
+                    dir (temp-dir)
+                    decision #(get-in % [:state :repl :link-source :admission :decision])]
+                (try
+                  (testing "a declaration alone trusts nothing"
+                    (let [started (repl/startup ["--index-store" (str "dht:" dir)
+                                                 "--dht-principal" public])]
+                      (is (= #{} (decision started)))
+                      (repl/close-index-store! (:state started))))
+                  (testing "--dht-trust, repeatable, with or without its ed25519: tag"
+                    (let [other (:public (sign/generate))
+                          started (repl/startup ["--index-store" (str "dht:" dir)
+                                                 "--dht-trust" trusted
+                                                 "--dht-trust" other])]
+                      (is (= #{trusted (str "ed25519:" other)} (decision started)))
+                      (is (empty? (get-in started [:state :repl :link-source
+                                                   :principals])))
+                      (repl/close-index-store! (:state started))))
+                  (doseq [bad [(str/upper-case public) (subs public 1) "ed25519:xyz"]]
+                    (is (str/includes? (str (:refusal (repl/startup
+                                                        ["--index-store" (str "dht:" dir)
+                                                         "--dht-trust" bad])))
+                                       "invalid principal id")
+                        bad))
+                  (is (str/includes? (str (:refusal (repl/startup ["--dht-trust"
+                                                                   trusted])))
+                                     "dht:")
+                      "--dht-trust needs the DHT store")
+                  (finally
+                    (cleanup-dir! dir))))))
 
 
 (deftest an-ephemeral-bind-serves-and-the-serving-line-names-the-port
@@ -598,6 +611,7 @@
 ;; =============================================================================
 
 #?(:cljd nil
+   :jolt nil ; J4/J6: JVM process/socket or durable journal fixture.
    :clj
    (do
      ;; Deadlines.  A peer is a whole JVM, so its first breath is slow while
@@ -1427,132 +1441,140 @@
 (def ^:private hex64 (apply str (repeat 64 "a")))
 
 
-(deftest dht-join-expands-a-token-to-peer-principal-and-follow
-  (let [token (str "yin:127.0.0.1:4001/" hex64)
-        [args extra] (repl/expand-args ["dht" "join" token "--dir" "d"
-                                        "--listen" "4003"])
-        opts (repl/parse-args args)
-        spec (:index-store-spec opts)]
-    (is (= [{:host "127.0.0.1" :port 4001}] (:peers spec)))
-    (is (nil? (:manifest spec)) "join passes no --dht-manifest")
-    (is (not (some #{"--dht-manifest"} args)))
-    (is (= [{:principal hex64 :host "127.0.0.1" :port 4001}] (:follow spec)))
-    (is (= 4003 (:bind-port spec)))
-    (is (= [hex64] (:principals opts)))
-    (is (not (:publish? spec)))
-    (is (= #{"--dht-publish" "--dht-key"} (:unset extra)))))
+#?(:jolt nil ; J4/J7 durable CLI: capability unavailable in J3; cljd takes :default.
+   :default (deftest dht-join-expands-a-token-to-peer-principal-and-follow
+              (let [token (str "yin:127.0.0.1:4001/" hex64)
+                    [args extra] (repl/expand-args ["dht" "join" token "--dir" "d"
+                                                    "--listen" "4003"])
+                    opts (repl/parse-args args)
+                    spec (:index-store-spec opts)]
+                (is (= [{:host "127.0.0.1" :port 4001}] (:peers spec)))
+                (is (nil? (:manifest spec)) "join passes no --dht-manifest")
+                (is (not (some #{"--dht-manifest"} args)))
+                (is (= [{:principal hex64 :host "127.0.0.1" :port 4001}] (:follow spec)))
+                (is (= 4003 (:bind-port spec)))
+                (is (= [hex64] (:principals opts)))
+                (is (not (:publish? spec)))
+                (is (= #{"--dht-publish" "--dht-key"} (:unset extra))))))
 
 
-(deftest a-printed-join-token-is-what-join-parses
-  (let [token (repl.dht/join-token "127.0.0.1" 4001 hex64)]
-    (is (= (str "yin:127.0.0.1:4001/" hex64) token))
-    (is (= ["127.0.0.1:4001" hex64] (repl/parse-token token)))
-    (is (= ["127.0.0.1:4001" hex64]
-           (repl/parse-token (str "yin:127.0.0.1:4001/ed25519:" hex64)))
-        "the principal accepts its ed25519: prefix")
-    (is (= (:index-store-spec
-             (repl/parse-args ["--index-store" "dht:d" "--dht-peer"
-                               "127.0.0.1:4001" "--dht-principal" hex64
-                               "--dht-follow" (str hex64 "@127.0.0.1:4001")]))
-           (:index-store-spec
-             (repl/parse-args (first (repl/expand-args
-                                       ["dht" "join" token "--dir" "d"]))))))))
+#?(:jolt nil ; J4/J7 durable CLI: capability unavailable in J3; cljd takes :default.
+   :default (deftest a-printed-join-token-is-what-join-parses
+              (let [token (repl.dht/join-token "127.0.0.1" 4001 hex64)]
+                (is (= (str "yin:127.0.0.1:4001/" hex64) token))
+                (is (= ["127.0.0.1:4001" hex64] (repl/parse-token token)))
+                (is (= ["127.0.0.1:4001" hex64]
+                       (repl/parse-token (str "yin:127.0.0.1:4001/ed25519:" hex64)))
+                    "the principal accepts its ed25519: prefix")
+                (is (= (:index-store-spec
+                         (repl/parse-args ["--index-store" "dht:d" "--dht-peer"
+                                           "127.0.0.1:4001" "--dht-principal" hex64
+                                           "--dht-follow" (str hex64 "@127.0.0.1:4001")]))
+                       (:index-store-spec
+                         (repl/parse-args (first (repl/expand-args
+                                                   ["dht" "join" token "--dir" "d"])))))))))
 
 
-(deftest a-token-with-a-third-part-is-refused-with-the-pin-message
-  (doseq [token [(str "yin:127.0.0.1:4001/" hex64 "/segment/blake3-" hex64)
-                 (str "yin:127.0.0.1:4001/" hex64 "/")]]
-    (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs js/Error)
-                          #"a manifest is a pin and belongs to --dht-manifest"
-          (repl/parse-token token))
-        token)
-    (testing "and startup answers it as a refusal, data"
-      (is (re-find #"belongs to --dht-manifest"
-                   (str (:refusal (repl/startup ["dht" "join" token
-                                                 "--dir" "d"]))))))))
+#?(:jolt nil ; J4/J7 durable CLI: capability unavailable in J3; cljd takes :default.
+   :default (deftest a-token-with-a-third-part-is-refused-with-the-pin-message
+              (doseq [token [(str "yin:127.0.0.1:4001/" hex64 "/segment/blake3-" hex64)
+                             (str "yin:127.0.0.1:4001/" hex64 "/")]]
+                (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs js/Error)
+                                      #"a manifest is a pin and belongs to --dht-manifest"
+                      (repl/parse-token token))
+                    token)
+                (testing "and startup answers it as a refusal, data"
+                  (is (re-find #"belongs to --dht-manifest"
+                               (str (:refusal (repl/startup ["dht" "join" token
+                                                             "--dir" "d"])))))))))
 
 
-(deftest dht-follow-parses-a-principal-at-a-loopback-address
-  (is (= {:principal hex64 :host "127.0.0.1" :port 4001}
-         (repl/parse-follow (str hex64 "@127.0.0.1:4001"))))
-  (is (= {:principal hex64 :host "127.0.0.1" :port 4001}
-         (repl/parse-follow (str hex64 "@localhost:4001"))))
-  (is (= {:principal hex64 :host "::1" :port 4001}
-         (repl/parse-follow (str hex64 "@[::1]:4001"))))
-  (doseq [[text re] [[(str hex64 "@10.0.0.2:4001") #"loopback only"]
-                     [(str hex64 "@127.0.0.1:0") #"port from 1 to 65535"]
-                     [(str hex64 "@127.0.0.1:99999") #"port from 1 to 65535"]
-                     ["abc@127.0.0.1:4001" #"takes <64 lowercase hex>"]
-                     [(str hex64 "127.0.0.1:4001") #"takes <64 lowercase hex>"]
-                     [nil #"takes <64 lowercase hex>"]]]
-    (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs js/Error) re
-          (repl/parse-follow text))
-        (pr-str text))))
+#?(:jolt nil ; J4/J7 durable CLI: capability unavailable in J3; cljd takes :default.
+   :default (deftest dht-follow-parses-a-principal-at-a-loopback-address
+              (is (= {:principal hex64 :host "127.0.0.1" :port 4001}
+                     (repl/parse-follow (str hex64 "@127.0.0.1:4001"))))
+              (is (= {:principal hex64 :host "127.0.0.1" :port 4001}
+                     (repl/parse-follow (str hex64 "@localhost:4001"))))
+              (is (= {:principal hex64 :host "::1" :port 4001}
+                     (repl/parse-follow (str hex64 "@[::1]:4001"))))
+              (doseq [[text re] [[(str hex64 "@10.0.0.2:4001") #"loopback only"]
+                                 [(str hex64 "@127.0.0.1:0") #"port from 1 to 65535"]
+                                 [(str hex64 "@127.0.0.1:99999") #"port from 1 to 65535"]
+                                 ["abc@127.0.0.1:4001" #"takes <64 lowercase hex>"]
+                                 [(str hex64 "127.0.0.1:4001") #"takes <64 lowercase hex>"]
+                                 [nil #"takes <64 lowercase hex>"]]]
+                (is (thrown-with-msg? #?(:cljd Object :clj Exception :cljs js/Error) re
+                      (repl/parse-follow text))
+                    (pr-str text)))))
 
 
-(deftest dht-follow-of-an-undeclared-principal-refuses-startup
-  (let [follow (str hex64 "@127.0.0.1:4001")
-        base ["--index-store" "dht:d" "--dht-peer" "127.0.0.1:4001"]]
-    (is (re-find #"not declared: add --dht-principal"
-                 (str (:refusal (repl/startup (into base ["--dht-follow"
-                                                          follow])))))
-        "a followed principal must be declared")
-    (is (re-find #"needs a --dht-peer"
-                 (str (:refusal (repl/startup ["--index-store" "dht:d"
-                                               "--dht-principal" hex64
-                                               "--dht-follow" follow])))))
-    (is (re-find #"each principal once"
-                 (str (:refusal (repl/startup
-                                  (into base ["--dht-principal" hex64
-                                              "--dht-follow" follow
-                                              "--dht-follow"
-                                              (str hex64 "@127.0.0.1:4002")]))))))
-    (is (re-find #"need --index-store dht:<dir>"
-                 (str (:refusal (repl/startup ["--dht-follow" follow]))))
-        "following means nothing to another store")
-    (testing "a declared principal composes the spec"
-      (is (= [{:principal hex64 :host "127.0.0.1" :port 4001}]
-             (get-in (repl/parse-args (into base ["--dht-principal" hex64
-                                                  "--dht-follow" follow]))
-                     [:index-store-spec :follow]))))))
+#?(:jolt nil ; J4/J7 durable CLI: capability unavailable in J3; cljd takes :default.
+   :default (deftest dht-follow-of-an-undeclared-principal-refuses-startup
+              (let [follow (str hex64 "@127.0.0.1:4001")
+                    base ["--index-store" "dht:d" "--dht-peer" "127.0.0.1:4001"]]
+                (is (re-find #"not declared: add --dht-principal"
+                             (str (:refusal (repl/startup (into base ["--dht-follow"
+                                                                      follow])))))
+                    "a followed principal must be declared")
+                (is (re-find #"needs a --dht-peer"
+                             (str (:refusal (repl/startup ["--index-store" "dht:d"
+                                                           "--dht-principal" hex64
+                                                           "--dht-follow" follow])))))
+                (is (re-find #"each principal once"
+                             (str (:refusal (repl/startup
+                                              (into base ["--dht-principal" hex64
+                                                          "--dht-follow" follow
+                                                          "--dht-follow"
+                                                          (str hex64 "@127.0.0.1:4002")]))))))
+                (is (re-find #"need --index-store dht:<dir>"
+                             (str (:refusal (repl/startup ["--dht-follow" follow]))))
+                    "following means nothing to another store")
+                (testing "a declared principal composes the spec"
+                  (is (= [{:principal hex64 :host "127.0.0.1" :port 4001}]
+                         (get-in (repl/parse-args (into base ["--dht-principal" hex64
+                                                              "--dht-follow" follow]))
+                                 [:index-store-spec :follow])))))))
 
 
-(deftest dht-manifest-suspends-following-for-the-run
-  (let [follow (str hex64 "@127.0.0.1:4001")
-        manifest (str ":segment/blake3-" hex64)
-        opts (repl/parse-args ["--index-store" "dht:d"
-                               "--dht-peer" "127.0.0.1:4001"
-                               "--dht-principal" hex64 "--dht-follow" follow
-                               "--dht-manifest" manifest])
-        spec (:index-store-spec opts)]
-    (is (nil? (:follow spec)) "a pinned run follows nothing")
-    (is (true? (:follow-suspended spec)))
-    (is (some #(str/includes? % "following is suspended") (repl/banner opts))
-        "and the banner says so")))
+#?(:jolt nil ; J4/J7 durable CLI: capability unavailable in J3; cljd takes :default.
+   :default (deftest dht-manifest-suspends-following-for-the-run
+              (let [follow (str hex64 "@127.0.0.1:4001")
+                    manifest (str ":segment/blake3-" hex64)
+                    opts (repl/parse-args ["--index-store" "dht:d"
+                                           "--dht-peer" "127.0.0.1:4001"
+                                           "--dht-principal" hex64 "--dht-follow" follow
+                                           "--dht-manifest" manifest])
+                    spec (:index-store-spec opts)]
+                (is (nil? (:follow spec)) "a pinned run follows nothing")
+                (is (true? (:follow-suspended spec)))
+                (is (some #(str/includes? % "following is suspended") (repl/banner opts))
+                    "and the banner says so"))))
 
 
-(deftest dht-init-publishes-with-a-key-and-localhost-peer
-  (let [[args extra] (repl/expand-args ["dht" "init" "--dir" "d" "--key" "k"
-                                        "--peer" "localhost:4002"
-                                        "--listen" "4001"])
-        opts (repl/parse-args args)]
-    (is (= "k" (:new-key extra)))
-    (is (nil? (:unset extra)) "init publishes, so it unsets nothing")
-    (is (= "k" (:dht-key-file opts)))
-    (is (true? (get-in opts [:index-store-spec :publish?])))
-    (is (= [{:host "127.0.0.1" :port 4002}]
-           (get-in opts [:index-store-spec :peers])))))
+#?(:jolt nil ; J4/J7 durable CLI: capability unavailable in J3; cljd takes :default.
+   :default (deftest dht-init-publishes-with-a-key-and-localhost-peer
+              (let [[args extra] (repl/expand-args ["dht" "init" "--dir" "d" "--key" "k"
+                                                    "--peer" "localhost:4002"
+                                                    "--listen" "4001"])
+                    opts (repl/parse-args args)]
+                (is (= "k" (:new-key extra)))
+                (is (nil? (:unset extra)) "init publishes, so it unsets nothing")
+                (is (= "k" (:dht-key-file opts)))
+                (is (true? (get-in opts [:index-store-spec :publish?])))
+                (is (= [{:host "127.0.0.1" :port 4002}]
+                       (get-in opts [:index-store-spec :peers]))))))
 
 
-(deftest dht-serve-fetches-only
-  (let [[args extra] (repl/expand-args ["dht" "serve" "--dir" "d" "--peer"
-                                        "127.0.0.1:4001" "--listen" "4002"])
-        spec (:index-store-spec (repl/parse-args args))]
-    (is (nil? (:new-key extra)))
-    (is (= #{"--dht-publish" "--dht-key"} (:unset extra))
-        "serve clears a saved --dht-publish and --dht-key")
-    (is (false? (:publish? spec)))
-    (is (= 4002 (:bind-port spec)))))
+#?(:jolt nil ; J4/J7 durable CLI: capability unavailable in J3; cljd takes :default.
+   :default (deftest dht-serve-fetches-only
+              (let [[args extra] (repl/expand-args ["dht" "serve" "--dir" "d" "--peer"
+                                                    "127.0.0.1:4001" "--listen" "4002"])
+                    spec (:index-store-spec (repl/parse-args args))]
+                (is (nil? (:new-key extra)))
+                (is (= #{"--dht-publish" "--dht-key"} (:unset extra))
+                    "serve clears a saved --dht-publish and --dht-key")
+                (is (false? (:publish? spec)))
+                (is (= 4002 (:bind-port spec))))))
 
 
 (deftest bad-token-and-verb-are-refused-with-usage
@@ -1577,12 +1599,13 @@
       (is (not (contains? started :state))))))
 
 
-(deftest codec-flag-selects-the-served-wire-profile
-  (is (= nil (:codec (repl/parse-args []))) "absent means the cbor default")
-  (is (= :transit (:codec (repl/parse-args ["--codec" "transit"]))))
-  (is (= :cbor (:codec (repl/parse-args ["--codec" "cbor"]))))
-  (is (str/includes? (ex-message (refusal-of #(repl/parse-args ["--codec" "xml"])))
-                     "--codec takes cbor or transit")))
+#?(:jolt nil ; J6 Transit: capability unavailable in J3; cljd takes :default.
+   :default (deftest codec-flag-selects-the-served-wire-profile
+              (is (= nil (:codec (repl/parse-args []))) "absent means the cbor default")
+              (is (= :transit (:codec (repl/parse-args ["--codec" "transit"]))))
+              (is (= :cbor (:codec (repl/parse-args ["--codec" "cbor"]))))
+              (is (str/includes? (ex-message (refusal-of #(repl/parse-args ["--codec" "xml"])))
+                                 "--codec takes cbor or transit"))))
 
 
 (deftest help-documents-every-flag-and-subcommand
@@ -1598,32 +1621,33 @@
       (is (str/includes? text word) word))))
 
 
-(deftest an-oversized-number-is-a-refusal-on-every-numeric-flag
-  (let [huge "9999999999999999999999999999"
-        follow (str hex64 "@127.0.0.1:" huge)
-        base ["--index-store" "dht:d" "--dht-peer" "127.0.0.1:4001"]]
-    (doseq [[args re]
-            [[(into base ["--dht-principal" hex64 "--dht-follow" follow])
-              #"--dht-follow takes a port from 1 to 65535"]
-             [(into base ["--dht-principal" hex64 "--dht-follow"
-                          (str hex64 "@127.0.0.1:70000")])
-              #"--dht-follow takes a port from 1 to 65535"]
-             [["--index-store" "dht:d" "--dht-peer" (str "127.0.0.1:" huge)]
-              #"--dht-peer takes host:port with a port from 1 to 65535"]
-             [(into base ["--dht-port" huge]) #"--dht-port takes an integer"]
-             [(into base ["--dht-max-inbound-bytes" huge])
-              #"--dht-max-inbound-bytes takes an integer"]
-             [["--port" huge] #"--port takes a port from 0 to 65535"]
-             [["--port" "70000"] #"--port takes a port from 0 to 65535"]
-             [["--port" "abc"] #"--port takes a port from 0 to 65535"]
-             [["dht" "join" (str "yin:127.0.0.1:" huge "/" hex64) "--dir" "d"]
-              #"--dht-peer takes host:port with a port from 1 to 65535"]
-             [["dht" "join" (str "yin:127.0.0.1:4001/" hex64) "--dir" "d"
-               "--listen" huge]
-              #"--dht-port takes an integer"]]]
-      (let [started (repl/startup args)]
-        (is (re-find re (str (:refusal started))) (pr-str args started))
-        (is (nil? (:state started)))))))
+#?(:jolt nil ; J4/J7 durable CLI: capability unavailable in J3; cljd takes :default.
+   :default (deftest an-oversized-number-is-a-refusal-on-every-numeric-flag
+              (let [huge "9999999999999999999999999999"
+                    follow (str hex64 "@127.0.0.1:" huge)
+                    base ["--index-store" "dht:d" "--dht-peer" "127.0.0.1:4001"]]
+                (doseq [[args re]
+                        [[(into base ["--dht-principal" hex64 "--dht-follow" follow])
+                          #"--dht-follow takes a port from 1 to 65535"]
+                         [(into base ["--dht-principal" hex64 "--dht-follow"
+                                      (str hex64 "@127.0.0.1:70000")])
+                          #"--dht-follow takes a port from 1 to 65535"]
+                         [["--index-store" "dht:d" "--dht-peer" (str "127.0.0.1:" huge)]
+                          #"--dht-peer takes host:port with a port from 1 to 65535"]
+                         [(into base ["--dht-port" huge]) #"--dht-port takes an integer"]
+                         [(into base ["--dht-max-inbound-bytes" huge])
+                          #"--dht-max-inbound-bytes takes an integer"]
+                         [["--port" huge] #"--port takes a port from 0 to 65535"]
+                         [["--port" "70000"] #"--port takes a port from 0 to 65535"]
+                         [["--port" "abc"] #"--port takes a port from 0 to 65535"]
+                         [["dht" "join" (str "yin:127.0.0.1:" huge "/" hex64) "--dir" "d"]
+                          #"--dht-peer takes host:port with a port from 1 to 65535"]
+                         [["dht" "join" (str "yin:127.0.0.1:4001/" hex64) "--dir" "d"
+                           "--listen" huge]
+                          #"--dht-port takes an integer"]]]
+                  (let [started (repl/startup args)]
+                    (is (re-find re (str (:refusal started))) (pr-str args started))
+                    (is (nil? (:state started))))))))
 
 
 ;; =============================================================================
@@ -1673,38 +1697,39 @@
    :max-inbound-bytes repl.dht/default-max-inbound-bytes})
 
 
-(deftest with-the-dht-store-still-hydrating-a-renewal-and-a-pending-release-are-still-sent-test
-  (let [w (paused-world)
-        dir (temp-dir)]
-    (try
-      (let [inbound (get-in (:c w) [:inbounds "h1"])
-            ;; a real solo node, its hydration held open by hand: the state
-            ;; mid-hydration is in, and nothing else about the store differs
-            state (assoc-in (repl/boot {:index-store-spec (dht-solo-spec dir)})
-                            [:repl :custody] (:c w))
-            _ (driver/submit-line! (:input state) "(+ 40 2)")
-            state (assoc-in state [:repl :dht :yin.repl.dht/hydrating] ::held)]
-        (is (false? (repl.dht/admitting? (:repl state)))
-            "the store hydrates: the shell admits nothing")
-        (testing "a renewal is still sent"
-          (reset! (:clock w) {:s 20})
-          (let [[state' _ _] (repl/step-all state nil 0)]
-            (is (= 1 (count (compose-test/inbound-requests inbound :yin.k/renewal)))
-                "the paused holder renewed under the control step alone")
-            (is (= [] (first (driver/take-outbox state')))
-                "and the typed line still waits: hydration held evaluation")
-            (testing "a pending release is still sent"
-              (let [c' (compose/restart (get-in state' [:repl :custody]) "h1")
-                    [_state'' _ _] (repl/step-all (assoc-in state'
-                                                            [:repl :custody] c')
-                                                  nil 1)]
-                (is (= 1 (count (compose-test/inbound-requests
-                                  inbound :yin.k/release)))
-                    "the restarted holder released under the control step alone")))))
-        (repl/close-index-store! state))
-      (finally
-        (compose-test/cleanup-world! w)
-        (cleanup-dir! dir)))))
+#?(:jolt nil ; J4/J7 durable CLI: capability unavailable in J3; cljd takes :default.
+   :default (deftest with-the-dht-store-still-hydrating-a-renewal-and-a-pending-release-are-still-sent-test
+              (let [w (paused-world)
+                    dir (temp-dir)]
+                (try
+                  (let [inbound (get-in (:c w) [:inbounds "h1"])
+                        ;; a real solo node, its hydration held open by hand: the state
+                        ;; mid-hydration is in, and nothing else about the store differs
+                        state (assoc-in (repl/boot {:index-store-spec (dht-solo-spec dir)})
+                                        [:repl :custody] (:c w))
+                        _ (driver/submit-line! (:input state) "(+ 40 2)")
+                        state (assoc-in state [:repl :dht :yin.repl.dht/hydrating] ::held)]
+                    (is (false? (repl.dht/admitting? (:repl state)))
+                        "the store hydrates: the shell admits nothing")
+                    (testing "a renewal is still sent"
+                      (reset! (:clock w) {:s 20})
+                      (let [[state' _ _] (repl/step-all state nil 0)]
+                        (is (= 1 (count (compose-test/inbound-requests inbound :yin.k/renewal)))
+                            "the paused holder renewed under the control step alone")
+                        (is (= [] (first (driver/take-outbox state')))
+                            "and the typed line still waits: hydration held evaluation")
+                        (testing "a pending release is still sent"
+                          (let [c' (compose/restart (get-in state' [:repl :custody]) "h1")
+                                [_state'' _ _] (repl/step-all (assoc-in state'
+                                                                        [:repl :custody] c')
+                                                              nil 1)]
+                            (is (= 1 (count (compose-test/inbound-requests
+                                              inbound :yin.k/release)))
+                                "the restarted holder released under the control step alone")))))
+                    (repl/close-index-store! state))
+                  (finally
+                    (compose-test/cleanup-world! w)
+                    (cleanup-dir! dir))))))
 
 
 (defn- drain-until
@@ -1744,166 +1769,172 @@
     [state c]))
 
 
-(deftest the-drain-enters-on-an-endpoint-or-owed-custody-and-ends-only-when-both-are-done-test
-  (let [gate (atom false)
-        w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
-    (try
-      (let [_ (reset! gate true)
-            [state' _c] (no-endpoint-state w)
-            [state' _ _] (repl/step-all state' nil 0)
-            never-bound (serve/serve! {:bind-port 8080 :host nil})]
-        (testing "entry: an absent endpoint with owed custody still drains"
-          (is (false? (:running? state')) "the shell stopped")
-          (is (true? (repl/shutdown-enter? state' nil))
-              "a REPL without --port enters the drain on its owed custody
+#?(:jolt nil ; J4 file-backed authority journal: capability unavailable in J3; cljd takes :default.
+   :default (deftest the-drain-enters-on-an-endpoint-or-owed-custody-and-ends-only-when-both-are-done-test
+              (let [gate (atom false)
+                    w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
+                (try
+                  (let [_ (reset! gate true)
+                        [state' _c] (no-endpoint-state w)
+                        [state' _ _] (repl/step-all state' nil 0)
+                        never-bound (serve/serve! {:bind-port 8080 :host nil})]
+                    (testing "entry: an absent endpoint with owed custody still drains"
+                      (is (false? (:running? state')) "the shell stopped")
+                      (is (true? (repl/shutdown-enter? state' nil))
+                          "a REPL without --port enters the drain on its owed custody
                writes alone")
-          (is (false? (repl/shutdown-drained? state' nil))
-              "custody alone holds the drain open"))
-        (testing "an already-stopped endpoint with owed custody is not done either"
-          (is (true? (serve/stopped? never-bound)))
-          (is (true? (repl/shutdown-enter? state' never-bound)))
-          (is (false? (repl/shutdown-drained? state' never-bound))
-              "the endpoint owes nothing; the owed release does"))
-        (testing "a settled composition with no endpoint needs no drain"
-          (reset! gate false)
-          (let [[settled _ _spent?] (drain-until state' nil)]
-            (is (true? (repl/shutdown-drained? settled nil)))
-            (is (false? (repl/shutdown-enter? settled nil))
-                "nothing owed, nothing to drain"))))
-      (finally
-        (compose-test/cleanup-world! w)))))
+                      (is (false? (repl/shutdown-drained? state' nil))
+                          "custody alone holds the drain open"))
+                    (testing "an already-stopped endpoint with owed custody is not done either"
+                      (is (true? (serve/stopped? never-bound)))
+                      (is (true? (repl/shutdown-enter? state' never-bound)))
+                      (is (false? (repl/shutdown-drained? state' never-bound))
+                          "the endpoint owes nothing; the owed release does"))
+                    (testing "a settled composition with no endpoint needs no drain"
+                      (reset! gate false)
+                      (let [[settled _ _spent?] (drain-until state' nil)]
+                        (is (true? (repl/shutdown-drained? settled nil)))
+                        (is (false? (repl/shutdown-enter? settled nil))
+                            "nothing owed, nothing to drain"))))
+                  (finally
+                    (compose-test/cleanup-world! w))))))
 
 
-(deftest the-bounded-drain-calls-custody-control-every-tick-delivers-the-release-and-runs-no-program-test
-  (let [gate (atom false)
-        w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
-    (try
-      (let [_ (reset! gate true)
-            ;; the restarted holder owes a release its full inbound holds back
-            state (custody-state (compose/restart (:c w) "h1") "(quit)")
-            [state' _ _] (repl/step-all state nil 0)
-            _ (is (false? (:running? state')) "the shell stopped")
-            _ (is (true? (get-in state' [:repl :custody :holders "h1" :stopped?]))
-                  "the stop latch was set in the program step's place")
-            _ (is (= 1 (count (release-attempts (get-in state' [:repl :custody]))))
-                  "the stopping tick itself still ran the control plane")
-            [state'' _] (drain-for state' nil 3)
-            held (get-in state'' [:repl :custody])
-            attempts (release-attempts held)
-            _ (is (= 4 (count attempts))
-                  "one release attempt per control tick, the stopping tick's
+#?(:jolt nil ; J4 file-backed authority journal: capability unavailable in J3; cljd takes :default.
+   :default (deftest the-bounded-drain-calls-custody-control-every-tick-delivers-the-release-and-runs-no-program-test
+              (let [gate (atom false)
+                    w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
+                (try
+                  (let [_ (reset! gate true)
+                        ;; the restarted holder owes a release its full inbound holds back
+                        state (custody-state (compose/restart (:c w) "h1") "(quit)")
+                        [state' _ _] (repl/step-all state nil 0)
+                        _ (is (false? (:running? state')) "the shell stopped")
+                        _ (is (true? (get-in state' [:repl :custody :holders "h1" :stopped?]))
+                              "the stop latch was set in the program step's place")
+                        _ (is (= 1 (count (release-attempts (get-in state' [:repl :custody]))))
+                              "the stopping tick itself still ran the control plane")
+                        [state'' _] (drain-for state' nil 3)
+                        held (get-in state'' [:repl :custody])
+                        attempts (release-attempts held)
+                        _ (is (= 4 (count attempts))
+                              "one release attempt per control tick, the stopping tick's
                    included: every drain tick called the control plane")
-            _ (is (every? #(= :dao.stream/full (:yin.k/append %)) attempts)
-                  "the full stream held every one back")
-            _ (is (false? (repl/shutdown-drained? state'' nil))
-                  "custody still owes: three ticks in, the drain's exit
+                        _ (is (every? #(= :dao.stream/full (:yin.k/append %)) attempts)
+                              "the full stream held every one back")
+                        _ (is (false? (repl/shutdown-drained? state'' nil))
+                              "custody still owes: three ticks in, the drain's exit
                    condition is not met")
-            _ (reset! gate false)
-            [state''' _ spent?] (drain-until state'' nil)
-            st (get-in state''' [:repl :custody :holders "h1"])]
-        (is (false? spent?)
-            "the delivered release ended the drain, well inside the budget")
-        (is (true? (get-in st [:release :carried]))
-            "the release is delivered once the stream accepts it")
-        (is (= :failed (:phase st))
-            "the stopped holder ends its cleanup, never a fresh candidacy")
-        (is (true? (get-in st [:detail :dao.lease/released])))
-        (is (zero? @(:attaches w))
-            "no program step ran: nothing was ever attached, before or after
+                        _ (reset! gate false)
+                        [state''' _ spent?] (drain-until state'' nil)
+                        st (get-in state''' [:repl :custody :holders "h1"])]
+                    (is (false? spent?)
+                        "the delivered release ended the drain, well inside the budget")
+                    (is (true? (get-in st [:release :carried]))
+                        "the release is delivered once the stream accepts it")
+                    (is (= :failed (:phase st))
+                        "the stopped holder ends its cleanup, never a fresh candidacy")
+                    (is (true? (get-in st [:detail :dao.lease/released])))
+                    (is (zero? @(:attaches w))
+                        "no program step ran: nothing was ever attached, before or after
              the shell stopped"))
-      (finally
-        (compose-test/cleanup-world! w)))))
+                  (finally
+                    (compose-test/cleanup-world! w))))))
 
 
-(deftest ^:slow a-release-held-back-for-the-whole-drain-stays-durable-and-a-restart-sends-it-test
-  (slow/guard
-    "a-release-held-back-for-the-whole-drain-stays-durable-and-a-restart-sends-it-test"
-    (fn []
-      (let [gate (atom false)
-            w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
-        (try
-          (let [_ (reset! gate true)
-                c (compose/restart (:c w) "h1")
-                server (serve/serve! {:bind-port 8080 :host (host-adapter)})
-                state (custody-state c "(quit)")
-                [state' server' _] (repl/step-all state server 0)
-                ;; the bounded drain exactly as the host loops run it: the
-                ;; endpoint stops on the first drain tick, and the drain keeps
-                ;; stepping for the owed release until the budget ends
-                [state'' server'' spent?] (drain-until state' server')
-                c'' (get-in state'' [:repl :custody])
-                attempts (release-attempts c'')]
-            (is (true? (serve/stopped? server''))
-                "the endpoint stopped at once: the drain that followed was
+#?(:jolt nil ; J4/J7 durable CLI: capability unavailable in J3; cljd takes :default.
+   :default (deftest ^:slow a-release-held-back-for-the-whole-drain-stays-durable-and-a-restart-sends-it-test
+              (slow/guard
+                "a-release-held-back-for-the-whole-drain-stays-durable-and-a-restart-sends-it-test"
+                (fn []
+                  (let [gate (atom false)
+                        w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
+                    (try
+                      (let [_ (reset! gate true)
+                            c (compose/restart (:c w) "h1")
+                            server (serve/serve! {:bind-port 8080 :host (host-adapter)})
+                            state (custody-state c "(quit)")
+                            [state' server' _] (repl/step-all state server 0)
+                            ;; the bounded drain exactly as the host loops run it: the
+                            ;; endpoint stops on the first drain tick, and the drain keeps
+                            ;; stepping for the owed release until the budget ends
+                            [state'' server'' spent?] (drain-until state' server')
+                            c'' (get-in state'' [:repl :custody])
+                            attempts (release-attempts c'')]
+                        (is (true? (serve/stopped? server''))
+                            "the endpoint stopped at once: the drain that followed was
              custody's alone")
-            (is (true? spent?)
-                "the owed release held the drain open for the whole budget: the
+                        (is (true? spent?)
+                            "the owed release held the drain open for the whole budget: the
              budget, not the endpoint and not the release, ended it")
-            (is (= (+ repl/stop-ticks 2) (count attempts))
-                "a custody control tick for every drain tick -- the stopping
+                        (is (= (+ repl/stop-ticks 2) (count attempts))
+                            "a custody control tick for every drain tick -- the stopping
              tick, the whole budget, and the budget's own last tick")
-            (is (every? #(= :dao.stream/full (:yin.k/append %)) attempts)
-                "the stream stayed full for the whole drain")
-            (is (some #(and (= :yin.k/intent (:yin.k/journal %))
-                            (= :yin.k/release (:yin.k/action %)))
-                      (compose-test/journal-records-of c'' "h1"))
-                "the release intent is durable in the progress journal")
-            (testing "a restart sends it"
-              (reset! gate false)
-              (let [c''' (compose/control-step (compose/restart c'' "h1"))]
-                (is (some #(= :dao.stream/ok (:yin.k/append %))
-                          (release-attempts c'''))
-                    "the recovered holder sent the identical release"))))
-          (finally
-            (compose-test/cleanup-world! w)))))))
+                        (is (every? #(= :dao.stream/full (:yin.k/append %)) attempts)
+                            "the stream stayed full for the whole drain")
+                        (is (some #(and (= :yin.k/intent (:yin.k/journal %))
+                                        (= :yin.k/release (:yin.k/action %)))
+                                  (compose-test/journal-records-of c'' "h1"))
+                            "the release intent is durable in the progress journal")
+                        (testing "a restart sends it"
+                          (reset! gate false)
+                          (let [c''' (compose/control-step (compose/restart c'' "h1"))]
+                            (is (some #(= :dao.stream/ok (:yin.k/append %))
+                                      (release-attempts c'''))
+                                "the recovered holder sent the identical release"))))
+                      (finally
+                        (compose-test/cleanup-world! w))))))))
 
 
-(deftest the-exit-path-closes-the-custody-journals-before-the-host-exits-test
-  (let [root (temp-dir)
-        w (paused-world :journals (compose/file-journals root))]
-    (try
-      (let [state (custody-state (:c w) "(quit)")]
-        (repl/close-index-store! state)
-        (doseq [kind ["progress" "reply"]]
-          (let [reopened (file-journal/backend! (str root "/h1-" kind))]
-            (is (= :dao.stream/ok (:dao.stream/outcome reopened))
-                (str "the " kind
-                     " journal's directory is unlocked: the exit path closed
+#?(:jolt nil ; J4/J7 durable CLI: capability unavailable in J3; cljd takes :default.
+   :default (deftest the-exit-path-closes-the-custody-journals-before-the-host-exits-test
+              (let [root (temp-dir)
+                    w (paused-world :journals (compose/file-journals root))]
+                (try
+                  (let [state (custody-state (:c w) "(quit)")]
+                    (repl/close-index-store! state)
+                    (doseq [kind ["progress" "reply"]]
+                      (let [reopened (file-journal/backend! (str root "/h1-" kind))]
+                        (is (= :dao.stream/ok (:dao.stream/outcome reopened))
+                            (str "the " kind
+                                 " journal's directory is unlocked: the exit path closed
                       the custody composition's journals before the process
                       exit"))
-            (file-journal/close! (get reopened ::file-journal/backend)))))
-      (finally
-        (compose-test/cleanup-world! w)
-        (cleanup-dir! root)))))
+                        (file-journal/close! (get reopened ::file-journal/backend)))))
+                  (finally
+                    (compose-test/cleanup-world! w)
+                    (cleanup-dir! root))))))
 
 
-(deftest moved?-is-true-while-custody-owes-a-control-plane-write-test
-  (let [gate (atom false)
-        w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
-    (try
-      (let [_ (reset! gate true)
-            state (custody-state (compose/restart (:c w) "h1") "(+ 1 2)")
-            [state' _ _] (repl/step-all state nil 0)]
-        (is (compose/owed-control-write? (get-in state' [:repl :custody]))
-            "the owed release stands while the stream is full")
-        (is (true? (repl/moved? state' nil []))
-            "a custody control-plane write holds the tick owner's base cadence")
-        (reset! gate false)
-        (let [settled (loop [state state' k 0]
-                        (let [c (get-in state [:repl :custody])]
-                          (if (or (not (compose/owed-control-write? c)) (>= k 40))
-                            state
-                            (recur (first (repl/step-all state nil k)) (inc k)))))
-              c (get-in settled [:repl :custody])]
-          (is (not (compose/owed-control-write? c))
-              "the write discharged once the stream took it")
-          (is (false? (repl/moved? settled nil []))
-              "a settled custody composition lets the tick owner idle")))
-      (finally
-        (compose-test/cleanup-world! w)))))
+#?(:jolt nil ; J4 file-backed authority journal: capability unavailable in J3; cljd takes :default.
+   :default (deftest moved?-is-true-while-custody-owes-a-control-plane-write-test
+              (let [gate (atom false)
+                    w (paused-world :inbound (compose-test/gated-stream "h1-in" gate))]
+                (try
+                  (let [_ (reset! gate true)
+                        state (custody-state (compose/restart (:c w) "h1") "(+ 1 2)")
+                        [state' _ _] (repl/step-all state nil 0)]
+                    (is (compose/owed-control-write? (get-in state' [:repl :custody]))
+                        "the owed release stands while the stream is full")
+                    (is (true? (repl/moved? state' nil []))
+                        "a custody control-plane write holds the tick owner's base cadence")
+                    (reset! gate false)
+                    (let [settled (loop [state state' k 0]
+                                    (let [c (get-in state [:repl :custody])]
+                                      (if (or (not (compose/owed-control-write? c)) (>= k 40))
+                                        state
+                                        (recur (first (repl/step-all state nil k)) (inc k)))))
+                          c (get-in settled [:repl :custody])]
+                      (is (not (compose/owed-control-write? c))
+                          "the write discharged once the stream took it")
+                      (is (false? (repl/moved? settled nil []))
+                          "a settled custody composition lets the tick owner idle")))
+                  (finally
+                    (compose-test/cleanup-world! w))))))
 
 
 #?(:cljd nil
+   :jolt nil ; J4/J6: JVM process/socket or durable journal fixture.
    :clj
    (deftest the-jvm-loop-drains-custody-without-an-endpoint-and-closes-its-journals-test
      (let [gate (atom false)

@@ -82,3 +82,35 @@ review admission/refusal parity including the recorded `:parity-exceptions`, the
 acknowledge that review with `bb test:jolt-cbor-override --update "<who, date>"`. Document any
 API exception with exact shared/jolt signatures and a reason in the explicit
 `:api-allowlist` (currently empty).
+
+J3 local shell (macOS verification; Linux unrun):
+
+```sh
+bb bootstrap:jolt
+bb build:jolt-native
+. build/tools/jolt-env.sh
+"$JOLT_HOME/bin/jolt" -Srepro -M:jolt:jolt-yin-repl
+bb demo:jolt
+bb test:jolt-shell
+bb test:jolt-core --only '^yin\.repl'
+```
+
+`dao/stream/waitset/driver.jolt` owns a nonblocking self-pipe. One plain
+thread owns the shell; native poll waits for stdin or a wake at the cadence
+deadline. Chez's buffered stdin is checked before waiting on fd 0. A partial
+line without newline blocks that owner until newline. Ctrl-C exits without a
+graceful drain, as on the JVM. There is no line editor.
+
+The J3 catalog installs Clojure and PHP. Python refuses explicitly until J5;
+file:/dht: stores refuse before composition until J4/J7. Saved CLI state is
+not enabled by the Jolt entry point until J4. Networking has no host adapter
+until J6/J7. Source startup is measured by the transcript runner; no speed
+gate is applied. The same corpus has a JVM process test. Capability-only
+cases identify their host in the corpus, rather than binding a JVM socket or
+opening a durable JVM store just to prove a Jolt refusal.
+
+Per-deftest decisions: `test/resources/yin/repl/jolt-applicability.edn`.
+The shared reader tests remain active: extra source metadata and accepted
+unknown tags/reader conditionals are failures, not accepted divergences.
+Only the two explicitly tagged transcript reader rows (small `N` literals
+and lone surrogate escapes) have host-specific expected results.

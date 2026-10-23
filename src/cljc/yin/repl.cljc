@@ -9,7 +9,8 @@
    history, the output medium with its cursor, and a per-medium ledger
    recording the last outcome that medium answered.  Every function takes a
    state and returns the next one."
-  (:require #?(:cljd [clojure.edn :as edn]
+  (:require #?@(:cljd [] :jolt [[jolt.scheme :as scheme]] :default [])
+            #?(:cljd [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])
             [clojure.string :as str]
             [dao.pretty :as pretty]
@@ -272,11 +273,13 @@
    this namespace and has no `process` global — so it probes `js/process`
    and names a browser honestly."
   (str "Host: "
-       #?(:clj (str "JVM " (System/getProperty "java.version"))
+       #?(:cljd "Dart"
+          :jolt (str "jolt " (:describe (:jolt (read-string (slurp "jolt-toolchain.edn"))))
+                     " / Chez " (last (str/split (scheme/call "scheme-version") #" ")))
+          :clj (str "JVM " (System/getProperty "java.version"))
           :cljs (if (exists? js/process)
                   (str "Node " (.-version js/process))
-                  "Browser")
-          :cljd "Dart")))
+                  "Browser"))))
 
 
 (def telemetry-text
