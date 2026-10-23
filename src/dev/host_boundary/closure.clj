@@ -134,7 +134,8 @@
       yin.repl.host.jvm yin.repl.host.common dao.stream.ringbuffer]]
    [:deferred-storage "deferred §9.2"
     '[dao.jing.file dao.space.store.fs dao.space.store
-      dao.stream.journal.file dao.data.btree.storage]]
+      dao.stream.journal.file dao.data.btree.storage
+      yin.repl.store]]
    [:deferred-entropy "deferred §9.1"
     '[dao.stream.ringbuffer dao.stream.memory-log dao.stream.ws
       dao.stream.remote dao.stream.remote-pair dao.stream.remote-route

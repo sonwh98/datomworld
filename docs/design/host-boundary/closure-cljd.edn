@@ -356,7 +356,7 @@
   {:file "src/cljc/yin/repl/store.cljc",
    :ns yin.repl.store,
    :shared true,
-   :classes #{:none}}
+   :classes #{:deferred-storage}}
   {:file "src/cljc/yin/vm.cljc",
    :ns yin.vm,
    :shared true,
