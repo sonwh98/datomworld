@@ -653,9 +653,6 @@
    "src/cljc/yin/vm/data.cljc" (entry :migration-source :pending "H2b: :388 float-value over the profile")
    "src/cljc/yin/vm/values.cljc" (entry :migration-source :pending "H2b: category move to :runtime-prereq (table C print laws at :116,122)")
    "src/cljc/dao/stream/base64.cljc" (entry :migration-source "H3" "base64 made portable")
-   ;; H0 finding, profile consumers (r7 §3.1, §8.1 first row): H2 migrated
-   ;; eight and removed them from this list; yin/vm.cljc stays for OQ11
-   "src/cljc/yin/vm.cljc" (entry :migration-source :pending "OQ11; :409 bytes->str: H2 moved the one-arity to strict UTF-8 (named behaviour change); the JVM encoding arity stays behind this arm until OQ11")
    ;; Profile
    "src/cljc/dao/data/arrays.cljc" (entry :profile :stays)
    "src/cljc/dao/host/integer.cljc" (entry :profile :stays "H1 addition (§8.1)")
@@ -1023,7 +1020,7 @@
     (is (= [] (list-1-problems list-1 (lane-classes)))))
   (testing "each check fails on a deliberately wrong entry (in memory)"
     (let [lc (lane-classes)
-          f "src/cljc/yin/vm.cljc"
+          f "src/cljc/yin/vm/data.cljc"
           kinds (fn [l1 lc] (set (map first (list-1-problems l1 lc))))]
       (is (= #{:unknown-category} (kinds (assoc-in list-1 [f :category] :h0-unlisted) lc)))
       (is (= #{:slice-not-allowed} (kinds (assoc-in list-1 [f :clears] "H9") lc)))

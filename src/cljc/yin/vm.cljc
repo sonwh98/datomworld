@@ -402,13 +402,10 @@
            (pure 'get get [2 3])
            (pure 'vec vec [1])
            ;; one arity: strict UTF-8 on every host (dao.host.text, slice
-           ;; H2); the JVM-only encoding arity is retained pending OQ11
+           ;; H2, ratified OQ11: encoding arity 2 removed from portable profile)
            (pure 'bytes->str
-                 (fn
-                   ([b] (text/utf8-decode b))
-                   #?@(:cljd []
-                       :clj [([b enc] (String. ^bytes b ^String enc))]))
-                 [1 2])
+                 (fn [b] (text/utf8-decode b))
+                 [1])
            ['require (primitive-entry
                        'require
                        (fn [spec]

@@ -2,8 +2,9 @@
   "Table D (3) of docs/design/dao.stream.host-boundary.md: the `yin.vm`
    primitive `bytes->str` decodes strict UTF-8 on every lane (slice H2,
    a named behaviour change: before it, JS and Dart read each byte as a
-   char code and the JVM substituted U+FFFD). The JVM-only encoding arity
-   answers as before pending OQ11."
+   char code and the JVM substituted U+FFFD). Ratified OQ11: the JVM-only
+   encoding arity is removed, leaving bytes->str with a single unary UTF-8
+   decoding arity on every lane."
   (:require [clojure.test :refer [deftest is testing]]
             [dao.host.bytes :as bytes]
             [yin.vm :as vm]))
@@ -31,13 +32,5 @@
   (testing "ill-formed UTF-8 is refused, never read as a char or U+FFFD"
     (is (= :invalid-utf8 (refusal (bytes/from-vector [0xe9]))))
     (is (= :invalid-utf8 (refusal (bytes/from-vector [0xc3 0x28])))))
-  (testing "the published arities are unchanged"
-    (is (= [1 2] (:yin.k/arities (get vm/primitives 'bytes->str))))))
-
-
-#?(:cljd nil
-   :clj
-   (deftest the-jvm-encoding-arity-answers-as-before
-     (testing "pending OQ11: the two-arity form is the JVM's String constructor"
-       (is (= "héllo" (bytes->str (.getBytes "héllo" "ISO-8859-1") "ISO-8859-1")))
-       (is (= "héllo" (bytes->str (bytes/from-vector [0x68 0xc3 0xa9 0x6c 0x6c 0x6f]) "UTF-8"))))))
+  (testing "the published arity is unary UTF-8 only"
+    (is (= [1] (:yin.k/arities (get vm/primitives 'bytes->str))))))
