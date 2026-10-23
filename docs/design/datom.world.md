@@ -13,7 +13,7 @@ Restrictions are a feature.
 
 ### Foundational Axioms
 
-1. **Everything is a Stream**: All IO and data flow through append-only streams.
+1. **Everything is a Stream**: Portable I/O and system data flow through append-only streams; hosts may also install explicit local functions that perform direct I/O.
 2. **Interpretation Creates Semantics**: Data is syntax; semantics only emerge through interpretation (one truth, many perspectives).
    At system scale, a "system" is an emergent property of interpreters of
    pure data, not an object, service, or stored artifact. Find the
@@ -41,9 +41,9 @@ See [`docs/design/datom.md`](./datom.md) for full specification.
 
 ## Streams
 
-All IO is modeled as a stream. Functions consume streams and produce streams.
-No direct function-to-function coupling without a stream boundary.
-Side effects must appear as stream emissions.
+`dao.stream` is an I/O monad and the system's portable I/O ABI. Functions consume streams and produce streams.
+Hosts may install arbitrary local functions, including direct I/O; their availability and migration semantics must be explicit.
+Portable behavior cannot assume them; portable side effects appear as stream emissions. Direct-I/O host modules are explicitly local and non-migratable (owner decision, 2026-10-23).
 Streams are values that can be sent through streams.
 Streams carry whatever values the consumer needs: no datom requirement, no privileged payload shape.
 
@@ -60,7 +60,7 @@ becomes architecture: one stream, many interpretations, none of them
 the stream's own.
 
 Functions can take anything and return anything.
-Agents are functions, closures, or continuations in `yin.vm` that communicate with the outside world through `dao.stream`. Agent behavior is specified entirely through stream effects.
+Agents are functions, closures, or continuations in `yin.vm` that communicate portably with the outside world through `dao.stream`. Portable agent behavior is specified through stream effects; host-local functions may also perform direct I/O.
 
 See [`docs/design/dao.stream.md`](./dao.stream.md) for full stream specification.
 See [`docs/design/yin.vm.streams-all-the-way-down.md`](./yin.vm.streams-all-the-way-down.md) for VM architecture.
