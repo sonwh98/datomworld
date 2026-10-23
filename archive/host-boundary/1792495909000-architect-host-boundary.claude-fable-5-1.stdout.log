@@ -1,0 +1,19 @@
+Done. Both deliverables are written, nothing is staged, and no source or test file was touched.
+
+**What I produced**
+
+- `docs/design/dao.stream.host-boundary.md`, new, status "design only; nothing commissioned", standalone, with its own open-owner-decisions section, decision record, successor-orchestrator section and a citations appendix. All tables are ASCII box tables within 170 columns. It states up front that a non-Claude architect must sign it off.
+- `collab/1792495909000-architect-host-boundary.claude-fable-5-1.findings.md`, the rationale, header fields plus a body under 700 words.
+
+**The design in one paragraph**
+
+The owner's sentence holds under the reading the ABI doctrine already draws. World facts and effects (sockets, files, locks, clock, entropy, a parser running elsewhere) cross as dao.stream implementations with a host seam value, which is the pattern the socket transports already use. Carriers and pure functions over them (integers, floats, bytes, text, hashing, signing, canonical encoding) are machine-internal and become one enumerable primitive profile, proposed as `dao.host.*`, about 55 functions, each with a byte-level oracle that already exists in the tree. The hot-path line is explicit: per step, value, byte or address is a primitive; per I/O event is a stream operation. Porting a host is then the profile against the vectors, the seam values the composition selects, and a main.
+
+**Findings worth the owner's attention**
+
+- Two big-integer shims exist today, one in the integer host namespace and a private copy inside the Jing codec, and the first's docstring says it avoids the second on purpose.
+- Storage is already stream-shaped at the top (the journal runs over the content file under the directory lock), so the fix is a declared seam beneath it, not a second stream shape.
+- The one genuine "make it portable" candidate is the Jing CBOR writer. Decode is already portable; only the writer binds Boring and the Dart cbor package. The frozen corpus makes that slice byte-checkable.
+- Of the in-flight host-lane slices, J0a, J0b and J0c are boundary-agnostic or already stream-shaped. J1 is the one in tension, since it adds reader arms to exactly the files the first slices consolidate.
+
+**Open owner decisions flagged (doc §10):** scope, the namespace name, whether to pause J1-style arm work, dropping Boring from the Jing path, storage as a seam versus streams all the way down, and a separate orchestrator seat. Nothing was executed; test counts are quoted from the orchestrator log and labelled as such.

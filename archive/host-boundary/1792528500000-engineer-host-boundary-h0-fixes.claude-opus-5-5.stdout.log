@@ -1,0 +1,30 @@
+I've fixed all four review findings (H0-R1 to R4) in the `host-h0` working tree. Nothing is committed, and H0 still needs an independent re-review before sign-off.
+
+**What changed** (mostly in `test/dao/host/gate_test.clj`):
+- **H0-R1, body vectors:** the scanner now separates a function's parameter vector from its body and checks every body form, so `(defn injected [] [(random-uuid)])` is caught. While there I closed two gaps of the same kind:
+  - default values in destructuring (`:or {a (rand)}`) are now checked;
+  - functions with several arities inside `deftype`/`extend-type` bodies are now handled correctly.
+- **H0-R2, scope leaks:**
+  - **Arities:** each arity's parameters now only shadow names inside that arity.
+  - **Lanes:** the old step that merged every lane's code (`all-arms`) is gone. Each lane now selects its own code, works out its own `ns` aliases and definitions, and is checked separately.
+  - **cljd:** read twice, once with `:clj` allowed to win and once without, so a `:cljd` arm sitting behind a `:clj` arm is still checked.
+  - **Counting:** a call site still counts once even when several lanes see it.
+  - **List 2:** no permitted count changed on the current tree.
+- **H0-R3, read errors:** `read-sources` now catches errors from `slurp` for each file, so a failed read gives `:scan-failure` naming the file instead of throwing.
+- **H0-R4, subsystem:** `dao.host` is registered in `src/dev/subsystems.edn`, and I added a matching row to the table in `docs/design/test.subsystems.md`.
+
+The new regression tests cover the reviewer's three probes against the real closure, the read error, and unit cases for each scoping rule.
+
+**Verification:**
+- `clojure -M:test -n dao.host.gate-test`: 11 tests, 98 assertions, 0 failures.
+- `bb test:sub:clj dao.host`: picks only `dao.host.gate-test`, which passes.
+- The reviewer's probe script now reports `:fail` for all three of their false negatives, and the read-error probe no longer escapes.
+- kondo, the closure tool `--check` and the corpus `--check` are clean.
+- I did not run the full three-host `bb test` or the slow tests.
+
+**Still open:**
+- **Design mismatches:** the review also flagged that the code says `:conditional-retention-oq11` where the design says `:pending`, and that the category mapping differs from the design's table. That wasn't in this brief, so I left it, and it still has to be settled before the re-review.
+- **Unrelated test failure:** `bb -cp src/dev -m affected-test` still has one failure: it expects 40 `yin.vm.ucf` tests and finds 28. It fails the same way without my change. Registering `dao.host` did clear a second failure in that suite, which was flagging `dao.host.gate-test` as having no subsystem.
+- **Small gaps left as they were:** `specify!` still skips its target expression. The one `#?(:jolt ...)` arm (`src/cljc/dao/data/btree.cljc:1237`) is no longer checked for effect calls, but it is still checked for host arms.
+
+The full report is at `collab/1792528500000-engineer-host-boundary-h0-fixes.claude-opus-5-5.findings.md`.

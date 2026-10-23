@@ -1,0 +1,21 @@
+I fixed all three of astra's findings in the gate test. It passes (10 tests, 73 assertions), and the closure `--check` and corpus check both exit 0. Only `test/dao/host/gate_test.clj` changed this round, and nothing is staged, committed or pushed.
+
+- **H0-1:** `ringbuffer.cljc` moved to the seams row (`:seam-driver`, `:stays`), as r8 places it. The dialect row now holds the five files r8 lists.
+- **H0-2:** `yin/vm.cljc` now clears with a new value, `:conditional-retention-oq11`, because a JVM arm has to survive until the owner decides OQ11. That value is only allowed in the migration-source row; the other eight consumers keep `"H2"`.
+- **H0-3:**
+  - Each category now lists, as data, which closure classes it accepts (taken from r8 §3.1 and §8.1).
+  - The new check, `list-1-problems`, goes lane by lane and never merges lanes. On every lane that holds a list-1 file, the file must have a nonempty class set that isn't `#{:none}` and includes a class its category accepts.
+  - Seven in-memory negative cases show each check failing on a deliberately wrong entry. One sets `yin/vm.cljc` to `#{:none}` on cljs only and confirms the other lanes don't hide it.
+
+The assertion count dropped from round 1's 293 to 73, because the 228 per-file checks became one assertion over the full problem list (which still names every bad file, lane and category). The test count is still 10. By arithmetic the JVM lane total would be 286111 assertions; I didn't re-run the full lane.
+
+**Design ambiguities.** Where §3.1 and §8.1 disagree, I implemented the narrowest rule I could check and listed five ambiguities in the report:
+- Lane-specific files in the seams row may carry the stage, timer or codec class; `.cljc` files in that row may not.
+- The table C row has to accept the deferred classes and `pretty`'s display class.
+- The deferred row has to accept the table C class, for the two `locking` files.
+- `sign.cljc` stays `:stays`.
+- A file needs one matching class per lane, not every class, since many files sit in several §3.1 rows.
+
+The Architect may want to tighten these in r9.
+
+Report: /Users/sto/workspace/datomworld/collab/1792524426000-engineer-host-boundary-h0-retag2.claude-opus-5-5.findings.md

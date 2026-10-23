@@ -1,0 +1,12 @@
+You've hit your session limit · resets 12:30am (Asia/Saigon)
+ width check, no em-dashes, no literal `grep -rl` gates remain, and nothing under `src` or `test` changed.
+
+**What r5 changed**
+
+- **Header.** Revision r5, with a line recording astra's SIGNED OFF WITH CHANGES on 2026-10-20 for §2 plus H0 to H4 only, H5 to H8 still deferred, and a statement that M1 to M4 were applied and should be confirmed by a non-Claude reviewer before H0 is dispatched. OQ7 and OQ8 stay open.
+- **M1.** §2.4 now separates ownership transfer from freezing publication. A fresh return hands the caller the exclusive mutation right and the caller may mutate; only an append, nesting in an appended value, a seam handoff or a content handle freezes a value. The four obligations read unchanged.
+- **M2.** I confirmed the literal grep does match the `dao/data.cljc` docstring and the out-of-scope graphics file, and that `integer.cljc` also names the shim in a docstring. The H2 and H3 host-library gates are now a library mode of the H0 gate test: it takes the closure tool's tagged file list, reads forms with the Clojure reader so comments and strings never count, excludes codec-track files, and reports scan errors distinctly. The shim gate reads `ns` forms, and H2 rewords the `integer.cljc` docstring. New §8.3 states this.
+- **M3.** The H0 baseline is existing files only; the seven `dao.host.*` files are planned additions; the three deletions are subtracted explicitly, including the Dart Jing writer from the lane-specific seam category.
+- **M4.** Sixteen edited plus three deleted; `aset` stated as unchanged with two behaviour changes rather than three; appendix totals 142/140/141 with 133 shared; the stale r3 heading replaced.
+
+One thing to flag: the document received concurrent edits in the same direction while I worked (the §8.2 intro, the profile and seams rows, the cost and risk paragraphs, the appendix row). I reconciled against the current text instead of duplicating, and the findings file records this. The rationale with the M1 to M4 disposition is under the 300-word limit.

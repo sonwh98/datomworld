@@ -1,0 +1,21 @@
+Report written to `collab/1792538500000-architect-host-boundary-h1.claude-fable-5-1.findings.md` in the main checkout, beside the prompt and stdout log.
+
+**Verdict: SIGNED OFF WITH CHANGES.** The changes are three documentation edits, no behaviour change and no further review round.
+
+What I verified myself, beyond the jupiter run:
+- The JVM lane passes locally (43 tests, 0 failures) and clj-kondo is clean.
+- The 25 integer entries are byte-identical to the shim, and the float-text kernel is identical to the VM module's copy apart from re-indentation.
+- The Dart NFC pass is genuine: unorm_dart 0.3.1+1 ships Unicode 16.0 data.
+
+Rulings on the two engineer findings:
+- **F1, JVM NFC on JDK 21 is Unicode 15.0.** Accepted as a recorded lane gap, not a defect in the entry. A portable NFC is rejected as new scope under a frozen design. The recommended closer is an owner toolchain decision to raise the JVM lane to JDK 24 or the JDK 25 LTS, at which point the pinned test flips green by itself.
+- **F2, gate profile-additions mechanism.** Accepted as the §8.1 reading. It is data only, leaves the H0 closure artefacts untouched, and self-retires at H2 through the staleness test.
+
+Required changes before landing:
+1. A known-gaps ledger row for the JVM NFC gap, severity P2.
+2. The `nfc` docstring states that the JVM arm's Unicode version follows the JDK.
+3. Table A's `parse-decimal` cell is amended to admit an optional leading minus, since the corpus carries negative mantissa strings that H2 must route through it.
+
+Four non-blocking P3 notes are in the report, the most useful being a domain check on `units->string` to match how `from-vector` prevalidates.
+
+Landing still needs the standard quick-tier run with recorded counts and, per §14, a non-Claude confirmation since this is a Claude review of Claude-authored code.

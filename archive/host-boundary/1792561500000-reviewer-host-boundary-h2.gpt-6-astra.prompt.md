@@ -1,0 +1,23 @@
+# Independent Architectural Review of Slice H2: Consumer Migration & Legacy Shim Deletion
+Reviewer: gpt-6-astra (Independent Reviewer / Architect)
+Date: 2026-10-21
+
+Authority: docs/design/dao.stream.host-boundary.md (r10, §2.4, §3.1, §4.2 Table B, §8 H2, §8.1, §8.2, §14)
+Worktree: /Users/sto/workspace/datomworld-host-h2
+Branch: host-h2
+
+Context:
+- Engineer (claude-opus-5-5) implemented H2: collab/1792541000000-engineer-host-boundary-h2.claude-opus-5-5.findings.md
+- System Architect (claude-fable-5-1) issued SIGNED OFF WITH CHANGES: collab/1792560500000-architect-host-boundary-h2.claude-fable-5-1.findings.md
+- Verification evidence:
+  - On jupiter (48 cores): `bb test:sub dao.host` passed on all 3 lanes (CLJ 45/1048, CLJS 31/876, CLJD 31).
+  - On shiva (24 cores): `bb test:sub dao.stream` passed across CLJ (503/0), CLJS (506/0), and CLJD (435/1 with only known UDP timeout).
+  - New H2 test suites (`arrays_test.cljc`, `php_literal_test.cljc`, `bytes_to_str_test.cljc`) pass 7 tests, 70 assertions, 0 failures.
+  - Closure tool reports `yin.vm.integer.host` required by no file and file deleted (`git rm`).
+  - §8.2 host-library gate added to `gate_test.clj` with negative tests passing.
+
+Required Review:
+Per standing rule §14, provide independent confirmation and formal review verdict (SIGNED OFF, SIGNED OFF WITH CHANGES, or REJECTED) for Slice H2.
+
+Write report to:
+collab/1792561500000-reviewer-host-boundary-h2.gpt-6-astra.findings.md

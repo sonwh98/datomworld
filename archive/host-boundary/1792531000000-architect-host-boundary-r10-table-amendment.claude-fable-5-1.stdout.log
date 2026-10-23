@@ -1,0 +1,14 @@
+Both edits are done and the gate suite is green.
+
+**Design, §8.1 of `docs/design/dao.stream.host-boundary.md`** in the main checkout. The seven-row mapping table is untouched. The rule sentence now admits a file's class either via its category or via the new bounded-exception table. That table lists the reviewer's eight files, each bound to file, list-1 category and one admitted class, with the reason both the row and the §3.1 class are right. The text refuses the blanket "any class for a lane-specific file" exemption and keeps the Dart Jing writer out of seams and on its H4 deletion path.
+
+**Validator, `test/dao/host/gate_test.clj`** in the host-h0 worktree. The old `table-gaps` ledger became `list-1-exceptions` with the category included. An exception now admits its class only while the file sits in that category, so moving a file no longer carries its exemption along. A new `:exception-category` finding fires when an exception's file is not in list 1 under the named category. The test asserts the bare table fails on exactly those eight files, that every exception is needed, and that neither direction of drift between design and ledger passes.
+
+Verification:
+
+| Check | Result |
+|---|---|
+| `bb test:sub:clj dao.host` | 11 tests, 147 assertions, 0 failures |
+| kondo on the gate test | 0 errors, 0 warnings |
+
+Closure tool, corpus hashes and other lanes were not rerun since nothing they read changed. Nothing was committed. The report is at `collab/1792531000000-architect-host-boundary-r10-table-amendment.claude-fable-5-1.findings.md` and asks the non-Claude reviewer to re-review this snapshot for H0 sign-off.
