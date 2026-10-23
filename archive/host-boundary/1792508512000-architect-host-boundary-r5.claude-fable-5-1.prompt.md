@@ -1,0 +1,15 @@
+Created-GMT: 2026-10-20 15:01:52 GMT
+Created-Local: 2026-10-20 22:01:52 +07
+Coding-Agent: claude
+Session-ID: 36134bec-9cbd-4852-b78c-4901af66fd02
+# Task: host-boundary design r5 - apply astra's four mechanical corrections (M1-M4)
+Role: Architect
+Implementers:
+- Model: claude-fable-5-1 | Assigned: 2026-10-20 22:01:52 +07 | Status: active | Rationale: astra's fourth review returned SIGNED OFF WITH CHANGES for the narrowed scope (rule + H0-H4); the changes are mechanical and need no further architect round
+
+Astra's verdict and findings: /Users/sto/workspace/datomworld/collab/1792508286000-architect-host-boundary-review-r4.gpt-6-astra.findings.md (read it). N1-N6 are resolved or substantively resolved. Apply exactly M1-M4 to /Users/sto/workspace/datomworld/docs/design/dao.stream.host-boundary.md in place, verifying each against the code/doc first, and change nothing else of substance:
+M1 (medium, H:223): returning fresh storage is called "publication", which immediately freezes it, contradicting the explicit transfer of mutation rights to the caller (it would forbid the caller's subsequent set!/aset). Separate fresh-result OWNERSHIP TRANSFER (caller gets the exclusive mutation right) from FREEZING PUBLICATION (append/nesting/seam handoff/content handle), preserving the caller's right until publication; check the four enforceable obligations still read correctly.
+M2 (medium, H:768): the literal H2 grep also matches untouched dao/data.cljc:54 documentation and out-of-scope dao/postgraphics/lowering.cljc:587 (rgba8unorm). Gate executable host references WITHIN THE ADOPTED CLOSURE, exclude comments/string false positives explicitly (say how: closure-tool-tagged files, or a comment/string-aware scan), preserve scan-error handling and codec file ownership.
+M3 (low, H:744,754,766): distinguish the H0 BASELINE from planned additions (it includes seven future files); explicitly subtract both deleted Jing writers (the JVM/JS Boring wrapper and the Dart cbor writer) from the final list; check the lane-specific category that could retain the Dart Jing writer H4 deletes.
+M4 (low, H:877,887,1110, and the stale r3 heading at line 13): reconcile counts and labels: section 8.1 lists 16 existing files EDITED plus three DELETED (not 20 edited); the risk text calls an unchanged aset a behaviour change (fix); the appendix keeps the old closure totals (update to 142/140/141, 133 shared); update the stale r3 heading.
+Update the version/status header to r5 and add one line recording astra's SIGNED OFF WITH CHANGES for the narrowed scope (rule + H0-H4 only; not for H5-H8) with the date; state that the M1-M4 corrections were applied and should be confirmed by a non-Claude reviewer before H0 is dispatched. Keep OQ7 (needed before H4) and OQ8 (the ABI proposal, owner's) open. Do NOT widen scope. Write a short rationale to /Users/sto/workspace/datomworld/collab/1792508512000-architect-host-boundary-r5.claude-fable-5-1.findings.md (header fields, under 300 words, a disposition line M1-M4 with the lines changed). No src edits, no staging, no commits, no plan mode.

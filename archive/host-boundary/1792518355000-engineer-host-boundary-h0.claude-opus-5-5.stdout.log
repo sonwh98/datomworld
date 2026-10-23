@@ -1,0 +1,54 @@
+H0 is done in the `host-h0` worktree. Nothing in `src/` changed, nothing is staged or committed, and every test lane passes. One finding has to be settled before H1: the list of files allowed host code (list 1) doesn't match the design's §8.1 baseline.
+
+**Results against the brief:**
+- **(a) Closure:** the tool reproduces exactly 142 (clj) / 140 (cljs) / 141 (cljd) files with 133 shared. The lane-specific files match §3.1 one for one. A second, independent traversal (its own reader-form walker, sharing no code with `tools.namespace`) agrees file for file on all three lanes. Each file in the committed `closure-{clj,cljs,cljd}.edn` is tagged with its §3.1 class or classes, or `:none`.
+- **(b) Gate test:** `dao.host.gate-test` passes on the current tree, reading all 155 distinct closure files.
+  - An injected `#?(:clj …)` in a file outside list 1 fails the gate with exactly one arm violation.
+  - An injected `(random-uuid)` outside list 2 fails it with exactly one violation of that kind.
+  - Reading zero files, or a file that can't be read, gives `:scan-failure`, which is distinct from a pass.
+  - Injections are done in memory; no real source was edited.
+  - Run alone it gives 10 tests and 65 assertions; clj-kondo and cljstyle are clean.
+- **(c) Counts:**
+
+| Lane | Before | After |
+|---|---|---|
+| JVM | 4121 tests / 286038 assertions | 4131 / 286103 (+10 / +65, exactly the new gate test) |
+| Node | 4112 / 150444 | same |
+| Dart | 4060, all passed (no assertion count printed) | same |
+
+  - I ran Node and Dart once, not twice. Those lanes don't compile any of the new files (one `.clj` test and two `src/dev` tools), so a second run would have the same input.
+  - The first Node run hit the 20-minute background limit while my other JVM runs competed for CPU. I reran it on its own; those are the numbers above.
+- **(d) Corpus hashes:** SHA-256 of the 18 files under `test/resources/dao/jing/` and `test/fixtures/codec/` is in `corpus-sha256.edn`. `bb src/dev/host_boundary/corpus_hashes.clj [--check]` regenerates or checks it, and a JVM test asserts every digest.
+
+**Findings (recorded, not adjusted to fit the design):**
+- **F1, list 1 vs §8.1:** 16 closure files have real host arms that §8.1 doesn't name. Examples:
+  - `dao/space/index.cljc:78`
+  - `yin/vm.cljc:404` (`bytes->str`)
+  - `yang/php.cljc:95,98` (number parsing)
+  - several byte-length and safe-integer arms
+
+  They are on list 1 tagged `:h0-unlisted`, so the gate passes and still catches any new arm. In the other direction, §8.1 names six files that aren't on list 1: four are outside the closure and two have only exempt `catch` arms. The Architect needs to categorise the 16 and decide whether to drop the six.
+- **F2:** `random-uuid` occurs 21 times in the closure, not 26. The other five are in `dao/await.cljc` and `yin/vm/ffi/remote_serve.cljc`, which no file in `src/` requires.
+- **F3:** some namespaces in the §3.1 table rows aren't in the closure (`dao.stream.udp`, `dao.await`, `dao.jing.content.async`, `dao.space.schema`, …). The waitset driver files are in no class row; I tagged them as seams.
+- **F4, §3.2 sites:**
+  - `main.cljc` has 13 resolved print calls, not 19; I couldn't reconcile the difference.
+  - `antlr/repl.cljc:71` is a `println` inside a quoted yin program, so it isn't a host call.
+  - Of the M-entry callers named in §2.4, only `dao.data.btree` has calls the gate can resolve today (33). The others mutate host arrays directly.
+
+**Deviation:** the tools live in `src/dev/host_boundary/`, not the design's `dev/`, because that is where every dev tool in the repo already is (and `dep_graph.clj` uses `tools.namespace` the same way). I didn't edit `deps.edn` or `bb.edn`, so the closure tool runs with an inline `-Sdeps` alias. Because `src/dev/` changed, `bb test:changed` on this branch will report a wide change and ask for `bb test`.
+
+Not done:
+- the gate's library mode, which belongs to H2
+- anything from H1 onward
+- the slow tier
+
+Files are in /Users/sto/workspace/datomworld/.claude/worktrees/host-h0:
+- src/dev/host_boundary/closure.clj
+- src/dev/host_boundary/corpus_hashes.clj
+- test/dao/host/gate_test.clj
+- docs/design/host-boundary/closure-clj.edn
+- docs/design/host-boundary/closure-cljs.edn
+- docs/design/host-boundary/closure-cljd.edn
+- docs/design/host-boundary/corpus-sha256.edn
+
+Report: /Users/sto/workspace/datomworld/collab/1792518355000-engineer-host-boundary-h0.claude-opus-5-5.findings.md

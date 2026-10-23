@@ -1,0 +1,25 @@
+Report written. Nothing further is needed from the worktree, so here is the recap.
+
+**Verdict: SIGNED OFF WITH CHANGES.** Report at `collab/1792560500000-architect-host-boundary-h2.claude-fable-5-1.findings.md` in the main checkout.
+
+**What I verified independently on this machine**
+
+- Closure tool `--required-by yin.vm.integer.host` reads 573 files, prints `none`, exits 0. Positive control on `dao.host.bytes` finds 14 requirers and exits 1. `--check` passes at 146 / 144 / 145, 137 shared.
+- JVM lane `bb test:sub:clj dao.host` passes 45 tests including the gate. The new H2 suites plus the float and corpus oracles pass on the JVM: 147 tests, 1709 assertions, 0 failures.
+- No direct host-array mutation is left in H2 files other than the named `sign/generate` entropy fill. No codec-track file is touched. Nothing from §9 is started.
+
+**Rulings on F1 to F5**
+
+- F1 is pre-existing and belongs to the codec track. The real problem is that shadow exits 0 after the crash, so the Node lane reports green having skipped everything after it. A P1 ledger row is required.
+- F2 is a design under-enumeration, not an engineer error. The JS and Dart number-classification arms in `debruijn` and `debruijn_code` are retained host number-model arms and get a new §8.1 row. Two small ports and the `values.cljc` category move go to a follow-up slice H2b. Swapping those predicates is not byte-neutral, which is why they stay.
+- F3, F4 and F5 are accepted as implemented. F4 amends the design text rather than widening `safe-native?`. F5 is a named behaviour change for the slice report.
+
+**Required before commit, no review round**
+
+1. Gate list-1 data edits: `data.cljc` and `values.cljc` become `:pending` with H2b reasons, and the `debruijn` reason texts name the ruling. Re-run the JVM gate lane.
+2. One `known-gaps.md` row for F1.
+3. r11 amendments to the design doc: post-H2 totals, the new §8.1 row, the F4 wording, the F5 note, the §2.4 named exception.
+
+Then the standard landing conditions apply: slice report naming behaviour changes 1 to 6 and the Node exclusion, per-lane counts, and the non-Claude confirmation per §14.
+
+One finding outside H2 deserves the owner's eye. On JS, `debruijn_code` classifies a `-0.0` literal as a long because `Number.isSafeInteger(-0)` is true, while the JVM classifies it as a double. That is a cross-host address divergence, read from the code and not executed. It is recorded as R7 for that file's owner.

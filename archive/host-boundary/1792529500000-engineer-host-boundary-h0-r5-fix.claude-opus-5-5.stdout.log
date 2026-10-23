@@ -1,0 +1,33 @@
+I fixed H0-R5 and switched `yin/vm.cljc` to `:pending`. I also made the gate's category-to-class mapping match the §8.1 table exactly, but list 1 then fails on 8 files because of a conflict inside the design. I recorded those 8 as explicit exceptions, so H0 needs an Architect ruling before sign-off. All checks pass, and the only file changed is `test/dao/host/gate_test.clj`. Nothing is committed.
+
+**H0-R5 (`specify!` target):** the scanner now checks the target expression of `specify`/`specify!` using the surrounding code's local names, separately from the methods. A method parameter still only shadows inside its own method. I added one regression test using your injected `(random-uuid)` and three small unit cases. Your exact probe in `dao/space/index.cljc` now fails the gate (`:random-uuid` 1 found / 0 allowed, line 1416), the same as the control.
+
+**Vocabulary:** `yin/vm.cljc` is now `:migration-source :pending`, with "OQ11" kept in the reason text. `:conditional-retention-oq11` no longer appears anywhere.
+
+**Category-to-class table:** I added `:consumer` to `:migration-source`, removed `:deferred-timers` from `:runtime-prereq` and `:runtime-prereq` from `:deferred-scope`, and dropped the special case for lane-specific seam files.
+
+**The design conflict:** for 8 files, the §8.1 file rows, their §3.1 classes and the §8.1 table can't all be true at once:
+
+| File | §8.1 row places it in | Its §3.1 class | Allowed by the table for that row? |
+|---|---|---|---|
+| `dao/space/transactor.cljc`, `yin/vm/ucf/authority.cljc` | deferred scope | `:runtime-prereq` | No |
+| `src/clj/dao/jing/content/driver.clj` | seams | `:deferred-timers` | No |
+| `yang/antlr/cst.{clj,cljs,cljd}` | seams | `:deferred-stage` | No |
+| `dao/stream/{cbor,transit}/cljd.cljd` | seams | `:codec-track` | No |
+
+I didn't guess which section is wrong. Instead, a new `table-gaps` map in the gate lists each of the 8 files with the one extra class it's allowed and the design sections behind it. Two tests keep that list honest: with no gaps, exactly those files fail, and removing any single gap makes the check fail.
+
+**Decision for you (Architect):** pick one, and then `table-gaps` can be deleted:
+- **(a)** Amend the §8.1 table so deferred scope also admits `:runtime-prereq`, and the seams row admits any class for a lane-specific file (which is what the row text already says). This is the smaller change.
+- **(b)** Move the two `locking` files to the runtime-prereq row, and amend the seams row for the 6 lane-specific files.
+
+**Checks run:**
+- `bb test:sub:clj dao.host`: 11 tests, 113 assertions, 0 failures.
+- `re-review.clj`: exit 0.
+- Lint: clean.
+- Closure tool `--check`: 142/140/141 files, 133 shared.
+- Corpus hashes: 18 files identical.
+
+I didn't run the full JVM/Node/Dart suites or the slow tier.
+
+Report: `collab/1792529500000-engineer-host-boundary-h0-r5-fix.claude-opus-5-5.findings.md`

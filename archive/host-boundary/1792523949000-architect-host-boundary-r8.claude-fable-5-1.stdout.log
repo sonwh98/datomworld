@@ -1,0 +1,13 @@
+The findings file counts 534 words including its ~80-word header, so the body is under 500. Everything is verified: tables aligned, no stray wording, nothing under `src` or `test` changed.
+
+Done. The design document is at r8 with astra's five findings applied, the findings file is written, and nothing under `src` or `test` changed. The orchestrator log modification and the untracked jolt doc are not mine.
+
+**What changed, each verified in the code first**
+
+- **R7-1, PHP floats and code points.** No new arm was needed. The integer module already exports a CPython-exact `decimal->float`, and the `yang` layer already depends on it, so Table B gains a portable `decimal-text->float` (text to digits plus exponent, then that algorithm) and a public `code-points` (the private one in `yin.vm.data`, whose lone-surrogate behaviour matches the three host calls the packet uses today). Both are built in H1 with named tests. They carry no arm and are stated as not counted, so the profile stays at 76 everywhere.
+- **R7-2, four behaviour changes.** §10 now names all four with table D tests: `acopy` prevalidation, strict `utf8-encode`, `bytes->str` strict UTF-8 on every host (the JVM substitutes U+FFFD for malformed input today, so malformed bytes change on all three lanes and non-ASCII bytes on JS and Dart), and PHP integers above 2^53 exact on JS. H2's cell lists the consumer tests. The public encoding arity is preserved and recorded as **OQ11**, open, with the evidence and a recommendation to make it portable with UTF-8 as the only accepted name.
+- **R7-3, the index comparator.** Dart's signed-zero exclusion is preserved by construction: the native path is taken for exact integers only and every float goes through the canonical comparison on every host, with signed-zero, NaN, infinity and `1` versus `1.0` tests required.
+- **R7-4.** "No tool change" is replaced by a distinction between closure classes (data in the tool) and gate categories (data in the test), with classification-data edits and regeneration permitted and the traversal, totals, hashes and negative-test semantics fixed.
+- **R7-5.** Header r8 with the chronology, the §4.2 reference, the print breakdown (8 `println`, 1 `print`, 4 console logs, `flush` excluded), and one name for the ring buffer's arm under the seams row.
+
+§14 now states what H1 must build beyond r7: the two Table B functions and their tests. A non-Claude reviewer must confirm r8 before H1 is dispatched.

@@ -1,0 +1,24 @@
+I won't add a monitor, because the background `bb test:changed` run already notifies me when it exits.
+
+So far, H1 is implemented but not committed; committing waits for a non-Claude Architect sign-off.
+
+- **Code:** the five `dao.host.*` namespaces exist and hold the 59 Table A entries, plus the float-text kernel and `code-points`. The integer entries and the float kernel are verbatim copies; I diffed them against their sources.
+- **Tests:** four new test namespaces, plus a pinned Unicode 16.0 normalization subset (17,130 rows) as a test resource.
+- **Gate:** list 1 grows by the five files. The gate now scans 160 files, and a new test fails if any `dao/host` file escapes the scan.
+- **Results:** `bb test:sub dao.host` passes on all three lanes:
+  - JVM: 43 tests, 1,050 assertions, 0 failures.
+  - Node: 31 tests, 876 assertions, 0 failures.
+  - Dart: 31 tests, 0 failures.
+
+  The gate test passes (12 tests, 180 assertions), and kondo and cljstyle are clean.
+- **Report:** `collab/1792533000000-engineer-host-boundary-h1.claude-opus-5-5.findings.md`. Its G2 line is still marked pending.
+
+Two findings need an Architect ruling:
+- **F1: Unicode normalization on the JVM is version 15, not the pinned 16.0.** JDK 21's normalizer gets 20 rows wrong: newly added characters in four scripts. Node and Dart pass every row. I pinned exactly those 20 code points as a known JVM gap rather than weakening the test. The pin fails as soon as the JDK version changes. The options are moving the JVM lane to JDK 24+, a portable normalizer, or recording the gap in `known-gaps.md`.
+- **F2: how list 1 grows by five files.** No code requires the five files until H2, so the gate never read them. I made it read them beside the closure, as §8.1's planned additions, with a check that fails once the closure reaches them. The closure tool and its totals are unchanged.
+
+I'll fill in the G2 result in the report when the run finishes.
+
+G2 (`bb test:changed`) ran no tests. Its runner calls a build step named `gen:python-antlr`, which no longer exists: an earlier commit (4685a8bd) renamed it to `gen:antlr` in `bb.edn`. The runner has no way to skip that step, and fixing the runner is outside H1, so I haven't touched it.
+
+Instead I've started the full fast suite, `bb test`, on all three lanes in the background (about 15 minutes). It covers everything G2 would have selected, and its tasks already use the correct build step name. I'll add the result and the runner bug to the report when it finishes.

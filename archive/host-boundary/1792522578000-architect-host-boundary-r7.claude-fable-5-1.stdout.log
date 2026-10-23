@@ -1,0 +1,12 @@
+The count includes about 75 header words, so the body is well under 500. Everything is complete.
+
+Done. The design document is reconciled with H0's measurements as r7, the findings file is written, every table row matches its border, and nothing under `src` or `test` changed. The orchestrator log modification and the untracked jolt doc are not mine.
+
+**What H0's measurements changed, each verified against the code**
+
+- **F1, the 16 unlisted arms.** Nine are profile consumers the manifest already covers and H2 migrates: byte-length arms in three files, `bytes->str` in the VM primitive table, PHP number parsing, two safe-integer checks, the index number fast path, and code points in the packet IR. Two carry real cross-host divergences that become named behaviour changes: `bytes->str` decodes bytes as char codes on JS and Dart but as UTF-8 on the JVM, and `js/parseInt` loses precision above 2^53. Six are retained dialect arms (runtime-type diagnostics, EDN reader aliases, the ring buffer's own atom test). One is deferred entropy. The six names H0 could not find are dropped. The reconciliation paragraph states exactly what H0 must change (retag the 16 as data) and what it need not (totals, tool, tests, hashes).
+- **F2, random-uuid counts.** Three scopes are stated and the gate uses the transitive closure, with the reason: an unrequired file cannot affect a host until it is required, at which point it enters the closure. The five out-of-closure sites go to the deferred design's inputs.
+- **F3, the §3.1 table.** Out-of-closure namespaces are removed, the waitset drivers and the ws seams' clock reads are in the seams row, and the count reads 21.
+- **F4.** Printing in the REPL main is 13 resolved calls. The `println` in the Python REPL shim is inside a quoted yin program and is withdrawn. §2.4 obligation (iv) now says what the gate can see today (only the B-tree's 33 calls), why the other three callers are invisible until H2 migrates them, that the freeze rule itself is never gate-checkable, and the four steps H2's audit must take.
+
+Cost rises to 24 edited files plus 3 deleted, and the false "dao.space.index untouched" claim is corrected. A non-Claude reviewer must confirm r7 and the retagged H0 before H1 is dispatched.

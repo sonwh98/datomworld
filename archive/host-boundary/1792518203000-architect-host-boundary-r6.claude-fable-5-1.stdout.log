@@ -1,0 +1,10 @@
+Done. The r6 corrections are applied in place, every table row matches its border, there are no em-dashes, and nothing under `src` or `test` changed. The orchestrator log modification and the untracked jolt doc are not mine.
+
+**What changed**
+
+- **D1, section order.** The three subsections now read 8.1 (list 1), 8.2 (the host-library gate), 8.3 (codec-track disjointness) in file order. Every cross-reference was remapped through a placeholder substitution, so none points at the old number.
+- **D2, deletion-gate wording.** HD4, §10 and §14 no longer call H2's gate a grep. They describe the closure tool reading `ns` forms: the shim required by no file before the deletion commit, absent and required by no file after.
+- **D3, library mode placement.** The library mode of the gate test lands with H2, not H0. H0 is a freeze with no source change and the mode has no consumer before H2's deletion, so building it in H0 would add a deliverable nothing exercises. H2's deliverables now name it, and its acceptance gains two negative tests: a fixture closure file with an executable `BigInteger` reference outside the allowlist fails, and a fixture naming it only in a docstring and a keyword passes.
+- **Header.** The r5 header is kept with an added line recording that D1 to D3 were applied and citing cmd's confirmation check.
+
+The rationale and the D1 to D3 disposition with line numbers are in the findings file, under the 200-word limit. The spec is ready for H0 to be commissioned.

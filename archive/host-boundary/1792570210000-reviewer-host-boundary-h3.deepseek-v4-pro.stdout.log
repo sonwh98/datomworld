@@ -1,0 +1,18 @@
+[claude-code:unrecognized_model] {"model":"deepseek-v4-pro","query_source":"sdk"}
+Review complete. The report is written to `collab/1792570210000-reviewer-host-boundary-h3.deepseek-v4-pro.findings.md`.
+
+## Verdict: SIGNED OFF
+
+**What I verified** (independent review of the full diff + 3 untracked files in `/Users/sto/workspace/datomworld-host-h3`, against `dao.stream.host-boundary.md` r10):
+
+**Architectural compliance (§14 checklist) — all pass:**
+- `dao.host.hash` / `dao.host.sign` are genuinely pure (P) primitives requiring only `dao.host.bytes` + host libraries — no layering violation, no `yin` require from `dao`.
+- Deterministic seed-replay (`jvm-pair` proxy) is correctly distinguished from fresh entropy (`generate` stays deferred in `yin.vm.linker.sign`).
+- Host-library gate extended with the 7 H3 names; `ed25519_edwards` correctly exempted only in `sign.cljc` (`generate`). Closure counts regenerate to 148/146/147, 139 shared, 161 union.
+- No host-library stragglers outside `dao/host/` — the lone `goog.crypt` hit is a docstring (correctly ignored by the reader-based gate), confirming §8.2's "grep is not the gate".
+
+**Correctness spot-checks:** ASN.1 prefixes ported byte-for-byte, base64 decode's three padding cases verified by trace, `:m-entry 11` reconciles exactly with 11 `bytes/copy!` sites.
+
+**Independent test runs (JVM lane)** — I ran the repo's own suites in the worktree, confirming 0 failures: `dao.host` (50), `dao.stream`+`dao.jing` (738), `yin.vm` (1273).
+
+**Three non-blocking observations** (hex triplication, a hardcoded `sign.cljc` path string in the gate, a redundant double-slice) — none rises to "WITH CHANGES".

@@ -1,0 +1,20 @@
+The retag is done in `host-h0` on top of 9f6fc27d. The gate test passes with 10 tests and 293 assertions (was 65), and the closure and corpus checks both exit 0. Nothing is staged, committed or pushed.
+
+**What changed:**
+- **The 16 former `:h0-unlisted` files** now have their r7 category and the slice that clears them:
+  - 9 profile consumers became `:migration-source`, cleared by H2. `yin/vm.cljc:404` and `yang/php.cljc:95,98` record their behaviour changes (strict UTF-8, and exact `parseInt` above 2^53).
+  - 6 became `:dialect-arm` and stay.
+  - `rpc.cljc:114` became `:deferred-scope` (deferred entropy).
+- **Every list-1 entry** is now data: a category, a clearing slice and, where useful, a reason.
+- **The gate now fails** if a list-1 file has an unknown category, a slice its row doesn't allow, or a closure class of `:none`. I checked this by forcing `yin/vm.cljc` to `:h0-unlisted` (2 failures) and to slice `"H9"` (1 failure).
+- **The six dropped names** are not on list 1, and the equality test keeps it that way.
+- **Unchanged:** the 142/140/141 totals with 133 shared, the file lists, the second traversal, the two negative tests, the scan-failure test, the corpus hashes, and the 21-site `random-uuid` list. The F2 wording was already right, so I didn't edit it.
+
+**JVM count:** still 4131 tests, since I added no new test functions. Assertions should go from 286103 to 286331 (+228, which is 76 files × 3 new checks). That figure is worked out, not measured; I didn't re-run the full lane because r7 says it isn't needed.
+
+**Where r7 didn't fit the code:**
+- **I had to change the closure tool's data.** r7 says "no tool change", but the class tags come from the tool's `class-rows` table, so adding r7's two new §3.1 rows meant editing that table. Only the data changed, not the traversal. In the same table I moved the waitset drivers and the ringbuffer into the seams row and removed the out-of-closure names.
+- **`ringbuffer.cljc:168` sits in two different rows.** §3.1 puts it under seams and §8.1 under dialect arms. I followed each section in its own file. Either way it is retained, but the Architect may want one name.
+- **r7 lists `flush` among the 13 print calls in `main.cljc`.** The 13 are actually 8 `println`, 1 `print` and 4 `js/console.log`; the gate doesn't count `flush`. The count is right, the word isn't.
+
+Report: /Users/sto/workspace/datomworld/collab/1792523065000-engineer-host-boundary-h0-retag.claude-opus-5-5.findings.md

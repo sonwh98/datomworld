@@ -1,0 +1,15 @@
+Done. The design document is revised in place as r2 and the r2 rationale is written. Nothing under `src` or `test` changed, nothing is staged, and the modified orchestrator log and untracked jolt doc are the orchestrator's, not mine.
+
+**What changed in the document**
+
+- **Governing rule (§2).** The owner's test 2 is stated as the criterion: dao.stream wherever the contact can be an IO action; a pure, total, synchronous same-host function may be a direct call. "Can be an IO action" is defined by six properties, each cited to the ABI. Borderline cases are decided with reasons: fallible decoders and NFC are direct calls, hashing in a linked library is a direct call that must run in-instance, entropy and time and scheduling are IO, the Python parser is pure in-process and IO as another process. §2.4 says plainly where the owner's literal sentence is and is not met.
+- **Resolved-call census (§3.2).** Twenty-four `random-uuid` sites, the `rand` and `gensym` sites, secure generators, clocks, ambient properties, printing, timers and locks, each with file and line, each assigned a slice. The in-memory streams mint identities, so r1's "no seam needed" claim is corrected.
+- **Entropy and scheduling (§4.4).** No callable generator or timer in portable code. The driver deposits CSPRNG bytes on an entropy stream, identities derive from drawn bytes, creation specs carry their identity, and the async content facade becomes a stepped owner the driver pumps. This makes identities reproducible under a test fixture for the first time.
+- **Exact manifest (§4.3).** Sixty-six profile functions named with source lines and oracle files, plus a runtime-prerequisites table covering the B-tree atomics and weak references, the `yin.vm.values` and Jing carrier types, and the promise facade. Laws for aliasing, malformed UTF-8, Unicode 16.0 and sort stability are pinned.
+- **Storage seam (§4.2).** The claim-file lock algorithm stays portable; the seam enumerates its lower operations and specifies short-read, failed-append, failed-sync and failed-rename outcomes.
+- **Slices H0 to H8** reworked: H0 gates both reader arms and resolved effect calls over the adopted closure, H1 tests the new namespaces directly, H2 lists all nine consumers of the integer shim with an empty-grep gate before deletion, H4 measures instead of claiming numbers. Two one-line edits in codec-track files are deferred past C4.
+- **§11.1** records OQ1 to OQ6 as owner decisions with the owner's quotes. **§12** is the proposed ABI amendment (a new §8 plus one sentence in datom.world.md), marked for owner approval and not applied.
+
+**Findings file.** Contains the rationale and a disposition table: all eight of astra's findings accepted, A7 under its second option.
+
+**Still open for the owner:** OQ7 (what H4 regression is acceptable), OQ8 (approve the ABI amendment), OQ9 (entropy stream versus identity-in-spec), OQ10 (threading a counter through the compilers' `gensym`). A non-Claude architect must sign off this r2 before anything is commissioned.

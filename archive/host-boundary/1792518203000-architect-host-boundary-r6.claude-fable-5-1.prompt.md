@@ -1,0 +1,10 @@
+Created-GMT: 2026-10-20 17:43:23 GMT
+Created-Local: 2026-10-21 00:43:23 +07
+Coding-Agent: claude
+Session-ID: 36134bec-9cbd-4852-b78c-4901af66fd02
+# Task: host-boundary design r6 - three low defects from cmd's confirmation check (D1-D3)
+Role: Architect
+Implementers:
+- Model: claude-fable-5-1 | Assigned: 2026-10-21 00:43:23 +07 | Status: active | Rationale: cmd (non-Claude) confirmed M1-M4 applied and found three low defects; fix them so H0 can be commissioned from a clean spec
+
+cmd's check: /Users/sto/workspace/datomworld/collab/1792517656000-reviewer-host-boundary-r5.qwen3.8-max.findings.md (M1-M4 APPLIED; no duplicated or orphaned text from the earlier double launch). Fix in place in /Users/sto/workspace/datomworld/docs/design/dao.stream.host-boundary.md, verifying each first: D1 subsection order in section 8 is 8.2, 8.3, 8.1: reorder or renumber so it reads in order and fix every cross-reference to those numbers. D2 HD4, section 10 and section 14 still call H2's deletion gate a "one-file grep"/"empty grep" while the H2 cell specifies the closure tool reading ns forms: reword to match the reader-based gate. D3 section 8.3 says the library mode of the gate test (dao.host.gate-test) is delivered in H0, but H0's deliverables and acceptance never build or test it (its first exercise is H2): either put the library mode, with a falsifiable acceptance (a negative test: a file in the closure with a host-library reference outside the allowlist fails the gate; a docstring or keyword mentioning the same name does not), into H0's deliverables, or state that it lands with H2 and keep H0 as the freeze only; choose the option that keeps H0 small and say why. Change nothing else of substance; keep the r5 header with an added line "r6: D1-D3 applied". Rationale to /Users/sto/workspace/datomworld/collab/1792518203000-architect-host-boundary-r6.claude-fable-5-1.findings.md (header fields, under 200 words, a disposition line D1-D3 with lines changed). No src edits, no staging, no commits, no plan mode.

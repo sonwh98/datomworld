@@ -1,0 +1,746 @@
+OpenAI Codex v0.162.1
+--------
+workdir: /Users/sto/workspace/datomworld/.claude/worktrees/host-h0
+model: gpt-6-astra
+provider: openai
+approval: on-request
+sandbox: workspace-write [workdir, /tmp, $TMPDIR]
+reasoning effort: medium
+reasoning summaries: none
+session id: 01a15c49-b2f5-7982-8a3d-fc1d96b8be16
+--------
+user
+Created-GMT: 2026-10-21 02:40:00 GMT
+Created-Local: 2026-10-21 09:40:00 +07
+Coding-Agent: codex
+Session-ID: fresh
+
+# Task: Final Review & Sign-Off of Slice H0 (Post §8.1 r10 Amendment)
+Role: Independent Architect & Reviewer (non-Claude sign-off per §14)
+Model: gpt-6-astra
+
+Working Directory: /Users/sto/workspace/datomworld/.claude/worktrees/host-h0
+Branch: host-h0
+Governing Documents:
+- /Users/sto/workspace/datomworld/docs/design/dao.stream.host-boundary.md (§8.1 amended with r10 bounded exception table)
+- Architect Report: /Users/sto/workspace/datomworld/collab/1792531000000-architect-host-boundary-r10-table-amendment.claude-fable-5-1.findings.md
+- Previous Review: /Users/sto/workspace/datomworld/collab/1792530100000-reviewer-host-boundary-h0-r3.gpt-6-astra.findings.md
+
+Verify:
+1. §8.1 in `docs/design/dao.stream.host-boundary.md`: Bounded exceptions to the mapping (r10) explicitly names the 8 bounded file/category/class entries as requested.
+2. `test/dao/host/gate_test.clj`:
+   - `list-1-exceptions` matches the §8.1 r10 table row for row with category binding.
+   - Enforced bidirectionally (dropping an exception fails, moving a file fails, rebinding category reports `:exception-category`).
+3. Verification:
+   - Run `bb test:sub:clj dao.host` and verify clean 0-failure execution.
+
+Deliver final review report to:
+/Users/sto/workspace/datomworld/collab/1792531500000-reviewer-host-boundary-h0-r4.gpt-6-astra.findings.md
+Provide explicit verdict: SIGNED OFF, SIGNED OFF WITH CHANGES, or NOT SIGNED OFF.
+codex
+I’ll compare the amended §8.1 table with the gate, run the host tests, and write the final review report with an explicit verdict.
+exec
+/bin/zsh -lc 'pwd; git status --short; cat docs/design/datom.world.md' in /Users/sto/workspace/datomworld/.claude/worktrees/host-h0
+ succeeded in 0ms:
+/Users/sto/workspace/datomworld/.claude/worktrees/host-h0
+ M docs/design/host-boundary/closure-clj.edn
+ M docs/design/host-boundary/closure-cljd.edn
+ M docs/design/host-boundary/closure-cljs.edn
+ M docs/design/test.subsystems.md
+ M src/dev/host_boundary/closure.clj
+ M src/dev/subsystems.edn
+ M test/dao/host/gate_test.clj
+---
+description: Core philosophy, foundational axioms, invariants, primitives (tuples, streams, host boundaries), architectural commitments, design principles, code style, and development workflow for datom.world
+---
+
+# DATOM.WORLD ARCHITECTURAL FOUNDATIONS & DEVELOPMENT RULES
+
+## Core Philosophy
+
+Everything is data.
+Interpretation > abstraction.
+Explicit causality > implicit assumptions.
+Restrictions are a feature.
+
+### Foundational Axioms
+
+1. **Everything is a Stream**: All IO and data flow through append-only streams.
+2. **Interpretation Creates Semantics**: Data is syntax; semantics only emerge through interpretation (one truth, many perspectives).
+   At system scale, a "system" is an emergent property of interpreters of
+   pure data, not an object, service, or stored artifact. Find the
+   interpreters and the data they share to find the system.
+3. **Code and State are Datoms**: Code (Universal AST) and runtime execution state are structured datoms, enabling syntax independence and structural reflection.
+4. **Everything is a Continuation**: Computation is modeled as serializable, portable continuations that can pause, travel across streams, and resume anywhere.
+
+## Non-Negotiable Invariants
+
+- Do not introduce hidden global state.
+- Do not introduce implicit control flow.
+- Do not introduce callbacks; every callback is an event on a stream.
+- Do not introduce shared mutable state.
+- Do not collapse interpretation and execution into the same layer.
+- Do not assume graphs: graphs must be constructed explicitly from tuples.
+- Do not lose information (unitarity): streams are append-only and no datom is destroyed, only reinterpreted. The Universal AST is never lost: it is always retrievable wherever code is lowered, by address or by a query over its datoms. Every derived form (semantic vector, native images, indexes) is an interpretation of it and may drop facts only because the AST remains.
+
+## Tuples and Datoms
+
+Tuples are elements in an open moduli space, graded by dimension $n$. A tuple can be any dimension/size.
+A datom is the canonical persistent tuple `[e a v t m]` (entity, attribute, value, transaction, metadata). Persistent facts are immutable datoms.
+Source scope belongs to the interpreter, never to an appended tuple slot. Queries keep physical sources as separate db-values and express union or joins explicitly.
+
+See [`docs/design/datom.md`](./datom.md) for full specification.
+
+## Streams
+
+All IO is modeled as a stream. Functions consume streams and produce streams.
+No direct function-to-function coupling without a stream boundary.
+Side effects must appear as stream emissions.
+Streams are values that can be sent through streams.
+Streams carry whatever values the consumer needs: no datom requirement, no privileged payload shape.
+
+A stream has no privileged reader, and its meaning is not in it. Any number
+of interpreters may observe the same medium, and each constructs its own
+semantics from the same batches: a `yin.vm` evaluator observing a program
+stream constructs CESK state and executes it; `dao.space.index` observing
+the very same stream materializes covered indexes, so `dao.space.query/q`
+answers Datalog over the program as it grows. Neither knows the other
+exists. The medium is their only coupling, and each observer's ignorance of
+the other is load-bearing: the evaluator never consults an index to run,
+and the index never evaluates a form to index it. This is how axiom 2
+becomes architecture: one stream, many interpretations, none of them
+the stream's own.
+
+Functions can take anything and return anything.
+Agents are functions, closures, or continuations in `yin.vm` that communicate with the outside world through `dao.stream`. Agent behavior is specified entirely through stream effects.
+
+See [`docs/design/dao.stream.md`](./dao.stream.md) for full stream specification.
+See [`docs/design/yin.vm.streams-all-the-way-down.md`](./yin.vm.streams-all-the-way-down.md) for VM architecture.
+
+### Host Boundaries
+
+A host boundary is the dao.stream abstraction boundary; implementations do not add contracts.
+[datom.world.abi.md](./datom.world.abi.md) owns the doctrine, owner rulings, taxonomy, floor and custody rules.
+
+## Architectural Commitments
+
+- **`dao.jing` is syntax, agents are semantics**: the content-addressed encoding stays passive and payload-agnostic.
+- **Macros are stream topology**: an evaluator knows nothing about macro expansion; expansion happens on the syntax side of a medium boundary, upstream of any evaluator.
+- **Peer observers, one stream**: a generic evaluator and `dao.space` independently observe the same stream topic, as described under Streams. This is not a claim about any two consumers regardless of what they consume.
+- **Observers are independent and optional**: nothing requires a medium to have any particular set of consumers. Which observers exist for a stream is a per-composition choice, not a design-time commitment.
+
+## Design Principles
+
+Code quality is measured by malleability: how cheaply can changes adapt without breaking promises?
+Stigmergic coordination emerges from sharing data across streams.
+
+**Systems emerge from interpreters of pure data.** Streams are the
+composition medium; each interpreter gives the same data a perspective
+without collapsing interpretation into execution or owning the truth.
+
+- `dao.space` emerges from `dao.space.index` and `dao.space.query` over
+  ordinary streams.
+- ShiBi capability, metering, and budget emerge from different
+  interpreters over the same tuples; no token object is stored.
+- The four VMs interpret one Universal AST; many syntaxes feed that AST.
+- The semantic AST in `dao.space` is queryable facts projected by the
+  auto-index observer.
+- Client and server are roles in one stigmergic behavior implemented by
+  interpreters, not distinct kinds of nodes.
+
+**Derive, don't persist.** Before adding a tag, slot, or field to any
+canonical content-hashed structure (an AST grammar, a datom schema, a row
+shape), check whether a correctly scoped Datalog query over
+`dao.space.query/q` can already compute the fact. If it can, it belongs as a
+query or projection: new persisted structure migrates every downstream
+consumer and duplicates authority over a fact a query derives fresh. The
+retired `:global` tag in
+[`docs/design/yin.vm.code-as-tuples.md`](./yin.vm.code-as-tuples.md) is the
+case study, including the scoping bug that a naive query introduced.
+
+See [`docs/agents/malleability.md`](../agents/malleability.md) for complete design guidance (cohesion, coupling, bounded complexity, evolution, testing strategy).
+See [`docs/agents/vocabulary.md`](../agents/vocabulary.md) for domain vocabulary reference (biology, economics, physics, philosophy).
+
+## Code Style
+
+- Prefer simple data over rich types.
+- Prefer total functions over partial ones.
+- Prefer declarative pipelines over imperative logic.
+- Avoid cleverness.
+- Name things after what they do to streams.
+
+## Development Workflow
+
+- Do not invent abstractions that hide streams.
+- Do not suggest mainstream frameworks unless explicitly asked.
+- Do not optimize prematurely.
+- When uncertain, ask at the architectural level, not the implementation level.
+- Explanations should align with Plan 9 / Datomic / Lisp lineage.
+- Program store writes go through `engine/store-put`; any other store write
+  the store-write audit (`test/yin/vm/store_write_audit_test.clj`)
+  detects must be on its allowlist; its docstring states the residual it
+  leaves to review.
+
+### Problem Decomposition
+
+If a problem appears complex:
+1. Decompose it into streams.
+2. Identify invariants.
+3. Restrict degrees of freedom.
+4. Make causality explicit.
+5. Let structure emerge from constraints.
+
+## Operational & Specialized Guides
+
+- **Advanced Concepts**: See [`docs/agents/advanced-concepts.md`](../agents/advanced-concepts.md) for parallel transport, capability tokens, and entanglement.
+- **Build & Test**: See [`docs/agents/build-n-test.md`](../agents/build-n-test.md) for build, lint, and test commands and TDD guidelines.
+- **Engineering Team Roster**: See [`docs/agents/team.md`](../agents/team.md) for engineering team roles and LLM model assignments.
+- **Agent Delegation**: See [`docs/agents/roles/orchestrator.md`](../agents/roles/orchestrator.md) for collaboration protocols and delegating tasks or reviews through `agy`, `cmd`, `glm`, `deepseek`, and `codex`; the orchestrator's append-only work log is [`docs/orchestrator-log.md`](../orchestrator-log.md).
+- **Website & Content**: See [`docs/agents/format.md`](../agents/format.md) for `.chp` and `.blog` EDN/Hiccup file specifications.
+
+exec
+/bin/zsh -lc "sed -n '1010,1125p' /Users/sto/workspace/datomworld/docs/design/dao.stream.host-boundary.md; sed -n '1444,1500p' /Users/sto/workspace/datomworld/docs/design/dao.stream.host-boundary.md; sed -n '486,603p' test/dao/host/gate_test.clj; sed -n '835,900p' test/dao/host/gate_test.clj" in /Users/sto/workspace/datomworld/.claude/worktrees/host-h0
+ succeeded in 0ms:
+§8.2 is consistent with it.
+
+**Reconciliation with H0's measurement (r7, V).** H0 generated list 1 as
+76 files: 60 matching the rows above after the corrections now in them,
+plus 16 tagged `:h0-unlisted`. The 16 are now categorised: nine in the
+first row (profile consumers, H2), five in the "dialect arms" row
+(retained), one (`ringbuffer.cljc`) in the seams row, one (`rpc.cljc`) in
+the deferred row. **Two vocabularies, kept distinct (R7-4)**: a **closure
+class** (the `:classes` set on each file in the committed edn, generated
+from the `class-rows` data in `closure.clj:112`, V) answers "what host
+contact does this file have" per §3.1; a **gate category** (the
+`list-1-categories` of `gate_test.clj:444`, V) answers "why is this file
+permitted a non-exempt arm" per §8.1. The mapping is many-to-one and the
+gate test asserts it. **What H0 must change**: edit the classification
+**data** (the `class-rows` of `closure.clj`, which the worktree already
+extends with `:profile-consumer` and `:dialect-arm`, and the gate's list 1
+categories) so that no entry is `:h0-unlisted`, then regenerate the edn
+outputs; drop nothing (the six names H0 could not find were never on the
+generated list, and the rows above no longer name them). **What H0 must
+not change**: the traversal algorithm and its resolution rule, the totals
+142/140/141 and 133 shared, the independent-traversal agreement, the two
+negative tests' semantics, the scan-failure test and the corpus hash set;
+the lanes need not be re-run beyond `dao.host.gate-test` and the tool's
+`--check`. **How H1 and H2 clear
+the tag**: H1 adds no consumer, so the nine stay tagged `:migration-source`;
+H2 migrates them with the other consumers and removes **eight** of them
+from list 1 in the same commit, which the `list-1-equals-the-observed-arms`
+test enforces. The ninth, `yin/vm.cljc`, is **exempt pending OQ11**: after
+H2 its one-arity `bytes->str` is portable, but the JVM-only two-arity
+encoding form (`vm.cljc:404-406`, V) keeps one reader arm until the owner
+decides OQ11, so the file stays on list 1 with category
+`:migration-source` and the slice value `:pending` (reason "OQ11"), which
+the gate's `:clears` vocabulary gains in H0's retag (review H0-2: `"H2"`
+means removal, so a conditionally retained arm needs its own value). When
+OQ11 is decided, the entry becomes `"H2"` (drop or port, the arm goes) or
+`:stays` (keep JVM-only).
+
+**The category-to-class mapping, stated (R7-4, H0-3).** The gate today
+checks only that each list-1 category exists, that its slice value is
+permitted, and, weakly, that the collapsed class set is not `#{:none}`
+(V `gate_test.clj:706-714`). H0's retag strengthens it to: for every
+list-1 file, on **every lane whose closure contains it**, the file's class
+set is non-empty and does not contain `:none` (per-lane sets, never
+collapsed across lanes), and intersects the classes its category permits,
+**or** carries the one class the bounded-exception table below admits for
+that file in that category:
+
++--------------------+-------------------------------------------------------------------------------------+
+| Gate category      | Permitted closure classes                                                           |
++====================+=====================================================================================+
+| `:migration-source | `:profile-internal-pure`, `:profile-hash-sign`, `:consumer`, `:profile-consumer`    |
+| `                  |                                                                                     |
++--------------------+-------------------------------------------------------------------------------------+
+| `:profile`         | `:profile-internal-pure`                                                            |
++--------------------+-------------------------------------------------------------------------------------+
+| `:runtime-prereq`  | `:runtime-prereq`, `:internal-pure-display`, `:deferred-storage` (the promise       |
+|                    | facade file)                                                                        |
++--------------------+-------------------------------------------------------------------------------------+
+| `:codec-track`     | `:codec-track`                                                                      |
++--------------------+-------------------------------------------------------------------------------------+
+| `:dialect-arm`     | `:dialect-arm`                                                                      |
++--------------------+-------------------------------------------------------------------------------------+
+| `:seam-driver`     | `:external-stream-seam`, `:driver`                                                  |
++--------------------+-------------------------------------------------------------------------------------+
+| `:deferred-scope`  | `:deferred-storage`, `:deferred-entropy`, `:deferred-timers`, `:deferred-stage`,    |
+|                    | `:deferred-gensym`                                                                  |
++--------------------+-------------------------------------------------------------------------------------+
+
+Two placements from the r8 code review (H0-1, H0-2): `dao/stream/
+ringbuffer.cljc` is `:seam-driver` with `:stays` (its closure class
+`:external-stream-seam`), not `:dialect-arm`; `yin/vm.cljc` is
+`:migration-source` with `:pending` as above.
+
+**Bounded exceptions to the mapping (r10, H0-R3 reconciliation).** The
+file rows above and the §3.1 closure classes disagree for eight files: the
+rows place them by *why the arm is permitted* (the deferred row takes the
+`locking` files; the seams row takes every lane-specific file), while §3.1
+classifies them by *what host contact they have*. Both are kept as
+written, and the disagreement is closed by naming each case, bound to its
+file **and** its category **and** its class. An exception admits exactly
+that one class for that one file **only while the file is in that
+category**; it widens no other category, no other file and no other class.
+The gate enforces this table as data: a file in the table whose closure
+class the bare mapping already admits (the exception is no longer needed),
+or a file whose list-1 category is not the one named here, is an H0
+finding, so the table cannot go stale silently. Adding a row here is a
+design amendment, not a gate edit.
+
++------------------------------------------+-------------------+--------------------+------------------------------------------------------+
+| File                                     | List-1 category   | Admitted class     | Why both are right                                   |
++==========================================+===================+====================+======================================================+
+| `src/cljc/dao/space/transactor.cljc`     | `:deferred-scope` | `:runtime-prereq`  | Deferred row for `locking` (§9.1 scheduling); §3.1   |
+|                                          |                   |                    | table C classes the lock as a retained runtime       |
+|                                          |                   |                    | prerequisite.                                        |
++------------------------------------------+-------------------+--------------------+------------------------------------------------------+
+| `src/cljc/yin/vm/ucf/authority.cljc`     | `:deferred-scope` | `:runtime-prereq`  | Same as `transactor.cljc` (`locking`).               |
++------------------------------------------+-------------------+--------------------+------------------------------------------------------+
+| `src/clj/dao/jing/content/driver.clj`    | `:seam-driver`    | `:deferred-timers` | Seams row takes every lane-specific file; its arms   |
+|                                          |                   |                    | are clock/timer calls deferred under §9.1.           |
++------------------------------------------+-------------------+--------------------+------------------------------------------------------+
+| `src/clj/yang/antlr/cst.clj`             | `:seam-driver`    | `:deferred-stage`  | Seams row takes every lane-specific file; the file   |
+|                                          |                   |                    | is the parser stage deferred under §9.3.             |
++------------------------------------------+-------------------+--------------------+------------------------------------------------------+
+| `src/cljs/yang/antlr/cst.cljs`           | `:seam-driver`    | `:deferred-stage`  | Same as `cst.clj`.                                   |
++------------------------------------------+-------------------+--------------------+------------------------------------------------------+
+| `src/cljd/yang/antlr/cst.cljd`           | `:seam-driver`    | `:deferred-stage`  | Same as `cst.clj`.                                   |
++------------------------------------------+-------------------+--------------------+------------------------------------------------------+
+| `src/cljd/dao/stream/cbor/cljd.cljd`     | `:seam-driver`    | `:codec-track`     | Seams row takes every lane-specific file; the file   |
+|                                          |                   |                    | is the Dart codec shadow owned by the codec track    |
+|                                          |                   |                    | (§8.3). Not a Jing writer: the H4 deletion of        |
+|                                          |                   |                    | `src/cljd/dao/jing/cbor/cljd.cljd` is unaffected.    |
++------------------------------------------+-------------------+--------------------+------------------------------------------------------+
+| `src/cljd/dao/stream/transit/cljd.cljd`  | `:seam-driver`    | `:codec-track`     | Same as `stream/cbor/cljd.cljd`.                     |
++------------------------------------------+-------------------+--------------------+------------------------------------------------------+
+
+Eight files, twelve lane rows (the two `locking` files sit in all three
+## 14. For a successor orchestrator
+
+Decided (HD1-HD5, OQ1-OQ6, the split): the rule, the exact profile with
+ownership laws, the H0-H4 sequence and gates, the deferral. Open: OQ7, OQ8,
+OQ11; none blocks H0 or H1; OQ7 is needed before H4; OQ11 before H2 may
+drop or port the encoding arity (until then H2 preserves it and
+`yin/vm.cljc` stays on list 1 as `:pending`). **What H1 must build beyond
+r7**: `dao.host.float` with the extracted float-text kernel (table B,
+R7-1: `decimal->float`, `float-digits`, `ratio->float` and their helpers,
+copied from `yin.vm.integer` and tested directly against the existing
+fixture rows), `dao.host.text/code-points`, `decimal-text->float`, and
+their tests (table D); the profile count stays 76. **A non-Claude reviewer
+must confirm r9 before H1 is dispatched.**
+
+Start with **H0**: it changes no source; commit the closure tool
+(`src/dev/host_boundary/closure.clj`, over `clojure.tools.namespace`), its
+per-lane output under `docs/design/host-boundary/` tagged by class, and the
+gate test; confirm the 142/140/141 totals against an independent traversal
+(done, H0 report) and finish the r7 reconciliation of list 1 (§8.1: retag
+the 16 `:h0-unlisted` entries, a data change only) before H1; a non-Claude
+reviewer confirms r7 and the retagged H0 before H1 is dispatched. Then H1 (new files,
+their direct tests, and the two new laws: strict `utf8-encode` and M-entry
+prevalidation). H2 is the first deletion; its gate is the closure tool
+reading `ns` forms (the shim required by no file before the deletion commit,
+absent and required by no file after), and it carries the
+`acopy` prevalidation change and the M-caller audit (§2.4). H3 carries the
+named UTF-8 behaviour change for its two consumers. H3 and H4 in either
+order; slow tier once after H4. Do not start anything in §9; a separate
+design document and its own non-Claude sign-off come first.
+
+Lanes and gates (`docs/agents/build-n-test.md`): iterate on the JVM lane
+with `bb test:sub:clj dao.jing` or `yin.vm` (G0); three-lane subsystem test
+at each checkpoint (G1); `bb test:changed` across all three lanes in the
+worktree before landing (G2); `bb test` on master after merge (G3). Record
+per-lane counts before and after every slice. The Dart lane needs `flutter`
+on PATH; a fresh worktree needs `npm ci`. ClojureDart traps for exactly this
+kind of file: `:cljd` first in every mixed conditional; a tail-position
+`:cljd nil` silently fails; protocol method parameters never `[_ _]`;
+`(- 0.0)` is `+0.0`; multi-key `assoc` on nil misbehaves.
+
+Review requirement: this design and any implementation an orchestrator
+derives from it under a Claude model are Claude-authored. **Sign-off on this
+final text (§2 plus H0-H4) and on each slice must come from a non-Claude
+architect**; a Claude reviewer may review but may not be the sole sign-off.
+The reviewer checks, in order: that every entry in table A is internal and
+pure or declared mutating under §2.4, with the freeze rule's enforceable
+obligations (i)-(iv) each backed by a test or an audited list; that H0's
+committed closure output matches 142/140/141 and list 1 matches the §8.1
+baseline by category; that the two negative tests and the scan-failure test
+fail as intended; that H2's closure-tool gates hold before and after the deletion
+commit and the no-partial-write tests exist; that H1-H4 acceptance is
+byte-identical against the named corpus with errata preserved and the four
+behaviour changes are named in slice reports with their table D tests; that
+the `bytes->str` encoding arity is preserved until OQ11 is decided; that
+the index comparator keeps signed zero and NaN order (R7-3); that no H0-H4 edit touches a
+codec-track source or test file except the recorded `codec.cljc:45` deferral;
+that nothing from §9 is started.
+(def list-1-categories
+  "The §8.1 rows (r9): what the row means, the slices that may clear its
+   files from list 1 (\"H2\" \"H3\" \"H4\": removed by that slice; :stays:
+   retained by design; :pending: H2 migrates the file but a JVM arm
+   survives until the owner decides OQ11, §13), and the §3.1 closure
+   classes a file in the row may carry (:classes, §8.1's category-to-class
+   table). A file must carry at least one of them on every lane whose
+   closure holds it."
+  {:migration-source {:row "H1-H4 migration sources (incl. H0's profile consumers)"
+                      :clears #{"H2" "H3" "H4" :stays :pending}
+                      :classes #{:profile-internal-pure :profile-hash-sign :consumer :profile-consumer}}
+   :profile {:row "Profile: the arms belong here by design"
+             :clears #{:stays}
+             :classes #{:profile-internal-pure}}
+   :runtime-prereq {:row "Retained runtime prerequisites (table C) and display"
+                    :clears #{:stays}
+                    :classes #{:runtime-prereq :internal-pure-display :deferred-storage}}
+   :codec-track {:row "Codec-track files, untouched by this track"
+                 :clears #{:stays}
+                 :classes #{:codec-track}}
+   :dialect-arm {:row "Dialect arms (H0 finding, retained): diagnostic type names, the dialect's EDN reader"
+                 :clears #{:stays}
+                 :classes #{:dialect-arm}}
+   :seam-driver {:row "Seams, stream implementations and driver"
+                 :clears #{:stays}
+                 :classes #{:external-stream-seam :driver}}
+   :deferred-scope {:row "Deferred-scope files (§9)"
+                    :clears #{:stays}
+                    :classes #{:deferred-storage :deferred-entropy :deferred-timers
+                               :deferred-stage :deferred-gensym}}})
+
+
+(def list-1-exceptions
+  "The §8.1 bounded exceptions (r10): the eight files whose §3.1 closure
+   class the category-to-class table does not admit for the §8.1 row that
+   places them. {file {:category c :class k :reason r}}. An exception
+   admits k for that file only while its list-1 category is c; it widens
+   no other category, file or class. An exception the bare table makes
+   unnecessary, or whose file is not in category c, fails (the table
+   cannot go stale silently). A new row here is a §8.1 amendment."
+  {"src/cljc/dao/space/transactor.cljc"
+   {:category :deferred-scope :class :runtime-prereq
+    :reason "§8.1 deferred row (locking); §3.1 table C"}
+   "src/cljc/yin/vm/ucf/authority.cljc"
+   {:category :deferred-scope :class :runtime-prereq
+    :reason "§8.1 deferred row (locking); §3.1 table C"}
+   "src/clj/dao/jing/content/driver.clj"
+   {:category :seam-driver :class :deferred-timers
+    :reason "§8.1 seams row takes every lane file; §3.1 deferred §9.1"}
+   "src/clj/yang/antlr/cst.clj"
+   {:category :seam-driver :class :deferred-stage
+    :reason "§8.1 seams row takes every lane file; §3.1 deferred §9.3"}
+   "src/cljs/yang/antlr/cst.cljs"
+   {:category :seam-driver :class :deferred-stage
+    :reason "§8.1 seams row takes every lane file; §3.1 deferred §9.3"}
+   "src/cljd/yang/antlr/cst.cljd"
+   {:category :seam-driver :class :deferred-stage
+    :reason "§8.1 seams row takes every lane file; §3.1 deferred §9.3"}
+   "src/cljd/dao/stream/cbor/cljd.cljd"
+   {:category :seam-driver :class :codec-track
+    :reason "§8.1 seams row takes every lane file; §3.1 codec track (§8.3)"}
+   "src/cljd/dao/stream/transit/cljd.cljd"
+   {:category :seam-driver :class :codec-track
+    :reason "§8.1 seams row takes every lane file; §3.1 codec track (§8.3)"}})
+
+(defn list-1-problems
+  "Every way list-1 disagrees with list-1-categories (plus the §8.1
+   bounded exceptions, default list-1-exceptions, each admitting its one
+   class only for its file in its category) and the per-lane closure
+   classes {lane {file classes}}: [kind file detail]. Lanes are checked
+   one at a time; a lane's tags are never merged with another's. An
+   exception whose file is not in list-1 under its category is
+   :exception-category, so the table is enforced, not merely consulted."
+  ([list-1 lane-classes] (list-1-problems list-1 lane-classes list-1-exceptions))
+  ([list-1 lane-classes exceptions]
+   (vec
+     (concat
+       (for [[f {:keys [category clears]}] list-1
+             problem (cond
+                       (not (contains? list-1-categories category))
+                       [[:unknown-category f category]]
+                       (not (contains? (get-in list-1-categories [category :clears]) clears))
+                       [[:slice-not-allowed f [category clears]]]
+                       :else [])]
+         problem)
+       (for [[f {:keys [category]}] list-1
+             :when (contains? list-1-categories category)
+             :let [ex (exceptions f)
+                   allowed (cond-> (:classes (list-1-categories category))
+                             (and ex (= (:category ex) category)) (conj (:class ex)))
+                   on-lanes (keep (fn [[l m]] (when (contains? m f) [l (get m f)])) lane-classes)]
+             problem (if (empty? on-lanes)
+                       [[:in-no-lane f nil]]
+                       (for [[l cs] (sort-by first on-lanes)
+                             :let [kind (cond (empty? cs) :empty-classes
+                                              (= #{:none} (set cs)) :class-none
+                                              (not-any? allowed cs) :class-not-in-category
+                                              :else nil)]
+                             :when kind]
+                         [kind f [l category (set cs)]]))]
+         problem)
+       (for [[f {:keys [category]}] exceptions
+             :when (not= category (get-in list-1 [f :category]))]
+         [:exception-category f [category (get-in list-1 [f :category])]])))))
+
+
+(defn committed-lane-classes
+  []
+  (into {} (map (fn [l] [l (into {} (map (juxt :file :classes) (:files (committed-closure l))))])
+                lanes)))
+
+
+(defn- entry
+  ([category clears] {:category category :clears clears})
+  ([category clears reason] {:category category :clears clears :reason reason}))
+
+
+(def list-1
+    (is (= [] (:errors r)))
+    (is (= [] (:arm-violations r)))
+    (is (= [] (:effect-violations r)))
+    (is (= :pass (:verdict r)))))
+
+
+(deftest list-1-equals-the-observed-arms
+  (testing "every list-1 file is in the closure and still holds a host arm"
+    (let [observed (set (keep (fn [[f r]] (when (seq (:arms r)) f)) (:observed @current)))]
+      (is (= (set (keys list-1)) observed))))
+  (testing "every list-1 file has a known category, an allowed slice and, on every lane, a class its category admits"
+    (is (= [] (list-1-problems list-1 (committed-lane-classes)))))
+  (testing "each check fails on a deliberately wrong entry (in memory)"
+    (let [lc (committed-lane-classes)
+          f "src/cljc/yin/vm.cljc"
+          kinds (fn [l1 lc] (set (map first (list-1-problems l1 lc))))]
+      (is (= #{:unknown-category} (kinds (assoc-in list-1 [f :category] :h0-unlisted) lc)))
+      (is (= #{:slice-not-allowed} (kinds (assoc-in list-1 [f :clears] "H9") lc)))
+      (is (= #{:slice-not-allowed}
+             (kinds (assoc-in list-1 ["src/cljc/dao/pretty.cljc" :clears] :pending) lc))
+          "the OQ11 retention is allowed only in the migration-source row")
+      (is (= #{:class-not-in-category}
+             (kinds (assoc-in list-1 ["src/cljc/dao/stream/ringbuffer.cljc" :category] :dialect-arm) lc)))
+      (is (= [[:class-none f [:cljs :migration-source #{:none}]]]
+             (list-1-problems list-1 (assoc-in lc [:cljs f] #{:none})))
+          "a :none on one lane is not masked by the other lanes")
+      (is (= [[:empty-classes f [:cljd :migration-source #{}]]]
+             (list-1-problems list-1 (assoc-in lc [:cljd f] #{}))))
+      (is (= #{:in-no-lane}
+             (kinds (assoc list-1 "src/cljc/no/such.cljc" (entry :dialect-arm :stays)) lc)))))
+  (testing "the §8.1 bounded exceptions: exactly the eight files, each needed, each bound to its category"
+    (let [lc (committed-lane-classes)
+          bare (list-1-problems list-1 lc {})]
+      (is (= (set (keys list-1-exceptions)) (set (map second bare)))
+          "the bare table fails on the exception files and no others")
+      (is (= #{:class-not-in-category} (set (map first bare))))
+      (is (= 12 (count bare)) "eight files, twelve lane rows (§8.1)")
+      (doseq [[f {:keys [category]}] list-1-exceptions]
+        (is (= category (get-in list-1 [f :category])) f)
+        (is (seq (list-1-problems list-1 lc (dissoc list-1-exceptions f))) f)
+        (is (= #{:class-not-in-category :exception-category}
+               (set (map first (list-1-problems (assoc-in list-1 [f :category] :dialect-arm) lc))))
+            "an exception does not travel with the file to another category")
+        (let [ps (list-1-problems list-1 lc (assoc-in list-1-exceptions [f :category] :profile))]
+          (is (some #{[:exception-category f [:profile category]]} ps) f)
+          (is (= #{:class-not-in-category :exception-category} (set (map first ps)))
+              "an exception bound to a category the file is not in admits nothing"))))))
+
+
+(deftest list-2-equals-the-observed-calls
+  (testing "every permitted count is the observed count (no slack)"
+    (let [observed (into {} (keep (fn [[f r]]
+                                    (when (seq (:effects r))
+                                      [f (update-vals (:effects r) count)]))
+                                  (:observed @current)))]
+      (is (= list-2 observed)))))
+
+
+(defn- outside
+  "The first closure .cljc file outside m with no arms and no effect calls."
+  [m]
+  (first (for [[f r] (:observed @current)
+               :when (and (not (lane-specific? f)) (not (contains? m f))
+                          (empty? (:arms r)) (empty? (:effects r)))]
+           f)))
+
+
+exec
+/bin/zsh -lc 'bb test:sub:clj dao.host' in /Users/sto/workspace/datomworld/.claude/worktrees/host-h0
+codex
+The amended table names all eight entries, and the gate binds each exception to its file, category, and class. The tests cover removal, category moves, and rebinding. I’m checking the exact row equality and awaiting the suite result; this review remains limited to H0 sign-off.
+ succeeded in 12725ms:
+Read 561 code files under src/ and test/.
+Subsystems: dao.host
+clj: 1 namespaces
+   dao.host.gate-test
+Selected 1 of 268 test namespaces.
+Skipping build:yin-repl-peer (no selected test reaches its output)
+Skipping build:yin-repl-node (no selected test reaches its output)
+Skipping gen:python-antlr (no selected test reaches its output)
+clj: 1 namespaces, log target/profile/sub-clj.log
+clj: done, exit 0, 12 s
+
+lane  namespaces  tests failures seconds  status
+clj            1     11        0      12  pass
+Exception in thread "Thread-0" java.lang.RuntimeException: Operation not permitted (sysctl failed)
+	at java.base@25.0.4/java.lang.ProcessHandleImpl.getProcessPids0(Native Method)
+	at java.base@25.0.4/java.lang.ProcessHandleImpl.descendants(ProcessHandleImpl.java:434)
+	at babashka.process$destroy_tree.invokeStatic(process.cljc:172)
+	at babashka.process$destroy_tree.invoke(process.cljc:163)
+	at babashka.process$process_STAR_$fn__13908.invoke(process.cljc:431)
+	at clojure.lang.AFn.run(AFn.java:22)
+	at java.base@25.0.4/java.lang.Thread.runWith(Thread.java:1487)
+	at java.base@25.0.4/java.lang.Thread.run(Thread.java:1474)
+
+exec
+/bin/zsh -lc "python3 - <<'PY'
+from pathlib import Path
+import re, hashlib, subprocess
+p=Path('/Users/sto/workspace/datomworld/docs/design/dao.stream.host-boundary.md')
+d=p.read_text(); g=Path('test/dao/host/gate_test.clj').read_text()
+t=d.split('**Bounded exceptions to the mapping (r10, H0-R3 reconciliation).**')[1].split('Eight files, twelve lane rows')[0]
+a=re.findall(r'\\| "'`(src/[''^`]+)`'"\\s*\\| "'`(:[''^`]+)`'"\\s*\\| "'`(:[''^`]+)`'"',t)
+e=g.split('(def list-1-exceptions')[1].split('(defn list-1-problems')[0]
+b=re.findall(r'\"(src/["'^"]+)"'"\\s*\\{:category (:[\\w-]+) :class (:[\\w-]+)',e)
+assert len(a)==len(b)==8 and a==b,(a,b)
+print('PASS: all eight file/category/class rows match exactly, in order')
+for row in a: print(row)
+for f in [p,Path('test/dao/host/gate_test.clj')]: print(hashlib.sha256(f.read_bytes()).hexdigest(),f)
+print('HEAD',subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip())
+print('branch',subprocess.check_output(['git','branch','--show-current'],text=True).strip())
+print('diff sha256',hashlib.sha256(subprocess.check_output(['git','diff','--binary'])).hexdigest())
+PY" in /Users/sto/workspace/datomworld/.claude/worktrees/host-h0
+ succeeded in 38ms:
+PASS: all eight file/category/class rows match exactly, in order
+('src/cljc/dao/space/transactor.cljc', ':deferred-scope', ':runtime-prereq')
+('src/cljc/yin/vm/ucf/authority.cljc', ':deferred-scope', ':runtime-prereq')
+('src/clj/dao/jing/content/driver.clj', ':seam-driver', ':deferred-timers')
+('src/clj/yang/antlr/cst.clj', ':seam-driver', ':deferred-stage')
+('src/cljs/yang/antlr/cst.cljs', ':seam-driver', ':deferred-stage')
+('src/cljd/yang/antlr/cst.cljd', ':seam-driver', ':deferred-stage')
+('src/cljd/dao/stream/cbor/cljd.cljd', ':seam-driver', ':codec-track')
+('src/cljd/dao/stream/transit/cljd.cljd', ':seam-driver', ':codec-track')
+2ee1c330de7e4aea947ac39bd7a56daaa40c41468c4af3f9677437bdec5fd32e /Users/sto/workspace/datomworld/docs/design/dao.stream.host-boundary.md
+bcc5c26ad8f9a232d1bf67299961324cf81439bd8d0f997c2fb3222018d1b61b test/dao/host/gate_test.clj
+HEAD 9f6fc27dde358735f9e31f01556807b499ff7818
+branch host-h0
+diff sha256 7cadeccd9c69feb7f369c9593c682029d7e2b424ee9bf808f4262c87db1c3a01
+
+exec
+/bin/zsh -lc "tail -n 12 target/profile/sub-clj.log; sed -n '1124,1138p' /Users/sto/workspace/datomworld/docs/design/dao.stream.host-boundary.md; git diff --stat" in /Users/sto/workspace/datomworld/.claude/worktrees/host-h0
+ succeeded in 0ms:
+Loading initial Timbre config from: :default
+
+Running tests in #{"test"}
+
+Testing dao.host.gate-test
+
+Ran 11 tests containing 147 assertions.
+0 failures, 0 errors.
+
+Eight files, twelve lane rows (the two `locking` files sit in all three
+lane closures). What this table does **not** do: it does not add
+`:runtime-prereq` to the deferred row's classes, nor any deferred or codec
+class to the seams row (an unrestricted "any class for a lane-specific
+file" exemption is refused; the Dart Jing writer stays excluded from seams
+and on its H4 deletion path). The deferred design (§9) and the codec track
+(§8.3) each still own the files their class names, regardless of the
+list-1 row that permits the arm.
+The tool lives at `src/dev/host_boundary/closure.clj` (H0's justified
+deviation: the repo keeps dev tools under `src/dev/`), and the design's
+earlier `dev/host_boundary/` path is read as that.
+
+### 8.2 The host-library gate (H2, H3): executable references within the closure
+
+ docs/design/host-boundary/closure-clj.edn  |  32 +-
+ docs/design/host-boundary/closure-cljd.edn |  32 +-
+ docs/design/host-boundary/closure-cljs.edn |  32 +-
+ docs/design/test.subsystems.md             |   1 +
+ src/dev/host_boundary/closure.clj          |  37 +-
+ src/dev/subsystems.edn                     |   4 +
+ test/dao/host/gate_test.clj                | 563 +++++++++++++++++++++--------
+ 7 files changed, 488 insertions(+), 213 deletions(-)
+
+codex
+The eight rows match exactly. The host suite passed: 11 tests, 147 assertions, zero failures and errors. Babashka printed the same sandbox-related shutdown diagnostic noted in r3 after exiting successfully. The remaining §8.1 blocker is closed, and I’m recording **SIGNED OFF** for H0.
+exec
+/bin/zsh -lc "cat > /private/tmp/h0-r4-review.md <<'EOF'
+Created-Date: 2026-10-21
+Coding-Agent: codex
+Role: Independent Architect & Reviewer (non-Claude sign-off per §14)
+Worktree: /Users/sto/workspace/datomworld/.claude/worktrees/host-h0
+Branch: host-h0
+
+# Slice H0 final review after §8.1 r10 amendment
+
+**Verdict: SIGNED OFF.** The remaining §8.1 category/class reconciliation blocker from r3 is CLOSED. The governing design now explicitly authorizes the eight bounded exceptions, and the gate implements and tests their category binding. No changes are required by this review.
+
+This signs off the reviewed H0 snapshot only. It does not constitute the separate review of the complete §2/H0–H4 design required before H1 dispatch, nor repository landing verification. Prior H0 findings remain closed on the basis of r3 and the passing regression suite; this review concentrates on the requested r10 amendment.
+
+## Snapshot and sources
+
+Reviewed repository foundations and build/test guidance, governing §8.1 and §14, the architect's r10 amendment report ("'`1792531000000-architect-host-boundary-r10-table-amendment.claude-fable-5-1.findings.md`), and the r3 review (`1792530100000-reviewer-host-boundary-h0-r3.gpt-6-astra.findings.md`).
+
+HEAD: `9f6fc27dde358735f9e31f01556807b499ff7818`, plus seven existing modified files: three closure manifests, closure tool, gate test, subsystem registry, and subsystem design documentation.
+
+SHA-256:
+
+- Worktree `git diff --binary`: `7cadeccd9c69feb7f369c9593c682029d7e2b424ee9bf808f4262c87db1c3a01`.
+- Governing design: `2ee1c330de7e4aea947ac39bd7a56daaa40c41468c4af3f9677437bdec5fd32e`.
+- Gate source: `bcc5c26ad8f9a232d1bf67299961324cf81439bd8d0f997c2fb3222018d1b61b`.
+
+The design and gate hashes match the architect'"'s report. The governing design was read from "'`/Users/sto/workspace/datomworld/docs/design/dao.stream.host-boundary.md`; it is absent from this worktree, as the architect reported. No implementation or governing-document edits were made by this review.
+
+## Findings
+
+### §8.1 r10 authorization — CLOSED
+
+The amendment at governing lines 1083–1132 explicitly names all eight file/category/class entries. Independent extraction and comparison against `list-1-exceptions` at `test/dao/host/gate_test.clj:518` confirms exact equality of all eight triples, in table order:
+
+| File | Category | Admitted class |
+|---|---|---|
+| `src/cljc/dao/space/transactor.cljc` | `:deferred-scope` | `:runtime-prereq` |
+| `src/cljc/yin/vm/ucf/authority.cljc` | `:deferred-scope` | `:runtime-prereq` |
+| `src/clj/dao/jing/content/driver.clj` | `:seam-driver` | `:deferred-timers` |
+| `src/clj/yang/antlr/cst.clj` | `:seam-driver` | `:deferred-stage` |
+| `src/cljs/yang/antlr/cst.cljs` | `:seam-driver` | `:deferred-stage` |
+| `src/cljd/yang/antlr/cst.cljd` | `:seam-driver` | `:deferred-stage` |
+| `src/cljd/dao/stream/cbor/cljd.cljd` | `:seam-driver` | `:codec-track` |
+| `src/cljd/dao/stream/transit/cljd.cljd` | `:seam-driver` | `:codec-track` |
+
+The seven base category mappings remain intact. The amendment explicitly prohibits widening other files/categories/classes and preserves the Dart Jing writer'"'s exclusion from seams and H4 deletion obligation. It does not resolve OQ11 or expand deferred scope.
+
+### Category binding and bidirectional enforcement — VERIFIED
+
+"'`list-1-problems` at lines 551–589 adds the exceptional class only when the file'"'s list-1 category equals the exception's category. A separate traversal of exceptions reports "'`:exception-category` when the file is missing or belongs to another category. Checks continue to operate per lane.
+
+The executed assertions at lines 865–881 establish:
+
+- Without exceptions, the base mapping produces exactly 12 lane failures across precisely the eight exception files, all `:class-not-in-category`.
+- Every exception is needed: dropping each entry produces a failure.
+- Moving each file to `:dialect-arm` produces both `:class-not-in-category` and `:exception-category`; the exception does not move with it.
+- Rebinding each exception to `:profile` produces the exact `:exception-category` diagnostic and admits no class for the file'"'s actual category.
+- The bare-failure file set must equal the exception file set, so an unnecessary exception fails the suite. This reverse necessity check resides in the test, rather than in "'`list-1-problems` itself.
+
+The design table is not parsed by the production gate test; exact correspondence to the governing text was independently checked in this review. The executable checks enforce the bounded data against list 1 and the committed closures.
+
+## Verification
+
+`bb test:sub:clj dao.host`: **exit 0; 11 tests, 147 assertions, 0 failures, 0 errors**. Selected `dao.host.gate-test`, one of 268 namespaces. Confirmed directly in `target/profile/sub-clj.log`.
+
+After the successful test run, Babashka'"'s shutdown hook printed "'`Operation not permitted (sysctl failed)` while enumerating descendant processes in the sandbox. This is the same cleanup diagnostic recorded in r3; it did not change the command exit status or test results. The tests are clean; terminal output includes that cleanup diagnostic.
+
+Closure-tool checks, corpus hashes, and full JVM/Node/Dart/slow suites were not rerun in this amendment-focused review. Their earlier results remain documented in r3. No outstanding finding blocks H0 sign-off for the snapshot identified above.
+EOF' in /Users/sto/workspace/datomworld/.claude/worktrees/host-h0
+ succeeded in 0ms:
+exec
+/bin/zsh -lc 'cp /private/tmp/h0-r4-review.md /Users/sto/workspace/datomworld/collab/1792531500000-reviewer-host-boundary-h0-r4.gpt-6-astra.findings.md' in /Users/sto/workspace/datomworld/.claude/worktrees/host-h0
+ succeeded in 0ms:
+codex
+**SIGNED OFF** for H0. All eight exceptions match §8.1 r10, with category binding and bidirectional enforcement verified.
+
+Tests passed: **11 tests, 147 assertions, 0 failures, 0 errors**. A sandbox shutdown diagnostic followed successful completion.
+
+[Final review report](/Users/sto/workspace/datomworld/collab/1792531500000-reviewer-host-boundary-h0-r4.gpt-6-astra.findings.md)
+tokens used
+31,766
+**SIGNED OFF** for H0. All eight exceptions match §8.1 r10, with category binding and bidirectional enforcement verified.
+
+Tests passed: **11 tests, 147 assertions, 0 failures, 0 errors**. A sandbox shutdown diagnostic followed successful completion.
+
+[Final review report](/Users/sto/workspace/datomworld/collab/1792531500000-reviewer-host-boundary-h0-r4.gpt-6-astra.findings.md)

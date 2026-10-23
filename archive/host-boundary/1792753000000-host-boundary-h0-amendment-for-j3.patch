@@ -1,0 +1,118 @@
+diff --git a/docs/design/dao.stream.host-boundary.md b/docs/design/dao.stream.host-boundary.md
+index cc9465dd..c06f0ffe 100644
+--- a/docs/design/dao.stream.host-boundary.md
++++ b/docs/design/dao.stream.host-boundary.md
+@@ -969,10 +969,10 @@ marked as such in the table.
+ | prerequisites (table C)    | arms, not protocol syntax, retained by design); `dao/data/btree/storage.cljc` (promise facade,  | reason recorded in the      |
+ |                            | deferred §9.1); `dao/pretty.cljc` (`StringWriter`/pprint, display only, §3.1).                  | gate's list.                |
+ +----------------------------+-------------------------------------------------------------------------------------------------+-----------------------------+
+-| Codec-track files          | `dao/stream/ws.cljc`, `transit.cljc`, `cbor.cljc`, `cbor/boring.cljc`, `codec.cljc`. (H0:       | Stay; owned by that track;  |
+-| (untouched by this track)  | `remote_channel.cljc` and `ws_project.cljc` carry only exempt `catch` arms and are not on the   | `codec.cljc:45` after C4.   |
+-|                            | generated list; `jing/stream.cljc` is not in the closure. All three remain codec-track files    |                             |
+-|                            | under §8.3; they are simply not list-1 entries.)                                                |                             |
++| Codec-track files          | `dao/stream/ws.cljc`, `transit.cljc`, `cbor.cljc`, `cbor/boring.cljc`, `codec.cljc`,            | Stay; owned by that track;  |
++| (untouched by this track)  | `yin/repl/connect.cljc` (J3). (H0: `remote_channel.cljc` and `ws_project.cljc` carry only        | `codec.cljc:45` after C4.   |
++|                            | exempt `catch` arms and are not on the generated list; `jing/stream.cljc` is not in the        |                             |
++|                            | closure. All remain codec-track files under §8.3; they are simply not list-1 entries.)         |                             |
+ +----------------------------+-------------------------------------------------------------------------------------------------+-----------------------------+
+ | Dialect arms (H0 finding,  | `dao/space/query.cljc` (`:808`), `yang/clojure.cljc` (`:375`), `yin/vm/engine.cljc` (`:929`): a | Stay.                       |
+ | retained)                  | runtime type name in diagnostic text; `yin/repl/adapter.cljc` (`:58`), `yin/repl/dht.cljc`      |                             |
+@@ -991,10 +991,11 @@ marked as such in the table.
+ |                            | `dao/stream/rpc.cljc` (`:114`, the `rand` arm), `yin/repl.cljc`,                                |                             |
+ |                            | `yang/python/antlr/parser.cljc` and the other `yang/python/antlr/*.cljc` with arms,             |                             |
+ |                            | `dao/stream/journal.cljc` (`locking`), `dao/space/transactor.cljc`, `yin/vm/ucf/authority.cljc` |                             |
+-|                            | (`locking`). (H0: `dao/jing/content/ async.cljc`, `dao/stream/udp.cljc` and                     |                             |
+-|                            | `dao/space/schema.cljc` are not in the closure and are dropped from list 1; the deferred design |                             |
+-|                            | records them, §9.) Every remaining closure file whose arms are only `catch`/hint/protocol       |                             |
+-|                            | syntax is **not** on list 1 (exempt by pattern).                                                |                             |
++|                            | (`locking`), `yin/repl/frontends.cljc` (J3/J5), `yin/repl/store.cljc` (J3/J4). (H0:            |                             |
++|                            | `dao/jing/content/ async.cljc`, `dao/stream/udp.cljc` and `dao/space/schema.cljc` are not in   |                             |
++|                            | the closure and are dropped from list 1; the deferred design records them, §9.) Every           |                             |
++|                            | remaining closure file whose arms are only `catch`/hint/protocol syntax is **not** on list 1   |                             |
++|                            | (exempt by pattern).                                                                            |                             |
+ +----------------------------+-------------------------------------------------------------------------------------------------+-----------------------------+
+ 
+ **Baseline versus additions and deletions.** The H0 baseline is the set of
+diff --git a/docs/design/host-boundary/closure-clj.edn b/docs/design/host-boundary/closure-clj.edn
+index 5efba3bc..9dad1e07 100644
+--- a/docs/design/host-boundary/closure-clj.edn
++++ b/docs/design/host-boundary/closure-clj.edn
+@@ -388,7 +388,7 @@
+   {:file "src/cljc/yin/repl/store.cljc",
+    :ns yin.repl.store,
+    :shared true,
+-   :classes #{:none}}
++   :classes #{:deferred-storage}}
+   {:file "src/cljc/yin/vm.cljc",
+    :ns yin.vm,
+    :shared true,
+diff --git a/docs/design/host-boundary/closure-cljd.edn b/docs/design/host-boundary/closure-cljd.edn
+index 046e5498..00f8588a 100644
+--- a/docs/design/host-boundary/closure-cljd.edn
++++ b/docs/design/host-boundary/closure-cljd.edn
+@@ -356,7 +356,7 @@
+   {:file "src/cljc/yin/repl/store.cljc",
+    :ns yin.repl.store,
+    :shared true,
+-   :classes #{:none}}
++   :classes #{:deferred-storage}}
+   {:file "src/cljc/yin/vm.cljc",
+    :ns yin.vm,
+    :shared true,
+diff --git a/docs/design/host-boundary/closure-cljs.edn b/docs/design/host-boundary/closure-cljs.edn
+index 5764d825..e58d23b8 100644
+--- a/docs/design/host-boundary/closure-cljs.edn
++++ b/docs/design/host-boundary/closure-cljs.edn
+@@ -360,7 +360,7 @@
+   {:file "src/cljc/yin/repl/store.cljc",
+    :ns yin.repl.store,
+    :shared true,
+-   :classes #{:none}}
++   :classes #{:deferred-storage}}
+   {:file "src/cljc/yin/vm.cljc",
+    :ns yin.vm,
+    :shared true,
+diff --git a/src/dev/host_boundary/closure.clj b/src/dev/host_boundary/closure.clj
+index e3c57088..eb305262 100644
+--- a/src/dev/host_boundary/closure.clj
++++ b/src/dev/host_boundary/closure.clj
+@@ -134,7 +134,8 @@
+       yin.repl.host.jvm yin.repl.host.common dao.stream.ringbuffer]]
+    [:deferred-storage "deferred §9.2"
+     '[dao.jing.file dao.space.store.fs dao.space.store
+-      dao.stream.journal.file dao.data.btree.storage]]
++      dao.stream.journal.file dao.data.btree.storage
++      yin.repl.store]]
+    [:deferred-entropy "deferred §9.1"
+     '[dao.stream.ringbuffer dao.stream.memory-log dao.stream.ws
+       dao.stream.remote dao.stream.remote-pair dao.stream.remote-route
+diff --git a/test/dao/host/gate_test.clj b/test/dao/host/gate_test.clj
+index ea0bc1db..a8fb8e71 100644
+--- a/test/dao/host/gate_test.clj
++++ b/test/dao/host/gate_test.clj
+@@ -675,6 +675,7 @@
+    "src/cljc/dao/stream/cbor.cljc" (entry :codec-track :stays)
+    "src/cljc/dao/stream/cbor/boring.cljc" (entry :codec-track :stays)
+    "src/cljc/dao/stream/codec.cljc" (entry :codec-track :stays ":45 after C4")
++   "src/cljc/yin/repl/connect.cljc" (entry :codec-track :stays)
+    ;; H0 finding, retained dialect arms (r7 §8.1 "dialect arms" row)
+    "src/cljc/dao/space/query.cljc" (entry :dialect-arm :stays ":808 runtime type name in diagnostic text")
+    "src/cljc/yang/clojure.cljc" (entry :dialect-arm :stays ":375 runtime type name in diagnostic text")
+@@ -718,6 +719,8 @@
+    "src/cljc/yang/python/antlr/prelude.cljc" (entry :deferred-scope :stays)
+    "src/cljc/yang/python/antlr/render.cljc" (entry :deferred-scope :stays)
+    "src/cljc/yang/python/antlr/repl_probe.cljc" (entry :deferred-scope :stays)
++   "src/cljc/yin/repl/frontends.cljc" (entry :deferred-scope :stays)
++   "src/cljc/yin/repl/store.cljc" (entry :deferred-scope :stays)
+    "src/cljc/dao/stream/journal.cljc" (entry :deferred-scope :stays "locking")
+    "src/cljc/dao/space/transactor.cljc" (entry :deferred-scope :stays)
+    "src/cljc/yin/vm/ucf/authority.cljc" (entry :deferred-scope :stays "locking")})
+@@ -755,7 +758,7 @@
+    "src/cljc/yang/php.cljc" {:gensym 1}
+    "src/cljc/dao/space/transact.cljc" {:gensym 1}
+    ;; §3.2 clocks, ambient reads, printing, timers: the driver and the seams
+-   "src/cljc/yin/repl/main.cljc" {:ambient 6, :clock 5, :print 13}
++   "src/cljc/yin/repl/main.cljc" {:ambient 6, :clock 4, :print 14}
+    "src/clj/dao/jing/content/driver.clj" {:clock 2, :timer 1}
+    "src/clj/dao/stream/datagram/jvm.clj" {:timer 1}
+    "src/clj/dao/stream/ws/jvm.clj" {:clock 1}

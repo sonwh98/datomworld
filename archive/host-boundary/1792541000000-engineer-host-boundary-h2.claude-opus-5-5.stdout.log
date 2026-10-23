@@ -1,0 +1,46 @@
+Waiting for the debruijn/data, bytes-consumer, and PHP/index agents to report.
+
+The PHP/index/packet agent finished. Waiting on the two remaining agents.
+
+The debruijn/data agent finished. One item for the report: on JS and Dart, `:bigint` scalars that used to be refused are now encoded; that change wasn't commissioned. Waiting on the bytes-consumer agent.
+
+Waiting for the Node run to finish.
+
+Waiting for the Dart lane.
+
+H2 is implemented in the `host-h2` worktree and is not committed: commit waits for Architect sign-off and the non-Claude confirmation. The JVM, Node and Dart lanes pass, but the Node pass needed one crashing namespace excluded (point 1 below). Four findings need an Architect ruling before commit.
+
+**Test results**
+- **Required lanes:** `bb test:sub:clj dao.host` ran 45 tests, 1,048 assertions, 0 failures. `bb test:sub:clj dao.stream` ran 503 tests, 3,905 assertions, 0 failures.
+- **Full JVM lane:** 4,226 tests, 287,565 assertions, 0 failures.
+- **Node:** 239 namespaces, 4,204 tests, 0 failures, with `yin.repl.host.node-test` excluded.
+- **Dart:** the full lane had 4,105 passing and 1 failure, in the new stable-sort test. Its expected value was built with ClojureDart's `sort-by`, which is itself not stable; the sort code was correct. After fixing the test, the Dart `dao.data` and `dao.host` lanes pass (116 tests). I did not rerun the full Dart lane.
+- **Shim deletion check:** the closure tool's new `--required-by` mode found no file requiring `yin.vm.integer.host`, both before and after the deletion. A file it can't read gives exit 2, not "none found".
+- **Library-mode gate:** passes on the current tree, and its negative fixtures fail as they should.
+
+**What changed**
+- **Integer shim:** all eight consumers now require `dao.host.integer`, and `yin/vm/integer/host.cljc` is deleted.
+- **Float kernel:** `yin.vm.integer` now hands its float arithmetic to `dao.host.float`, and its private copy is gone. The integer and float fixture suites pass unchanged.
+- **Codec and other consumers:** `dao.jing.cbor`, debruijn, `yin.vm.data`, chunks, dht, linker, sign (bytes only; its UTF-8 switch is left for H3) and datagram now use `dao.host.*`. The eight H0 portability corrections are in. Corpus bytes are identical.
+- **Arrays:** `asort` is now stable on every host, and `acopy` checks every index before writing on JS and Dart. The new tests cover sort stability, overlapping copies and refused writes leaving the array unchanged.
+- **Gate and closure:**
+  - The closure files are regenerated: 146/144/145 files, 137 shared.
+  - The H1 profile additions are retired.
+  - List 1 loses the shim and 12 files that no longer hold any host-specific code.
+  - List 2 gains three callers of the mutating byte functions, each with its reason.
+
+**Named behaviour changes**
+- `bytes->str` is strict UTF-8 on all three hosts.
+- PHP integer literals are exact everywhere.
+- The `acopy`/`aset` checks and the `asort` stability above.
+
+**Findings in the report**
+1. **Existing bug, not from this slice:** `yin.repl.host.node-test` crashes the Node process with an invalid-subprotocol error, and `bb test:cljs` still exits 0. Every namespace after it, all of `yin.vm.*` included, is silently skipped. The test sets `:ws/codec` on the descriptor, but `ws/node.cljs:203` reads it from the adapter map. Both files were last changed by the C3 codec commit; I diagnosed this from the code and didn't reproduce it on master. It needs a codec-track fix.
+2. **Five files stay on list 1.** `debruijn`, `debruijn_code`, `data`, `values` and `cbor` still hold JS/Dart number-classification code and print-method arms at lines the design doesn't name for H2. I marked them as retained with reasons; the Architect needs to rule on each.
+3. **`cbor/refusal` now also reads the profile's refusal key.** Without that, refusals from the JS `Float64` carrier became unreadable to cbor callers and failed 31 Node assertions.
+4. **`safe-native?` didn't fit the two safe-integer checks.** It rejects the JVM's boxed `Integer`, so I used `exact-integer?` with a 2^53−1 bound instead.
+5. **Unplanned widening:** debruijn_code now encodes big integers on JS and Dart where it used to refuse them. JVM bytes are unchanged. I can restore the refusal if the Architect prefers.
+
+Not run: `bb test:changed` (it refuses to run when `src/dev/` changes, so the full lanes stand in for it) and the slow tier, which the design schedules once after H4.
+
+The report is at `/Users/sto/workspace/datomworld/collab/1792541000000-engineer-host-boundary-h2.claude-opus-5-5.findings.md`.

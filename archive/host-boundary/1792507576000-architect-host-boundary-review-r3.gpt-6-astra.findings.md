@@ -1,0 +1,23 @@
+**NOT SIGNED OFF — narrowed scope (§2 and H0–H4).** Remaining blockers are within that scope; deferred R2/R5/R6 are not grounds for this verdict. No files edited.
+
+`H` = [dao.stream.host-boundary.md](/Users/sto/workspace/datomworld/docs/design/dao.stream.host-boundary.md). Source paths below are relative to `src/cljc/`.
+
+- **R1 — Partly resolved:** owned runtime state, weak-reference reads and external facts are now distinguished consistently with ABI §§4–5. §12 is clearly an owner proposal. The ownership guarantee remains unsound below.
+- **R3 — Partly resolved:** UUID counts are correct: **27 total, 26 scoped**. Independent require-form traversal gives **142 JVM / 140 Node / 141 Dart**, with **133 shared files**. Ten closure entries were spot-checked; classification remains incomplete.
+- **R4 — Partly resolved:** numeric carriers, `debruijn-code` migration and JVM `:soft` default are corrected; H0’s allowlist still contradicts retained runtime prerequisites.
+- **A4 — Partly resolved:** table A totals **76**, including ten `dao.host.number` entries; mutation-law implementation obligations remain incomplete.
+- **A5 — Resolved as a design obligation:** opened thirteen cited test files and inspected cases/counts; integer/sign contain **25/4** deftests. Existing versus proposed coverage and corpus errata are distinguished. Executable coverage remains unproved.
+- **A6 — Resolved for shim deletion:** all eight external consumer files are named; exactly the shim before deletion, nothing afterwards, is coherent. Separate host-library grep commands need correction.
+
+| ID | Severity | File:line | Evidence | Correction |
+|---|---|---|---|---|
+| N1 | High | H:198 | “A value that crosses a stream is copied” is false. `dao/stream/ringbuffer.cljc:131` stores `value` directly; reads return it directly. ABI explicitly permits in-instance streams without host crossings. Allocation alone also does not establish exclusive ownership after aliasing. | Define exclusive mutation rights and publication/freeze rules, including nested mutable values and readers. Remove the universal codec-copy assertion; identify enforceable obligations within H0–H4. |
+| N2 | High | H:259,283 | Independent lane-aware traversal reproduces 133 shared files but **142/140/141** totals. JVM’s additional files include omitted `yin/repl/host.cljc`; Dart’s listed eight additions already imply 141. `dao.pretty` is reachable and uses `StringWriter`/pprint (`dao/pretty.cljc:9–15`) without a classification or assignment. | Correct totals, preserve shadow resolution, classify remaining contacts, and commit reproducible closure evidence in H0. Withdraw “cannot under-include” until validated. |
+| N3 | High | H:599,636 | Initial/final list 1 omit `dao.data.btree`, although table C retains its atomic flag and weak-reference operations. `btree.cljc:102–119,212–245` contain substantive host arms, not exempt protocol syntax. | Explicitly allowlist retained runtime operations and untouched codec files, with reasons. Reconcile both H0 baseline and final gates against actual closure contents. |
+| N4 | Medium | H:192,606,612 | New laws are not verbatim extraction: `arrays/aset` returns the assigned value; non-JVM `acopy` can write before encountering an invalid index (`arrays.cljc:49–57,95–106`). Existing UTF-8 helpers also substitute malformed input rather than implementing the proposed strict refusal law. | Assign return-value, prevalidation and strict UTF-8 changes explicitly; add direct refusal/no-partial-write tests and revise risk estimates. |
+| N5 | Medium | H:616,623 | Host-library gates use nonrecursive `grep -l … src/cljc`, which does not scan descendant files. | Use recursive file scanning and distinguish scan failure from zero matches. |
+| N6 | Low | H:749 | Cost lists five new profile files and four test namespaces; H3 adds two more profile files and H0 adds `gate-test`. | Count seven profile files and at least five test namespaces. |
+
+The scope split is sound: existing key generation, compiler `gensym`, identities and content-driver clocks can remain deferred. §9 preserves entropy allocation/bootstrap, atomic-replacement uncertainty and codec-owned identity-test edits. Planned source/test allocations are disjoint from the codec track; J0a source adaptations require file-level coordination. Performance uncertainty and reversal options are candid, though “low” extraction risk needs N4’s correction.
+
+**Could not verify:** original closure script (not committed), compiler-resolved completeness, three-lane execution, exhaustive per-entry coverage, H4 performance, or wasm imports.
