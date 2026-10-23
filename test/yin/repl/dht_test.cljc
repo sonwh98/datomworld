@@ -1405,7 +1405,7 @@
       (let [key (sign/generate)
             p (sign/principal (:public key))
             state (solo-state dir {'mod nowhere})
-            board (head/board)
+            board (head/board!)
             [follower node] (head/follow (node-of state)
                                          {:follow [p] :heads :volatile
                                           :poll-ticks 10 :repair-ticks 100

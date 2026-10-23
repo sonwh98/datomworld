@@ -152,7 +152,7 @@
   ([{:keys [keys install?] :or {keys [p1] install? true} :as opts}]
    (let [net (mesh/mesh)
          withheld (atom (constantly false))
-         boards (into {} (map (fn [k] [(principal k) (head/board)])) keys)
+         boards (into {} (map (fn [k] [(principal k) (head/board!)])) keys)
          a (node-at [2] {:publish? true} (mesh/seam net 1))
          b (node-at [1] (select-keys opts [:local])
                     (withholding-bind net 2 withheld))
@@ -293,7 +293,7 @@
         other (index! store (moved-history p1 (alib-history p1 1) v2))
         m1 (index! store (alib-history p1 1))
         datoms #(index/read-datoms store %)
-        board (head/board)
+        board (head/board!)
         ok (head/deposit! board p1 m2 (datoms m2))]
     (is (= :ok (:status ok)))
     (is (= 2 (head/seq-of (datoms m2))))
@@ -763,7 +763,7 @@
         (let [[f node] (head/follow (copy) (merge follow-opts
                                                   {:follow [p]
                                                    :heads new-records}))
-              old-board (head/board)
+              old-board (head/board!)
               _ (stream/append! old-board (:trace h0))
               [f node events] (head/step (head/attach f p old-board) node 0)]
           (is (= 1 (:floor (get (head/heads f) p))))
@@ -1059,9 +1059,9 @@
     (doseq [[outcome lost-handle]
             [[:dao.stream/cursor-mismatch
               ;; its cursors are another ring's
-              (->SplitReader (head/board) (board-of w))]
+              (->SplitReader (head/board!) (board-of w))]
              [:dao.stream/end
-              (let [ended (head/board)]
+              (let [ended (head/board!)]
                 (stream/append! ended (:trace h0))
                 (stream/close! ended)
                 ended)]]]
@@ -1159,7 +1159,7 @@
   (let [net (mesh/mesh)
         a (node-at [2] {:publish? true} (mesh/seam net 1))
         b (node-at [1] {:publish? true} (mesh/seam net 2))
-        [board-a board-b] [(head/board) (head/board)]
+        [board-a board-b] [(head/board!) (head/board!)]
         ma (index! (dht/local a) (alib-history p1 3))
         mb (index! (dht/local b) (alib-history p2 2))
         _ (head/deposit! board-a p1 ma (index/read-datoms (dht/local a) ma))

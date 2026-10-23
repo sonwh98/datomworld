@@ -612,7 +612,7 @@
         [f reader] (head/follow (:reader w) {:follow [pb],
                                              :heads :volatile,
                                              :poll-ticks 10})
-        board (head/board)
+        board (head/board!)
         w (assoc w
                  :reader reader
                  :follower (head/attach f pb board)

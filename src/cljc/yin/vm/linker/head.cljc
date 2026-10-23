@@ -182,7 +182,7 @@
 ;; The board and the deposit (5.1, 5.2, 5.4)
 ;; =============================================================================
 
-(defn board
+(defn board!
   "A head board: a `dao.stream.ringbuffer` of capacity 1, the latest head
    winning.  Answers the ring's handle, which a reader may be handed
    directly."

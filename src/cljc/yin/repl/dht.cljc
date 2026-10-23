@@ -234,7 +234,7 @@
   [{:keys [peers publish?]} key base]
   (when (and (map? key) (:seed key) (:public key) publish? (seq peers))
     (let [notes (ring 64)]
-      {:board (head/board)
+      {:board (head/board!)
        :key key
        :principal (sign/principal (:public key))
        :dht-store base

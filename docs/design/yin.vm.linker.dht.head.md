@@ -633,7 +633,7 @@ join -> follow -> attach -> step ... -> names -> link       (reader)
 <td>The greatest <code>t</code>; <code>nil</code> for no datoms.</td></tr>
 <tr><td><code>(head/judge principal floor installed trace)</code></td>
 <td>The rule of 5.5, as data.</td></tr>
-<tr><td><code>(head/board)</code>,
+<tr><td><code>(head/board!)</code>,
 <code>(head/deposit! board key manifest datoms)</code></td>
 <td>The capacity-1 ring, and sign-and-append; refuses
 <code>:yin.head/seq-collision</code>, <code>:seq-regression</code>,
