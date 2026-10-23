@@ -59,14 +59,14 @@
                          (let [client-connect ((:connect! adapter)
                                                {:dao.stream/type :dao.stream/ws
                                                 :dao.stream/identity "host-seam-test"
-                                                :ws/codec transit/profile
                                                 :ws/host host
                                                 :ws/port port
                                                 :ws/path "/repl"}
                                                {:opened! (fn [] nil)
                                                 :message! (fn [_] nil)
                                                 :closed! (fn [& _] nil)
-                                                :error! (fn [] nil)})]
+                                                :error! (fn [] nil)
+                                                :ws/codec transit/profile})]
                            (wait-for #(first @accepted) 2000
                                      (fn [[path socket now :as offer]]
                                        (is (some? offer) "upgrade did not reach accept!")
