@@ -4,10 +4,10 @@ description: System architecture - streams, agents/continuations, YIN.VM CESK ma
 
 # STREAMS
 
-All IO is modeled as a stream.
+`dao.stream` is the portable I/O ABI.
 Functions consume streams and produce streams.
-No direct function-to-function coupling without a stream boundary.
-Side effects must appear as stream emissions.
+Hosts may install arbitrary local functions, including direct I/O; their availability and migration semantics must be explicit.
+Portable behavior cannot assume them; portable side effects appear as stream emissions.
 Ordering guarantees must be explicit.
 Streams are values that can be sent through streams.
 
@@ -37,8 +37,8 @@ Streams and Indexes:
 Agents, functions, closures, and continuations are a unified concept in Yin.VM.
 Agents may migrate across nodes.
 Agents own state through their continuation structure: call stack, environment, and stored values.
-Agents communicate with the outside world through DaoStream.
-Agent behavior is specified entirely through stream effects.
+Agents communicate portably with the outside world through `dao.stream`.
+Portable agent behavior is specified through stream effects; host-local functions may also perform direct I/O.
 Agent identity must not imply trust.
 Capability tokens define authority, not identity.
 
@@ -86,28 +86,23 @@ ASTs are materialized views over five orthogonal dimensions:
   4. Language (transformations): cross-language semantic preservation
   5. Execution (runtime): continuation state, stack frames, instruction pointers
 
-Status (`yin.vm-consumers.implementation-plan.md`, 2026-09-10): SemanticVM,
-the stack- and register-based bytecode VMs, and the WASM/native-code backends
-below were experimental proofs of the AST-projection argument, never more
-than one of `yin.vm`'s consumers away from the ast-walker they compared
-against. They are deleted; `ASTWalkerVM` is the only evaluator. The argument
-they were proving — that the AST is canonical and any backend can project it
-— stands on its own and does not need a second live interpreter to
-demonstrate it; a future backend remains exactly as free to project these
-facts as it always was, it is just not one of these four today.
+Shared evaluators exist: the AST walker (`ASTWalkerVM`), the canonical
+semantic-register VM (`SemanticVM`), and its two de Bruijn lowering backends
+(stack `DebruijnVM`, register `DebruijnRegisterVM`); host qualification is
+tracked separately ([known-gaps.md](./known-gaps.md), J2 rows).
 
-`yin.vm` ships one interpreter:
-  - ASTWalkerVM interprets AST maps via tree traversal (in-memory graphs).
+Embedding: `yin.vm` is embedded in its supported hosts (`clj`, `cljs`, `cljd`,
+`jolt`); the host sets up host functions `yin.vm` can call. `dao.stream` is
+an I/O monad and the system's ABI. Although I/O is modeled through
+`dao.stream`, hosts can provide arbitrary functions that do I/O to
+`yin.vm`: `dao.stream` is the portable ABI, not the only I/O path. Their
+availability and migration semantics must be explicit; portable behavior
+cannot assume them. Direct-I/O host modules are explicitly local and
+non-migratable (owner decision, 2026-10-23); the host-module API correction
+is tracked in [known-gaps.md](./known-gaps.md).
 
-What the AST projection argument once demonstrated with a second live
-interpreter (now historical):
-  - SemanticVM interpreted AST datoms via graph traversal (dao.space.query).
-  - A stack-based VM compiled AST datoms to stack bytecode.
-  - A register-based VM compiled AST datoms to register bytecode.
-  - Compilation to WebAssembly binaries and to native code for specific
-    hardware targets were sketched but never built.
-
-Historical: the semantic VM's direct interpretation of AST datoms enabled runtime macros, since code could transform itself by manipulating the same datom structures the VM executed. `ast-walker`, the only surviving evaluator, has no macro-expand branch; `defmacro` and every macro call now throw.
+Macro expansion is upstream stream topology; evaluators consume expanded
+syntax (see [datom.world.md](../design/datom.world.md), Architectural Commitments).
 
 Types are metadata on AST nodes, not categories of languages.
 Static and dynamic typing are unified as certainty levels (:static, :dynamic, :unknown).
@@ -116,7 +111,7 @@ Continuations are first-class, serializable, and mobile across nodes.
 Functions, closures, and continuations are unified as reified execution contexts.
 Syntax rendering is non-deterministic: one AST maps to many valid syntaxes.
 Syntax preferences are user/context-specific: the AST remains canonical.
-Runtime macros existed under the deleted semantic VM: code could transform itself using the same structures the VM executed. They do not exist under `ast-walker`.
+Macros transform syntax upstream of evaluators, as stream topology; evaluators consume expanded syntax (see [datom.world.md](../design/datom.world.md), Architectural Commitments).
 Cross-language interop works through the Universal AST as a shared semantic layer.
 Linker layering: whatever a plain Clojure consumer needs to resolve, ask, bind, deliver, discharge or retire a link, module admission included, lives in `yin.vm.linker*` and is language-blind, and the REPL only configures it (`docs/design/yin.vm.linker.dht.md` 7.5.1).
 Semantic drift must be prevented at all compositional levels, not just atomic nodes.

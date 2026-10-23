@@ -1,8 +1,10 @@
 # dao.stream.host-boundary: dao.stream wherever the boundary can be an IO action
 
-The governing test is the owner's: **dao.stream is used wherever a host
-boundary can be an IO action; a pure, total, synchronous function on the same
-host may be a direct call.** This document's commissionable scope is that
+The governing test for the portable ABI is the owner's: **dao.stream is used
+wherever a host boundary can be an IO action; a pure, total, synchronous
+function on the same host may be a direct call.** Hosts may also install
+explicit local functions, including direct I/O, outside the portable ABI
+(§2.2). This document's commissionable scope is that
 rule (§2) and the pure-primitive slices H0-H4 (§8): freeze and allowlist; the
 `dao.host.*` integer, float, number, bytes and text profile; migration of
 every consumer; hash and signature entries; the portable Jing CBOR writer.
@@ -171,14 +173,23 @@ state only.
 
 ### 2.2 Statement
 
-**An external contact uses `dao.stream`: it can be an IO action. An internal
+**A portable external contact uses `dao.stream`: it can be an IO action. An internal
 contact that is a pure, total, synchronous function of its arguments, or a
 declared mutation of an owned argument (§2.4), may be a direct call and is
 then an entry of the primitive profile (§4.2).**
 
-This is the owner's test 2. Same-host-ness is not the criterion: a same-host
-file read is external and is a stream; a hash from a library linked into the
-instance is internal and is a direct call.
+This is the owner's test 2 for the portable ABI. Same-host-ness is not the
+criterion: a same-host file read is external and uses a stream for portable
+behavior; a hash from a library linked into the instance is internal and is
+a direct call.
+
+Owner amendment (2026-10-23, I4): `dao.stream` is the portable I/O ABI, not
+the only I/O path. Hosts may install arbitrary local functions, including
+direct I/O; their availability and migration semantics must be explicit.
+Portable behavior cannot assume them. Direct-I/O host modules are explicitly
+local and non-migratable; the host-module API correction is tracked in
+[known-gaps.md](../agents/known-gaps.md). This does not add direct-I/O entries
+to the portable primitive profile.
 
 ### 2.3 "Can be an IO action", operationally
 
@@ -192,7 +203,7 @@ world** (§2.1):
 |    |                                | current condition. `abi.md` §5: "world facts that shipped code cannot compute".                            |
 +----+--------------------------------+------------------------------------------------------------------------------------------------------------+
 | 2  | Effect on the world            | Calling it changes world state: bytes on disk, a packet sent, a lock taken, text printed.                  |
-|    |                                | `datom.world.md:46`: "Side effects must appear as stream emissions."                                       |
+|    |                                | `datom.world.md` §Streams: portable side effects appear as stream emissions.                               |
 +----+--------------------------------+------------------------------------------------------------------------------------------------------------+
 | 3  | World nondeterminism           | Two calls with equal arguments and equal owned state may answer differently because of the world: entropy, |
 |    |                                | a clock, an OS-assigned pid, a process-wide counter shared with code the machine does not own.             |
