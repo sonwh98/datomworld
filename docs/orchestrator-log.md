@@ -12570,3 +12570,20 @@ Done: Implemented, verified, and landed Slice H4 per dao.stream.host-boundary.md
 Decisions: Branch `host-h4` rebased and merged into `master` at 7e7fd4be. Post-H4 closure: 147 CLJ / 145 CLJS / 146 CLJD (139 shared, 159 union).
 Delegates: Codex (gpt-6-astra, independent architect review).
 Next: Reply to Jolt team note regarding pure `dao.jing.cbor` and `hash_consumer_test.cljc` separation.
+
+## 2026-10-23 12:00:00 +0700 — jolt seat: fork pin, J1b/J2, host-effects adopted and answered, I4 ratified, J3 and J2 closure landed; seat handed to zcode glm
+Completed-GMT: 2026-10-23 05:00:00 GMT
+Coding-Agent: glm-5.3 (ZCode interactive orchestrator seat, Claude Code job)
+Session-ID: 5a853481-9c66-483f-a9b4-63ad92866901
+Tree: master 078e1e43 (pushed); worktrees under .claude/worktrees/ (jolt-j3, jolt-j2-close, i4-docs, oq-h2..h8, jolt-design-refresh, node-discovery-guard, jolt-j0b unmerged).
+Done:
+  1. Toolchain: jolt-toolchain.edn pins the owner's fork (697b91ee: upstream 75c8b610 + Sorted fix + regenerated seeds); patch mechanism retained, `:patches []`; bootstrap verifies, never pulls.
+  2. J1b/J2: libjolt_crypto layout 3, CBOR host seam with drift guard, J2 test lane (per-namespace children, watchdog kill-tree, self-checking manifest), JVM baseline (148 ns / 469665 assertions / 0 fail), safepoint harness on jupiter (60 / 265225 / 0 fail at a0a49b8e).
+  3. Hotfixes: Node lane json shim rename (31ffef7f), `bb check:node-discovery` guard (bc28f9a2), keep-awake restore trap (e6632900), demo shared-secret fix (1232d2f6).
+  4. Host-effects r3 adopted (27c0340d); all eight owner questions OQ-H1..H8 answered as recommended and logged; nothing commissioned.
+  5. I4 invariant: owner stated yin.vm is embedded in clj/cljs/cljd/jolt, host functions may do arbitrary I/O, dao.stream is the portable I/O ABI (not the only path); astra audit (all four ADHERE WITH GAPS); ratified in architecture.md, datom.world.md, dao.stream.host-boundary.md (4c38ceb8); gaps ledgered (host-module API, bytes->str arity 2).
+  6. J3 (local yin.repl shell on jolt): Fable scoped, codex implemented, Fable approved after changes; owner answered the five questions as recommended; landed with agy's H0 amendment (6872900e) in merge 078e1e43. J2 closure edits (151 included / 58 excluded; per-deftest `:jolt nil` guards in 7 J4 namespaces) landed in the same merge.
+Verification: merged tree `bb test:clj` 4236 tests / 287899 assertions / 0 fail / 0 error; `bb test:cljs` 4213 / 152197 / 0 fail / 0 error; `bb test:jolt-shell` 32 sessions pass; `bb demo` and `bb demo:jolt` print SUCCESS: sum(0..100) = 5050; J2 rerun 2 (master 324cdb05) 116 same / 27 differs / 4 load failures, classified by Fable (17 J4 file seams, 4 transit, 8 reader-conditional counts, 2 jolt bugs). NOT yet verified: J2 rerun 3 on 078e1e43 (running on shiva, `~/ci/j2rerun3-main.sh`), `bb test:cljd` on the merged tree, J2 gates (b) and (f).
+Decisions: owner rulings in memory (jolt-j3-owner-answers, host-effects-owner-answers, invariant-vm-embedding-abi). Four yin.repl-test reader failures stay red on jolt under a P1 jolt-lang row. Four transit namespaces excluded, owner J3, rejoin after rerun 3.
+Delegates: Fable (claude-fable-5-1) scoping and reviews; codex gpt-6.1-sol implementation; astra (gpt-6-astra) independent audits; host-boundary seat (agy) via collab notes 20-28 (owner relays).
+Next: zcode glm seat reads collab/1792761000000-orchestrator-handoff-jolt-seat-zcode-glm.md: close J2 on rerun 3 (+ bb test:cljd), then owner picks J4, J2b, or the host-effects slices; relay note 28 to agy.
