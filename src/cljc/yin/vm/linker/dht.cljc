@@ -16,6 +16,7 @@
    index as authority, and nothing depends on `yin.repl`."
   (:require [clojure.edn :as edn]
             [clojure.string :as str]
+            [dao.jing :as jing]
             [dao.space.dht :as dht]
             [dao.space.index :as index]
             [dao.space.store :as durable]
@@ -118,6 +119,90 @@
                                  (select-keys defect [:detail :text])))
         :unaskable (refused :yin.link.dht/unaskable
                             {:address address :outcome outcome})))))
+
+
+;; =============================================================================
+;; The stage load (4.1 step 5, 4.3)
+;; =============================================================================
+
+(def stage-kind
+  "The `:kind` of a link-time stage load."
+  :yin.link/stage)
+
+
+(defn stage-key
+  "The load id of the stage load of the module at `address`: a segment
+   address derived from it, since `address` itself is recorded under
+   `module-kind`.  It names nothing in any store."
+  [address]
+  (jing/segment-key {:yin.link/stage address}))
+
+
+(defn- missing-in
+  "The address a probing handle's `missing` throw names, through the
+   causes of `e`, or nil."
+  [e]
+  (loop [e e]
+    (when e
+      (or (get (ex-data e) :dao.space.dht/missing)
+          (recur (ex-cause e))))))
+
+
+(defn- stage-handle
+  "The handle a stage reads and writes: reads through the load's probing
+   `handle`, an absent address answering the caller's `not-found` as any
+   byte store does, and writes through `store`, the node's own."
+  [handle store]
+  (assoc handle
+         :get-bytes-fn (fn [address not-found]
+                         (try ((:get-bytes-fn handle) address not-found)
+                              (catch #?(:cljd Object :clj Throwable :cljs :default) e
+                                (if (missing-in e) not-found (throw e)))))
+         :put-bytes-fn (:put-bytes-fn store)))
+
+
+(defn stage-walk
+  "The stage as a `dao.space.dht` load walk (4.3): `(stage ctx name
+   address)` over the load's handle, `ctx` captured at the load's start.
+   `:missing` is the walk's `:missing`; `:ok` and `:refused` are its
+   complete value, a refusal being a decision, not a defect; a throw is
+   the load's own `:invalid`."
+  [stage ctx name address]
+  (fn [handle]
+    (let [r (stage (assoc ctx :store (stage-handle handle (:store ctx)))
+                   name address)]
+      (if (= :missing (:status r))
+        {::dht/walk :missing :address (:address r)}
+        {::dht/walk :complete :value r}))))
+
+
+(defn load-stage
+  "Start the stage load of the module at `address` onto `node`; answers
+   the node.  The stage never fetches: `dao.space.dht/step` fetches what
+   it reports missing."
+  [node stage ctx name address]
+  (dht/load node (stage-key address) {:kind stage-kind
+                                      :walk (stage-walk stage ctx name
+                                                        address)}))
+
+
+(defn stage-status
+  "The stage load status of the module at `address`, or nil."
+  [node address]
+  (dht/load-status node (stage-key address)))
+
+
+(defn stage-refusal
+  "The response row of a failed stage load: a miss is `load-refusal`'s
+   `:absent` naming the address, a throw or defect is
+   `:yin.link/stage-failed` with the defect.  nil for a load that has not
+   failed."
+  [status]
+  (when (= :failed (:status status))
+    (if (= :invalid (get-in status [:reason ::dht/failure]))
+      (refused :yin.link/stage-failed
+               {:defect (get-in status [:reason :defect])})
+      (load-refusal status))))
 
 
 (defn- not-loaded

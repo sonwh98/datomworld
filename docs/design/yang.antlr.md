@@ -3042,10 +3042,16 @@ require and init are idempotent re-entries.
   `:stage`, `siteset/stage`), deriving A' bottom-up over the module's guest
   requirements so A' pins the derived requirements it links, with the
   `:derive` record materialized beside A' and named in the link response.
-  Known gaps: SCC members under hook profiles are refused (per-member site
-  derivation); the REPL has no Python profile option to pass `:stage`; the
-  `:derive` record is not transacted into a reader ledger; a `:stage` with a
-  `:content-client` source is refused.
+  The reader discovers the record from the loaded index datoms and fetches
+  it, its set and every guest input by address through the DHT source's
+  staged stage load (`yin.vm.linker.dht.md` 4.1 step 5). Known gaps: SCC
+  members under hook profiles are refused (per-member site derivation); the
+  REPL has no Python profile option to pass `:stage`; the `:derive` record
+  is not transacted into a reader ledger; a `:stage` with a
+  `:content-client` source is refused; two extra pending rounds per
+  instrumented import; a stage load's context is the snapshot set at its
+  start; a `:loaded` `:ok` stage decision is stale after a republished set
+  (the class of the republished-dependency behaviour).
 
 Bundled mode (ruling 5). The bundled profile stays selectable until two
 gates pass, then it is deleted, with no compatibility shim:

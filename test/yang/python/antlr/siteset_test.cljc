@@ -34,6 +34,7 @@
             [yang.python.antlr.import-programs :as programs]
             [yang.python.antlr.linked-harness :as h]
             [yang.python.antlr.lower :as lower]
+            [yang.python.antlr.publication-test :as publication-test]
             [yang.python.antlr.publication :as publication]
             [yang.python.antlr.render :as render]
             [yang.python.antlr.safepoint :as hooks]
@@ -491,3 +492,64 @@
 (deftest ^:slow an-import-chain-derives-bottom-up-test
   (slow/guard "an-import-chain-derives-bottom-up-test"
               an-import-chain-derives-bottom-up))
+
+
+(deftest the-stage-reports-the-first-absent-address-test
+  (let [[store py pysp] (stub-store)
+        result (publication/publish-units!
+                 store (h/registry) py
+                 [{:name "k", :packet loops/while-true-pass}
+                  {:name "t", :packet programs/t-packet}])
+        records (records-of result)
+        t (get (:addresses result) "t")
+        k (get (:addresses result) "k")
+        t-record (:record-address (get (:sites result) "t"))
+        t-set (:set-address (get (:sites result) "t"))
+        k-tree (:yin.module/tree (jing/get store k nil))
+        entries ((:entries-fn store))
+        stage (siteset/stage (h/registry) (hook-requirement pysp) records)]
+    (testing "the stage over the whole store completes"
+      (is (= :ok (:status (stage (assoc no-datoms :store store) 'pym.t t)))))
+    (doseq [[what absent] {"the record" t-record,
+                           "the set" t-set,
+                           "a guest manifest" k,
+                           "a tree row" k-tree}]
+      (testing (str "absent: " what)
+        (let [damaged (mem/create-content-mem (dissoc entries absent))
+              before ((:entries-fn damaged))
+              out (stage (assoc no-datoms :store damaged) 'pym.t t)]
+          (is (= {:status :missing, :address absent} out))
+          (is (= (set (keys before)) (set (keys ((:entries-fn damaged)))))
+              "nothing was written"))))))
+
+
+(defn- an-outer-importing-an-scc-member-is-refused
+  []
+  (testing "an outer module requiring an SCC member alias is refused at
+            link time: the response names the alias and the outer module"
+    (let [result (publish! [{:name "ca", :packet programs/ca-packet}
+                            {:name "cb", :packet programs/cb-packet}
+                            {:name "o",
+                             :packet (publication-test/import-packet ["ca"])}])
+          outer (get (:addresses result) "o")
+          env (into (name-env result) (:bundles result))
+          stage (siteset/stage (h/registry)
+                               (hook-requirement
+                                 (:address @h/published-pysp))
+                               (records-of result))]
+      (doseq [[k {:keys [outcome responses]}]
+              (staged-on-every-vm (publication-test/import-packet ["o"]) env
+                                  stage [])]
+        (let [refusal (some #(when (= :refused (:status %)) %) responses)]
+          (is (= "ImportError" (get-in (nth outcome 2) [:py/exception :type]))
+              (str k))
+          (is (= :yang.python.antlr/missing-site-set (:reason refusal))
+              (str k))
+          (is (= 'pym.ca (:name refusal)) (str k))
+          (is (= outer (:via refusal)) (str k))
+          (is (= outer (:yin.link/canonical refusal)) (str k)))))))
+
+
+(deftest ^:slow an-outer-importing-an-scc-member-is-refused-test
+  (slow/guard "an-outer-importing-an-scc-member-is-refused-test"
+              an-outer-importing-an-scc-member-is-refused))

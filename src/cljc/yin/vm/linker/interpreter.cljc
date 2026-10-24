@@ -160,8 +160,12 @@
 
    `stage`, optional, is the link-time stage (yang.antlr.md 8.5.2)
    applied at delivery: `(stage ctx name address)` answers `{:status :ok
-   :address a' ...}` (`a'` may equal `address`) or `{:status :refused
-   ...}`.  `ctx` is plain data, `{:store handle :datoms [...]
+   :address a' ...}` (`a'` may equal `address`), `{:status :refused
+   ...}` or `{:status :missing :address a}`, an address the store does not
+   hold: the stage reports the first it meets and stops, and never
+   fetches.  A DHT source fetches what is reported missing (a staged load,
+   `yin.vm.linker.dht/load-stage`) and runs the stage again; a local
+   content store fails closed, refused `:absent`.  `ctx` is plain data, `{:store handle :datoms [...]
    :principals [...]}`: the store the stage may write its output into, the
    index datoms the source has loaded (none for a name-env source), and
    the declared principals' public keys.  The interpreter applies it after
@@ -406,22 +410,39 @@
    :principals (:principals source)})
 
 
+(defn- decision
+  "The shaping of a stage answer `r` for the request: `{:refused body}`
+   with the stage's own `:name` kept (the request's is the default) and
+   the resolved address under `:yin.link/canonical`, or `{:address a'}`
+   with `:extra`, the annotation of a substituted address."
+  [request address r]
+  (if (= :refused (:status r))
+    {:refused (-> r
+                  (update :name #(or % (:yin.link/name request)))
+                  (assoc :yin.link/canonical address))}
+    {:address (:address r)
+     :extra (when-not (= address (:address r))
+              (cond-> {:yin.link/canonical address}
+                (:derivation r) (assoc :yin.link/derivation
+                                       (:derivation r))))}))
+
+
 (defn- stage-decision
-  "The link-time stage's decision for `address` (`composition`'s `:stage`):
-   `{:address a}` with `:extra` the annotation of a substituted address,
-   or `{:refused body}`.  With no stage, the address as resolved."
+  "The link-time stage's decision for `address` over a content store
+   (`composition`'s `:stage`): `decision`'s shape.  A stage over a local
+   store that reports an address `:missing` has nothing to wait on and
+   fails closed, refused `:absent`.  With no stage, the address as
+   resolved."
   [source ctx request address]
   (if-let [stage (:stage source)]
     (let [r (stage ctx (:yin.link/name request) address)]
-      (if (= :refused (:status r))
-        {:refused (assoc r
-                         :name (:yin.link/name request)
-                         :yin.link/canonical address)}
-        {:address (:address r)
-         :extra (when-not (= address (:address r))
-                  (cond-> {:yin.link/canonical address}
-                    (:derivation r) (assoc :yin.link/derivation
-                                           (:derivation r))))}))
+      (if (= :missing (:status r))
+        {:refused {:status :refused
+                   :reason :absent
+                   :address (:address r)
+                   :name (:yin.link/name request)
+                   :yin.link/canonical address}}
+        (decision request address r)))
     {:address address}))
 
 
@@ -432,25 +453,49 @@
 
 
 (defn- dht-staged
-  "`dht-attempt` of the resolved `address` through the composition's stage.
-   A stage derives from the module's published tree, so the module itself
-   is attempted first (loaded, its dependency bindings checked and linked
-   under the composition's policy); only an `:ok` module is staged, its
-   refusal or pending state standing as it is.  A substituted address is
-   then attempted in its place and its `:ok` response annotated."
+  "`dht-attempt` of the resolved `address` through the composition's stage,
+   a second staged load.  The module itself is phase one: loaded, its
+   dependency bindings checked and linked under the composition's policy.
+   Only an `:ok` module is staged, its refusal or pending state standing
+   as it is.  Phase two is the stage load (`yin.vm.linker.dht/load-stage`,
+   keyed per address): the stage reads the node's store and reports what
+   it lacks, `step` fetches it, and the load is `::pending` on its key
+   meanwhile.  Its context, the loaded snapshot set's datoms and the
+   declared principals, is captured when the load starts; a snapshot
+   change while it is pending does not re-resolve.  A `:failed` load is
+   refused and forgotten, so a later require starts over; a `:loaded`
+   decision that refuses is forgotten likewise (a later index load may
+   change it), one that is `:ok` stays.  A substituted address is then
+   attempted in the module's place and its `:ok` response annotated."
   [source node declared request address]
   (let [first-try (dht-attempt node declared request address)]
     (if (or (nil? (:stage source))
             (not= :ok (:status (:body first-try))))
       first-try
       (let [node (:node first-try)
-            d (stage-decision source (dht-context source node) request
-                              address)]
+            key (linker.dht/stage-key address)
+            status (linker.dht/stage-status node address)]
         (cond
-          (:refused d) {:node node, :body (:refused d)}
-          (nil? (:extra d)) first-try
-          :else (update (dht-attempt node declared request (:address d))
-                        :body annotated (:extra d)))))))
+          (nil? status)
+          {:node (linker.dht/load-stage node (:stage source)
+                                        (dht-context source node)
+                                        (:yin.link/name request) address)
+           :body ::pending
+           :waits key}
+
+          (= :loading (:status status)) {:node node, :body ::pending, :waits key}
+
+          (= :failed (:status status))
+          {:node (dht/forget node key)
+           :body (linker.dht/stage-refusal status)}
+
+          :else
+          (let [d (decision request address (:value status))]
+            (cond
+              (:refused d) {:node (dht/forget node key), :body (:refused d)}
+              (nil? (:extra d)) first-try
+              :else (update (dht-attempt node declared request (:address d))
+                            :body annotated (:extra d)))))))))
 
 
 (defn- awaited-heads

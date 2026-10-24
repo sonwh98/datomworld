@@ -1154,6 +1154,12 @@ the old names.
   never learns what the stage did; its refusal reasons are the
   composition's own. A `:content-client` source with a stage is a
   composition defect.
+  The stage answers one of three shapes: `{:status :ok :address a'}`,
+  `{:status :refused ...}` or `{:status :missing :address a}`, the first
+  address it needs that its store does not hold. A stage never fetches; the
+  DHT source fetches what it reports missing (`yin.vm.linker.dht.md` 4.1
+  step 5) and runs it again, and a local content store fails closed,
+  refused `:absent`.
 - **Retirement.** `run-descriptor` and `retire` retire an abandoned
   run's requests and their admission state with no link response, so a
   late answer correlates to nothing.

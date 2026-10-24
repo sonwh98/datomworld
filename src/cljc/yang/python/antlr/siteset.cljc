@@ -101,13 +101,40 @@
      :set set}))
 
 
-(defn- fetch
-  "The value at `address` in `handle`, verified against its address, or nil."
+(defn- read-at
+  "The value at `address` in `handle`: `::absent` when the handle holds no
+   bytes for a segment address (the handle is asked with a not-found
+   sentinel, as a byte store is), nil when `address` is no segment address
+   or its bytes do not hash to it, else the value."
   [handle address]
-  (let [bs (when (jing/segment-address? address)
-             ((:get-bytes-fn handle) address nil))]
-    (when (and bs (jing/segment-bytes-match? address bs))
-      (jing/segment-value address bs))))
+  (if-not (jing/segment-address? address)
+    nil
+    (let [bs ((:get-bytes-fn handle) address ::absent)]
+      (cond
+        (= ::absent bs) ::absent
+        (nil? bs) ::absent
+        (jing/segment-bytes-match? address bs) (jing/segment-value address bs)
+        :else nil))))
+
+
+(defn- absent?
+  [x]
+  (= ::absent x))
+
+
+(defn- missing
+  "The stage's report of the absent `address`: first one met, nothing
+   written."
+  [address]
+  {:status :missing, :address address})
+
+
+(defn- fetch
+  "The value at `address` in `handle`, or nil when absent or not its
+   address."
+  [handle address]
+  (let [v (read-at handle address)]
+    (when-not (absent? v) v)))
 
 
 ;; =============================================================================
@@ -191,17 +218,20 @@
 
 (defn verify
   "Nil when the record at `record-address` verifies as the site set of the
-   module published at `manifest` in `handle`, else the first defect
-   `{:defect k ...}` (with the record's `:set` address when it names one):
-   the manifest absent, the record absent or not its address, the record
-   naming another manifest, the code root, the frontend revision or the
-   profile not the published ones, the set absent, not its address or
-   empty, or an entry not a path with a mark kind of the profile's."
+   module published at `manifest` in `handle`; `{:status :missing :address
+   a}` for the first address (manifest, record, set, in that order) the
+   handle does not hold; else the first defect `{:defect k ...}` (with the
+   record's `:set` address when it names one): the manifest or record not
+   its address, the record naming another manifest, the code root, the
+   frontend revision or the profile not the published ones, the set not its
+   address or empty, or an entry not a path with a mark kind of the
+   profile's."
   [handle manifest record-address]
-  (let [m (fetch handle manifest)
-        r (fetch handle record-address)
+  (let [m (read-at handle manifest)
+        r (when-not (absent? m) (read-at handle record-address))
         set-address (when (map? r) (:yang.site/set r))
-        set (fetch handle set-address)
+        set (when-not (or (absent? m) (absent? r))
+              (read-at handle set-address))
         defect (cond
                  (not (map? m)) {:defect :manifest-absent}
                  (not (map? r)) {:defect :record-absent}
@@ -214,8 +244,11 @@
                  (empty? set) {:defect :set-empty}
                  (not (every? entry-ok? set)) {:defect :kind}
                  :else nil)]
-    (when defect
-      (cond-> defect set-address (assoc :set set-address)))))
+    (cond
+      (absent? m) (missing manifest)
+      (absent? r) (missing record-address)
+      (absent? set) (missing set-address)
+      defect (cond-> defect set-address (assoc :set set-address)))))
 
 
 (defn admit
@@ -226,7 +259,9 @@
    :set [...] :set-address s :record a}` when a record verifies, `{:status
    :ok :instrumented? false :note ...}` for a noninterruptible profile,
    else a refusal naming the profile and the missing or mismatched set (its
-   address when the record names one)."
+   address when the record names one); or `{:status :missing :address a}`,
+   the first address a record's verification reads that `handle` does not
+   hold (`verify`)."
   [handle manifest record-addresses requirement]
   (cond
     (:noninterruptible requirement)
@@ -239,16 +274,23 @@
     (if (empty? record-addresses)
       (refusal :yang.python.antlr/missing-site-set requirement
                "no published site set for the module" {:manifest manifest})
-      (let [checked (mapv (fn [a] [a (verify handle manifest a)])
-                          record-addresses)]
-        (if-let [[a _] (some #(when (nil? (second %)) %) checked)]
-          (let [set-address (:yang.site/set (fetch handle a))]
-            {:status :ok,
-             :instrumented? true,
-             :record a,
-             :set-address set-address,
-             :set (fetch handle set-address)})
-          (let [[a defect] (first checked)]
+      (loop [todo record-addresses
+             first-defect nil]
+        (if-let [a (first todo)]
+          (let [v (verify handle manifest a)]
+            (cond
+              (nil? v)
+              (let [set-address (:yang.site/set (fetch handle a))]
+                {:status :ok,
+                 :instrumented? true,
+                 :record a,
+                 :set-address set-address,
+                 :set (fetch handle set-address)})
+
+              (= :missing (:status v)) v
+
+              :else (recur (rest todo) (or first-defect [a v]))))
+          (let [[a defect] first-defect]
             (refusal :yang.python.antlr/site-set-mismatch requirement
                      (str "the published site set"
                           (when-let [s (:set defect)] (str " " s))
@@ -267,26 +309,30 @@
 
 (defn- load-tree
   "The canonical row set `{:root :rows}` of the tree at `root` in `handle`,
-   every row fetched by its address, or nil when one is absent."
+   every row fetched by its address, depth-first: `{:status :missing
+   :address a}` for the first row the handle does not hold, nil when a row
+   is not its address or no tree row."
   [handle root]
   (loop [todo [root]
          rows {}]
     (if-let [id (peek todo)]
       (if (contains? rows id)
         (recur (pop todo) rows)
-        (let [body (fetch handle id)
+        (let [body (read-at handle id)
               slots (when (vector? body)
                       (get vm/semantic-bytecode-grammar (first body)))]
-          (when slots
-            (recur (into (pop todo)
-                         (mapcat (fn [[_ kind] v]
-                                   (case kind
-                                     :node [v]
-                                     :nodes v
-                                     nil))
-                                 slots
-                                 (rest body)))
-                   (assoc rows id (into [id] body))))))
+          (cond
+            (absent? body) (missing id)
+            slots (recur (into (pop todo)
+                               (mapcat (fn [[_ kind] v]
+                                         (case kind
+                                           :node [v]
+                                           :nodes v
+                                           nil))
+                                       slots
+                                       (rest body)))
+                         (assoc rows id (into [id] body)))
+            :else nil)))
       {:root root, :rows rows})))
 
 
@@ -298,7 +344,9 @@
    requirement rebound through `derived` ({A A'}). The `:derive` record
    (`yang.safepoint/derive-record`) is materialized beside it and its
    address answered as `:derivation`; nothing transacts it into a ledger.
-   Answers `{:status :ok :address a' :derivation d}` or a refusal."
+   Answers `{:status :ok :address a' :derivation d}`, a refusal, or
+   `{:status :missing :address a}` for the first tree row the handle does
+   not hold, before anything is written."
   [handle registry manifest m adm requirement derived]
   (let [fail (fn [message data]
                (refusal :yang.python.antlr/instrumentation-failed requirement
@@ -307,8 +355,9 @@
       (fail "the hook module is not published" {})
       (try
         (let [tree (load-tree handle (:yin.module/tree m))
+              absent (= :missing (:status tree))
               sites (into {} (:set adm))
-              inserted (when tree
+              inserted (when (and tree (not absent))
                          (safepoint/insert tree sites
                                            (:hooks-profile requirement)))
               ast (when inserted
@@ -333,6 +382,7 @@
                                                      registry n)]))
                                          (:yin.module/primitives m))}))]
           (cond
+            absent tree
             (nil? tree) (fail "the module's tree is not published" {})
             (= :refused (:status out))
             (fail "the instrumented module did not publish" {:cause out})
@@ -366,15 +416,18 @@
    bottom-up: each guest requirement is admitted and derived first, so the
    derived module pins the derived requirements it will link (`derived`,
    {A A'}, derives a shared requirement once). Answers `{:status :ok
-   :address a' :derivation d :derived derived}` or the first refusal, with
+   :address a' :derivation d :derived derived}`, the first refusal, with
    `:name` the requirement that was refused and `:via` the module that
-   required it."
+   required it, or `{:status :missing :address a}` for the first address
+   (record, set, guest manifest, tree row) read in a fixed depth-first
+   order that the handle does not hold. Nothing is written until every
+   read has succeeded."
   [ctx registry records requirement manifest derived]
   (let [handle (:store ctx)
         runtime (or (:runtime requirement) '#{py pysp})
         adm (admit handle manifest (records-for ctx records manifest)
                    requirement)]
-    (if (= :refused (:status adm))
+    (if (not= :ok (:status adm))
       adm
       (let [m (fetch handle manifest)
             deps (sort-by (comp str key)
@@ -386,17 +439,18 @@
                               (let [r (derive-closure ctx registry records
                                                       requirement a
                                                       (:derived acc))]
-                                (if (= :refused (:status r))
+                                (case (:status r)
+                                  :ok (assoc acc :derived (:derived r))
+                                  :missing (reduced r)
                                   (reduced (cond-> (assoc r :via manifest)
-                                             (nil? (:name r)) (assoc :name n)))
-                                  (assoc acc :derived (:derived r))))))
+                                             (nil? (:name r)) (assoc :name n)))))))
                           {:derived derived}
                           deps)]
-        (if (= :refused (:status below))
+        (if (:status below)
           below
           (let [out (derive-module handle registry manifest m adm requirement
                                    (:derived below))]
-            (if (= :refused (:status out))
+            (if (not= :ok (:status out))
               out
               (assoc out :derived (assoc (:derived below) manifest
                                          (:address out))))))))))
@@ -417,7 +471,10 @@
    true}`, with `:runtime` the names of the runtime modules (default `py`,
    `pysp`) it passes through. `records` ({manifest [record-address ...]})
    are the local publication's records; a DHT source supplies none and the
-   stage discovers them from the index datoms of its context. Answers
+   stage discovers them from the index datoms of its context. The stage
+   reads only the context's `:store` and never fetches: it answers
+   `{:status :missing :address a}` for the first address that store does
+   not hold, and is run again once it is there. Answers
    `(fn [ctx name address])`: `{:status :ok :address address}` as published
    when noninterruptible, else the address of the instrumented module
    derived bottom-up from the verified sets (`:derivation` its `:derive`
@@ -434,10 +491,11 @@
 
         :else
         (let [r (derive-closure ctx registry records requirement address {})]
-          (if (= :refused (:status r))
-            (cond-> r (nil? (:name r)) (assoc :name name))
-            (select-keys r [:status :address :derivation :instrumented?
-                            :set-address])))))))
+          (case (:status r)
+            :ok (select-keys r [:status :address :derivation :instrumented?
+                                :set-address])
+            :missing (select-keys r [:status :address])
+            (cond-> r (nil? (:name r)) (assoc :name name))))))))
 
 
 (defn signed-entries

@@ -441,6 +441,21 @@ One link attempt against a DHT source proceeds in this order:
 4. Link with `link-manifest` over a local runtime on the node's store,
    `:derivation :verifying`, `:defer-discharge true`.
 
+5. When the composition has a link-time stage (`yin.vm.linker.md` 6.5), run
+   it as a second staged load, keyed per module address
+   (`yin.vm.linker.dht/stage-key`, kind `:yin.link/stage`): the stage is the
+   walk. It reads the node's store and answers `{:status :missing :address
+   a}` for the first address it lacks, and `step` fetches that address
+   before the walk runs again; `:ok` and `:refused` are its complete value.
+   No record: start the load, answer pending (the pending entry waits on the
+   stage key). `:loading`: pending. `:failed`: refuse (a miss is `:absent`
+   naming the address, a throw `:yin.link/stage-failed`), then `forget` the
+   record. `:loaded`: a refusal is answered and the record forgotten, so a
+   later index load can change it; an `:ok` substitutes its address, and
+   steps 2 to 4 run for it. The stage's context (the loaded snapshot set's
+   datoms, the declared principals) is captured when its load starts. It
+   costs two extra pending rounds per instrumented import.
+
 A link that follows a `:loaded` record issues no content request to any
 peer. A link refusal `:absent` after `:loaded` is a walker defect and is
 reported as one (`:yin.link.dht/closure-incomplete`), never retried silently.
@@ -693,6 +708,10 @@ answers one of three shapes:
   The closure walk's set is section 4.2's; the index walk's is
   `:index-invalid`. A defect may carry `:detail` (data) and `:text` (a
   diagnostic string); no consumer compares either.
+- The kinds are the module closure load (4.2), the covered-index load and
+  the link-time stage load, `:yin.link/stage` (4.1 step 5), whose walk is
+  the composition's stage over the node's store and whose load id is a
+  segment address derived from the module's, naming nothing in any store.
 - A function that throws is `:invalid` with the one defect
   `{:code :dao.space.dht/walk-threw :text <the exception's message>}`. The
   code is the contract; the text differs by host and is never matched.
