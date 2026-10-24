@@ -1,7 +1,8 @@
 # dao.star: Hypermedia Web Applications in datom.world
 
-Status: design. Mode 1 is specified and buildable on
-[`dao.stream.http.md`](./dao.stream.http.md) and [`dao.lease.md`](./dao.lease.md).
+Status: design; Mode 1 ratified by owner ruling (2026-10-24). Mode 1 is
+specified and buildable on [`dao.stream.http.md`](./dao.stream.http.md) and
+[`dao.lease.md`](./dao.lease.md).
 Mode 2 is proposed and waits on fenced custody, version 1 of
 [`yin.vm.universal-continuation-format.md`](./yin.vm.universal-continuation-format.md)
 (owner ruling 2026-10-07). The published framing is
