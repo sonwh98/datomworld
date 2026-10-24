@@ -106,28 +106,35 @@
     (is (empty? ((:entries-fn store))))))
 
 
+;; the artifact's modules as [name manifest]: the units, then k's republication
+(defn- artifact-modules
+  [artifact]
+  (into (vec (sort-by key (:units artifact)))
+        (map (fn [[n m]] [(str n " (republished)") m]))
+        (:republished artifact)))
+
+
 (deftest published-site-sets-verify-test
-  (testing "every module of the artifact has a site-set publication record
-            that verifies against its manifest in the artifact's own
-            blobs: root, frontend revision, transformation profile and the
-            set's address (C4 slice I7)"
+  (testing "every module of the artifact has a site-set record that A's
+            signed index entry publishes, discovered from the published
+            code under A alone, fetched by address, and verifying against
+            the manifest in the artifact's own blobs: root, frontend
+            revision, transformation profile and the set's address (C4
+            slice I7)"
     (let [artifact (fixture/read-file)
-          store (mem/create-content-mem (:blobs artifact))]
-      (doseq [[units records] [[(:units artifact)
-                                (get-in artifact [:site-records :units])]
-                               [(:republished artifact)
-                                (get-in artifact [:site-records :republished])]]
-              [n manifest] units]
-        (let [r (get records n)]
-          (is (some? r) n)
-          (is (= manifest (:yang.site/manifest r)) n)
-          (is (nil? (siteset/verify store manifest r)) n)
-          (is (= :ok (:status (siteset/admit store manifest [r]
-                                             {:profile :py/hooks, :hooks true})))
-              n)
+          store (mem/create-content-mem (:blobs artifact))
+          datoms (siteset/entry-datoms (get-in artifact [:indexes :sites]))
+          {:keys [a b]} (:principals artifact)
+          hooks {:profile :py/hooks, :hooks true}]
+      (doseq [[n manifest] (artifact-modules artifact)]
+        (let [found (siteset/discover datoms [a] manifest)]
+          (is (= 1 (count found)) n)
+          (is (nil? (siteset/verify store manifest (first found))) n)
+          (is (= :ok (:status (siteset/admit store manifest found hooks))) n)
+          (is (= [] (siteset/discover datoms [b] manifest))
+              (str n " is not discovered under a principal that did not sign it"))
           (is (= :yang.python.antlr/missing-site-set
-                 (:reason (siteset/admit store manifest []
-                                         {:profile :py/hooks, :hooks true})))
+                 (:reason (siteset/admit store manifest [] hooks)))
               n))))))
 
 
@@ -204,9 +211,12 @@
   (dht-test/publish-datoms!
     node
     (vec (map-indexed (fn [i s]
-                        {:db/id (+ datom/first-user-id i),
-                         :yin.module/envelope (:envelope s),
-                         :yin.module/proof (:proof s)})
+                        (let [site? (contains? (:envelope s) :yang.site/op)]
+                          {:db/id (+ datom/first-user-id i),
+                           (if site? :yang.site/envelope :yin.module/envelope)
+                           (:envelope s),
+                           (if site? :yang.site/proof :yin.module/proof)
+                           (:proof s)}))
                       signed))))
 
 
@@ -669,6 +679,67 @@
         w))))
 
 
+(defn- site-sets-over-the-mesh
+  "I7's mesh leg: the reader loads `A`'s site-set index, discovers each
+   unit's record address from the entries `A` signed, then fetches the
+   manifest, record and set blobs it does not hold over the mesh by address
+   (a `dao.space.dht/load` whose walk is `siteset/verify`) and verifies."
+  [w artifact]
+  (let [{:keys [a]} (:principals artifact)
+        [w m] (publish-index w (get-in artifact [:indexes :sites]))
+        datoms (dht/loaded-datoms (:reader w) m)
+        modules (remove (fn [[n _]] (= "e" n)) (sort-by key (:units artifact)))
+        records (into {}
+                      (map (fn [[n manifest]]
+                             [n (siteset/discover datoms [a] manifest)]))
+                      modules)
+        walk (fn [manifest record]
+               (fn [handle]
+                 (let [missing (atom nil)
+                       probe (assoc handle
+                                    :get-bytes-fn
+                                    (fn [address _]
+                                      (let [v ((:get-bytes-fn handle) address
+                                                                      ::absent)]
+                                        (if (= ::absent v)
+                                          (do (reset! missing address) nil)
+                                          v))))
+                       defect (siteset/verify probe manifest record)]
+                   (if @missing
+                     {:dao.space.dht/walk :missing, :address @missing}
+                     {:dao.space.dht/walk :complete, :value {:defect defect}}))))
+        pending (mapv (fn [[n manifest]] [n manifest (first (get records n))])
+                      modules)]
+    (testing "the reader discovers one record per module from the index"
+      (is (some? datoms))
+      (is (every? #(= 1 (count (val %))) records) (pr-str records)))
+    (testing "the reader holds none of the blobs before the fetch"
+      (is (every? (fn [[_ manifest record]]
+                    (and (nil? ((:get-bytes-fn (dht/local (:reader w)))
+                                record nil))
+                         (nil? ((:get-bytes-fn (dht/local (:reader w)))
+                                manifest nil))))
+                  pending)))
+    (let [w (reduce (fn [w [_ manifest record]]
+                      (update w :reader dht/load record
+                              {:kind ::site-record,
+                               :walk (walk manifest record)}))
+                    w pending)
+          w (run-world w 600000 "the site records did not load"
+                       (fn [w]
+                         (every? #(contains? #{:loaded :failed}
+                                             (:status (dht/load-status
+                                                        (:reader w) (nth % 2))))
+                                 pending)))]
+      (is (nil? (:failure w)) (:failure w))
+      (testing "each record, fetched over the mesh by its address, verifies"
+        (doseq [[n _ record] pending]
+          (let [st (dht/load-status (:reader w) record)]
+            (is (= :loaded (:status st)) (str n " " (pr-str st)))
+            (is (= {:defect nil} (:value st)) n))))
+      w)))
+
+
 (defn- dht-import-test
   []
   (let [lines (fixture/read-lines)
@@ -677,6 +748,7 @@
         a (get-in artifact [:principals :a])
         src (source [a] [a])
         w (publish-world artifact)
+        w (site-sets-over-the-mesh w artifact)
         w (imports-over-the-dht w artifact src)
         w (an-untrusted-principal-is-refused-on-every-vm w artifact)
         w (a-trusted-principal-is-allowed-on-every-vm w artifact)
