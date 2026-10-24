@@ -98,6 +98,11 @@
                        :main-opts ["-m" "yang-antlr-gen"]}
            :kondo {:extra-deps {clj-kondo/clj-kondo {:mvn/version "2026.01.19"}}
                    :main-opts ["-m" "clj-kondo.main"]}
+           ;; Development/oracle only (datomic-q-v1 Client oracle runner,
+           ;; docs/design/dao.space.query.datomic-compat.md); never a production
+           ;; dependency. Backend deps/config are pinned separately once selected.
+           :oracle {:extra-paths ["src/dev" "test"]
+                    :extra-deps {com.datomic/client-api {:mvn/version "1.0.69"}}}
            :dbg {:extra-paths ["test"]
                  :main-opts ["-m" "debug-cljd"]
                  :cljd/opts {:kind :flutter :main datomworld.demo.main}}

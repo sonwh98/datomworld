@@ -1,0 +1,51 @@
+;; Provenance of the frozen datomic-q-v1 corpus. Read by humans and grepped
+;; (not evaluated) by dao.space.datomic-query-conformance-test, which pins the
+;; digest below as a literal. A test run never rewrites this file.
+{:corpus "datomic-q-v1"
+ :schema-version 1
+ :resource "test/resources/dao/space/datomic-q-v1.json"
+ ;; BLAKE3 of the resource bytes (the file is pure ASCII). Equals
+ ;; resource-blake3 in the conformance test.
+ :digest {:algorithm :blake3
+          :hex "109f88d7da8b3f2e9a9d06312fc7b49b2caaf8a31fbdde7ecfeb2611731143df"}
+ :cases {:total 80 :executable 31 :difference 9 :refusal 6 :pending 34}
+ :points 28
+ :fixtures 9
+ :baseline-revision "f6856bbc"
+ :contract "docs/design/dao.space.query.datomic-compat.md"
+ :authored "2026-10-24, phase 0 engineer slice (claude-opus-5-5 lane); revised after glm-5.3 review (pull-option re-encode)"
+ :reviewed-by nil
+ :inspected-artifacts
+ [{:coordinate com.datomic/client-api
+   :version "1.0.69"
+   :evidence :local-client-source
+   :scope "~/.m2 jar; public q arities, :query/:args/:offset/:limit/:timeout, limit default -1"
+   :declared-dependency "deps.edn :oracle alias only; not a production dependency"}]
+ :oracle
+ {:status :pending
+  :api "datomic.client.api/q"
+  :api-version "1.0.69"
+  ;; No Client backend is selected. A Peer-only runner may add language
+  ;; evidence but cannot certify Client behavior; mocks and DaoSpace-generated
+  ;; answers are not oracle evidence.
+  :backend :unselected
+  :backend-version nil
+  :runner "src/dev/dao/space/datomic_query_oracle.clj"
+  :observations-output "target/datomic-q-v1-observations.edn (separate; never the frozen corpus)"
+  :cases-oracle-executed 0}
+ :host-verification
+ {:clj "focused JVM gate (G0) in phase 0"
+  :cljs "node discovery preflight only; three-host G1 not yet run"
+  :cljd "not run"}
+ :unresolved-observations
+ ["E1 final-set collapse of content-distinct numerics (clj asserted; cljs/cljd unasserted)"
+  "E2 core string query returns #{[]} (adapter must read safe EDN)"
+  "E3 unbound find variable yields a nil row"
+  "E4 trailing map accepted as options; unknown options not refused"
+  "E5 aggregate parameters dropped; distinct/median/variance/stddev absent"
+  "E6 recursive pull markers fail with a host exception"
+  "E7 empty-input aggregate behavior unmeasured against Datomic"
+  "E8 cross-host float carrier equality unverified"
+  "E9 reverse-pull and :limit results depend on JVM shape/enumeration order (clj only)"
+  "E10 first pull-option pins recorded list-shape refusal only; re-encoded and re-pinned after review (previous digest e129fd6a superseded)"
+  "34 cases are pending: adapter, option validation, timeout and Client oracle evidence are all outstanding"]}
