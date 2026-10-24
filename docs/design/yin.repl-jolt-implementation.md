@@ -11,19 +11,28 @@ in-process ANTLR4 C++ parser over FFI, with no fallback. The first milestone is
 a local REPL (through J5). Host-lane parity, with native WebSocket and UDP/DHT,
 follows at J8.
 
-Status (2026-10-22): implementation in progress; local REPL and host-lane
+Status (2026-10-23): implementation in progress; local REPL and host-lane
 parity are not yet qualified. Landed on master: J0a toolchain/bootstrap
 (`9f1f9144`, Debian prerequisites through `d5b4ce95`); J0c C++ parser probe
 (`9fbee557`, probe-only); J1 dao.host overrides (`0d07e55d`); J1b hash/sign
-with pinned libblake3 and qualified system libcrypto (`97c7b902`); linear
-text walks (`f6e29391`); J2 test lane, CBOR host seam and libcrypto random bytes
-(wrapper layout 3, `a0a49b8e`); CBOR override drift guard (`4682c583`). J0b
-is not merged: the UDP probe stays on `jolt-j0b` (`6fa97400`). J2 is landed,
-not closed: gate (b), every applicable test passing with expected counts, is
-open with a rerun in progress; the safepoint harness result is pending. The
-14 J4-blocked namespaces are excluded to J4 by owner ruling (§13.5); the
-landed exclusion table still needs that update. J2b comparisons must close
-before J5 acceptance. Slice states are in §10.1.
+with pinned libblake3 and qualified system libcrypto (`97c7b902`); linear text
+walks (`f6e29391`); J2 test lane, CBOR host seam and libcrypto random bytes
+(wrapper layout 3, `a0a49b8e`); CBOR override drift guard (`4682c583`). J0b is
+not merged: the UDP probe stays on `jolt-j0b` (`6fa97400`). J2 is closed except
+one gate-(f) record (2026-10-23, master `f4d6a284`): J2 rerun 3 on shiva at
+`078e1e43` ran all 150 included core namespaces with 0 load failures, 0
+timeouts and 0 errors (202,787 of 202,791 assertions; the 4 failures are the
+owner-accepted jolt-lang reader failures in `yin.repl-test`, known-gaps P1);
+the `yin.vm.semantic.safepoint-harness-test` passed on jolt (60 tests, 265,225
+assertions, 0 failures) at `a0a49b8e`, test file unchanged since; the exclusion
+table landed in `9c2d8da0` per the owner's J4 ruling as amended ("both sets",
+2026-10-23: 10 whole-namespace J4 exclusions plus jolt-only file guards in 7
+suites, known-gaps rows 61-63); the Dart lane is green on `f4d6a284` (4,113
+tests). Still open inside J2's gate (f): one complete `bb test:cljs` on
+`f4d6a284`; the last local run stalled in `yin.vm.linker.dht-test` with no
+failure before it. Open after J2: the four transit-via-`yin.repl` suites rejoin
+the lane now that J3 has landed; J2b comparisons must close before J5
+acceptance. Slice states are in §10.1.
 
 This document consolidates the architect plan r7
 (`collab/1792427226000-architect-jolt-lane-plan-r7.gpt-6-astra.findings.md`),
@@ -1351,14 +1360,15 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 | landed                                      |                   | Landed `97c7b902`; no change to J4 authority acceptance.                                            |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J2: pure test lane and VM conformance       | `test:jolt`       | Every applicable pure test loads and passes; semantic and register boundary traces match. No silent |
-| in progress; landed                         | family, shared    | excludes, unchanged goldens, expected counts, nonzero failure exit. A throwing test is an error and |
+| closed except gate (f) Node record          | family, shared    | excludes, unchanged goldens, expected counts, nonzero failure exit. A throwing test is an error and |
 |                                             | fixture adapter,  | later tests still run: reproduce `docs/jolt-experiment.md:70` with sentinel tests after it and a    |
 |                                             | B-tree/space/VM   | nonzero final status. Shared source changes keep the existing three lanes green. On jolt:           |
 |                                             | pure suites,      | `dao.stream.transit` is not loaded; codec-less `make-attacher`/`make-endpoint` throw at             |
-|                                             | runtime bug fixes | composition; Transit-codec shared tests excluded with reason; codec-neutral suites run over the      |
+|                                             | runtime bug fixes | composition; Transit-codec shared tests excluded with reason; codec-neutral suites run over the     |
 |                                             |                   | CBOR profile (§9.4).                                                                                |
-|                                             | pure suites,      |                                                                                                     |
-|                                             | runtime bug fixes |                                                                                                     |
+|                                             |                   | Closed on `f4d6a284` except gate (f) Node: rerun 3 (`078e1e43`, shiva) 150 namespaces, 0 load       |
+|                                             |                   | failures, 0 errors, 4 owner-accepted reader failures; safepoint harness 60/265,225/0 (`a0a49b8e`);  |
+|                                             |                   | J4 table `9c2d8da0`; Dart lane green; one complete `bb test:cljs` still owed.                       |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J2b: deferred comparisons                   | Oracle/lowering   | Node/Dart oracle comparison and restricted lowering comparison (§7.8); both close before J5.        |
 | not started                                 |                   | Owner split from J2, 2026-10-22 (§13.5).                                                            |
