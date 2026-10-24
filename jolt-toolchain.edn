@@ -6,15 +6,15 @@
 ;; (`qualify:jolt-upgrade`, §6.4), with the explicit exception recorded below.
 {:jolt
  {:origin "https://github.com/sonwh98/jolt"
-  :sha "697b91eefabf3e964acea787cbc9cb1b6b85a28c"
-  :committed "2026-10-22T15:11:38+07:00"
+  :sha "b389f1a7fb553f63a3494d71f8fe3251790bf4d3"
+  :committed "2026-10-24T13:55:46+07:00"
   ;; owner decision 2026-10-22, pinned ahead of the first qualify:jolt-upgrade
   ;; run (section 6.4 ruling 4 exception); requalified by the manual section 6
   ;; checklist (collab review 1792692000000)
   :tag :none
   :nearest-release-tag {:tag "v0.8.23"
                         :sha "a0ac71c3f638fe55158bd01b4ecbb0dd3d7545e5"}
-  :describe "vnightly-16-g697b91ee"
+  :describe "vnightly-17-gb389f1a7"
   :dir "build/tools/jolt"
   ;; recursive submodule SHAs at :sha (git submodule status --recursive);
   ;; bootstrap refuses a checkout whose submodules differ
@@ -27,6 +27,13 @@
                "vendor/sci" "32d62a5136ad3dc148588752f5bcc4cc30b14752"}
   ;; The fork pin carries the Sorted fix: sonwh98/jolt#2, source 7b7100c1
   ;; and regenerated seeds 697b91ee. No bootstrap patch or re-mint is needed.
+  ;; Re-pinned 2026-10-24 (owner ruling: the JVM is canonical, jolt-lang is
+  ;; patched via the fork, same exception as 2026-10-22) to b389f1a7 on fork
+  ;; branch assoc-deftype-refusal, one commit on 697b91ee: assoc on a deftype
+  ;; that is not Associative throws ClassCastException, as on the JVM
+  ;; (host/chez/records-coll.ss; seeds unchanged at the remint byte-fixpoint;
+  ;; format-patch SHA-256 776019b9954113c13a74c7e8fce309040e33a99da859a9620701a9f094513c9f;
+  ;; upstream report text in collab/1792824446211-engineer-canonical-adjudication-fixes...).
   ;; Former patch 0001-sorted-user-types (base 96d7b866) is retired;
   ;; the patch mechanism stays available for future patches.
   :patches []}

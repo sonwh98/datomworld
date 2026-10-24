@@ -242,10 +242,7 @@
     :capability "file lock (tryLock)" :owner "J4"}
    {:ns "dao.space.store.fs-test"
     :reason "UTF-8 decoder fails and dangling symlink returns absence instead of refusal"
-    :capability "UTF-8 decoder + symlink refusal" :owner "J4"}
-   {:ns "yin.vm.host-typed-values-test"
-    :reason "loads since J3 (transit no longer required); 4 failures: jolt-lang assoc on a non-associative deftype answers a fresh instance instead of throwing, so guest assoc on a closure stays applicable (D7, host_typed_values_test.cljc:166); a :jolt arm cannot go in yin/vm.cljc (H0 list-1)"
-    :capability "assoc refusal on opaque values" :owner "host-boundary seat / jolt-lang patch"}])
+    :capability "UTF-8 decoder + symlink refusal" :owner "J4"}])
 
 
 ;; Dependency order (the max rank of each suite's source requires), so a low
@@ -292,10 +289,13 @@
    ;; Rejoined 2026-10-24: excluded with capability "transit codec via
    ;; yin.repl" (owner J3) until J3 landed (0c2bb870/8b0fbb60); on jolt
    ;; yin.repl.connect now takes its `:jolt []` arm, so yin.repl no longer
-   ;; requires dao.stream.transit. yin.vm.host-typed-values-test no longer
-   ;; needs transit either, but stays excluded below on a different capability.
+   ;; requires dao.stream.transit.
    "yin.vm.linker-require-test" "yin.vm.linker.head-test"
    "yin.vm.linker.publish-test" "yin.vm.linker.admission-test"
+   ;; Rejoined 2026-10-24 on the fork re-pin b389f1a7 (jolt-toolchain.edn):
+   ;; jolt-lang's assoc on a non-Associative deftype now throws as on the JVM,
+   ;; so the suite needs no yin/vm.cljc arm.
+   "yin.vm.host-typed-values-test"
    "yin.vm.semantic-engine-test" "yin.vm.semantic-ffi-test"
    "yin.vm.semantic-stream-observer-test" "yin.vm.semantic.effects-test"
    "yin.vm.semantic.linearize-test" "yin.vm.semantic.link-test"
