@@ -2712,10 +2712,11 @@ two land serially, not concurrently.
 
 This section records the C4 design as amended by the C4 cross-ruling's
 nineteen converged rulings; where they differ from the design's own
-recommendations, the converged rulings govern. Its implementation is
-pending, in slices F2, F3, P1 to P3, and I1 to I7 below; F1, P1 and P2
-have landed; P2 covers the semantic, stack and register VMs, the walker
-waiting on L-b.
+recommendations, the converged rulings govern. Its implementation is in
+slices F2, F3, P1 to P3, and I1 to I7 below; F1, P1 to P3 and I1 to I6
+have landed (I5 at 51117e93, I6 at 19e7e879, I1 at aad451c5, with I3's
+DHT publication and I4-a's statement-time errors in the same series);
+I7 remains open.
 
 Install delivers code; instantiation is the importing task's own
 evaluation (ruling 1). A linked Python-side module (the base prelude,
