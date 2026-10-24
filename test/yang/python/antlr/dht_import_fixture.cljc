@@ -6,8 +6,9 @@
 
    It holds what a publisher `A` publishes and signs: the guest blobs of
    the units m, k, t and e and of k's republication k2 (every blob of
-   their closures but `py`'s, which each reader has installed), each
-   unit's manifest address, the signed name envelopes of three index
+   their closures but `py`'s, which each reader has installed, and each
+   module's site set blob and publication record blob, I7), each
+   unit's manifest address, its site-set publication record, the signed name envelopes of three index
    transactions -- `A` naming py, m, k and t; `A` retracting k and
    naming k2; a foreign principal `B` naming e -- and the importer
    packets the reader lowers. The keys are fixed test seeds, and Ed25519
@@ -145,6 +146,13 @@
                                       :b (:public key-b)}})
                 (pr-str {:units addresses,
                          :republished {"k" (get-in k2 [:addresses "k"])}})
+                (pr-str {:site-records
+                         {:units (into {}
+                                       (map (fn [[n s]] [n (:record s)]))
+                                       (:sites units)),
+                          :republished (into {}
+                                             (map (fn [[n s]] [n (:record s)]))
+                                             (:sites k2))}})
                 (pr-str {:importers {:d programs/d-packet,
                                      :tt programs/tt-packet,
                                      :x programs/x-packet}})

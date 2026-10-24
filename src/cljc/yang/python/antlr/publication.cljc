@@ -12,6 +12,7 @@
    and `name-envelopes`): this namespace publishes content, it signs
    nothing."
   (:require [yang.python.antlr.lower :as lower]
+            [yang.python.antlr.siteset :as siteset]
             [yin.vm.linker.publish :as publish]))
 
 
@@ -95,7 +96,10 @@
    `py-address` and each import outside the set at its address in
    `published` ({python-name address}), in `publication-order`. Answers
    `{:status :ok :addresses {python-name address}
-     :bundles {bundle-symbol address}}` for the units of the set, or the
+     :bundles {bundle-symbol address}
+     :sites {python-name-or-bundle-symbol site-publication}}` for the units
+   of the set (`siteset/publish!`'s answer for each module published beside
+   its code image, I7), or the
    first refusal: `publication-order`'s before anything is written, else
    `publish-module!`'s with a string `:unit`: the Python name for a member,
    or the bundle module name for an SCC bundle. Every bundle name must be
@@ -125,7 +129,14 @@
                                               :package? (:package? (get by-name step)),
                                               :py-address py-address, :deps deps})])
                  bundle (first specs)
-                 result (publish-fn handle bundle)]
+                 result (publish-fn handle bundle)
+                 sited (fn [acc k spec r]
+                         ;; a handle with no byte store (a stub publisher)
+                         ;; has nowhere to put a set
+                         (cond-> acc
+                           (:put-bytes-fn handle)
+                           (assoc-in [:sites k]
+                                     (siteset/publish! handle (:address r) (:ast spec)))))]
              (if (= :refused (:status result))
                (reduced (assoc result :unit (if (vector? step) (str (:name bundle)) step)))
                (if (vector? step)
@@ -135,10 +146,16 @@
                                                                  {(:name bundle) (:address result)}))]
                                            (if (= :refused (:status r))
                                              (reduced (assoc r :unit n))
-                                             (assoc-in a [:addresses n] (:address r)))))
-                                       (assoc-in acc [:bundles (:name bundle)] (:address result))
+                                             (-> a
+                                                 (assoc-in [:addresses n] (:address r))
+                                                 (sited n spec r)))))
+                                       (-> acc
+                                           (assoc-in [:bundles (:name bundle)] (:address result))
+                                           (sited (:name bundle) bundle result))
                                        (map vector members (rest specs)))]
                    (if (= :refused (:status aliases)) (reduced aliases) aliases))
-                 (assoc-in acc [:addresses step] (:address result))))))
+                 (-> acc
+                     (assoc-in [:addresses step] (:address result))
+                     (sited step bundle result))))))
          {:status :ok, :addresses {}, :bundles {}}
          (:order plan))))))

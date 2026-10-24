@@ -50,6 +50,7 @@
     [yang.python.antlr.lower :as lower]
     [yang.python.antlr.publication :as publication]
     [yang.python.antlr.render :as render]
+    [yang.python.antlr.siteset :as siteset]
     [yin.vm :as vm]
     [yin.vm.linker.admission :as admission]
     [yin.vm.linker.dht :as ld]
@@ -103,6 +104,31 @@
            (publication/publish-units! store (h/registry) stand-in-address
                                        [(unit "t" programs/t-packet)])))
     (is (empty? ((:entries-fn store))))))
+
+
+(deftest published-site-sets-verify-test
+  (testing "every module of the artifact has a site-set publication record
+            that verifies against its manifest in the artifact's own
+            blobs: root, frontend revision, transformation profile and the
+            set's address (C4 slice I7)"
+    (let [artifact (fixture/read-file)
+          store (mem/create-content-mem (:blobs artifact))]
+      (doseq [[units records] [[(:units artifact)
+                                (get-in artifact [:site-records :units])]
+                               [(:republished artifact)
+                                (get-in artifact [:site-records :republished])]]
+              [n manifest] units]
+        (let [r (get records n)]
+          (is (some? r) n)
+          (is (= manifest (:yang.site/manifest r)) n)
+          (is (nil? (siteset/verify store manifest r)) n)
+          (is (= :ok (:status (siteset/admit store manifest [r]
+                                             {:profile :py/hooks, :hooks true})))
+              n)
+          (is (= :yang.python.antlr/missing-site-set
+                 (:reason (siteset/admit store manifest []
+                                         {:profile :py/hooks, :hooks true})))
+              n))))))
 
 
 ;; =============================================================================
