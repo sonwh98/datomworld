@@ -187,9 +187,6 @@
    {:ns "dao.jing.stream-test"
     :reason "requires dao.stream.transit (missed by the round-1 manifest; found by the round-2 load evidence)"
     :capability "transit codec" :owner "jolt seat (design 9.4 ruling)"}
-   {:ns "yin.vm.linker-require-test"
-    :reason "requires yin.repl, which requires dao.stream.transit (found by the round-2 load evidence)"
-    :capability "transit codec via yin.repl" :owner "jolt seat (design 9.4 ruling) + J3"}
    {:ns "dao.jing.dht.socket-test"
     :reason "binds real datagram sockets" :capability "udp sockets" :owner "J6/J7"}
    {:ns "yin.vm.ffi.remote-serve-test"
@@ -247,17 +244,8 @@
     :reason "UTF-8 decoder fails and dangling symlink returns absence instead of refusal"
     :capability "UTF-8 decoder + symlink refusal" :owner "J4"}
    {:ns "yin.vm.host-typed-values-test"
-    :reason "requires yin.repl, which requires dao.stream.transit (found by the round-2 load evidence)"
-    :capability "transit codec via yin.repl" :owner "J3"}
-   {:ns "yin.vm.linker.head-test"
-    :reason "requires yin.repl, which requires dao.stream.transit (found by the round-2 load evidence)"
-    :capability "transit codec via yin.repl" :owner "J3"}
-   {:ns "yin.vm.linker.publish-test"
-    :reason "requires yin.repl, which requires dao.stream.transit (found by the round-2 load evidence)"
-    :capability "transit codec via yin.repl" :owner "J3"}
-   {:ns "yin.vm.linker.admission-test"
-    :reason "requires yin.repl, which requires dao.stream.transit (found by the round-2 load evidence)"
-    :capability "transit codec via yin.repl" :owner "J3"}])
+    :reason "loads since J3 (transit no longer required); 4 failures: jolt-lang assoc on a non-associative deftype answers a fresh instance instead of throwing, so guest assoc on a closure stays applicable (D7, host_typed_values_test.cljc:166); a :jolt arm cannot go in yin/vm.cljc (H0 list-1)"
+    :capability "assoc refusal on opaque values" :owner "host-boundary seat / jolt-lang patch"}])
 
 
 ;; Dependency order (the max rank of each suite's source requires), so a low
@@ -301,6 +289,13 @@
    "yin.vm.heap-reclamation-test" "yin.vm.integer-test" "yin.vm.linker-manifest-test"
    "yin.vm.linker-step-test" "yin.vm.linker-test" "yin.vm.linker.closure-test"
    "yin.vm.linker.remote-transfer-test" "yin.vm.macro-test" "yin.vm.mint-test" "yin.vm.rule-r-test"
+   ;; Rejoined 2026-10-24: excluded with capability "transit codec via
+   ;; yin.repl" (owner J3) until J3 landed (0c2bb870/8b0fbb60); on jolt
+   ;; yin.repl.connect now takes its `:jolt []` arm, so yin.repl no longer
+   ;; requires dao.stream.transit. yin.vm.host-typed-values-test no longer
+   ;; needs transit either, but stays excluded below on a different capability.
+   "yin.vm.linker-require-test" "yin.vm.linker.head-test"
+   "yin.vm.linker.publish-test" "yin.vm.linker.admission-test"
    "yin.vm.semantic-engine-test" "yin.vm.semantic-ffi-test"
    "yin.vm.semantic-stream-observer-test" "yin.vm.semantic.effects-test"
    "yin.vm.semantic.linearize-test" "yin.vm.semantic.link-test"

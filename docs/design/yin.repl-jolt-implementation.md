@@ -33,9 +33,12 @@ complete Node lane on shiva (scratch clone of origin/master `f4d6a284`, rc=0,
 242 namespaces compiled and run, 0 failures, 0 errors; complete, so it includes
 `yin.vm.linker.dht-test`, where a laptop run had stalled, and
 `dao.jing.dht-test`); the laptop stall was environmental, corroborated by the
-host-boundary seat's independent focused run (16/217/0). Open after J2: the
-four transit-via-`yin.repl` suites rejoin the lane now that J3 has landed; J2b
-comparisons must close before J5 acceptance. Slice states are in §10.1.
+host-boundary seat's independent focused run (16/217/0). After J2 (2026-10-24):
+the transit-via-`yin.repl` suites rejoined `test:jolt-core` (linker-require,
+linker.head, linker.publish, linker.admission; 155 included / 54 excluded);
+`yin.vm.host-typed-values-test` stays excluded on a jolt-lang `assoc`
+divergence (known-gaps); J2b comparisons must close before J5 acceptance. Slice
+states are in §10.1.
 
 This document consolidates the architect plan r7
 (`collab/1792427226000-architect-jolt-lane-plan-r7.gpt-6-astra.findings.md`),
