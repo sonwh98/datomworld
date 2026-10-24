@@ -24,10 +24,10 @@
    A consumer under a profile requiring hooks `admit`s an import: it
    verifies every pin against the published code root and refuses a
    missing, empty or mismatched set, naming the profile and the set.
-   `import-address` then applies a verified set at link time: it derives
-   the instrumented module `A'` from the published tree alone and
-   publishes it, and `link-env` rebinds a name environment to those
-   addresses. An explicitly noninterruptible profile imports the module
+   `stage` then applies a verified set at link time, as the linker
+   composition's `:stage`: it derives the instrumented module `A'` from the
+   published tree alone, bottom-up over the module's guest requirements,
+   and publishes it beside its `:derive` record. An explicitly noninterruptible profile imports the module
    as published, with none."
   (:require [dao.jing :as jing]
             [yang.python.antlr.lower :as lower]
@@ -294,9 +294,12 @@
   "Publish into `handle` the instrumented module `A'` of the module `m` at
    `manifest` for the verified set of `adm`: the published tree with the
    hooks of `(:hooks-profile requirement)` at its sites, requiring
-   `(:pysp requirement)` beside its own requirements. Answers
-   `{:status :ok :address a'}` or a refusal."
-  [handle registry manifest m adm requirement]
+   `(:pysp requirement)` beside its own requirements, each guest
+   requirement rebound through `derived` ({A A'}). The `:derive` record
+   (`yang.safepoint/derive-record`) is materialized beside it and its
+   address answered as `:derivation`; nothing transacts it into a ledger.
+   Answers `{:status :ok :address a' :derivation d}` or a refusal."
+  [handle registry manifest m adm requirement derived]
   (let [fail (fn [message data]
                (refusal :yang.python.antlr/instrumentation-failed requirement
                         message (assoc data :manifest manifest)))]
@@ -304,17 +307,25 @@
       (fail "the hook module is not published" {})
       (try
         (let [tree (load-tree handle (:yin.module/tree m))
-              ast (when tree
-                    (vm/semantic-bytecode->ast
-                      (:tree (safepoint/insert tree (into {} (:set adm))
-                                               (:hooks-profile requirement)))))
+              sites (into {} (:set adm))
+              inserted (when tree
+                         (safepoint/insert tree sites
+                                           (:hooks-profile requirement)))
+              ast (when inserted
+                    (vm/semantic-bytecode->ast (:tree inserted)))
+              runtime (or (:runtime requirement) '#{py pysp})
               out (when ast
                     (publish/publish-module!
                       handle
                       {:name (:yin.module/name m),
                        :ast ast,
                        :exports (:yin.module/exports m),
-                       :requires (assoc (:yin.module/requires m)
+                       :requires (assoc (into {}
+                                              (map (fn [[n a]]
+                                                     [n (if (contains? runtime n)
+                                                          a
+                                                          (get derived a a))]))
+                                              (:yin.module/requires m))
                                         'pysp (:pysp requirement)),
                        :primitives (into {}
                                          (map (fn [[n _]]
@@ -325,48 +336,119 @@
             (nil? tree) (fail "the module's tree is not published" {})
             (= :refused (:status out))
             (fail "the instrumented module did not publish" {:cause out})
-            :else {:status :ok,
-                   :address (:address out),
-                   :instrumented? true,
-                   :set-address (:set-address adm)}))
+            :else
+            {:status :ok,
+             :address (:address out),
+             :instrumented? true,
+             :set-address (:set-address adm),
+             :derivation (jing/materialize!
+                           handle
+                           (safepoint/derive-record
+                             (:yin.module/tree m)
+                             (:yin.module/tree (:manifest out))
+                             (:hooks-profile requirement)
+                             (:sites inserted)))}))
         (catch #?(:cljd Object :clj Exception :cljs :default) e
           (fail (str "the instrumented module did not derive: " (ex-message e))
                 {}))))))
 
 
-(defn import-address
-  "The address the import of the module at `manifest` links at under
-   `requirement` (`admit`'s, and for a hook profile also `:hooks-profile`,
-   the `yang.safepoint` profile, and `:pysp`, the hook module's address):
-   `{:status :ok :address a}`, the manifest itself when noninterruptible,
-   else the address of the instrumented module derived from the verified
-   set (`:instrumented? true`); or `admit`'s refusal. `record-addresses`
-   are the records discovered for `manifest`."
-  [handle registry manifest record-addresses requirement]
-  (let [adm (admit handle manifest record-addresses requirement)]
-    (cond
-      (= :refused (:status adm)) adm
-      (not (:instrumented? adm)) (assoc adm :address manifest)
-      :else (derive-module handle registry manifest (fetch handle manifest)
-                           adm requirement))))
+(defn- records-for
+  "The record addresses for `manifest`: the local map `records`'s, then
+   those `ctx`'s loaded index datoms publish under its principals."
+  [ctx records manifest]
+  (into (vec (get records manifest))
+        (discover (:datoms ctx) (:principals ctx) manifest)))
 
 
-(defn link-env
-  "`name-env` ({name manifest}) rebound for the link source of an import
-   under `requirement`: each name but the runtime modules in
-   `(:runtime requirement)` (default `py`, `pysp`) goes through
-   `import-address`, `records` ({manifest [record-address ...]}) its
-   discovered records. Answers `{:status :ok :name-env env}` or the first
-   refusal, naming the module in `:name`."
-  [handle registry name-env records requirement]
+(defn- derive-closure
+  "The instrumented module of `manifest` under a hook profile, derived
+   bottom-up: each guest requirement is admitted and derived first, so the
+   derived module pins the derived requirements it will link (`derived`,
+   {A A'}, derives a shared requirement once). Answers `{:status :ok
+   :address a' :derivation d :derived derived}` or the first refusal, with
+   `:name` the requirement that was refused and `:via` the module that
+   required it."
+  [ctx registry records requirement manifest derived]
+  (let [handle (:store ctx)
+        runtime (or (:runtime requirement) '#{py pysp})
+        adm (admit handle manifest (records-for ctx records manifest)
+                   requirement)]
+    (if (= :refused (:status adm))
+      adm
+      (let [m (fetch handle manifest)
+            deps (sort-by (comp str key)
+                          (remove (comp runtime key)
+                                  (:yin.module/requires m)))
+            below (reduce (fn [acc [n a]]
+                            (if (contains? (:derived acc) a)
+                              acc
+                              (let [r (derive-closure ctx registry records
+                                                      requirement a
+                                                      (:derived acc))]
+                                (if (= :refused (:status r))
+                                  (reduced (cond-> (assoc r :via manifest)
+                                             (nil? (:name r)) (assoc :name n)))
+                                  (assoc acc :derived (:derived r))))))
+                          {:derived derived}
+                          deps)]
+        (if (= :refused (:status below))
+          below
+          (let [out (derive-module handle registry manifest m adm requirement
+                                   (:derived below))]
+            (if (= :refused (:status out))
+              out
+              (assoc out :derived (assoc (:derived below) manifest
+                                         (:address out))))))))))
+
+
+(def reasons
+  "The refusal reasons the stage answers, the composition's own."
+  #{:yang.python.antlr/missing-site-set
+    :yang.python.antlr/site-set-mismatch
+    :yang.python.antlr/profile-undeclared
+    :yang.python.antlr/instrumentation-failed})
+
+
+(defn stage
+  "The link-time stage (`yin.vm.linker.interpreter/composition`'s `:stage`)
+   of a Python import under `requirement`: `{:profile name :hooks true
+   :hooks-profile p :pysp address}` or `{:profile name :noninterruptible
+   true}`, with `:runtime` the names of the runtime modules (default `py`,
+   `pysp`) it passes through. `records` ({manifest [record-address ...]})
+   are the local publication's records; a DHT source supplies none and the
+   stage discovers them from the index datoms of its context. Answers
+   `(fn [ctx name address])`: `{:status :ok :address address}` as published
+   when noninterruptible, else the address of the instrumented module
+   derived bottom-up from the verified sets (`:derivation` its `:derive`
+   record's address), or the refusal naming the profile, the set and the
+   `:name` refused."
+  [registry requirement records]
   (let [runtime (or (:runtime requirement) '#{py pysp})]
-    (reduce (fn [acc [n manifest]]
-              (if (contains? runtime n)
-                (assoc-in acc [:name-env n] manifest)
-                (let [r (import-address handle registry manifest
-                                        (get records manifest) requirement)]
-                  (if (= :refused (:status r))
-                    (reduced (assoc r :name n))
-                    (assoc-in acc [:name-env n] (:address r))))))
-            {:status :ok, :name-env {}}
-            (sort-by (comp str key) name-env))))
+    (fn [ctx name address]
+      (cond
+        (contains? runtime name) {:status :ok, :address address}
+
+        (:noninterruptible requirement)
+        (assoc (admit (:store ctx) address [] requirement) :address address)
+
+        :else
+        (let [r (derive-closure ctx registry records requirement address {})]
+          (if (= :refused (:status r))
+            (cond-> r (nil? (:name r)) (assoc :name name))
+            (select-keys r [:status :address :derivation :instrumented?
+                            :set-address])))))))
+
+
+(defn signed-entries
+  "The `publisher` key's signed publication entries for the site sets
+   `publish-units!` answered: `sites` (`:sites`), the manifest of each
+   from `addresses` (a Python name) or `bundles` (a bundle symbol), in
+   key order. The publisher that asserts these names indexes them in the
+   same transaction (`entry-datoms`); a module with no entry is refused
+   by every hook-profile reader."
+  [publisher sites addresses bundles]
+  (mapv (fn [[k s]]
+          (signed-entry publisher (or (get addresses k) (get bundles k))
+                        (:record-address s)))
+        (sort-by (comp str key) sites)))

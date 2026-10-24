@@ -176,7 +176,7 @@
                                 (head node) (conj (head node)))))))
 
 
-(defn- snapshot-datoms
+(defn snapshot-datoms
   "The datoms of the snapshot `s`: a loaded index's, or HEAD's read from
    the node's own store."
   [node s]

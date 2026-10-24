@@ -85,6 +85,17 @@
     (select-keys ((:entries-fn store)) (closure-addresses store address))))
 
 
+(defn installed-pysp
+  "`pysp`'s closure as this host published it, `{address bytes}`: the hook
+   runtime a reader under a hook profile has installed, as it has `py`
+   (the closure includes `py`'s)."
+  []
+  (let [{:keys [store]} @h/published
+        pysp (:address @h/published-pysp)
+        addresses (closure-addresses store pysp)]
+    (select-keys ((:entries-fn store)) addresses)))
+
+
 (defn- unit
   [nm pk]
   {:name nm, :packet pk, :package? false})
@@ -141,13 +152,10 @@
             ;; I7: A's signed publication entry for each module's site-set
             ;; record, the units' then k's republication
             sites (into []
-                        (mapcat (fn [[p addrs]]
-                                  (map (fn [[n s]]
-                                         (siteset/signed-entry
-                                           key-a (get addrs n)
-                                           (:record-address s)))
-                                       (sort-by key (:sites p)))))
-                        [[units addresses] [k2 (:addresses k2)]])
+                        (mapcat #(siteset/signed-entries
+                                   key-a (:sites %) (:addresses %)
+                                   (:bundles %)))
+                        [units k2])
             blobs (sort-by (comp str key)
                            (remove (fn [[a _]] (contains? installed a))
                                    ((:entries-fn store))))]

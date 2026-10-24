@@ -16,15 +16,18 @@
 
    The slow tests run the acceptance on the three vector VMs through the
    linker: a published `while True` module imported under a hook profile
-   is rebound by `siteset/link-env` to the instrumented module derived from
-   its verified set and the published tree alone, so a pending signal
-   interrupts it across the import boundary; the same import without its
-   set is refused at link time, naming the profile and the set, before
-   anything is derived or run; and a noninterruptible profile imports the
-   module as published."
+   is delivered by the linker composition's `:stage` (`siteset/stage`) as
+   the instrumented module derived from its verified set and the published
+   tree alone, the name environment holding canonical addresses only, so a
+   pending signal interrupts it across the import boundary; the same import
+   without its set is refused at link time, naming the profile and the set,
+   before anything is derived or run; a noninterruptible profile imports the
+   module as published; and an import chain derives bottom-up, the outer
+   instrumented module pinning the inner one it links."
   (:require [clojure.test :refer [deftest is testing]]
             [clojure.string :as str]
             [dao.jing :as jing]
+            [dao.jing.dht.mesh :as mesh]
             [dao.jing.mem :as mem]
             [dao.stream :as stream]
             [dao.test-slow :as slow]
@@ -37,7 +40,9 @@
             [yang.python.antlr.safepoint-programs :as loops]
             [yang.python.antlr.siteset :as siteset]
             [yang.python.antlr.uast :as u]
+            [yang.safepoint :as safepoint]
             [yin.vm :as vm]
+            [yin.vm.linker.interpreter :as link]
             [yin.vm.engine :as engine]
             [yin.vm.linker.publish :as publish]
             [yin.vm.linker.sign :as sign]
@@ -198,18 +203,48 @@
                             requirement)))))))
 
 
-(deftest an-scc-member-alias-carries-no-set-test
+(defn- stub-store
+  "A store holding stand-in `py` and `pysp` modules (the stage reads the
+   hook module's manifest for the derived footprint): `[store py pysp]`."
+  []
   (let [store (mem/create-content-mem)
-        py (publish/publish-module! store {:name 'py, :ast (u/lit nil),
-                                           :exports #{}, :requires {},
-                                           :primitives {}})
+        stub (fn [nm]
+               (:address (publish/publish-module!
+                           store {:name nm, :ast (u/lit nil), :exports #{},
+                                  :requires {}, :primitives {}})))]
+    [store (stub 'py) (stub 'pysp)]))
+
+
+(defn- hook-requirement
+  [pysp]
+  (assoc requirement
+         :hooks-profile hooks/linked-profile
+         :pysp pysp))
+
+
+(defn- records-of
+  "`{manifest [record-address]}` for the publication `result`."
+  [result]
+  (into {}
+        (map (fn [[n s]]
+               [(get (:addresses result) n) [(:record-address s)]]))
+        (:sites result)))
+
+
+(def ^:private no-datoms
+  {:datoms [], :principals []})
+
+
+(deftest an-scc-member-alias-carries-no-set-test
+  (let [[store py pysp] (stub-store)
         result (publication/publish-units!
-                 store (h/registry) (:address py)
+                 store (h/registry) py
                  [{:name "ca", :packet programs/ca-packet}
                   {:name "cb", :packet programs/cb-packet}])
         bundle (get (:bundles result) 'pyscc.ca$$cb)
         alias-a (get (:addresses result) "ca")
-        bundle-site (get (:sites result) 'pyscc.ca$$cb)]
+        bundle-site (get (:sites result) 'pyscc.ca$$cb)
+        ctx (assoc no-datoms :store store)]
     (is (= :ok (:status result)) (pr-str result))
     (testing "the marks are in the bundle, which carries the set"
       (is (seq (:set bundle-site)))
@@ -220,38 +255,74 @@
     (testing "an alias has no marks and no set"
       (is (not (contains? (:sites result) "ca")))
       (is (not (contains? (:sites result) "cb"))))
-    (testing "a member import under a hook profile is refused, not run
-              uninstrumented under the lie of an empty set"
-      (let [out (siteset/link-env store (h/registry) {'pym.ca alias-a}
-                                  {} requirement)]
+    (testing "a member import under a hook profile is refused by the stage,
+              not run uninstrumented under the lie of an empty set"
+      (let [out ((siteset/stage (h/registry) (hook-requirement pysp) {})
+                 ctx 'pym.ca alias-a)]
         (is (= :refused (:status out)))
         (is (= :yang.python.antlr/missing-site-set (:reason out)))
+        (is (contains? siteset/reasons (:reason out)))
         (is (= 'pym.ca (:name out)))
         (is (= :py/hooks (:profile out)))))
     (testing "a noninterruptible profile imports the alias as published"
-      (is (= {:status :ok, :name-env {'pym.ca alias-a}}
-             (siteset/link-env store (h/registry) {'pym.ca alias-a} {}
-                               {:profile :py/plain, :noninterruptible true}))))
+      (is (= {:status :ok, :address alias-a}
+             (select-keys ((siteset/stage (h/registry)
+                                          {:profile :py/plain,
+                                           :noninterruptible true}
+                                          {})
+                           ctx 'pym.ca alias-a)
+                          [:status :address]))))
     (is (some? bundle))))
 
 
-(deftest a-backend-failure-is-a-refusal-not-a-throw-test
-  (let [store (mem/create-content-mem)
-        failing (assoc store :put-bytes-fn
-                       (fn [& _] (throw (ex-info "disk full" {}))))
-        py (publish/publish-module! store {:name 'py, :ast (u/lit nil),
-                                           :exports #{}, :requires {},
-                                           :primitives {}})
-        out (publication/publish-units!
-              failing (h/registry) (:address py)
-              [{:name "m", :packet programs/m-packet}]
-              {}
-              (fn [_ spec]
-                ;; the module publishes through the healthy store; only the
-                ;; site set's blobs reach the failing one
-                (publish/publish-module! store spec)))]
-    (is (= :refused (:status out)) (pr-str (select-keys out [:status :reason])))
-    (is (= :yang.python.antlr/site-set-unpublished (:reason out)))))
+(deftest the-stage-answers-the-derive-record-test
+  (let [[store py pysp] (stub-store)
+        result (publication/publish-units!
+                 store (h/registry) py
+                 [{:name "w", :packet loops/while-true-pass}])
+        manifest (get (:addresses result) "w")
+        ctx (assoc no-datoms :store store)
+        out ((siteset/stage (h/registry) (hook-requirement pysp)
+                            (records-of result))
+             ctx 'pym.w manifest)
+        record (jing/get store (:derivation out) nil)
+        selected (filter (fn [[_ mark]]
+                           (#{:loop :call} (if (vector? mark) (first mark) mark)))
+                         (:set (get (:sites result) "w")))
+        sites-address (jing/segment-key (safepoint/site-set selected))]
+    (is (= :ok (:status out)) (pr-str out))
+    (is (not= manifest (:address out)))
+    (testing "the :derive record is materialized and answered"
+      (is (= :derive (:yin.ledger/op record)))
+      (is (= :yang.safepoint/insert (:yin.ledger/function record)))
+      (is (= (:yin.module/tree (jing/get store manifest nil))
+             (:yin.ledger/input record)))
+      (is (= (:yin.module/tree (jing/get store (:address out) nil))
+             (:yin.ledger/output record)))
+      (is (= {:yang.safepoint/hooks hooks/linked-profile,
+              :yang.safepoint/sites sites-address}
+             (:yin.ledger/profile record))))))
+
+
+(deftest a-dependency-with-no-set-refuses-the-chain-test
+  (let [[store py pysp] (stub-store)
+        result (publication/publish-units!
+                 store (h/registry) py
+                 [{:name "k", :packet programs/k-packet}
+                  {:name "t", :packet programs/t-packet}])
+        records (records-of result)
+        t (get (:addresses result) "t")
+        k (get (:addresses result) "k")
+        stage (siteset/stage (h/registry) (hook-requirement pysp)
+                             (dissoc records k))
+        out (stage (assoc no-datoms :store store) 'pym.t t)]
+    (is (= :ok (:status ((siteset/stage (h/registry) (hook-requirement pysp)
+                                        records)
+                         (assoc no-datoms :store store) 'pym.t t))))
+    (is (= :refused (:status out)))
+    (is (= :yang.python.antlr/missing-site-set (:reason out)))
+    (is (= 'pym.k (:name out)))
+    (is (= t (:via out)))))
 
 
 ;; =============================================================================
@@ -267,65 +338,77 @@
         (assoc-in task [:store hooks/signals-key] ref)))))
 
 
-(defn- link-import
-  "Publish `pk` as module `nm` and answer `siteset/link-env` for the name
-   environment holding it, under `requirement` (a hook profile gets the
-   `pysp` linked profile and address). With `:without-set` the module's
-   record is not discovered. `{:link env-or-refusal :publication p}`."
-  [pk nm requirement]
+(defn- publish!
+  "`units` published into the harness store: `publish-units!`'s answer."
+  [units]
   (let [{:keys [store address]} @h/published
-        py address
-        pysp (:address @h/published-pysp)
-        spec (lower/module-spec (h/registry) pk {:name nm, :py-address py,
-                                                 :deps {}})
-        plain (h/publish-guest-module! spec)
-        pub (siteset/publish! store (:address plain) (:ast spec))
-        records (if (:without-set requirement)
-                  {}
-                  {(:address plain) [(:record-address pub)]})]
-    {:publication pub,
-     :plain (:address plain),
-     :link (siteset/link-env store (h/registry)
-                             {'py py, 'pysp pysp,
-                              (lower/module-symbol nm) (:address plain)}
-                             records
-                             (assoc requirement
-                                    :hooks-profile hooks/linked-profile
-                                    :pysp pysp))}))
+        result (publication/publish-units! store (h/registry) address units)]
+    (is (= :ok (:status result)) (pr-str result))
+    result))
 
 
-(defn- importer-on-every-vm
-  "The importer `pk` run on every vector VM over the linker source the
-   rebound name environment `name-env` configures, under `signals`."
-  [pk name-env signals]
-  (let [ast (hooks/linked-program (lower/lower-packet pk {:prelude :linked}))
-        src (h/source name-env)]
-    (into {}
-          (map (fn [k]
-                 (let [task (h/run-linked k ast {:link-source src,
-                                                 :prep (with-signals signals)})]
-                   [k [(vm/halted? task) (vm/blocked? task)
-                       (render/output (vm/value task))]])))
-          (keys h/backends))))
+(defn- name-env
+  "The canonical name environment of publication `result`: `py`, `pysp` and
+   each unit's published address, the only addresses a stage-composed
+   source is configured with."
+  [result]
+  (into {'py (:address @h/published),
+         'pysp (:address @h/published-pysp)}
+        (map (fn [[n a]] [(lower/module-symbol n) a]))
+        (:addresses result)))
+
+
+(defn- staged-run
+  "The importer `pk` on backend `k` over the linker source composed with
+   `stage` over `env` (canonical addresses only), under `signals`:
+   `{:outcome [halted? blocked? output] :responses [...]}`, every response
+   the link pair carried."
+  [k pk env stage signals]
+  (let [src (link/composition {:content-store (:store @h/published),
+                               :name-env env,
+                               :derivation :trusted,
+                               :stage stage})
+        pair (link/make-pair)
+        ast (hooks/linked-program (lower/lower-packet pk {:prelude :linked}))
+        task ((get h/backends k) ast (h/composition (h/registry) pair))
+        [task pair] (h/drive ((with-signals signals) task) pair src)]
+    {:outcome [(vm/halted? task) (vm/blocked? task)
+               (render/output (vm/value task))],
+     :responses (mesh/values (:responses pair))}))
+
+
+(defn- staged-on-every-vm
+  [pk env stage signals]
+  (into {}
+        (map (fn [k] [k (staged-run k pk env stage signals)]))
+        (keys h/backends)))
+
+
+(def ^:private interrupted
+  [true false {:py/out [],
+               :py/exception {:type "KeyboardInterrupt", :args []}}])
 
 
 (defn- imports-a-loop-under-hooks
   []
-  (testing "a published while-True module imported under a hook profile is
-            rebound to the module its verified set instruments, derived
-            from the published tree alone: a pending signal interrupts it
-            across the import boundary"
-    (let [{:keys [link publication plain]}
-          (link-import loops/while-true-pass "m" requirement)]
-      (is (= :ok (:status link)) (pr-str link))
-      (is (seq (:set publication)))
-      (is (not= plain (get-in link [:name-env 'pym.m])) "the name is rebound")
-      (doseq [[k out] (importer-on-every-vm programs/d-packet (:name-env link)
-                                            [2])]
-        (is (= [true false {:py/out [],
-                            :py/exception {:type "KeyboardInterrupt", :args []}}]
-               out)
-            (str k))))))
+  (testing "a published while-True module imported under a hook profile
+            through a stage-composed linker source (canonical addresses
+            only) is delivered as the module its verified set instruments:
+            a pending signal interrupts it across the import boundary"
+    (let [result (publish! [{:name "m", :packet loops/while-true-pass}])
+          plain (get (:addresses result) "m")
+          stage (siteset/stage (h/registry)
+                               (hook-requirement
+                                 (:address @h/published-pysp))
+                               (records-of result))]
+      (doseq [[k {:keys [outcome responses]}]
+              (staged-on-every-vm programs/d-packet (name-env result) stage
+                                  [2])]
+        (is (= interrupted outcome) (str k))
+        (let [rebound (filter :yin.link/canonical responses)]
+          (is (= 1 (count rebound)) (str k))
+          (is (= plain (:yin.link/canonical (first rebound))) (str k))
+          (is (some? (:yin.link/derivation (first rebound))) (str k)))))))
 
 
 (deftest ^:slow import-with-set-is-instrumented-test
@@ -335,16 +418,27 @@
 (defn- refuses-without-the-set
   []
   (testing "the same import without its set is refused at link time, naming
-            the profile and the missing set; no name environment results"
-    (let [{:keys [link]}
-          (link-import loops/while-true-pass "m"
-                       (assoc requirement :without-set true))]
-      (is (nil? (:name-env link)))
-      (is (= :refused (:status link)))
-      (is (= :yang.python.antlr/missing-site-set (:reason link)))
-      (is (= :py/hooks (:profile link)))
-      (is (= 'pym.m (:name link)))
-      (is (re-find #":py/hooks.*site set" (:message link))))))
+            the profile and the missing set; the importer ends with
+            ImportError and nothing of the module runs"
+    (let [result (publish! [{:name "m", :packet loops/while-true-pass}])
+          stage (siteset/stage (h/registry)
+                               (hook-requirement
+                                 (:address @h/published-pysp))
+                               {})]
+      (doseq [[k {:keys [outcome responses]}]
+              (staged-on-every-vm programs/d-packet (name-env result) stage
+                                  [2])]
+        (let [[halted? blocked? output] outcome
+              refusal (some #(when (= :refused (:status %)) %) responses)]
+          (is (true? halted?) (str k))
+          (is (false? blocked?) (str k))
+          (is (= "ImportError" (get-in output [:py/exception :type]))
+              (str k))
+          (is (= :yang.python.antlr/missing-site-set (:reason refusal))
+              (str k))
+          (is (= :py/hooks (:profile refusal)) (str k))
+          (is (= 'pym.m (:name refusal)) (str k))
+          (is (re-find #":py/hooks.*site set" (:message refusal)) (str k)))))))
 
 
 (deftest ^:slow import-without-set-is-refused-test
@@ -353,18 +447,47 @@
 
 (defn- noninterruptible-imports-plain
   []
-  (testing "an explicitly noninterruptible profile imports the module as
+  (testing "an explicitly noninterruptible profile delivers the module as
             published, uninstrumented"
-    (let [{:keys [link]}
-          (link-import programs/m-packet "m"
-                       {:profile :py/plain, :noninterruptible true})]
-      (is (= :ok (:status link)) (pr-str link))
-      (doseq [[k out] (importer-on-every-vm programs/d-packet (:name-env link)
-                                            [])]
-        (is (= [true false {:py/out ["m-body" "7"], :py/exception nil}] out)
-            (str k))))))
+    (let [result (publish! [{:name "m", :packet programs/m-packet}])
+          stage (siteset/stage (h/registry)
+                               {:profile :py/plain, :noninterruptible true}
+                               {})]
+      (doseq [[k {:keys [outcome responses]}]
+              (staged-on-every-vm programs/d-packet (name-env result) stage
+                                  [])]
+        (is (= [true false {:py/out ["m-body" "7"], :py/exception nil}]
+               outcome)
+            (str k))
+        (is (not-any? :yin.link/canonical responses) (str k))))))
 
 
 (deftest ^:slow noninterruptible-profile-imports-plain-test
   (slow/guard "noninterruptible-profile-imports-plain-test"
               noninterruptible-imports-plain))
+
+
+(defn- an-import-chain-derives-bottom-up
+  []
+  (testing "t imports k, which spins: both are rebound, t pinning the
+            instrumented k it will link, so no dependency pin mismatches
+            and a signal interrupts k's loop through t's import"
+    (let [result (publish! [{:name "k", :packet loops/while-true-pass}
+                            {:name "t", :packet programs/t-packet}])
+          stage (siteset/stage (h/registry)
+                               (hook-requirement
+                                 (:address @h/published-pysp))
+                               (records-of result))]
+      (doseq [[k {:keys [outcome responses]}]
+              (staged-on-every-vm programs/tt-packet (name-env result) stage
+                                  [2])]
+        (is (= interrupted outcome) (str k))
+        (is (= 2 (count (filter :yin.link/canonical responses))) (str k))
+        (is (not-any? #(= :refused (:status %)) responses) (str k))
+        (is (not-any? #(= :dependency-pin-mismatch (:reason %)) responses)
+            (str k))))))
+
+
+(deftest ^:slow an-import-chain-derives-bottom-up-test
+  (slow/guard "an-import-chain-derives-bottom-up-test"
+              an-import-chain-derives-bottom-up))

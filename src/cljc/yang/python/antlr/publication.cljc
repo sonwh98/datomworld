@@ -100,7 +100,10 @@
      :sites {python-name-or-bundle-symbol site-publication}}` for the units
    of the set (`siteset/publish!`'s answer for each module published beside
    its code image, I7; an SCC member alias carries no marks and so no
-   entry, its bundle does), or the
+   entry, its bundle does). The publisher that asserts these names
+   indexes `siteset/signed-entries` of `:sites` in the same index
+   transaction; a module whose entry is missing is refused by every
+   hook-profile reader. Or the
    first refusal: `publication-order`'s before anything is written, else
    `publish-module!`'s with a string `:unit`: the Python name for a member,
    or the bundle module name for an SCC bundle. Every bundle name must be

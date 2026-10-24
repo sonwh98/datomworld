@@ -50,15 +50,18 @@
     [yang.python.antlr.lower :as lower]
     [yang.python.antlr.publication :as publication]
     [yang.python.antlr.render :as render]
+    [yang.python.antlr.safepoint :as hooks]
     [yang.python.antlr.siteset :as siteset]
     [yin.vm :as vm]
+    [yin.vm.engine :as engine]
     [yin.vm.linker.admission :as admission]
     [yin.vm.linker.dht :as ld]
     [yin.vm.linker.head :as head]
     [yin.vm.linker.interpreter :as link]
     [yin.vm.linker.publish :as publish]
     [yin.vm.linker.sign :as sign]
-    [yin.vm.module :as module]))
+    [yin.vm.module :as module]
+    [yin.vm.test-utils :as tu]))
 
 
 ;; =============================================================================
@@ -278,6 +281,15 @@
                      (module/module-entries (:modules task)))})
 
 
+(defn- with-signals
+  "`task` with a signal stream holding `signals` bound where `pysp` polls."
+  [task signals]
+  (let [handle (tu/new-stream 8)]
+    (doseq [s signals] (stream/append! handle s))
+    (let [[ref task] (engine/attach-resource task handle)]
+      (assoc-in task [:store hooks/signals-key] ref))))
+
+
 (defn- run-over-dht
   "The linked program of packet `pk` on `backend`, its link pair served
    by the DHT source `src` from the world's reader, the world stepped
@@ -297,14 +309,17 @@
    serve round's result once the world is stepped, answers the world:
    the place of an interpreter outside the process."
   ([w backend pk src] (run-over-dht w backend pk src (fn [w _] w)))
-  ([w backend pk src between]
+  ([w backend pk src between] (run-over-dht w backend pk src between nil))
+  ([w backend pk src between {:keys [signals]}]
    (let [pair (link/make-pair)
          adm (admission/make-state link/pair-capacity)
          interp (when (:admission src)
                   (admission/interpreter adm (:admission src)))
-         task ((get h/backends backend)
-               (lower/lower-packet pk {:prelude :linked})
-               (h/composition (h/registry) pair))
+         linked (lower/lower-packet pk {:prelude :linked})
+         task (cond-> ((get h/backends backend)
+                       (if signals (hooks/linked-program linked) linked)
+                       (h/composition (h/registry) pair))
+                signals (with-signals signals))
          limit (+ (:now w) 1200000)
          run (fn [task]
                (try (vm/run task)
@@ -417,7 +432,8 @@
         put! (:put-bytes-fn (dht/store pub))
         w {:net net,
            :pub pub,
-           :reader (node-at net 4 [2 3 1] false installed),
+           :reader (node-at net 4 [2 3 1] false
+                            (merge installed (fixture/installed-pysp))),
            :peers (into {} (map (fn [p] [p (peer-node net p)])) [2 3]),
            :now 0,
            :events []}]
@@ -713,12 +729,9 @@
     (testing "the reader discovers one record per module from the index"
       (is (some? datoms))
       (is (every? #(= 1 (count (val %))) records) (pr-str records)))
-    (testing "the reader holds none of the blobs before the fetch"
-      (is (every? (fn [[_ manifest record]]
-                    (and (nil? ((:get-bytes-fn (dht/local (:reader w)))
-                                record nil))
-                         (nil? ((:get-bytes-fn (dht/local (:reader w)))
-                                manifest nil))))
+    (testing "the reader holds no record before the fetch"
+      (is (every? (fn [[_ _ record]]
+                    (nil? ((:get-bytes-fn (dht/local (:reader w))) record nil)))
                   pending)))
     (let [w (reduce (fn [w [_ manifest record]]
                       (update w :reader dht/load record
@@ -740,6 +753,62 @@
       w)))
 
 
+(defn- hook-source
+  "The reader's DHT source declaring `A`, trusting `A`, `py` named by `A`'s
+   assertion and `pysp` by a direct entry, composed with the link-time
+   stage of a hook profile (no local records: it discovers them)."
+  [artifact]
+  (let [{:keys [a]} (:principals artifact)
+        pysp (:address @h/published-pysp)]
+    (link/composition
+      {:dht? true,
+       :principals [a],
+       :name-env {'pysp pysp},
+       :admission {:trusted #{(sign/principal a)}},
+       :stage (siteset/stage (h/registry)
+                             {:profile :py/hooks,
+                              :hooks true,
+                              :hooks-profile hooks/linked-profile,
+                              :pysp pysp}
+                             {})})))
+
+
+(defn- hook-import-refused-without-the-index
+  "Without `A`'s site-set index loaded the reader's stage finds no record:
+   the import is refused at link time naming the profile and the set."
+  [w artifact]
+  (let [m (get-in artifact [:units "m"])
+        [w outcome response _]
+        (run-over-dht w :semantic (get-in artifact [:importers :d])
+                      (hook-source artifact) (fn [w _] w) {:signals []})]
+    (testing "no site-set index: refused, the importer ends with ImportError"
+      (is (= "ImportError" (get-in (nth outcome 2) [:py/exception :type]))
+          (pr-str outcome))
+      (is (= :yang.python.antlr/missing-site-set (:reason response))
+          (pr-str response))
+      (is (= :py/hooks (:profile response)))
+      (is (= m (:yin.link/canonical response))))
+    w))
+
+
+(defn- hook-import-with-the-index
+  "With `A`'s site-set index loaded the stage discovers m's record and
+   delivers the instrumented module; the program runs."
+  [w artifact]
+  (let [m (get-in artifact [:units "m"])
+        [w outcome response seen]
+        (run-over-dht w :semantic (get-in artifact [:importers :d])
+                      (hook-source artifact) (fn [w _] w) {:signals []})]
+    (testing "index loaded: delivered instrumented, canonical and derive
+              record named"
+      (is (= [true false {:py/out ["m-body" "7"], :py/exception nil}] outcome)
+          (pr-str response))
+      (is (= m (:yin.link/canonical response)) (pr-str response))
+      (is (some? (:yin.link/derivation response)) (pr-str response))
+      (is (contains? (:guests seen) "pym.m")))
+    w))
+
+
 (defn- dht-import-test
   []
   (let [lines (fixture/read-lines)
@@ -748,7 +817,9 @@
         a (get-in artifact [:principals :a])
         src (source [a] [a])
         w (publish-world artifact)
+        w (hook-import-refused-without-the-index w artifact)
         w (site-sets-over-the-mesh w artifact)
+        w (hook-import-with-the-index w artifact)
         w (imports-over-the-dht w artifact src)
         w (an-untrusted-principal-is-refused-on-every-vm w artifact)
         w (a-trusted-principal-is-allowed-on-every-vm w artifact)

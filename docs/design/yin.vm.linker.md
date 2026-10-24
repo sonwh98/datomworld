@@ -1141,6 +1141,19 @@ the old names.
   never learns admission exists. An admission refusal is an ordinary
   link refusal. The datums, the drain, attachment (in process, external,
   ShiBi) and the exposure rule are `yin.vm.linker.dht.md` 7.5.
+- **Stage.** `composition` takes an optional `:stage`, a function the
+  interpreter calls as `(stage ctx name address)` with plain data (`ctx`
+  is `{:store :datoms :principals}`) after resolution and trust admission
+  and before the attempt. It answers `{:status :ok :address a'}` or a
+  refusal; the interpreter links `a'` in place of `address` under the same
+  derivation policy, pin checks and profile checks, so a stage never
+  relaxes them, and a substituted `:ok` response names the resolved
+  address under `:yin.link/canonical` and the stage's `:derivation` under
+  `:yin.link/derivation`. For a DHT source the module itself is loaded and
+  linked first, since a stage reads its published tree. The interpreter
+  never learns what the stage did; its refusal reasons are the
+  composition's own. A `:content-client` source with a stage is a
+  composition defect.
 - **Retirement.** `run-descriptor` and `retire` retire an abandoned
   run's requests and their admission state with no link response, so a
   late answer correlates to nothing.
