@@ -14,3 +14,10 @@
 (defn make-worker
   []
   (cst/make-worker {:grammar-id grammar-id}))
+
+
+;; J2b (src/test yang.python.antlr.oracle-parity-test runs on jolt through this
+;; stand-in): the real namespace's two arities, over the jolt adapter.
+(defn parse-source
+  ([source] (parse-source (make-worker) [:unit 0] source))
+  ([worker unit source] (cst/parse-unit worker unit source)))
