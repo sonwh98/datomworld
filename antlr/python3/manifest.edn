@@ -86,7 +86,7 @@
      ["            this.emitToken(this.commonToken(Python3Parser.NEWLINE, newLine));"
       "            this.emitToken(this.positionedToken(Python3Parser.NEWLINE, this._tokenStartCharIndex, this._tokenStartCharIndex + newLine.length - 1));"]
      ["        return this.commonToken(Python3Parser.DEDENT, \"\");"
-      "        return this.positionedToken(Python3Parser.DEDENT, this.getCharIndex(), this.getCharIndex() - 1);"]
+      "        const dedent = this.positionedToken(Python3Parser.DEDENT, this.getCharIndex(), this.getCharIndex() - 1);\n        if (this.lastToken) {\n            dedent.line = this.lastToken.line;\n        }\n        return dedent;"]
      ["            this.emitToken(this.commonToken(Python3Parser.NEWLINE, \"\\n\"));"
       "            this.emitToken(this.positionedToken(Python3Parser.NEWLINE, this.getCharIndex(), this.getCharIndex() - 1));"]
      ["    commonToken(type, text) {"
@@ -94,7 +94,23 @@
      ;; Upstream declares getIndentationCount twice, identically; Closure
      ;; (the shadow-cljs release/test compile) rejects the duplicate member.
      ["    getIndentationCount(whitespace) {\n        let count = 0;\n        for (let i = 0; i < whitespace.length; i++) {\n            if (whitespace[i] === '\\t') {\n                count += 8 - count % 8;\n            } else {\n                count++;\n            }\n        }\n        return count;\n    }\n\n    getIndentationCount(whitespace) {"
-      "    getIndentationCount(whitespace) {"]]},
+      "    getIndentationCount(whitespace) {"]
+     ;; Java-helper parity (owner 2026-10-24: the JVM is canonical): a form
+     ;; feed is a line break in onNewLine and on the blank-line lookahead, and
+     ;; the helper keeps the last default-channel token so a DEDENT takes its
+     ;; line, as Java's createDedent does (see the DEDENT patch above).
+     ["        let newLine = this.text.replace(/[^\\r\\n]+/g, '');"
+      "        let newLine = this.text.replace(/[^\\r\\n\\f]+/g, '');"]
+     ["        let spaces = this.text.replace(/[\\r\\n]+/g, '');"
+      "        let spaces = this.text.replace(/[\\r\\n\\f]+/g, '');"]
+     ["next === 10 /* '\\n' */ || next === 35 /* '#' */"
+      "next === 10 /* '\\n' */ || next === 12 /* '\\f' */ || next === 35 /* '#' */"]
+     ["        this.opened = 0;\n    }\n\n    reset() {"
+      "        this.opened = 0;\n        this.lastToken = null;\n    }\n\n    reset() {"]
+     ["        this.opened = 0;\n\n        super.reset();"
+      "        this.opened = 0;\n\n        // The last token on the default channel.\n        this.lastToken = null;\n\n        super.reset();"]
+     ["        let next = super.nextToken();\n"
+      "        let next = super.nextToken();\n        if (next.channel === antlr4.Lexer.DEFAULT_TOKEN_CHANNEL) {\n            // Keep track of the last token on the default channel.\n            this.lastToken = next;\n        }\n"]]},
    ;; Output patches: the tool's own import line, same reason as above.
    :output-patches {"Python3Lexer.js" [["import antlr4 from 'antlr4';"
       "import antlr4Module from 'antlr4';\nconst antlr4 = antlr4Module.default || antlr4Module;"]],
@@ -103,7 +119,7 @@
    :generated {"Python3Lexer.js"
                "855f47de669d2f042839efded7e2468e102091b55097f3e403a24a0e3485b860",
                "Python3LexerBase.js"
-               "4724a9da8856cf081c9f31c7a6974458829124f77bb19a7fd7790b80a567c206",
+               "610961838b5b5d4602d5a40950ad8816a738c369faddd36e57c088dcf6ec19a2",
                "Python3Parser.js"
                "37f27bdb7036ae9907b231aade8401ab50f81b4061db16c926ba70fe12067972",
                "Python3ParserBase.js"
@@ -123,11 +139,17 @@
      ["            this.emitToken(MakeCommonToken(Python3Parser.TOKEN_NEWLINE, \"\\n\"));"
       "            this.emitToken(PositionedToken(Python3Parser.TOKEN_NEWLINE, charIndex, charIndex - 1));"]
      ["    Token MakeCommonToken(int type, String text)"
-      "    Token PositionedToken(int type, int start, int stop)\n    {\n        return tokenFactory.create(type, null, Pair<TokenSource?, CharStream?>(this, this.inputStream), channel, start, stop, tokenStartLine, tokenStartCharPositionInLine);\n    }\n\n    Token MakeCommonToken(int type, String text)"]]},
+      "    Token PositionedToken(int type, int start, int stop)\n    {\n        return tokenFactory.create(type, null, Pair<TokenSource?, CharStream?>(this, this.inputStream), channel, start, stop, line, charPositionInLine);\n    }\n\n    Token MakeCommonToken(int type, String text)"]
+     ;; Java's commonToken builds CommonToken(source, ...), which takes the
+     ;; lexer's current line/column; MakeCommonToken (INDENT, the end-of-input
+     ;; NEWLINE and EOF) stamped the token-start ones (owner 2026-10-24: the
+     ;; JVM is canonical).
+     ["            charIndex - 1,\n            tokenStartLine,\n            tokenStartCharPositionInLine);"
+      "            charIndex - 1,\n            line,\n            charPositionInLine);"]]},
    :generated {"Python3Lexer.dart"
                "a29f3f8cceb6ec2b76185bf563d0e186bfb3d2f39cad2129c57dc31603bdb23b",
                "Python3LexerBase.dart"
-               "e3b11f882d64f64d843d8ab10a133a09cb076452dc3397a6c1fc708c3c026bd5",
+               "83ad4f38571ea8b82bf8650e3bf96758d0ca32c36512ca1f6cd47e5c67696359",
                "Python3Parser.dart"
                "fa00271187b2ba976be61c81acd3309b9ea8d19d458ce4a13a5ba1ed971ccf70",
                "Python3ParserBase.dart"

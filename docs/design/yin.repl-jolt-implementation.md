@@ -37,13 +37,12 @@ host-boundary seat's independent focused run (16/217/0). After J2 (2026-10-24):
 the transit-via-`yin.repl` suites rejoined `test:jolt-core` (linker-require,
 linker.head, linker.publish, linker.admission); `yin.vm.host-typed-values-test`
 rejoined too on the jolt fork re-pin `b389f1a7` (assoc on a non-Associative
-deftype now throws, as on the JVM; 156 included / 53 excluded); J2b
+deftype now throws, as on the JVM; 156 included / 53 excluded); J2b is closed
 (2026-10-24, macOS arm64 and Linux x86_64, JVM canonical): the restricted
-lowering comparison is closed and jolt meets the JVM parser oracle in full; the
-Node/Dart first-failure and probe divergences are fixed, and the oracle
-comparison stays open on 6 lexer-helper position entries (a manifest patch and
-gated regeneration); both must close before J5 acceptance. Slice states are in
-§10.1.
+lowering comparison holds and every host (JVM, Node, Dart, jolt) meets the JVM
+parser oracle with zero pins, after the Node/Dart lazy-buffer first-failure fix
+and the JavaScript/Dart lexer-helper manifest patches. J2b closing is necessary
+for J5 acceptance, not sufficient. Slice states are in §10.1.
 
 This document consolidates the architect plan r7
 (`collab/1792427226000-architect-jolt-lane-plan-r7.gpt-6-astra.findings.md`),
@@ -1396,11 +1395,11 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 |                                             |                   | gate (f): Dart 4,113 passed, Node on shiva rc=0, 242 namespaces, 0 failures/errors.                 |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J2b: deferred comparisons                   | Oracle/lowering   | Node/Dart oracle comparison and restricted lowering comparison (§7.8); both close before J5. Owner  |
-| (b) closed; (a) open on                     |                   | split from J2, 2026-10-22 (§13.5); JVM canonical, divergent hosts patched (owner 2026-10-24).       |
-| 6 helper-position pins                      |                   | `yang.python.antlr.oracle-parity-test`, macOS arm64 and Linux x86_64: (b) lowering closed, every    |
-|                                             |                   | host equal to the JVM; (a) jolt meets the JVM oracle in full, and the Node/Dart first-failure and   |
-|                                             |                   | probe divergences are fixed (lazy-buffer rule); 6 lexer-helper position entries stay pinned until   |
-|                                             |                   | the manifest helper patches and the gated regeneration land (known-gaps).                           |
+| closed (zero pins, JVM canonical)           |                   | split from J2, 2026-10-22 (§13.5); JVM canonical, divergent hosts patched (owner 2026-10-24).       |
+|                                             |                   | Closed 2026-10-24: `yang.python.antlr.oracle-parity-test` passes on the JVM, Node, Dart and jolt    |
+|                                             |                   | with zero pins on macOS arm64 and Linux x86_64 (64 corpus entries, 40 probe texts, every ok         |
+|                                             |                   | packet's lowering); fixes: the Node/Dart lazy-buffer first-failure rule and the JavaScript/Dart     |
+|                                             |                   | lexer-helper manifest patches (known-gaps).                                                         |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J3: local shell and demo                    | Jolt main/stdin/w | API and CLI from tracked roots; demo = 5050; EOF/quit; no duplicate eval; cadence/wake/pending      |
 | implemented; gates open                     | ake/banner, local | semantics; all VM modes; published code index without workaround. Clojure/PHP explicit; Python      |
