@@ -291,7 +291,11 @@
 
 (def allowlist
   "file -> {[top-level-name head] count}, with the reason each may write."
-  {"src/cljc/yin/vm/engine.cljc"
+  {;; `:store` here is a write-buffering overlay handle over the content
+   ;; store, not a mutable VM store
+   "src/cljc/yang/python/antlr/siteset.cljc"
+   {["stage" "assoc"] 1}
+   "src/cljc/yin/vm/engine.cljc"
    {;; the one program write, and `put-active`, which routes every program
     ;; write -- definitions, direct store instructions, the :vm/store-put
     ;; effect -- to the task's store or the running module's store, both

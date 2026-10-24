@@ -461,7 +461,9 @@
    `base`; puts land in the buffer only, in put order. `flush!` writes the
    buffer to `base`; dropping the overlay writes nothing."
   [base]
-  (let [buf (atom {:bytes {}, :order []})]
+  (let [buf (atom {:bytes {}, :order []})
+        sentinel #?(:cljs (js-obj)
+                    :default (Object.))]
     {:handle (assoc base
                     :get-bytes-fn (fn [address not-found]
                                     (let [bs (get-in @buf [:bytes address])]
@@ -470,10 +472,12 @@
                                         bs)))
                     :put-bytes-fn (fn [address bs]
                                     (if (or (contains? (:bytes @buf) address)
-                                            (not (identical?
-                                                   ::none
-                                                   ((:get-bytes-fn base) address
-                                                                         ::none))))
+                                            (let [existing ((:get-bytes-fn base)
+                                                            address
+                                                            sentinel)]
+                                              (and (some? existing)
+                                                   (not (identical? sentinel
+                                                                    existing)))))
                                       :present
                                       (do (swap! buf (fn [b]
                                                        (-> b
