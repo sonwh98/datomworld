@@ -60,27 +60,18 @@
            (read-text "test/yang/python/antlr/fixtures/jolt_j0c_input_oracle.edn"))))
 
 
-;; The divergences from the JVM oracle that remain (owner 2026-10-24: the JVM
-;; is canonical; divergent hosts are patched). Each deftest asserts that the
-;; failing set is EXACTLY this one, so a new divergence fails, and so does a
-;; fixed one until its pin is removed. The lazy-buffer first-failure rule now
-;; holds on Node and Dart (their cst namespaces record the furthest sync
-;; target), which removed the five probe texts and :bracket-call-open. What is
-;; left lies in the per-target lexer helpers that antlr/python3/manifest.edn
-;; fetches and patches, so fixing it is a manifest patch plus the gated
-;; regeneration (docs/agents/known-gaps.md, the J2b helper-position row):
-;; Node's helper drops \f from its newline/indent handling (:indent-formfeed)
-;; and never moves a DEDENT to the last token's line
-;; (:malformed-unexpected-dedent); Dart's positioned-token patch stamps a
-;; helper token with the token-start line/column instead of the lexer's
-;; current position (the four Dart entries).
+;; The divergences from the JVM oracle that remain: none (owner 2026-10-24:
+;; the JVM is canonical; divergent hosts are patched). Each deftest asserts
+;; that a host's failing set is EXACTLY its entry here, so any divergence that
+;; reappears fails. The lazy-buffer first-failure rule holds on Node and Dart
+;; (their cst namespaces record the furthest sync target); the JavaScript and
+;; Dart lexer helpers match the Java helper's form-feed, last-token and
+;; token-position behaviour through antlr/python3/manifest.edn's patches.
 (def ^:private known-divergences
   {:jvm {:corpus #{}, :probe #{}},
    :jolt {:corpus #{}, :probe #{}},
-   :node {:corpus #{:indent-formfeed :malformed-unexpected-dedent}, :probe #{}},
-   :dart {:corpus #{:blank-lines :malformed-unexpected-indent :malformed-unexpected-newline
-                    :malformed-unexpected-dedent},
-          :probe #{}}})
+   :node {:corpus #{}, :probe #{}},
+   :dart {:corpus #{}, :probe #{}}})
 
 
 (defn- e1-violations
