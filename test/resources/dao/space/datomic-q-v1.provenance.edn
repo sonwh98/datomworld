@@ -7,13 +7,13 @@
  ;; BLAKE3 of the resource bytes (the file is pure ASCII). Equals
  ;; resource-blake3 in the conformance test.
  :digest {:algorithm :blake3
-          :hex "109f88d7da8b3f2e9a9d06312fc7b49b2caaf8a31fbdde7ecfeb2611731143df"}
- :cases {:total 80 :executable 31 :difference 9 :refusal 6 :pending 34}
+          :hex "3b20589ff64fbacc764af19cc39cd491ef355df5121820ca8d55694eb8ea9221"}
+ :cases {:total 81 :executable 31 :difference 9 :refusal 6 :pending 35}
  :points 28
  :fixtures 9
  :baseline-revision "f6856bbc"
  :contract "docs/design/dao.space.query.datomic-compat.md"
- :authored "2026-10-24, phase 0 engineer slice (claude-opus-5-5 lane); revised after glm-5.3 review (pull-option re-encode)"
+ :authored "2026-10-24, phase 0 engineer slice (claude-opus-5-5 lane); revised after glm-5.3 reviews (pull-option re-encode; list-form pull case added; previous digest 109f88d7 superseded)"
  :reviewed-by nil
  :inspected-artifacts
  [{:coordinate com.datomic/client-api
@@ -47,5 +47,6 @@
   "E7 empty-input aggregate behavior unmeasured against Datomic"
   "E8 cross-host float carrier equality unverified"
   "E9 reverse-pull and :limit results depend on JVM shape/enumeration order (clj only)"
+  "E11 adapter-executed refusals (list-form pull option) are pinned in dao.space.query.datomic-test, not this harness"
   "E10 first pull-option pins recorded list-shape refusal only; re-encoded and re-pinned after review (previous digest e129fd6a superseded)"
-  "34 cases are pending: adapter, option validation, timeout and Client oracle evidence are all outstanding"]}
+  "35 cases are pending: adapter, option validation, timeout and Client oracle evidence are all outstanding"]}

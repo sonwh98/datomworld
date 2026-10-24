@@ -35,6 +35,11 @@ observation is a regression pin, not an expectation.
 `[:find ?z :where [?e :person/name "Ada"]]` returns `#{[nil]}`. The adapter
 must refuse this statically. Case `find.unbound-var` is `pending`.
 
+Routing: the Phase 1 adapter does not perform this check
+(`(q '[:find ?z ...] db)` still returns `[[nil]]`). The static bound-find-var
+check is owned by Phase 2's "special-form edges" acceptance, and the case
+stays `pending` until that lands.
+
 ## E4 — A trailing map argument is accepted as options without validation
 
 The core treats one extra trailing argument as an options map and ignores
@@ -93,6 +98,18 @@ found this; the cases were re-encoded as nested vectors and re-pinned to the
 core's actual behavior (`:default` supplies the value, `:as` renames the key,
 `:limit` truncates). The earlier digest `e129fd6a…9d43` is superseded. The
 cases stay `pending` and `unverified`: Client pull acceptance is unmeasured.
+
+## E11 — Adapter-executed refusals are pinned outside this harness
+
+The conformance harness executes core `dao.space.query/q` only. Case
+`pull.list-form-option` records that Datomic documents the list form of
+pull attribute options (`(:person/age :default 0)`), that the core honors
+only the vector form, and that the adapter refuses the list form with
+`:unsupported`. The adapter refusal is pinned by
+`dao.space.query.datomic-test`, not by the corpus harness. The case is
+`pending` and `unverified`: whether the Client accepts the list form, the
+vector form, or both is for the oracle to adjudicate. The corpus has no
+adapter-executed status; this note is the minimal encoding.
 
 ## Not represented by the corpus
 

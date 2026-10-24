@@ -125,8 +125,8 @@ object has exactly one tag key:
 The `points` array mirrors the supported-domain table of the contract
 (28 points). The integrity test requires every point to have at least one
 case, every case to cite a declared point, and all five web-app workload
-classes to appear. Phase 0 totals: 80 cases (31 executable, 9 difference, 6
-refusal, 34 pending), 9 fixtures. The digest and counts are in
+classes to appear. Phase 0 totals: 81 cases (31 executable, 9 difference, 6
+refusal, 35 pending), 9 fixtures. The digest and counts are in
 `datomic-q-v1.provenance.edn`.
 
 ## Regeneration and promotion procedure
