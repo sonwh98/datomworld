@@ -60,23 +60,27 @@
            (read-text "test/yang/python/antlr/fixtures/jolt_j0c_input_oracle.edn"))))
 
 
-;; The divergences from the JVM oracle each host showed when J2b first ran
-;; (2026-10-24, identical on macOS arm64 and Linux x86_64), awaiting
-;; adjudication (docs/agents/known-gaps.md, the J2b oracle-comparison row).
-;; Each deftest asserts that the failing set is EXACTLY this one, so a new
-;; divergence fails, and so does a fixed one until its pin is removed. Node
-;; and Dart answer :early where the JVM's lazy-buffer rule answers :end
-;; (src/clj/yang/antlr/cst.clj first-failure), which makes their completeness
-;; probe call an open bracket complete; Dart's and Node's helpers also place
-;; some first errors on other lines/columns.
+;; The divergences from the JVM oracle that remain (owner 2026-10-24: the JVM
+;; is canonical; divergent hosts are patched). Each deftest asserts that the
+;; failing set is EXACTLY this one, so a new divergence fails, and so does a
+;; fixed one until its pin is removed. The lazy-buffer first-failure rule now
+;; holds on Node and Dart (their cst namespaces record the furthest sync
+;; target), which removed the five probe texts and :bracket-call-open. What is
+;; left lies in the per-target lexer helpers that antlr/python3/manifest.edn
+;; fetches and patches, so fixing it is a manifest patch plus the gated
+;; regeneration (docs/agents/known-gaps.md, the J2b helper-position row):
+;; Node's helper drops \f from its newline/indent handling (:indent-formfeed)
+;; and never moves a DEDENT to the last token's line
+;; (:malformed-unexpected-dedent); Dart's positioned-token patch stamps a
+;; helper token with the token-start line/column instead of the lexer's
+;; current position (the four Dart entries).
 (def ^:private known-divergences
   {:jvm {:corpus #{}, :probe #{}},
    :jolt {:corpus #{}, :probe #{}},
-   :node {:corpus #{:indent-formfeed :malformed-unexpected-dedent :bracket-call-open},
-          :probe #{"print(" "print(\n" "print((1," "f(a for a in b" "foo(\"\"\"a"}},
+   :node {:corpus #{:indent-formfeed :malformed-unexpected-dedent}, :probe #{}},
    :dart {:corpus #{:blank-lines :malformed-unexpected-indent :malformed-unexpected-newline
-                    :malformed-unexpected-dedent :bracket-call-open},
-          :probe #{"print(" "print(\n" "print((1," "f(a for a in b" "foo(\"\"\"a"}}})
+                    :malformed-unexpected-dedent},
+          :probe #{}}})
 
 
 (defn- e1-violations

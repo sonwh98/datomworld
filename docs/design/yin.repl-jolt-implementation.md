@@ -35,13 +35,15 @@ complete Node lane on shiva (scratch clone of origin/master `f4d6a284`, rc=0,
 `dao.jing.dht-test`); the laptop stall was environmental, corroborated by the
 host-boundary seat's independent focused run (16/217/0). After J2 (2026-10-24):
 the transit-via-`yin.repl` suites rejoined `test:jolt-core` (linker-require,
-linker.head, linker.publish, linker.admission; 155 included / 54 excluded);
-`yin.vm.host-typed-values-test` stays excluded on a jolt-lang `assoc`
-divergence (known-gaps); J2b (2026-10-24, macOS arm64 and Linux x86_64): the
-restricted lowering comparison is closed and jolt meets the JVM parser oracle
-in full, but Node and Dart disagree with the JVM on pinned entries, so the
-oracle comparison stays open on adjudication; both must close before J5
-acceptance. Slice states are in §10.1.
+linker.head, linker.publish, linker.admission); `yin.vm.host-typed-values-test`
+rejoined too on the jolt fork re-pin `b389f1a7` (assoc on a non-Associative
+deftype now throws, as on the JVM; 156 included / 53 excluded); J2b
+(2026-10-24, macOS arm64 and Linux x86_64, JVM canonical): the restricted
+lowering comparison is closed and jolt meets the JVM parser oracle in full; the
+Node/Dart first-failure and probe divergences are fixed, and the oracle
+comparison stays open on 6 lexer-helper position entries (a manifest patch and
+gated regeneration); both must close before J5 acceptance. Slice states are in
+§10.1.
 
 This document consolidates the architect plan r7
 (`collab/1792427226000-architect-jolt-lane-plan-r7.gpt-6-astra.findings.md`),
@@ -587,7 +589,7 @@ Chez and CMake remain mise-provided on both platforms.
 
 `jolt-toolchain.edn` (V; J0a, J1b and the fork re-pin) records:
 
-- the full jolt SHA `697b91eefabf3e964acea787cbc9cb1b6b85a28c`, the owner
+- the full jolt SHA `b389f1a7fb553f63a3494d71f8fe3251790bf4d3` (§6.4), the owner
   fork origin `https://github.com/sonwh98/jolt` and recursive submodule SHAs;
 - the Chez version actually resolved, and `JOLT_CHEZ` set explicitly;
 - libblake3 and ANTLR4 C++ runtime source revisions and hashes; ANTLR tool and
@@ -731,6 +733,20 @@ submodule SHAs are unchanged. Seed re-mint with Chez 10.4.1 is deterministic
 across macOS and Linux (Linux digest record `e7a39cb9`; fork seed commit
 `697b91ee`). Historical S and J0b evidence still describes `96d7b866` and is
 not re-established by this pin move.
+
+Re-pin 2026-10-24 (owner: "the JVM should be canonical. the other divergent
+hosts should be patched"; jolt-lang is patched through the fork, the same
+explicit exception as 2026-10-22). The toolchain now pins
+`b389f1a7fb553f63a3494d71f8fe3251790bf4d3` (2026-10-24T13:55:46+07:00; tag
+none; describe `vnightly-17-gb389f1a7`), fork branch `assoc-deftype-refusal`,
+one commit on `697b91ee`: `assoc` on a deftype that is not Associative throws
+`ClassCastException` naming the class, as on the JVM, where it had answered a
+fresh instance (`host/chez/records-coll.ss`, the record arm of `jolt-assoc1`
+now requires `jrec-record?`). The seed re-mint reaches its byte-fixpoint with
+no seed change; submodule SHAs are unchanged; `:patches []` still applies
+nothing. The upstream report text is in
+`collab/1792824446211-engineer-canonical-adjudication-fixes.claude-opus-5-5.findings.md`
+(the owner submits it).
 
 This re-pin precedes the first `qualify:jolt-upgrade` run under an explicit
 owner ruling (§13.5). It was requalified by the manual gate in
@@ -1380,11 +1396,11 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 |                                             |                   | gate (f): Dart 4,113 passed, Node on shiva rc=0, 242 namespaces, 0 failures/errors.                 |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J2b: deferred comparisons                   | Oracle/lowering   | Node/Dart oracle comparison and restricted lowering comparison (§7.8); both close before J5. Owner  |
-| (b) closed; (a) open:                       |                   | split from J2, 2026-10-22 (§13.5). Run 2026-10-24 (`yang.python.antlr.oracle-parity-test`, macOS    |
-| adjudication                                |                   | arm64 and Linux x86_64, identical records): (b) lowering closed, every host equal to the JVM (jolt  |
-|                                             |                   | 35/35, Node 34/34, Dart 35/35); (a) jolt meets the JVM oracle (E1 64/64, first-failure 64/64, probe |
-|                                             |                   | 40/40), but Node and Dart disagree with the JVM on pinned entries and five open-bracket probe       |
-|                                             |                   | texts, so (a) stays open on adjudication (known-gaps).                                              |
+| (b) closed; (a) open on                     |                   | split from J2, 2026-10-22 (§13.5); JVM canonical, divergent hosts patched (owner 2026-10-24).       |
+| 6 helper-position pins                      |                   | `yang.python.antlr.oracle-parity-test`, macOS arm64 and Linux x86_64: (b) lowering closed, every    |
+|                                             |                   | host equal to the JVM; (a) jolt meets the JVM oracle in full, and the Node/Dart first-failure and   |
+|                                             |                   | probe divergences are fixed (lazy-buffer rule); 6 lexer-helper position entries stay pinned until   |
+|                                             |                   | the manifest helper patches and the gated regeneration land (known-gaps).                           |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J3: local shell and demo                    | Jolt main/stdin/w | API and CLI from tracked roots; demo = 5050; EOF/quit; no duplicate eval; cadence/wake/pending      |
 | implemented; gates open                     | ake/banner, local | semantics; all VM modes; published code index without workaround. Clojure/PHP explicit; Python      |

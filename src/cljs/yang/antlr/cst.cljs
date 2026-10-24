@@ -25,6 +25,14 @@
 (def ^:private antlr4-default (or (.-default antlr4) antlr4))
 
 
+;; The runtime's NoViableAltException: top level in the CommonJS build, under
+;; `error` in the ES module's default export.
+(def ^:private no-viable-alt-exception
+  (or (.-NoViableAltException antlr4)
+      (some-> antlr4 .-error .-NoViableAltException)
+      (some-> antlr4-default .-error .-NoViableAltException)))
+
+
 (defn- char-stream
   [source]
   (.fromString (.-CharStreams antlr4) source))
@@ -166,23 +174,36 @@
 (defn first-failure
   "Where the grammar first refuses `source` with `worker`: nil when it
    parses, `:end` when the first error failed on an end-of-input token, else
-   `:early` (`export/failure-kind` decides). See the JVM namespace.
+   `:early` (`export/failure-kind` decides). See the JVM namespace, whose
+   lazy-buffer rule is canonical (owner, 2026-10-24).
 
-   Unlike the JVM, the failing token is always the listener's offending
-   token: the JS token stream is filled to EOF by the time a
-   no-viable-alternative error is reported, so its buffer size says nothing
-   about where the parser stopped."
+   For a no-viable-alternative error the JVM takes the last token its lazily
+   filled buffer holds: the furthest token the parser asked the stream to
+   sync. The JS stream is filled to EOF by the time the listener runs (the
+   error strategy's getText calls fill(), which bypasses sync), so its
+   buffer size cannot say that; instead the stream records the furthest
+   sync target, and the failing token is that index, capped at the last
+   token as the JVM's fetch is. Any other error uses the listener's
+   offending token, as on the JVM."
   [worker source]
   (let [{:keys [profile]} worker
         failure (volatile! nil)
+        furthest (volatile! -1)
         ^js lexer ((:make-lexer profile) (char-stream source))
-        tokens (new (.-CommonTokenStream antlr4) lexer)
+        ^js tokens (new (.-CommonTokenStream antlr4) lexer)
+        sync (.-sync tokens)
+        _ (set! (.-sync tokens)
+                (fn [i]
+                  (vswap! furthest max i)
+                  (.call sync tokens i)))
         l (listener
-            (fn [_recognizer ^js offending _line _column _msg _e]
+            (fn [_recognizer ^js offending _line _column _msg e]
               (when-not @failure
                 (vreset! failure
                          (cond
                            (not (token? offending)) :lexical
+                           (instance? no-viable-alt-exception e)
+                           (min @furthest (dec (.-length (.-tokens tokens))))
                            :else (.-tokenIndex offending))))))
         _ (own-lexer! lexer worker)
         _ (.removeErrorListeners lexer)

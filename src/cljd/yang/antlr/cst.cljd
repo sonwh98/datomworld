@@ -167,23 +167,37 @@
 (defn first-failure
   "Where the grammar first refuses `source` with `worker`: nil when it
    parses, `:end` when the first error failed on an end-of-input token, else
-   `:early` (`export/failure-kind` decides). See the JVM namespace.
+   `:early` (`export/failure-kind` decides). See the JVM namespace, whose
+   lazy-buffer rule is canonical (owner, 2026-10-24).
 
-   Like the JS target, the failing token is always the listener's
-   offending token: the Dart token stream is filled to EOF by the time a
-   no-viable-alternative error is reported, so its buffer size says
-   nothing about where the parser stopped."
+   For a no-viable-alternative error the JVM takes the last token its lazily
+   filled buffer holds: the furthest token the parser asked the stream to
+   sync. The Dart stream is filled to EOF by the time the listener runs (the
+   error strategy's getText calls fill(), which bypasses sync), so this
+   stream records the furthest sync target instead, and the failing token is
+   that index, capped at the last token as the JVM's fetch is. Any other
+   error uses the listener's offending token, as on the JVM."
   [worker source]
   (let [{:keys [profile]} worker
         failure (volatile! nil)
+        furthest (volatile! -1)
         ^a/Lexer lexer ((:make-lexer profile) (char-stream source))
-        ^a/CommonTokenStream tokens (a/CommonTokenStream lexer)
+        ^a/CommonTokenStream tokens
+        (reify :extends
+          (a/CommonTokenStream lexer)
+
+          (sync
+            [this i]
+            (vswap! furthest max i)
+            (.sync ^super this i)))
         l (listener
-            (fn [_recognizer offending _line _column _msg _e]
+            (fn [_recognizer offending _line _column _msg e]
               (when-not @failure
                 (vreset! failure
                          (cond
                            (not (instance? a/Token offending)) :lexical
+                           (instance? a/NoViableAltException e)
+                           (min @furthest (dec (count (.-tokens tokens))))
                            :else (.-tokenIndex ^a/Token offending))))))
         _ (own-lexer! lexer worker)
         _ (.removeErrorListeners lexer)
