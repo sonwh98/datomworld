@@ -271,6 +271,10 @@
    "yin.vm.module-test" "yin.vm.pipeline-test" "yin.vm.semantic.code-test"
    "yin.vm.semantic.load-paths-test" "dao.space.query-test"
    "dao.space.stigmergy-test" ; rejoined (J4a)
+   ;; Listed 2026-10-25: added by 3d77ed52 without a manifest entry, which
+   ;; made check-manifest! refuse every lane mode; 17 tests, 57 assertions,
+   ;; 0 failures on jolt (macOS).
+   "dao.space.datomic-query-conformance-test"
    "yin.vm.ledger-test"
    "yin.vm.semantic.analysis-test" "yin.vm.debruijn-register-code-test"
    "yin.vm.semantic.scan-test" "yin.vm.debruijn-register-effects-test"
