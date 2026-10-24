@@ -50,14 +50,18 @@
     [yang.python.antlr.lower :as lower]
     [yang.python.antlr.publication :as publication]
     [yang.python.antlr.render :as render]
+    [yang.python.antlr.safepoint :as hooks]
+    [yang.python.antlr.siteset :as siteset]
     [yin.vm :as vm]
+    [yin.vm.engine :as engine]
     [yin.vm.linker.admission :as admission]
     [yin.vm.linker.dht :as ld]
     [yin.vm.linker.head :as head]
     [yin.vm.linker.interpreter :as link]
     [yin.vm.linker.publish :as publish]
     [yin.vm.linker.sign :as sign]
-    [yin.vm.module :as module]))
+    [yin.vm.module :as module]
+    [yin.vm.test-utils :as tu]))
 
 
 ;; =============================================================================
@@ -103,6 +107,38 @@
            (publication/publish-units! store (h/registry) stand-in-address
                                        [(unit "t" programs/t-packet)])))
     (is (empty? ((:entries-fn store))))))
+
+
+;; the artifact's modules as [name manifest]: the units, then k's republication
+(defn- artifact-modules
+  [artifact]
+  (into (vec (sort-by key (:units artifact)))
+        (map (fn [[n m]] [(str n " (republished)") m]))
+        (:republished artifact)))
+
+
+(deftest published-site-sets-verify-test
+  (testing "every module of the artifact has a site-set record that A's
+            signed index entry publishes, discovered from the published
+            code under A alone, fetched by address, and verifying against
+            the manifest in the artifact's own blobs: root, frontend
+            revision, transformation profile and the set's address (C4
+            slice I7)"
+    (let [artifact (fixture/read-file)
+          store (mem/create-content-mem (:blobs artifact))
+          datoms (siteset/entry-datoms (get-in artifact [:indexes :sites]))
+          {:keys [a b]} (:principals artifact)
+          hooks {:profile :py/hooks, :hooks true}]
+      (doseq [[n manifest] (artifact-modules artifact)]
+        (let [found (siteset/discover datoms [a] manifest)]
+          (is (= 1 (count found)) n)
+          (is (nil? (siteset/verify store manifest (first found))) n)
+          (is (= :ok (:status (siteset/admit store manifest found hooks))) n)
+          (is (= [] (siteset/discover datoms [b] manifest))
+              (str n " is not discovered under a principal that did not sign it"))
+          (is (= :yang.python.antlr/missing-site-set
+                 (:reason (siteset/admit store manifest [] hooks)))
+              n))))))
 
 
 ;; =============================================================================
@@ -178,9 +214,12 @@
   (dht-test/publish-datoms!
     node
     (vec (map-indexed (fn [i s]
-                        {:db/id (+ datom/first-user-id i),
-                         :yin.module/envelope (:envelope s),
-                         :yin.module/proof (:proof s)})
+                        (let [site? (contains? (:envelope s) :yang.site/op)]
+                          {:db/id (+ datom/first-user-id i),
+                           (if site? :yang.site/envelope :yin.module/envelope)
+                           (:envelope s),
+                           (if site? :yang.site/proof :yin.module/proof)
+                           (:proof s)}))
                       signed))))
 
 
@@ -242,6 +281,15 @@
                      (module/module-entries (:modules task)))})
 
 
+(defn- with-signals
+  "`task` with a signal stream holding `signals` bound where `pysp` polls."
+  [task signals]
+  (let [handle (tu/new-stream 8)]
+    (doseq [s signals] (stream/append! handle s))
+    (let [[ref task] (engine/attach-resource task handle)]
+      (assoc-in task [:store hooks/signals-key] ref))))
+
+
 (defn- run-over-dht
   "The linked program of packet `pk` on `backend`, its link pair served
    by the DHT source `src` from the world's reader, the world stepped
@@ -261,14 +309,17 @@
    serve round's result once the world is stepped, answers the world:
    the place of an interpreter outside the process."
   ([w backend pk src] (run-over-dht w backend pk src (fn [w _] w)))
-  ([w backend pk src between]
+  ([w backend pk src between] (run-over-dht w backend pk src between nil))
+  ([w backend pk src between {:keys [signals]}]
    (let [pair (link/make-pair)
          adm (admission/make-state link/pair-capacity)
          interp (when (:admission src)
                   (admission/interpreter adm (:admission src)))
-         task ((get h/backends backend)
-               (lower/lower-packet pk {:prelude :linked})
-               (h/composition (h/registry) pair))
+         linked (lower/lower-packet pk {:prelude :linked})
+         task (cond-> ((get h/backends backend)
+                       (if signals (hooks/linked-program linked) linked)
+                       (h/composition (h/registry) pair))
+                signals (with-signals signals))
          limit (+ (:now w) 1200000)
          run (fn [task]
                (try (vm/run task)
@@ -381,7 +432,8 @@
         put! (:put-bytes-fn (dht/store pub))
         w {:net net,
            :pub pub,
-           :reader (node-at net 4 [2 3 1] false installed),
+           :reader (node-at net 4 [2 3 1] false
+                            (merge installed (fixture/installed-pysp))),
            :peers (into {} (map (fn [p] [p (peer-node net p)])) [2 3]),
            :now 0,
            :events []}]
@@ -643,6 +695,168 @@
         w))))
 
 
+(defn- site-sets-over-the-mesh
+  "I7's mesh leg: the reader loads `A`'s site-set index and discovers each
+   unit's record address from the entries `A` signed. It holds no record
+   bytes: the stage load of an import fetches them (`hook-import-with-the-
+   index`). Nothing here prefetches."
+  [w artifact]
+  (let [{:keys [a]} (:principals artifact)
+        [w m] (publish-index w (get-in artifact [:indexes :sites]))
+        datoms (dht/loaded-datoms (:reader w) m)
+        modules (remove (fn [[n _]] (= "e" n)) (sort-by key (:units artifact)))
+        records (into {}
+                      (map (fn [[n manifest]]
+                             [n (siteset/discover datoms [a] manifest)]))
+                      modules)]
+    (testing "the reader discovers one record per module from the index"
+      (is (some? datoms))
+      (is (every? #(= 1 (count (val %))) records) (pr-str records)))
+    (testing "the reader holds no record before any import"
+      (is (every? (fn [[_ rs]]
+                    (nil? ((:get-bytes-fn (dht/local (:reader w)))
+                           (first rs) nil)))
+                  records)))
+    w))
+
+
+(defn- hook-source
+  "The reader's DHT source declaring `A`, trusting `A`, `py` named by `A`'s
+   assertion and `pysp` by a direct entry, composed with the link-time
+   stage of a hook profile (no local records: it discovers them)."
+  [artifact]
+  (let [{:keys [a]} (:principals artifact)
+        pysp (:address @h/published-pysp)]
+    (link/composition
+      {:dht? true,
+       :principals [a],
+       :name-env {'pysp pysp},
+       :admission {:trusted #{(sign/principal a)}},
+       :stage (siteset/stage (h/registry)
+                             {:profile :py/hooks,
+                              :hooks true,
+                              :hooks-profile hooks/linked-profile,
+                              :pysp pysp}
+                             {})})))
+
+
+(defn- noting-waits
+  "A `between` for `run-over-dht` recording under `:waits` every manifest
+   a pending entry waits on."
+  [w served]
+  (-> w
+      (update :waits (fnil into #{}) (keep :manifest (:pending served)))
+      (update :responses (fnil into #{})
+              (map #(dissoc % :yin.link/id :image)
+                   (mesh/values (:responses (:pair served)))))))
+
+
+(defn- hook-import-refused-without-the-index
+  "Without `A`'s site-set index loaded the reader's stage finds no record:
+   the import is refused at link time naming the profile and the set, with
+   nothing fetched."
+  [w artifact]
+  (let [m (get-in artifact [:units "m"])
+        [w outcome response _]
+        (run-over-dht w :semantic (get-in artifact [:importers :d])
+                      (hook-source artifact) (fn [w _] w) {:signals []})]
+    (testing "no site-set index: refused, the importer ends with ImportError"
+      (is (= "ImportError" (get-in (nth outcome 2) [:py/exception :type]))
+          (pr-str outcome))
+      (is (= :yang.python.antlr/missing-site-set (:reason response))
+          (pr-str response))
+      (is (= :py/hooks (:profile response)))
+      (is (= 'pym.m (:name response)))
+      (is (= m (:yin.link/canonical response))))
+    w))
+
+
+(defn- hook-import-with-the-index
+  "With `A`'s site-set index loaded the cold reader's stage load fetches
+   m's record and set by address, derives and delivers the instrumented
+   module; the program runs."
+  [w artifact]
+  (let [{:keys [a]} (:principals artifact)
+        m (get-in artifact [:units "m"])
+        record (first (siteset/discover
+                        (into []
+                              (mapcat #(ld/snapshot-datoms (:reader w) %))
+                              (ld/snapshots (:reader w)))
+                        [a] m))
+        [w outcome response seen]
+        (run-over-dht w :semantic (get-in artifact [:importers :d])
+                      (hook-source artifact) noting-waits {:signals []})
+        local (dht/local (:reader w))]
+    (testing "index loaded: delivered instrumented, canonical and derive
+              record named"
+      (is (= [true false {:py/out ["m-body" "7"], :py/exception nil}] outcome)
+          (pr-str response))
+      (is (= m (:yin.link/canonical response)) (pr-str response))
+      (is (some? (:yin.link/derivation response)) (pr-str response))
+      (is (contains? (:guests seen) "pym.m")))
+    (testing "the stage load was the pending entry's manifest, and fetched
+              the record and its set"
+      (is (contains? (:waits w) (ld/stage-key m)))
+      (is (some? ((:get-bytes-fn local) record nil)))
+      (is (some? ((:get-bytes-fn local)
+                  (:yang.site/set (jing/get local record nil)) nil))))
+    w))
+
+
+(defn- a-hook-import-chain
+  "The cold reader imports t, which imports k, under a hook profile:
+   t's stage derives bottom-up, fetching k's record and set by the same
+   staged load, so both are delivered instrumented, t pinning the k it
+   links."
+  [w artifact]
+  (let [t (get-in artifact [:units "t"])
+        k (get-in artifact [:units "k"])
+        [w outcome _ _]
+        (run-over-dht (dissoc w :responses :waits) :semantic
+                      (get-in artifact [:importers :tt])
+                      (hook-source artifact) noting-waits {:signals []})
+        rebound (filter :yin.link/canonical (:responses w))]
+    (testing "both modules are delivered instrumented, no pin mismatch"
+      (is (= [true false {:py/out ["k-body" "t-sees 3" "t-done"],
+                          :py/exception nil}]
+             outcome))
+      (is (= #{t k} (set (map :yin.link/canonical rebound))))
+      (is (every? :yin.link/derivation rebound))
+      (is (not-any? #(= :dependency-pin-mismatch (:reason %))
+                    (:responses w))))
+    w))
+
+
+(defn- an-absent-record-is-refused-and-retried
+  "A signed entry names a record nobody holds: the stage load fails, the
+   import is refused `:absent` naming the record address, the failed load
+   is forgotten, and a second require starts a fresh load."
+  []
+  (let [artifact (fixture/read-file)
+        m (get-in artifact [:units "m"])
+        bogus (jing/segment-key {:nobody :holds-this-record})
+        w (publish-world artifact)
+        [w _] (publish-index w [(siteset/signed-entry fixture/key-a m bogus)])
+        src (hook-source artifact)
+        run (fn [w]
+              (run-over-dht w :semantic (get-in artifact [:importers :d]) src
+                            noting-waits {:signals []}))
+        [w outcome response _] (run w)
+        _ (testing "the miss is a refusal naming the record address"
+            (is (= "ImportError" (get-in (nth outcome 2)
+                                         [:py/exception :type])))
+            (is (= :absent (:reason response)) (pr-str response))
+            (is (= bogus (:address response)) (pr-str response)))
+        _ (testing "the failed stage load is forgotten"
+            (is (nil? (ld/stage-status (:reader w) m))))
+        [w outcome response _] (run w)]
+    (testing "a second require starts a fresh stage load and is refused again"
+      (is (= :absent (:reason response)) (pr-str response))
+      (is (= "ImportError" (get-in (nth outcome 2) [:py/exception :type]))))
+    (dht/close! (:pub w))
+    (dht/close! (:reader w))))
+
+
 (defn- dht-import-test
   []
   (let [lines (fixture/read-lines)
@@ -651,6 +865,10 @@
         a (get-in artifact [:principals :a])
         src (source [a] [a])
         w (publish-world artifact)
+        w (hook-import-refused-without-the-index w artifact)
+        w (site-sets-over-the-mesh w artifact)
+        w (hook-import-with-the-index w artifact)
+        w (a-hook-import-chain w artifact)
         w (imports-over-the-dht w artifact src)
         w (an-untrusted-principal-is-refused-on-every-vm w artifact)
         w (a-trusted-principal-is-allowed-on-every-vm w artifact)
@@ -658,7 +876,8 @@
             w artifact)
         w (republished-dependency-is-refused w artifact src)]
     (dht/close! (:pub w))
-    (dht/close! (:reader w))))
+    (dht/close! (:reader w))
+    (an-absent-record-is-refused-and-retried)))
 
 
 (deftest ^:slow dht-import-test-test

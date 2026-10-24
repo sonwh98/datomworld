@@ -2176,6 +2176,14 @@
                   :name n}))))))
 
 
+(defn primitive-declaration
+  "The `:primitives` profile free name `n` declares over `registry` (a bare
+   primitive's `vm/primitives` profile, or a host export's), as
+   `module-spec` declares it; throws on an undeclared name."
+  [registry n]
+  (second (declare-free-name registry #{} n)))
+
+
 (defn module-spec
   "`yin.vm.linker.publish/publish-module!`'s spec for the Python module
    `name` over the host registry `registry`, requiring `py` at

@@ -291,7 +291,11 @@
 
 (def allowlist
   "file -> {[top-level-name head] count}, with the reason each may write."
-  {"src/cljc/yin/vm/engine.cljc"
+  {;; `:store` here is a write-buffering overlay handle over the content
+   ;; store, not a mutable VM store
+   "src/cljc/yang/python/antlr/siteset.cljc"
+   {["stage" "assoc"] 1}
+   "src/cljc/yin/vm/engine.cljc"
    {;; the one program write, and `put-active`, which routes every program
     ;; write -- definitions, direct store instructions, the :vm/store-put
     ;; effect -- to the task's store or the running module's store, both
@@ -327,9 +331,16 @@
    {["inject-last-value" "update"] 1
     ["make-expander" :map] 1}
    ;; the content source descriptor: `:store` names a dao.jing byte-store
-   ;; handle the linker interpreter serves content from, never a VM store
+   ;; handle the linker interpreter serves content from, never a VM store;
+   ;; and the link-time stage's context, whose `:store` is that same
+   ;; byte-store handle
    "src/cljc/yin/vm/linker/interpreter.cljc"
-   {["composition" :map] 1}
+   {["composition" :map] 1
+    ["dht-context" :map] 1
+    ["answer" :map] 1}
+   ;; the stage load's context: `:store` is the load's content handle
+   "src/cljc/yin/vm/linker/dht.cljc"
+   {["stage-walk" "assoc"] 1}
    ;; the handoff demo: shipped definitions, checked
    "src/cljc/datomworld/demo/continuation_handoff.cljc"
    {["datoms->semantic-vm" "update"] 1}

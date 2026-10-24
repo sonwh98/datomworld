@@ -12,6 +12,7 @@
    and `name-envelopes`): this namespace publishes content, it signs
    nothing."
   (:require [yang.python.antlr.lower :as lower]
+            [yang.python.antlr.siteset :as siteset]
             [yin.vm.linker.publish :as publish]))
 
 
@@ -95,7 +96,14 @@
    `py-address` and each import outside the set at its address in
    `published` ({python-name address}), in `publication-order`. Answers
    `{:status :ok :addresses {python-name address}
-     :bundles {bundle-symbol address}}` for the units of the set, or the
+     :bundles {bundle-symbol address}
+     :sites {python-name-or-bundle-symbol site-publication}}` for the units
+   of the set (`siteset/publish!`'s answer for each module published beside
+   its code image, I7; an SCC member alias carries no marks and so no
+   entry, its bundle does). The publisher that asserts these names
+   indexes `siteset/signed-entries` of `:sites` in the same index
+   transaction; a module whose entry is missing is refused by every
+   hook-profile reader. Or the
    first refusal: `publication-order`'s before anything is written, else
    `publish-module!`'s with a string `:unit`: the Python name for a member,
    or the bundle module name for an SCC bundle. Every bundle name must be
@@ -125,20 +133,44 @@
                                               :package? (:package? (get by-name step)),
                                               :py-address py-address, :deps deps})])
                  bundle (first specs)
-                 result (publish-fn handle bundle)]
+                 result (publish-fn handle bundle)
+                 sited (fn [acc k r]
+                         ;; a handle with no byte store (a stub publisher)
+                         ;; has nowhere to put a set; a backend failure is
+                         ;; a refusal, not a throw
+                         (if-not (:put-bytes-fn handle)
+                           acc
+                           (try (assoc-in acc [:sites k]
+                                          (siteset/publish! handle (:address r)
+                                                            (:ast bundle)))
+                                (catch #?(:cljd Object :clj Exception :cljs :default) e
+                                  (reduced
+                                    (refused :yang.python.antlr/site-set-unpublished
+                                             {:unit k,
+                                              :message (ex-message e)}))))))]
              (if (= :refused (:status result))
                (reduced (assoc result :unit (if (vector? step) (str (:name bundle)) step)))
                (if (vector? step)
-                 (let [aliases (reduce (fn [a [n spec]]
-                                         (let [r (publish-fn
-                                                   handle (assoc spec :requires
-                                                                 {(:name bundle) (:address result)}))]
-                                           (if (= :refused (:status r))
-                                             (reduced (assoc r :unit n))
-                                             (assoc-in a [:addresses n] (:address r)))))
-                                       (assoc-in acc [:bundles (:name bundle)] (:address result))
-                                       (map vector members (rest specs)))]
-                   (if (= :refused (:status aliases)) (reduced aliases) aliases))
-                 (assoc-in acc [:addresses step] (:address result))))))
+                 ;; a member alias holds no marks: the marks live in the
+                 ;; bundle, so the bundle alone carries a site set and an
+                 ;; alias import under a hook profile is refused as having none
+                 (let [base (-> acc
+                                (assoc-in [:bundles (:name bundle)] (:address result))
+                                (sited (:name bundle) result))]
+                   (if (reduced? base)
+                     base
+                     (let [aliases (reduce (fn [a [n spec]]
+                                             (let [r (publish-fn
+                                                       handle (assoc spec :requires
+                                                                     {(:name bundle) (:address result)}))]
+                                               (if (= :refused (:status r))
+                                                 (reduced (assoc r :unit n))
+                                                 (assoc-in a [:addresses n] (:address r)))))
+                                           base
+                                           (map vector members (rest specs)))]
+                       (if (= :refused (:status aliases)) (reduced aliases) aliases))))
+                 (-> acc
+                     (assoc-in [:addresses step] (:address result))
+                     (sited step result))))))
          {:status :ok, :addresses {}, :bundles {}}
          (:order plan))))))

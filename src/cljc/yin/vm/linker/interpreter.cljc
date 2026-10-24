@@ -156,12 +156,36 @@
    interpreter runs in process: the questions a DHT source asks are
    answered elsewhere or not at all. `:holder` is the context subject,
    a principal id or a token understood by verify; it defaults to the
-   own key's principal."
+   own key's principal.
+
+   `stage`, optional, is the link-time stage (yang.antlr.md 8.5.2)
+   applied at delivery: `(stage ctx name address)` answers `{:status :ok
+   :address a' ...}` (`a'` may equal `address`), `{:status :refused
+   ...}` or `{:status :missing :address a}`, an address the store does not
+   hold: the stage reports the first it meets and stops, and never
+   fetches.  A DHT source fetches what is reported missing (a staged load,
+   `yin.vm.linker.dht/load-stage`) and runs the stage again; a local
+   content store fails closed, refused `:absent`.  `ctx` is plain data, `{:store handle :datoms [...]
+   :principals [...]}`: the store the stage may write its output into, the
+   index datoms the source has loaded (none for a name-env source), and
+   the declared principals' public keys.  The interpreter applies it after
+   resolution and trust admission and before the attempt, links `a'` in
+   place of `address` under the same derivation policy, pin checks and
+   profile checks (a stage never relaxes them), and never interprets what
+   the stage did.  A substituted `:ok` response names the resolved address
+   under `:yin.link/canonical` and the stage's `:derivation`, if any, under
+   `:yin.link/derivation`; a refusal is the stage's, with `:name` and
+   `:yin.link/canonical`.  Its reasons are the composition's, as the
+   admission interpreter's are.  Refused with `content-client`."
   [{:keys [name-env content-store content-client dht? principals key
-           follow derivation admission] :as opts}]
+           follow derivation admission stage] :as opts}]
   (when (and content-store content-client)
     (throw (ex-info "content-store and content-client are exclusive"
                     {:content-store content-store})))
+  (when (and stage content-client)
+    (throw (ex-info (str "a stage writes its output into a local store: "
+                         "content-client is refused with it")
+                    {:stage stage})))
   (when (and dht? (or content-store content-client))
     (throw (ex-info (str "a dht:<dir> index store is the link source; "
                          "content-store and content-client are refused with it")
@@ -173,6 +197,7 @@
                                  (select-keys opts [:key :holder])))
    :own (when key #{(sign/principal (:public key))})
    :follow (vec follow)
+   :stage stage
    :derivation (or derivation :verifying)
    :admission (when admission
                 (admission/policy
@@ -374,6 +399,105 @@
          :body (or unbound (dht-link node request address))}))))
 
 
+(defn- dht-context
+  "The stage context of a DHT source over `node`: its store, every
+   loaded snapshot's datoms and the declared principals."
+  [source node]
+  {:store (dht/store node)
+   :datoms (into []
+                 (mapcat #(linker.dht/snapshot-datoms node %))
+                 (linker.dht/snapshots node))
+   :principals (:principals source)})
+
+
+(defn- decision
+  "The shaping of a stage answer `r` for the request: `{:refused body}`
+   with the stage's own `:name` kept (the request's is the default) and
+   the resolved address under `:yin.link/canonical`, or `{:address a'}`
+   with `:extra`, the annotation of a substituted address."
+  [request address r]
+  (if (= :refused (:status r))
+    {:refused (-> r
+                  (update :name #(or % (:yin.link/name request)))
+                  (assoc :yin.link/canonical address))}
+    {:address (:address r)
+     :extra (when-not (= address (:address r))
+              (cond-> {:yin.link/canonical address}
+                (:derivation r) (assoc :yin.link/derivation
+                                       (:derivation r))))}))
+
+
+(defn- stage-decision
+  "The link-time stage's decision for `address` over a content store
+   (`composition`'s `:stage`): `decision`'s shape.  A stage over a local
+   store that reports an address `:missing` has nothing to wait on and
+   fails closed, refused `:absent`.  With no stage, the address as
+   resolved."
+  [source ctx request address]
+  (if-let [stage (:stage source)]
+    (let [r (stage ctx (:yin.link/name request) address)]
+      (if (= :missing (:status r))
+        {:refused {:status :refused
+                   :reason :absent
+                   :address (:address r)
+                   :name (:yin.link/name request)
+                   :yin.link/canonical address}}
+        (decision request address r)))
+    {:address address}))
+
+
+(defn- annotated
+  "An `:ok` response `body` with the stage's `extra` annotation."
+  [body extra]
+  (if (and extra (= :ok (:status body))) (merge body extra) body))
+
+
+(defn- dht-staged
+  "`dht-attempt` of the resolved `address` through the composition's stage,
+   a second staged load.  The module itself is phase one: loaded, its
+   dependency bindings checked and linked under the composition's policy.
+   Only an `:ok` module is staged, its refusal or pending state standing
+   as it is.  Phase two is the stage load (`yin.vm.linker.dht/load-stage`,
+   keyed per address): the stage reads the node's store and reports what
+   it lacks, `step` fetches it, and the load is `::pending` on its key
+   meanwhile.  Its context, the loaded snapshot set's datoms and the
+   declared principals, is captured when the load starts; a snapshot
+   change while it is pending does not re-resolve.  A `:failed` load is
+   refused and forgotten, so a later require starts over; a `:loaded`
+   decision that refuses is forgotten likewise (a later index load may
+   change it), one that is `:ok` stays.  A substituted address is then
+   attempted in the module's place and its `:ok` response annotated."
+  [source node declared request address]
+  (let [first-try (dht-attempt node declared request address)]
+    (if (or (nil? (:stage source))
+            (not= :ok (:status (:body first-try))))
+      first-try
+      (let [node (:node first-try)
+            key (linker.dht/stage-key address)
+            status (linker.dht/stage-status node address)]
+        (cond
+          (nil? status)
+          {:node (linker.dht/load-stage node (:stage source)
+                                        (dht-context source node)
+                                        (:yin.link/name request) address)
+           :body ::pending
+           :waits key}
+
+          (= :loading (:status status)) {:node node, :body ::pending, :waits key}
+
+          (= :failed (:status status))
+          {:node (dht/forget node key)
+           :body (linker.dht/stage-refusal status)}
+
+          :else
+          (let [d (decision request address (:value status))]
+            (cond
+              (:refused d) {:node (dht/forget node key), :body (:refused d)}
+              (nil? (:extra d)) first-try
+              :else (update (dht-attempt node declared request (:address d))
+                            :body annotated (:extra d)))))))))
+
+
 (defn- awaited-heads
   "The followed principals of `source` with no installed head on `node`:
    a name absent now may be asserted by the first head of one of them."
@@ -398,10 +522,10 @@
 (defn- admitted
   "A request whose admission question was asked (yin.vm.linker.dht.md
    7.5): pending while unanswered, with no re-resolution; refused as the
-   answer says; or, allowed, attempted against the address the question
-   was bound to, never a fresh resolution.  An `:ok` response names the
-   admission it rode on."
-  [node declared request q a]
+   answer says; or, allowed, staged and attempted against the address the
+   question was bound to, never a fresh resolution.  An `:ok` response
+   names the admission it rode on."
+  [source node declared request q a]
   (cond
     (nil? a) {:node node, :body ::pending, :asking (:yin.admit/id q)}
 
@@ -410,7 +534,7 @@
 
     :else
     (let [{:keys [node body waits]}
-          (dht-attempt node declared request (:yin.admit/address q))]
+          (dht-staged source node declared request (:yin.admit/address q))]
       {:node node
        :waits waits
        :asking (when (= ::pending body) (:yin.admit/id q))
@@ -435,7 +559,8 @@
         name (:yin.link/name request)
         q (some-> admission (admission/asked (:yin.link/id request)))]
     (if q
-      (admitted node declared request q (admission/answer-to admission q))
+      (admitted source node declared request q
+                (admission/answer-to admission q))
       (let [entry (linker.dht/resolve-name node declared name)]
         (cond
           (not= :ok (:status entry))
@@ -445,7 +570,7 @@
             {:node node, :body entry})
 
           (= :composition (:yin.link/provenance entry))
-          (dht-attempt node declared request (:address entry))
+          (dht-staged source node declared request (:address entry))
 
           (nil? admission)
           {:node node
@@ -490,7 +615,16 @@
       :else
       {:node node
        :body (if-let [address (get (:name-env source) name)]
-               (attempt source request address)
+               (let [d (stage-decision
+                         source
+                         {:store (get-in source [:content :store]),
+                          :datoms [],
+                          :principals (:principals source)}
+                         request address)]
+                 (if (:refused d)
+                   (:refused d)
+                   (annotated (attempt source request (:address d))
+                              (:extra d))))
                {:status :refused, :reason :absent, :name name})})))
 
 

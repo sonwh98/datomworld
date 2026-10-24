@@ -6,11 +6,13 @@
 
    It holds what a publisher `A` publishes and signs: the guest blobs of
    the units m, k, t and e and of k's republication k2 (every blob of
-   their closures but `py`'s, which each reader has installed), each
+   their closures but `py`'s, which each reader has installed, and each
+   module's site set blob and publication record blob, I7), each
    unit's manifest address, the signed name envelopes of three index
    transactions -- `A` naming py, m, k and t; `A` retracting k and
    naming k2; a foreign principal `B` naming e -- and the importer
-   packets the reader lowers. The keys are fixed test seeds, and Ed25519
+   packets the reader lowers, and a fourth index transaction of `A`'s signed
+   site-set publication entries (I7). The keys are fixed test seeds, and Ed25519
    signatures are deterministic, so one host's `generate` is the file
    byte for byte.
 
@@ -31,6 +33,7 @@
     [yang.python.antlr.import-programs :as programs]
     [yang.python.antlr.linked-harness :as h]
     [yang.python.antlr.publication :as publication]
+    [yang.python.antlr.siteset :as siteset]
     [yin.vm.linker.closure :as closure]
     [yin.vm.linker.publish :as publish]
     [yin.vm.linker.sign :as sign]))
@@ -80,6 +83,17 @@
   []
   (let [{:keys [store address]} @h/published]
     (select-keys ((:entries-fn store)) (closure-addresses store address))))
+
+
+(defn installed-pysp
+  "`pysp`'s closure as this host published it, `{address bytes}`: the hook
+   runtime a reader under a hook profile has installed, as it has `py`
+   (the closure includes `py`'s)."
+  []
+  (let [{:keys [store]} @h/published
+        pysp (:address @h/published-pysp)
+        addresses (closure-addresses store pysp)]
+    (select-keys ((:entries-fn store)) addresses)))
 
 
 (defn- unit
@@ -135,6 +149,13 @@
                           :manifest (get-in k2 [:addresses "k"]),
                           :seq 6})]
             foreign (assert-names key-b 1 [['pym.e (get addresses "e")]])
+            ;; I7: A's signed publication entry for each module's site-set
+            ;; record, the units' then k's republication
+            sites (into []
+                        (mapcat #(siteset/signed-entries
+                                   key-a (:sites %) (:addresses %)
+                                   (:bundles %)))
+                        [units k2])
             blobs (sort-by (comp str key)
                            (remove (fn [[a _]] (contains? installed a))
                                    ((:entries-fn store))))]
@@ -150,7 +171,8 @@
                                      :x programs/x-packet}})
                 (pr-str {:index :own, :signed (signed-only own)})
                 (pr-str {:index :republish, :signed (signed-only republish)})
-                (pr-str {:index :foreign, :signed (signed-only foreign)})]
+                (pr-str {:index :foreign, :signed (signed-only foreign)})
+                (pr-str {:index :sites, :signed sites})]
                (map (fn [[a bs]] (pr-str [a (jing.dht/bytes->hex bs)])))
                blobs)}))))
 
