@@ -124,28 +124,25 @@
 
 
 (deftest file-backend-round-trips-trees-and-vectors
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (testing "the durable backend round-trips the same content, across close and reopen"
-       (let [path (temp-path "u10-roundtrip")
-             tree (vm/ast->semantic-bytecode
-                    {:type :lambda, :params '[x],
-                     :body {:type :application,
-                            :operator {:type :variable, :name 'x},
-                            :operands [{:type :literal, :value 1}] :tail? true}})
-             vector (:vector (linearize/project-rows tree))
-             h (jing-file/create-content-file path)]
-         (try
-           (let [root (vm/materialize-tree! h tree)
-                 address (code/materialize-vector! h vector)]
-             (jing/close! h)
-             (let [h2 (jing-file/create-content-file path)]
-               (try
-                 (is (= tree (fetch-tree h2 root)) "tree after reopen")
-                 (is (= vector (fetch-vector h2 address)) "vector after reopen")
-                 (finally (jing/close! h2)))))
-           (finally (cleanup-file path)))))))
+  (testing "the durable backend round-trips the same content, across close and reopen"
+    (let [path (temp-path "u10-roundtrip")
+          tree (vm/ast->semantic-bytecode
+                 {:type :lambda, :params '[x],
+                  :body {:type :application,
+                         :operator {:type :variable, :name 'x},
+                         :operands [{:type :literal, :value 1}] :tail? true}})
+          vector (:vector (linearize/project-rows tree))
+          h (jing-file/create-content-file path)]
+      (try
+        (let [root (vm/materialize-tree! h tree)
+              address (code/materialize-vector! h vector)]
+          (jing/close! h)
+          (let [h2 (jing-file/create-content-file path)]
+            (try
+              (is (= tree (fetch-tree h2 root)) "tree after reopen")
+              (is (= vector (fetch-vector h2 address)) "vector after reopen")
+              (finally (jing/close! h2)))))
+        (finally (cleanup-file path))))))
 
 
 (def ^:private metadata-literal-ast
@@ -168,27 +165,24 @@
           "the fetched literal's value carries its metadata")
       (jing/close! h)))
 
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (testing "the file backend carries it too: full round trip across reopen"
-       (let [path (temp-path "u10-metadata")
-             h (jing-file/create-content-file path)
-             tree (vm/ast->semantic-bytecode metadata-literal-ast)]
-         (try
-           (let [root (vm/materialize-tree! h tree)]
-             (jing/close! h)
-             (let [h2 (jing-file/create-content-file path)
-                   loaded (fetch-tree h2 root)
-                   lit-row (some (fn [row] (when (= :literal (nth row 1)) row))
-                                 (vals (:rows loaded)))]
-               (try
-                 (is (= tree loaded)
-                     "metadata survives the CBOR frame across close and reopen")
-                 (is (= {:meaning "retained"} (meta (nth lit-row 2)))
-                     "the replayed literal's value carries its metadata")
-                 (finally (jing/close! h2)))))
-           (finally (cleanup-file path)))))))
+  (testing "the file backend carries it too: full round trip across reopen"
+    (let [path (temp-path "u10-metadata")
+          h (jing-file/create-content-file path)
+          tree (vm/ast->semantic-bytecode metadata-literal-ast)]
+      (try
+        (let [root (vm/materialize-tree! h tree)]
+          (jing/close! h)
+          (let [h2 (jing-file/create-content-file path)
+                loaded (fetch-tree h2 root)
+                lit-row (some (fn [row] (when (= :literal (nth row 1)) row))
+                              (vals (:rows loaded)))]
+            (try
+              (is (= tree loaded)
+                  "metadata survives the CBOR frame across close and reopen")
+              (is (= {:meaning "retained"} (meta (nth lit-row 2)))
+                  "the replayed literal's value carries its metadata")
+              (finally (jing/close! h2)))))
+        (finally (cleanup-file path))))))
 
 
 (deftest shared-subtrees-are-stored-once-across-trees
