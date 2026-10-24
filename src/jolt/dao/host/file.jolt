@@ -1,0 +1,331 @@
+(ns dao.host.file
+  "Host-local plumbing for the jolt branch of dao.jing.file's file seams (J4a,
+   collab/1792769713135-architect-j4-file-seams-design §2): POSIX descriptor
+   I/O over native/jolt-file, which `bb build:jolt-native` builds.
+
+   This is NOT a dao.host profile namespace. It has no src/cljc counterpart,
+   no portable entries and no refusal table: it is private linkage behind
+   dao.jing.file's existing seams (open-file!, file-length!, read-int!,
+   read-bytes!, truncate-file!, append-frame!, sync-file!, close-file!), which
+   call it from their :jolt arms. The framing, validation, recovery cut and
+   replay stay in dao.jing.file; nothing here decides what a frame is or where
+   to truncate.
+
+   A handle owns one descriptor, opened read/write with close-on-exec, never
+   truncated and never O_APPEND. Reads and writes are positional (pread,
+   pwrite), so no seek position is shared. The read and write loops live here:
+   short transfers continue, EINTR retries, and a read that meets end of file
+   before its count, or a write that makes no progress, throws: no zero
+   padding and no silent short frame. The frame's signed 32-bit big-endian
+   length prefix is packed and unpacked by the wrapper (review F2).
+
+   Every native buffer is caller-owned, its release established as soon as
+   it is acquired (`with-native`), and every bytes argument is copied in and
+   every result copied out, so no caller array is ever shared with C. Native
+   entries that can wait on the disk are bound :blocking, so a collection
+   does not wait for them.
+
+   Loading this namespace is the library gate: it refuses, by throwing, when
+   the wrapper is missing or answers another layout, before any file is
+   touched."
+  (:require
+    [clojure.string :as str]
+    [dao.host.text :as text]
+    [jolt.ffi :as ffi]))
+
+
+;; =============================================================================
+;; The native library
+;; =============================================================================
+
+(def ^:private platform
+  ;; as dao.host.hash decides it
+  (let [os (str/lower-case (or (System/getProperty "os.name") ""))
+        arch (System/getProperty "os.arch")]
+    (str (if (str/includes? os "mac") "darwin" "linux") "-"
+         (if (#{"aarch64" "arm64"} arch) "arm64" "x86_64"))))
+
+
+(def ^:private library
+  (str (System/getProperty "user.dir") "/build/native/" platform
+       "/jolt-file/lib/libjolt_file"
+       (if (str/starts-with? platform "darwin") ".dylib" ".so")))
+
+
+(defn- refuse-load
+  [message data]
+  (throw (ex-info (str "jolt-file refused: " message)
+                  (assoc data :library library))))
+
+
+(when-not (.exists (java.io.File. ^String library))
+  (refuse-load "the wrapper is not built (bb build:jolt-native)" {}))
+
+
+(ffi/load-library library)
+(ffi/defcfn ^:private c-layout-version "jolt_file_layout_version" [] :int32)
+
+
+;; native/jolt-file/jolt_file.c JOLT_FILE_LAYOUT
+(def ^:private layout 1)
+
+
+(let [actual (c-layout-version)]
+  (when-not (= layout actual)
+    (refuse-load "the library writes another layout"
+                 {:expected layout, :actual actual})))
+
+
+(ffi/defcfn ^:private c-eintr "jolt_file_eintr" [] :int32)
+(ffi/defcfn ^:private c-make-parents "jolt_file_make_parents"
+  [:pointer :int64] :int64 :blocking)
+(ffi/defcfn ^:private c-open "jolt_file_open" [:pointer :int64] :int64 :blocking)
+(ffi/defcfn ^:private c-length "jolt_file_length" [:int64] :int64 :blocking)
+(ffi/defcfn ^:private c-pread "jolt_file_pread"
+  [:int64 :int64 :pointer :int64 :int64] :int64 :blocking)
+(ffi/defcfn ^:private c-pwrite "jolt_file_pwrite"
+  [:int64 :int64 :pointer :int64 :int64] :int64 :blocking)
+(ffi/defcfn ^:private c-truncate "jolt_file_truncate" [:int64 :int64] :int64 :blocking)
+(ffi/defcfn ^:private c-sync "jolt_file_sync" [:int64] :int64 :blocking)
+(ffi/defcfn ^:private c-close "jolt_file_close" [:int64] :int64 :blocking)
+(ffi/defcfn ^:private c-s32be-get "jolt_file_s32be_get" [:pointer :int64] :int32)
+(ffi/defcfn ^:private c-s32be-put "jolt_file_s32be_put" [:pointer :int64 :int32] :void)
+(ffi/defcfn ^:private c-strerror "jolt_file_strerror" [:int64 :pointer :int64] :int64)
+
+
+(def ^:private eintr (c-eintr))
+
+
+;; =============================================================================
+;; Native memory and errors
+;; =============================================================================
+
+(defn- with-native
+  "(f p) over caller-owned native memory `p` of `n` bytes (one for an empty
+   request), freed however `f` exits. The release is established before
+   anything else can fail."
+  [n f]
+  (let [p (ffi/alloc (max 1 n))]
+    (try
+      (when (ffi/null? p)
+        (throw (ex-info "jolt-file native allocation failed" {:bytes n})))
+      (f p)
+      (finally (ffi/free p)))))
+
+
+(defn- error-text
+  [errno]
+  (with-native 256
+    (fn [buf]
+      (let [n (c-strerror errno buf 256)]
+        (if (pos? n) (ffi/read-bytes buf n) (str "errno " errno))))))
+
+
+(defn- io-error
+  "The host exception for a failed operation: the operation, the path, the
+   errno this invocation answered and its text, plus any offset context."
+  [handle operation errno data]
+  (ex-info (str "dao.jing.file " operation " failed on " (:path handle) ": "
+                (error-text errno) " (errno " errno ")")
+           (merge {:operation operation, :path (:path handle), :errno errno} data)))
+
+
+(defn- path-bytes!
+  "The UTF-8 path bytes copied into native memory, (f p n)."
+  [path f]
+  (let [bs (text/utf8-encode path)
+        n (alength bs)]
+    (with-native n
+      (fn [p]
+        (when (pos? n) (ffi/write-array p bs))
+        (f p n)))))
+
+
+;; =============================================================================
+;; Single transfers: the test seam
+;; =============================================================================
+
+;; One system call each, answering a count or -errno. The loops below call
+;; them through these vars, which is the test-only indirection the J4a gate
+;; redefines to inject short, EINTR, zero-progress and failing transfers.
+;; There is no production fault mode.
+
+(defn- pread-once
+  [fd offset buf at n]
+  (c-pread fd offset buf at n))
+
+
+(defn- pwrite-once
+  [fd offset buf at n]
+  (c-pwrite fd offset buf at n))
+
+
+(defn- fsync-once
+  [fd]
+  (c-sync fd))
+
+
+(defn- close-once
+  [fd]
+  (c-close fd))
+
+
+;; =============================================================================
+;; The handle
+;; =============================================================================
+
+(defn- fd-of
+  [handle]
+  (when @(:released handle)
+    (throw (ex-info (str "dao.jing.file descriptor already closed: " (:path handle))
+                    {:path (:path handle)})))
+  (:fd handle))
+
+
+(defn open
+  "Open or create the file at path for positional reading and writing,
+   creating its missing parent directories (checked: a component that cannot
+   be a directory fails). Never truncates. Answers the handle.
+
+   A relative path resolves against user.dir, as java.io.File does: the jolt
+   launcher runs the process from its own root and passes the caller's
+   working directory as user.dir, so the process cwd is not it."
+  [path]
+  (let [native-path (.getAbsolutePath (java.io.File. ^String path))
+        made (path-bytes! native-path c-make-parents)]
+    (when (neg? made)
+      (throw (io-error {:path path} "create-parents" (- made) {})))
+    (let [fd (path-bytes! native-path c-open)]
+      (when (neg? fd)
+        (throw (io-error {:path path} "open" (- fd) {})))
+      {:fd fd, :path path, :released (atom false)})))
+
+
+(defn length
+  "The file's size by fstat."
+  [handle]
+  (let [n (c-length (fd-of handle))]
+    (when (neg? n) (throw (io-error handle "fstat" (- n) {})))
+    n))
+
+
+(defn- read-into!
+  "Fill buf[0, n) from file offset `offset`: short reads continue, EINTR
+   retries, end of file before n bytes throws."
+  [handle buf offset n]
+  (let [fd (fd-of handle)]
+    (loop [done 0]
+      (when (< done n)
+        (let [r (pread-once fd (+ offset done) buf done (- n done))]
+          (cond
+            (pos? r) (recur (+ done r))
+            (zero? r) (throw (ex-info (str "dao.jing.file pread met end of file on "
+                                           (:path handle) " before a complete read")
+                                      {:operation "pread", :path (:path handle),
+                                       :offset offset, :wanted n, :read done}))
+            (= r (- eintr)) (recur done)
+            :else (throw (io-error handle "pread" (- r)
+                                   {:offset offset, :wanted n, :read done}))))))))
+
+
+(defn read-s32be
+  "The signed 32-bit big-endian integer at offset, converted by the wrapper
+   (review F2): a prefix with the top bit set is negative."
+  [handle offset]
+  (with-native 4
+    (fn [buf]
+      (read-into! handle buf offset 4)
+      (c-s32be-get buf 0))))
+
+
+(defn read-bytes
+  "The n bytes at offset, copied into a fresh byte array."
+  [handle offset n]
+  (if (zero? n)
+    (byte-array 0)
+    (with-native n
+      (fn [buf]
+        (read-into! handle buf offset n)
+        (ffi/read-array buf n)))))
+
+
+(defn truncate!
+  "ftruncate to len. dao.jing.file calls it only at its validated recovery
+   cut; nothing here truncates on a failed read."
+  [handle len]
+  (let [r (c-truncate (fd-of handle) len)]
+    (when (neg? r) (throw (io-error handle "ftruncate" (- r) {:length len})))
+    nil))
+
+
+(defn- write-from!
+  "Write buf[0, n) at file offset `offset`: short writes continue, EINTR
+   retries, zero progress or an error throws."
+  [handle buf offset n]
+  (let [fd (fd-of handle)]
+    (loop [done 0]
+      (when (< done n)
+        (let [r (pwrite-once fd (+ offset done) buf done (- n done))]
+          (cond
+            (pos? r) (recur (+ done r))
+            (= r (- eintr)) (recur done)
+            (zero? r) (throw (ex-info (str "dao.jing.file pwrite made no progress on "
+                                           (:path handle))
+                                      {:operation "pwrite", :path (:path handle),
+                                       :offset offset, :wanted n, :written done}))
+            :else (throw (io-error handle "pwrite" (- r)
+                                   {:offset offset, :wanted n, :written done}))))))))
+
+
+(defn append-frame!
+  "Write the length-prefixed frame at the current end of the file (fstat):
+   the s32BE length (packed by the wrapper, review F2), then the frame bytes,
+   as one copied buffer. The caller holds the handle lock (dao.jing.file's
+   make-put), which is what makes end-of-file stable here.
+
+   Fail-closed intent (review F3, J4c's slice, not implemented here): a
+   failure part-way through this write leaves a torn frame at the end of the
+   file, and appending a later valid frame behind it would make the next open
+   refuse or, if the torn bytes happen to parse, truncate acknowledged data.
+   The descriptor-owned state that lands in J4c records the failure on this
+   handle: further puts throw naming the path and the failed operation, get
+   keeps serving the in-memory map, close still closes once. Today the
+   exception propagates and the shared put never acknowledges the frame."
+  [handle frame]
+  (let [len (alength frame)
+        total (+ 4 len)
+        end (length handle)]
+    (with-native total
+      (fn [buf]
+        (c-s32be-put buf 0 len)
+        (when (pos? len) (ffi/write-array buf :int8 frame 4))
+        (write-from! handle buf end total)))
+    nil))
+
+
+(defn sync!
+  "fsync: a full sync of the descriptor, not a port flush and not
+   fdatasync. A put is acknowledged only after it.
+
+   Fail-closed intent (review F3, J4c's slice): a failed fsync is not
+   retried, here or by the caller. On Linux the kernel may drop the dirty
+   pages after reporting the error, so a retry that answers success would
+   not mean the frame is durable. J4c's descriptor-owned state makes the
+   handle refuse further puts after this failure; today the exception
+   propagates and the put is not acknowledged."
+  [handle]
+  (let [r (fsync-once (fd-of handle))]
+    (when (neg? r) (throw (io-error handle "fsync" (- r) {})))
+    nil))
+
+
+(defn close!
+  "Release the descriptor: exactly one close attempt per handle, never
+   retried after EINTR (the descriptor is released anyway, and a retry could
+   close one another thread was given since). A second call is a no-op."
+  [handle]
+  (when (compare-and-set! (:released handle) false true)
+    (let [r (close-once (:fd handle))]
+      (when (and (neg? r) (not= r (- eintr)))
+        (throw (io-error handle "close" (- r) {})))))
+  nil)

@@ -38,7 +38,8 @@
    records (F5) is the test's view of a path: every decoded frame in order,
    equal duplicates included."
   (:require #?@(:cljd [["dart:convert" :as convert] ["dart:io" :as dart-io]
-                       ["dart:typed_data" :as typed]])
+                       ["dart:typed_data" :as typed]]
+                :jolt [[dao.host.file :as host-file]])
             [clojure.string :as str]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]))
@@ -153,6 +154,8 @@
 ;; Host file primitives -- the only host-aware code below
 ;; =============================================================================
 
+;; jolt: dao.host.file (src/jolt), POSIX descriptors over native/jolt-file.
+
 (def ^:private prefix-size 4)
 
 
@@ -160,7 +163,8 @@
   "Open or create the file at path for reading and appending, creating
    parent directories. Returns the host file object."
   [path]
-  #?(:clj (let [f (java.io.File. path)]
+  #?(:jolt (host-file/open path)
+     :clj (let [f (java.io.File. path)]
             (when-let [parent (.getParentFile f)] (.mkdirs parent))
             (java.io.RandomAccessFile. f "rw"))
      :cljs (if-not (exists? js/require)
@@ -180,7 +184,8 @@
 
 (defn- file-length!
   [f]
-  #?(:clj (.length ^java.io.RandomAccessFile f)
+  #?(:jolt (host-file/length f)
+     :clj (.length ^java.io.RandomAccessFile f)
      :cljs (.-size (.fstatSync ^js (:fs f) (:fd f)))
      :cljd (.lengthSync ^dart-io/RandomAccessFile f)))
 
@@ -188,7 +193,8 @@
 (defn- read-int!
   "The 4-byte big-endian signed frame length at offset."
   [f offset]
-  #?(:clj (do (.seek ^java.io.RandomAccessFile f offset)
+  #?(:jolt (host-file/read-s32be f offset)
+     :clj (do (.seek ^java.io.RandomAccessFile f offset)
               (.readInt ^java.io.RandomAccessFile f))
      :cljs (let [head (js/Buffer.alloc prefix-size)]
              (.readSync ^js (:fs f) (:fd f) head 0 prefix-size offset)
@@ -202,7 +208,8 @@
 (defn- read-bytes!
   "The len bytes at offset as the host byte array the codec accepts."
   [f offset len]
-  #?(:clj (do (.seek ^java.io.RandomAccessFile f offset)
+  #?(:jolt (host-file/read-bytes f offset len)
+     :clj (do (.seek ^java.io.RandomAccessFile f offset)
               (let [b (byte-array len)]
                 (.readFully ^java.io.RandomAccessFile f b)
                 b))
@@ -215,7 +222,8 @@
 
 (defn- truncate-file!
   [f offset]
-  #?(:clj (.setLength ^java.io.RandomAccessFile f offset)
+  #?(:jolt (host-file/truncate! f offset)
+     :clj (.setLength ^java.io.RandomAccessFile f offset)
      :cljs (.ftruncateSync ^js (:fs f) (:fd f) offset)
      :cljd (.truncateSync ^dart-io/RandomAccessFile f offset)))
 
@@ -223,7 +231,8 @@
 (defn- append-frame!
   "Write the length-prefixed frame at the current end of the file."
   [f frame]
-  #?(:clj (let [raf ^java.io.RandomAccessFile f
+  #?(:jolt (host-file/append-frame! f frame)
+     :clj (let [raf ^java.io.RandomAccessFile f
                 len (alength ^bytes frame)]
             (.seek raf (.length raf))
             (.writeInt raf len)
@@ -247,14 +256,16 @@
   "Flush the frame just written to durable storage (F1: a put is
    acknowledged only after this)."
   [f]
-  #?(:clj (.sync (.getFD ^java.io.RandomAccessFile f))
+  #?(:jolt (host-file/sync! f)
+     :clj (.sync (.getFD ^java.io.RandomAccessFile f))
      :cljs (.fsyncSync ^js (:fs f) (:fd f))
      :cljd (.flushSync ^dart-io/RandomAccessFile f)))
 
 
 (defn- close-file!
   [f]
-  #?(:clj (.close ^java.io.RandomAccessFile f)
+  #?(:jolt (host-file/close! f)
+     :clj (.close ^java.io.RandomAccessFile f)
      :cljs (.closeSync ^js (:fs f) (:fd f))
      :cljd (.closeSync ^dart-io/RandomAccessFile f)))
 
