@@ -462,6 +462,49 @@ The fix after a collision is `rm -rf build/antlr lib/antlr` and a rerun; the
 generator is not idempotent over an already-patched tree. Corroborated twice in
 one week (the M3 round and the C3 completion round, 2026-10-18).
 
+### Remote agent execution (delegate CLIs on shiva and jupiter)
+
+Owner relay, 2026-10-24: the delegate agent CLIs — `claude`, `codex`, `glm` —
+are installed and usable **on the remote hosts themselves**, not only from the
+orchestrator's laptop. This generalizes this section from "run tests remotely
+over SSH" to "delegate whole work agents remotely": a heavy implementation or
+verification leg (test lanes, native builds, fault-injection runs, multi-hour
+suites) can be executed by a delegate agent running on the server, keeping the
+orchestrator's laptop unloaded.
+
+The pattern (composed from the rules above plus the delegate-invocation
+reference):
+
+1. **Land the branch on origin first** (push from the laptop; never rsync) and
+   prepare the scratch clone per "Get the code there".
+2. **Start a named tmux session** for the task; run the agent inside it with
+   the toolchain activated *inside* the tmux command (`eval "$(mise env -s
+   bash)"` after the `cd` — the non-interactive SSH shell does not have it).
+   A fresh clone hits mise's interactive trust prompt, which blocks the whole
+   session until answered via `tmux send-keys`; pre-empt it with `mise trust`
+   inside the same command.
+3. **The remote agent works in the clone**: implement, build, run lanes,
+   write its findings artifact — the same brief form as any delegate dispatch
+   (role template, bounded file ownership, deliverable path), just executing
+   on the host. Long jobs survive SSH drops because of tmux.
+4. **The orchestrator polls detached files, never the pane** (pane captures
+   carry control characters that make output look empty): rc files, summary
+   logs and `ls *.flag` sentinels written by the run.
+5. **Division of labor**: bookkeeping and polling are orchestrator SSH
+   one-liners; execution belongs to the remote agent. Do not run heavy lanes
+   from the orchestrator's laptop while a remote agent owns the same gate.
+6. **Same trust rules as any delegate**: remote execution does not waive
+   Workflow steps 6–7 of the orchestrator role — artifacts are verified, and
+   review before commit applies to remote-produced work identically.
+   Session-ID capture and resume rules from the delegate-invocation reference
+   apply per host (each host's `~/.claude`, `~/.codex` store is its own).
+
+Known state: `claude` and `codex` verified working on shiva (2026-10-24, the
+jolt canonical-fixes verification ran there); `glm` reported available by the
+owner on both hosts, not yet exercised. Jupiter's inventory mirrors shiva's
+toolchain snapshot above — verify per the "Activate the toolchain" order on
+first use of each host.
+
 ## Testing Philosophy & TDD
 
 Write tests before implementing features (TDD).

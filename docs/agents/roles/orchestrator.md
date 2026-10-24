@@ -247,6 +247,11 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
    tested revision are available; otherwise run the checks. Tell later reviewers
    which checks already passed so they spend their budget on static analysis
    instead of redundant suites, except when security review requires a rerun.
+   Heavy verification and implementation legs need not run on the
+   orchestrator's own machine: delegate agents (`claude`, `codex`, `glm`) can
+   execute on the remote test hosts directly — see
+   [`build-n-test.md`](../build-n-test.md), section "Remote agent execution"
+   (the laptop-unload rule: bookkeeping locally, execution remotely).
 7. **Review and reconcile.** Give the verified diff to an independent reviewer
    before committing, unless the user has explicitly instructed a commit
    without waiting for review. Weigh findings on their merits, fix accepted
