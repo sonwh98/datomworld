@@ -181,11 +181,9 @@
   #?(:cljs (:require-macros [yang.python.antlr.prelude :refer [defquoted]]))
   (:require
     #?(:cljd [clojure.edn :as edn])
-    [clojure.walk :as walk]
+    [yang.core.prelude :as core]
     [yang.python.antlr.uast :as u]
-    [yin.vm :as vm]
-    [yin.vm.integer :as integer]
-    [yin.vm.module :as module]))
+    [yin.vm.integer :as integer]))
 
 
 #?(:clj
@@ -3509,11 +3507,7 @@
                        (fn [args] (py/arg args 0)))]])
 
 
-(defn- define
-  "`(yin/def (quote key) form)` in prelude notation: the key quoted, so
-   `sexp->uast` reads it as the literal symbol Rule R requires."
-  [key form]
-  (list 'yin/def (list 'quote key) form))
+(def ^:private define core/define)
 
 
 (defn- init-form
@@ -3640,26 +3634,14 @@
    is. `py.b/*` and `py.rt/*` stay qualified: they are internal store keys,
    and stripping them would collide (`py/list` and `py.b/list`)."
   [sym]
-  (if (and (symbol? sym) (= "py" (namespace sym)))
-    (symbol (name sym))
-    sym))
-
-
-(defn- strip-form
-  "A prelude-notation form with every symbol `strip`ped: references,
-   definition keys and quoted keys alike. Keywords, strings and the
-   keys of literal maps are untouched."
-  [form]
-  (walk/postwalk strip form))
+  (core/strip "py" sym))
 
 
 (def ^:private module-definitions
   "The module's definition list: a `:py/uninit` placeholder for every
    runtime key, so each read of one is discharged by an unconditional
    module-level definition, then every definition, stripped."
-  (into (mapv (fn [k] [k :py/uninit]) runtime-keys)
-        (map (fn [[k form]] [(strip k) (strip-form form)]))
-        definitions))
+  (core/module-definitions "py" :py/uninit runtime-keys definitions))
 
 
 (def module-uast
@@ -3667,93 +3649,48 @@
    in order, applied to a lambda that returns nil. Every definition runs
    on the main sequence, unconditionally and before the one call, so the
    linker's scanners discharge every body read of a sibling or a runtime
-   key; a `then` chain would leave every definition but the first inside
-   a closure body. Defining runs nothing."
-  (let [nodes (mapv (fn [[k form]] (u/def! k (u/sexp->uast form)))
-                    module-definitions)
-        params (mapv (fn [i] (symbol (str "%d" i))) (range (count nodes)))]
-    (u/mark-tails (apply u/app (u/lam params (u/lit nil)) nodes))))
+   key. Defining runs nothing."
+  (core/module-tree module-definitions []))
 
 
 (def module-exports
   "The module's exports: every `py/` key of the definition list,
    stripped. The runtime keys and the state slot are internal."
-  (set (keep (fn [[k _]] (when (= "py" (namespace k)) (strip k)))
-             definitions)))
+  (core/exports "py" definitions))
 
 
-(defn free-names
-  "Every variable name some occurrence of the map AST `ast` reads
-   unbound by an enclosing lambda. Shared with the hook prelude's module
-   emitter, which declares the same names its manifest must cover."
-  [ast]
-  (letfn [(walk-node
-            [acc node bound]
-            (cond
-              (vector? node) (reduce (fn [a n] (walk-node a n bound)) acc node)
-              (not (map? node)) acc
-              :else
-              (case (:type node)
-                :variable (if (contains? bound (:name node))
-                            acc
-                            (conj acc (:name node)))
-                :literal acc
-                :lambda (walk-node acc (:body node) (into bound (:params node)))
-                (reduce (fn [a v] (walk-node a v bound)) acc (vals node)))))]
-    (walk-node #{} ast #{})))
+(def free-names
+  "Every variable name some occurrence of the map AST reads unbound by an
+   enclosing lambda."
+  core/free-names)
 
 
-(defn defined-keys
-  "Every literal key the map AST `ast` defines with `yin/def`, at any
-   depth. Shared with the hook prelude's module emitter."
-  [ast]
-  (set (keep (fn [node]
-               (when (and (map? node)
-                          (= :application (:type node))
-                          (= 'yin/def (get-in node [:operator :name])))
-                 (get-in node [:operands 0 :value])))
-             (tree-seq coll? seq ast))))
+(def defined-keys
+  "Every literal key the map AST defines with `yin/def`, at any depth."
+  core/defined-keys)
 
 
 (def ^:private module-free-names
   "The names the module tree reads and does not define, sorted: the
    primitives and the host exports its manifest must declare."
-  (vec (sort-by str
-                (remove (conj (defined-keys module-uast) 'yin/def)
-                        (free-names module-uast)))))
+  (core/free-name-vec module-uast))
 
 
 (defn module-spec
   "`yin.vm.linker.publish/publish-module!`'s spec for the module `py`
    over the host registry `registry`. Every free name of the module tree
-   is declared under `:primitives`: a primitive by its `vm/primitives`
-   profile, a host export `ns/name` by the profile address the registry's
-   host module `ns` publishes and the effect set its `:callable-effects`
-   index holds for the export's function. A free name neither supplies is
+   is declared under `:primitives`; a free name nothing supplies is
    refused before anything is published. This namespace emits; it never
    publishes."
   [registry]
-  {:name module-name,
-   :ast module-uast,
-   :exports module-exports,
-   :requires {},
-   :primitives
-   (into {}
-         (map (fn [n]
-                (if-let [profile (vm/profile-of vm/primitives n)]
-                  [n profile]
-                  (if-let [address (module/host-export-profile registry n)]
-                    (let [entry (module/module-entry (:modules registry)
-                                                     (symbol (namespace n)))
-                          f (get-in entry [:slice (symbol (name n))])]
-                      [n {:yin.k/profile address,
-                          :yin.k/effects
-                          (get (:callable-effects registry) f #{})}])
-                    (throw (ex-info "the py module reads an undeclared name"
-                                    {:yang.python.antlr/refusal
-                                     :yang.python.antlr/undeclared-free,
-                                     :name n}))))))
-         module-free-names)})
+  (core/module-spec {:module-name module-name,
+                     :ast module-uast,
+                     :exports module-exports,
+                     :requires {},
+                     :free-names module-free-names,
+                     :registry registry,
+                     :message "the py module reads an undeclared name",
+                     :refusal-ns "yang.python.antlr"}))
 
 
 (def min-integer-bits
@@ -3785,16 +3722,6 @@
    composition calls this after its registrars. Linking replaces it with
    requirement discovery (yang.antlr.md 8.5.4)."
   [registry]
-  (let [missing (vec (sort-by str
-                              (remove #(some? (module/resolve-module
-                                                registry
-                                                (symbol (str (namespace %)
-                                                             "."
-                                                             (name %)))))
-                                      host-names)))]
-    (when (seq missing)
-      (throw (ex-info "the composition lacks host names the prelude calls"
-                      {:yang.python.antlr/refusal
-                       :yang.python.antlr/host-names,
-                       :yang.python.antlr/missing missing})))
-    registry))
+  (core/admit registry host-names
+              "the composition lacks host names the prelude calls"
+              "yang.python.antlr"))
