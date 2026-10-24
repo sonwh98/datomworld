@@ -139,11 +139,17 @@
      ["            this.emitToken(MakeCommonToken(Python3Parser.TOKEN_NEWLINE, \"\\n\"));"
       "            this.emitToken(PositionedToken(Python3Parser.TOKEN_NEWLINE, charIndex, charIndex - 1));"]
      ["    Token MakeCommonToken(int type, String text)"
-      "    Token PositionedToken(int type, int start, int stop)\n    {\n        return tokenFactory.create(type, null, Pair<TokenSource?, CharStream?>(this, this.inputStream), channel, start, stop, line, charPositionInLine);\n    }\n\n    Token MakeCommonToken(int type, String text)"]]},
+      "    Token PositionedToken(int type, int start, int stop)\n    {\n        return tokenFactory.create(type, null, Pair<TokenSource?, CharStream?>(this, this.inputStream), channel, start, stop, line, charPositionInLine);\n    }\n\n    Token MakeCommonToken(int type, String text)"]
+     ;; Java's commonToken builds CommonToken(source, ...), which takes the
+     ;; lexer's current line/column; MakeCommonToken (INDENT, the end-of-input
+     ;; NEWLINE and EOF) stamped the token-start ones (owner 2026-10-24: the
+     ;; JVM is canonical).
+     ["            charIndex - 1,\n            tokenStartLine,\n            tokenStartCharPositionInLine);"
+      "            charIndex - 1,\n            line,\n            charPositionInLine);"]]},
    :generated {"Python3Lexer.dart"
                "a29f3f8cceb6ec2b76185bf563d0e186bfb3d2f39cad2129c57dc31603bdb23b",
                "Python3LexerBase.dart"
-               "ec3ef8f2b21d52b0d9968a53e06c2202f9b841df96db810ad914df41a8ae373f",
+               "83ad4f38571ea8b82bf8650e3bf96758d0ca32c36512ca1f6cd47e5c67696359",
                "Python3Parser.dart"
                "fa00271187b2ba976be61c81acd3309b9ea8d19d458ce4a13a5ba1ed971ccf70",
                "Python3ParserBase.dart"

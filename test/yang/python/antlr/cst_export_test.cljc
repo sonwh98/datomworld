@@ -132,37 +132,30 @@
             indentation helper places an unexpected INDENT's column after the
             indentation (the span starts at 0), and its EOF token reports a
             line and column of its own while the span is the end of the
-            source. These coordinates are each target helper's own, pinned
-            per host: the INDENT column is 2 on the JVM and Node and 0 on
-            Dart; the EOF [line column] is [1 0] on the JVM, [2 0] on Node
-            and [1 7] on Dart."
+            source. The JVM's coordinates are canonical (owner 2026-10-24),
+            on every host: the INDENT column is 2 and the second error's
+            [line column] is [1 0]."
     (let [pk (conformance/check-error parser/parse-source "  x = 1\n"
                                       {:line 1,
-                                       :column #?(:cljd 0 :default 2),
+                                       :column 2,
                                        :span [0 2]})
           e (second (:yang.cst/errors pk))]
-      (is (= [#?(:cljs 2 :default 1) #?(:cljd 7 :default 0) [8 8]]
-             ((juxt :line :column :span) e)))))
+      (is (= [1 0 [8 8]] ((juxt :line :column :span) e)))))
   (testing "where they do agree they are still both recorded"
     (conformance/check-error parser/parse-source "if x:\npass\n"
                              {:line 2, :column 0, :span [6 10]})))
 
 
 (deftest helper-token-error-coordinates-test
-  (testing "an unexpected NEWLINE: the span is the newline's bytes on every
-            host, but the line and column are each helper's own. The [line
-            column] is [3 0] on the JVM and Node and [2 7] on Dart."
+  (testing "an unexpected NEWLINE: the span is the newline's bytes and the
+            [line column] the JVM's, [3 0], on every host (the JVM is
+            canonical, owner 2026-10-24)."
     (conformance/check-error parser/parse-source "if x:\n    x =\n"
-                             {:line #?(:cljd 2 :default 3),
-                              :column #?(:cljd 7 :default 0),
-                              :span [13 14]}))
-  (testing "an unexpected DEDENT: a zero-width span at the dedented line.
-            The [line column] is [2 0] on the JVM, [3 0] on Node and [2 6]
-            on Dart."
+                             {:line 3, :column 0, :span [13 14]}))
+  (testing "an unexpected DEDENT: a zero-width span, on the last token's line
+            as the JVM helper places it: [2 0] on every host."
     (conformance/check-error parser/parse-source "if x:\n    @d\ny = 1\n"
-                             {:line #?(:clj 2 :cljs 3 :cljd 2),
-                              :column #?(:cljd 6 :default 0),
-                              :span [13 13]})))
+                             {:line 2, :column 0, :span [13 13]})))
 
 
 (deftest packets-keep-the-synthetic-policy-test
