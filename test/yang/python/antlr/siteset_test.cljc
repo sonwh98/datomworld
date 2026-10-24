@@ -326,6 +326,38 @@
     (is (= t (:via out)))))
 
 
+(deftest the-stage-writes-nothing-until-it-can-complete-test
+  (let [[store py pysp] (stub-store)
+        result (publication/publish-units!
+                 store (h/registry) py
+                 [{:name "k", :packet loops/while-true-pass}
+                  {:name "t", :packet programs/t-packet}])
+        records (records-of result)
+        t (get (:addresses result) "t")
+        t-tree (:yin.module/tree (jing/get store t nil))
+        entries ((:entries-fn store))
+        stage (siteset/stage (h/registry) (hook-requirement pysp) records)
+        damaged (mem/create-content-mem (dissoc entries t-tree))
+        before ((:entries-fn damaged))
+        out (stage (assoc no-datoms :store damaged) 'pym.t t)]
+    (testing "the parent's tree is absent after its child is complete"
+      (is (= {:status :missing, :address t-tree} out))
+      (is (= (set (keys before)) (set (keys ((:entries-fn damaged)))))
+          "no blob was written"))
+    (testing "re-running after the row arrives equals a cold run"
+      (let [_ (jing/materialize! damaged (jing/get store t-tree nil))
+            warm (stage (assoc no-datoms :store damaged) 'pym.t t)
+            cold (stage (assoc no-datoms :store store) 'pym.t t)]
+        (is (= :ok (:status warm)))
+        (is (= warm cold))))
+    (testing "a complete closure is written, the parent reading its child"
+      (let [full (mem/create-content-mem entries)
+            ok (stage (assoc no-datoms :store full) 'pym.t t)]
+        (is (= :ok (:status ok)))
+        (is (some? (jing/get full (:address ok) nil)))
+        (is (some? (jing/get full (:derivation ok) nil)))))))
+
+
 ;; =============================================================================
 ;; The acceptance: imports on the three vector VMs, through the linker
 ;; =============================================================================

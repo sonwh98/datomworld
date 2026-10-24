@@ -456,6 +456,37 @@
                                          (:address out))))))))))
 
 
+(defn- overlay
+  "A write-buffering handle over `base`: reads see the buffer first, then
+   `base`; puts land in the buffer only, in put order. `flush!` writes the
+   buffer to `base`; dropping the overlay writes nothing."
+  [base]
+  (let [buf (atom {:bytes {}, :order []})]
+    {:handle (assoc base
+                    :get-bytes-fn (fn [address not-found]
+                                    (let [bs (get-in @buf [:bytes address])]
+                                      (if (nil? bs)
+                                        ((:get-bytes-fn base) address not-found)
+                                        bs)))
+                    :put-bytes-fn (fn [address bs]
+                                    (if (or (contains? (:bytes @buf) address)
+                                            (not (identical?
+                                                   ::none
+                                                   ((:get-bytes-fn base) address
+                                                                         ::none))))
+                                      :present
+                                      (do (swap! buf (fn [b]
+                                                       (-> b
+                                                           (assoc-in [:bytes address]
+                                                                     bs)
+                                                           (update :order conj
+                                                                   address))))
+                                          :inserted))))
+     :flush! (fn []
+               (let [{:keys [bytes order]} @buf]
+                 (doseq [a order] ((:put-bytes-fn base) a (get bytes a)))))}))
+
+
 (def reasons
   "The refusal reasons the stage answers, the composition's own."
   #{:yang.python.antlr/missing-site-set
@@ -490,10 +521,13 @@
         (assoc (admit (:store ctx) address [] requirement) :address address)
 
         :else
-        (let [r (derive-closure ctx registry records requirement address {})]
+        (let [{:keys [handle flush!]} (overlay (:store ctx))
+              r (derive-closure (assoc ctx :store handle) registry records
+                                requirement address {})]
           (case (:status r)
-            :ok (select-keys r [:status :address :derivation :instrumented?
-                                :set-address])
+            :ok (do (flush!)
+                    (select-keys r [:status :address :derivation :instrumented?
+                                    :set-address]))
             :missing (select-keys r [:status :address])
             (cond-> r (nil? (:name r)) (assoc :name name))))))))
 
