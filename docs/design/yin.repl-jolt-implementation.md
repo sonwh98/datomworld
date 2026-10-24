@@ -37,8 +37,11 @@ host-boundary seat's independent focused run (16/217/0). After J2 (2026-10-24):
 the transit-via-`yin.repl` suites rejoined `test:jolt-core` (linker-require,
 linker.head, linker.publish, linker.admission; 155 included / 54 excluded);
 `yin.vm.host-typed-values-test` stays excluded on a jolt-lang `assoc`
-divergence (known-gaps); J2b comparisons must close before J5 acceptance. Slice
-states are in §10.1.
+divergence (known-gaps); J2b (2026-10-24, macOS arm64 and Linux x86_64): the
+restricted lowering comparison is closed and jolt meets the JVM parser oracle
+in full, but Node and Dart disagree with the JVM on pinned entries, so the
+oracle comparison stays open on adjudication; both must close before J5
+acceptance. Slice states are in §10.1.
 
 This document consolidates the architect plan r7
 (`collab/1792427226000-architect-jolt-lane-plan-r7.gpt-6-astra.findings.md`),
@@ -1376,8 +1379,12 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 |                                             |                   | owner-accepted reader failures; safepoint harness 60/265,225/0 (`a0a49b8e`); J4 table `9c2d8da0`;   |
 |                                             |                   | gate (f): Dart 4,113 passed, Node on shiva rc=0, 242 namespaces, 0 failures/errors.                 |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
-| J2b: deferred comparisons                   | Oracle/lowering   | Node/Dart oracle comparison and restricted lowering comparison (§7.8); both close before J5.        |
-| not started                                 |                   | Owner split from J2, 2026-10-22 (§13.5).                                                            |
+| J2b: deferred comparisons                   | Oracle/lowering   | Node/Dart oracle comparison and restricted lowering comparison (§7.8); both close before J5. Owner  |
+| (b) closed; (a) open:                       |                   | split from J2, 2026-10-22 (§13.5). Run 2026-10-24 (`yang.python.antlr.oracle-parity-test`, macOS    |
+| adjudication                                |                   | arm64 and Linux x86_64, identical records): (b) lowering closed, every host equal to the JVM (jolt  |
+|                                             |                   | 35/35, Node 34/34, Dart 35/35); (a) jolt meets the JVM oracle (E1 64/64, first-failure 64/64, probe |
+|                                             |                   | 40/40), but Node and Dart disagree with the JVM on pinned entries and five open-bracket probe       |
+|                                             |                   | texts, so (a) stays open on adjudication (known-gaps).                                              |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J3: local shell and demo                    | Jolt main/stdin/w | API and CLI from tracked roots; demo = 5050; EOF/quit; no duplicate eval; cadence/wake/pending      |
 | implemented; gates open                     | ake/banner, local | semantics; all VM modes; published code index without workaround. Clojure/PHP explicit; Python      |
