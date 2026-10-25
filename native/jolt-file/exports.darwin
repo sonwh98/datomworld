@@ -11,3 +11,12 @@ _jolt_file_close
 _jolt_file_s32be_get
 _jolt_file_s32be_put
 _jolt_file_strerror
+_jolt_file_classify
+_jolt_file_fclassify
+_jolt_file_fidentity
+_jolt_file_open_excl
+_jolt_file_open_read
+_jolt_file_lock
+_jolt_file_realpath
+_jolt_file_rename
+_jolt_file_sync_dir

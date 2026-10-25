@@ -13,6 +13,15 @@
     jolt_file_s32be_get;
     jolt_file_s32be_put;
     jolt_file_strerror;
+    jolt_file_classify;
+    jolt_file_fclassify;
+    jolt_file_fidentity;
+    jolt_file_open_excl;
+    jolt_file_open_read;
+    jolt_file_lock;
+    jolt_file_realpath;
+    jolt_file_rename;
+    jolt_file_sync_dir;
   local:
     *;
 };
