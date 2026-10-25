@@ -65,13 +65,13 @@
     [dao.jing.cbor :as cbor]
     [yang.antlr.packet :as p]
     [yang.core.lower :as core]
+    [yang.core.module :as core-module]
     [yang.core.stage :as core-stage]
     [yang.core.uast :as u]
     [yang.python.antlr.prelude :as prelude]
     [yang.python.antlr.scope :as scope]
     [yin.vm :as vm]
-    [yin.vm.integer :as integer]
-    [yin.vm.module :as module]))
+    [yin.vm.integer :as integer]))
 
 
 ;; =============================================================================
@@ -535,7 +535,7 @@
    identifier, so the mapping is injective), so no linker module name is
    a dotted prefix of another: `m` is `pym.m`, `a.b.c` is `pym.a$b$c`."
   [name]
-  (symbol (str module-prefix "." (str/replace name "." "$"))))
+  (core-module/module-symbol "py" name))
 
 
 (defn- name-chain
@@ -2071,10 +2071,7 @@
 ;; The module emitter: one Python unit as the linker module pym.<name>
 ;; =============================================================================
 
-(defn- require-node
-  "(require 'm) as a tree node."
-  [m]
-  (u/sexp->uast (list 'require (list 'quote m))))
+(def ^:private require-node core-module/require-node)
 
 
 (def module-exports
@@ -2122,23 +2119,9 @@
   "The `:primitives` entry free name `n` declares over `registry`, or nil
    when `covered` (the requirement-pinned module names) covers it."
   [registry covered n]
-  (if (and (symbol? n) (some? (namespace n))
-           (contains? covered (symbol (namespace n))))
-    nil
-    (if-let [profile (vm/profile-of vm/primitives n)]
-      [n profile]
-      (if-let [address (module/host-export-profile registry n)]
-        (let [entry (module/module-entry (:modules registry)
-                                         (symbol (namespace n)))
-              f (get-in entry [:slice (symbol (name n))])]
-          [n {:yin.k/profile address,
-              :yin.k/effects
-              (get (:callable-effects registry) f #{})}])
-        (throw (ex-info
-                 "the module reads an undeclared name"
-                 {:yang.python.antlr/refusal
-                  :yang.python.antlr/undeclared-free,
-                  :name n}))))))
+  (core-module/declare-free-name :yang.python.antlr/refusal
+                                 :yang.python.antlr/undeclared-free
+                                 registry covered n))
 
 
 (defn primitive-declaration
@@ -2164,28 +2147,17 @@
    anything is published. `package?` is `module-packet`'s. This
    namespace emits; it never publishes."
   [registry packet {:keys [name package? py-address deps]}]
-  (let [ast (module-packet packet {:name name, :package? package?})
-        covered (into #{prelude/module-name} (map module-symbol (keys deps)))
-        free-names (vec (sort-by str
-                                 (remove (conj (prelude/defined-keys ast) 'yin/def)
-                                         (prelude/free-names ast))))]
+  (core-module/module-spec
+    :yang.python.antlr/refusal :yang.python.antlr/undeclared-free registry
     {:name (module-symbol name),
-     :ast ast,
+     :ast (module-packet packet {:name name, :package? package?}),
      :exports module-exports,
-     :requires (into {prelude/module-name py-address}
-                     (map (fn [[n a]] [(module-symbol n) a]))
-                     deps),
-     :primitives
-     (into {} (keep (partial declare-free-name registry covered)
-                    free-names))}))
+     :runtime-name prelude/module-name,
+     :runtime-address py-address,
+     :deps (into {} (map (fn [[n a]] [(module-symbol n) a])) deps)}))
 
 
-(defn- module-tree
-  "A wide application: all definitions remain at module level."
-  [operands]
-  (u/mark-tails
-    (apply u/app (u/lam (mapv #(symbol (str "%d" %)) (range (count operands)))
-                        (u/lit nil)) operands)))
+(def ^:private module-tree core-module/module-tree)
 
 
 (def ^:private initializing-key :yang.python.antlr/initializing)
@@ -2295,22 +2267,23 @@
                                  body-defs
                                  [(require-node prelude/module-name)]))
         exports (set (mapcat val keys-for))
-        requires (into {prelude/module-name py-address}
-                       (map (fn [[n a]] [(module-symbol n) a])) deps)
-        free (remove (conj (prelude/defined-keys ast) 'yin/def) (prelude/free-names ast))
-        bundle {:name bundle-name, :ast ast, :exports exports, :requires requires,
-                :primitives (into {} (keep (partial declare-free-name registry (set (keys requires))))
-                                  (sort-by str free))}]
-    (into [bundle]
-          (map (fn [{:keys [name]}]
-                 (let [[sk bk] (get keys-for name)]
-                   {:name (module-symbol name), :exports module-exports,
-                    :primitives {'require (vm/profile-of vm/primitives 'require)},
-                    :ast (module-tree
-                           [(require-node bundle-name)
-                            (u/def! 'spec (u/v (symbol (str bundle-name) (str sk))))
-                            (u/def! 'body (u/v (symbol (str bundle-name) (str bk))))])})))
-          units)))
+        bundle (core-module/module-spec
+                 :yang.python.antlr/refusal :yang.python.antlr/undeclared-free
+                 registry
+                 {:name bundle-name,
+                  :ast ast,
+                  :exports exports,
+                  :runtime-name prelude/module-name,
+                  :runtime-address py-address,
+                  :deps (into {} (map (fn [[n a]] [(module-symbol n) a])) deps)})
+        require-profile (vm/profile-of vm/primitives 'require)]
+    (core-module/scc-module-specs
+      bundle
+      (mapv (fn [{:keys [name]}]
+              (let [[sk bk] (get keys-for name)]
+                (core-module/alias-spec (module-symbol name) module-exports
+                                        require-profile bundle-name sk bk)))
+            units))))
 
 
 ;; =============================================================================
