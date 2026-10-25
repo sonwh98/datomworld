@@ -3,6 +3,7 @@
             [clojure.test :refer [deftest is testing]]
             [dao.stream :as stream]
             [dao.stream.ringbuffer :as ring]
+            [yang.frontend :as frontend]
             [yin.repl :as repl]
             [yin.repl.frontends :as repl.frontends]
             [yin.vm.debruijn-code :as dcode]
@@ -807,3 +808,44 @@
     (is (str/starts-with? text
                           #?(:cljd "Host: Dart" :jolt "Host: jolt "
                              :clj "Host: JVM " :cljs "Host: Node ")))))
+
+
+(defn- toy-state
+  []
+  (repl.frontends/create-state
+    {:frontends (frontend/install
+                  (repl.frontends/standard)
+                  {:yang.frontend/id :yang/toy,
+                   :yang.frontend/spi 1,
+                   :yang.frontend/revision "t1",
+                   :yang.frontend/language :toy,
+                   :yang.frontend/grammar {:yang.grammar/package "none",
+                                           :yang.grammar/entries {:module "program"},
+                                           :yang.grammar/export-profile :yang.cst/v1},
+                   :yang.frontend/options-schema :segment/none,
+                   :yang.frontend/lowering-profile :segment/legacy,
+                   :yang.frontend/runtime-profile :segment/legacy,
+                   :yang.frontend/support-profile :segment/legacy}
+                  {:input :forms,
+                   :parse identity,
+                   :lower first,
+                   :primitives {'toy/prim (fn [& _] :toy)}})}))
+
+
+(defn- has-toy?
+  [state]
+  (contains? (get-in state [:vm :primitives]) 'toy/prim))
+
+
+(deftest frontend-primitives-are-isolated-by-binding
+  (let [state (toy-state)
+        [toy _] (repl/eval-input state "(lang :yang/toy)")
+        [back _] (repl/eval-input (assoc toy :frontend-session :s)
+                                  "(lang :yang/clojure)")
+        [reset _] (repl/eval-input (assoc toy :frontend-session :s) "(reset)")]
+    (is (not (has-toy? state)) "unselected languages are not merged")
+    (is (has-toy? toy))
+    (is (not (has-toy? back)) "leaving a language drops its primitives")
+    (is (nil? (:frontend-session back)))
+    (is (has-toy? reset) "reset keeps the selected binding's primitives")
+    (is (nil? (:frontend-session reset)))))
