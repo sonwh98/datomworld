@@ -1,0 +1,95 @@
+{:grammar {:repo "antlr/grammars-v4",
+           :path "javascript/typescript",
+           :revision "85e2dd1779ce556111ef98ead5d62a9858e95599",
+           :files {"TypeScriptLexer.g4"
+                   {:blake3 "e747db757a831392c59bdcce728075a3224263d0bea451ce0e34c27dc83ea76a",
+                    :vendored "antlr/typescript/TypeScriptLexer.g4"},
+                   "TypeScriptParser.g4"
+                   {:blake3 "3036d618db97d710647c5995060e46d28c2636aaa733b5b89afae4d9fd3853a1",
+                    :vendored "antlr/typescript/TypeScriptParser.g4"},
+                   "Java/TypeScriptLexerBase.java"
+                   {:blake3 "1ff9304c8c8c6feb8a8bd5099ec76b12da4437256ce2347d65f22dc9efa94f1b"},
+                   "Java/TypeScriptParserBase.java"
+                   {:blake3 "c5d942bf3123674cfa6cabd4ea54b5a498d05ddd51c5d2c4f74a4f7d8dcbc007"}},
+           :generate ["TypeScriptLexer.g4" "TypeScriptParser.g4"]},
+ :tool {:antlr "4.13.2"},
+ :targets
+ {:java
+  {:runtime "org.antlr/antlr4-runtime 4.13.2",
+   :package "yang.typescript.antlr.gen",
+   :flags ["-Dlanguage=Java" "-package" "yang.typescript.antlr.gen"
+           "-no-listener" "-no-visitor"],
+   :helpers ["Java/TypeScriptLexerBase.java" "Java/TypeScriptParserBase.java"],
+   :out "build/antlr/typescript/java",
+   :patches
+   {"TypeScriptLexer.g4"
+    [["TemplateCloseBrace         :     {this.IsInTemplateString()}? '}' -> popMode;\n"
+      "TemplateCloseBrace         :     {this.IsInTemplateString()}? '}' {this.EndTemplateString();} -> popMode;\n"]],
+    "Java/TypeScriptLexerBase.java"
+    [["    private int bracesDepth = 0;\n"
+      "    private int bracesDepth = 0;\n\n    /**\n     * Brace depth of each enclosing interpolation, saved by\n     * StartTemplateString and restored by EndTemplateString, so a template\n     * nested inside an interpolated object literal does not lose the\n     * enclosing object's open brace.\n     */\n    private final Deque<Integer> bracesDepthStack = new ArrayDeque<>();\n"]
+     ["    public void StartTemplateString() {\n        this.bracesDepth = 0;\n    }\n"
+      "    public void StartTemplateString() {\n        this.bracesDepthStack.push(this.bracesDepth);\n        this.bracesDepth = 0;\n    }\n\n    public void EndTemplateString() {\n        this.bracesDepth = this.bracesDepthStack.isEmpty() ? 0 : this.bracesDepthStack.pop();\n    }\n"]],
+    "TypeScriptParser.g4"
+    [
+     ["    | singleExpression ('<' | '>' | '<=' | '>=') singleExpression     # RelationalExpression\n"
+      "    | singleExpression ({!this.genericCallAhead()}? '<' | '>' | '<=' | '>=') singleExpression # RelationalExpression\n"]
+     ["    | objectType                                 # ObjectPrimType\n"
+      "    | mappedType                                 # MappedPrimType\n    | objectType                                 # ObjectPrimType\n"]
+     ["statement\n    : block\n"
+      "statement\n    : typeAliasDeclaration\n    | block\n"]
+     ["    | typeAliasDeclaration //ADDED\n"
+      ""]
+     ["sourceElement\n    : Export? statement\n"
+      "sourceElement\n    : statement\n"]
+     ["    | accessibilityModifier? varModifier? ReadOnly? variableDeclarationList SemiColon?\n"
+      "    | (accessibilityModifier varModifier? ReadOnly? | varModifier ReadOnly? | ReadOnly) variableDeclarationList SemiColon?\n"]
+     ["    : Abstract (identifier callSignature | variableStatement) eos\n"
+      "    : Abstract (identifier callSignature | variableStatement | variableDeclarationList) eos\n"]
+     ["    | primaryType {this.notLineTerminator()}? '[' primaryType? ']' # ArrayPrimType\n"
+      "    | primaryType {this.notLineTerminator()}? '[' ']' # ArrayPrimType\n    | primaryType {this.notLineTerminator()}? '[' type_ ']' # IndexedAccessPrimType\n    | templateLiteralType # TemplateLiteralPrimType\n    | {this.n(\"infer\")}? Identifier identifier # InferPrimType\n"]
+     ["type_\n    : ('|' | '&')? unionOrIntersectionOrPrimaryType\n"
+      "type_\n    : conditionalType\n    | ('|' | '&')? unionOrIntersectionOrPrimaryType\n"]
+     ["predefinedType\n    : Any\n"
+      "conditionalType\n    : unionOrIntersectionOrPrimaryType Extends (functionType | unionOrIntersectionOrPrimaryType) '?' type_ ':' type_\n    ;\n\nmappedType\n    : '{' mappedReadOnly? '[' identifier In type_ (As type_)? ']' mappedOptional? typeAnnotation? (SemiColon | ',')? '}'\n    ;\n\nmappedReadOnly\n    : ('+' | '-')? ReadOnly\n    ;\n\nmappedOptional\n    : ('+' | '-')? '?'\n    ;\n\ntemplateLiteralType\n    : BackTick templateLiteralTypeAtom* BackTick\n    ;\n\ntemplateLiteralTypeAtom\n    : TemplateStringAtom\n    | TemplateStringStartExpression type_ TemplateCloseBrace\n    | TemplateStringEscapeAtom\n    ;\n\npredefinedType\n    : Any\n"]
+     ["importStatement\n    : Import importFromBlock\n"
+      "importStatement\n    : Import TypeAlias? importFromBlock\n"]
+     ["    : moduleExportName (As importedBinding)?\n"
+      "    : TypeAlias? moduleExportName (As importedBinding)?\n"]
+     ["    : moduleExportName (As moduleExportName)?\n"
+      "    : TypeAlias? moduleExportName (As moduleExportName)?\n"]
+     ["    : importNamespace importFrom eos\n    | exportModuleItems importFrom? eos\n"
+      "    : TypeAlias? importNamespace importFrom eos\n    | TypeAlias? exportModuleItems importFrom? eos\n"]
+     ["    | singleExpression '!'? '.' '#'? identifierName typeGeneric?  # MemberDotExpression\n"
+      "    | singleExpression '!'? '.' '#'? identifierName  # MemberDotExpression\n"]
+     ["    | singleExpression '?'? '.' '#'? identifierName typeGeneric?  # MemberDotExpression\n"
+      "    | singleExpression '?'? '.' '#'? identifierName  # MemberDotExpression\n"]
+     ["    | singleExpression arguments                                      # ArgumentsExpression\n"
+      "    | singleExpression {this.genericCallAhead()}? typeArguments arguments # GenericCallExpression\n    | singleExpression arguments                                      # ArgumentsExpression\n"]
+     ["    | identifierName singleExpression?                                # IdentifierExpression\n"
+      "    | identifierName                                                  # IdentifierExpression\n"]
+     ["    | singleExpression As asExpression                                # CastAsExpression\n"
+      "    | singleExpression As asExpression                                # CastAsExpression\n    | singleExpression {this.n(\"satisfies\")}? Identifier type_ # SatisfiesExpression\n"]],
+    "Java/TypeScriptParserBase.java"
+    [
+     ["    protected boolean closeBrace() {\n"
+      "    private boolean tsDialect = true;\n\n    // Worker configuration (yang.typescript.md 5.3), not a callback: in the\n    // :ts dialect a `<...>` followed by `(` is type arguments, in :js it is\n    // relational.\n    public void setTsDialect(boolean tsDialect) {\n        this.tsDialect = tsDialect;\n    }\n\n    public boolean isTsDialect() {\n        return tsDialect;\n    }\n\n    // At `<`: true iff the dialect is :ts and the balanced `<...>` is\n    // followed by `(`. Tokens that cannot occur in a type argument list end\n    // the scan.\n    protected boolean genericCallAhead() {\n        if (!tsDialect || _input.LT(1).getType() != TypeScriptParser.LessThan) {\n            return false;\n        }\n        int angle = 0;\n        int nest = 0;\n        for (int k = 1; ; k++) {\n            int type = _input.LT(k).getType();\n            if (type == Token.EOF) {\n                return false;\n            }\n            if (nest == 0) {\n                switch (type) {\n                    case TypeScriptParser.SemiColon:\n                    case TypeScriptParser.And:\n                    case TypeScriptParser.Or:\n                    case TypeScriptParser.Equals_:\n                    case TypeScriptParser.NotEquals:\n                    case TypeScriptParser.IdentityEquals:\n                    case TypeScriptParser.IdentityNotEquals:\n                    case TypeScriptParser.LessThanEquals:\n                    case TypeScriptParser.GreaterThanEquals:\n                    case TypeScriptParser.Assign:\n                    case TypeScriptParser.Not:\n                    case TypeScriptParser.Multiply:\n                    case TypeScriptParser.Divide:\n                    case TypeScriptParser.Modulus:\n                    case TypeScriptParser.PlusPlus:\n                    case TypeScriptParser.MinusMinus:\n                        return false;\n                    default:\n                        break;\n                }\n            }\n            switch (type) {\n                case TypeScriptParser.LessThan:\n                    angle++;\n                    break;\n                case TypeScriptParser.MoreThan:\n                    angle--;\n                    if (angle == 0 && nest == 0) {\n                        return _input.LT(k + 1).getType() == TypeScriptParser.OpenParen;\n                    }\n                    break;\n                case TypeScriptParser.OpenParen:\n                case TypeScriptParser.OpenBracket:\n                case TypeScriptParser.OpenBrace:\n                    nest++;\n                    break;\n                case TypeScriptParser.CloseParen:\n                case TypeScriptParser.CloseBracket:\n                case TypeScriptParser.CloseBrace:\n                    nest--;\n                    if (nest < 0) {\n                        return false;\n                    }\n                    break;\n                default:\n                    break;\n            }\n        }\n    }\n\n    protected boolean closeBrace() {\n"]]},
+   :generated {"TypeScriptLexer.java"
+               "3416acddb1f9c895f64631c1a4b9d4c3687c57dcc5a48f4e41ed411015f8fb72",
+               "TypeScriptLexerBase.java"
+               "52a83e87672e55a30f465a54e19d1ee90ea081328d682f2f2e9b35cd4d48329f",
+               "TypeScriptParser.java"
+               "8b515887aa520b25a8be6632b96f33c2340393bbdcaf87e0224404d451225993",
+               "TypeScriptParserBase.java"
+               "0b0016e2dddcfde087050479e1dfc6dc6f27a1df219be1b3c330a51a5f74da3b"}}},
+ ;; yang.typescript.md section 5.1 license review. The two Java helpers carry
+ ;; no notice header, so redistribution of them (and of anything generated
+ ;; from them) stays blocked until that is resolved, as for Python's helpers.
+ :license {"TypeScriptLexer.g4" "MIT (header: Copyright (c) 2014 Bart Kiers; (c) 2017 Ivan Kochurkin; (c) 2018 Juan Alvarez; (c) 2019 Andrii Artiushok; (c) 2024 Andrew Leppard); vendored with its notice verbatim",
+           "TypeScriptParser.g4" "MIT (same header); vendored with its notice verbatim",
+           "Java/TypeScriptLexerBase.java" "no notice header; licence unresolved, fetched not vendored",
+           "Java/TypeScriptParserBase.java" "no notice header; licence unresolved, fetched not vendored",
+           "antlr4-runtime 4.13.2" "BSD-3-Clause"},
+ :redistribution {:vendored-sources ["antlr/typescript/TypeScriptLexer.g4"
+                                     "antlr/typescript/TypeScriptParser.g4"],
+                  :generated-artifacts :none}}

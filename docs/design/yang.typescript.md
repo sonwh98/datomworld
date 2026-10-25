@@ -490,7 +490,8 @@ exact-text `:patches` mechanism extended to `.g4` files: `import type`/`export
 type` and inline `type` specifiers; `satisfies`; conditional types with
 `infer`; mapped types with `as` clauses and `+/-readonly`, `+/-?`;
 template-literal types; `typeof` type queries; indexed access as its own
-production; the dialect predicate for generic calls. The set is ASCII,
+production; the dialect predicate for generic calls. Binary arithmetic and ASI
+across newlines are pinned fixtures too (correctness, not new constructs). The set is ASCII,
 versioned and re-tested on regeneration (`yang.antlr.md` 4.2).
 
 **Acceptance is by fixture, not by inventory.** T0 pins one parse fixture per
@@ -505,8 +506,9 @@ profile.
 
 The parser uses six base-class methods (`notLineTerminator`, `n`, `p`,
 `notOpenBraceAndNotFunctionAndNotInterface`, `lineTerminatorAhead`,
-`closeBrace`); the lexer base tracks template-string depth and the
-regex-versus-division context. These are internal library execution
+`closeBrace`) plus `genericCallAhead`, which reads the dialect flag; the lexer
+base tracks template-string depth, a per-interpolation brace-depth stack, and
+the regex-versus-division context. These are internal library execution
 (`yang.antlr.md` 4.3), not callbacks. Upstream provides Java, C# and C++ bases
 only, so the local parser is JVM-only until a JavaScript or Dart helper is
 ported, and Node and Dart go through packets or a configured service
