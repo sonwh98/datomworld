@@ -273,6 +273,14 @@
    ;; made check-manifest! refuse every lane mode; 17 tests, 57 assertions,
    ;; 0 failures on jolt (macOS).
    "dao.space.datomic-query-conformance-test"
+   ;; Listed 2026-10-26: added by df75d855/30104147 (the datomic q track,
+   ;; phases 4a/4b) without manifest entries, so check-manifest! refused
+   ;; every lane mode; each passes on jolt (macOS), 144 tests, 2266
+   ;; assertions in all.
+   "dao.data.btree.cursor-test" "dao.data.btree.storage-read-test"
+   "dao.space.published-read-test" "dao.space.query.datomic-test"
+   "dao.space.query.execution-test" "dao.space.query.datomic-execution-test"
+   "dao.space.query.published-bounded-test"
    "yin.vm.ledger-test"
    "yin.vm.semantic.analysis-test" "yin.vm.debruijn-register-code-test"
    "yin.vm.semantic.scan-test" "yin.vm.debruijn-register-effects-test"
