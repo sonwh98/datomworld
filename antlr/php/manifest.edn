@@ -1,0 +1,52 @@
+{:grammar {:repo "antlr/grammars-v4",
+           :path "php",
+           :revision "85e2dd1779ce556111ef98ead5d62a9858e95599",
+           ;; All three files are MIT with their notices intact and are vendored
+           ;; verbatim beside this manifest; every file is digest-checked.
+           :files {"PhpLexer.g4"
+                   {:blake3 "21a682a8e2962042d9e6ed39fa65b6feadca09736d64c0d7177a25d184a4ecab",
+                    :vendored "antlr/php/PhpLexer.g4"},
+                   "PhpParser.g4"
+                   {:blake3 "f7242cb72f6dda0036e9d625097c33d8458df236524b2b6824966a6dd2421dfc",
+                    :vendored "antlr/php/PhpParser.g4"},
+                   "Java/PhpLexerBase.java"
+                   {:blake3 "aba493b6e819daaa1a9e800d7d77ddac71504ad9b8fb916fb3d8b0203bf386a2",
+                    :vendored "antlr/php/PhpLexerBase.java"}},
+           :generate ["PhpLexer.g4" "PhpParser.g4"]},
+ :tool {:antlr "4.13.2"},
+ :targets
+ {:java
+  {:runtime "org.antlr/antlr4-runtime 4.13.2",
+   :package "yang.php.antlr.gen",
+   :flags ["-Dlanguage=Java" "-package" "yang.php.antlr.gen" "-no-listener"
+           "-no-visitor"],
+   :helpers ["Java/PhpLexerBase.java"],
+   :out "build/antlr/php/java",
+   ;; Upstream rewrites a heredoc end line into a SemiColon built without
+   ;; source indices (its span reads back as [0 1] on any source) and rewrites
+   ;; the text of the token after a semicolon-less end line (a `)` reads
+   ;; "EOF\n;"). The patch keeps both tokens as the real source tokens: the
+   ;; end line becomes a SemiColon over its own text and span, and the
+   ;; following token keeps its own text, so every span is the source it
+   ;; came from.
+   :patches
+   {"Java/PhpLexerBase.java"
+    [["                            token = new CommonToken(PhpLexer.SemiColon, heredocIdentifier + \";\\n\");"
+      "                            token.setType(PhpLexer.SemiColon);"]
+     ["                            token.setText(heredocIdentifier + \"\\n;\");"
+      "                            // keeps its own source text"]]},
+   :generated {"PhpLexer.java"
+               "a286d57ccd2b9515bbd0249bc54a795efabb008e2bbc3bb331e7e5eb49e54464",
+               "PhpLexerBase.java"
+               "d0f3615a097d4713b8d17c663d5a9fe387aafb8e460c2247f50eb965a7cd1ac7",
+               "PhpParser.java"
+               "21c8d97ce80b03d6fa96fa68350a5eab5631e2618ccab7ca7812d352e001d0d9"}}},
+ ;; yang.php.md section 6 license review
+ :license {"PhpLexer.g4" "MIT (header: Copyright (c) 2015-2019 Ivan Kochurkin, Positive Technologies; (c) 2019 Thierry Marianne); vendored with its notice verbatim",
+           "PhpParser.g4" "MIT (header: Copyright (c) 2015-2019 Ivan Kochurkin, Positive Technologies; (c) 2019 Thierry Marianne); vendored with its notice verbatim",
+           "Java/PhpLexerBase.java" "MIT (header: Copyright (c) 2015-2019 Ivan Kochurkin, Positive Technologies; (c) 2019 Thierry Marianne); vendored with its notice verbatim",
+           "antlr4-runtime 4.13.2" "BSD-3-Clause"},
+ :redistribution {:vendored-sources ["antlr/php/PhpLexer.g4"
+                                     "antlr/php/PhpParser.g4"
+                                     "antlr/php/PhpLexerBase.java"],
+                  :generated-artifacts :none}}
