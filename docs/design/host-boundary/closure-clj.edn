@@ -3,8 +3,8 @@
 {:lane :clj,
  :root yin.repl.main,
  :features #{:clj},
- :total 147,
- :shared 139,
+ :total 154,
+ :shared 146,
  :lane-specific 8,
  :class-legend
  {:codec-track "codec track, untouched (§8.3)",
@@ -61,6 +61,10 @@
    :ns dao.data.btree,
    :shared true,
    :classes #{:runtime-prereq}}
+  {:file "src/cljc/dao/data/btree/cursor.cljc",
+   :ns dao.data.btree.cursor,
+   :shared true,
+   :classes #{:none}}
   {:file "src/cljc/dao/data/btree/storage.cljc",
    :ns dao.data.btree.storage,
    :shared true,
@@ -153,6 +157,10 @@
    :ns dao.space.query,
    :shared true,
    :classes #{:dialect-arm}}
+  {:file "src/cljc/dao/space/query/execution.cljc",
+   :ns dao.space.query.execution,
+   :shared true,
+   :classes #{:none}}
   {:file "src/cljc/dao/space/store.cljc",
    :ns dao.space.store,
    :shared true,
@@ -281,6 +289,26 @@
    :ns yang.clojure,
    :shared true,
    :classes #{:deferred-gensym :dialect-arm}}
+  {:file "src/cljc/yang/core/lower.cljc",
+   :ns yang.core.lower,
+   :shared true,
+   :classes #{:none}}
+  {:file "src/cljc/yang/core/module.cljc",
+   :ns yang.core.module,
+   :shared true,
+   :classes #{:none}}
+  {:file "src/cljc/yang/core/prelude.cljc",
+   :ns yang.core.prelude,
+   :shared true,
+   :classes #{:none}}
+  {:file "src/cljc/yang/core/stage.cljc",
+   :ns yang.core.stage,
+   :shared true,
+   :classes #{:none}}
+  {:file "src/cljc/yang/core/uast.cljc",
+   :ns yang.core.uast,
+   :shared true,
+   :classes #{:none}}
   {:file "src/cljc/yang/frontend.cljc",
    :ns yang.frontend,
    :shared true,
