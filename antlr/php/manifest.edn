@@ -51,7 +51,9 @@
      ;; `static` initializers are expressions evaluated at run time, not the
      ;; constant initializers of properties and parameter defaults
      ["    : Static variableInitializer (',' variableInitializer)* SemiColon\n    ;\n"
-      "    : Static staticInitializer (',' staticInitializer)* SemiColon\n    ;\n\nstaticInitializer\n    : VarName (Eq expression)?\n    ;\n"]],
+      "    : Static staticInitializer (',' staticInitializer)* SemiColon\n    ;\n\nstaticInitializer\n    : VarName (Eq expression)?\n    ;\n"]
+     ;; PHP 7.4 spread in array literals: `[...$a]`
+     ["    | (expression '=>')? '&' chain\n    ;\n" "    | (expression '=>')? '&' chain\n    | Ellipsis expression\n    ;\n"]],
     "Java/PhpLexerBase.java"
     [["    protected String _heredocIdentifier;\n"
       "    protected String _heredocIdentifier;\n    protected boolean _heredocLineStart;\n"]
@@ -68,7 +70,7 @@
                "PhpLexerBase.java"
                "9d719b7c28a361458a0cc55870c2d39034ef34cdd329b175d8c847268e3769ca",
                "PhpParser.java"
-               "5b878b5997529089ef84bef6727f4c24852767109db9e8dddef2e716f822da6c"}}},
+               "df2e9a4ddae3c214e360142e546daeb3940de67ca74753ae94a06e8d65107726"}}},
  ;; yang.php.md section 6 license review
  :license {"PhpLexer.g4" "MIT (header: Copyright (c) 2015-2019 Ivan Kochurkin, Positive Technologies; (c) 2019 Thierry Marianne); vendored with its notice verbatim",
            "PhpParser.g4" "MIT (header: Copyright (c) 2015-2019 Ivan Kochurkin, Positive Technologies; (c) 2019 Thierry Marianne); vendored with its notice verbatim",

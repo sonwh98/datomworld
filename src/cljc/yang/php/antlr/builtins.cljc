@@ -11,6 +11,35 @@
    version moves.")
 
 
+(def supported
+  "The builtins the prelude supplies: lower-cased PHP name to the prelude
+   definition that implements it and, for a by-reference builtin, the
+   by-reference argument positions (`:by-ref`). The prelude derives its
+   registration from this table and the lowering reads `:by-ref`, so a
+   position is stated once. A by-reference builtin answers `[ret outs]`."
+  (let [plain (fn [m] (into {} (map (fn [[k v]] [k {:prelude v}])) m))
+        by-ref (fn [m] (into {} (map (fn [[k v]] [k {:prelude v, :by-ref [0]}])) m))]
+    (merge
+      (plain {"var_dump" 'php/bi-var-dump, "intdiv" 'php/bi-intdiv, "fmod" 'php/bi-fmod,
+              "strlen" 'php/bi-strlen, "intval" 'php/bi-intval, "floatval" 'php/bi-floatval,
+              "strval" 'php/bi-strval, "boolval" 'php/bi-boolval, "is_nan" 'php/bi-is-nan,
+              "set_error_handler" 'php/bi-set-error-handler,
+              "restore_error_handler" 'php/bi-restore-error-handler,
+              "error_reporting" 'php/bi-error-reporting,
+              "count" 'php/bi-count, "sizeof" 'php/bi-count,
+              "array_keys" 'php/bi-array-keys, "array_values" 'php/bi-array-values,
+              "array_merge" 'php/bi-array-merge,
+              "array_key_exists" 'php/bi-array-key-exists,
+              "key_exists" 'php/bi-array-key-exists, "in_array" 'php/bi-in-array,
+              "is_array" 'php/bi-is-array, "array_key_first" 'php/bi-array-key-first,
+              "array_key_last" 'php/bi-array-key-last})
+      (by-ref {"array_push" 'php/bi-array-push, "array_pop" 'php/bi-array-pop,
+               "array_shift" 'php/bi-array-shift, "array_unshift" 'php/bi-array-unshift,
+               "sort" 'php/bi-sort, "rsort" 'php/bi-rsort, "asort" 'php/bi-asort,
+               "arsort" 'php/bi-arsort, "ksort" 'php/bi-ksort, "krsort" 'php/bi-krsort,
+               "usort" 'php/bi-usort, "uasort" 'php/bi-uasort, "uksort" 'php/bi-uksort}))))
+
+
 (def catalogue
   #{;; strings
     "addslashes" "bin2hex" "chr" "chunk_split" "count_chars" "crc32" "explode"

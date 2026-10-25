@@ -20,6 +20,10 @@
                      carrier); the lowering resolves literal text to bytes
      bool            host true / false
      null            :php/null
+     array           {:php/type :array :index {key value} :order [key ...]
+                     :next-index n}: a persistent ordered map; keys are
+                     ints or strings (`php/array-key`); `:next-index` is
+                     absent until the first integer key is written
      error object    {:php/type :obj :class name :ord n :props {\"message\"
                      \"code\" \"previous\"}}
      function        a cell {:php/type :function :name s :code (fn [args])}
@@ -32,8 +36,8 @@
                            buffers, each a vector of byte-string chunks;
                            `php/echo` conjs onto the last buffer, the
                            bottom buffer is never popped
-     php.rt/globals        a cell holding the plain array shape of section
-                           10.1 (`$GLOBALS`)
+     php.rt/globals        a cell holding the plain array of section 10.1
+                           (`$GLOBALS`), `(php/empty-array)` initially
      php.rt/functions      a cell holding a map of lower-cased name to
                            function cell; builtins are pre-seeded
      php.rt/classes        a cell holding a map of class name to class record
@@ -65,6 +69,7 @@
     #?(:cljd [clojure.edn :as edn])
     [yang.core.prelude :as core]
     [yang.core.uast :as u]
+    [yang.php.antlr.builtins :as builtins]
     [yin.vm.integer :as integer]))
 
 
@@ -130,7 +135,7 @@
                  (if (data/content= x (data/float64 (data/float-value x)))
                    :float
                    :int))
-               :obj)))))]
+               (if (= (get x :php/type) :array) :array :obj))))))]
     [php/int? (fn [x] (= (php/kind x) :int))]
     [php/float? (fn [x] (= (php/kind x) :float))]
     [php/numk? (fn [k] (if (= k :int) true (= k :float)))]
@@ -143,7 +148,8 @@
            (if (= k :int) "int"
                (if (= k :float) "float"
                    (if (= k :bool) "bool"
-                       (if (= k :null) "null" "mixed"))))))]
+                       (if (= k :null) "null"
+                           (if (= k :array) "array" "mixed")))))))]
 
     ;; ---------------------------------------------------------------- escapes
     ;; The dynamic context is one record in one cell: every capture point
@@ -547,7 +553,7 @@
                  (if (= k :int) (not (= v 0))
                      (if (= k :float) (not (= (php/h v) (php/zero-h)))
                          (if (= k :string) (if (= v "") false (not (= v "0")))
-                             true)))))))]
+                             (if (= k :array) (not (= (php/array-count v) 0)) true))))))))]
     [php/to-string
      (fn [v]
        (let [k (php/kind v)]
@@ -556,7 +562,9 @@
                  (if (= k :null) ""
                      (if (= k :bool) (if v "1" "")
                          (if (= k :float) (php/float-text v 14)
-                             (php/throw-error "Error" "Object could not be converted to string"))))))))]
+                             (if (= k :array)
+                               (do (php/warn 2 "Array to string conversion") "Array")
+                               (php/throw-error "Error" "Object could not be converted to string")))))))))]
     [php/str->number
      ;; the number a string casts to: its prefix, else 0
      (fn [s]
@@ -571,7 +579,9 @@
                          (if (= k :string)
                            (let [x (php/str->number v)]
                              (if (php/int? x) x (php/float->int (php/h x))))
-                           (php/throw-error "TypeError" "Unsupported operand types"))))))))]
+                           (if (= k :array)
+                             (if (= (php/array-count v) 0) 0 1)
+                             (php/throw-error "TypeError" "Unsupported operand types")))))))))]
     [php/to-float
      (fn [v]
        (let [k (php/kind v)]
@@ -580,7 +590,9 @@
                  (if (= k :null) (php/f (php/zero-h))
                      (if (= k :bool) (php/f (data/float-value (if v 1 0)))
                          (if (= k :string) (php/to-float (php/str->number v))
-                             (php/throw-error "TypeError" "Unsupported operand types"))))))))]
+                             (if (= k :array)
+                               (php/f (data/float-value (if (= (php/array-count v) 0) 0 1)))
+                               (php/throw-error "TypeError" "Unsupported operand types")))))))))]
     [php/operand-error
      (fn [a b op]
        (php/throw-error
@@ -612,12 +624,14 @@
     ;; ---------------------------------------------------------------- arithmetic
     [php/add
      (fn [a b]
-       (let [xy (php/num2 a b "+") x (get xy 0) y (get xy 1)]
-         (if (php/int? x)
-           (if (php/int? y)
-             (php/int-result (integer/add x y))
-             (php/f (+ (php/fl x) (php/fl y))))
-           (php/f (+ (php/fl x) (php/fl y))))))]
+       (if (php/array? a)
+         (if (php/array? b) (php/array-union a b) (php/operand-error a b "+"))
+         (let [xy (php/num2 a b "+") x (get xy 0) y (get xy 1)]
+           (if (php/int? x)
+             (if (php/int? y)
+               (php/int-result (integer/add x y))
+               (php/f (+ (php/fl x) (php/fl y))))
+             (php/f (+ (php/fl x) (php/fl y)))))))]
     [php/sub
      (fn [a b]
        (let [xy (php/num2 a b "-") x (get xy 0) y (get xy 1)]
@@ -908,7 +922,35 @@
        (let [x (php/to-bool a) y (php/to-bool b)]
          (if (= x y) 0 (if x 1 -1))))]
     [php/cmp
-     ;; zend_compare over the scalar kinds
+     ;; zend_compare: an array against null or bool compares as bool, against
+     ;; any other scalar the array is greater
+     (fn [a b]
+       (let [ka (php/kind a) kb (php/kind b)]
+         (if (= ka :array)
+           (if (= kb :array)
+             (php/cmp-arrays a b)
+             (if (if (= kb :null) true (= kb :bool)) (php/cmp-bool a b) 1))
+           (if (= kb :array)
+             (if (if (= ka :null) true (= ka :bool)) (php/cmp-bool a b) -1)
+             (php/cmp-scalar a b)))))]
+    [php/cmp-arrays
+     (fn [a b]
+       (let [na (php/array-count a) nb (php/array-count b)]
+         (if (= na nb)
+           (php/cmp-pairs a b 0 na)
+           (if (< na nb) -1 1))))]
+    [php/cmp-pairs
+     ;; per key of a; a key b lacks makes the pair uncomparable (1)
+     (fn [a b i n]
+       (if (< i n)
+         (let [k (get (get a :order) i)
+               bv (get (get b :index) k)]
+           (if (nil? bv)
+             1
+             (let [c (php/cmp (get (get a :index) k) bv)]
+               (if (= c 0) (php/cmp-pairs a b (+ i 1) n) c))))
+         0))]
+    [php/cmp-scalar
      (fn [a b]
        (let [ka (php/kind a) kb (php/kind b)]
          (if (php/numk? ka)
@@ -946,29 +988,352 @@
              (= (integer/compare a b) 0)
              (if (= ka :float)
                (= (php/h a) (php/h b))
-               (= a b)))
+               (if (= ka :array)
+                 (if (= (php/array-count a) (php/array-count b))
+                   (php/identical-pairs a b 0 (php/array-count a))
+                   false)
+                 (= a b))))
            false)))]
+    [php/identical-pairs
+     (fn [a b i n]
+       (if (< i n)
+         (let [ka (get (get a :order) i)
+               kb (get (get b :order) i)]
+           (if (= ka kb)
+             (if (php/identical (get (get a :index) ka) (get (get b :index) kb))
+               (php/identical-pairs a b (+ i 1) n)
+               false)
+             false))
+         true))]
     [php/not-identical (fn [a b] (not (php/identical a b)))]
 
     ;; ---------------------------------------------------------------- var_dump
-    [php/var-dump
-     (fn [v]
+    [php/var-dump (fn [v] (php/var-dump-at v ""))]
+    [php/scalar-dump
+     ;; the var_dump text of a scalar of kind k
+     (fn [v k]
+       (if (= k :null)
+         "NULL\n"
+         (if (= k :bool)
+           (if v "bool(true)\n" "bool(false)\n")
+           (if (= k :int)
+             (data/str-concat "int(" (integer/format v) ")\n")
+             (if (= k :float)
+               (data/str-concat "float(" (php/float-text v 17) ")\n")
+               (if (= k :string)
+                 (data/str-concat "string("
+                                  (integer/format (data/str-length v))
+                                  ") \""
+                                  v
+                                  "\"\n")
+                 (php/throw-error "Error" "var_dump: this value kind is not supported yet")))))))]
+    [php/var-dump-at
+     ;; `ind` is the indent of the value's own lines
+     (fn [v ind]
        (let [k (php/kind v)]
-         (if (= k :null)
-           (php/echo "NULL\n")
-           (if (= k :bool)
-             (php/echo (if v "bool(true)\n" "bool(false)\n"))
-             (if (= k :int)
-               (php/echo (data/str-concat "int(" (integer/format v) ")\n"))
-               (if (= k :float)
-                 (php/echo (data/str-concat "float(" (php/float-text v 17) ")\n"))
-                 (if (= k :string)
-                   (php/echo (data/str-concat "string("
-                                              (integer/format (data/str-length v))
-                                              ") \""
-                                              v
-                                              "\"\n"))
-                   (php/throw-error "Error" "var_dump: this value kind is not supported yet"))))))))]
+         (if (= k :array)
+           (do (php/echo (data/str-concat ind "array("
+                                          (integer/format (php/array-count v))
+                                          ") {\n"))
+               (php/var-dump-items v ind 0 (php/array-count v))
+               (php/echo (data/str-concat ind "}\n")))
+           (php/echo (data/str-concat ind (php/scalar-dump v k))))))]
+    [php/var-dump-items
+     (fn [v ind i n]
+       (if (< i n)
+         (let [k (get (get v :order) i)]
+           (do (php/echo (data/str-concat ind "  ["
+                                          (if (php/int? k)
+                                            (integer/format k)
+                                            (data/str-concat "\"" k "\""))
+                                          "]=>\n"))
+               (php/var-dump-at (get (get v :index) k) (data/str-concat ind "  "))
+               (php/var-dump-items v ind (+ i 1) n)))
+         :php/null))]
+
+    ;; ---------------------------------------------------------------- arrays
+    ;; The plain array of section 10.1: {:php/type :array :index {key value}
+    ;; :order [key ...] :next-index n}. Keys are already coerced
+    ;; (`php/array-key`); `:next-index` is absent until the first integer key
+    ;; is written (Zend's ZEND_LONG_MIN sentinel). Every read and write of an
+    ;; array goes through these names (P3 adds the handle branches here).
+    [php/empty-array (fn [] {:php/type :array, :index {}, :order []})]
+    [php/array? (fn [v] (= (php/kind v) :array))]
+    [php/succ-key
+     ;; k + 1, saturating at PHP_INT_MAX
+     (fn [k] (if (= (integer/compare k php.rt/int-max) 0) k (integer/add k 1)))]
+    [php/bump-next
+     ;; :next-index after integer key k is written
+     (fn [arr k]
+       (let [next (get arr :next-index)]
+         (if (nil? next)
+           (assoc arr :next-index (php/succ-key k))
+           (if (>= (integer/compare k next) 0)
+             (assoc arr :next-index (php/succ-key k))
+             arr))))]
+    [php/int-key-str
+     ;; the int a canonical decimal integer string spells (-?(0|[1-9][0-9]*),
+     ;; in int64 range), else nil
+     (fn [s]
+       (let [cs (data/str->code-points s)
+             n (data/count cs)
+             i (if (> n 0) (if (= (get cs 0) 45) 1 0) 0)]
+         (if (> n i)
+           (if (<= (- n i) 19)
+             (if (= (php/skip-digits cs i n) n)
+               (if (= (get cs i) 48)
+                 (if (= n 1) 0 nil)
+                 (let [v (integer/parse s)] (if (php/in-range? v) v nil)))
+               nil)
+             nil)
+           nil)))]
+    [php/float-key
+     ;; a float key: the P1 cast, plus the deprecation unless it was exact
+     (fn [x]
+       (let [h (php/h x)
+             n (php/float->int h)]
+         (do (if (= (integer/to-float n) h)
+               :php/null
+               (php/warn 8192
+                         (data/str-concat "Implicit conversion from float "
+                                          (php/float-text x 17)
+                                          " to int loses precision")))
+             n)))]
+    [php/array-key2
+     ;; `prefix` and `suffix` frame the TypeError text of the calling operation
+     (fn [k prefix suffix]
+       (let [kind (php/kind k)]
+         (if (= kind :int) k
+             (if (= kind :string)
+               (let [r (php/int-key-str k)] (if (nil? r) k r))
+               (if (= kind :float) (php/float-key k)
+                   (if (= kind :bool) (if k 1 0)
+                       (if (= kind :null) ""
+                           (php/throw-error
+                             "TypeError"
+                             (data/str-concat prefix (php/type-name kind) suffix)))))))))]
+    [php/array-key
+     (fn [k] (php/array-key2 k "Cannot access offset of type " " on array"))]
+    [php/array-has? (fn [arr k] (not (nil? (get (get arr :index) k))))]
+    [php/array-get (fn [arr k] (get (get arr :index) k))]
+    [php/array-set
+     (fn [arr k v]
+       (let [idx (get arr :index)
+             a (assoc (assoc arr :index (assoc idx k v))
+                      :order
+                      (if (nil? (get idx k))
+                        (php/vconj (get arr :order) k)
+                        (get arr :order)))]
+         (if (php/int? k) (php/bump-next a k) a)))]
+    [php/array-append
+     (fn [arr v]
+       (let [next (get arr :next-index)
+             h (if (nil? next) 0 next)]
+         (if (php/array-has? arr h)
+           (php/throw-error
+             "Error"
+             "Cannot add element to the array as the next element is already occupied")
+           (php/array-set arr h v))))]
+    [php/spread-loop
+     (fn [acc v i n]
+       (if (< i n)
+         (let [k (get (get v :order) i)
+               x (get (get v :index) k)]
+           (php/spread-loop (if (php/int? k) (php/array-append acc x) (php/array-set acc k x))
+                            v
+                            (+ i 1)
+                            n))
+         acc))]
+    [php/array-spread
+     (fn [acc v]
+       (if (= (php/kind v) :array)
+         (php/spread-loop acc v 0 (php/array-count v))
+         (php/throw-error "Error" "Only arrays and Traversables can be unpacked")))]
+    [php/array-unset
+     ;; :next-index is untouched
+     (fn [arr k]
+       (if (php/array-has? arr k)
+         (assoc (assoc arr :index (data/dissoc (get arr :index) k))
+                :order
+                (php/vec-remove (get arr :order) k 0 (data/count (get arr :order)) []))
+         arr))]
+    [php/array-put (fn [arr k v] (php/array-set arr (php/array-key k) v))]
+    [php/array-count (fn [arr] (data/count (get arr :order)))]
+    [php/array-keys (fn [arr] (get arr :order))]
+    [php/values-loop
+     (fn [idx ord i n acc]
+       (if (< i n)
+         (php/values-loop idx ord (+ i 1) n (php/vconj acc (get idx (get ord i))))
+         acc))]
+    [php/array-values
+     (fn [arr]
+       (php/values-loop (get arr :index) (get arr :order) 0 (php/array-count arr) []))]
+    [php/union-loop
+     (fn [a b i n]
+       (if (< i n)
+         (let [k (get (get b :order) i)]
+           (php/union-loop (if (php/array-has? a k)
+                             a
+                             (php/array-set a k (get (get b :index) k)))
+                           b
+                           (+ i 1)
+                           n))
+         a))]
+    [php/array-union
+     ;; array + array: left wins, the right's missing keys follow in order
+     (fn [a b] (php/union-loop a b 0 (php/array-count b)))]
+
+    ;; dimension reads
+    [php/undef-key-msg
+     (fn [key]
+       (data/str-concat "Undefined array key "
+                        (if (php/int? key)
+                          (integer/format key)
+                          (data/str-concat "\"" key "\""))))]
+    [php/string-offset-int
+     ;; the int an offset key stands for on a string, nil when it is none
+     (fn [k]
+       (let [kind (php/kind k)]
+         (if (= kind :int) k
+             (if (= kind :string)
+               (let [r (php/numeric-string k)]
+                 (if (php/full-num? r) (if (= (get r 0) :int) (get r 1) nil) nil))
+               nil))))]
+    [php/string-peek-int
+     ;; the int an isset/empty offset stands for on a string, nil when none;
+     ;; bool and null coerce silently, float uses the float-key seam
+     (fn [k]
+       (let [kind (php/kind k)]
+         (if (= kind :bool) (php/to-int k)
+             (if (= kind :null) (php/to-int k)
+                 (if (= kind :float) (php/float-key k)
+                     (php/string-offset-int k))))))]
+    [php/string-char
+     ;; the one-byte string of s at offset i (negative counts from the end),
+     ;; nil out of range
+     (fn [s i]
+       (let [n (data/str-length s)
+             j (if (< i 0) (integer/add n i) i)]
+         (if (< j 0)
+           nil
+           (if (< j n) (data/substring s j (+ j 1)) nil))))]
+    [php/string-dim-get
+     (fn [s k]
+       (let [kind (php/kind k)
+             cast (if (= kind :float) true (if (= kind :bool) true (= kind :null)))
+             i (if cast
+                 (do (php/warn 2 "String offset cast occurred") (php/to-int k))
+                 (php/string-offset-int k))]
+         (if (nil? i)
+           (php/throw-error "TypeError"
+                            (data/str-concat "Cannot access offset of type "
+                                             (php/type-name kind)
+                                             " on string"))
+           (let [ch (php/string-char s i)]
+             (if (nil? ch)
+               (do (php/warn 2 (data/str-concat "Uninitialized string offset "
+                                                (integer/format i)))
+                   "")
+               ch)))))]
+    [php/dim-get
+     (fn [c k]
+       (let [kind (php/kind c)]
+         (if (= kind :array)
+           (let [key (php/array-key k)
+                 v (get (get c :index) key)]
+             (if (nil? v)
+               (do (php/warn 2 (php/undef-key-msg key)) :php/null)
+               v))
+           (if (= kind :string)
+             (php/string-dim-get c k)
+             (if (= kind :obj)
+               (php/throw-error "Error" "Cannot use object as array")
+               (do (php/warn 2 (data/str-concat
+                                 "Trying to access array offset on "
+                                 (if (= kind :bool)
+                                   (if c "true" "false")
+                                   (php/type-name kind))))
+                   :php/null))))))]
+    [php/dim-peek
+     ;; no diagnostic for a missing key or a non-array: null
+     (fn [c k]
+       (let [kind (php/kind c)]
+         (if (= kind :array)
+           (let [v (get (get c :index)
+                        (php/array-key2 k "Cannot access offset of type " " in isset or empty"))]
+             (if (nil? v) :php/null v))
+           (if (= kind :string)
+             (let [i (php/string-peek-int k)]
+               (if (nil? i)
+                 :php/null
+                 (let [ch (php/string-char c i)] (if (nil? ch) :php/null ch))))
+             :php/null))))]
+
+    ;; dimension writes: the holder's value is read, updated purely, stored back
+    [php/str-write-error
+     (fn []
+       (php/throw-error
+         "Error"
+         "string offset writes are not supported yet (yang.php known gap G-str-offset-write)"))]
+    [php/assign-into
+     (fn [arr ks i v]
+       (let [last (= (+ i 1) (data/count ks))
+             k (get ks i)]
+         (if (= k :php/append)
+           (if last
+             (php/array-append arr v)
+             (php/array-append arr (php/path-assign-at :php/null ks (+ i 1) v)))
+           (let [key (php/array-key k)]
+             (if last
+               (php/array-set arr key v)
+               (let [child (get (get arr :index) key)]
+                 (php/array-set arr
+                                key
+                                (php/path-assign-at (if (nil? child) :php/null child)
+                                                    ks
+                                                    (+ i 1)
+                                                    v))))))))]
+    [php/path-assign-at
+     (fn [c ks i v]
+       (let [kind (php/kind c)]
+         (if (= kind :array)
+           (php/assign-into c ks i v)
+           (if (= kind :null)
+             (php/assign-into (php/empty-array) ks i v)
+             (if (= kind :bool)
+               (if c
+                 (php/throw-error "Error" "Cannot use a scalar value as an array")
+                 (do (php/warn 8192 "Automatic conversion of false to array is deprecated")
+                     (php/assign-into (php/empty-array) ks i v)))
+               (if (= kind :string)
+                 (php/str-write-error)
+                 (if (= kind :obj)
+                   (php/throw-error "Error" "Cannot use object as array")
+                   (php/throw-error "Error" "Cannot use a scalar value as an array"))))))))]
+    [php/path-assign (fn [c ks v] (php/path-assign-at c ks 0 v))]
+    [php/path-unset-at
+     ;; never vivifies: a missing key or null at any level changes nothing
+     (fn [c ks i]
+       (let [kind (php/kind c)]
+         (if (= kind :array)
+           (let [key (php/array-key2 (get ks i) "Cannot unset offset of type " " on array")]
+             (if (= (+ i 1) (data/count ks))
+               (php/array-unset c key)
+               (let [child (get (get c :index) key)]
+                 (if (nil? child)
+                   c
+                   (php/array-set c key (php/path-unset-at child ks (+ i 1)))))))
+           (if (= kind :null)
+             c
+             (if (= kind :bool)
+               (if c
+                 (php/throw-error "Error" "Cannot unset offset in a non-array variable")
+                 (do (php/warn 8192 "Automatic conversion of false to array is deprecated")
+                     c))
+               (if (= kind :string)
+                 (php/throw-error "Error" "Cannot unset string offsets")
+                 (php/throw-error "Error" "Cannot unset offset in a non-array variable")))))))]
+    [php/path-unset (fn [c ks] (php/path-unset-at c ks 0))]
 
     ;; ---------------------------------------------------------------- variables
     ;; Top-level variables live in `php.rt/globals` (the `$GLOBALS` array
@@ -1076,14 +1441,18 @@
      (fn [v]
        (let [k (php/kind v)]
          (if (php/numk? k) (php/sub v 1)
-             (if (= k :null) :php/null
-                 (if (= k :bool) v
-                     (if (= k :string)
-                       (if (= v "")
-                         -1
-                         (let [r (php/numeric-string v)]
-                           (if (php/full-num? r) (php/sub (get r 1) 1) v)))
-                       (php/throw-error "TypeError" "Cannot decrement this value")))))))]
+             (if (= k :null)
+               (do (php/warn
+                     2
+                     "Decrement on type null has no effect, this will change in the next major version of PHP")
+                   :php/null)
+               (if (= k :bool) v
+                   (if (= k :string)
+                     (if (= v "")
+                       -1
+                       (let [r (php/numeric-string v)]
+                         (if (php/full-num? r) (php/sub (get r 1) 1) v)))
+                     (php/throw-error "TypeError" "Cannot decrement this value")))))))]
 
     ;; ---------------------------------------------------------------- functions
     [php/make-statics
@@ -1230,6 +1599,282 @@
          (php/nan-value? (php/to-float (get args 0)))
          (php/arity-error "is_nan" "exactly 1" args)))]
 
+    ;; ---------------------------------------------------------------- foreach
+    [php/foreach-array
+     ;; the owned temporary of a by-value foreach; a non-array warns and is empty
+     (fn [v]
+       (if (php/array? v)
+         v
+         (do (php/warn 2 (data/str-concat
+                           "foreach() argument must be of type array|object, "
+                           (php/type-name (php/kind v)) " given"))
+             (php/empty-array))))]
+
+    ;; ---------------------------------------------------------------- array builtins
+    ;; A by-reference builtin answers [ret outs]: `outs` holds the new value of
+    ;; each by-reference position in ascending order; the call site writes them back.
+    [php/arg-array
+     (fn [v name i pname]
+       (if (php/array? v)
+         v
+         (php/throw-error
+           "TypeError"
+           (data/str-concat name "(): Argument #" (integer/format i) " ($" pname
+                            ") must be of type array, " (php/type-name (php/kind v)) " given"))))]
+    [php/arity-between
+     (fn [name args lo hi want]
+       (if (< (data/count args) lo)
+         (php/arity-error name want args)
+         (if (> (data/count args) hi) (php/arity-error name want args) :php/null)))]
+    [php/vec->array
+     (fn [xs i n acc]
+       (if (< i n)
+         (php/vec->array xs (+ i 1) n (php/array-append acc (get xs i)))
+         acc))]
+    [php/count-deep
+     (fn [arr i n acc]
+       (if (< i n)
+         (let [x (get (get arr :index) (get (get arr :order) i))]
+           (php/count-deep arr (+ i 1) n
+                           (if (php/array? x)
+                             (integer/add acc (php/count-deep x 0 (php/array-count x) (php/array-count x)))
+                             acc)))
+         acc))]
+    [php/bi-count
+     (fn [args]
+       (do (php/arity-between "count" args 1 2 "at least 1")
+           (let [v (get args 0)]
+             (if (php/array? v)
+               (if (> (data/count args) 1)
+                 (if (= (php/to-int (get args 1)) 1)
+                   (php/count-deep v 0 (php/array-count v) (php/array-count v))
+                   (php/array-count v))
+                 (php/array-count v))
+               (php/throw-error
+                 "TypeError"
+                 (data/str-concat
+                   "count(): Argument #1 ($value) must be of type Countable|array, "
+                   (php/type-name (php/kind v)) " given"))))))]
+    [php/keys-search
+     (fn [arr search strict i n acc]
+       (if (< i n)
+         (let [k (get (get arr :order) i)
+               v (get (get arr :index) k)]
+           (php/keys-search arr search strict (+ i 1) n
+                            (if (if strict (php/identical v search) (php/loose-eq v search))
+                              (php/array-append acc k)
+                              acc)))
+         acc))]
+    [php/bi-array-keys
+     (fn [args]
+       (do (php/arity-between "array_keys" args 1 3 "at least 1")
+           (let [arr (php/arg-array (get args 0) "array_keys" 1 "array")]
+             (if (> (data/count args) 1)
+               (php/keys-search arr (get args 1)
+                                (if (> (data/count args) 2) (php/to-bool (get args 2)) false)
+                                0 (php/array-count arr) (php/empty-array))
+               (php/vec->array (get arr :order) 0 (php/array-count arr) (php/empty-array))))))]
+    [php/bi-array-values
+     (fn [args]
+       (do (php/arity-between "array_values" args 1 1 "exactly 1")
+           (let [arr (php/arg-array (get args 0) "array_values" 1 "array")]
+             (php/vec->array (php/array-values arr) 0 (php/array-count arr) (php/empty-array)))))]
+    [php/merge-loop
+     (fn [args i n acc]
+       (if (< i n)
+         (let [v (get args i)]
+           (if (php/array? v)
+             (php/merge-loop args (+ i 1) n (php/spread-loop acc v 0 (php/array-count v)))
+             (php/throw-error
+               "TypeError"
+               (data/str-concat "array_merge(): Argument #" (integer/format (+ i 1))
+                                " must be of type array, " (php/type-name (php/kind v)) " given"))))
+         acc))]
+    [php/bi-array-merge
+     (fn [args] (php/merge-loop args 0 (data/count args) (php/empty-array)))]
+    [php/bi-array-key-exists
+     (fn [args]
+       (do (php/arity-between "array_key_exists" args 2 2 "exactly 2")
+           (let [arr (php/arg-array (get args 1) "array_key_exists" 2 "array")]
+             (php/array-has? arr (php/array-key (get args 0))))))]
+    [php/in-loop
+     (fn [arr needle strict i n]
+       (if (< i n)
+         (let [v (get (get arr :index) (get (get arr :order) i))]
+           (if (if strict (php/identical v needle) (php/loose-eq v needle))
+             true
+             (php/in-loop arr needle strict (+ i 1) n)))
+         false))]
+    [php/bi-in-array
+     (fn [args]
+       (do (php/arity-between "in_array" args 2 3 "at least 2")
+           (let [arr (php/arg-array (get args 1) "in_array" 2 "haystack")]
+             (php/in-loop arr (get args 0)
+                          (if (> (data/count args) 2) (php/to-bool (get args 2)) false)
+                          0 (php/array-count arr)))))]
+    [php/bi-is-array
+     (fn [args]
+       (do (php/arity-between "is_array" args 1 1 "exactly 1")
+           (php/array? (get args 0))))]
+    [php/bi-array-key-first
+     (fn [args]
+       (do (php/arity-between "array_key_first" args 1 1 "exactly 1")
+           (let [arr (php/arg-array (get args 0) "array_key_first" 1 "array")]
+             (if (= (php/array-count arr) 0) :php/null (get (get arr :order) 0)))))]
+    [php/bi-array-key-last
+     (fn [args]
+       (do (php/arity-between "array_key_last" args 1 1 "exactly 1")
+           (let [arr (php/arg-array (get args 0) "array_key_last" 1 "array")
+                 n (php/array-count arr)]
+             (if (= n 0) :php/null (get (get arr :order) (- n 1))))))]
+    [php/out1 (fn [ret arr] (php/pair ret (php/vconj [] arr)))]
+    [php/push-loop
+     (fn [arr args i n]
+       (if (< i n)
+         (php/push-loop (php/array-append arr (get args i)) args (+ i 1) n)
+         arr))]
+    [php/bi-array-push
+     (fn [args]
+       (do (php/arity-between "array_push" args 1 1000000 "at least 1")
+           (let [arr (php/push-loop (php/arg-array (get args 0) "array_push" 1 "array")
+                                    args 1 (data/count args))]
+             (php/out1 (php/array-count arr) arr))))]
+    [php/bi-array-pop
+     (fn [args]
+       (do (php/arity-between "array_pop" args 1 1 "exactly 1")
+           (let [arr (php/arg-array (get args 0) "array_pop" 1 "array")
+                 n (php/array-count arr)]
+             (if (= n 0)
+               (php/out1 :php/null arr)
+               (let [k (get (get arr :order) (- n 1))
+                     v (get (get arr :index) k)
+                     rest (php/array-unset arr k)]
+                 (php/out1 v
+                           (if (php/int? k)
+                             (if (= (integer/compare (php/succ-key k) (get arr :next-index)) 0)
+                               (assoc rest :next-index k)
+                               rest)
+                             rest)))))))]
+    [php/bi-array-shift
+     (fn [args]
+       (do (php/arity-between "array_shift" args 1 1 "exactly 1")
+           (let [arr (php/arg-array (get args 0) "array_shift" 1 "array")
+                 n (php/array-count arr)]
+             (if (= n 0)
+               (php/out1 :php/null arr)
+               (php/out1 (get (get arr :index) (get (get arr :order) 0))
+                         (php/spread-loop (php/empty-array) arr 1 n))))))]
+    [php/bi-array-unshift
+     (fn [args]
+       (do (php/arity-between "array_unshift" args 1 1000000 "at least 1")
+           (let [arr (php/arg-array (get args 0) "array_unshift" 1 "array")
+                 head (php/push-loop (php/empty-array) args 1 (data/count args))
+                 res (php/spread-loop head arr 0 (php/array-count arr))]
+             (php/out1 (php/array-count res) res))))]
+
+    ;; ---------------------------------------------------------------- sorting
+    ;; One stable top-down merge sort over vectors of [key value] pairs; the
+    ;; merge is tail-recursive. `cmp` answers a negative, zero or positive int.
+    [php/pairs
+     (fn [arr i n acc]
+       (if (< i n)
+         (let [k (get (get arr :order) i)]
+           (php/pairs arr (+ i 1) n (php/vconj acc (php/pair k (get (get arr :index) k)))))
+         acc))]
+    [php/take-rest
+     (fn [acc xs i n]
+       (if (< i n) (php/take-rest (php/vconj acc (get xs i)) xs (+ i 1) n) acc))]
+    [php/merge
+     (fn [l r i j nl nr cmp acc]
+       (if (>= i nl)
+         (php/take-rest acc r j nr)
+         (if (>= j nr)
+           (php/take-rest acc l i nl)
+           (if (<= (cmp (get l i) (get r j)) 0)
+             (php/merge l r (+ i 1) j nl nr cmp (php/vconj acc (get l i)))
+             (php/merge l r i (+ j 1) nl nr cmp (php/vconj acc (get r j)))))))]
+    [php/msort
+     (fn [xs cmp]
+       (let [n (data/count xs)]
+         (if (< n 2)
+           xs
+           (let [mid (get (integer/quot-rem n 2) 0)
+                 l (php/msort (data/subvec xs 0 mid) cmp)
+                 r (php/msort (data/subvec xs mid n) cmp)]
+             (php/merge l r 0 0 (data/count l) (data/count r) cmp [])))))]
+    [php/flag-cmp
+     (fn [flag]
+       (if (= flag 0)
+         (fn [a b] (php/cmp a b))
+         (if (= flag 1)
+           (fn [a b] (php/cmp (php/to-float a) (php/to-float b)))
+           (if (= flag 2)
+             (fn [a b] (php/cmp-h (data/str-compare (php/to-string a) (php/to-string b)) 0))
+             (php/throw-error
+               "Error"
+               (data/str-concat "sort flag " (integer/format flag)
+                                " is not supported yet (yang.php known gap G-sort-flags)"))))))]
+    [php/field-cmp
+     ;; compare pairs on field `by` (0 key, 1 value), sign flips for r* variants
+     (fn [by sign base]
+       (fn [a b] (* sign (base (get a by) (get b by)))))]
+    [php/user-cmp
+     (fn [f]
+       (let [warned (cell/new false)]
+         (fn [a b]
+           (let [r (php/call f (php/pair a b))]
+             (if (= (php/kind r) :bool)
+               (do (if (cell/get warned)
+                     :php/null
+                     (do (cell/set! warned true)
+                         (php/warn 8192 "usort(): Returning bool from comparison function is deprecated, return an integer less than, equal to, or greater than zero")))
+                   (if r
+                     1
+                     (if (> (php/to-int (php/call f (php/pair b a))) 0) -1 0)))
+               (php/to-int r))))))]
+    [php/rebuild
+     (fn [sorted i n acc keep]
+       (if (< i n)
+         (let [it (get sorted i)]
+           (php/rebuild sorted (+ i 1) n
+                        (if keep
+                          (php/array-set acc (get it 0) (get it 1))
+                          (php/array-append acc (get it 1)))
+                        keep))
+         acc))]
+    [php/sort-finish
+     (fn [arr sorted keep]
+       (let [out (php/rebuild sorted 0 (data/count sorted) (php/empty-array) keep)
+             nx (get arr :next-index)]
+         (php/out1 true
+                   (if keep (if (nil? nx) out (assoc out :next-index nx)) out))))]
+    [php/do-sort
+     (fn [name args by keep sign]
+       (do (php/arity-between name args 1 2 "at least 1")
+           (let [arr (php/arg-array (get args 0) name 1 "array")
+                 flag (if (> (data/count args) 1) (php/to-int (get args 1)) 0)
+                 cmp (php/field-cmp by sign (php/flag-cmp flag))]
+             (php/sort-finish arr
+                              (php/msort (php/pairs arr 0 (php/array-count arr) []) cmp)
+                              keep))))]
+    [php/do-usort
+     (fn [name args by keep]
+       (do (php/arity-between name args 2 2 "exactly 2")
+           (let [arr (php/arg-array (get args 0) name 1 "array")
+                 cmp (php/field-cmp by 1 (php/user-cmp (php/callable-fn (get args 1))))]
+             (php/sort-finish arr
+                              (php/msort (php/pairs arr 0 (php/array-count arr) []) cmp)
+                              keep))))]
+    [php/bi-sort (fn [args] (php/do-sort "sort" args 1 false 1))]
+    [php/bi-rsort (fn [args] (php/do-sort "rsort" args 1 false -1))]
+    [php/bi-asort (fn [args] (php/do-sort "asort" args 1 true 1))]
+    [php/bi-arsort (fn [args] (php/do-sort "arsort" args 1 true -1))]
+    [php/bi-ksort (fn [args] (php/do-sort "ksort" args 0 true 1))]
+    [php/bi-krsort (fn [args] (php/do-sort "krsort" args 0 true -1))]
+    [php/bi-usort (fn [args] (php/do-usort "usort" args 1 false))]
+    [php/bi-uasort (fn [args] (php/do-usort "uasort" args 1 true))]
+    [php/bi-uksort (fn [args] (php/do-usort "uksort" args 0 true))]
+
     ;; ---------------------------------------------------------------- unit
     [php/run-main
      ;; the unit root: output, diagnostics and the uncaught error, if any
@@ -1247,14 +1892,9 @@
 
 
 (def ^:private builtins
-  "The functions `php/init!` registers: PHP name to prelude definition."
-  [["var_dump" 'php/bi-var-dump] ["intdiv" 'php/bi-intdiv] ["fmod" 'php/bi-fmod]
-   ["strlen" 'php/bi-strlen] ["intval" 'php/bi-intval]
-   ["floatval" 'php/bi-floatval] ["strval" 'php/bi-strval]
-   ["boolval" 'php/bi-boolval] ["is_nan" 'php/bi-is-nan]
-   ["set_error_handler" 'php/bi-set-error-handler]
-   ["restore_error_handler" 'php/bi-restore-error-handler]
-   ["error_reporting" 'php/bi-error-reporting]])
+  "The functions `php/init!` registers: PHP name to prelude definition,
+   derived from `builtins/supported`, the one table."
+  (mapv (fn [[nm {:keys [prelude]}]] [nm prelude]) (sort-by key builtins/supported)))
 
 
 (def builtin-names
@@ -1283,10 +1923,7 @@
                  (define 'php.rt/ctx '(cell/new (php/ctx nil 0 0 nil)))
                  (define 'php.rt/out '(cell/new [[]]))
                  (define 'php.rt/globals
-                   '(cell/new {:php/type :array,
-                               :index {},
-                               :order [],
-                               :next-index 0}))
+                   '(cell/new (php/empty-array)))
                  (define 'php.rt/functions '(cell/new {}))
                  (define 'php.rt/classes
                    (list 'cell/new
