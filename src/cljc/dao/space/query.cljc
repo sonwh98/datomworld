@@ -17,7 +17,9 @@
    dao.stream handle becomes an input only through `snapshot`, the one
    place this namespace touches v2. Source scope is interpreter context,
    never a tuple slot."
-  (:require [dao.datom :as datom]
+  (:require [dao.data.btree.cursor :as cursor]
+            [dao.data.btree.storage :as bts]
+            [dao.datom :as datom]
             [dao.jing :as jing]
             [dao.jing.cbor :as cbor]
             [dao.jing.coordinate :as jing-coordinate]
@@ -240,7 +242,16 @@
   (let [manifest (index/read-manifest store manifest-address)]
     {:dao.space.query/published {:manifest-address manifest-address}
      :indexes (index/restored-indexes store manifest)
-     :rows (delay (index/read-datoms store manifest-address))}))
+     :rows (delay (index/read-datoms store manifest-address))
+     ;; The local, nonpersistent checked-read descriptor (Phase 4b): the
+     ;; manifest this constructor already read, plus the borrowed store
+     ;; capability. It is source implementation data, never a result or
+     ;; error context, and it changes neither the serializable coordinate
+     ;; nor the persisted manifest.
+     :dao.space.query/published-read {:version 1
+                                      :store store
+                                      :manifest-address manifest-address
+                                      :manifest manifest}}))
 
 
 (defn open-published!
@@ -268,10 +279,15 @@
                        {:coordinate coordinate, :expected expected})))
      (let [store (jing-coordinate/open! content-store opts)]
        (try
-         (let [{:keys [indexes rows]} (published-db store manifest-address)]
+         (let [{:keys [indexes rows]
+                read-descriptor :dao.space.query/published-read}
+               (published-db store manifest-address)]
            {:dao.space.query/published coordinate
             :indexes indexes
             :rows rows
+            ;; preserved through this reconstruction (same descriptor,
+            ;; same manifest: no second manifest read)
+            :dao.space.query/published-read read-descriptor
             :store store
             :close-guard (atom false)})
          (catch #?(:cljd Object
@@ -544,6 +560,72 @@
                   [st {::relation rows, ::fact-index fact-index}])))))))))
 
 
+(defn- valid-read-descriptor?
+  "STRUCTURAL validity of a published value's checked-read descriptor: the
+   exact key set, version 1, non-nil capability fields, a manifest of the
+   persisted shape. Never judged by identity, and nothing is read."
+  [d]
+  (and (map? d)
+       (= #{:version :store :manifest-address :manifest} (set (keys d)))
+       (= 1 (:version d))
+       (some? (:store d))
+       (some? (:manifest-address d))
+       (let [m (:manifest d)]
+         (and (map? m)
+              (map? (:indexes m))
+              (integer? (:count m))
+              (integer? (:branching-factor m))))))
+
+
+(defn ^:no-doc source-step
+  "The ONE bounded-source classification policy, shared by adapter admission
+   and bounded realization. One hop over a source descriptor, inspected and
+   never forced:
+     {:class :checked}       exactly `current`, no as-of, DIRECTLY over a
+                             published value with a valid checked-read
+                             descriptor (depth 0 only)
+     {:class :materialized}  a relation / fact-relation vector
+     {:class :refused}       a bare published value, a deferred or non-vector
+                             relation, anything unrecognized
+     {:next src}             a view: continue with its source
+   A view over a published value that is not that exact shape (history, an
+   as-of bound, a nested view, a descriptor-less value) therefore ends at the
+   published base and is refused."
+  [v depth]
+  (cond
+    (not (map? v)) {:class :refused}
+    (contains? v :dao.space.query/relation)
+    {:class (if (vector? (:dao.space.query/relation v)) :materialized :refused)}
+    (contains? v :dao.space.query/published) {:class :refused}
+    (contains? v :dao.space.query/view)
+    (let [src (:source v)]
+      (if (and (zero? depth)
+               (= :current (:dao.space.query/view v))
+               (nil? (:as-of v))
+               (map? src)
+               (contains? src :dao.space.query/published)
+               (not (contains? src :dao.space.query/relation))
+               (valid-read-descriptor? (:dao.space.query/published-read src)))
+        {:class :checked}
+        {:next src}))
+    :else {:class :refused}))
+
+
+(defn- realize-checked-st
+  "Realize an admitted checked source: no fetch, no rows, no tree. The
+   realized value carries an explicit checked-index marker; its relation
+   slot is a truthy sentinel (planning only tests truthiness) that the
+   eager relation fallback refuses to use. The legacy :rows delay is never
+   touched."
+  [st ctx db-value]
+  (let [d (get-in db-value [:source :dao.space.query/published-read])
+        st (observe-st st ctx)]
+    (if (exec/terminal? st)
+      [st nil]
+      [st {::relation ::checked-source
+           ::fact-index {::checked {:store (:store d), :manifest (:manifest d)}}}])))
+
+
 (defn- realize-base-st
   "Realize a non-view db-value: a relation (and, for a fact relation, its
    index) or an opened published index."
@@ -574,6 +656,9 @@
     (throw (ex-info raw-source-message {:input db-value}))))
 
 
+(declare realize-views-st)
+
+
 (defn- realize-st
   "The checked realization of one db-value: [state realized]. Iterative: the
    view chain is walked down to its base source in a loop (one accounted
@@ -582,6 +667,14 @@
    index entries are charged before the (indivisible) host construction and
    the state is observed when it returns. A bounded state refuses an opened
    published index: its traversal is not checkpointed."
+  [st ctx db-value]
+  (if (and (exec/bounded? st)
+           (= :checked (:class (source-step db-value 0))))
+    (realize-checked-st st ctx db-value)
+    (realize-views-st st ctx db-value)))
+
+
+(defn- realize-views-st
   [st ctx db-value]
   (loop [st st
          v db-value
@@ -689,37 +782,52 @@
          (or (wildcard? v) (cbor/content= v (index/datom-v d))))))
 
 
-(defn- index-candidates
-  "The raw candidate datoms of an index range for the bound scalar slots,
-   unfiltered and lazy: the index range of the bound slots is scanned by
-   index order (numerically equal values of different kinds included); the
-   kind-strict filter is the caller's, applied per candidate."
-  [idx e a v]
+(def ^:private order-cmps
+  {:eavt index/eavt-cmp, :aevt index/aevt-cmp, :avet index/avet-cmp, :vaet index/vaet-cmp})
+
+
+(defn- range-plan
+  "The PURE range plan of an index access, shared by every producer: which
+   covered order to use (bound entity -> EAVT; attribute and value -> AVET;
+   value -> VAET; attribute -> AEVT; otherwise a full EAVT walk), the lower
+   seek key in canonical [e a v t m] slot positions (never physically
+   reordered), and the caller-owned prefix test that says whether a
+   candidate is still inside the scanned slot(s). The prefix test is a
+   COMPARATOR test (same-slot?): it continues across values that compare
+   equal but differ in content, and content-strict filtering (slot-pred)
+   happens after candidate production. No generic upper key is ever
+   manufactured."
+  [e a v]
   (let [e? (and (not (wildcard? e)) (range-scannable? e))
         a? (and (not (wildcard? a)) (range-scannable? a))
         v? (and (not (wildcard? v)) (range-scannable? v))]
-    (cond e?
-          (take-while #(same-slot? e (index/datom-e %))
-                      (index/subseq-from (:eavt idx)
-                                         index/eavt-cmp
-                                         [e nil nil nil nil]))
-          (and a? v?)
-          (take-while #(and (same-slot? a (index/datom-a %))
-                            (same-slot? v (index/datom-v %)))
-                      (index/subseq-from (:avet idx)
-                                         index/avet-cmp
-                                         [nil a v nil nil]))
-          v?
-          (take-while #(same-slot? v (index/datom-v %))
-                      (index/subseq-from (:vaet idx)
-                                         index/vaet-cmp
-                                         [nil nil v nil nil]))
-          a?
-          (take-while #(same-slot? a (index/datom-a %))
-                      (index/subseq-from (:aevt idx)
-                                         index/aevt-cmp
-                                         [nil a nil nil nil]))
-          :else (seq (:eavt idx)))))
+    (cond e? {:order :eavt
+              :lower [e nil nil nil nil]
+              :continue? #(same-slot? e (index/datom-e %))}
+          (and a? v?) {:order :avet
+                       :lower [nil a v nil nil]
+                       :continue? #(and (same-slot? a (index/datom-a %))
+                                        (same-slot? v (index/datom-v %)))}
+          v? {:order :vaet
+              :lower [nil nil v nil nil]
+              :continue? #(same-slot? v (index/datom-v %))}
+          a? {:order :aevt
+              :lower [nil a nil nil nil]
+              :continue? #(same-slot? a (index/datom-a %))}
+          :else {:order :eavt, :lower nil, :continue? nil})))
+
+
+(defn- index-candidates
+  "The raw candidate datoms of an index range for the bound scalar slots,
+   unfiltered and lazy (the restored-tree producer): the range plan's seek
+   and prefix stop over the in-memory or restored covered set. The
+   kind-strict filter is the caller's, applied per candidate."
+  [idx e a v]
+  (let [{:keys [order lower continue?]} (range-plan e a v)]
+    (if lower
+      (take-while continue?
+                  (index/subseq-from (get idx order) (get order-cmps order) lower))
+      (seq (:eavt idx)))))
 
 
 (defn- select-by-index
@@ -731,14 +839,25 @@
   (current-state-seq (filter (slot-pred e a v) (index-candidates idx e a v))))
 
 
+(declare checked-datoms-st restored-datoms-st)
+
+
 (defn- datoms-st
   "The checked select: [state datoms]. Each candidate the range scan
    yields is one accountable unit of op, charged before it is examined and
    pulled one at a time; the state is observed again before the collected
    candidates are interpreted. The current-state resolution over the
-   charged candidates is one indivisible host operation. Query-controlled
-   traversal of a lazy published tree is NOT checkpointed per node fetch
-   here; bounded calls never reach it (Phase 4b)."
+   charged candidates is one indivisible host operation. A published value's
+   checked source (`::checked`) is read by `checked-datoms-st`, one accounted
+   cursor transition and one bracketed node read at a time; every other index
+   is the in-memory or restored-tree producer."
+  [st ctx idx e a v op]
+  (if (contains? idx ::checked)
+    (checked-datoms-st st ctx (::checked idx) e a v op)
+    (restored-datoms-st st ctx idx e a v op)))
+
+
+(defn- restored-datoms-st
   [st ctx idx e a v op]
   (let [pred (slot-pred e a v)]
     (loop [st st
@@ -755,6 +874,99 @@
                   [st nil]
                   (let [d (first xs)]
                     (recur st (next xs) (if (pred d) (conj kept d) kept)))))))))
+
+
+(defn- source-failure
+  "A traversal or read failure of the checked path: the original is the
+   cause and the data carries no handle, descriptor or source value."
+  [cause]
+  (ex-info "checked index traversal failed"
+           {::source-failure true}
+           cause))
+
+
+(defn- guarded
+  [f & args]
+  (try (apply f args)
+       (catch #?(:cljd Object :clj Throwable :cljs :default) e
+         (throw (source-failure e)))))
+
+
+(defn- checked-datoms-st
+  "The checked candidate producer over a published value's persisted
+   B-tree nodes: [state datoms]. It is the query-side interpreter of the
+   pure cursor (dao.data.btree.cursor), threading [state cursor kept] in one
+   constant-stack loop:
+     every cursor transition: observe + charge one :tree-step; a terminal
+       state stops before the cursor advances;
+     :need-node: observe + charge one :node-read, then exactly ONE
+       `read-node-blob` inside `execution/read-step`; a terminal state
+       starts no read, and a node returned after the deadline passed is
+       DISCARDED and never supplied;
+     :item: charge one `op` for the candidate; the first key outside the
+       range plan's prefix ends the scan (nothing further is requested);
+       the kind-strict filter runs after candidate production.
+   Reads go through read-node-blob only: KVStorage/-restore and the restored
+   BTSet machinery are never on this path. A throw from the cursor or the
+   read becomes a ::source-failure with the original as its cause."
+  [st ctx {:keys [store manifest]} e a v op]
+  (let [{:keys [order lower continue?]} (range-plan e a v)
+        cmp (get order-cmps order)
+        pred (slot-pred e a v)
+        phase (exec/phase st)
+        driver (::driver ctx)
+        ;; start is guarded like every other cursor call: a structurally
+        ;; valid but inconsistent descriptor (a positive count with no root
+        ;; for the selected order) is a source failure, not an evaluator fault
+        cursor0 (guarded cursor/start
+                         {:root (get-in manifest [:indexes order])
+                          :count (:count manifest)
+                          :branching-factor (:branching-factor manifest)
+                          :lower (when lower {:key lower, :inclusive? true})
+                          :upper nil}
+                         cmp)
+        finish (fn [st kept]
+                 (let [st (observe-st st ctx)]
+                   (if (exec/terminal? st)
+                     [st nil]
+                     [st (vec (current-state-seq kept))])))]
+    (loop [st st
+           cur cursor0
+           kept []]
+      (if (exec/terminal? st)
+        [st nil]
+        (let [st (spend st ctx :tree-step)]
+          (if (exec/terminal? st)
+            [st nil]
+            (let [r (guarded cursor/step cur)]
+              (case (:status r)
+                :continue (recur st (:cursor r) kept)
+
+                :need-node
+                (let [address (:address r)
+                      st (spend st ctx :node-read)]
+                  (if (exec/terminal? st)
+                    [st nil]
+                    (let [[st blob] (exec/read-step
+                                      st driver
+                                      (fn [] (guarded bts/read-node-blob store address)))]
+                      (if (exec/terminal? st)
+                        [st nil]
+                        (recur (exec/enter st phase)
+                               (guarded cursor/supply (:cursor r)
+                                        {:address address, :node blob})
+                               kept)))))
+
+                :item
+                (let [d (:value r)]
+                  (if (and continue? (not (continue? d)))
+                    (finish st kept)
+                    (let [st (spend st ctx op)]
+                      (if (exec/terminal? st)
+                        [st nil]
+                        (recur st (:cursor r) (if (pred d) (conj kept d) kept))))))
+
+                :done (finish st kept)))))))))
 
 
 (defn datoms
@@ -1331,7 +1543,13 @@
 
 (defn- resolve-relation
   [binding db-sym]
-  (force-relation (::relation (resolve-db binding db-sym))))
+  (let [relation (::relation (resolve-db binding db-sym))]
+    (when (= ::checked-source relation)
+      ;; the checked source has no row relation, and the legacy fallback
+      ;; (read-datoms / force-relation / a legacy tree seq) is never taken
+      (throw (ex-info "a checked published source cannot answer this clause without an eager fallback"
+                      {:reason :checked-source-fallback})))
+    (force-relation relation)))
 
 
 (defn- resolve-fact-index

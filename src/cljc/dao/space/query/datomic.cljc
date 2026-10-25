@@ -549,6 +549,14 @@
       (::error data) (throw e)
       category (fail :source-failed "source read failed"
                      {:cognitect.anomalies/category category} e)
+      (:dao.space.query/source-failure data)
+      ;; a traversal or read failure of a checked published source: the
+      ;; original (cursor validation error, missing or corrupt segment) is
+      ;; the cause; no address, descriptor or handle is copied
+      (fail :source-failed "source read failed" {} (or (ex-cause e) e))
+      (= :checked-source-fallback (:reason data))
+      (fail :unsupported "this clause needs an eager fallback a checked source does not offer"
+            {:reason :checked-source-fallback})
       (some? data)
       (let [msg (or (ex-message e) "query refused")]
         (if (str/includes? msg "not implemented")
@@ -580,24 +588,25 @@
 
 
 (defn- source-admissible?
-  "Phase 4a admission: a source qualifies for bounded execution only when
-   its descriptor chain is an explicit materialized relation/fact-relation,
-   or a view over one. Descriptors are inspected, never forced: a deferred
-   (delay) relation, an opened published index and anything unrecognized are
-   not admissible, and cache residency does not change that. The chain is
-   walked iteratively and each hop is one accounted unit, so a descriptor
-   chain of any depth is a structured exhaustion or refusal, never a host
-   stack overflow. Returns [state admissible?]."
+  "Bounded admission through the ONE shared classification policy
+   (`dao.space.query/source-step`, also used by bounded realization). A
+   source is admitted when it is an explicit materialized relation, a view
+   over one, or exactly a `current` view with no as-of directly over a
+   published value carrying a structurally valid checked-read descriptor.
+   Everything else (bare published values, history, as-of, nested views over
+   published data, descriptor-less values, deferred rows, anything
+   unrecognized) is refused. Descriptors are inspected, never forced, and
+   nothing is read. The chain is walked iteratively and each hop is one
+   accounted unit, so a chain of any depth is a structured exhaustion or
+   refusal, never a host stack overflow. Returns [state admissible?]."
   [st driver v]
   (loop [st st
-         v v]
-    (cond
-      (not (map? v)) [st false]
-      (contains? v :dao.space.query/relation)
-      [st (vector? (:dao.space.query/relation v))]
-      (contains? v :dao.space.query/view)
-      (recur (advance st driver :parse 1) (:source v))
-      :else [st false])))
+         v v
+         depth 0]
+    (let [r (query/source-step v depth)]
+      (if-let [class (:class r)]
+        [st (contains? #{:materialized :checked} class)]
+        (recur (advance st driver :parse 1) (:next r) (inc depth))))))
 
 
 (defn- check-bounded-sources!

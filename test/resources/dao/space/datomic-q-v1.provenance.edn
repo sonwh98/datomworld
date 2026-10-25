@@ -7,13 +7,13 @@
  ;; BLAKE3 of the resource bytes (the file is pure ASCII). Equals
  ;; resource-blake3 in the conformance test.
  :digest {:algorithm :blake3
-          :hex "a4983d69d0dae4474387977e3fb75b25e89c766a3edcd148019e89d5b0f39503"}
+          :hex "a1c99136b1d87d1c93e336d9e8cb44142eea02d07b945a08703eeffe9771fa7b"}
  :cases {:total 82 :executable 31 :difference 9 :refusal 6 :pending 36}
  :points 28
  :fixtures 9
  :baseline-revision "f6856bbc"
  :contract "docs/design/dao.space.query.datomic-compat.md"
- :authored "2026-10-24, phase 0 engineer slice (claude-opus-5-5 lane); revised after glm-5.3 reviews (pull-option re-encode; list-form pull case added; previous digest 109f88d7 superseded; Phase 4a timeout/admission case added, previous digest 3b20589f superseded)"
+ :authored "2026-10-24, phase 0 engineer slice (claude-opus-5-5 lane); revised after glm-5.3 reviews (pull-option re-encode; list-form pull case added; previous digest 109f88d7 superseded; Phase 4a timeout/admission case added, previous digest 3b20589f superseded; bounds.published-source-refused note updated for the Phase 4b admission profile, previous digest a4983d69 superseded)"
  :reviewed-by nil
  :inspected-artifacts
  [{:coordinate com.datomic/client-api

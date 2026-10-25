@@ -94,7 +94,7 @@
 
 (def resource-blake3
   "BLAKE3 of datomic-q-v1.json's bytes, frozen at corpus review."
-  "a4983d69d0dae4474387977e3fb75b25e89c766a3edcd148019e89d5b0f39503")
+  "a1c99136b1d87d1c93e336d9e8cb44142eea02d07b945a08703eeffe9771fa7b")
 
 
 (def expected-case-count 82)

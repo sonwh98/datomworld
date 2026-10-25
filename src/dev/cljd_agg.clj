@@ -11,8 +11,14 @@
      bb src/dev/cljd_agg.clj [--slow-only | --slow-regex | --only NS,NS...]
    --slow-only restricts the run to the namespaces that use dao.test-slow/guard.
    A namespace in that set with no generated Dart file is fatal.
-   --only compiles and runs only the given test namespaces (bb test:changed);
-   one with no generated Dart file is fatal too.
+   --only compiles and runs only the given test namespaces (bb test:changed,
+   bb test:sub); one with no generated Dart file is fatal too, EXCEPT a
+   JVM-only namespace: one whose every deftest sits behind a reader
+   conditional that excludes ClojureDart (for example
+   dao.data.sorted-user-type-test). The cljd tool compiles such a namespace as
+   a plain library (lib/cljd-out/<ns>.dart exists) and emits no test file;
+   that is reported and skipped, never fatal. A namespace that produced
+   neither file is still fatal.
    --slow-regex prints, for bb.edn, an anchored alternation of those
    namespaces with its dots already escaped for embedding in an EDN string
    (shadow-cljs --config-merge); it is not a ready-to-use regex. It exits 1
@@ -66,6 +72,21 @@
   "Generated file path for namespace `ns-name`."
   [ns-name]
   (str out-root "/" (str/replace ns-name "." "/") "_test.dart"))
+
+
+(defn- lib-file
+  "Library file the cljd tool writes for a namespace with no Dart tests."
+  [ns-name]
+  (str "lib/cljd-out/" (str/replace ns-name "." "/") ".dart"))
+
+
+(defn jvm-only?
+  "True when `ns-name` compiled to a library but produced no Dart test file:
+   it has no ClojureDart tests (a JVM-only namespace), as opposed to not
+   having compiled at all."
+  [ns-name]
+  (and (not (fs/exists? (dart-file ns-name)))
+       (fs/exists? (lib-file ns-name))))
 
 
 (defn- run!*
@@ -159,9 +180,17 @@
     (let [files (filter fs/exists? (map dart-file wanted))
           missing (remove (comp fs/exists? dart-file) wanted)]
       (when (seq missing)
-        (println "No generated Dart test for:" (str/join ", " missing))
-        (when (or slow-only? only)
-          (System/exit 1)))
+        (let [jvm-only (if (and only (not slow-only?))
+                         (filter jvm-only? missing)
+                         [])
+              fatal (remove (set jvm-only) missing)]
+          (when (seq jvm-only)
+            (println "JVM-only namespaces (compiled, no Dart tests; skipped):"
+                     (str/join ", " jvm-only)))
+          (when (seq fatal)
+            (println "No generated Dart test for:" (str/join ", " fatal))
+            (when (or slow-only? only)
+              (System/exit 1)))))
       (when (empty? files)
         (println "No generated test files found.")
         (System/exit 1))

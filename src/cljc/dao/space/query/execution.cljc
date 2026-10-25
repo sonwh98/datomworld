@@ -63,13 +63,17 @@
    :rule-entry 1
    :aggregate-input 1
    :pull-advance 1
+   :tree-step 1
+   :node-read 1
    :parse-step 1
    :output-row 1})
 
 
 (def phases
-  "Phase boundaries observed at entry and exit."
-  [:parse :realize :plan :join :nested :recursion :aggregate :pull :output])
+  "Phase boundaries observed at entry and exit, plus :read, the phase a
+   storage-read bracket (`read-step`) records: a deadline that passes during a
+   node fetch reports :read as its phase of death."
+  [:parse :realize :plan :join :nested :recursion :aggregate :pull :output :read])
 
 
 (defn start

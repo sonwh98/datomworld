@@ -1,12 +1,16 @@
 # dao.space.query.datomic — Datomic Client Query Compatibility
 
-Status: implementing. Phases 0 and 1 are landed. Phase 4 execution
-helpers exist, but real-query integration and bounded-execution
-qualification remain pending. Phase 4 is split into 4a, the common
-state-passing evaluator over materialized sources, and 4b, checked
-published-index traversal. No full compatibility qualification is
-claimed. Individual oracle cases retain their recorded provenance and
-verification status.
+Status: implementing. Phases 0, 1 and 4a are landed. Phase 4b slices
+4b-1 (the pure stepped cursor), 4b-2 (the single-node reader and the
+open-time descriptor) and 4b-3 (kernel integration) are implemented and
+this qualification slice (4b-4) records their evidence: bounded published-
+index execution is admitted for exactly the profile in *Phase 4b: checked
+published-index traversal* below (a `current` view with no `as-of`
+directly over a published value carrying a checked-read descriptor), and
+every other published path stays refused. The Client oracle
+qualification of this storage-execution work is Phase 5. No full
+compatibility qualification is claimed. Individual oracle cases retain
+their recorded provenance and verification status.
 
 Target: `com.datomic/client-api` **1.0.69**, public
 `datomic.client.api/q`. This is a versioned, explicitly bounded
@@ -460,6 +464,20 @@ units succeeds only when no further work is required and the final
 deadline observation is live. A value returned by a read whose post-read
 observation expires must not be interpreted or delivered.
 
+**Checked-path calibration.** Checked published-index traversal adds
+`:tree-step` work and, for each actual fetch, `:node-read` work to the
+existing scan/candidate/pull accounting. Yielding and interpreting a
+candidate therefore costs more than its query-layer candidate unit
+alone. Seek descent, node validation (chunked, at most 32 keys per
+transition), ascent and advancement can add further transitions. There
+is no universal "two steps per datom" and no fixed conversion from Phase
+4a allowances: applications must recalibrate `:max-steps` using
+representative checked-path workloads. Each new scan starts without
+reuse of the legacy restored-tree cache, so joins, pull projections and
+special forms that rescan an index may repeat seek-path reads and their
+work charges. Report these costs separately from result cardinality and
+backend cache latency.
+
 ### Forcing discipline
 
 Constructing a lazy sequence performs no accountable evaluation by
@@ -565,27 +583,137 @@ evaluator. Explicit materialization performed by the caller before
 invoking `q` is outside that query's bounds and must be described as
 such.
 
-Phase 4b owns the checked published-index traversal seam. Its design must
-cover root restoration, initial seek descent, range advancement,
-full-walk fallback and reads made by pull or special forms. It must
-return invocation progress or explicit read requests at each actual
-fetch, without mutating a borrowed tree to install query state and
-without making storage interpret query semantics.
+Phase 4b owns the checked published-index traversal seam, specified in
+the next subsection. Phase 5 cannot qualify bounded published-index
+queries beyond the profile below.
 
-A wrapping `IStorage` alone is not sufficient evidence: its design must
-explain how immutable progress returns from each restore. The Phase 4b
-seam requires architecture review before implementation/landing. Phase 5
-cannot qualify bounded published-index queries until Phase 4b passes.
-
-| Source path | Unbounded calls | Bounded calls after Phase 4a | Bounded calls after Phase 4b |
+| Source path | Unbounded calls | Bounded calls (Phase 4a) | Bounded calls (Phase 4b, implemented) |
 |---|---|---|---|
-| Materialized relation/fact-relation | Existing supported semantics | Eligible for qualification after integrated tests | Same |
-| Supported view over materialized relation | Existing supported semantics | Eligible after checked realization and evaluation tests | Same |
-| Published index, directly or under a view | Existing supported semantics | Refused before source reads | Eligible only for paths proven by checked-traversal tests |
-| Deferred or unrecognized source implementation | No new support granted | Refused | Remains refused unless separately qualified |
+| Materialized relation/fact-relation and supported materialized views | Existing supported semantics | Admitted | Unchanged |
+| Exactly `current`, no `as-of`, directly over a published value carrying a structurally valid checked-read descriptor | Existing supported semantics | Refused before source reads | **Admitted**: checked cursor |
+| Bare published value or bare published d5 relation | Existing supported semantics | Refused | Refused |
+| History, `as-of`, or nested semantic views over published data | Existing supported semantics | Refused | Refused |
+| Published value lacking the descriptor, or with an invalid one | Existing supported semantics | Refused | Refused |
+| Arbitrary delayed rows, unrecognized source implementation, live stream | No new support granted | Refused | Refused |
 
-"Eligible" does not mean tests or Client oracle verification have already
-passed.
+"Admitted" does not mean the Client oracle has verified anything: it
+records that the bounded path exists, is tested on all three hosts, and
+holds the one-in-flight guarantee below.
+
+### Phase 4b: checked published-index traversal
+
+**Mechanism.** A pure, stepped, ascending cursor
+(`dao.data.btree.cursor`) traverses the persisted B-tree node blobs and
+issues explicit single-node read requests; the query layer interprets
+its outcomes. Invocation-scoped `IStorage` wrapping is not the
+correctness mechanism, and the borrowed restored tree is neither
+traversed nor altered. Unbounded calls keep their existing traversal and
+memoization.
+
+- `(start descriptor comparator)` pins the comparator for the cursor's
+  life; `(step cursor)` performs one local transition and returns
+  `:continue`, `:need-node`, `:item` or `:done`; `(supply cursor
+  response)` hands over the requested node. There is at most one pending
+  request, a waiting cursor re-steps to the same request, and `supply`
+  rejects a missing, mismatched or already-satisfied response. `start`
+  performs no I/O and the cursor holds no storage handle, execution state
+  or clock.
+- Every transition does bounded work: validation advances at most 32 keys
+  per step and a seek is a binary search. Malformed nodes are structured
+  failures, never a silent empty or an endless traversal. Validation is
+  limited to leaf/branch shape, equal key/address lengths with present
+  addresses, keys strictly ordered under the pinned comparator, strictly
+  decreasing levels (leaves are 0), and child-maximum equality with the
+  parent separator under the comparator (comparison equality, never
+  content identity). Occupancy, fill, balance and branching-factor key
+  counts are builder policy and are **not** validated: roots,
+  single-child spines and partial final chunks read fine.
+- A single-node reader, `dao.data.btree.storage/read-node-blob`, performs
+  exactly one hash-verifying `dao.jing/get`; `KVStorage/-restore` is never
+  on the checked path.
+- A local, nonpersistent descriptor
+  `:dao.space.query/published-read {:version 1 :store :manifest-address
+  :manifest}` is built by `published-db` and preserved by
+  `open-published!` from the manifest already read at construction. It
+  never appears in results or error data, and admission validates it
+  structurally (never by identity) without reading storage.
+- The query-side interpreter threads `[execution-state cursor
+  accumulator]` in a constant-stack loop. Each transition observes and
+  charges one `:tree-step`; each `:need-node` observes and charges one
+  `:node-read`, then performs exactly one `read-node-blob` inside
+  `execution/read-step`. A terminal state starts no read, and a node
+  returned after the deadline passed is **discarded and never supplied**.
+  A cursor or read failure is a `:source-failed` adapter error with the
+  original as its cause.
+- Index access is factored into a pure **range plan** (order selection,
+  seek key, prefix test) and a source-specific producer; the in-memory and
+  restored-tree producers are unchanged. Every published-source read
+  reachable from bounded `q` goes through the checked producer: pattern
+  clauses and joins, the unselective full EAVT fallback, finite pull
+  (including `(pull ?e pattern)` in `:find`, nested and wildcard),
+  `get-else` and `missing?`, reads inside negation, disjunction and rules,
+  and repeated aggregate scans. A bounded realization never forces the
+  published value's `:rows` delay.
+- The checked path retains only the cursor's active path and current
+  leaf: no invocation-wide node cache and no reuse of the borrowed tree's
+  memoized nodes. A warmed legacy tree does not reduce its fetch count.
+  The unbounded path's restored trees memoize through host-mutable
+  references owned by the source implementation, not by query execution
+  state; leaving that machinery unchanged while the checked path does not
+  consult it introduces neither shared mutable query-control state nor a
+  requirement to remove it. Installing clocks, allowances or progress in
+  those references remains forbidden.
+
+**Sentinels and the stopping rule.** DaoSpace range planning uses
+canonical datom slot positions `[e a v t m]`, never physically reordered
+to match a comparator's field priority. Under the nil-first comparison of
+sentinel fields the lower seek keys are `[e nil nil nil nil]` (EAVT,
+entity), `[nil a nil nil nil]` (AEVT, attribute), `[nil a v nil nil]`
+(AVET, attribute and value) and `[nil nil v nil nil]` (VAET, value); a
+full EAVT walk has no lower bound. Slot scans stop by the query layer's
+comparator-based prefix test (`same-slot?`), continue across values that
+compare equal but differ in content identity (`1`/`1.0`, `1.0M`/`1.00M`,
+`0.0`/`-0.0`), and apply content-strict filtering after candidate
+production. A generic upper key is never manufactured by replacing
+unspecified fields with nil. The cursor namespace carries the same table
+as documentation only and depends on no DaoSpace comparator or datom.
+
+**One-in-flight guarantee (unchanged).** An actual query-controlled fetch
+is one invocation of `read-node-blob`, containing one `dao.jing/get`. If
+the deadline is reached during that call the call may finish, the
+post-read observation marks timeout, the returned node is discarded, no
+later fetch begins and no partial relation escapes. A backend cache hit
+still counts as a fetch. This is an operation-count guarantee, not a
+wall-time upper bound, and it does not cover packets, retries or physical
+operations inside a content-store implementation.
+
+**Adapter-profile boundary.** Refusing a clause that would need an eager
+fallback (a relation scan of the published value) *before any read* is a
+property of the **adapter profile**: the adapter pads database patterns
+to three fixed positions and refuses rest and history patterns, so no
+admitted adapter query can reach the fallback. The core guarantees only
+that it **never falls through** to `read-datoms`, `force-relation` or a
+legacy tree sequence: a runtime guard refuses the fallback with
+`:checked-source-fallback`. A direct caller of `q-with-state` may
+therefore see fetches made by earlier clauses before that guard trips.
+
+**Phase of death.** A deadline that passes during a node fetch is
+reported with phase `:read`, the phase recorded by the `read-step`
+bracket; `:read` is part of the published phase set.
+
+**Evidence recorded for this profile.** The pure cursor has three-host
+tests against `bt/slice` and an explicit sorted-filter oracle, including
+kind-tie fixtures (1/1.0, 1.0M/1.00M, 0.0/-0.0) at the seek and
+prefix-stop boundaries for all four orders and occupancy-parity fixtures.
+The integrated matrix (instrumented content stores, fake clocks, no
+`with-redefs`) covers expiry before the first read, during fetch N, and at
+the post-read observation, work exhaustion before a node read, shared
+allowance across joins, negation, rules and several sources, parity with
+unbounded and materialized answers, zero-read refusal of every excluded
+path, and malformed-node, missing-segment and post-expiry cases. Bounded
+cold point and two-clause queries read at most 8 and 15 nodes at
+branching factor 4, beside the unbounded 4 and 15 regressions. Oracle
+verification against a Datomic Client backend is Phase 5.
 
 ### Exhaustion and exceptions
 
@@ -811,7 +939,7 @@ not the accepted feature boundary.
 | 0 — Contract and fixtures | Architect: this document. Engineer: corpus, README/errata/provenance, fixture namespace, conformance harness, oracle runner and dev-only dependency alias. | Every contract point classified; no fabricated oracle evidence; fixtures load portably; disputed behavior has explicit oracle cases; pending cases reported honestly. | 3–5 |
 | 1 — Adapter boundary and view workloads | Engineer: `src/cljc/dao/space/query/datomic.cljc`, `test/dao/space/query/datomic_test.cljc`, consumer fixtures and examples. | Both verified public arities; safe strings; argument/option validation; realized tuple/return-map output; pagination defaults/boundaries; finite pull profile validated; unsupported features refused; existing core result tests unchanged. | 4–7 |
 | 4a — Common bounded evaluator | Engineer: `query.cljc`, `query/execution.cljc`, adapter integration, affected pull/realization helpers and tests. | One state-passing evaluator for bounded and unbounded calls; checked materialized-source execution; preserved existential demand and rule scope; adapter entry-to-return accounting; fail-closed source admission; deterministic tests on all three hosts; unchanged public core contract and downstream behavior. | 20–32 total, including 4–6 already spent; 16–26 remaining |
-| 4b — Checked published-index traversal | Separate architecture-reviewed seam, then engineer implementation and portable read tests. | Per-fetch progress through root seek and subsequent traversal; one-in-flight guarantee on actual published indexes; no query state installed in borrowed trees; pull/special-form/fallback coverage; three-host counter evidence and lifecycle tests. | 12–20 provisional |
+| 4b — Checked published-index traversal | Reviewed seam (`dao.data.btree.cursor`, `read-node-blob`, the published-read descriptor, the checked producer in `query.cljc`), then engineer implementation and portable read tests. **Status: 4b-1 through 4b-3 implemented; 4b-4 qualification recorded here, pending independent confirmation and architect sign-off.** | Per-fetch progress through root seek and subsequent traversal; one-in-flight guarantee on actual published indexes; no query state installed in borrowed trees; pull/special-form/fallback coverage; three-host counter evidence and lifecycle tests. Admitted profile: `current`, no `as-of`, directly over a descriptored published value; all else refused. | 20–32 implementation, plus 5–8 review |
 | 2 — Deterministic language coverage | Engineer: `query.cljc`, aggregate/numeric tests and adapter tests. | Six specified aggregate capabilities added; arities and parameters preserved; empty/grouped/`:with` cases; abbreviated current-fact patterns; special-form edges; three-host numeric-domain agreement. | 6–10 |
 | 3 — Rules and semantic conformance | Engineer: core rules and `test/dao/space/query_rules_test.cljc`; corpus expansion. | Required-bound heads; left/right/mutual finite positive recursion; cycles, alternatives and unbound entry calls; immutable tabling/fixed-point correction where necessary; unsupported recursion through negation refused; fresh-value work bounded by Phase 4; existing VM rules pass. | 8–14 |
 | 5 — Qualification and integration | Engineer: complete conformance, counters, ownership and downstream tests. Architect: final matrix and status headers. | Supported cases verified; differences/refusals executable; read budgets hold; downstream callers pass; no remaining unverified claim inside the qualified exact domain; docs match implementation. Additionally requires evidence that Phase 4a restrictions are removed only for paths qualified by Phase 4b. | 7–11 |
