@@ -74,7 +74,7 @@
            "C memory to corrupt, and there is none."]
           [:h2 "Effects are interpreted, never performed"]
           [:p
-           "The deeper doctrine in datom.world (ADR 0004 in our docs) is that external effects are interpreted "
+           "The deeper doctrine in datom.world is that external effects are interpreted "
            "stream deposits. Guest code cannot touch the filesystem, the network, the process, or the entropy "
            "pool directly. It emits a deposit describing what it wants; a composition reads the deposit and "
            "decides. Effects are unforgeable values in the VM, minted only by the runtime, and what crosses "
