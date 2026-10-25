@@ -163,7 +163,23 @@
       (is (= 2 (count (shapes pk "templateStringLiteral"))))
       (testing "a brace after the template is a plain brace"
         (is (= 1 (count (typed pk "OpenBrace"))) "the object literal")
-        (is (= 1 (count (typed pk "CloseBrace"))))))))
+        (is (= 1 (count (typed pk "CloseBrace")))))))
+  (testing "a template inside an interpolated object literal"
+    (let [pk (parse "const s = `${{a: `x${y}`}.a}`;")]
+      (is (= 4 (count (typed pk "BackTick"))))
+      (is (= 2 (count (typed pk "TemplateStringStartExpression"))))
+      (is (= 2 (count (typed pk "TemplateCloseBrace"))))
+      (is (= 1 (count (typed pk "OpenBrace"))))
+      (is (= 1 (count (typed pk "CloseBrace"))))
+      (is (= 1 (count (shapes pk "objectLiteral"))))))
+  (testing "a template inside a plain block"
+    (let [pk (parse "{ `${a}` }")]
+      (is (= 1 (count (typed pk "CloseBrace"))))
+      (is (= 1 (count (typed pk "TemplateCloseBrace"))))))
+  (testing "a template inside a function body inside an interpolation"
+    (let [pk (parse "`${f(() => { return `${x}`; })}`")]
+      (is (= 2 (count (typed pk "TemplateCloseBrace"))))
+      (is (= 1 (count (typed pk "CloseBrace")))))))
 
 
 (deftest typeof-and-indexed-access-test
@@ -197,6 +213,51 @@
       (is (= ["<" ">"]
              (mapv :text (concat (typed pk "LessThan")
                                  (typed pk "MoreThan"))))))))
+
+
+;; The generic-call predicate scopes its abort set to nesting level 0, so
+;; object, tuple and function types are opaque to the scan.
+(deftest generic-call-nested-type-arguments-test
+  (doseq [src ["f<{a: string; b: number}>(x)"
+               "f<{ m(): void; [k: string]: number }>(x)"
+               "g<[number, string]>(y)"]]
+    (testing src
+      (let [pk (parse ts-worker src)]
+        (is (= 1 (count (shapes pk "expressionStatement"))))
+        (is (some #{["singleExpression" "typeArguments" "arguments"]}
+                  (shapes pk "singleExpression")))
+        (is (not-any? #(some #{"<"} %) (shapes pk "singleExpression"))))))
+  (testing ":js stays relational across statements"
+    (let [pk (parse js-worker "a < b; c > (d)")]
+      (is (= 2 (count (shapes pk "expressionStatement"))))
+      (is (not (rule? pk "typeArguments"))))))
+
+
+(deftest identifier-expression-tail-test
+  (testing "binary arithmetic is not an identifier followed by an expression"
+    (doseq [[src op] [["a + b" "+"] ["a - b" "-"]]]
+      (testing src
+        (let [ss (shapes (parse src) "singleExpression")]
+          (is (some #{["singleExpression" op "singleExpression"]} ss))
+          (is (not-any? #{["identifierName" "singleExpression"]} ss))))))
+  (testing "precedence"
+    (let [ss (shapes (parse "a + b * c") "singleExpression")]
+      (is (some #{["singleExpression" "+" "singleExpression"]} ss))
+      (is (some #{["singleExpression" "*" "singleExpression"]} ss))
+      (is (not-any? #{["identifierName" "singleExpression"]} ss))))
+  (testing "a newline separates statements"
+    (is (= 2 (count (shapes (parse "x\ny") "expressionStatement"))))))
+
+
+(deftest asi-test
+  (testing "return ends at the newline"
+    (let [pk (parse "return\nx")]
+      (is (= [["return" "eos"]] (shapes pk "returnStatement")))
+      (is (= 1 (count (shapes pk "expressionStatement"))))))
+  (testing "throw forbids a newline before its operand"
+    (is (= :yang.cst/syntax-error
+           (:yang.cst/outcome
+             (cst/parse-source ts-worker [:unit 0] "throw\nnew Error()"))))))
 
 
 (deftest regex-versus-division-test
