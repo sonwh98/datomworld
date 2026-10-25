@@ -5,7 +5,7 @@
    and its refusal namespace; everything here is a pure function of those."
   (:require
     [clojure.walk :as walk]
-    [yang.python.antlr.uast :as u]
+    [yang.core.uast :as u]
     [yin.vm :as vm]
     [yin.vm.module :as module]))
 

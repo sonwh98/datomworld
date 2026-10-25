@@ -342,6 +342,57 @@
           cps)))
 
 
+(defn- surrogate?
+  [cp]
+  (<= 0xD800 cp 0xDFFF))
+
+
+(defn- well-formed-utf16?
+  [s]
+  (not-any? surrogate? (text/code-points (string! 'well-formed-utf16? 0 s))))
+
+
+(defn- str-unit-length
+  "The number of UTF-16 code units of `s`."
+  [s]
+  (text/unit-count (string! 'str-unit-length 0 s)))
+
+
+(defn- str-unit-at
+  "The UTF-16 code unit of `s` at `i`, 0 to 0xFFFF."
+  [s i]
+  (let [n (text/unit-count (string! 'str-unit-at 0 s))
+        i (index! 'str-unit-at 1 i)]
+    (in-range! 'str-unit-at i 0 (dec n))
+    (text/code-unit s i)))
+
+
+(defn- str-units
+  "The UTF-16 code units of `s` as a vector."
+  [s]
+  (let [n (text/unit-count (string! 'str-units 0 s))]
+    (mapv #(text/code-unit s %) (range n))))
+
+
+(defn- units->str
+  "The host string of the code unit vector `units`, or, when the units hold
+   an unpaired surrogate (no host string may carry one), the refusal datum
+   `{::refusal :ill-formed-utf16}`."
+  [units]
+  (when-not (sequential? units)
+    (wrong-type! 'units->str 0 :sequential))
+  (let [us (mapv (fn [u]
+                   (let [c (integral u)]
+                     (when-not (and c (<= 0 c 0xFFFF))
+                       (wrong-type! 'units->str 0 :code-units))
+                     c))
+                 units)
+        s (text/units->string us)]
+    (if (well-formed-utf16? s)
+      s
+      {::refusal :ill-formed-utf16})))
+
+
 (defn- str-compare
   "-1, 0 or 1 as `a` orders before, with or after `b` by code point."
   [a b]
@@ -454,6 +505,11 @@
    ['str->code-points [1] str->code-points]
    ['code-points->str [1] code-points->str]
    ['str-compare [2] str-compare]
+   ['str-unit-length [1] str-unit-length]
+   ['str-unit-at [2] str-unit-at]
+   ['str-units [1] str-units]
+   ['units->str [1] units->str]
+   ['well-formed-utf16? [1] well-formed-utf16?]
    ['number? [1] data-number?]
    ['float64 [1] float64]
    ['float-value [1] float-value]

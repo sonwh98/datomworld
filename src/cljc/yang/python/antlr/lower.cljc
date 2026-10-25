@@ -64,12 +64,12 @@
     [clojure.walk :as walk]
     [dao.jing.cbor :as cbor]
     [yang.antlr.packet :as p]
+    [yang.core.lower :as core]
+    [yang.core.stage :as core-stage]
+    [yang.core.uast :as u]
     [yang.python.antlr.prelude :as prelude]
     [yang.python.antlr.scope :as scope]
-    [yang.python.antlr.uast :as u]
-    [yang.stage :as stage]
     [yin.vm :as vm]
-    [yin.vm.encoder :as encoder]
     [yin.vm.integer :as integer]
     [yin.vm.module :as module]))
 
@@ -78,21 +78,17 @@
 ;; Diagnostics
 ;; =============================================================================
 
+(def ^:private diagnostic-ns "yang.python.antlr")
+
+
 (defn- unsupported!
   [n construct]
-  (throw (ex-info (str "Unsupported Python construct: " construct)
-                  {:yang.python.antlr/diagnostic :yang.python.antlr/unsupported,
-                   :rule (:rule n),
-                   :construct construct,
-                   :span (:span n)})))
+  (core/unsupported! diagnostic-ns "Python" n construct))
 
 
 (defn- syntax!
   [n message]
-  (throw (ex-info message
-                  {:yang.python.antlr/diagnostic :yang.python.antlr/syntax,
-                   :rule (:rule n),
-                   :span (:span n)})))
+  (core/syntax! diagnostic-ns n message))
 
 
 (def unsupported-rules
@@ -171,37 +167,23 @@
 
 (defn- default-arm
   [n]
-  (if-let [construct (get unsupported-rules (:rule n))]
-    (unsupported! n construct)
-    (throw (ex-info (str "Unhandled grammar rule: " (:rule n))
-                    {:yang.python.antlr/diagnostic
-                     :yang.python.antlr/unhandled-rule,
-                     :rule (:rule n),
-                     :span (:span n)}))))
+  (core/default-arm diagnostic-ns "Python" unsupported-rules n))
 
 
 ;; =============================================================================
 ;; Small helpers
 ;; =============================================================================
 
-(defn- gen
-  [prefix n]
-  (symbol (str "%" prefix (:id n))))
+(def ^:private gen core/gen)
 
 
-(defn- kids
-  [ctx n]
-  (p/children (:pk ctx) n))
+(def ^:private kids core/kids)
 
 
-(defn- rules
-  [ctx n rule-name]
-  (p/child-rules (:pk ctx) n rule-name))
+(def ^:private rules core/rules)
 
 
-(defn- rule-kids
-  [ctx n]
-  (filterv p/rule? (kids ctx n)))
+(def ^:private rule-kids core/rule-kids)
 
 
 (defn- name-of
@@ -210,13 +192,7 @@
   (:text (first (kids ctx n))))
 
 
-(defn- site
-  "`node` marked as a safepoint site of `kind` (`:loop`, `:call`, `:line`),
-   a keyword or a vector `[kind datum ...]`. The mark is map metadata, so it never enters a canonical row: projection
-   puts it in the frontend-metadata side table, where `yang.safepoint`
-   finds it."
-  [kind node]
-  (vary-meta node assoc :yang/site kind))
+(def ^:private site core/site)
 
 
 (defn- newline-lines
@@ -252,9 +228,7 @@
     (site [:line (line-of ctx n)] node)))
 
 
-(defn- app*
-  [op-sym & args]
-  (apply u/app (u/v op-sym) args))
+(def ^:private app* core/app*)
 
 
 (defn- build-vector
@@ -270,16 +244,7 @@
 (def ^:private none (u/lit :py/None))
 
 
-(defn- contains-rule?
-  "True when `rule-name` occurs below `n` without crossing any `stop` rule."
-  [ctx n rule-name stop]
-  (boolean
-    (some (fn [k]
-            (and (p/rule? k)
-                 (or (= rule-name (:rule k))
-                     (and (not (contains? stop (:rule k)))
-                          (contains-rule? ctx k rule-name stop)))))
-          (kids ctx n))))
+(def ^:private contains-rule? core/contains-rule?)
 
 
 (def ^:private scope-rules #{"funcdef" "lambdef" "lambdef_nocond" "classdef"})
@@ -2031,7 +1996,7 @@
 
 (defn- context
   [packet unit display?]
-  (let [pk (p/validate! packet)
+  (let [pk (p/validate! packet {:diagnostic-ns diagnostic-ns})
         analysis (scope/analyze pk)]
     {:pk pk,
      :display-id (when display? (display-statement pk)),
@@ -2085,7 +2050,7 @@
    import_module calls that deliver guest modules need the linked profile."
   ([packet] (lower-packet packet {}))
   ([packet {:keys [prelude], :or {prelude :bundled}}]
-   (let [pk (p/validate! packet)
+   (let [pk (p/validate! packet {:diagnostic-ns diagnostic-ns})
          main (app* 'py/run-main
                     (u/lam [globals-sym globals-fn-sym]
                            (lower-module-body packet)))]
@@ -2352,59 +2317,33 @@
 ;; The lowering stage
 ;; =============================================================================
 
-(defn- diagnostic
-  [unit data message]
-  (merge {:yang.cst/unit unit, :message message}
-         (select-keys data [:yang.python.antlr/diagnostic :rule :construct
-                            :span :name])))
-
-
 (def program-medium
   "The program medium's logical identity when the composition names none."
   :yang.python.antlr/program)
 
 
+(def ^:private stage-config
+  {:diagnostic-ns diagnostic-ns,
+   :program-medium program-medium,
+   :ok? #(= :yang.cst/ok (:yang.cst/outcome %)),
+   :lower (fn [state packet]
+            (lower-packet packet {:prelude (get state :prelude :bundled)})),
+   :option-keys [:max-digits :prelude]})
+
+
 (defn lower-transform
-  "The lowering stage's transform: an ok packet becomes one program batch on
-   port `:program`, a source envelope (`yin.vm.encoder/source-envelope`)
-   whose one member is the map AST, so its `:yang/site` marks reach the
-   frontend-metadata side table when the encoder projects it. The medium is
-   the state's `:medium` and the batch token is the packet's unit. A packet
-   that is not ok, or a lowering diagnostic, becomes one record on port
-   `:diagnostics` and no program. The state's `:max-digits`, when the
-   composition declares one, is the digit budget of a packet that
-   declares none; its `:prelude` (`:bundled` by default, or `:linked`)
-   is `lower-packet`'s. Stateless."
+  "The lowering stage's transform (`yang.core.stage/lower-transform`). The
+   state's `:max-digits`, when the composition declares one, is the digit
+   budget of a packet that declares none; its `:prelude` (`:bundled` by
+   default, or `:linked`) is `lower-packet`'s. Stateless."
   [state packet]
-  (let [unit (:yang.cst/unit packet)
-        packet (if (and (contains? state :max-digits)
-                        (not (contains? packet :yang.python.antlr/max-digits)))
-                 (assoc packet
-                        :yang.python.antlr/max-digits (:max-digits state))
-                 packet)]
-    (if (= :yang.cst/ok (:yang.cst/outcome packet))
-      (try
-        [state [[:program (encoder/source-envelope
-                            (get state :medium program-medium)
-                            unit
-                            [(lower-packet packet
-                                           {:prelude (get state :prelude
-                                                          :bundled)})])]]]
-        ;; ClojureDart's ex-info type is not catchable by name portably;
-        ;; anything without a diagnostic in its ex-data is rethrown below
-        (catch #?(:cljd Object
-                  :clj clojure.lang.ExceptionInfo
-                  :cljs ExceptionInfo)
-               e
-          (if (:yang.python.antlr/diagnostic (ex-data e))
-            [state [[:diagnostics (diagnostic unit (ex-data e) (ex-message e))]]]
-            (throw e))))
-      [state
-       [[:diagnostics {:yang.cst/unit unit,
-                       :yang.python.antlr/diagnostic
-                       (keyword "yang.python.antlr"
-                                (name (:yang.cst/outcome packet))),
-                       :errors (:yang.cst/errors packet)}]]])))
+  (core-stage/lower-transform
+    stage-config
+    state
+    (if (and (contains? state :max-digits)
+             (not (contains? packet :yang.python.antlr/max-digits)))
+      (assoc packet :yang.python.antlr/max-digits (:max-digits state))
+      packet)))
 
 
 (defn open-stage
@@ -2415,22 +2354,25 @@
    argument may instead be an options map `{:medium :max-digits
    :prelude}`; `:prelude` is `lower-packet`'s, `:bundled` by default."
   ([cst-stream program-stream diagnostics-stream]
-   (open-stage cst-stream program-stream diagnostics-stream program-medium))
+   (core-stage/open-stage stage-config
+                          cst-stream
+                          program-stream
+                          diagnostics-stream))
   ([cst-stream program-stream diagnostics-stream medium-or-opts]
-   (stage/open cst-stream
-               {:program program-stream, :diagnostics diagnostics-stream}
-               (if (map? medium-or-opts)
-                 (let [{:keys [medium], :or {medium program-medium}}
-                       medium-or-opts]
-                   (assoc (select-keys medium-or-opts [:max-digits :prelude])
-                          :medium medium))
-                 {:medium medium-or-opts})))
+   (core-stage/open-stage stage-config
+                          cst-stream
+                          program-stream
+                          diagnostics-stream
+                          medium-or-opts))
   ([cst-stream program-stream diagnostics-stream medium max-digits]
-   (stage/open cst-stream
-               {:program program-stream, :diagnostics diagnostics-stream}
-               {:medium medium, :max-digits max-digits})))
+   (core-stage/open-stage stage-config
+                          cst-stream
+                          program-stream
+                          diagnostics-stream
+                          medium
+                          max-digits)))
 
 
 (defn step-stage
   [s]
-  (stage/step s lower-transform))
+  (core-stage/step-stage stage-config s))
