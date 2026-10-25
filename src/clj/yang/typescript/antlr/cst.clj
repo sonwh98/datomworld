@@ -10,7 +10,8 @@
    `:js` it is relational. Template-literal depth and regex-versus-division
    context are tracked by the lexer base class."
   (:require
-    [yang.antlr.cst :as cst])
+    [yang.antlr.cst :as cst]
+    [yang.stage :as stage])
   (:import
     (yang.typescript.antlr.gen
       TypeScriptLexer
@@ -45,3 +46,34 @@
   "Parse one complete source string as unit `unit`: the CST packet."
   ([source] (parse-source (make-worker) [:unit 0] source))
   ([worker unit source] (cst/parse-unit worker unit source)))
+
+
+(defn- with-options
+  "`transform` with every packet it writes carrying `:yang.cst/options`,
+   `{:dialect dialect}`, so the lowering reads the dialect from the packet."
+  [transform dialect]
+  (fn [state event]
+    (let [[state' outputs] (transform state event)]
+      [state'
+       (mapv (fn [[port value]]
+               [port
+                (if (map? value)
+                  (assoc value :yang.cst/options {:dialect dialect})
+                  value)])
+             outputs)])))
+
+
+(defn open-stage
+  "A parser stage reading source events from `source-stream` and writing
+   CST packets to `cst-stream`, with its own worker for `dialect` (default
+   `:ts`). Every packet carries `:yang.cst/options {:dialect dialect}`."
+  ([source-stream cst-stream] (open-stage source-stream cst-stream :ts))
+  ([source-stream cst-stream dialect]
+   (assoc (stage/open source-stream {:cst cst-stream} {})
+          ::transform (with-options (cst/parse-transform (make-worker dialect))
+                        dialect))))
+
+
+(defn step-stage
+  [s]
+  (stage/step s (::transform s)))

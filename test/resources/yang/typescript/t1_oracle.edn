@@ -1,0 +1,122 @@
+{:header {:node "v25.6.1", :generated "2026-10-25", :generator "src/dev/yang_ts_oracle.clj"}
+ :entries [
+{:id :num-literals, :out ["0 1 42 3.5 0.5 1000 1.5e-7 16 15 5 0.5"], :exit 0}
+{:id :num-add-float, :out ["0.30000000000000004"], :exit 0}
+{:id :num-neg-zero, :out ["-0 -Infinity Infinity -Infinity NaN"], :exit 0}
+{:id :num-neg-zero-string, :out ["0 true 0"], :exit 0}
+{:id :num-big-int-boundary, :out ["9007199254740992 9007199254740992 9007199254740994"], :exit 0}
+{:id :num-thresholds, :out ["1e+21 1e-7 123456789012345680000 0.000001 100000000000000000000 1.23e-18"], :exit 0}
+{:id :num-mod, :out ["1.5 -1.5 1 -1 NaN 0"], :exit 0}
+{:id :num-pow, :out ["1024 0.5 512 -8 1"], :exit 0}
+{:id :num-arith, :out ["7 9 3.5 -3 -4 5"], :exit 0}
+{:id :num-infinity, :out ["Infinity -Infinity NaN NaN false"], :exit 0}
+{:id :num-increment, :out ["2 1 3 3"], :exit 0}
+{:id :num-bitwise, :out ["1 7 6 -6 0 -1 6"], :exit 0}
+{:id :num-shifts, :out ["-2147483648 1 -4 15 4294967295 0 2"], :exit 0}
+{:id :num-int32, :out ["-2147483648 0 2147483647 3 -3 0"], :exit 0}
+{:id :num-comparison, :out ["true true false true false false true true false"], :exit 0}
+{:id :num-bigint-arith, :out ["15n -5n 42n 3n -3n 1n -1n 1180591620717411303424n"], :exit 0}
+{:id :num-bigint-bitwise, :out ["1n 7n 6n -6n 1180591620717411303424n -5n"], :exit 0}
+{:id :num-bigint-compare, :out ["true true true false true true"], :exit 0}
+{:id :num-bigint-mix-error, :out ["TypeError"], :exit 0}
+{:id :num-bigint-ushr, :out ["TypeError"], :exit 0}
+{:id :coerce-to-number-strings, :out ["12 0 16 1000 Infinity NaN 3 7 0 -5 0.5 5 5"], :exit 0}
+{:id :coerce-to-number-kinds, :out ["1 0 0 NaN 1 0"], :exit 0}
+{:id :coerce-to-string-kinds, :out ["1 true null undefined 1 0.1 1e+21 s "], :exit 0}
+{:id :coerce-to-boolean-kinds, :out ["false false false false false false false true true true true"], :exit 0}
+{:id :coerce-loose-eq-null, :out ["true false false false true true"], :exit 0}
+{:id :coerce-loose-eq-numstr, :out ["true true true false true true false true"], :exit 0}
+{:id :coerce-loose-eq-bool, :out ["true true true true false false false"], :exit 0}
+{:id :coerce-loose-eq-bigint, :out ["true true true false false false"], :exit 0}
+{:id :coerce-strict-eq, :out ["true false false true true false true true"], :exit 0}
+{:id :coerce-add-mixed, :out ["12 12 33 123 2 1 NaN 2 anull aundefined"], :exit 0}
+{:id :coerce-arith-strings, :out ["12 2.5 3 3 NaN 1 8"], :exit 0}
+{:id :coerce-relational, :out ["true false false true false true true true"], :exit 0}
+{:id :coerce-logical, :out ["x 1 0 x e c 5"], :exit 0}
+{:id :coerce-typeof-kinds, :out ["number string undefined object boolean function bigint function number"], :exit 0}
+{:id :coerce-typeof-undeclared, :out ["undefined string"], :exit 0}
+{:id :coerce-void-comma, :out ["undefined undefined 3"], :exit 0}
+{:id :coerce-template, :out ["3a x2y null undefined true 1 0.30000000000000004"], :exit 0}
+{:id :scope-var-hoist, :out ["undefined" "5"], :exit 0}
+{:id :scope-function-hoist, :out ["hoisted"], :exit 0}
+{:id :scope-var-in-block, :out ["1"], :exit 0}
+{:id :scope-let-block, :out ["2" "1"], :exit 0}
+{:id :scope-shadow-param, :out ["11 1"], :exit 0}
+{:id :scope-tdz-let, :out ["Uncaught ReferenceError: Cannot access 'x' before initialization"], :exit 0}
+{:id :scope-tdz-const, :out ["ReferenceError Cannot access 'c' before initialization"], :exit 0}
+{:id :scope-tdz-function, :out ["ReferenceError Cannot access 'late' before initialization" "2"], :exit 0}
+{:id :scope-const-assign, :out ["TypeError Assignment to constant variable." "1"], :exit 0}
+{:id :scope-undeclared-read, :out ["ReferenceError missing is not defined"], :exit 0}
+{:id :scope-undeclared-assign, :out ["ReferenceError"], :exit 0}
+{:id :scope-for-let-closures, :out ["0 1 2"], :exit 0}
+{:id :scope-for-var-closures, :out ["3 3 3"], :exit 0}
+{:id :scope-for-let-mutation, :out ["1"], :exit 0}
+{:id :scope-catch-binding, :out ["inner" "outer"], :exit 0}
+{:id :scope-catch-optional, :out ["optional"], :exit 0}
+{:id :scope-function-expr-name, :out ["function undefined"], :exit 0}
+{:id :scope-this-bare, :out ["undefined"], :exit 0}
+{:id :scope-this-arrow, :out ["undefined"], :exit 0}
+{:id :scope-for-let-first-iteration, :out ["0"], :exit 0}
+{:id :scope-function-expr-name-const, :out ["TypeError" "function"], :exit 0}
+{:id :control-if-else, :out ["neg zero pos"], :exit 0}
+{:id :control-do-while, :out ["11"], :exit 0}
+{:id :control-for, :out ["55"], :exit 0}
+{:id :control-for-empty, :out ["5"], :exit 0}
+{:id :control-break-continue, :out ["12"], :exit 0}
+{:id :control-labelled-break, :out ["2"], :exit 0}
+{:id :control-labelled-block, :out ["in" "out"], :exit 0}
+{:id :control-labelled-while, :out ["3"], :exit 0}
+{:id :control-label-chain-continue-outer, :out ["3"], :exit 0}
+{:id :control-label-chain-continue-inner, :out ["3"], :exit 0}
+{:id :control-label-chain-break-outer, :out ["2"], :exit 0}
+{:id :control-label-chain-block, :out ["in" "out"], :exit 0}
+{:id :control-switch-fallthrough, :out ["b" "c"], :exit 0}
+{:id :control-switch-default-mid, :out ["dflt" "one two two"], :exit 0}
+{:id :control-switch-strict, :out ["str"], :exit 0}
+{:id :control-switch-no-match, :out ["done"], :exit 0}
+{:id :control-short-circuit, :out ["1"], :exit 0}
+{:id :control-fizz, :out ["1" "2" "Fizz" "4" "Buzz" "Fizz" "7" "8" "Fizz" "Buzz" "11" "Fizz" "13" "14" "FizzBuzz"], :exit 0}
+{:id :func-declaration, :out ["3 ab NaN"], :exit 0}
+{:id :func-arrow, :out ["25 7 i"], :exit 0}
+{:id :func-no-return, :out ["undefined undefined"], :exit 0}
+{:id :func-recursion, :out ["3628800 2432902008176640000 1.5511210043330986e+25"], :exit 0}
+{:id :func-mutual, :out ["true true"], :exit 0}
+{:id :func-print-function, :out ["[Function: named] [Function: anon] [Function: arrow]"], :exit 0}
+{:id :func-this-undefined, :out ["true"], :exit 0}
+{:id :func-early-return, :out ["30 -1"], :exit 0}
+{:id :func-return-in-loops, :out ["8"], :exit 0}
+{:id :closure-counter, :out ["3"], :exit 0}
+{:id :closure-independent, :out ["3 1"], :exit 0}
+{:id :closure-in-loop-while, :out ["1"], :exit 0}
+{:id :exc-throw-catch, :out ["caught boom Error"], :exit 0}
+{:id :exc-error-kinds, :out ["Error TypeError ReferenceError RangeError SyntaxError" "TypeError: b RangeError: d"], :exit 0}
+{:id :exc-error-fields, :out ["Error m Error: m object"], :exit 0}
+{:id :exc-finally-ordering, :out ["try" "finally"], :exit 0}
+{:id :exc-finally-return, :out ["f" "r"], :exit 0}
+{:id :exc-finally-overrides, :out ["finally"], :exit 0}
+{:id :exc-finally-break, :out ["body 0" "fin 0" "fin 1"], :exit 0}
+{:id :exc-finally-continue, :out ["body 0" "fin 0" "fin 1" "body 2" "fin 2"], :exit 0}
+{:id :exc-finally-throw, :out ["cleanup" "outer caught inner"], :exit 0}
+{:id :exc-catch-finally, :out ["c 1" "f"], :exit 0}
+{:id :exc-rethrow, :out ["first"], :exit 0}
+{:id :exc-thrown-primitive, :out ["42 number"], :exit 0}
+{:id :exc-through-function, :out ["RangeError deep"], :exit 0}
+{:id :exc-uncaught-error, :out ["before" "Uncaught Error: boom"], :exit 0}
+{:id :exc-uncaught-primitive, :out ["p" "Uncaught 7"], :exit 0}
+{:id :exc-uncaught-string, :out ["Uncaught bare"], :exit 0}
+{:id :exc-uncaught-type-error, :out ["x" "Uncaught TypeError: Cannot read properties of null (reading 'p')"], :exit 0}
+{:id :exc-property-of-undefined, :out ["TypeError"], :exit 0}
+{:id :exc-try-value-flow, :out ["done false" "good" "done true" "caught bad"], :exit 0}
+{:id :str-index-slice, :out ["ell llo llo hell "], :exit 0}
+{:id :str-substring-indexof, :out ["el 2 -1 o h"], :exit 0}
+{:id :str-charcodeat, :out ["65 99 NaN"], :exit 0}
+{:id :str-surrogate-length, :out ["2 2"], :exit 0}
+{:id :str-surrogate-charcodeat, :out ["55357 56832 128512 56832"], :exit 0}
+{:id :str-surrogate-slice, :out ["1 55357 56832"], :exit 0}
+{:id :str-surrogate-index, :out ["1 56832"], :exit 0}
+{:id :str-surrogate-concat, :out ["true 2 55357"], :exit 0}
+{:id :str-lone-surrogate-eq, :out ["true false 1 55296"], :exit 0}
+{:id :str-lone-surrogate-concat, :out ["1 2 true"], :exit 0}
+{:id :str-compare, :out ["true false true true true true false"], :exit 0}
+{:id :str-escapes, :out ["a\tb q'q d\"d AAA 3"], :exit 0}
+{:id :str-template-substitutions, :out ["hello w 2 + 2 = 4 ab"], :exit 0}]}

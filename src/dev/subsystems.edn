@@ -55,6 +55,10 @@
    :prefixes ["yang.python" "yang.antlr"]
    :layer 3}
 
+  {:name "yang.typescript"
+   :prefixes ["yang.typescript"]
+   :layer 3}
+
   {:name "yang.base"
    :prefixes ["yang.clojure" "yang.php" "yang.frontend" "yang.safepoint"
               "yang.stage" "yang.tails" "yang.io"]
