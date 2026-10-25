@@ -981,12 +981,12 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest closure-totals-are-the-design-totals
-  (testing "§3.1 after H4: 147 / 145 / 146 files, 139 shared"
+  (testing "§3.1 after H4 + the yang.core L2 regeneration: 154 / 152 / 153 files, 146 shared"
     (let [files (into {} (map (fn [l] [l (set (map :file (:files (committed-closure l))))]) lanes))]
-      (is (= 147 (count (files :clj))))
-      (is (= 145 (count (files :cljs))))
-      (is (= 146 (count (files :cljd))))
-      (is (= 139 (count (apply set/intersection (vals files)))))
+      (is (= 154 (count (files :clj))))
+      (is (= 152 (count (files :cljs))))
+      (is (= 153 (count (files :cljd))))
+      (is (= 146 (count (apply set/intersection (vals files)))))
       (doseq [l lanes]
         (is (= (count (files l)) (:total (committed-closure l))))
         (is (every? #(seq (:classes %)) (:files (committed-closure l))))))))
@@ -1003,8 +1003,8 @@
 
 (deftest gate-passes-on-the-current-tree
   (let [r @current]
-    (is (= 159 (count (closure-files))) "the union of the three lanes")
-    (is (= 159 (count (gate-files))) "no profile addition outside the closure after H3")
+    (is (= 166 (count (closure-files))) "the union of the three lanes")
+    (is (= 166 (count (gate-files))) "no profile addition outside the closure after H3")
     (is (= (count (gate-files)) (:scanned r)))
     (is (= [] (:errors r)))
     (is (= [] (:arm-violations r)))
