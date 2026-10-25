@@ -20,7 +20,7 @@
  ;; build/antlr/python3/classes: the generated Python3 parser, produced by
  ;; `clj -M:antlr-gen` (antlr/python3/manifest.edn); absent until generated
  :paths ["src/clj" "src/cljc" "src/cljs" "src/cljd"
-         "build/antlr/python3/classes"]
+         "build/antlr/python3/classes" "build/antlr/php/classes"]
  :aliases {:clean {:extra-paths ["src/dev"]
                    :exec-fn clean/clean}
            :profile-btree {:extra-paths ["src/dev"]
