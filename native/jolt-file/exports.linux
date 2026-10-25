@@ -1,0 +1,18 @@
+{
+  global:
+    jolt_file_layout_version;
+    jolt_file_eintr;
+    jolt_file_make_parents;
+    jolt_file_open;
+    jolt_file_length;
+    jolt_file_pread;
+    jolt_file_pwrite;
+    jolt_file_truncate;
+    jolt_file_sync;
+    jolt_file_close;
+    jolt_file_s32be_get;
+    jolt_file_s32be_put;
+    jolt_file_strerror;
+  local:
+    *;
+};

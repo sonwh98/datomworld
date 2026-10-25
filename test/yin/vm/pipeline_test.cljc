@@ -418,31 +418,28 @@
 
 
 (deftest a-nil-literal-round-trips-through-durable-storage
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [path (temp-path)
-           ast (lam '[x] (app (v 'f) (lit nil) (v 'x)))]
-       (try
-         (let [store (jing-file/create-content-file path)
-               result (persist! ast (recording-writer) store)
-               address (get-in result [:projected :address])
-               _ (jing/close! store)
-               ;; reopen: the envelope now comes back through the backend's
-               ;; own text codec, replayed from disk
-               reopened (jing-file/create-content-file path)
-               stored (:yin.debruijn/datoms (jing/get reopened address ::absent))]
-           (jing/close! reopened)
-           (is (= :ok (:outcome (:projected result))))
-           (is (some (fn [d] (and (= :yin.debruijn/value (nth d 1)) (nil? (nth d 2))))
-                     stored)
-               "the nil-valued datom survived storage as a present fact")
-           (is (= (select-keys (debruijn/project-datoms
-                                 (second (vm/ast->datoms-with-root ast)))
-                               [:fingerprint :records])
-                  (debruijn/datoms->projected stored))
-               "the reader verifies every stored record: no :hash-mismatch"))
-         (finally (cleanup-file path))))))
+  (let [path (temp-path)
+        ast (lam '[x] (app (v 'f) (lit nil) (v 'x)))]
+    (try
+      (let [store (jing-file/create-content-file path)
+            result (persist! ast (recording-writer) store)
+            address (get-in result [:projected :address])
+            _ (jing/close! store)
+            ;; reopen: the envelope now comes back through the backend's
+            ;; own text codec, replayed from disk
+            reopened (jing-file/create-content-file path)
+            stored (:yin.debruijn/datoms (jing/get reopened address ::absent))]
+        (jing/close! reopened)
+        (is (= :ok (:outcome (:projected result))))
+        (is (some (fn [d] (and (= :yin.debruijn/value (nth d 1)) (nil? (nth d 2))))
+                  stored)
+            "the nil-valued datom survived storage as a present fact")
+        (is (= (select-keys (debruijn/project-datoms
+                              (second (vm/ast->datoms-with-root ast)))
+                            [:fingerprint :records])
+               (debruijn/datoms->projected stored))
+            "the reader verifies every stored record: no :hash-mismatch"))
+      (finally (cleanup-file path)))))
 
 
 (def ^:private durable-programs
@@ -495,33 +492,30 @@
 
 
 (deftest every-node-type-and-scalar-class-round-trips-through-durable-storage
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [path (temp-path)]
-       (try
-         (let [store (jing-file/create-content-file path)
-               addresses (mapv (fn [ast]
-                                 (get-in (persist! ast (recording-writer) store)
-                                         [:projected :address]))
-                               durable-programs)
-               _ (jing/close! store)
-               reopened (jing-file/create-content-file path)
-               stored (mapv (fn [address]
-                              (:yin.debruijn/datoms (jing/get reopened address ::absent)))
-                            addresses)]
-           (jing/close! reopened)
-           (is (every? jing/segment-address? addresses))
-           ;; content=: floating-point content decodes to its portable
-           ;; carrier on JavaScript, which host = cannot compare to a number
-           (doseq [[ast datoms] (map vector durable-programs stored)]
-             (is (cbor/content= (select-keys (debruijn/project-datoms
-                                               (second
-                                                 (vm/ast->datoms-with-root ast)))
-                                             [:fingerprint :records])
-                                (debruijn/datoms->projected datoms))
-                 "the reopened envelope reads back to the original projection")))
-         (finally (cleanup-file path))))))
+  (let [path (temp-path)]
+    (try
+      (let [store (jing-file/create-content-file path)
+            addresses (mapv (fn [ast]
+                              (get-in (persist! ast (recording-writer) store)
+                                      [:projected :address]))
+                            durable-programs)
+            _ (jing/close! store)
+            reopened (jing-file/create-content-file path)
+            stored (mapv (fn [address]
+                           (:yin.debruijn/datoms (jing/get reopened address ::absent)))
+                         addresses)]
+        (jing/close! reopened)
+        (is (every? jing/segment-address? addresses))
+        ;; content=: floating-point content decodes to its portable
+        ;; carrier on JavaScript, which host = cannot compare to a number
+        (doseq [[ast datoms] (map vector durable-programs stored)]
+          (is (cbor/content= (select-keys (debruijn/project-datoms
+                                            (second
+                                              (vm/ast->datoms-with-root ast)))
+                                          [:fingerprint :records])
+                             (debruijn/datoms->projected datoms))
+              "the reopened envelope reads back to the original projection")))
+      (finally (cleanup-file path)))))
 
 
 (def ^:private host

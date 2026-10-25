@@ -872,327 +872,300 @@
 
 
 (deftest lazy-published-point-clause-and-entity-projection-equivalence
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [test-datoms
-           [[42 :user/email "ada@example.com" 1 1] [42 :user/name "Ada" 1 1]
-            [42 :user/role 100 1 1] [100 :role/name :admin 1 1]
-            [43 :user/email "grace@example.com" 1 1] [43 :user/name "Grace" 1 1]
-            ;; Add an asserted and then retracted datom (matching e a v)
-            [42 :user/status :active 1 1] [42 :user/status :active 2 0]]
-           fx (publish-into-file test-datoms)
-           eager-cur (query/current (rel test-datoms))
-           lazy-cur (query/current (:opened fx))]
-       (try (testing "q point-clause equivalence: lazy current matches eager"
-              (let [query-form '[:find ?v :where [$ 42 :user/email ?v]]]
-                (is (= (query/collect (query/q query-form eager-cur))
-                       (query/collect (query/q query-form lazy-cur))))
-                (is (= #{["ada@example.com"]}
-                       (query/collect (query/q query-form lazy-cur))))))
-            (testing "get-else / missing? equivalence over lazy current view"
-              (let [q-get-else '[:find ?name :where
-                                 [(get-else $ 42 :user/name "default") ?name]]
-                    q-get-else-missing
-                    '[:find ?val :where
-                      [(get-else $ 42 :user/nonexistent "default") ?val]]
-                    q-missing-false '[:find ?e :where [$ ?e :user/name _]
-                                      [(missing? $ ?e :user/name)]]
-                    q-missing-true '[:find ?e :where [$ ?e :user/name _]
-                                     [(missing? $ ?e :user/status)]]]
-                (is (= (query/collect (query/q q-get-else eager-cur))
-                       (query/collect (query/q q-get-else lazy-cur))))
-                (is (= #{["Ada"]} (query/collect (query/q q-get-else lazy-cur))))
-                (is (= (query/collect (query/q q-get-else-missing eager-cur))
-                       (query/collect (query/q q-get-else-missing lazy-cur))))
-                (is (= #{["default"]}
-                       (query/collect (query/q q-get-else-missing lazy-cur))))
-                (is (= (query/collect (query/q q-missing-false eager-cur))
-                       (query/collect (query/q q-missing-false lazy-cur))))
-                (is (= #{} (query/collect (query/q q-missing-false lazy-cur))))
-                (is (= (query/collect (query/q q-missing-true eager-cur))
-                       (query/collect (query/q q-missing-true lazy-cur))))
-                (is (= #{[42] [43]}
-                       (query/collect (query/q q-missing-true lazy-cur))))))
-            (testing "pull and pull-many equivalence over lazy current view"
-              (let [pattern [:db/id :user/email :user/name
-                             {:user/role [:db/id :role/name]}]]
-                (is (= (query/pull eager-cur 42 pattern)
-                       (query/pull lazy-cur 42 pattern)))
-                (is (= {:db/id 42,
-                        :user/email "ada@example.com",
-                        :user/name "Ada",
-                        :user/role {:db/id 100, :role/name :admin}}
-                       (query/pull lazy-cur 42 pattern)))
-                (is (= (query/pull-many eager-cur [42 43 99] pattern)
-                       (query/pull-many lazy-cur [42 43 99] pattern)))))
-            (finally (query/close-published! (:opened fx))
-                     (jing/close! (:store fx))
-                     (cleanup-file (:path fx)))))))
+  (let [test-datoms
+        [[42 :user/email "ada@example.com" 1 1] [42 :user/name "Ada" 1 1]
+         [42 :user/role 100 1 1] [100 :role/name :admin 1 1]
+         [43 :user/email "grace@example.com" 1 1] [43 :user/name "Grace" 1 1]
+         ;; Add an asserted and then retracted datom (matching e a v)
+         [42 :user/status :active 1 1] [42 :user/status :active 2 0]]
+        fx (publish-into-file test-datoms)
+        eager-cur (query/current (rel test-datoms))
+        lazy-cur (query/current (:opened fx))]
+    (try (testing "q point-clause equivalence: lazy current matches eager"
+           (let [query-form '[:find ?v :where [$ 42 :user/email ?v]]]
+             (is (= (query/collect (query/q query-form eager-cur))
+                    (query/collect (query/q query-form lazy-cur))))
+             (is (= #{["ada@example.com"]}
+                    (query/collect (query/q query-form lazy-cur))))))
+         (testing "get-else / missing? equivalence over lazy current view"
+           (let [q-get-else '[:find ?name :where
+                              [(get-else $ 42 :user/name "default") ?name]]
+                 q-get-else-missing
+                 '[:find ?val :where
+                   [(get-else $ 42 :user/nonexistent "default") ?val]]
+                 q-missing-false '[:find ?e :where [$ ?e :user/name _]
+                                   [(missing? $ ?e :user/name)]]
+                 q-missing-true '[:find ?e :where [$ ?e :user/name _]
+                                  [(missing? $ ?e :user/status)]]]
+             (is (= (query/collect (query/q q-get-else eager-cur))
+                    (query/collect (query/q q-get-else lazy-cur))))
+             (is (= #{["Ada"]} (query/collect (query/q q-get-else lazy-cur))))
+             (is (= (query/collect (query/q q-get-else-missing eager-cur))
+                    (query/collect (query/q q-get-else-missing lazy-cur))))
+             (is (= #{["default"]}
+                    (query/collect (query/q q-get-else-missing lazy-cur))))
+             (is (= (query/collect (query/q q-missing-false eager-cur))
+                    (query/collect (query/q q-missing-false lazy-cur))))
+             (is (= #{} (query/collect (query/q q-missing-false lazy-cur))))
+             (is (= (query/collect (query/q q-missing-true eager-cur))
+                    (query/collect (query/q q-missing-true lazy-cur))))
+             (is (= #{[42] [43]}
+                    (query/collect (query/q q-missing-true lazy-cur))))))
+         (testing "pull and pull-many equivalence over lazy current view"
+           (let [pattern [:db/id :user/email :user/name
+                          {:user/role [:db/id :role/name]}]]
+             (is (= (query/pull eager-cur 42 pattern)
+                    (query/pull lazy-cur 42 pattern)))
+             (is (= {:db/id 42,
+                     :user/email "ada@example.com",
+                     :user/name "Ada",
+                     :user/role {:db/id 100, :role/name :admin}}
+                    (query/pull lazy-cur 42 pattern)))
+             (is (= (query/pull-many eager-cur [42 43 99] pattern)
+                    (query/pull-many lazy-cur [42 43 99] pattern)))))
+         (finally (query/close-published! (:opened fx))
+                  (jing/close! (:store fx))
+                  (cleanup-file (:path fx))))))
 
 
 (deftest opened-published-index-stays-open-across-queries
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [fx (publish-into-file [[42 :user/email "ada@example.com" 1 1]])
-           form '[:find ?v :where [$ 42 :user/email ?v]]]
-       (try
-         #?(:cljd
-            (do (is (= #{["ada@example.com"]}
-                       (query/collect (query/q form (query/current (:opened fx))))))
-                (is (= #{["ada@example.com"]}
-                       (query/collect (query/q form (query/current (:opened fx)))))
-                    "the same opened index answers a second query"))
-            :default
-            (let [closes (atom 0)
-                  orig-close jing/close!]
-              (with-redefs [jing/close! (fn [handle]
-                                          (swap! closes inc)
-                                          (orig-close handle))]
-                (is (= #{["ada@example.com"]}
-                       (query/collect (query/q form (query/current (:opened fx))))))
-                (is (zero? @closes)
-                    "neither q nor collect closed the caller's store")
-                (is (= #{["ada@example.com"]}
-                       (query/collect (query/q form (query/current (:opened fx)))))
-                    "the same opened index answers a second query after q and collect"))))
-         (finally (query/close-published! (:opened fx))
-                  (jing/close! (:store fx))
-                  (cleanup-file (:path fx)))))))
+  (let [fx (publish-into-file [[42 :user/email "ada@example.com" 1 1]])
+        form '[:find ?v :where [$ 42 :user/email ?v]]]
+    (try
+      #?(:cljd
+         (do (is (= #{["ada@example.com"]}
+                    (query/collect (query/q form (query/current (:opened fx))))))
+             (is (= #{["ada@example.com"]}
+                    (query/collect (query/q form (query/current (:opened fx)))))
+                 "the same opened index answers a second query"))
+         :default
+         (let [closes (atom 0)
+               orig-close jing/close!]
+           (with-redefs [jing/close! (fn [handle]
+                                       (swap! closes inc)
+                                       (orig-close handle))]
+             (is (= #{["ada@example.com"]}
+                    (query/collect (query/q form (query/current (:opened fx))))))
+             (is (zero? @closes)
+                 "neither q nor collect closed the caller's store")
+             (is (= #{["ada@example.com"]}
+                    (query/collect (query/q form (query/current (:opened fx)))))
+                 "the same opened index answers a second query after q and collect"))))
+      (finally (query/close-published! (:opened fx))
+               (jing/close! (:store fx))
+               (cleanup-file (:path fx))))))
 
 
 (deftest close-published-closes-once-and-is-idempotent
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [fx (publish-into-file [[1 :work/task "Code" 10 1]])]
-       (try
-         #?(:cljd
-            (is true
-                "the close-count spy needs with-redefs, unavailable on ClojureDart; the opened-value flow is covered by the equivalence tests")
-            :default
-            (let [closes (atom 0)
-                  orig-close jing/close!]
-              (with-redefs [jing/close! (fn [handle]
-                                          (swap! closes inc)
-                                          (orig-close handle))]
-                (query/close-published! (:opened fx))
-                (is (= 1 @closes)
-                    "close-published! closes the store it opened, exactly once")
-                (query/close-published! (:opened fx))
-                (is (= 1 @closes)
-                    "a second close is a no-op"))))
-         (finally (jing/close! (:store fx))
-                  (cleanup-file (:path fx)))))))
+  (let [fx (publish-into-file [[1 :work/task "Code" 10 1]])]
+    (try
+      #?(:cljd
+         (is true
+             "the close-count spy needs with-redefs, unavailable on ClojureDart; the opened-value flow is covered by the equivalence tests")
+         :default
+         (let [closes (atom 0)
+               orig-close jing/close!]
+           (with-redefs [jing/close! (fn [handle]
+                                       (swap! closes inc)
+                                       (orig-close handle))]
+             (query/close-published! (:opened fx))
+             (is (= 1 @closes)
+                 "close-published! closes the store it opened, exactly once")
+             (query/close-published! (:opened fx))
+             (is (= 1 @closes)
+                 "a second close is a no-op"))))
+      (finally (jing/close! (:store fx))
+               (cleanup-file (:path fx))))))
 
 
 (deftest lazy-published-node-budget-is-strictly-bounded
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [datoms (mapv (fn [i] [i :user/email (str "user-" i "@example.com") 0 1])
-                        (range 200))
-           fx (publish-into-file datoms)]
-       (try
-         (let [counter (counting-content-store (:store fx))]
-           #?(:cljd
-              (is
-                true
-                "counting harness requires with-redefs, unavailable on ClojureDart")
-              :default (with-redefs [jing-coordinate/open! (fn [_ _opts]
-                                                             (:store counter))]
-                         (let [opened (query/open-published! (:coordinate fx))
-                               query-form '[:find ?v :where [$ 42 :user/email ?v]]
-                               res (query/collect (query/q query-form
-                                                           (query/current
-                                                             opened)))
-                               total-gets ((:gets counter))]
-                           (is (= #{["user-42@example.com"]} res))
-                           ;; Total gets includes: 1 (manifest) + seek path to
-                           ;; leaf + 1 (take-while bound leaf). For 200
-                           ;; elements, tree height is <= 2. Max gets <= 4.
-                           ;; Eager read-datoms would have read all node
-                           ;; blobs.
-                           (is (<= total-gets 4)
-                               (str "lazy point query used "
-                                    total-gets
-                                    " gets, strictly bounded <= 4"))
-                           (is (< total-gets 10)
-                               "strictly fewer gets than reading full index")
-                           (query/close-published! opened)))))
-         (finally (query/close-published! (:opened fx))
-                  (jing/close! (:store fx))
-                  (cleanup-file (:path fx)))))))
+  (let [datoms (mapv (fn [i] [i :user/email (str "user-" i "@example.com") 0 1])
+                     (range 200))
+        fx (publish-into-file datoms)]
+    (try
+      (let [counter (counting-content-store (:store fx))]
+        #?(:cljd
+           (is
+             true
+             "counting harness requires with-redefs, unavailable on ClojureDart")
+           :default (with-redefs [jing-coordinate/open! (fn [_ _opts]
+                                                          (:store counter))]
+                      (let [opened (query/open-published! (:coordinate fx))
+                            query-form '[:find ?v :where [$ 42 :user/email ?v]]
+                            res (query/collect (query/q query-form
+                                                        (query/current
+                                                          opened)))
+                            total-gets ((:gets counter))]
+                        (is (= #{["user-42@example.com"]} res))
+                        ;; Total gets includes: 1 (manifest) + seek path to
+                        ;; leaf + 1 (take-while bound leaf). For 200
+                        ;; elements, tree height is <= 2. Max gets <= 4.
+                        ;; Eager read-datoms would have read all node
+                        ;; blobs.
+                        (is (<= total-gets 4)
+                            (str "lazy point query used "
+                                 total-gets
+                                 " gets, strictly bounded <= 4"))
+                        (is (< total-gets 10)
+                            "strictly fewer gets than reading full index")
+                        (query/close-published! opened)))))
+      (finally (query/close-published! (:opened fx))
+               (jing/close! (:store fx))
+               (cleanup-file (:path fx))))))
 
 
 (deftest lazy-published-multi-clause-budget-is-strictly-bounded
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [datoms (mapcat (fn [i]
-                            [[i :user/email (str "user-" i "@example.com") 0
-                              1] [i :user/age i 0 1]])
-                          (range 200))
-           ;; branching-factor 4 makes a real multi-node tree (~135 nodes for
-           ;; 400 rows), so a full drain is distinguishable from a seek path.
-           ;; At the default 512 every row fits one leaf and even a drain
-           ;; looks lazy.
-           fx (publish-into-file datoms "pub-multi" {:branching-factor 4})]
-       (try
-         (let [counter (counting-content-store (:store fx))]
-           #?(:cljd
-              (is
-                true
-                "counting harness requires with-redefs, unavailable on ClojureDart")
-              :default
-              (with-redefs [jing-coordinate/open! (fn [_ _opts] (:store counter))]
-                ;; Two pattern clauses over one source: plan-where runs the
-                ;; clause-cost estimator on both. The estimator must not
-                ;; force the deferred relation, or planning alone would
-                ;; drain the whole source and the lazy path would exist only
-                ;; for single-clause queries.
-                (let [opened (query/open-published! (:coordinate fx))
-                      query-form '[:find ?v ?age :where [$ 42 :user/email ?v]
-                                   [$ 42 :user/age ?age]]
-                      res (query/collect (query/q query-form
-                                                  (query/current opened)))
-                      total-gets ((:gets counter))]
-                  (is (= #{["user-42@example.com" 42]} res))
-                  ;; 1 manifest + two seek paths (tree height ~5 at bf 4) +
-                  ;; boundary leaves.
-                  (is
-                    (<= total-gets 15)
-                    (str
-                      "two-clause lazy query used "
-                      total-gets
-                      " gets, bounded <= 15: the planner must not drain the source"))
-                  (is
-                    (< total-gets 50)
-                    "a full drain of this ~135-node tree would exceed 50 gets")
-                  (query/close-published! opened)))))
-         (finally (query/close-published! (:opened fx))
-                  (jing/close! (:store fx))
-                  (cleanup-file (:path fx)))))))
+  (let [datoms (mapcat (fn [i]
+                         [[i :user/email (str "user-" i "@example.com") 0
+                           1] [i :user/age i 0 1]])
+                       (range 200))
+        ;; branching-factor 4 makes a real multi-node tree (~135 nodes for
+        ;; 400 rows), so a full drain is distinguishable from a seek path.
+        ;; At the default 512 every row fits one leaf and even a drain
+        ;; looks lazy.
+        fx (publish-into-file datoms "pub-multi" {:branching-factor 4})]
+    (try
+      (let [counter (counting-content-store (:store fx))]
+        #?(:cljd
+           (is
+             true
+             "counting harness requires with-redefs, unavailable on ClojureDart")
+           :default
+           (with-redefs [jing-coordinate/open! (fn [_ _opts] (:store counter))]
+             ;; Two pattern clauses over one source: plan-where runs the
+             ;; clause-cost estimator on both. The estimator must not
+             ;; force the deferred relation, or planning alone would
+             ;; drain the whole source and the lazy path would exist only
+             ;; for single-clause queries.
+             (let [opened (query/open-published! (:coordinate fx))
+                   query-form '[:find ?v ?age :where [$ 42 :user/email ?v]
+                                [$ 42 :user/age ?age]]
+                   res (query/collect (query/q query-form
+                                               (query/current opened)))
+                   total-gets ((:gets counter))]
+               (is (= #{["user-42@example.com" 42]} res))
+               ;; 1 manifest + two seek paths (tree height ~5 at bf 4) +
+               ;; boundary leaves.
+               (is
+                 (<= total-gets 15)
+                 (str
+                   "two-clause lazy query used "
+                   total-gets
+                   " gets, bounded <= 15: the planner must not drain the source"))
+               (is
+                 (< total-gets 50)
+                 "a full drain of this ~135-node tree would exceed 50 gets")
+               (query/close-published! opened)))))
+      (finally (query/close-published! (:opened fx))
+               (jing/close! (:store fx))
+               (cleanup-file (:path fx))))))
 
 
 (deftest lazy-published-rest-pattern-regression
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (testing
-       "a non-3-fixed / rest pattern clause falls back to the deferred rows and answers"
-       (let [test-datoms [[1 :person/name "Ada" 0 1] [2 :person/name "Grace" 0 1]]
-             fx (publish-into-file test-datoms)
-             eager-cur (query/current (rel test-datoms))]
-         (try
-           (let [lazy-cur (query/current (:opened fx))
-                 query-form '[:find ?e ?name :where
-                              [?e :person/name ?name & ?rest]]]
-             (is
-               (= #{[1 "Ada"] [2 "Grace"]}
-                  (query/collect (query/q query-form lazy-cur)))
-               "literal anchor: the lazy fallback returns real rows, not an empty parity")
-             (is (= (query/collect (query/q query-form eager-cur))
-                    (query/collect (query/q query-form lazy-cur)))))
-           (testing
-             "match over a lazy current view forces the deferred rows and returns real tuples"
-             (let [lazy-cur (query/current (:opened fx))
-                   pattern ['_ :person/name "Ada"]]
-               (is (= [[1 :person/name "Ada"]] (query/match lazy-cur pattern))
-                   "literal anchor for match, not an eager/lazy-only parity")
-               (is (= (query/match eager-cur pattern)
-                      (query/match lazy-cur pattern)))))
-           (finally (query/close-published! (:opened fx))
-                    (jing/close! (:store fx))
-                    (cleanup-file (:path fx))))))))
+  (testing
+    "a non-3-fixed / rest pattern clause falls back to the deferred rows and answers"
+    (let [test-datoms [[1 :person/name "Ada" 0 1] [2 :person/name "Grace" 0 1]]
+          fx (publish-into-file test-datoms)
+          eager-cur (query/current (rel test-datoms))]
+      (try
+        (let [lazy-cur (query/current (:opened fx))
+              query-form '[:find ?e ?name :where
+                           [?e :person/name ?name & ?rest]]]
+          (is
+            (= #{[1 "Ada"] [2 "Grace"]}
+               (query/collect (query/q query-form lazy-cur)))
+            "literal anchor: the lazy fallback returns real rows, not an empty parity")
+          (is (= (query/collect (query/q query-form eager-cur))
+                 (query/collect (query/q query-form lazy-cur)))))
+        (testing
+          "match over a lazy current view forces the deferred rows and returns real tuples"
+          (let [lazy-cur (query/current (:opened fx))
+                pattern ['_ :person/name "Ada"]]
+            (is (= [[1 :person/name "Ada"]] (query/match lazy-cur pattern))
+                "literal anchor for match, not an eager/lazy-only parity")
+            (is (= (query/match eager-cur pattern)
+                   (query/match lazy-cur pattern)))))
+        (finally (query/close-published! (:opened fx))
+                 (jing/close! (:store fx))
+                 (cleanup-file (:path fx)))))))
 
 
 (deftest lazy-published-mixed-multi-source-join
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (testing
-       "one lazy published current + one eager query/relation in a single q with :in $ $2"
-       (let [users [[1 :user/name "Alice" 0 1] [2 :user/name "Bob" 0 1]]
-             roles [[1 :user/role :admin] [2 :user/role :member]]
-             fx (publish-into-file users)
-             lazy-users (query/current (:opened fx))
-             eager-roles (query/relation roles)]
-         (try (let [query-form '[:find ?name ?role :in $users $roles :where
-                                 [$users ?e :user/name ?name]
-                                 [$roles ?e :user/role ?role]]]
-                (is (= #{["Alice" :admin] ["Bob" :member]}
-                       (query/collect
-                         (query/q query-form lazy-users eager-roles)))))
-              (finally (query/close-published! (:opened fx))
-                       (jing/close! (:store fx))
-                       (cleanup-file (:path fx))))))))
+  (testing
+    "one lazy published current + one eager query/relation in a single q with :in $ $2"
+    (let [users [[1 :user/name "Alice" 0 1] [2 :user/name "Bob" 0 1]]
+          roles [[1 :user/role :admin] [2 :user/role :member]]
+          fx (publish-into-file users)
+          lazy-users (query/current (:opened fx))
+          eager-roles (query/relation roles)]
+      (try (let [query-form '[:find ?name ?role :in $users $roles :where
+                              [$users ?e :user/name ?name]
+                              [$roles ?e :user/role ?role]]]
+             (is (= #{["Alice" :admin] ["Bob" :member]}
+                    (query/collect
+                      (query/q query-form lazy-users eager-roles)))))
+           (finally (query/close-published! (:opened fx))
+                    (jing/close! (:store fx))
+                    (cleanup-file (:path fx)))))))
 
 
 (deftest lazy-published-history-and-as-of-stay-eager-and-correct
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [test-datoms [[1 :item/status :draft 1 1] [1 :item/status :draft 2 0]
-                        [1 :item/status :published 2 1]
-                        [1 :item/status :archived 3 1]]
-           fx (publish-into-file test-datoms)
-           opened (:opened fx)
-           eager-source (rel test-datoms)]
-       (try
-         (testing "history view over the opened index matches eager history"
-           (let [q-hist '[:find ?v ?t ?op :where [1 :item/status ?v ?t ?op]]]
-             (is (= (query/collect (query/q q-hist (query/history eager-source)))
-                    (query/collect (query/q q-hist (query/history opened)))))))
-         (testing
-           "as-of current view over the opened index matches eager as-of"
-           (let [q-cur '[:find ?v :where [1 :item/status ?v]]]
-             (is (= (query/collect (query/q q-cur (query/current eager-source 2)))
-                    (query/collect (query/q q-cur (query/current opened 2)))))
-             (is (= #{[:published]}
-                    (query/collect (query/q q-cur (query/current opened 2)))))))
-         (testing
-           "as-of history view over the opened index matches eager as-of history"
-           (let [q-hist '[:find ?v ?t ?op :where [1 :item/status ?v ?t ?op]]]
-             (is (= (query/collect (query/q q-hist (query/history eager-source 2)))
-                    (query/collect (query/q q-hist (query/history opened 2)))))))
-         (finally (query/close-published! opened)
-                  (jing/close! (:store fx))
-                  (cleanup-file (:path fx)))))))
+  (let [test-datoms [[1 :item/status :draft 1 1] [1 :item/status :draft 2 0]
+                     [1 :item/status :published 2 1]
+                     [1 :item/status :archived 3 1]]
+        fx (publish-into-file test-datoms)
+        opened (:opened fx)
+        eager-source (rel test-datoms)]
+    (try
+      (testing "history view over the opened index matches eager history"
+        (let [q-hist '[:find ?v ?t ?op :where [1 :item/status ?v ?t ?op]]]
+          (is (= (query/collect (query/q q-hist (query/history eager-source)))
+                 (query/collect (query/q q-hist (query/history opened)))))))
+      (testing
+        "as-of current view over the opened index matches eager as-of"
+        (let [q-cur '[:find ?v :where [1 :item/status ?v]]]
+          (is (= (query/collect (query/q q-cur (query/current eager-source 2)))
+                 (query/collect (query/q q-cur (query/current opened 2)))))
+          (is (= #{[:published]}
+                 (query/collect (query/q q-cur (query/current opened 2)))))))
+      (testing
+        "as-of history view over the opened index matches eager as-of history"
+        (let [q-hist '[:find ?v ?t ?op :where [1 :item/status ?v ?t ?op]]]
+          (is (= (query/collect (query/q q-hist (query/history eager-source 2)))
+                 (query/collect (query/q q-hist (query/history opened 2)))))))
+      (finally (query/close-published! opened)
+               (jing/close! (:store fx))
+               (cleanup-file (:path fx))))))
 
 
 (deftest lazy-published-datoms-projections-match-eager
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [test-datoms [[1 :work/task "Code" 10 1] [1 :work/owner "Ada" 11 1]
-                        [2 :work/task "Review" 12 1]]
-           fx (publish-into-file test-datoms)
-           lazy-cur (query/current (:opened fx))
-           eager-cur (query/current (rel test-datoms))]
-       (try
-         (let [{lazy-idx ::query/fact-index}
-               (query/realize-db-value! lazy-cur)
-               {eager-idx ::query/fact-index}
-               (query/realize-db-value! eager-cur)]
-           (testing
-             "datoms [e a v] projections match eager (note: t/m differ by design: eager has synthetic t=0 m=1, lazy has real provenance t/m)"
-             (let [project-eav (fn [d-seq]
-                                 (mapv (fn [d]
-                                         [(index/datom-e d)
-                                          (index/datom-a d)
-                                          (index/datom-v d)])
-                                       d-seq))]
-               (is (= (project-eav (query/datoms eager-idx 1 '_ '_))
-                      (project-eav (query/datoms lazy-idx 1 '_ '_))))
-               (is (= (project-eav (query/datoms eager-idx '_ :work/task '_))
-                      (project-eav (query/datoms lazy-idx '_ :work/task '_))))
-               (is (= (project-eav (query/datoms eager-idx '_ '_ "Ada"))
-                      (project-eav (query/datoms lazy-idx '_ '_ "Ada")))))))
-         (finally (query/close-published! (:opened fx))
-                  (jing/close! (:store fx))
-                  (cleanup-file (:path fx)))))))
+  (let [test-datoms [[1 :work/task "Code" 10 1] [1 :work/owner "Ada" 11 1]
+                     [2 :work/task "Review" 12 1]]
+        fx (publish-into-file test-datoms)
+        lazy-cur (query/current (:opened fx))
+        eager-cur (query/current (rel test-datoms))]
+    (try
+      (let [{lazy-idx ::query/fact-index}
+            (query/realize-db-value! lazy-cur)
+            {eager-idx ::query/fact-index}
+            (query/realize-db-value! eager-cur)]
+        (testing
+          "datoms [e a v] projections match eager (note: t/m differ by design: eager has synthetic t=0 m=1, lazy has real provenance t/m)"
+          (let [project-eav (fn [d-seq]
+                              (mapv (fn [d]
+                                      [(index/datom-e d)
+                                       (index/datom-a d)
+                                       (index/datom-v d)])
+                                    d-seq))]
+            (is (= (project-eav (query/datoms eager-idx 1 '_ '_))
+                   (project-eav (query/datoms lazy-idx 1 '_ '_))))
+            (is (= (project-eav (query/datoms eager-idx '_ :work/task '_))
+                   (project-eav (query/datoms lazy-idx '_ :work/task '_))))
+            (is (= (project-eav (query/datoms eager-idx '_ '_ "Ada"))
+                   (project-eav (query/datoms lazy-idx '_ '_ "Ada")))))))
+      (finally (query/close-published! (:opened fx))
+               (jing/close! (:store fx))
+               (cleanup-file (:path fx))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1232,167 +1205,149 @@
 
 
 (deftest open-published-of-an-empty-manifest-yields-an-empty-relation
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [fx (publish-into-file [])]
-       (try (let [opened (:opened fx)]
-              (is (= [] (query/rows opened))
-                  "an empty manifest reads as no datoms, not an error")
-              (is (= #{} (query/collect
-                           (query/q '[:find ?e :where [?e _ _]]
-                                    (query/current opened))))))
-            (finally (query/close-published! (:opened fx))
-                     (jing/close! (:store fx))
-                     (cleanup-file (:path fx)))))))
+  (let [fx (publish-into-file [])]
+    (try (let [opened (:opened fx)]
+           (is (= [] (query/rows opened))
+               "an empty manifest reads as no datoms, not an error")
+           (is (= #{} (query/collect
+                        (query/q '[:find ?e :where [?e _ _]]
+                                 (query/current opened))))))
+         (finally (query/close-published! (:opened fx))
+                  (jing/close! (:store fx))
+                  (cleanup-file (:path fx))))))
 
 
 (deftest open-published-fetches-only-the-manifest
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [datoms (mapv (fn [i] [i :user/email (str "user-" i "@example.com") 0 1])
-                        (range 64))
-           fx (publish-into-file datoms)]
-       (try
-         (let [counter (counting-content-store (:store fx))]
-           #?(:cljd
-              (is true
-                  "the counting harness needs with-redefs, unavailable on ClojureDart")
-              :default
-              (with-redefs [jing-coordinate/open! (fn [_ _opts] (:store counter))]
-                (let [opened (query/open-published! (:coordinate fx))]
-                  (is (= 1 ((:gets counter)))
-                      "opening a published coordinate performs exactly one content fetch after open and before any read: the manifest, with zero tree nodes faulted")
-                  (query/close-published! opened)))))
-         (finally (query/close-published! (:opened fx))
-                  (jing/close! (:store fx))
-                  (cleanup-file (:path fx)))))))
+  (let [datoms (mapv (fn [i] [i :user/email (str "user-" i "@example.com") 0 1])
+                     (range 64))
+        fx (publish-into-file datoms)]
+    (try
+      (let [counter (counting-content-store (:store fx))]
+        #?(:cljd
+           (is true
+               "the counting harness needs with-redefs, unavailable on ClojureDart")
+           :default
+           (with-redefs [jing-coordinate/open! (fn [_ _opts] (:store counter))]
+             (let [opened (query/open-published! (:coordinate fx))]
+               (is (= 1 ((:gets counter)))
+                   "opening a published coordinate performs exactly one content fetch after open and before any read: the manifest, with zero tree nodes faulted")
+               (query/close-published! opened)))))
+      (finally (query/close-published! (:opened fx))
+               (jing/close! (:store fx))
+               (cleanup-file (:path fx))))))
 
 
 (deftest open-published-carries-the-four-covered-sets
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [datoms (mapv (fn [i]
-                          [i (keyword "work" (str "a" (mod i 7)))
-                           (str "task-" i) 0 1])
-                        (range 8))
-           fx (publish-into-file datoms)]
-       (try (let [idx (index/covered-indexes (:opened fx))]
-              (is (map? idx))
-              (is (= #{:eavt :aevt :avet :vaet} (set (keys idx))))
-              (doseq [order [:eavt :aevt :avet :vaet]]
-                (is (= (count datoms) (bt/count (order idx)))
-                    (str order " covers the snapshot"))))
-            (finally (query/close-published! (:opened fx))
-                     (jing/close! (:store fx))
-                     (cleanup-file (:path fx)))))))
+  (let [datoms (mapv (fn [i]
+                       [i (keyword "work" (str "a" (mod i 7)))
+                        (str "task-" i) 0 1])
+                     (range 8))
+        fx (publish-into-file datoms)]
+    (try (let [idx (index/covered-indexes (:opened fx))]
+           (is (map? idx))
+           (is (= #{:eavt :aevt :avet :vaet} (set (keys idx))))
+           (doseq [order [:eavt :aevt :avet :vaet]]
+             (is (= (count datoms) (bt/count (order idx)))
+                 (str order " covers the snapshot"))))
+         (finally (query/close-published! (:opened fx))
+                  (jing/close! (:store fx))
+                  (cleanup-file (:path fx))))))
 
 
 (deftest open-published-rows-match-the-eager-walk
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [datoms (vec (reverse
-                         (mapv (fn [i]
-                                 [i :user/email
-                                  (str "user-" i "@example.com") 0 1])
-                               (range 24))))         ; non-EAVT insertion order
-           fx (publish-into-file datoms)]
-       (try
-         (let [eager (index/read-datoms (:store fx) (:manifest-address fx))]
-           (is (= eager (query/rows (:opened fx)))
-               "the opened index's deferred rows yield the eager EAVT walk")
-           (is (= (sort index/eavt-cmp datoms) (query/rows (:opened fx)))
-               "rows are EAVT order regardless of insertion order"))
-         (finally (query/close-published! (:opened fx))
-                  (jing/close! (:store fx))
-                  (cleanup-file (:path fx)))))))
+  (let [datoms (vec (reverse
+                      (mapv (fn [i]
+                              [i :user/email
+                               (str "user-" i "@example.com") 0 1])
+                            (range 24))))         ; non-EAVT insertion order
+        fx (publish-into-file datoms)]
+    (try
+      (let [eager (index/read-datoms (:store fx) (:manifest-address fx))]
+        (is (= eager (query/rows (:opened fx)))
+            "the opened index's deferred rows yield the eager EAVT walk")
+        (is (= (sort index/eavt-cmp datoms) (query/rows (:opened fx)))
+            "rows are EAVT order regardless of insertion order"))
+      (finally (query/close-published! (:opened fx))
+               (jing/close! (:store fx))
+               (cleanup-file (:path fx))))))
 
 
 (deftest published-index-is-transportable-plain-data
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [path (temp-content-path "descriptor")
-           source-datoms [[2 :work/status :done 1 1] [1 :work/status :todo 0 1]]
-           local (open-local source-datoms)
-           intake (open-intake)
-           store (jing-file/create-content-file path)]
-       (try (let [{:keys [manifest-address]} (index/publish-index! local [intake])
-                  _ (loop [state (pool-state intake)]
-                      (let [{:keys [signal state] :as r} (jing/observe-step! store
-                                                                             state)]
-                        (case signal
-                          :dao.stream/ok (recur state)
-                          (:dao.stream/blocked :dao.stream/end) nil
-                          (throw (ex-info "test observer hit a gap or defect" r)))))
-                  coordinate (index/published-index {:dao.jing/type :dao.jing/file,
-                                                     :path path}
-                                                    manifest-address)
-                  transported (edn/read-string (pr-str coordinate))]
-              (is (= coordinate transported) "the coordinate is plain EDN")
-              (is (= {:dao.stream/type :dao.space.index/published,
-                      :dao.stream/bound {:manifest-address manifest-address},
-                      :dao.stream/comparator :dao.space.index/eavt,
-                      :content-store {:dao.jing/type :dao.jing/file, :path path},
-                      :manifest-address manifest-address}
-                     transported)
-                  "the complete exact coordinate map — an explicit finite bound
+  (let [path (temp-content-path "descriptor")
+        source-datoms [[2 :work/status :done 1 1] [1 :work/status :todo 0 1]]
+        local (open-local source-datoms)
+        intake (open-intake)
+        store (jing-file/create-content-file path)]
+    (try (let [{:keys [manifest-address]} (index/publish-index! local [intake])
+               _ (loop [state (pool-state intake)]
+                   (let [{:keys [signal state] :as r} (jing/observe-step! store
+                                                                          state)]
+                     (case signal
+                       :dao.stream/ok (recur state)
+                       (:dao.stream/blocked :dao.stream/end) nil
+                       (throw (ex-info "test observer hit a gap or defect" r)))))
+               coordinate (index/published-index {:dao.jing/type :dao.jing/file,
+                                                  :path path}
+                                                 manifest-address)
+               transported (edn/read-string (pr-str coordinate))]
+           (is (= coordinate transported) "the coordinate is plain EDN")
+           (is (= {:dao.stream/type :dao.space.index/published,
+                   :dao.stream/bound {:manifest-address manifest-address},
+                   :dao.stream/comparator :dao.space.index/eavt,
+                   :content-store {:dao.jing/type :dao.jing/file, :path path},
+                   :manifest-address manifest-address}
+                  transported)
+               "the complete exact coordinate map — an explicit finite bound
                 carried as data, not a lifecycle flag")
-              (testing "the coordinate survives a stream round-trip unchanged"
-                (let [carrier (ring-handle 4)]
-                  (is (= :dao.stream/ok
-                         (:dao.stream/outcome (stream/append! carrier transported))))
-                  (let [r (stream/next carrier
-                                       (:dao.stream/cursor
-                                         (stream/cursor carrier
-                                                        :dao.stream/oldest)))]
-                    (is (= :dao.stream/ok (:dao.stream/outcome r)))
-                    (is (= transported (:dao.stream/value r))))))
-              (let [opened (query/open-published! transported)]
-                (try (is (= (sort index/eavt-cmp source-datoms) (query/rows opened))
-                         "the transported coordinate opens and reads normally")
-                     (finally (query/close-published! opened)))))
-            (finally (jing/close! store) (cleanup-file path))))))
+           (testing "the coordinate survives a stream round-trip unchanged"
+             (let [carrier (ring-handle 4)]
+               (is (= :dao.stream/ok
+                      (:dao.stream/outcome (stream/append! carrier transported))))
+               (let [r (stream/next carrier
+                                    (:dao.stream/cursor
+                                      (stream/cursor carrier
+                                                     :dao.stream/oldest)))]
+                 (is (= :dao.stream/ok (:dao.stream/outcome r)))
+                 (is (= transported (:dao.stream/value r))))))
+           (let [opened (query/open-published! transported)]
+             (try (is (= (sort index/eavt-cmp source-datoms) (query/rows opened))
+                      "the transported coordinate opens and reads normally")
+                  (finally (query/close-published! opened)))))
+         (finally (jing/close! store) (cleanup-file path)))))
 
 
 (deftest failed-open-closes-the-store-it-opened
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [fx (publish-into-file [[1 :work/task "Code" 10 1]])]
-       (try
-         #?(:cljd
-            (is true
-                "the close-count harness needs with-redefs, unavailable on ClojureDart")
-            :default
-            (let [closes (atom 0)
-                  boom (ex-info "scripted manifest fetch failure"
-                                {:mode :scripted})
-                  base (:store fx)
-                  base-close (:close-fn base)
-                  store (assoc base
-                               :get-bytes-fn (fn [_address _not-found]
-                                               (throw boom))
-                               :close-fn (fn []
-                                           (swap! closes inc)
-                                           (base-close)))]
-              (with-redefs [jing-coordinate/open! (fn [_ _opts] store)]
-                (let [thrown (try (query/open-published! (:coordinate fx))
-                                  (catch #?(:clj Throwable
-                                            :cljs :default
-                                            :cljd Object)
-                                         error
-                                    error))]
-                  (is (identical? boom thrown)
-                      "the original error propagates, not a wrapper")
-                  (is (= 1 @closes)
-                      "the store opened during the failed open is closed exactly once before the error propagates")))))
-         (finally (query/close-published! (:opened fx))
-                  (jing/close! (:store fx))
-                  (cleanup-file (:path fx)))))))
+  (let [fx (publish-into-file [[1 :work/task "Code" 10 1]])]
+    (try
+      #?(:cljd
+         (is true
+             "the close-count harness needs with-redefs, unavailable on ClojureDart")
+         :default
+         (let [closes (atom 0)
+               boom (ex-info "scripted manifest fetch failure"
+                             {:mode :scripted})
+               base (:store fx)
+               base-close (:close-fn base)
+               store (assoc base
+                            :get-bytes-fn (fn [_address _not-found]
+                                            (throw boom))
+                            :close-fn (fn []
+                                        (swap! closes inc)
+                                        (base-close)))]
+           (with-redefs [jing-coordinate/open! (fn [_ _opts] store)]
+             (let [thrown (try (query/open-published! (:coordinate fx))
+                               (catch #?(:clj Throwable
+                                         :cljs :default
+                                         :cljd Object)
+                                      error
+                                 error))]
+               (is (identical? boom thrown)
+                   "the original error propagates, not a wrapper")
+               (is (= 1 @closes)
+                   "the store opened during the failed open is closed exactly once before the error propagates")))))
+      (finally (query/close-published! (:opened fx))
+               (jing/close! (:store fx))
+               (cleanup-file (:path fx))))))
 
 
 ;; ---------------------------------------------------------------------------

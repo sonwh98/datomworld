@@ -213,15 +213,6 @@
    {:ns "yin.vm.linker.head-follow-test"
     :reason "socket behaviour on jolt is unproven; deferred to J6/J7"
     :capability "udp datagram host seam" :owner "J6/J7"}
-   {:ns "dao.space.stigmergy-test"
-    :reason "file-backed fixture requires RandomAccessFile.writeInt"
-    :capability "file random access (writeInt)" :owner "J4"}
-   {:ns "yin.vm.macro-build-test"
-    :reason "file-backed fixture requires RandomAccessFile.writeInt"
-    :capability "file random access (writeInt)" :owner "J4"}
-   {:ns "dao.jing.file-test"
-    :reason "file-backed fixture requires RandomAccessFile.writeInt"
-    :capability "file random access (writeInt)" :owner "J4"}
    {:ns "dao.stream.journal.file-test"
     :reason "durable journal fixture requires FileChannel.tryLock"
     :capability "file lock (tryLock)" :owner "J4"}
@@ -266,7 +257,11 @@
    "dao.jing.cbor-test" "dao.jing.hash-registry-contract-test" "dao.stream.base64-test"
    "dao.stream.journal-test" "dao.data.btree-durability-test" "dao.host.hash-test"
    "dao.jing.content.step-test" "dao.jing.dht-test"
-   "dao.jing.mem-test" "yin.vm.linker-authority-test"
+   "dao.jing.mem-test"
+   ;; Rejoined (J4a): excluded with capability "file random access
+   ;; (writeInt)" (owner J4) until dao.jing.file's :jolt arms reached
+   ;; native/jolt-file through dao.posix.file.
+   "dao.jing.file-test" "yin.vm.linker-authority-test"
    "yin.vm.linker.sign-test" "dao.data.btree-async-test" "dao.jing.content-test"
    "dao.space.index-numeric-test"
    "dao.space.transactor-test" "dao.space.index-test" "dao.space.positional-query-test"
@@ -274,7 +269,13 @@
    "dao.space.transact-test" "yin.vm.bytes-to-str-test" "yin.vm.debruijn-code-test"
    "yin.vm.linker-authority-ingestion-test" "yin.vm.parity-test" "yin.vm.ast-walker-test"
    "yin.vm.module-test" "yin.vm.pipeline-test" "yin.vm.semantic.code-test"
-   "yin.vm.semantic.load-paths-test" "dao.space.query-test" "yin.vm.ledger-test"
+   "yin.vm.semantic.load-paths-test" "dao.space.query-test"
+   "dao.space.stigmergy-test" ; rejoined (J4a)
+   ;; Listed 2026-10-25: added by 3d77ed52 without a manifest entry, which
+   ;; made check-manifest! refuse every lane mode; 17 tests, 57 assertions,
+   ;; 0 failures on jolt (macOS).
+   "dao.space.datomic-query-conformance-test"
+   "yin.vm.ledger-test"
    "yin.vm.semantic.analysis-test" "yin.vm.debruijn-register-code-test"
    "yin.vm.semantic.scan-test" "yin.vm.debruijn-register-effects-test"
    "yin.vm.debruijn-test" "yin.vm.semantic.frame-test" "yin.vm-test"
@@ -285,7 +286,9 @@
    "yin.vm.engine-gate-test" "yin.vm.engine-test" "yin.vm.ffi-test"
    "yin.vm.heap-reclamation-test" "yin.vm.integer-test" "yin.vm.linker-manifest-test"
    "yin.vm.linker-step-test" "yin.vm.linker-test" "yin.vm.linker.closure-test"
-   "yin.vm.linker.remote-transfer-test" "yin.vm.macro-test" "yin.vm.mint-test" "yin.vm.rule-r-test"
+   "yin.vm.linker.remote-transfer-test" "yin.vm.macro-test"
+   "yin.vm.macro-build-test" ; rejoined (J4a)
+   "yin.vm.mint-test" "yin.vm.rule-r-test"
    ;; Rejoined 2026-10-24: excluded with capability "transit codec via
    ;; yin.repl" (owner J3) until J3 landed (0c2bb870/8b0fbb60); on jolt
    ;; yin.repl.connect now takes its `:jolt []` arm, so yin.repl no longer

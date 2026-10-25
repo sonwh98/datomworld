@@ -811,22 +811,19 @@
 
 
 (deftest a-file-backed-local-verdict-survives-restart
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [path (temp-path)
-           v {:durable true}
-           address (jing/segment-key v)
-           bs (jing/canonical-bytes v)
-           h1 (dht/store-handle {:local (jing-file/create-content-file path)
-                                 :requests (mesh/ring)})]
-       (is (= :inserted ((:put-bytes-fn h1) address bs)))
-       (jing/close! h1)
-       (let [h2 (dht/store-handle {:local (jing-file/create-content-file path)
-                                   :requests (mesh/ring)})]
-         (is (= :present ((:put-bytes-fn h2) address bs)))
-         (is (= v (jing/get h2 address nil)))
-         (jing/close! h2)))))
+  (let [path (temp-path)
+        v {:durable true}
+        address (jing/segment-key v)
+        bs (jing/canonical-bytes v)
+        h1 (dht/store-handle {:local (jing-file/create-content-file path)
+                              :requests (mesh/ring)})]
+    (is (= :inserted ((:put-bytes-fn h1) address bs)))
+    (jing/close! h1)
+    (let [h2 (dht/store-handle {:local (jing-file/create-content-file path)
+                                :requests (mesh/ring)})]
+      (is (= :present ((:put-bytes-fn h2) address bs)))
+      (is (= v (jing/get h2 address nil)))
+      (jing/close! h2))))
 
 
 ;; ---------------------------------------------------------------------------

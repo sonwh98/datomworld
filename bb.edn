@@ -37,6 +37,11 @@
    :task (System/exit
            (:exit (shell {:continue true} "bb" "native/jolt-crypto/probes/run.clj")))}
 
+  probe:jolt-file
+  {:doc "J4a: native/jolt-file gates, each in a child process: JVM-identical frame bytes (both hash algorithms), F2 s32BE prefixes, strict reads, injected short/EINTR/zero-progress/error transfers, corrupt-open byte identity, idempotent close, no fd or native-memory leak, a full collection during a 1 GiB :blocking pwrite, missing/wrong-layout wrapper refused before guest work, exported-symbol allowlist (needs bb build:jolt-native)"
+   :task (System/exit
+           (:exit (shell {:continue true} "bb" "native/jolt-file/probes/run.clj")))}
+
   build:jolt-native
   {:doc "Fetch (by pinned SHA-256, only when absent) and build the jolt-toolchain.edn :native sources with the mise-pinned CMake into build/native/<platform>/"
    :task (System/exit

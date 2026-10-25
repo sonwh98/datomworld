@@ -20,6 +20,10 @@
    library that changed can be built against and then qualified (`bb
    qualify:jolt-libcrypto`); the record says so.
 
+   native/jolt-file (J4a) needs no :native declaration: it links system libc
+   only, and the task fails unless it exports exactly its allowlist and links
+   nothing else.
+
    Nothing here runs at namespace load; jolt only ever loads what this task
    built. Exit status is nonzero on any failure."
   (:require [babashka.fs :as fs]
@@ -301,6 +305,56 @@
          :linked (into (sorted-map) (map (fn [l] [l (linked-libraries l)])) libs)}))))
 
 
+(defn- allowlist
+  "The exported-symbol allowlist of a native/<dir> wrapper for this
+   platform, without the Mach-O leading underscore."
+  [dir]
+  (if (str/starts-with? (platform) "darwin")
+    (->> (str/split-lines (slurp (str (fs/path dir "exports.darwin"))))
+         (map str/trim) (remove str/blank?) (map #(str/replace % #"^_" ""))
+         sort vec)
+    (->> (re-seq #"(?m)^\s*(jolt_\w+);" (slurp (str (fs/path dir "exports.linux"))))
+         (map second) sort vec)))
+
+
+(defn- build-jolt-file!
+  "native/jolt-file (J4a): system libc only. The library must export exactly
+   its allowlist, and link nothing but the C library."
+  [cmake plat]
+  (let [out (fs/path "build/native" plat)
+        bld (str (fs/path out "jolt-file-build"))
+        dest (str (fs/absolutize (fs/path out "jolt-file")))
+        allowed (allowlist "native/jolt-file")]
+    (fs/delete-tree bld)
+    (fs/delete-tree dest)
+    (run! cmake "-S" "native/jolt-file" "-B" bld
+          "-DCMAKE_BUILD_TYPE=Release"
+          (str "-DCMAKE_INSTALL_PREFIX=" dest))
+    (run! cmake "--build" bld "--parallel" "--config" "Release")
+    (run! cmake "--install" bld "--config" "Release")
+    (let [libs (sort (map str (fs/glob dest "lib/*jolt_file*")))]
+      (when (empty? libs) (fail! "no jolt_file library installed under " dest))
+      (let [exported (into (sorted-map)
+                           (map (fn [l]
+                                  [l (vec (sort (map #(str/replace % #"^_" "")
+                                                     (exported-symbols l))))]))
+                           libs)
+            linked (into (sorted-map) (map (fn [l] [l (linked-libraries l)])) libs)]
+        (doseq [[l syms] exported]
+          (when-not (= allowed syms)
+            (fail! l " exports " syms ", the allowlist is " allowed)))
+        (doseq [[l deps] linked
+                d deps
+                :when (not (str/includes? d "jolt_file"))]
+          (when-not (re-find #"libSystem\.B\.dylib|\(NEEDED\).*\[libc\.so\.6\]" d)
+            (fail! l " links " d "; jolt-file is system libc only")))
+        {:prefix dest
+         :allowlist allowed
+         :outputs (into (sorted-map) (map (fn [l] [l (file-sha256 l)])) libs)
+         :exported exported
+         :linked linked}))))
+
+
 (defn -main
   [& args]
   (let [{:keys [native cmake]} (edn/read-string (slurp "jolt-toolchain.edn"))
@@ -317,6 +371,7 @@
         blake3-src (fetch! (:blake3 native))
         blake3 (build-blake3! blake3-src cmake-bin plat)
         crypto (build-jolt-crypto! blake3 libcrypto cmake-bin plat)
+        file (build-jolt-file! cmake-bin plat)
         record {:platform plat
                 :cmake {:path cmake-bin :version (first (str/split-lines (sh cmake-bin "--version")))}
                 :cxx (first (str/split-lines cxx))
@@ -328,7 +383,8 @@
                 :blake3 (merge (select-keys blake3-src [:version :url :sha256 :cmake-flags :upstream])
                                blake3)
                 :libcrypto libcrypto
-                :jolt-crypto crypto}
+                :jolt-crypto crypto
+                :jolt-file file}
         record-file (str (fs/path "build/native" plat "build-record.edn"))]
     (spit record-file (with-out-str (pprint/pprint record)))
     (pprint/pprint record)

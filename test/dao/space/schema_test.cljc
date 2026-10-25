@@ -1600,36 +1600,33 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest publish-then-schema-view-parity
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [{:keys [local intake]} (fresh-streams)
-           w (schema/transactor local intake)]
-       (schema/transact! w (bootstrap-tx))
-       (schema/transact! w [[7 :person/name "Alice"]
-                            [7 :person/email "a@b.com"]
-                            [8 :person/name "Bob"]])
-       ;; (1) Query over the live relation via schema/current
-       (let [rel (query/relation (datoms-of local))
-             q-form '[:find ?e ?n :where [?e :person/name ?n]]
-             live-result (qq q-form (schema/current rel))]
-         ;; (2) Publish, materialize, query over published via schema/current
-         (let [{:keys [manifest-address]} (schema/publish! w)
-               path (temp-content-path "parity")]
-           (try
-             (materialize-to-file-store intake path)
-             (let [opened (query/open-published!
-                            (index/published-index
-                              {:dao.jing/type :dao.jing/file :path path}
-                              manifest-address))]
-               (try
-                 (is (= live-result (qq q-form (schema/current opened)))
-                     "q answers identically before and after publish")
-                 (finally
-                   (query/close-published! opened))))
-             (finally
-               (cleanup-file path))))
-         (schema/close! w)))))
+  (let [{:keys [local intake]} (fresh-streams)
+        w (schema/transactor local intake)]
+    (schema/transact! w (bootstrap-tx))
+    (schema/transact! w [[7 :person/name "Alice"]
+                         [7 :person/email "a@b.com"]
+                         [8 :person/name "Bob"]])
+    ;; (1) Query over the live relation via schema/current
+    (let [rel (query/relation (datoms-of local))
+          q-form '[:find ?e ?n :where [?e :person/name ?n]]
+          live-result (qq q-form (schema/current rel))]
+      ;; (2) Publish, materialize, query over published via schema/current
+      (let [{:keys [manifest-address]} (schema/publish! w)
+            path (temp-content-path "parity")]
+        (try
+          (materialize-to-file-store intake path)
+          (let [opened (query/open-published!
+                         (index/published-index
+                           {:dao.jing/type :dao.jing/file :path path}
+                           manifest-address))]
+            (try
+              (is (= live-result (qq q-form (schema/current opened)))
+                  "q answers identically before and after publish")
+              (finally
+                (query/close-published! opened))))
+          (finally
+            (cleanup-file path))))
+      (schema/close! w))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1637,38 +1634,35 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest published-descriptor-as-raw-db-input
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [{:keys [local intake]} (fresh-streams)
-           w (schema/transactor local intake)]
-       (schema/transact! w (bootstrap-tx))
-       (schema/transact! w [[7 :person/name "Alice"]
-                            [8 :person/name "Bob"]])
-       ;; Drain local to get raw relation for comparison
-       (let [all (datoms-of local)
-             rel (query/relation all)
-             raw-q '[:find ?e ?n :where [?e :person/name ?n]]
-             raw-result (qq raw-q (query/current rel))]
-         ;; Publish and query over published via schema/current — the opened
-         ;; published index is a query value carrying covered indexes;
-         ;; schema/current interprets it as a source.
-         (let [{:keys [manifest-address]} (schema/publish! w)
-               path (temp-content-path "raw-input")]
-           (try
-             (materialize-to-file-store intake path)
-             (let [opened (query/open-published!
-                            (index/published-index
-                              {:dao.jing/type :dao.jing/file :path path}
-                              manifest-address))]
-               (try
-                 (is (= raw-result (qq raw-q (schema/current opened)))
-                     "published source answers same raw query as drained relation")
-                 (finally
-                   (query/close-published! opened))))
-             (finally
-               (cleanup-file path))))
-         (schema/close! w)))))
+  (let [{:keys [local intake]} (fresh-streams)
+        w (schema/transactor local intake)]
+    (schema/transact! w (bootstrap-tx))
+    (schema/transact! w [[7 :person/name "Alice"]
+                         [8 :person/name "Bob"]])
+    ;; Drain local to get raw relation for comparison
+    (let [all (datoms-of local)
+          rel (query/relation all)
+          raw-q '[:find ?e ?n :where [?e :person/name ?n]]
+          raw-result (qq raw-q (query/current rel))]
+      ;; Publish and query over published via schema/current — the opened
+      ;; published index is a query value carrying covered indexes;
+      ;; schema/current interprets it as a source.
+      (let [{:keys [manifest-address]} (schema/publish! w)
+            path (temp-content-path "raw-input")]
+        (try
+          (materialize-to-file-store intake path)
+          (let [opened (query/open-published!
+                         (index/published-index
+                           {:dao.jing/type :dao.jing/file :path path}
+                           manifest-address))]
+            (try
+              (is (= raw-result (qq raw-q (schema/current opened)))
+                  "published source answers same raw query as drained relation")
+              (finally
+                (query/close-published! opened))))
+          (finally
+            (cleanup-file path))))
+      (schema/close! w))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1676,33 +1670,30 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest published-accepted-as-current-source
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [{:keys [local intake]} (fresh-streams)
-           w (schema/transactor local intake)]
-       (schema/transact! w (bootstrap-tx))
-       (schema/transact! w [[7 :person/name "Alice"]])
-       (let [{:keys [manifest-address]} (schema/publish! w)
-             path (temp-content-path "current-source")]
-         (try
-           (materialize-to-file-store intake path)
-           (let [opened (query/open-published!
-                          (index/published-index
-                            {:dao.jing/type :dao.jing/file :path path}
-                            manifest-address))]
-             (try
-               ;; schema/current must NOT reject the opened published index
-               (is (= #{["Alice"]}
-                      (qq '[:find ?n :where [7 :person/name ?n]]
-                          (schema/current opened)))
-                   "the opened published index is accepted as :source by
+  (let [{:keys [local intake]} (fresh-streams)
+        w (schema/transactor local intake)]
+    (schema/transact! w (bootstrap-tx))
+    (schema/transact! w [[7 :person/name "Alice"]])
+    (let [{:keys [manifest-address]} (schema/publish! w)
+          path (temp-content-path "current-source")]
+      (try
+        (materialize-to-file-store intake path)
+        (let [opened (query/open-published!
+                       (index/published-index
+                         {:dao.jing/type :dao.jing/file :path path}
+                         manifest-address))]
+          (try
+            ;; schema/current must NOT reject the opened published index
+            (is (= #{["Alice"]}
+                   (qq '[:find ?n :where [7 :person/name ?n]]
+                       (schema/current opened)))
+                "the opened published index is accepted as :source by
                  schema/current")
-               (finally
-                 (query/close-published! opened))))
-           (finally
-             (cleanup-file path))))
-       (schema/close! w))))
+            (finally
+              (query/close-published! opened))))
+        (finally
+          (cleanup-file path))))
+    (schema/close! w)))
 
 
 ;; ---------------------------------------------------------------------------
@@ -1716,37 +1707,34 @@
 ;; ---------------------------------------------------------------------------
 
 (deftest schema-view-is-self-contained-and-never-closes-the-store
-  ;; J4: remove when RandomAccessFile.writeInt is supported on jolt.
-  #?(:jolt nil
-     :default
-     (let [{:keys [local intake]} (fresh-streams)
-           w (schema/transactor local intake)]
-       (schema/transact! w (bootstrap-tx))
-       (schema/transact! w [[7 :person/name "Alice"]])
-       (let [form '[:find ?n :where [7 :person/name ?n]]
-             expected (qq form (schema/current
-                                 (query/relation (datoms-of local))))
-             {:keys [manifest-address]} (schema/publish! w)
-             path (temp-content-path "self-contained")]
-         (try
-           (materialize-to-file-store intake path)
-           (let [opened (query/open-published!
-                          (index/published-index
-                            {:dao.jing/type :dao.jing/file :path path}
-                            manifest-address))
-                 closes  (atom 0)
-                 base    (:close-fn (:store opened))
-                 opened' (assoc-in opened [:store :close-fn]
-                                   (fn [] (swap! closes inc) (when base (base))))
-                 view    (schema/current opened')]
-             (is (zero? @closes) "schema/current closed nothing")
-             (query/close-published! opened')
-             (is (= 1 @closes) "the owner's close reached the store exactly once")
-             (is (= expected (qq form view)) "the view is self-contained after close")
-             (is (= expected (qq form view)) "and stays so"))
-           (finally
-             (cleanup-file path))))
-       (schema/close! w))))
+  (let [{:keys [local intake]} (fresh-streams)
+        w (schema/transactor local intake)]
+    (schema/transact! w (bootstrap-tx))
+    (schema/transact! w [[7 :person/name "Alice"]])
+    (let [form '[:find ?n :where [7 :person/name ?n]]
+          expected (qq form (schema/current
+                              (query/relation (datoms-of local))))
+          {:keys [manifest-address]} (schema/publish! w)
+          path (temp-content-path "self-contained")]
+      (try
+        (materialize-to-file-store intake path)
+        (let [opened (query/open-published!
+                       (index/published-index
+                         {:dao.jing/type :dao.jing/file :path path}
+                         manifest-address))
+              closes  (atom 0)
+              base    (:close-fn (:store opened))
+              opened' (assoc-in opened [:store :close-fn]
+                                (fn [] (swap! closes inc) (when base (base))))
+              view    (schema/current opened')]
+          (is (zero? @closes) "schema/current closed nothing")
+          (query/close-published! opened')
+          (is (= 1 @closes) "the owner's close reached the store exactly once")
+          (is (= expected (qq form view)) "the view is self-contained after close")
+          (is (= expected (qq form view)) "and stays so"))
+        (finally
+          (cleanup-file path))))
+    (schema/close! w)))
 
 
 ;; ---------------------------------------------------------------------------
