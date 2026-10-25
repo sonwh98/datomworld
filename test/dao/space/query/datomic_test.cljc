@@ -292,13 +292,12 @@
 
 
 (deftest unknown-and-unsupported-options-are-refused-by-name
-  (doseq [opt [:timeout :ret :io-context :query-stats :stats :bogus]]
+  (doseq [opt [:ret :io-context :query-stats :stats :bogus]]
     (let [d (error-of #(dq/q {:query ada-query :args [(people)] opt 1}))]
       (is (= :unsupported (::dq/error d)) (str opt))
       (is (= :cognitect.anomalies/unsupported (:cognitect.anomalies/category d)))
       (is (= opt (:option d)) "the refused option is named")))
-  (testing ":timeout is refused until the execution-bounds phase"
-    (is (refused? :unsupported #(dq/q {:query ada-query :args [(people)] :timeout 1000})))
+  (testing ":ret is refused"
     (is (refused? :unsupported #(dq/q {:query ada-query :args [(people)] :ret :coll})))))
 
 
@@ -479,14 +478,15 @@
 ;; ---------------------------------------------------------------------------
 
 (def ^:private allowed-context-keys
-  #{::dq/error :cognitect.anomalies/category :option :clause :variable})
+  #{::dq/error :cognitect.anomalies/category :option :clause :variable
+    :reason :phase :steps})
 
 
 (deftest every-error-carries-the-discriminator-anomaly-and-minimal-context
   (let [db (people)
         thrown [#(dq/q db ada-query)
                 #(dq/q ada-query [[1 2 3]])
-                #(dq/q {:query ada-query :args [db] :timeout 5})
+                #(dq/q {:query ada-query :args [db] :ret :coll})
                 #(dq/q {:query ada-query :args [db] :offset -1})
                 #(dq/q '[:find ?e :where [?e :a ?v 1 2]] db)
                 #(dq/q '[:find (min 2 ?a) :where [?e :person/age ?a]] db)
@@ -530,7 +530,8 @@
     (is (not (contains? (ex-data e) :secret)) "third-party data is not copied")))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest unexpected-evaluator-failure-keeps-its-cause
      (let [e (try (dq/q '[:find ?y :in $ ?a :where [?e :person/name "Ada"] [(+ ?a ?a) ?y]]
                         (people) "text")

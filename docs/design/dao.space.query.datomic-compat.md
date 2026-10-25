@@ -1,9 +1,12 @@
 # dao.space.query.datomic — Datomic Client Query Compatibility
 
-Status: proposed specification; adapter direction accepted by the owner
-(2026-10-24). Phase 0 contract freeze authored; engineering fixtures and
-oracle execution pending. No adapter implementation or qualified
-compatibility release is claimed.
+Status: implementing. Phases 0 and 1 are landed. Phase 4 execution
+helpers exist, but real-query integration and bounded-execution
+qualification remain pending. Phase 4 is split into 4a, the common
+state-passing evaluator over materialized sources, and 4b, checked
+published-index traversal. No full compatibility qualification is
+claimed. Individual oracle cases retain their recorded provenance and
+verification status.
 
 Target: `com.datomic/client-api` **1.0.69**, public
 `datomic.client.api/q`. This is a versioned, explicitly bounded
@@ -228,7 +231,8 @@ domain. It does not mean oracle verification has already occurred.
 | `get-else`, `missing?` | Exact target on supported fact sources | Already index-aware special forms; edge semantics pending oracle cases. |
 | Deterministic aggregates | Exact target within declared numeric domain | Existing six plus additions specified below; edge cases pending. |
 | Finite pull | Documented-difference profile | Useful for views, but schema-free cardinality/reference/wildcard behavior is not general Datomic pull parity. |
-| `:timeout` | Documented difference | Cooperative exception contract below; refused until execution machinery lands. |
+| `:timeout` | Documented difference; staged implementation | Expiry is observed time greater than or equal to deadline. Phase 4a qualifies only admitted materialized-source paths after integration tests. Published-index paths remain refused until Phase 4b. |
+| `:dao.space.query.datomic/max-steps` | DaoSpace extension; staged implementation | Positive explicit work allowance, threaded through the whole invocation. The same Phase 4a source restrictions apply to step-only and timed calls. No ambient default. |
 | Eager evaluation before pagination | Documented difference | Limit does not bound total query work, memory or storage reads. |
 | Ambient function resolution, fulltext, randomness | Refused/deferred | Boundaries specified below. |
 
@@ -358,9 +362,21 @@ Use generic execution machinery in:
 `src/cljc/dao/space/query/execution.cljc`
 
 One invocation owns one immutable execution state containing progress,
-remaining work allowance, deadline data, phase and continuation state.
-Nested evaluation threads and returns that state through explicit `ctx`
-plumbing, following the existing `::active-rules` precedent.
+remaining work allowance, deadline data, phase and any explicit execution
+frames. The evaluator uses a common state-passing kernel whose internal
+operations return `[state result]`. Nested evaluation returns its updated
+state to the caller; subsequent work receives that returned state.
+
+The existing `::active-rules` mechanism is a precedent for explicit
+lexical/path context, not for accumulated progress: it passes scope
+downward but does not return consumed work. Rule-path scope must be
+restored on return while invocation progress is retained. Branch-local
+bindings, active-rule membership and execution allowances must not be
+conflated.
+
+Core `q` uses this same kernel with an explicit unbounded policy. The
+adapter uses it with its supplied bounds. A separate legacy and bounded
+Datalog evaluator is not permitted.
 
 Passing the same initial state independently to multiple branches is not
 threading: each branch must receive the state returned by prior work.
@@ -429,6 +445,21 @@ including paths that keep generating fresh values rather than revisiting
 an active call key. It cannot preempt an externally supplied function
 that never returns.
 
+Deadline expiry is defined as `observed-now >= deadline`. The final
+observation uses the same rule, so completion exactly at the deadline is
+timeout.
+
+For an integrated work operation, observe first, then charge, then
+perform the operation only if the state remains live. Perform the
+required post-operation observation before interpreting or delivering its
+result. An existing terminal state is absorbing: subsequent operations
+return that same state, perform no work and take no clock observations.
+
+The last available work unit may execute. Completion with no remaining
+units succeeds only when no further work is required and the final
+deadline observation is live. A value returned by a read whose post-read
+observation expires must not be interpreted or delivered.
+
 ### Forcing discipline
 
 Constructing a lazy sequence performs no accountable evaluation by
@@ -446,6 +477,33 @@ estimate clause cost.
 A completed result must retain no deferred work capable of reading a
 borrowed source after return. Intermediate lazy values must not escape
 with reusable stale budget state.
+
+The Phase 4a implementation is authorized to rewrite the evaluator into
+strict state-passing operations. Strict state passing does not require
+exhaustive materialization of every intermediate relation. The common
+kernel must preserve first-witness termination for existential evaluation
+such as `not` and `not-join`, using explicit demand, checked folds or
+execution frames.
+
+Query-controlled loops must return progress, including loops that reject
+every candidate or produce no binding. Lazy evaluator chains that capture
+stale execution state are not permitted. Adapter preprocessing and final
+output work participate in the same invocation state.
+
+Existing selective index access and planning-never-forces behavior remain
+regression requirements for unbounded calls. This rewrite does not
+authorize an eager source drain or a second query semantics
+implementation.
+
+Phase 4a must make query-controlled, potentially unbounded evaluation
+chains stack-safe through a trampoline or explicit execution frames. This
+includes recursive rule expansion and continuation chains whose depth
+grows with processed bindings or nested evaluation. Increasing the work
+allowance must not replace structured exhaustion with host stack
+overflow. A fixed rule-depth guard is not a substitute for this
+requirement. Phase 3 tabling addresses recursive completeness and must
+preserve this execution property. Opaque caller functions retain the
+separately documented indivisible-operation limitation.
 
 ### Storage checkpoints and overshoot
 
@@ -477,6 +535,57 @@ Qualification must demonstrate the one-read guarantee on the supported
 path. If the existing lazy traversal cannot expose that granularity,
 implement the generic seam or explicitly leave the timed path
 unqualified. Do not replace the guarantee with checks at clause boundaries.
+
+### Staged source qualification: Phase 4a and Phase 4b
+
+The one-in-flight-storage-read guarantee is unchanged. Phase 4a does not
+claim to establish it for published indexes.
+
+Phase 4a may qualify bounded queries over explicitly materialized
+relation and fact-relation values, and supported views whose complete
+source chain terminates in such a materialized value. Their
+query-controlled realization, current-state interpretation, index
+construction and evaluation must participate in work accounting and
+deadline observations.
+
+Calls supplying either a timeout or a work cap must refuse a source
+chain reaching an opened published index, deferred source rows or another
+unqualified source implementation. Admission inspects descriptors without
+forcing source contents and checks every declared source before source
+realization. Cache residency does not change eligibility.
+
+Refusal uses the adapter's `:unsupported` category, a minimal
+`:bounded-source-unqualified` reason and the source variable. It must
+perform zero source reads and must not open or close anything. The
+adapter must not silently materialize a rejected source or fall back to
+unchecked execution.
+
+Unbounded calls retain existing source support through the common
+evaluator. Explicit materialization performed by the caller before
+invoking `q` is outside that query's bounds and must be described as
+such.
+
+Phase 4b owns the checked published-index traversal seam. Its design must
+cover root restoration, initial seek descent, range advancement,
+full-walk fallback and reads made by pull or special forms. It must
+return invocation progress or explicit read requests at each actual
+fetch, without mutating a borrowed tree to install query state and
+without making storage interpret query semantics.
+
+A wrapping `IStorage` alone is not sufficient evidence: its design must
+explain how immutable progress returns from each restore. The Phase 4b
+seam requires architecture review before implementation/landing. Phase 5
+cannot qualify bounded published-index queries until Phase 4b passes.
+
+| Source path | Unbounded calls | Bounded calls after Phase 4a | Bounded calls after Phase 4b |
+|---|---|---|---|
+| Materialized relation/fact-relation | Existing supported semantics | Eligible for qualification after integrated tests | Same |
+| Supported view over materialized relation | Existing supported semantics | Eligible after checked realization and evaluation tests | Same |
+| Published index, directly or under a view | Existing supported semantics | Refused before source reads | Eligible only for paths proven by checked-traversal tests |
+| Deferred or unrecognized source implementation | No new support granted | Refused | Remains refused unless separately qualified |
+
+"Eligible" does not mean tests or Client oracle verification have already
+passed.
 
 ### Exhaustion and exceptions
 
@@ -685,7 +794,12 @@ precedent.
 Retain phase IDs from the initial plan for traceability. Execute in this
 order:
 
-**0 → 1 → 4 → 2 → 3 → 5**
+**0 → 1 → 4a → 4b → 2 → 3 → 5**
+
+Phase 4a may land independently with its explicit source restrictions.
+Phase 4b remains a required slice of the published-index backend
+objective; it is not deferred into an unspecified Phase 5 task. The
+remaining phases keep their existing acceptance criteria.
 
 Phase 1 prioritizes representative finite pull and list-surface cases.
 Phase 4 moves ahead of aggregate/rule expansion because backend query
@@ -696,18 +810,21 @@ not the accepted feature boundary.
 |---|---|---|---:|
 | 0 — Contract and fixtures | Architect: this document. Engineer: corpus, README/errata/provenance, fixture namespace, conformance harness, oracle runner and dev-only dependency alias. | Every contract point classified; no fabricated oracle evidence; fixtures load portably; disputed behavior has explicit oracle cases; pending cases reported honestly. | 3–5 |
 | 1 — Adapter boundary and view workloads | Engineer: `src/cljc/dao/space/query/datomic.cljc`, `test/dao/space/query/datomic_test.cljc`, consumer fixtures and examples. | Both verified public arities; safe strings; argument/option validation; realized tuple/return-map output; pagination defaults/boundaries; finite pull profile validated; unsupported features refused; existing core result tests unchanged. | 4–7 |
-| 4 — Bounded execution | Engineer: `src/cljc/dao/space/query/execution.cljc`, core integration, adapter driver, execution tests, and the minimal generic traversal seam needed for read checkpoints. | One threaded invocation state; normative unit accounting; checked forced pass; per-read guarantee; deterministic expiry tests; one clock smoke per host; minimal error context; no input ownership change; legacy API unchanged. | 12–22 |
+| 4a — Common bounded evaluator | Engineer: `query.cljc`, `query/execution.cljc`, adapter integration, affected pull/realization helpers and tests. | One state-passing evaluator for bounded and unbounded calls; checked materialized-source execution; preserved existential demand and rule scope; adapter entry-to-return accounting; fail-closed source admission; deterministic tests on all three hosts; unchanged public core contract and downstream behavior. | 20–32 total, including 4–6 already spent; 16–26 remaining |
+| 4b — Checked published-index traversal | Separate architecture-reviewed seam, then engineer implementation and portable read tests. | Per-fetch progress through root seek and subsequent traversal; one-in-flight guarantee on actual published indexes; no query state installed in borrowed trees; pull/special-form/fallback coverage; three-host counter evidence and lifecycle tests. | 12–20 provisional |
 | 2 — Deterministic language coverage | Engineer: `query.cljc`, aggregate/numeric tests and adapter tests. | Six specified aggregate capabilities added; arities and parameters preserved; empty/grouped/`:with` cases; abbreviated current-fact patterns; special-form edges; three-host numeric-domain agreement. | 6–10 |
 | 3 — Rules and semantic conformance | Engineer: core rules and `test/dao/space/query_rules_test.cljc`; corpus expansion. | Required-bound heads; left/right/mutual finite positive recursion; cycles, alternatives and unbound entry calls; immutable tabling/fixed-point correction where necessary; unsupported recursion through negation refused; fresh-value work bounded by Phase 4; existing VM rules pass. | 8–14 |
-| 5 — Qualification and integration | Engineer: complete conformance, counters, ownership and downstream tests. Architect: final matrix and status headers. | Supported cases verified; differences/refusals executable; read budgets hold; downstream callers pass; no remaining unverified claim inside the qualified exact domain; docs match implementation. | 5–8 |
+| 5 — Qualification and integration | Engineer: complete conformance, counters, ownership and downstream tests. Architect: final matrix and status headers. | Supported cases verified; differences/refusals executable; read budgets hold; downstream callers pass; no remaining unverified claim inside the qualified exact domain; docs match implementation. Additionally requires evidence that Phase 4a restrictions are removed only for paths qualified by Phase 4b. | 7–11 |
 
 Each phase must leave master testable. Land tests with their implementing
 slice; proposed/pending cases must not make unrelated lanes fail or appear
 as passing compatibility cases.
 
-Phase 4 may change only generic traversal machinery needed for the stated
-guarantee. It does not authorize a storage-format redesign or query-aware
-backend. That seam requires architecture review before landing.
+Phase 4a authorizes the common evaluator/state-passing rewrite but no
+B-tree checked-read refactor. Phase 4b owns that separately reviewed
+seam. Neither slice authorizes a persisted storage-format change,
+query-aware backend, second evaluator, or weakened one-in-flight
+guarantee.
 
 ### Downstream regression gates
 
@@ -734,14 +851,27 @@ the actual router/driver protocol.
 
 ### Effort and routing
 
-Implementation subtotal remains **38–66 agent-hours**.
-Independent review and remediation add **6–10 agent-hours**.
-Total remains **44–76 agent-hours**.
+The original 12–22-hour Phase 4 estimate is superseded by source
+inspection. Phase 4a is estimated at 20–32 implementation agent-hours,
+including 4–6 already spent and 16–26 remaining. Phase 4b adds a
+provisional 12–20 hours, subject to its seam-design review. Combined
+Phase 4 implementation is therefore 32–52 hours.
 
-Scheduling alone does not change the estimate. The detailed checked-read
-seam and recursive completeness work are the largest risks and should be
-resolved early within their phase ranges. Re-estimate if investigation
-shows a broader traversal refactor is necessary.
+Phases 2 and 3 remain 6–10 and 8–14 implementation agent-hours
+respectively; no new aggregate or recursive-completeness work is folded
+into Phase 4a. Phase 5 increases to 7–11 hours for source-qualification,
+traversal and regression evidence.
+
+Remaining implementation from the Phase 4 STOP is 49–81 agent-hours.
+Allow a further 8–14 agent-hours for independent review and remediation
+across the remaining slices: 57–95 agent-hours remaining overall.
+Already completed Phase 0/1 work and the 4–6 hours already spent on
+Phase 4 are excluded from that remaining estimate.
+
+These are revised engineering estimates, not measured model-throughput
+guarantees. The Phase 4b range remains provisional until its
+checked-traversal design is reviewed. Existing role-routing and
+reviewer-independence requirements remain unchanged.
 
 Assume one `claude-opus-5.5` engineering lane, independent
 `gemini-4-argon` implementation review, and GPT architecture sign-off for

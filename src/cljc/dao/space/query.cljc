@@ -23,6 +23,7 @@
             [dao.jing.coordinate :as jing-coordinate]
             [dao.space.index :as index]
             [dao.stream :as stream]
+            [dao.space.query.execution :as exec]
             [dao.stream.observe :as observe]))
 
 
@@ -346,6 +347,130 @@
 
 
 ;; =============================================================================
+;; Evaluation kernel plumbing: explicit state-passing, [state result]
+;; =============================================================================
+;; One evaluator serves bounded and unbounded calls. Every evaluation step
+;; takes the invocation's immutable execution state (dao.space.query.execution)
+;; and returns it with its result; nothing is an atom, volatile or dynamic
+;; var. `ctx` is LEXICAL scope (the fn table, the active-rule path and the
+;; driver capability); the state is PROGRESS. A nested rule body gets an
+;; extended ctx for its own work and the caller's ctx is untouched on return,
+;; but the state returned from the body is the state the caller continues
+;; with. Legacy `q` runs this kernel with the explicit unbounded policy.
+
+(defn- spend
+  "One accountable unit of operation op: observe, then charge before the
+   unit is performed. Returns the state; callers perform the unit only when
+   it is still live."
+  [st ctx op]
+  (exec/step st (::driver ctx) op))
+
+
+(defn- spend-n
+  "n units of operation op, charged before they are performed (n = 0 only
+   observes)."
+  [st ctx op n]
+  (if (pos? n)
+    (exec/step st (::driver ctx) (* n (get exec/step-units op)))
+    (exec/checkpoint st (::driver ctx) (exec/phase st))))
+
+
+(defn- observe-st
+  "The post-operation observation: result interpretation waits for it."
+  [st ctx]
+  (exec/checkpoint st (::driver ctx) (exec/phase st)))
+
+
+(defn- enter-st
+  "A named phase boundary."
+  [st ctx phase]
+  (exec/checkpoint st (::driver ctx) phase))
+
+
+(defn- halted?
+  "True once evaluation must stop: a terminal state, or a consumer that
+   answered `reduced` (first-witness termination)."
+  [st acc]
+  (or (exec/terminal? st) (reduced? acc)))
+
+
+(defn- fold-st
+  "Direct-style fold of f over xs, threading the execution state and an
+   accumulator: (f st acc x) -> [st acc]. Stops at a terminal state or a
+   reduced accumulator. A loop, so stack depth does not grow with the number
+   of items. Used where f is shallow (projection, pull, input expansion)."
+  [st acc xs f]
+  (loop [st st
+         acc acc
+         xs (seq xs)]
+    (if (or (nil? xs) (halted? st acc))
+      [st acc]
+      (let [[st acc] (f st acc (first xs))]
+        ;; never advance the source after a halt: `next` may realize an
+        ;; element the consumer has already decided it does not need
+        (if (halted? st acc) [st acc] (recur st acc (next xs)))))))
+
+
+;; ---------------------------------------------------------------------------
+;; The trampoline: explicit execution frames
+;; ---------------------------------------------------------------------------
+;; Evaluation is continuation-passing, and a continuation chain can grow with
+;; recursive rule expansion, nested evaluation and the bindings processed.
+;; Evaluator steps therefore never call each other (or their continuations)
+;; directly: a step returns a COMPUTATION, and `run-comp` is the only
+;; driver. A computation is a plain result [state acc], a bounce
+;; ({::bounce thunk}: call the thunk later) or a bind ({::m comp ::f f}: run
+;; comp, then hand its result to f). The pending fs are an explicit
+;; heap-allocated frame list, so host stack depth is constant however deep
+;; the evaluation nests, and a generous work allowance ends in structured
+;; exhaustion instead of a host stack overflow.
+
+(defn- bounce
+  "Suspend thunk: it runs from the driver, after the stack has unwound."
+  [thunk]
+  {::bounce thunk})
+
+
+(defn- bind
+  "The computation that runs m, then (f result)."
+  [m f]
+  {::m m, ::f f})
+
+
+(defn- run-comp
+  "The only driver: run a computation to its plain [state acc] result with a
+   constant host stack."
+  [c]
+  (loop [c c
+         frames ()]
+    (cond
+      (and (map? c) (contains? c ::f)) (recur (::m c) (conj frames (::f c)))
+      (and (map? c) (contains? c ::bounce)) (recur ((::bounce c)) frames)
+      (empty? frames) c
+      :else (recur ((first frames) c) (rest frames)))))
+
+
+(defn- each-st
+  "Monadic fold of f over xs, threading the execution state and an
+   accumulator: (f st acc x) -> computation of [st acc]. Stops at a terminal
+   state or a reduced accumulator. Each item runs from the driver and the
+   rest of the fold is a frame, so the stack never grows with the number of
+   items or the nesting of what f evaluates."
+  [st acc xs f]
+  (let [xs (seq xs)]
+    (if (or (nil? xs) (halted? st acc))
+      [st acc]
+      (bind (bounce (fn [] (f st acc (first xs))))
+            (fn [[st acc]]
+              (if (halted? st acc)
+                [st acc]
+                (each-st st acc (next xs) f)))))))
+
+
+(def ^:private unbounded-ctx {::driver nil})
+
+
+;; =============================================================================
 ;; Realize a db-value: value tag -> {::relation ::fact-index ::indexes}
 ;; =============================================================================
 
@@ -366,60 +491,122 @@
   (if (delay? relation) @relation relation))
 
 
-(declare realize-db-value!)
-
-
-(defn- realize-datom-view
-  "Interpret a current/history view inside the query layer. The nested
-   source is another query value; a current view with no as-of over an
-   opened published index routes through the restored covered sets, every
-   other combination resolves the source's rows."
-  [d]
-  (let [kind (:dao.space.query/view d)
-        as-of (:as-of d)
-        {src-relation ::relation, src-indexes ::indexes}
-        (realize-db-value! (:source d))]
-    (if (and (= :current kind) (nil? as-of) src-indexes)
-      {::relation (delay (d5->current-facts (force-relation src-relation) nil)),
-       ::fact-index src-indexes}
-      (let [forced-rel (force-relation src-relation)
-            rows (case kind
-                   :current (d5->current-facts forced-rel as-of)
-                   :history (d5->history-rows forced-rel as-of))]
-        {::relation rows,
-         ::fact-index (when (= :current kind)
-                        (relation->fact-index rows))}))))
+(declare realize-st)
 
 
 (defn ^:no-doc realize-db-value!
   "Turn one db-value into an immutable tuple relation plus, for current
-   fact views, an in-memory fact index. Opens nothing, closes nothing."
+   fact views, an in-memory fact index. Opens nothing, closes nothing.
+   Runs the checked realization with the explicit unbounded policy."
   [db-value]
-  (when-not (map? db-value)
-    (throw
-      (ex-info
-        "query db input must be a relation value, a datom view, or an opened published index; raw vectors and maps are rejected"
-        {:input db-value})))
+  (second (realize-st exec/unbounded unbounded-ctx db-value)))
+
+
+(def ^:private raw-source-message
+  "query db input must be a relation value, a datom view, or an opened published index; raw vectors and maps are rejected")
+
+
+(defn- relation-size
+  "The tuple count of a relation without forcing a deferred one."
+  [relation]
+  (if (delay? relation) 0 (count relation)))
+
+
+(defn- apply-view-st
+  "Interpret ONE current/history view over its already realized source. A
+   current view with no as-of over an opened published index routes through
+   the restored covered sets; every other combination resolves the source's
+   rows. The tuples interpreted and indexed are charged before the
+   indivisible host operation runs."
+  [st ctx d src]
+  (let [kind (:dao.space.query/view d)
+        as-of (:as-of d)
+        {src-relation ::relation, src-indexes ::indexes} src]
+    (if (and (= :current kind) (nil? as-of) src-indexes)
+      [st {::relation (delay (d5->current-facts (force-relation src-relation) nil)),
+           ::fact-index src-indexes}]
+      (let [forced-rel (force-relation src-relation)
+            st (spend-n st ctx :scan-advance (relation-size forced-rel))]
+        (if (exec/terminal? st)
+          [st nil]
+          (let [rows (case kind
+                       :current (d5->current-facts forced-rel as-of)
+                       :history (d5->history-rows forced-rel as-of))
+                st (spend-n st ctx :scan-advance
+                            (if (= :current kind) (count rows) 0))]
+            (if (exec/terminal? st)
+              [st nil]
+              (let [fact-index (when (= :current kind)
+                                 (relation->fact-index rows))
+                    st (observe-st st ctx)]
+                (if (exec/terminal? st)
+                  [st nil]
+                  [st {::relation rows, ::fact-index fact-index}])))))))))
+
+
+(defn- realize-base-st
+  "Realize a non-view db-value: a relation (and, for a fact relation, its
+   index) or an opened published index."
+  [st ctx db-value]
   (cond
     (contains? db-value :dao.space.query/relation)
-    (let [tuples (:dao.space.query/relation db-value)]
-      {::relation tuples,
-       ::fact-index (when (:fact? db-value) (relation->fact-index tuples))})
+    (let [tuples (:dao.space.query/relation db-value)
+          fact? (:fact? db-value)
+          st (spend-n st ctx :scan-advance (if fact? (relation-size tuples) 0))]
+      (if (exec/terminal? st)
+        [st nil]
+        (let [fact-index (when fact? (relation->fact-index tuples))
+              st (observe-st st ctx)]
+          (if (exec/terminal? st)
+            [st nil]
+            [st {::relation tuples, ::fact-index fact-index}]))))
 
     (contains? db-value :dao.space.query/published)
-    (let [indexes (index/covered-indexes db-value)]
-      {::relation (:rows db-value),
-       ::indexes indexes,
-       ::fact-index nil})
-
-    (contains? db-value :dao.space.query/view)
-    (realize-datom-view db-value)
+    (do (when (exec/bounded? st)
+          (throw (ex-info "bounded execution does not support opened published indexes"
+                          {:reason :bounded-source-unqualified})))
+        (let [indexes (index/covered-indexes db-value)]
+          [st {::relation (:rows db-value),
+               ::indexes indexes,
+               ::fact-index nil}]))
 
     :else
-    (throw
-      (ex-info
-        "query db input must be a relation value, a datom view, or an opened published index; raw vectors and maps are rejected"
-        {:input db-value}))))
+    (throw (ex-info raw-source-message {:input db-value}))))
+
+
+(defn- realize-st
+  "The checked realization of one db-value: [state realized]. Iterative: the
+   view chain is walked down to its base source in a loop (one accounted
+   unit per descriptor hop) and the views are applied back up in a second
+   loop, so a source chain of any depth uses constant host stack. Tuples and
+   index entries are charged before the (indivisible) host construction and
+   the state is observed when it returns. A bounded state refuses an opened
+   published index: its traversal is not checkpointed."
+  [st ctx db-value]
+  (loop [st st
+         v db-value
+         views ()]
+    (when-not (map? v)
+      (throw (ex-info raw-source-message {:input v})))
+    (cond
+      (exec/terminal? st) [st nil]
+
+      (and (contains? v :dao.space.query/view)
+           (not (contains? v :dao.space.query/relation))
+           (not (contains? v :dao.space.query/published)))
+      (recur (spend st ctx :scan-advance) (:source v) (conj views v))
+
+      :else
+      (let [[st base] (realize-base-st st ctx v)]
+        ;; views holds the innermost first: apply back up
+        (loop [st st
+               realized base
+               views views]
+          (cond
+            (exec/terminal? st) [st nil]
+            (empty? views) [st realized]
+            :else (let [[st r] (apply-view-st st ctx (first views) realized)]
+                    (recur st r (rest views)))))))))
 
 
 ;; =============================================================================
@@ -493,43 +680,81 @@
   (or (nil? x) (boolean? x) (cbor/numeric? x) (string? x) (keyword? x) (symbol? x)))
 
 
+(defn- slot-pred
+  "The kind-strict filter of a datom against the bound slots of a pattern."
+  [e a v]
+  (fn [d]
+    (and (or (wildcard? e) (cbor/content= e (index/datom-e d)))
+         (or (wildcard? a) (cbor/content= a (index/datom-a d)))
+         (or (wildcard? v) (cbor/content= v (index/datom-v d))))))
+
+
+(defn- index-candidates
+  "The raw candidate datoms of an index range for the bound scalar slots,
+   unfiltered and lazy: the index range of the bound slots is scanned by
+   index order (numerically equal values of different kinds included); the
+   kind-strict filter is the caller's, applied per candidate."
+  [idx e a v]
+  (let [e? (and (not (wildcard? e)) (range-scannable? e))
+        a? (and (not (wildcard? a)) (range-scannable? a))
+        v? (and (not (wildcard? v)) (range-scannable? v))]
+    (cond e?
+          (take-while #(same-slot? e (index/datom-e %))
+                      (index/subseq-from (:eavt idx)
+                                         index/eavt-cmp
+                                         [e nil nil nil nil]))
+          (and a? v?)
+          (take-while #(and (same-slot? a (index/datom-a %))
+                            (same-slot? v (index/datom-v %)))
+                      (index/subseq-from (:avet idx)
+                                         index/avet-cmp
+                                         [nil a v nil nil]))
+          v?
+          (take-while #(same-slot? v (index/datom-v %))
+                      (index/subseq-from (:vaet idx)
+                                         index/vaet-cmp
+                                         [nil nil v nil nil]))
+          a?
+          (take-while #(same-slot? a (index/datom-a %))
+                      (index/subseq-from (:aevt idx)
+                                         index/aevt-cmp
+                                         [nil a nil nil nil]))
+          :else (seq (:eavt idx)))))
+
+
 (defn- select-by-index
   "The current-state datoms whose bound slots are content= the pattern's.
    The index range of the bound scalar slots is scanned by index order
    (numerically equal values of different kinds included), then every bound
    slot is matched kind-strictly."
   [idx e a v]
-  (let [e? (and (not (wildcard? e)) (range-scannable? e))
-        a? (and (not (wildcard? a)) (range-scannable? a))
-        v? (and (not (wildcard? v)) (range-scannable? v))
-        candidates (cond e?
-                         (take-while #(same-slot? e (index/datom-e %))
-                                     (index/subseq-from (:eavt idx)
-                                                        index/eavt-cmp
-                                                        [e nil nil nil nil]))
-                         (and a? v?)
-                         (take-while #(and (same-slot? a (index/datom-a %))
-                                           (same-slot? v (index/datom-v %)))
-                                     (index/subseq-from (:avet idx)
-                                                        index/avet-cmp
-                                                        [nil a v nil nil]))
-                         v?
-                         (take-while #(same-slot? v (index/datom-v %))
-                                     (index/subseq-from (:vaet idx)
-                                                        index/vaet-cmp
-                                                        [nil nil v nil nil]))
-                         a?
-                         (take-while #(same-slot? a (index/datom-a %))
-                                     (index/subseq-from (:aevt idx)
-                                                        index/aevt-cmp
-                                                        [nil a nil nil nil]))
-                         :else (seq (:eavt idx)))]
-    (current-state-seq
-      (filter (fn [d]
-                (and (or (wildcard? e) (cbor/content= e (index/datom-e d)))
-                     (or (wildcard? a) (cbor/content= a (index/datom-a d)))
-                     (or (wildcard? v) (cbor/content= v (index/datom-v d)))))
-              candidates))))
+  (current-state-seq (filter (slot-pred e a v) (index-candidates idx e a v))))
+
+
+(defn- datoms-st
+  "The checked select: [state datoms]. Each candidate the range scan
+   yields is one accountable unit of op, charged before it is examined and
+   pulled one at a time; the state is observed again before the collected
+   candidates are interpreted. The current-state resolution over the
+   charged candidates is one indivisible host operation. Query-controlled
+   traversal of a lazy published tree is NOT checkpointed per node fetch
+   here; bounded calls never reach it (Phase 4b)."
+  [st ctx idx e a v op]
+  (let [pred (slot-pred e a v)]
+    (loop [st st
+           xs (seq (index-candidates idx e a v))
+           kept []]
+      (cond
+        (exec/terminal? st) [st nil]
+        (nil? xs) (let [st (observe-st st ctx)]
+                    (if (exec/terminal? st)
+                      [st nil]
+                      [st (vec (current-state-seq kept))]))
+        :else (let [st (spend st ctx op)]
+                (if (exec/terminal? st)
+                  [st nil]
+                  (let [d (first xs)]
+                    (recur st (next xs) (if (pred d) (conj kept d) kept)))))))))
 
 
 (defn datoms
@@ -664,108 +889,122 @@
 
 
 (defn- project-reverse-attr
-  [idx eid spec]
+  [st ctx idx eid spec]
   (let [rev-attr (forward-attr-name spec)
         fwd-attr (reverse-to-forward rev-attr)
-        matching (datoms idx '_ fwd-attr eid)
-        eids (mapv #(nth % 0) matching)
-        results (mapv (fn [e] {:db/id e}) eids)]
-    (if (seq results)
-      [(apply-options spec rev-attr)
-       (if (and (map? spec) (:limit spec))
-         (take (:limit spec) results)
-         results)]
-      (when (and (map? spec) (contains? spec :default))
-        [(apply-options spec rev-attr) (:default spec)]))))
+        [st matching] (datoms-st st ctx idx '_ fwd-attr eid :pull-advance)]
+    (if (exec/terminal? st)
+      [st nil]
+      (let [results (mapv (fn [d] {:db/id (nth d 0)}) matching)]
+        [st (if (seq results)
+              [(apply-options spec rev-attr)
+               (if (and (map? spec) (:limit spec))
+                 (take (:limit spec) results)
+                 results)]
+              (when (and (map? spec) (contains? spec :default))
+                [(apply-options spec rev-attr) (:default spec)]))]))))
 
 
 (defn- project-flat-attr
-  [idx eid spec]
+  [st ctx idx eid spec]
   (let [attr (forward-attr-name spec)]
     (if (reverse-attr? attr)
-      (project-reverse-attr idx eid spec)
-      (let [matching (datoms idx eid attr '_)
-            values (mapv #(nth % 2) matching)]
-        (cond (empty? values) (when (and (map? spec) (contains? spec :default))
-                                [(apply-options spec attr) (:default spec)])
-              (= 1 (count values)) [(apply-options spec attr) (first values)]
-              :else (let [limit (and (map? spec) (:limit spec))
-                          result (if limit (take limit values) values)]
-                      [(apply-options spec attr) result]))))))
+      (project-reverse-attr st ctx idx eid spec)
+      (let [[st matching] (datoms-st st ctx idx eid attr '_ :pull-advance)]
+        (if (exec/terminal? st)
+          [st nil]
+          (let [values (mapv #(nth % 2) matching)]
+            [st (cond (empty? values) (when (and (map? spec) (contains? spec :default))
+                                        [(apply-options spec attr) (:default spec)])
+                      (= 1 (count values)) [(apply-options spec attr) (first values)]
+                      :else (let [limit (and (map? spec) (:limit spec))
+                                  result (if limit (take limit values) values)]
+                              [(apply-options spec attr) result]))]))))))
 
 
 (defn- project-wildcard
-  [idx eid]
-  (let [matching (datoms idx eid '_ '_)
-        grouped (group-by #(nth % 1) matching)]
-    (reduce (fn [m [attr ds]]
-              (let [values (mapv #(nth % 2) ds)]
-                (assoc m attr (if (= 1 (count values)) (first values) values))))
-            {}
-            grouped)))
+  [st ctx idx eid]
+  (let [[st matching] (datoms-st st ctx idx eid '_ '_ :pull-advance)]
+    (if (exec/terminal? st)
+      [st nil]
+      [st (reduce (fn [m [attr ds]]
+                    (let [values (mapv #(nth % 2) ds)]
+                      (assoc m attr (if (= 1 (count values)) (first values) values))))
+                  {}
+                  (group-by #(nth % 1) matching))])))
 
 
 (defn- pull-flat
-  [idx eid parsed]
-  (let [base (if (:wildcard? parsed) (project-wildcard idx eid) {})
-        with-attrs (reduce (fn [m spec]
-                             (if-let [[k v] (project-flat-attr idx eid spec)]
-                               (assoc m k v)
-                               m))
-                           base
-                           (:attrs parsed))]
-    (assoc with-attrs :db/id eid)))
+  [st ctx idx eid parsed]
+  (let [[st base] (if (:wildcard? parsed)
+                    (project-wildcard st ctx idx eid)
+                    [st {}])]
+    (if (exec/terminal? st)
+      [st nil]
+      (let [[st with-attrs]
+            (fold-st st base (:attrs parsed)
+                     (fn [st m spec]
+                       (let [st (spend st ctx :pull-advance)]
+                         (if (exec/terminal? st)
+                           [st m]
+                           (let [[st kv] (project-flat-attr st ctx idx eid spec)]
+                             (if-let [[k v] (and (not (exec/terminal? st)) kv)]
+                               [st (assoc m k v)]
+                               [st m]))))))]
+        [st (when-not (exec/terminal? st) (assoc with-attrs :db/id eid))]))))
 
 
 (declare pull-full-impl)
 
 
 (defn- project-nested-attr
-  [idx eid attr sub-spec]
-  (if (reverse-attr? attr)
-    (let [fwd-attr (reverse-to-forward attr)
-          matching (datoms idx '_ fwd-attr eid)
-          values (mapv #(nth % 0) matching)
-          results (keep (fn [v]
-                          (when (seq (datoms idx v '_ '_))
-                            (pull-full-impl idx v sub-spec)))
-                        values)]
-      (when (seq results) [attr results]))
-    (let [matching (datoms idx eid attr '_)
-          values (mapv #(nth % 2) matching)
-          results (keep (fn [v]
-                          (when (seq (datoms idx v '_ '_))
-                            (pull-full-impl idx v sub-spec)))
-                        values)]
-      (when (seq results)
-        (if (= 1 (count results)) [attr (first results)] [attr results])))))
+  [st ctx idx eid attr sub-spec]
+  (let [reverse? (reverse-attr? attr)
+        [st matching] (if reverse?
+                        (datoms-st st ctx idx '_ (reverse-to-forward attr) eid :pull-advance)
+                        (datoms-st st ctx idx eid attr '_ :pull-advance))]
+    (if (exec/terminal? st)
+      [st nil]
+      (let [values (mapv #(nth % (if reverse? 0 2)) matching)
+            [st results]
+            (fold-st st [] values
+                     (fn [st acc v]
+                       (let [[st ds] (datoms-st st ctx idx v '_ '_ :pull-advance)]
+                         (if (or (exec/terminal? st) (empty? ds))
+                           [st acc]
+                           (let [[st r] (pull-full-impl st ctx idx v sub-spec)]
+                             [st (if (exec/terminal? st) acc (conj acc r))])))))]
+        (cond (exec/terminal? st) [st nil]
+              (empty? results) [st nil]
+              reverse? [st [attr results]]
+              (= 1 (count results)) [st [attr (first results)]]
+              :else [st [attr results]])))))
 
 
 (defn- pull-full-impl
-  [idx eid parsed]
-  (let [base (pull-flat idx eid parsed)
-        with-nested
-        (reduce (fn [m [attr sub-spec]]
-                  (if-let [[k v] (project-nested-attr idx eid attr sub-spec)]
-                    (assoc m k v)
-                    m))
-                base
-                (:nested parsed))]
-    with-nested))
-
-
-(defn- pull-full
-  [idx eid pattern]
-  (let [parsed (parse-pattern pattern)] (pull-full-impl idx eid parsed)))
+  [st ctx idx eid parsed]
+  (let [[st base] (pull-flat st ctx idx eid parsed)]
+    (if (exec/terminal? st)
+      [st nil]
+      (fold-st st base (:nested parsed)
+               (fn [st m [attr sub-spec]]
+                 (let [[st kv] (project-nested-attr st ctx idx eid attr sub-spec)]
+                   (if-let [[k v] (and (not (exec/terminal? st)) kv)]
+                     [st (assoc m k v)]
+                     [st m])))))))
 
 
 (defn- pull-idx
   "idx-level pull: the fact index has already been built. {:db/id eid} (only)
    if eid has no datoms — matching Datomic: entity ids are not
    existence-checked, so pull never returns nil at the top level, it
-   always echoes back :db/id."
-  [idx eid pattern]
-  (if (seq (datoms idx eid '_ '_)) (pull-full idx eid pattern) {:db/id eid}))
+   always echoes back :db/id. [state result]; the result is meaningful only
+   while the state is live."
+  [st ctx idx eid pattern]
+  (let [[st ds] (datoms-st st ctx idx eid '_ '_ :pull-advance)]
+    (cond (exec/terminal? st) [st nil]
+          (seq ds) (pull-full-impl st ctx idx eid (parse-pattern pattern))
+          :else [st {:db/id eid}])))
 
 
 (defn pull
@@ -780,7 +1019,7 @@
     (when-not fact-index
       (throw (ex-info "pull requires a current fact-shaped source view"
                       {:source source})))
-    (pull-idx fact-index eid pattern)))
+    (second (pull-idx exec/unbounded unbounded-ctx fact-index eid pattern))))
 
 
 (defn pull-many
@@ -792,11 +1031,14 @@
                "pull-many requires a current fact-shaped source view"
                {:source source})))
     (let [parsed (parse-pattern pattern)]
-      (mapv (fn [eid]
-              (if (seq (datoms fact-index eid '_ '_))
-                (pull-full-impl fact-index eid parsed)
-                {:db/id eid}))
-            eids))))
+      (second
+        (fold-st exec/unbounded [] eids
+                 (fn [st acc eid]
+                   (let [[st ds] (datoms-st st unbounded-ctx fact-index eid '_ '_ :pull-advance)]
+                     (if (seq ds)
+                       (let [[st r] (pull-full-impl st unbounded-ctx fact-index eid parsed)]
+                         [st (conj acc r)])
+                       [st (conj acc {:db/id eid})]))))))))
 
 
 ;; =============================================================================
@@ -959,9 +1201,6 @@
    'ground identity})
 
 
-(declare eval-where)
-
-
 (defn- resolve-binding
   "The value a pattern, fn-argument or rule-argument term stands for: a
    ?-variable's bound value (FREE while unbound), FREE for the blank `_`,
@@ -1039,11 +1278,6 @@
   (when (some? x) (f x)))
 
 
-(defn- select-datoms
-  [idx e a v]
-  (select-by-index idx e a v))
-
-
 (defn- db-sym?
   [x]
   (and (symbol? x) (= \$ (first (name x)))))
@@ -1064,29 +1298,18 @@
   (case (classify-in-pattern pattern)
     :db [{::dbs {pattern (get dbs pattern)}}]
     :scalar [{pattern value}]
-    :coll (let [sym (first pattern)] (mapv (fn [elem] {sym elem}) value))
+    ;; lazy: the checked cross product pulls one binding at a time and
+    ;; charges each, so an input is never enumerated ahead of the budget
+    :coll (let [sym (first pattern)] (map (fn [elem] {sym elem}) value))
     :tuple [(zipmap pattern value)]
     :relation (let [vars (first pattern)]
-                (mapv (fn [tup] (zipmap vars tup)) value))))
+                (map (fn [tup] (zipmap vars tup)) value))))
 
 
 (defn- merge-bindings
   [b1 b2]
   (let [merged-dbs (merge (get b1 ::dbs {}) (get b2 ::dbs {}))]
     (cond-> (merge b1 b2) (seq merged-dbs) (assoc ::dbs merged-dbs))))
-
-
-(defn- cross-join-bindings
-  [rows1 rows2]
-  (for [b1 rows1 b2 rows2] (merge-bindings b1 b2)))
-
-
-(defn- build-init-bindings
-  [in-patterns inputs dbs]
-  (reduce (fn [acc [pat val]]
-            (cross-join-bindings acc (expand-in-binding pat val dbs)))
-          [{}]
-          (map vector in-patterns inputs)))
 
 
 (defn- pattern-clause?
@@ -1116,22 +1339,6 @@
   (::fact-index (resolve-db binding db-sym)))
 
 
-(defn- eval-pattern-clause
-  [clause binding _ctx]
-  (let [[db-sym pattern] (clause-db-and-pattern clause)
-        fact-index (resolve-fact-index binding db-sym)
-        parsed (parse-tuple-pattern pattern)]
-    (if (and fact-index (nil? (:rest parsed)) (= 3 (count (:fixed parsed))))
-      (let [[e a v] (mapv #(resolve-binding binding %) (:fixed parsed))]
-        (keep #(unify-slots binding
-                            parsed
-                            [(index/datom-e %) (index/datom-a %)
-                             (index/datom-v %)])
-              (select-datoms fact-index e a v)))
-      (let [relation (resolve-relation binding db-sym)]
-        (keep #(unify-slots binding parsed %) relation)))))
-
-
 (defn- query-var?
   [x]
   (and (symbol? x) (= \? (first (name x)))))
@@ -1147,22 +1354,6 @@
                             :else (filter query-var?
                                           (tree-seq coll? seq clause))))
                     clauses)))
-
-
-(defn- eval-not
-  [clause bindings ctx]
-  (let [inner-clauses (rest clause)
-        req-vars (not-required-vars inner-clauses)]
-    (mapcat
-      (fn [binding]
-        (doseq [v req-vars]
-          (when (= FREE (resolve-binding binding v))
-            (throw
-              (ex-info
-                "All variables inside not must be bound; use not-join to introduce local variables"
-                {:var v, :clause clause}))))
-        (if (seq (eval-where inner-clauses [binding] ctx)) [] [binding]))
-      bindings)))
 
 
 (defn- branch-clauses
@@ -1188,116 +1379,12 @@
                        :branch-vars (vec var-sets)})))))
 
 
-(defn- eval-or
-  [clause bindings ctx]
-  (let [branches (rest clause)]
-    (check-same-var-rule branches)
-    (content-distinct (mapcat (fn [branch]
-                                (eval-where (branch-clauses branch) bindings ctx))
-                              branches))))
-
-
-(defn- eval-or-join
-  [clause bindings ctx]
-  (let [join-vars (nth clause 1)
-        branches (drop 2 clause)
-        _ (doseq [branch branches]
-            (let [branch-vars (set (branch-free-vars (branch-clauses branch)))
-                  missing (seq (remove branch-vars join-vars))]
-              (when missing
-                (throw (ex-info (str "or-join branch did not bind join var(s): "
-                                     (vec missing))
-                                {:unbound (vec missing),
-                                 :join-vars join-vars,
-                                 :branch branch})))))
-        seed-for (fn [b]
-                   (into (select-keys b [::dbs '%])
-                         (keep (fn [v]
-                                 (let [v' (get b v FREE)]
-                                   (when (not= v' FREE) [v v']))))
-                         join-vars))
-        augment (fn [b branch-result]
-                  (reduce (fn [acc k] (unify acc k (get branch-result k FREE)))
-                          b
-                          join-vars))]
-    (mapcat (fn [b]
-              (let [seed (seed-for b)]
-                (->> branches
-                     (mapcat #(eval-where (branch-clauses %) [seed] ctx))
-                     (map #(augment b %))
-                     (remove nil?)
-                     content-distinct)))
-            bindings)))
-
-
-(defn- eval-and
-  [clause bindings ctx]
-  (eval-where (rest clause) bindings ctx))
-
-
-(defn- eval-not-join
-  [clause binding ctx]
-  (let [req-vars (nth clause 1)
-        inner-clauses (drop 2 clause)]
-    (doseq [v req-vars]
-      (when (= FREE (resolve-binding binding v))
-        (throw (ex-info "not-join variables must be bound"
-                        {:var v, :binding binding}))))
-    (let [inner-binding (into (select-keys binding [::dbs '%])
-                              (map (fn [v] [v (get binding v)]))
-                              req-vars)]
-      (if (seq (eval-where inner-clauses [inner-binding] ctx)) [] [binding]))))
-
-
-(defn- select-probe
-  [idx e a v]
-  (when idx
-    (let [matches (filter (fn [d]
-                            (and (or (wildcard? a) (cbor/content= a (index/datom-a d)))
-                                 (or (wildcard? v) (cbor/content= v (index/datom-v d)))))
-                          (select-datoms idx e '_ '_))]
-      (if (seq matches)
-        (let [vs (mapv #(nth % 2) matches)] {:v vs, :missing false})
-        {:missing true}))))
-
-
 (defn- resolve-special-arg
   [binding a]
   (let [v (resolve-binding binding a)]
     (when (= v FREE)
-      (throw (ex-info "Unbound variable in special-form clause"
-                      {:var a, :binding binding})))
+      (throw (ex-info "Unbound variable in special-form clause" {:var a})))
     v))
-
-
-(defn- eval-special-fn
-  [fsym args binding]
-  (case fsym
-    get-else (let [[_src e a default] args
-                   idx (resolve-fact-index binding _src)
-                   _ (when-not idx
-                       (throw
-                         (ex-info
-                           "get-else requires a current fact-shaped source view"
-                           {:source _src})))
-                   e' (resolve-special-arg binding e)
-                   a' (resolve-special-arg binding a)
-                   d' (resolve-special-arg binding default)
-                   probe (select-probe idx e' a' '_)
-                   vs (:v probe)]
-               {:ret (if (seq vs) (first vs) d')})
-    missing? (let [[_src e a] args
-                   idx (resolve-fact-index binding _src)
-                   _ (when-not idx
-                       (throw
-                         (ex-info
-                           "missing? requires a current fact-shaped source view"
-                           {:source _src})))
-                   e' (resolve-special-arg binding e)
-                   a' (resolve-special-arg binding a)
-                   probe (select-probe idx e' a' '_)]
-               {:ret (boolean (:missing probe))})
-    nil))
 
 
 (defn- unify-tuple
@@ -1344,58 +1431,292 @@
                         {:binding-form out, :returned ret, :clause clause})))
       (case kind
         :tuple (if-let [b (unify-tuple binding out ret clause)] [b] [])
+        ;; collection / relation results are NOT enumerated here: the plan
+        ;; hands the kernel the items and the per-item attempt, and the
+        ;; kernel charges every attempt (rejected ones too)
         :coll (let [term (first out)]
-                (into [] (keep #(unify binding term %)) ret))
-        :relation (into [] (keep #(unify-tuple binding terms % clause)) ret)))))
+                {::items ret, ::attempt (fn [x] (unify binding term x))})
+        :relation {::items ret,
+                   ::attempt (fn [t] (unify-tuple binding terms t clause))}))))
 
 
-(defn- eval-fn-clause
-  [clause binding ctx]
+;; =============================================================================
+;; The evaluation kernel (continuation-passing, depth-first, state-passing)
+;; =============================================================================
+;; `emit-*` evaluates one clause against ONE binding and hands every output
+;; binding to the continuation k: (k st acc b') -> [st acc]. The rest of the
+;; conjunction is the continuation, so evaluation is depth first and the
+;; consumer decides the demand: collecting everything, or answering
+;; `reduced` at the first witness (not, not-join). Nothing is materialized
+;; beyond what a clause itself enumerates; deduplication of a nested rule or
+;; disjunction is a seen-set carried in the accumulator, not a lazy chain.
+
+(declare emit-clause eval-where*)
+
+
+(defn- select-probe-st
+  [st ctx idx e a v]
+  (if-not idx
+    [st nil]
+    (let [[st ds] (datoms-st st ctx idx e '_ '_ :scan-advance)]
+      (if (exec/terminal? st)
+        [st nil]
+        (let [matches (filter (fn [d]
+                                (and (or (wildcard? a) (cbor/content= a (index/datom-a d)))
+                                     (or (wildcard? v) (cbor/content= v (index/datom-v d)))))
+                              ds)]
+          [st (if (seq matches)
+                {:v (mapv #(nth % 2) matches), :missing false}
+                {:missing true})])))))
+
+
+(defn- eval-special-fn
+  "[state special] where special is {:ret x} for get-else / missing? and nil
+   for any other function."
+  [st ctx fsym args binding]
+  (case fsym
+    get-else (let [[_src e a default] args
+                   idx (resolve-fact-index binding _src)
+                   _ (when-not idx
+                       (throw
+                         (ex-info
+                           "get-else requires a current fact-shaped source view"
+                           {:source _src})))
+                   e' (resolve-special-arg binding e)
+                   a' (resolve-special-arg binding a)
+                   d' (resolve-special-arg binding default)
+                   [st probe] (select-probe-st st ctx idx e' a' '_)]
+               (if (exec/terminal? st)
+                 [st nil]
+                 (let [vs (:v probe)] [st {:ret (if (seq vs) (first vs) d')}])))
+    missing? (let [[_src e a] args
+                   idx (resolve-fact-index binding _src)
+                   _ (when-not idx
+                       (throw
+                         (ex-info
+                           "missing? requires a current fact-shaped source view"
+                           {:source _src})))
+                   e' (resolve-special-arg binding e)
+                   a' (resolve-special-arg binding a)
+                   [st probe] (select-probe-st st ctx idx e' a' '_)]
+               (if (exec/terminal? st)
+                 [st nil]
+                 [st {:ret (boolean (:missing probe))}]))
+    [st nil]))
+
+
+(defn- fn-clause-outputs
+  "[state outputs]: the bindings a fn clause yields for one binding. The
+   host function is one indivisible operation; the state is observed when
+   it returns, before its answer is interpreted."
+  [st ctx clause binding]
   (let [[fsym-and-args & result-vars] clause
         fsym (first fsym-and-args)
         args (rest fsym-and-args)
-        special (eval-special-fn fsym args binding)]
-    (if special
+        [st special] (eval-special-fn st ctx fsym args binding)]
+    (cond
+      (exec/terminal? st) [st nil]
+
+      special
       (let [{:keys [ret]} special]
         (when (> (count result-vars) 1)
           (throw
             (ex-info
               "Function clause takes one binding form; use a tuple [?a ?b] for multi-return"
               {:clause clause})))
-        (if (empty? result-vars)
-          (if ret [binding] [])
-          (let [out (first result-vars)]
-            (when (vector? out)
-              (throw (ex-info
-                       "get-else / missing? take a scalar binding, not a tuple"
-                       {:binding-form out, :clause clause})))
-            (let [b (unify binding out ret)] (if b [b] [])))))
+        [st (if (empty? result-vars)
+              (if ret [binding] [])
+              (let [out (first result-vars)]
+                (when (vector? out)
+                  (throw (ex-info
+                           "get-else / missing? take a scalar binding, not a tuple"
+                           {:binding-form out, :clause clause})))
+                (let [b (unify binding out ret)] (if b [b] []))))])
+
+      :else
       (let [f (get-in ctx [:fns fsym])]
         (when-not f
           (throw (ex-info "Unknown query fn — pass it via the :fns option"
                           {:fn fsym, :clause clause})))
         (let [arg-vals (mapv (fn [a]
                                (let [v (resolve-binding binding a)]
-                                 (when (= FREE v)
-                                   (throw (ex-info
-                                            "Unbound variable in fn clause"
-                                            {:var a, :clause clause})))
+                                 (when (= v FREE)
+                                   (throw (ex-info "Unbound variable in fn clause"
+                                                   {:var a, :clause clause})))
                                  v))
                              args)
-              ret (apply f arg-vals)]
-          (if (empty? result-vars)
-            (if ret [binding] [])
-            (let [out (first result-vars)]
-              (when (> (count result-vars) 1)
-                (throw
-                  (ex-info
-                    "Function clause takes one binding form; use a tuple [?a ?b] for multi-return"
-                    {:clause clause})))
-              (bind-fn-result binding out ret clause))))))))
+              ret (apply f arg-vals)
+              st (observe-st st ctx)]
+          (if (exec/terminal? st)
+            [st nil]
+            [st (if (empty? result-vars)
+                  (if ret [binding] [])
+                  (let [out (first result-vars)]
+                    (when (> (count result-vars) 1)
+                      (throw
+                        (ex-info
+                          "Function clause takes one binding form; use a tuple [?a ?b] for multi-return"
+                          {:clause clause})))
+                    (bind-fn-result binding out ret clause)))]))))))
 
 
-(defn- eval-rule
-  [clause binding ctx]
+(defn- emit-fn
+  [st ctx clause binding acc k]
+  (let [st (spend st ctx :candidate)]
+    (if (exec/terminal? st)
+      [st acc]
+      (let [[st outs] (fn-clause-outputs st ctx clause binding)]
+        (cond
+          (exec/terminal? st) [st acc]
+          ;; incremental producer: charge each ATTEMPTED binding, honor
+          ;; terminal / reduced outcomes before the next element
+          (map? outs)
+          (each-st st acc (::items outs)
+                   (fn [st acc item]
+                     (let [st (spend st ctx :candidate)]
+                       (if (exec/terminal? st)
+                         [st acc]
+                         (if-let [b ((::attempt outs) item)]
+                           (k st acc b)
+                           [st acc])))))
+          :else (each-st st acc outs k))))))
+
+
+(defn- emit-pattern
+  [st ctx clause binding acc k]
+  (let [[db-sym pattern] (clause-db-and-pattern clause)
+        fact-index (resolve-fact-index binding db-sym)
+        parsed (parse-tuple-pattern pattern)]
+    (if (and fact-index (nil? (:rest parsed)) (= 3 (count (:fixed parsed))))
+      (let [[e a v] (mapv #(resolve-binding binding %) (:fixed parsed))
+            [st ds] (datoms-st st ctx fact-index e a v :scan-advance)]
+        (if (exec/terminal? st)
+          [st acc]
+          (each-st st acc ds
+                   (fn [st acc d]
+                     (let [st (spend st ctx :candidate)]
+                       (if (exec/terminal? st)
+                         [st acc]
+                         (if-let [b (unify-slots binding parsed
+                                                 [(index/datom-e d) (index/datom-a d)
+                                                  (index/datom-v d)])]
+                           (k st acc b)
+                           [st acc])))))))
+      (each-st st acc (resolve-relation binding db-sym)
+               (fn [st acc tuple]
+                 (let [st (spend st ctx :scan-advance)
+                       st (if (exec/terminal? st) st (spend st ctx :candidate))]
+                   (if (exec/terminal? st)
+                     [st acc]
+                     (if-let [b (unify-slots binding parsed tuple)]
+                       (k st acc b)
+                       [st acc]))))))))
+
+
+(defn- dedup-k
+  "Wrap continuation k so it sees each content-distinct binding once. The
+   accumulator becomes [seen acc]."
+  [k]
+  (fn [st [seen acc] b]
+    (let [key (binding-key b)]
+      (if (contains? seen key)
+        [st [seen acc]]
+        (bind (bounce (fn [] (k st acc b)))
+              (fn [[st acc']]
+                (let [seen' (conj seen key)]
+                  (if (reduced? acc')
+                    [st (reduced [seen' @acc'])]
+                    [st [seen' acc']]))))))))
+
+
+(defn- run-dedup
+  "Run (body st sa dk) with a deduplicating continuation, handing the
+   caller's accumulator back unwrapped. A computation."
+  [st acc k body]
+  (bind (bounce (fn [] (body st [#{} acc] (dedup-k k))))
+        (fn [[st sa]]
+          (if (reduced? sa)
+            [st (reduced (second @sa))]
+            [st (second sa)]))))
+
+
+(defn- exists-st
+  "Computation of [state bool]: does the clause list have a witness for
+   binding? Stops at the first one; nothing after it is evaluated."
+  [st ctx clauses binding]
+  (bind (eval-where* st ctx clauses [binding] false
+                     (fn [st _ _] [st (reduced true)]))
+        (fn [[st found]] [st (true? (unreduced found))])))
+
+
+(defn- emit-not
+  [st ctx clause binding acc k]
+  (let [inner-clauses (rest clause)]
+    (doseq [v (not-required-vars inner-clauses)]
+      (when (= FREE (resolve-binding binding v))
+        (throw
+          (ex-info
+            "All variables inside not must be bound; use not-join to introduce local variables"
+            {:var v, :clause clause}))))
+    (bind (exists-st st ctx inner-clauses binding)
+          (fn [[st witness?]]
+            (cond (exec/terminal? st) [st acc]
+                  witness? [st acc]
+                  :else (bounce (fn [] (k st acc binding))))))))
+
+
+(defn- emit-not-join
+  [st ctx clause binding acc k]
+  (let [req-vars (nth clause 1)
+        inner-clauses (drop 2 clause)]
+    (doseq [v req-vars]
+      (when (= FREE (resolve-binding binding v))
+        (throw (ex-info "not-join variables must be bound" {:var v}))))
+    (let [inner-binding (into (select-keys binding [::dbs '%])
+                              (map (fn [v] [v (get binding v)]))
+                              req-vars)]
+      (bind (exists-st st ctx inner-clauses inner-binding)
+            (fn [[st witness?]]
+              (cond (exec/terminal? st) [st acc]
+                    witness? [st acc]
+                    :else (bounce (fn [] (k st acc binding)))))))))
+
+
+(defn- emit-or
+  [st ctx clause binding acc k]
+  (run-dedup st acc k
+             (fn [st sa dk]
+               (each-st st sa (rest clause)
+                        (fn [st sa branch]
+                          (eval-where* st ctx (branch-clauses branch) [binding] sa dk))))))
+
+
+(defn- emit-or-join
+  [st ctx clause binding acc k]
+  (let [join-vars (nth clause 1)
+        branches (drop 2 clause)
+        seed (into (select-keys binding [::dbs '%])
+                   (keep (fn [v]
+                           (let [v' (get binding v FREE)]
+                             (when (not= v' FREE) [v v']))))
+                   join-vars)
+        augment (fn [branch-result]
+                  (reduce (fn [acc k] (unify acc k (get branch-result k FREE)))
+                          binding
+                          join-vars))]
+    (run-dedup st acc k
+               (fn [st sa dk]
+                 (each-st st sa branches
+                          (fn [st sa branch]
+                            (eval-where* st ctx (branch-clauses branch) [seed] sa
+                                         (fn [st sa res]
+                                           (if-let [b' (augment res)]
+                                             (dk st sa b')
+                                             [st sa])))))))))
+
+
+(defn- emit-rule
+  [st ctx clause binding acc k]
   (let [[rule-name & call-args] clause
         rules (get binding '%)]
     (when-not rules
@@ -1406,67 +1727,79 @@
         (throw (ex-info "Unknown rule"
                         {:rule rule-name,
                          :known (vec (distinct (map ffirst rules)))})))
-      (let [arg-vals (mapv #(resolve-binding binding %) call-args)
-            ;; keyed by content, so a call on 1.00M is not taken for a
-            ;; repeat of the call on 1.0M
-            call-key [rule-name (binding-key arg-vals)]
-            active (::active-rules ctx #{})]
-        (if (contains? active call-key)
-          []
-          (let [ctx (assoc ctx ::active-rules (conj active call-key))]
-            (content-distinct
-              (mapcat
-                (fn [[head & body]]
-                  (let [head-vars (vec (rest head))]
-                    (when (some vector? head-vars)
-                      (throw
-                        (ex-info
-                          "Required-bound rule vars ([?a ...] in the head) are not implemented"
-                          {:head head})))
-                    (when (not= (count head-vars) (count arg-vals))
-                      (throw (ex-info "Rule invoked with wrong arity"
-                                      {:rule rule-name,
-                                       :head head,
-                                       :args (vec call-args)})))
-                    (let [seed (reduce (fn [b [hv av]]
-                                         (if (= FREE av)
-                                           b
-                                           (and-then b #(unify % hv av))))
-                                       (select-keys binding [::dbs '%])
-                                       (map vector head-vars arg-vals))]
-                      (when seed
-                        (keep
-                          (fn [res]
-                            (reduce
-                              (fn [b [arg hv]]
-                                (let [v (get res hv FREE)]
-                                  (when (= FREE v)
-                                    (throw
-                                      (ex-info
-                                        "Rule head var not bound by rule body"
-                                        {:rule rule-name, :var hv})))
-                                  (and-then b #(unify % arg v))))
-                              binding
-                              (map vector call-args head-vars)))
-                          (eval-where (vec body) [seed] ctx))))))
-                defs))))))))
+      (let [st (spend st ctx :rule-entry)]
+        (if (exec/terminal? st)
+          [st acc]
+          (let [arg-vals (mapv #(resolve-binding binding %) call-args)
+                ;; keyed by content, so a call on 1.00M is not taken for a
+                ;; repeat of the call on 1.0M
+                call-key [rule-name (binding-key arg-vals)]
+                active (::active-rules ctx #{})]
+            (if (contains? active call-key)
+              [st acc]
+              ;; the body runs in an extended lexical scope; the caller's
+              ;; ctx (and so its active-rule path) is untouched on return,
+              ;; while the state returned by the body is what continues
+              (let [body-ctx (assoc ctx ::active-rules (conj active call-key))]
+                (run-dedup
+                  st acc k
+                  (fn [st sa dk]
+                    (each-st
+                      st sa defs
+                      (fn [st sa [head & body]]
+                        (let [head-vars (vec (rest head))]
+                          (when (some vector? head-vars)
+                            (throw
+                              (ex-info
+                                "Required-bound rule vars ([?a ...] in the head) are not implemented"
+                                {:head head})))
+                          (when (not= (count head-vars) (count arg-vals))
+                            (throw (ex-info "Rule invoked with wrong arity"
+                                            {:rule rule-name,
+                                             :head head,
+                                             :args (vec call-args)})))
+                          (let [seed (reduce (fn [b [hv av]]
+                                               (if (= FREE av)
+                                                 b
+                                                 (and-then b #(unify % hv av))))
+                                             (select-keys binding [::dbs '%])
+                                             (map vector head-vars arg-vals))]
+                            (if-not seed
+                              [st sa]
+                              (eval-where*
+                                st body-ctx (vec body) [seed] sa
+                                (fn [st sa res]
+                                  (let [b' (reduce
+                                             (fn [b [arg hv]]
+                                               (let [v (get res hv FREE)]
+                                                 (when (= FREE v)
+                                                   (throw
+                                                     (ex-info
+                                                       "Rule head var not bound by rule body"
+                                                       {:rule rule-name, :var hv})))
+                                                 (and-then b #(unify % arg v))))
+                                             binding
+                                             (map vector call-args head-vars))]
+                                    (if b'
+                                      (dk st sa b')
+                                      [st sa])))))))))))))))))))
 
 
-(defn- eval-clause
-  [clause bindings ctx]
-  (cond (and (seq? clause) (= 'or (first clause))) (eval-or clause bindings ctx)
+(defn- emit-clause
+  [st ctx clause binding acc k]
+  (cond (and (seq? clause) (= 'or (first clause))) (emit-or st ctx clause binding acc k)
         (and (seq? clause) (= 'or-join (first clause)))
-        (eval-or-join clause bindings ctx)
+        (emit-or-join st ctx clause binding acc k)
         (and (seq? clause) (= 'and (first clause)))
-        (eval-and clause bindings ctx)
+        (eval-where* st ctx (rest clause) [binding] acc k)
         (and (seq? clause) (= 'not (first clause)))
-        (eval-not clause bindings ctx)
+        (emit-not st ctx clause binding acc k)
         (and (seq? clause) (= 'not-join (first clause)))
-        (mapcat #(eval-not-join clause % ctx) bindings)
-        (seq? clause) (mapcat #(eval-rule clause % ctx) bindings)
+        (emit-not-join st ctx clause binding acc k)
+        (seq? clause) (emit-rule st ctx clause binding acc k)
         (and (vector? clause) (seq? (first clause)))
-        (mapcat #(eval-fn-clause clause % ctx) bindings)
-        :else (mapcat #(eval-pattern-clause clause % ctx) bindings)))
+        (emit-fn st ctx clause binding acc k)
+        :else (emit-pattern st ctx clause binding acc k)))
 
 
 (defn- estimate-clause-cost
@@ -1502,11 +1835,79 @@
               (partition-by pattern-clause? clauses)))))
 
 
-(defn- eval-where
-  [clauses init-bindings ctx]
-  (reduce (fn [bindings clause] (eval-clause clause bindings ctx))
-          init-bindings
-          (plan-where clauses init-bindings)))
+(defn- validate-clauses!
+  "The static checks a clause list always paid at evaluation, whether or not
+   an earlier clause produced a binding: disjunction branches bind the same
+   variables, and or-join branches bind their join variables."
+  [clauses]
+  (doseq [clause clauses]
+    (when (seq? clause)
+      (let [h (first clause)]
+        (cond
+          (= 'or h) (let [branches (rest clause)]
+                      (check-same-var-rule branches)
+                      (doseq [b branches] (validate-clauses! (branch-clauses b))))
+          (= 'or-join h)
+          (let [join-vars (nth clause 1)
+                branches (drop 2 clause)]
+            (doseq [branch branches]
+              (let [branch-vars (set (branch-free-vars (branch-clauses branch)))
+                    missing (seq (remove branch-vars join-vars))]
+                (when missing
+                  (throw (ex-info (str "or-join branch did not bind join var(s): "
+                                       (vec missing))
+                                  {:unbound (vec missing),
+                                   :join-vars join-vars,
+                                   :branch branch})))))
+            (doseq [b branches] (validate-clauses! (branch-clauses b))))
+          (= 'and h) (validate-clauses! (rest clause))
+          (= 'not h) (validate-clauses! (rest clause))
+          (= 'not-join h) (validate-clauses! (drop 2 clause)))))))
+
+
+(defn- walk
+  "Evaluate the (already planned) clause list against one binding, handing
+   each complete binding to k. A computation: nothing here calls a clause
+   evaluator or k directly."
+  [st ctx clauses binding acc k]
+  (if-let [cs (seq clauses)]
+    (bounce (fn []
+              (emit-clause st ctx (first cs) binding acc
+                           (fn [st acc b] (walk st ctx (rest cs) b acc k)))))
+    (bounce (fn [] (k st acc binding)))))
+
+
+(defn- eval-where*
+  "Evaluate a clause list over a vector of initial bindings, folding every
+   resulting binding through k: (k st acc b) -> computation of [st acc]. A
+   `reduced` accumulator stops evaluation and is passed on to the caller.
+   Returns a computation; `run-comp` drives it."
+  [st ctx clauses init-bindings acc k]
+  (validate-clauses! clauses)
+  (let [planned (vec (plan-where clauses init-bindings))]
+    (each-st st acc init-bindings
+             (fn [st acc b] (walk st ctx planned b acc k)))))
+
+
+(defn- build-init-bindings-st
+  "The initial bindings of :in, a checked cross product: each produced
+   binding is one candidate."
+  [st ctx in-patterns inputs dbs]
+  (reduce
+    (fn [[st acc] [pat val]]
+      (if (exec/terminal? st)
+        (reduced [st nil])
+        (let [expansion (expand-in-binding pat val dbs)
+              [st out] (fold-st st []
+                                (for [b1 acc b2 expansion] [b1 b2])
+                                (fn [st out [b1 b2]]
+                                  (let [st (spend st ctx :candidate)]
+                                    (if (exec/terminal? st)
+                                      [st out]
+                                      [st (conj out (merge-bindings b1 b2))]))))]
+          (if (exec/terminal? st) (reduced [st nil]) [st out]))))
+    [st [{}]]
+    (map vector in-patterns inputs)))
 
 
 (defn- normalize-query
@@ -1590,56 +1991,6 @@
                     {:find-vars find-vars, :rm-keys rm-keys}))))
 
 
-(defn- project-element
-  [element b]
-  (if (:pull-var element)
-    (let [eid (get b (:pull-var element))
-          idx (resolve-fact-index b '$)]
-      (when-not idx
-        (throw (ex-info "pull find element requires a bound $ source"
-                        {:element element})))
-      (pull-idx idx eid (:pull-pattern element)))
-    (get b (:var element))))
-
-
-(defn- relation-result
-  "The q result: a host set of find tuples. Rows, groups and tuples are
-   deduplicated kind-strictly (content-distinct, content-key) before the
-   set is built. The set itself still compares members with host =, so on
-   a host where two content-distinct tuples are host = and hash alike (the
-   JVM for 1.0M/1.00M and 0.0/-0.0, Dart for 0.0/-0.0) they remain one
-   member of the returned set."
-  [find with bindings]
-  (let [elements (mapv parse-find-element find)]
-    (if (not-any? :agg elements)
-      (into #{}
-            (content-distinct (map (fn [b] (mapv #(project-element % b) elements))
-                                   bindings)))
-      (let [grouping-vars (filterv some?
-                                   (mapv #(or (:var %) (:pull-var %)) elements))
-            ;; proj-vars are query variable symbols, which host distinct
-            ;; already compares correctly
-            proj-vars (-> grouping-vars
-                          (into with)
-                          (into (keep :arg elements))
-                          distinct)
-            rows (content-distinct
-                   (map #(select-keys % (conj (vec proj-vars) ::dbs)) bindings))
-            groups (vals (group-by (fn [row]
-                                     (cbor/content-key (mapv #(get row %) grouping-vars)))
-                                   rows))]
-        (into #{}
-              (content-distinct
-                (map (fn [group]
-                       (mapv (fn [element]
-                               (let [{:keys [agg arg]} element]
-                                 (if agg
-                                   (agg (map #(get % arg) group))
-                                   (project-element element (first group)))))
-                             elements))
-                     groups)))))))
-
-
 (defn- apply-spec
   [spec relation]
   (case spec
@@ -1697,15 +2048,112 @@
             (refuse :find s)))))))
 
 
-(defn q
-  "Datalog: (q query & inputs) where $ binds to the first input. Each
-   database input is a query value (a relation value, a datom view over one,
-   or an opened published index); scalar/tuple/coll/relation :in bindings
-   are plain data. Returns a local result value carrying the find spec;
-   `collect` materializes it into the find shapes. Opens nothing, closes
-   nothing: the caller owns every handle."
-  [query & inputs]
-  (let [{:keys [find in with where keys syms strs]} (normalize-query query)
+(defn- project-element-st
+  [st ctx element b]
+  (if (:pull-var element)
+    (let [eid (get b (:pull-var element))
+          idx (resolve-fact-index b '$)]
+      (when-not idx
+        (throw (ex-info "pull find element requires a bound $ source"
+                        {:element element})))
+      (pull-idx st ctx idx eid (:pull-pattern element)))
+    [st (get b (:var element))]))
+
+
+(defn- project-row-st
+  [st ctx elements b]
+  (fold-st st [] elements
+           (fn [st row element]
+             (let [[st v] (project-element-st st ctx element b)]
+               [st (conj row v)]))))
+
+
+(defn- add-distinct
+  "Add row to acc's rows unless a content-equal one was already kept."
+  [acc row]
+  (let [key (binding-key row)]
+    (if (contains? (:seen acc) key)
+      acc
+      (-> acc (update :seen conj key) (update :rows conj row)))))
+
+
+(defn- relation-result-st
+  "The q result: [state set-of-find-tuples]. Rows, groups and tuples are
+   deduplicated kind-strictly (content-key) before the set is built. The set
+   itself still compares members with host =, so on a host where two
+   content-distinct tuples are host = and hash alike (the JVM for 1.0M/1.00M
+   and 0.0/-0.0, Dart for 0.0/-0.0) they remain one member of the returned
+   set. Evaluation is folded into projection: no binding is retained beyond
+   its (deduplicated) projected row."
+  [st ctx find with where init-bindings]
+  (let [elements (mapv parse-find-element find)]
+    (if (not-any? :agg elements)
+      (let [[st acc] (run-comp
+                       (eval-where*
+                         st ctx where init-bindings {:seen #{}, :rows []}
+                         (fn [st acc b]
+                           (let [st (spend st ctx :output-row)]
+                             (if (exec/terminal? st)
+                               [st acc]
+                               (let [[st row] (project-row-st st ctx elements b)]
+                                 [st (if (exec/terminal? st) acc (add-distinct acc row))]))))))]
+        [st (when-not (exec/terminal? st) (into #{} (:rows acc)))])
+      (let [grouping-vars (filterv some?
+                                   (mapv #(or (:var %) (:pull-var %)) elements))
+            ;; proj-vars are query variable symbols, which host distinct
+            ;; already compares correctly
+            proj-vars (-> grouping-vars
+                          (into with)
+                          (into (keep :arg elements))
+                          distinct)
+            keep-keys (conj (vec proj-vars) ::dbs)
+            [st acc] (run-comp
+                       (eval-where*
+                         st ctx where init-bindings {:seen #{}, :rows []}
+                         (fn [st acc b]
+                           (let [st (spend st ctx :aggregate-input)]
+                             (if (exec/terminal? st)
+                               [st acc]
+                               [st (add-distinct acc (select-keys b keep-keys))])))))]
+        (if (exec/terminal? st)
+          [st nil]
+          (let [groups (vals (group-by (fn [row]
+                                         (cbor/content-key
+                                           (mapv #(get row %) grouping-vars)))
+                                       (:rows acc)))
+                [st out] (fold-st
+                           st {:seen #{}, :rows []} groups
+                           (fn [st out group]
+                             (let [st (spend st ctx :output-row)]
+                               (if (exec/terminal? st)
+                                 [st out]
+                                 (let [[st row]
+                                       (fold-st
+                                         st [] elements
+                                         (fn [st row element]
+                                           (let [{:keys [agg arg]} element]
+                                             (if agg
+                                               (let [v (agg (map #(get % arg) group))
+                                                     st (observe-st st ctx)]
+                                                 [st (conj row v)])
+                                               (let [[st v] (project-element-st
+                                                              st ctx element (first group))]
+                                                 [st (conj row v)])))))]
+                                   [st (if (exec/terminal? st) out (add-distinct out row))])))))]
+            [st (when-not (exec/terminal? st) (into #{} (:rows out)))]))))))
+
+
+(defn q-with-state
+  "The state-passing form of `q`: runs the one evaluation kernel under the
+   invocation's execution state st (dao.space.query.execution) and driver,
+   and returns [state result]. The result is the same local result value `q`
+   returns; it is meaningful only while the returned state is live, and is
+   nil once the state is terminal (a terminal return exposes no partial
+   result). Names no Client option. Opens nothing, closes nothing."
+  [st driver query & inputs]
+  (let [ctx {::driver driver}
+        st (enter-st st ctx :parse)
+        {:keys [find in with where keys syms strs]} (normalize-query query)
         in-patterns (or in '[$])
         _ (check-declared-symbols in-patterns find)
         extra-count (- (count inputs) (count in-patterns))
@@ -1722,40 +2170,70 @@
             (throw (ex-info "query input arity must match :in"
                             {:expected (count in-patterns),
                              :actual (count bind-inputs)})))
-        dbs (reduce
-              (fn [dbs [pat val]]
-                (if (= :db (classify-in-pattern pat))
-                  (let [{relation ::relation, fact-index ::fact-index}
-                        (realize-db-value! val)]
-                    (assoc dbs pat {::relation relation, ::fact-index fact-index}))
-                  dbs))
-              {}
-              (map vector in-patterns bind-inputs))
-        init-bindings (build-init-bindings in-patterns bind-inputs dbs)
-        fns (if (false? (:builtins opts))
-              (or (:fns opts) {})
-              (merge builtins (:fns opts)))
-        ctx {:fns fns}
-        result (eval-where where init-bindings ctx)
-        parsed (parse-find find)
-        [rm-key rm-keys] (cond keys [:keys keys]
-                               syms [:syms syms]
-                               strs [:strs strs]
-                               :else [nil nil])
-        parsed (cond-> parsed
-                 rm-key (assoc :return-map-key
-                               rm-key :return-map-keys
-                               rm-keys))
-        _ (when rm-key
-            (check-return-map-arity (:find-vars parsed)
-                                    (:spec parsed)
-                                    rm-key
-                                    rm-keys))
-        relation (relation-result (:find-vars parsed) with result)]
-    {:dao.space.query/result relation
-     :spec (:spec parsed)
-     :return-map-key rm-key
-     :return-map-keys rm-keys}))
+        ctx (assoc ctx
+                   :fns (if (false? (:builtins opts))
+                          (or (:fns opts) {})
+                          (merge builtins (:fns opts))))
+        st (spend-n st ctx :parse-step
+                    (+ 1 (count find) (count in-patterns) (count with) (count where)))]
+    (if (exec/terminal? st)
+      [st nil]
+      (let [st (enter-st st ctx :realize)
+            [st dbs] (if (exec/terminal? st)
+                       [st nil]
+                       (reduce
+                         (fn [[st dbs] [pat val]]
+                           (if (or (exec/terminal? st)
+                                   (not= :db (classify-in-pattern pat)))
+                             [st dbs]
+                             (let [[st realized] (realize-st st ctx val)]
+                               [st (assoc dbs pat
+                                          (select-keys realized [::relation ::fact-index]))])))
+                         [st {}]
+                         (map vector in-patterns bind-inputs)))
+            parsed (parse-find find)
+            [rm-key rm-keys] (cond keys [:keys keys]
+                                   syms [:syms syms]
+                                   strs [:strs strs]
+                                   :else [nil nil])
+            parsed (cond-> parsed
+                     rm-key (assoc :return-map-key
+                                   rm-key :return-map-keys
+                                   rm-keys))
+            _ (when rm-key
+                (check-return-map-arity (:find-vars parsed)
+                                        (:spec parsed)
+                                        rm-key
+                                        rm-keys))]
+        (if (exec/terminal? st)
+          [st nil]
+          (let [st (enter-st st ctx :join)
+                [st init-bindings] (if (exec/terminal? st)
+                                     [st nil]
+                                     (build-init-bindings-st st ctx in-patterns bind-inputs dbs))
+                [st relation] (if (exec/terminal? st)
+                                [st nil]
+                                (relation-result-st st ctx (:find-vars parsed) with
+                                                    where init-bindings))
+                st (if (exec/terminal? st) st (enter-st st ctx :output))]
+            (if (exec/terminal? st)
+              [st nil]
+              [st {:dao.space.query/result relation
+                   :spec (:spec parsed)
+                   :return-map-key rm-key
+                   :return-map-keys rm-keys}])))))))
+
+
+(defn q
+  "Datalog: (q query & inputs) where $ binds to the first input. Each
+   database input is a query value (a relation value, a datom view over one,
+   or an opened published index); scalar/tuple/coll/relation :in bindings
+   are plain data. Returns a local result value carrying the find spec;
+   `collect` materializes it into the find shapes. Opens nothing, closes
+   nothing: the caller owns every handle. Runs the same evaluation kernel as
+   `q-with-state` under the explicit unbounded, never-expiring policy."
+  [query & inputs]
+  (second (apply q-with-state exec/unbounded nil query inputs)))
 
 
 (defn collect

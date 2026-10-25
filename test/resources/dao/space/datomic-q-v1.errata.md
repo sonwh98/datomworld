@@ -111,6 +111,55 @@ only the vector form, and that the adapter refuses the list form with
 vector form, or both is for the oracle to adjudicate. The corpus has no
 adapter-executed status; this note is the minimal encoding.
 
+## E12 — Phase 4a bounded-execution surface (`:timeout`, `max-steps`) is DaoSpace-specific
+
+Phase 4a implements `:timeout` and the extension
+`:dao.space.query.datomic/max-steps` in the adapter, so the earlier "refused
+until the execution-bounds machinery lands" reasons are superseded. The
+surface is a documented difference, not Client parity:
+
+- `:timeout` is a cooperative deadline in milliseconds (a positive integer),
+  minted at entry; expiry is observed time >= deadline; exhaustion raises
+  `:timeout` or `:step-budget-exhausted` (`:cognitect.anomalies/interrupted`)
+  and never returns a partial relation. Client timeout behavior is
+  unmeasured.
+- A call supplying either bound is admitted only over explicit materialized
+  relation/fact-relation sources and views over them. Opened published
+  indexes, deferred rows and unrecognized sources are refused
+  `:unsupported` / `:bounded-source-unqualified` before any read. Checked
+  published-index traversal is Phase 4b.
+- Pinned in `dao.space.query.datomic-execution-test` and
+  `dao.space.query.execution-test`, not executed by this harness. Case
+  `bounds.published-source-refused` records the admission rule as `pending`
+  (there is no Client counterpart to measure). Full timeout oracle cases
+  remain Phase 5.
+
+## E13 — Core accepts a relation slot that is neither tuples nor a delay of tuples
+
+`realize-st` (and the earlier `realize-db-value!`) checks only that a source
+is a map carrying one of the three source keys. A value such as
+`{:dao.space.query/relation <delay of a non-sequence>}` yields an empty
+result instead of a refusal. The condition predates Phase 4a and bounded
+calls are unaffected (admission requires a vector). It is routed to the
+Phase 2 core slice; no code changed here and no corpus case pins it.
+
+## E14 — Syntax depth is bounded by a documented constant
+
+Recursive validation, translation and pull parsing walk query syntax by host
+recursion. The adapter therefore refuses native query syntax (the query map or
+vector, its pull patterns, and rules passed at `%`) that nests collections
+deeper than `dao.space.query.datomic/max-syntax-depth` (64), `:unsupported` /
+`:syntax-depth-limit`, measured iteratively before anything recurses. String
+queries are bounded by the same constant in the scanner. Source descriptor
+chains are not syntax: they are walked iteratively with one accounted unit per
+hop (admission and realization), so any depth is a structured exhaustion or
+refusal. Not covered, and why that is acceptable here: (a) data inside `:args`
+is opaque and not measured (content hashing of user data recurses with the
+data and is the caller's input); (b) callers of core `dao.space.query/q` that
+build deeply nested syntax natively are not depth-checked (the host stack
+applies; the core makes no claim); (c) public `dao.space.query/rows` still
+recurses over view chains, outside the query kernel.
+
 ## Not represented by the corpus
 
 - JVM `Float` (32-bit), instants, UUIDs, byte arrays, URIs: no tag exists in

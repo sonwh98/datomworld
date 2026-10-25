@@ -13,9 +13,26 @@
    nothing, keeps no registry, no cache, no atom, no dynamic var and reads
    no clock. Core evaluation never sees a Client option name.
 
+   Bounded execution (Phase 4a): `:timeout` (positive integer milliseconds,
+   a cooperative deadline minted at entry before parsing; expiry is observed
+   time >= deadline), the DaoSpace extension
+   `:dao.space.query.datomic/max-steps` (a positive explicit work allowance;
+   no ambient default) and the injectable clock
+   `:dao.space.query.datomic/now-fn` (zero-argument, milliseconds). One
+   immutable execution state is carried from parsing through translation,
+   the shared evaluation kernel and output. A call supplying either bound
+   is admitted only over explicit materialized relations/fact-relations and
+   views over them: opened published indexes and deferred rows are refused
+   with `:unsupported` / `:bounded-source-unqualified` before any
+   realization or read (checked published-index traversal is Phase 4b).
+   Exhaustion is `:timeout` or `:step-budget-exhausted`
+   (`:cognitect.anomalies/interrupted`), never a partial relation. The
+   default clock is monotonic milliseconds on the JVM and JavaScript and a
+   WALL-CLOCK fallback on Dart.
+
    Refused loudly (never silently ignored): the db-first call shape, raw
-   vectors/maps at source positions, unknown options, `:timeout` (until
-   the execution-bounds phase), `:ret`, `:io-context`, `:query-stats`,
+   vectors/maps at source positions, unknown options, `:ret`,
+   `:io-context`, `:query-stats`,
    four-/five-position history patterns, rest patterns, parameterized
    aggregate syntax, unvalidated pull syntax (recursion, reverse
    attributes, dynamic or source-qualified patterns).
@@ -32,9 +49,11 @@
    failure is kept as `ex-cause`."
   (:require [clojure.string :as str]
             [dao.space.query :as query]
+            [dao.space.query.execution :as exec]
             #?(:cljd [clojure.edn :as edn]
                :clj [clojure.edn :as edn]
-               :cljs [cljs.reader :as reader])))
+               :cljs [cljs.reader :as reader])
+            #?(:cljd ["dart:core" :as dart-core])))
 
 
 ;; ==========================================================================
@@ -44,6 +63,8 @@
 (def ^:private categories
   {:invalid-request :cognitect.anomalies/incorrect
    :unsupported :cognitect.anomalies/unsupported
+   :timeout :cognitect.anomalies/interrupted
+   :step-budget-exhausted :cognitect.anomalies/interrupted
    :evaluation-failed :cognitect.anomalies/fault
    :source-failed :cognitect.anomalies/fault})
 
@@ -70,12 +91,58 @@
                    cause))))
 
 
+(def max-syntax-depth
+  "The documented bound on collection nesting in a query's SYNTAX (the
+   query, its pull patterns, and rules passed at `%`): string queries are
+   checked by the scanner, native map/vector queries by `syntax-extent`.
+   Recursive validation, translation and pull parsing walk syntax by host
+   recursion, so the profile declares this limit instead of relying on the
+   host stack. Source descriptor chains are NOT syntax: they are traversed
+   iteratively and accounted. Data in `:args` is opaque and not measured."
+  64)
+
+
+;; ==========================================================================
+;; Syntax extent (iterative, bounded)
+;; ==========================================================================
+
+(defn- syntax-extent
+  "[nodes depth-exceeded?] of a native syntax form, measured with an explicit
+   stack (no host recursion). Stops as soon as the nesting exceeds
+   `max-syntax-depth`."
+  [form]
+  (loop [stack [[form 1]]
+         nodes 0]
+    (if (empty? stack)
+      [nodes false]
+      (let [[x d] (peek stack)
+            stack (pop stack)]
+        (if (coll? x)
+          (if (> d max-syntax-depth)
+            [nodes true]
+            (recur (into stack
+                         (map (fn [c] [c (inc d)]))
+                         (if (map? x) (mapcat identity x) x))
+                   (inc nodes)))
+          (recur stack (inc nodes)))))))
+
+
+(defn- check-syntax-extent!
+  "Refuse over-deep native syntax before anything recurses over it; returns
+   the node count."
+  [form]
+  (let [[nodes exceeded?] (syntax-extent form)]
+    (when exceeded?
+      (fail :unsupported "query syntax nests deeper than the supported profile"
+            {:reason :syntax-depth-limit}))
+    nodes))
+
+
 ;; ==========================================================================
 ;; Safe EDN string reading
 ;; ==========================================================================
 
 (def ^:private max-string-length 100000)
-(def ^:private max-nesting 64)
 
 
 (defn- scan-string
@@ -101,7 +168,7 @@
                    (not (or (= n \{) (= n \_)))))
             [:unsupported "tagged literals and dispatch forms are not read"]
             (contains? #{\( \[ \{} c)
-            (if (>= depth max-nesting)
+            (if (>= depth max-syntax-depth)
               [:invalid-request "query string is nested too deeply"]
               (recur (inc i) false false false (inc depth)))
             (contains? #{\) \] \}} c) (recur (inc i) false false false (dec depth))
@@ -375,7 +442,7 @@
                            "data with dao.space.query/relation, fact-relation, "
                            "current or history")
                       {:variable (fragment pattern)}))
-              (= '% pattern) (translate-rules arg)
+              (= '% pattern) (do (check-syntax-extent! arg) (translate-rules arg))
               :else arg))
           in args)))
 
@@ -384,13 +451,20 @@
 ;; Options and pagination
 ;; ==========================================================================
 
-(def ^:private known-options #{:query :args :offset :limit})
+(def ^:private known-options
+  #{:query :args :offset :limit :timeout ::max-steps ::now-fn})
 
 
-(def ^:private refused-options #{:timeout :ret :io-context :query-stats :stats})
+(def ^:private refused-options #{:ret :io-context :query-stats :stats})
+
+
+(defn- positive-integer?
+  [x]
+  (and (integer? x) (pos? x)))
 
 
 (defn- check-options
+  "Validate the arg-map options: [offset limit timeout max-steps]."
   [arg-map]
   (doseq [k (keys arg-map)]
     (cond
@@ -400,13 +474,39 @@
       :else (fail :unsupported "unknown option is not ignored"
                   {:option (if (keyword? k) k (fragment k))})))
   (let [offset (get arg-map :offset 0)
-        limit (get arg-map :limit -1)]
+        limit (get arg-map :limit -1)
+        timeout (get arg-map :timeout)
+        max-steps (get arg-map ::max-steps)]
     (when-not (and (integer? offset) (not (neg? offset)))
       (fail :invalid-request ":offset must be a nonnegative integer" {:option :offset}))
     (when-not (and (integer? limit) (or (= -1 limit) (not (neg? limit))))
       (fail :invalid-request ":limit must be a nonnegative integer or -1"
             {:option :limit}))
-    [offset limit]))
+    (when (and (contains? arg-map :timeout) (not (positive-integer? timeout)))
+      (fail :invalid-request ":timeout must be a positive integer number of milliseconds"
+            {:option :timeout}))
+    (when (and (contains? arg-map ::max-steps) (not (positive-integer? max-steps)))
+      (fail :invalid-request "max-steps must be a positive integer"
+            {:option ::max-steps}))
+    (when (and (contains? arg-map ::now-fn) (not (fn? (get arg-map ::now-fn))))
+      (fail :invalid-request "now-fn must be a zero-argument function"
+            {:option ::now-fn}))
+    [offset limit timeout max-steps]))
+
+
+(defn ^:no-doc default-now-ms
+  "The default clock: a monotonic source expressed in milliseconds where the
+   host offers one (JVM `System/nanoTime`; JavaScript `performance.now`).
+   Dart has no portable monotonic reading here, so it falls back to
+   WALL-CLOCK milliseconds: a clock adjustment can then shorten or lengthen
+   a timeout, and that is not monotonic behavior. Callers needing a
+   different clock pass `:dao.space.query.datomic/now-fn`."
+  []
+  #?(:cljd (.-millisecondsSinceEpoch (dart-core/DateTime.now))
+     :clj (quot (System/nanoTime) 1000000)
+     :cljs (if (and (exists? js/performance) (fn? (.-now js/performance)))
+             (.now js/performance)
+             (.getTime (js/Date.)))))
 
 
 (defn- paginate
@@ -457,27 +557,129 @@
       :else (fail :evaluation-failed "query evaluation failed" {} e))))
 
 
+(defn- exhausted!
+  "Translate a terminal execution outcome into the structured exception. A
+   partial relation is never returned."
+  [st]
+  (let [{:keys [kind phase steps]} (exec/outcome st)]
+    (if (= :timeout kind)
+      (fail :timeout "query deadline expired"
+            {:option :timeout, :phase phase, :steps steps})
+      (fail :step-budget-exhausted "query work allowance exhausted"
+            {:option ::max-steps, :phase phase, :steps steps}))))
+
+
+(defn- advance
+  "Adapter-side accounting: enter `phase`, then charge n units before the
+   adapter performs the corresponding (indivisible) work. n = 0 only
+   observes. Throws the structured exhaustion error on a terminal state."
+  [st driver phase n]
+  (let [st (exec/enter st phase)
+        st (if (pos? n) (exec/step st driver n) (exec/checkpoint st driver phase))]
+    (if (exec/terminal? st) (exhausted! st) st)))
+
+
+(defn- source-admissible?
+  "Phase 4a admission: a source qualifies for bounded execution only when
+   its descriptor chain is an explicit materialized relation/fact-relation,
+   or a view over one. Descriptors are inspected, never forced: a deferred
+   (delay) relation, an opened published index and anything unrecognized are
+   not admissible, and cache residency does not change that. The chain is
+   walked iteratively and each hop is one accounted unit, so a descriptor
+   chain of any depth is a structured exhaustion or refusal, never a host
+   stack overflow. Returns [state admissible?]."
+  [st driver v]
+  (loop [st st
+         v v]
+    (cond
+      (not (map? v)) [st false]
+      (contains? v :dao.space.query/relation)
+      [st (vector? (:dao.space.query/relation v))]
+      (contains? v :dao.space.query/view)
+      (recur (advance st driver :parse 1) (:source v))
+      :else [st false])))
+
+
+(defn- check-bounded-sources!
+  "Fail closed, before any realization: every declared source of a bounded
+   call must be admissible, including a source the plan would not use.
+   Returns the state."
+  [st driver in bound]
+  (reduce (fn [st [pattern arg]]
+            (if-not (db-sym? pattern)
+              st
+              (let [[st ok?] (source-admissible? st driver arg)]
+                (when-not ok?
+                  (fail :unsupported
+                        "bounded execution requires an explicit materialized relation source"
+                        {:reason :bounded-source-unqualified
+                         :variable (fragment pattern)}))
+                st)))
+          st
+          (map vector in bound)))
+
+
 (defn- run
-  [m args]
+  "[state result] of the common kernel for one translated query."
+  [st driver m args bounded?]
   (let [in (vec (or (seq (:in m)) ['$]))
         _ (check-find (:find m))
         where (translate-clauses (:where m))
         bound (check-inputs in args)
-        core-query (assoc m :in in :where where)]
+        core-query (assoc m :in in :where where)
+        st (if bounded? (check-bounded-sources! st driver in bound) st)]
     (try
-      (query/collect (apply query/q core-query bound))
+      (apply query/q-with-state st driver core-query bound)
       (catch #?(:cljd Object :clj Throwable :cljs :default) e
         (classify-core-failure e)))))
 
 
+(defn- parse-cost
+  [form]
+  (if (string? form)
+    (inc (quot (count form) 128))
+    1))
+
+
 (defn- execute
-  [form args offset limit]
-  (let [m (query-map form)
-        result (run m args)]
-    (paginate result (if (or (:keys m) (:syms m) (:strs m))
-                       :relation
-                       (spec-of (:find m)))
-              offset limit)))
+  "The whole invocation under one execution state: parse, translate,
+   evaluate, output. `bounded?` selects the admission rule."
+  [form args {:keys [offset limit st driver bounded?]}]
+  (let [st (advance st driver :parse (parse-cost form))
+        m (query-map form)
+        st (advance st driver :parse (check-syntax-extent! m))
+        [st res] (run st driver m args bounded?)
+        _ (when (exec/terminal? st) (exhausted! st))
+        rows (:dao.space.query/result res)
+        st (advance st driver :output (if (coll? rows) (count rows) 1))
+        result (query/collect res)
+        paged (paginate result (if (or (:keys m) (:syms m) (:strs m))
+                                 :relation
+                                 (spec-of (:find m)))
+                        offset limit)
+        st (exec/finish st driver)]
+    (when (exec/terminal? st) (exhausted! st))
+    paged))
+
+
+(defn- invocation
+  "The execution inputs of an arg-map call; the clock is read FIRST (before
+   any parsing) when a timeout was supplied, and the absolute deadline is
+   that reading plus the timeout."
+  [arg-map]
+  (let [now-fn (let [f (::now-fn arg-map)] (if (fn? f) f default-now-ms))
+        t0 (when (contains? arg-map :timeout) (now-fn))
+        [offset limit timeout max-steps] (check-options arg-map)]
+    {:offset offset
+     :limit limit
+     :driver (exec/fn-driver now-fn)
+     :bounded? (or (some? timeout) (some? max-steps))
+     :st (exec/start {:deadline (when timeout (+ t0 timeout))
+                      :max-steps max-steps})}))
+
+
+(def ^:private unbounded-invocation
+  {:offset 0 :limit -1 :driver nil :bounded? false :st exec/unbounded})
 
 
 (defn- db-first?
@@ -497,15 +699,14 @@
      (fail :unsupported "db-first q is not the public Client call shape" {})
 
      (and (map? arg-map) (contains? arg-map :query))
-     (let [[offset limit] (check-options arg-map)]
-       (execute (:query arg-map) (get arg-map :args []) offset limit))
+     (execute (:query arg-map) (get arg-map :args []) (invocation arg-map))
 
      (or (string? arg-map) (sequential? arg-map)
          (and (map? arg-map) (some #(contains? arg-map %) [:find :where :in])))
-     (execute arg-map [] 0 -1)
+     (execute arg-map [] unbounded-invocation)
 
      :else (fail :invalid-request "q requires an arg-map or a query" {})))
   ([query-or-db & args]
    (if (db-first? query-or-db)
      (fail :unsupported "db-first q is not the public Client call shape" {})
-     (execute query-or-db (vec args) 0 -1))))
+     (execute query-or-db (vec args) unbounded-invocation))))

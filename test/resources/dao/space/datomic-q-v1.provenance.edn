@@ -7,13 +7,13 @@
  ;; BLAKE3 of the resource bytes (the file is pure ASCII). Equals
  ;; resource-blake3 in the conformance test.
  :digest {:algorithm :blake3
-          :hex "3b20589ff64fbacc764af19cc39cd491ef355df5121820ca8d55694eb8ea9221"}
- :cases {:total 81 :executable 31 :difference 9 :refusal 6 :pending 35}
+          :hex "a4983d69d0dae4474387977e3fb75b25e89c766a3edcd148019e89d5b0f39503"}
+ :cases {:total 82 :executable 31 :difference 9 :refusal 6 :pending 36}
  :points 28
  :fixtures 9
  :baseline-revision "f6856bbc"
  :contract "docs/design/dao.space.query.datomic-compat.md"
- :authored "2026-10-24, phase 0 engineer slice (claude-opus-5-5 lane); revised after glm-5.3 reviews (pull-option re-encode; list-form pull case added; previous digest 109f88d7 superseded)"
+ :authored "2026-10-24, phase 0 engineer slice (claude-opus-5-5 lane); revised after glm-5.3 reviews (pull-option re-encode; list-form pull case added; previous digest 109f88d7 superseded; Phase 4a timeout/admission case added, previous digest 3b20589f superseded)"
  :reviewed-by nil
  :inspected-artifacts
  [{:coordinate com.datomic/client-api
@@ -49,4 +49,6 @@
   "E9 reverse-pull and :limit results depend on JVM shape/enumeration order (clj only)"
   "E11 adapter-executed refusals (list-form pull option) are pinned in dao.space.query.datomic-test, not this harness"
   "E10 first pull-option pins recorded list-shape refusal only; re-encoded and re-pinned after review (previous digest e129fd6a superseded)"
-  "35 cases are pending: adapter, option validation, timeout and Client oracle evidence are all outstanding"]}
+  "E12 Phase 4a timeout/max-steps surface and admission refusal are DaoSpace-specific, pinned in the adapter tests, not this harness"
+  "E13 core relation-slot laxness (non-tuple delay yields empty) routed to the Phase 2 core slice"
+  "36 cases are pending: adapter, option validation, timeout and Client oracle evidence are all outstanding"]}
