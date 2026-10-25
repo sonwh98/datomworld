@@ -1,0 +1,131 @@
+#:blog{:title
+       "Yin.VM, Yang and types",
+       :date #inst "2026-10-25T20:05:00.000-00:00",
+       :abstract
+       [:p
+        "A program can use classes, dynamic dispatch, and type declarations without its evaluator implementing a language's type system. In datom.world, language runtimes express their behavior through ordinary programs and data, while separate type claims describe code for analysis and inspection. This separation lets yin.vm execute the program, dao.space query the evidence, and a separately composed checker decide which claims to enforce."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:h2 "Where Types Belong"]
+          [:p
+           "Python, TypeScript, and PHP bring different expectations about types to the same execution engine. Python chooses operations from runtime values. TypeScript annotations describe constraints checked separately from execution. PHP declarations can require checks at calls and writes. Yang must preserve these language semantics when it lowers programs for Yin.VM."]
+          [:p
+           "Yang translates source constructs into the Universal AST and supplies runtime preludes for language behavior. The evaluator in "
+           [:code "yin.vm"]
+           " applies its rules for control, bindings, values, storage, continuations, and effects. Type claims can accompany code on a separate medium, where tooling or a checker interprets them. Each part has a distinct responsibility: translating language behavior, executing programs, or interpreting claims about them."]
+          [:p
+           "Within this arrangement, "
+           [:strong "the evaluator has no built-in guest language type system"]
+           ". It still distinguishes the machine values and structures its operations require. Guest programs can carry tags, inspect values, and branch on what they find. A map containing "
+           [:code ":py/type"]
+           " remains ordinary data to the evaluator; its meaning as a Python object comes from the Python runtime that reads it."]
+          [:p
+           "The Python frontend provides the implemented example below. The TypeScript and PHP frontends are being implemented against specifications that extend the same approach. The separate type-check observer discussed later remains a proposed design."]
+
+          [:h2 "Language Semantics Are Programs"]
+          [:p
+           "Yang frontends parse source into portable syntax data and lower it into the Universal AST. Their runtime preludes are also programs in that AST. A Python addition lowers to a call such as "
+           [:code "(py/add a b)"]
+           ", whose implementation handles strings, lists, tuples, and numeric arithmetic. The evaluator executes the resulting calls and branches without acquiring a Python-specific addition instruction."]
+          [:p
+           "The Python prelude makes its value representations explicit. For example, floats carry a "
+           [:code ":py/float"]
+           " wrapper, while a list is a cell containing a map with "
+           [:code ":py/type :list"]
+           " and its items. These definitions are actual guest code from the prelude:"]
+          [:pre
+           [:code
+            ";; Entries in the Python prelude's definition list\n[py/float?\n (fn [x] (not (nil? (get x :py/float))))]\n\n[py/content-type\n (fn [x]\n   (if (py/cell? x)\n     (get (cell/get x) :py/type)\n     nil))]"]]
+          [:p
+           "Those tags preserve distinctions that Python needs across hosts. The language runtime interprets them; the evaluator supplies ordinary map access, cell access, and function application. Type blindness therefore preserves dynamic dispatch and runtime checks through explicit program behavior."]
+          [:p
+           "The TypeScript frontend specification follows this pattern for JavaScript semantics: property descriptors and prototype traversal live in the prelude, functions have object identity, and calls pass "
+           [:code "this"]
+           " explicitly through "
+           [:code "(js/call f this args)"]
+           ". A JavaScript class is represented by a constructor function cell and a prototype cell. PHP's specification instead uses class and instance data, with parent and interface relationships, method descriptors, and visibility checks. Each language preserves its own object model through the shared execution machinery."]
+          [:p
+           "PHP's typed properties, parameters, and return values also require checks at calls or writes. The frontend and prelude implement those checks under PHP's coercion rules. A PHP "
+           [:code "TypeError"]
+           " is guest language behavior, just as Python's argument-binding errors are. Neither requires the evaluator to understand a PHP declaration."]
+
+          [:h2 "From Types as Certainty to Types as Evidence"]
+          [:p
+           "The earlier article "
+           [:a {:href "/blog/yin-vm-ast-chinese-characters.blog"}
+            "Yin.vm: Chinese Characters for Programming Languages"]
+           " introduced the representational idea: type information can describe canonical code while leaving its operations unchanged. It called types metadata on AST nodes and arranged declarations, inference, and runtime discovery on a continuum of certainty. The current specifications make that idea more precise."]
+          [:p
+           "First, "
+           [:strong "type claims refer to occurrences of code"]
+           ". Identical subtrees can share one content address while appearing in different contexts. A claim therefore identifies a root and a path within it. A parameter claim ends at the relevant binder. The claim lives beside the executable rows, so adding an annotation does not change the program's code identity."]
+          [:p
+           "Second, "
+           [:strong "certainty comes from evidence and provenance"]
+           ". A declaration records what an author asserted. Inference records an analysis result. A runtime observation records what happened in a particular execution. These sources have different scopes and guarantees: a declaration can be wrong, a sound analysis can establish a property, and an observation need not describe every future run. They do not form a universal ranking from high to low confidence."]
+          [:p
+           "The proposed claim format records that distinction explicitly:"]
+          [:pre
+           [:code
+            "[occurrence :yin.sig/type type-value t m]\n\n;; occurrence identifies [root-address path]\n;; type-value belongs to the checker's type language\n;; t records the transaction\n;; m refers to the claim's provenance metadata"]]
+          [:p
+           "The same fact format can carry a source declaration, an inferred type, or an observation from a run. The provenance says who minted it. A checker decides what that evidence establishes; storing the row does not establish its truth."]
+
+          [:h2 "TypeScript: Code Identity and Optional Claims"]
+          [:p
+           "The TypeScript frontend specification distinguishes erasure, claim production, and checking. Its default "
+           [:code ":erase"]
+           " profile parses type-only constructs and emits no executable AST node or type side-table entry for them. Under "
+           [:code ":claims"]
+           ", the executable result is the same, and the frontend additionally emits declared-type facts on a separate claims medium."]
+          [:p
+           "Annotations on bindings, parameters, returns, and class members become occurrence claims. Interfaces, aliases, and other type-only declarations have no runtime occurrence of their own, so their descriptions form a type-environment claim attached to the module's specification binder. Declaration files are compiled against an explicit target manifest, which tells the producer which binders its claims describe."]
+          [:p
+           "This is how types can remain available without entering executable code. A composition that requests and retains claims has descriptions available for inspection and analysis. The erasure profile makes no promise to recover annotations later from the executable AST. Checking requires a further interpreter, and the TypeScript frontend itself does not supply a full checker in its first phase."]
+
+          [:h2 "dao.jing Stores Content; dao.space Makes It Queryable"]
+          [:p
+           "The Universal AST has a map representation. The encoder converts it into flat, content-addressed rows of the form "
+           [:code "[address tag & slots]"]
+           ". These code rows are stored in "
+           [:code "dao.jing"]
+           " using its canonical CBOR encoding and travel through ordinary streams. Source annotations emitted as claims remain separate artifacts; they are not extra slots in the code rows."]
+          [:p
+           "The code-as-tuples design assigns a dedicated AST indexer to observe those rows and maintain a relation queryable through "
+           [:code "dao.space.query/q"]
+           ". Separately, "
+           [:code "dao.space.index"]
+           " indexes datoms, such as retained claim facts, into the covered EAVT, AEVT, AVET, and VAET trees. The evaluator and these observers have different responsibilities. Indexing code does not execute it, and executing code does not require consulting a type index."]
+          [:p
+           "For inspection, a caller first resolves the code occurrence it wants to describe and selects the relevant rows from its claims medium. This host-side example queries those five-slot rows directly, returning their type descriptions and provenance references:"]
+          [:pre
+           [:code
+            ";; claim-rows: selected datoms from one claims medium\n;; parameter-occurrence: the resolved [root-address path]\n(dao.space.query/collect\n  (dao.space.query/q\n    '[:find ?type ?tx ?provenance\n      :in $ ?occurrence\n      :where\n      [?occurrence :yin.sig/type ?type ?tx ?provenance]]\n    (dao.space.query/relation claim-rows)\n    parameter-occurrence))"]]
+          [:p
+           "That query reports recorded claims. Establishing that a function obeys a signature requires analysis of the program and its evidence. Discovering runtime class membership may instead require the language runtime's class data or observations from execution. A queryable claim database supports reflection and analysis according to the facts a composition actually retains."]
+
+          [:h2 "Checking Is an Interpreter with Authority"]
+          [:p
+           "The proposed type-check observer reads program packets and their relevant claims, runs a supplied checker, and emits verdicts that cite the evidence used. Its own analysis uses those inputs directly; it does not consult the reflection index. A composition can omit the observer, use its verdicts as advice, or give it authority over the medium evaluators read."]
+          [:pre
+           [:code
+            "Advisory composition:\n  program stream ----------------------> evaluator\n       |\n       +------------> checker <---------- claims\n                         |\n                         +--------------> verdict stream\n\nGated composition:\n  claims ---------------+\n                        v\n  program stream --> checker --> admitted stream --> evaluator\n                        |\n                        +------> verdict stream"]]
+          [:p
+           "In the gated composition, a refused packet is withheld from the admitted stream. The evaluator never receives it and needs no type-checking flag. In the advisory composition, the evaluator reads the original program stream while another observer reports its analysis. The proposed observer is the same in both arrangements; the wiring gives its verdicts authority."]
+          [:p
+           "This supplies the operational half of the earlier article's claim that types can accompany canonical code. A declaration, a check, and permission to execute are three explicit facts or actions. Type checking can determine which program reaches an evaluator while leaving that evaluator's instruction vocabulary unchanged."]
+
+          [:h2 "Preservation Without a Type System in the Evaluator"]
+          [:p
+           "Preserving the Universal AST keeps executable structure available alongside derived execution forms. Preserving emitted type claims keeps their evidence available alongside that structure. Retaining original source information requires retaining the corresponding source or frontend artifacts too. Reflection depends on these explicit preservation choices."]
+          [:p
+           "A moving continuation still needs its reachable runtime values and language state, including object tags and dispatch data that execution uses. Separately retained static claims can stay outside that execution state. If a program needs to inspect them after migration, its composition must provide access to the appropriate evidence."]
+          [:p
+           "The architectural benefit is a clear division of responsibility. Language programs implement their runtime semantics. Type claims describe code with provenance. Query interpreters expose those facts, and checking interpreters assess them. The evaluator carries out computation through the same machinery throughout. "
+           [:strong "Interpretation creates semantics"]
+           ": the data is shared, and each interpreter makes its own meaning from it."]]]]}
