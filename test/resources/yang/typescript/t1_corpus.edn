@@ -1,0 +1,122 @@
+[{:id :num-literals :group :numbers :source "console.log(0, 1, 42, 3.5, 0.5, 1e3, 1.5e-7, 0x10, 0o17, 0b101, .5);"}
+{:id :num-add-float :group :numbers :source "console.log(0.1 + 0.2);"}
+{:id :num-neg-zero :group :numbers :source "console.log(-0, 1 / -0, 1 / 0, -1 / 0, 0 / 0);"}
+{:id :num-neg-zero-string :group :numbers :source "console.log(String(-0), -0 === 0, `${-0}`);"}
+{:id :num-big-int-boundary :group :numbers :source "console.log(2 ** 53, 2 ** 53 + 1, 2 ** 53 + 2);"}
+{:id :num-thresholds :group :numbers :source "console.log(1e21, 1e-7, 123456789012345680000, 0.000001, 1e20, 123e-20);"}
+{:id :num-mod :group :numbers :source "console.log(5.5 % 2, -5.5 % 2, 5 % -2, -5 % 2, 5 % 0, 0 % 5);"}
+{:id :num-pow :group :numbers :source "console.log(2 ** 10, 2 ** -1, 2 ** 3 ** 2, (-2) ** 3, 0 ** 0);"}
+{:id :num-arith :group :numbers :source "console.log(1 + 2 * 3, (1 + 2) * 3, 7 / 2, 7 - 10, -(2 + 2), 10 / 4 * 2);"}
+{:id :num-infinity :group :numbers :source "console.log(Infinity, -Infinity, Infinity - Infinity, Infinity * 0, NaN === NaN);"}
+{:id :num-increment :group :numbers :source "let a = 1; let b = a++; let c = ++a; let d = a--; console.log(a, b, c, d);"}
+{:id :num-bitwise :group :numbers :source "console.log(5 & 3, 5 | 3, 5 ^ 3, ~5, ~-1, ~0.9, 6 & -2);"}
+{:id :num-shifts :group :numbers :source "console.log(1 << 31, 1 << 32, -8 >> 1, -8 >>> 28, -1 >>> 0, 2 ** 32 >> 0, 5 >> 33);"}
+{:id :num-int32 :group :numbers :source "console.log(2147483648 | 0, 4294967296 | 0, -2147483649 | 0, 3.9 | 0, -3.9 | 0, NaN | 0);"}
+{:id :num-comparison :group :numbers :source "console.log(1 < 2, 2 <= 2, 3 > 4, 3 >= 3, NaN < 1, NaN >= 1, 'a' < 'b', '10' < '9', 10 < '9');"}
+{:id :num-bigint-arith :group :numbers :source "console.log(10n + 5n, 10n - 15n, 6n * 7n, (7n) / 2n, (-7n) / 2n, 7n % 3n, -7n % 3n, 2n ** 70n);"}
+{:id :num-bigint-bitwise :group :numbers :source "console.log(5n & 3n, 5n | 3n, 5n ^ 3n, ~5n, 1n << 70n, -9n >> 1n);"}
+{:id :num-bigint-compare :group :numbers :source "console.log(1n < 2, 2n > 1.5, 1n == 1, 1n === 1, 2n == '2', 0n == '');"}
+{:id :num-bigint-mix-error :group :numbers :source "try { 1n + 1; } catch (e) { console.log(e.name); }"}
+{:id :num-bigint-ushr :group :numbers :source "try { 1n >>> 0n; } catch (e) { console.log(e.name); }"}
+{:id :coerce-to-number-strings :group :coercion :source "console.log(Number(' 12 '), Number(''), Number('0x10'), Number('1e3'), Number('Infinity'), Number('12px'), Number('0b11'), Number('0o7'), Number('  '), Number('-5'), Number('.5'), Number('5.'), Number('+5'));"}
+{:id :coerce-to-number-kinds :group :coercion :source "console.log(Number(true), Number(false), Number(null), Number(undefined), Number(1n), Number());"}
+{:id :coerce-to-string-kinds :group :coercion :source "console.log(String(1), String(true), String(null), String(undefined), String(1n), String(0.1), String(1e21), String('s'), String());"}
+{:id :coerce-to-boolean-kinds :group :coercion :source "console.log(Boolean(0), Boolean(-0), Boolean(NaN), Boolean(''), Boolean(null), Boolean(undefined), Boolean(0n), Boolean('0'), Boolean(1), Boolean('a'), Boolean(1n));"}
+{:id :coerce-loose-eq-null :group :coercion :source "console.log(null == undefined, null == 0, undefined == 0, null == false, undefined == null, null == null);"}
+{:id :coerce-loose-eq-numstr :group :coercion :source "console.log(1 == '1', 0 == '', 0 == '0', '' == '0', 1 == '1.0', 0 == ' ', NaN == NaN, 'a' == 'a');"}
+{:id :coerce-loose-eq-bool :group :coercion :source "console.log(true == 1, false == 0, true == '1', false == '', true == 2, false == null, true == 'true');"}
+{:id :coerce-loose-eq-bigint :group :coercion :source "console.log(1n == 1, 1n == '1', 1n == true, 2n == 1, 1n == 1.5, 9007199254740993n == 9007199254740992);"}
+{:id :coerce-strict-eq :group :coercion :source "console.log(1 === 1, 1 === '1', null === undefined, 'a' === 'a', true === true, NaN === NaN, 0 === -0, 1n === 1n);"}
+{:id :coerce-add-mixed :group :coercion :source "console.log(1 + '2', '1' + 2, 1 + 2 + '3', '1' + 2 + 3, true + 1, null + 1, undefined + 1, true + true, 'a' + null, 'a' + undefined);"}
+{:id :coerce-arith-strings :group :coercion :source "console.log('3' * '4', '10' / '4', '5' - 2, '5' - '2', 'x' * 2, '3' % 2, '2' ** '3');"}
+{:id :coerce-relational :group :coercion :source "console.log(null >= 0, null > 0, undefined >= 0, '2' > '12', 2 > '12', 'abc' < 'abd', true > false, null < 1);"}
+{:id :coerce-logical :group :coercion :source "console.log(0 || 'x', 1 || 'x', 0 && 'x', 1 && 'x', '' || 'e', 'a' && 'b' && 'c', 0 || null || 5);"}
+{:id :coerce-typeof-kinds :group :coercion :source "console.log(typeof 1, typeof 'a', typeof undefined, typeof null, typeof true, typeof function () {}, typeof 1n, typeof (() => 1), typeof NaN);"}
+{:id :coerce-typeof-undeclared :group :coercion :source "console.log(typeof notDeclared, typeof typeof 1);"}
+{:id :coerce-void-comma :group :coercion :source "console.log(void 0, void 'x', (1, 2, 3));"}
+{:id :coerce-template :group :coercion :source "const n = 3; const s = 'a'; console.log(`${n}${s}`, `x${1 + 1}y`, `${null}`, `${undefined}`, `${true}`, `${1n}`, `${0.1 + 0.2}`);"}
+{:id :scope-var-hoist :group :scoping :source "console.log(v); var v = 5; console.log(v);"}
+{:id :scope-function-hoist :group :scoping :source "console.log(f()); function f() { return 'hoisted'; }"}
+{:id :scope-var-in-block :group :scoping :source "{ var inner = 1; } console.log(inner);"}
+{:id :scope-let-block :group :scoping :source "let x = 1; { let x = 2; console.log(x); } console.log(x);"}
+{:id :scope-shadow-param :group :scoping :source "const x = 1; function f(x) { return x + 1; } console.log(f(10), x);"}
+{:id :scope-tdz-let :group :scoping :source "console.log(x); let x = 1;"}
+{:id :scope-tdz-const :group :scoping :source "try { c; } catch (e) { console.log(e.name, e.message); } const c = 1;"}
+{:id :scope-tdz-function :group :scoping :source "function read() { return late; } try { read(); } catch (e) { console.log(e.name, e.message); } let late = 2; console.log(read());"}
+{:id :scope-const-assign :group :scoping :source "const k = 1; try { k = 2; } catch (e) { console.log(e.name, e.message); } console.log(k);"}
+{:id :scope-undeclared-read :group :scoping :source "try { missing; } catch (e) { console.log(e.name, e.message); }"}
+{:id :scope-undeclared-assign :group :scoping :source "try { undeclaredTarget = 1; } catch (e) { console.log(e.name); }"}
+{:id :scope-for-let-closures :group :scoping :source "var a, b, c; for (let i = 0; i < 3; i++) { if (i === 0) a = () => i; if (i === 1) b = () => i; if (i === 2) c = () => i; } console.log(a(), b(), c());"}
+{:id :scope-for-var-closures :group :scoping :source "var a, b, c; for (var i = 0; i < 3; i++) { if (i === 0) a = () => i; if (i === 1) b = () => i; if (i === 2) c = () => i; } console.log(a(), b(), c());"}
+{:id :scope-for-let-mutation :group :scoping :source "var f; for (let i = 0; i < 2; i++) { f = () => i; i++; } console.log(f());"}
+{:id :scope-catch-binding :group :scoping :source "var e = 'outer'; try { throw 'inner'; } catch (e) { console.log(e); } console.log(e);"}
+{:id :scope-catch-optional :group :scoping :source "try { throw 1; } catch { console.log('optional'); }"}
+{:id :scope-function-expr-name :group :scoping :source "const f = function g() { return typeof g; }; console.log(f(), typeof g);"}
+{:id :scope-this-bare :group :scoping :source "console.log((function () { return this; })());"}
+{:id :scope-this-arrow :group :scoping :source "console.log((() => this)());"}
+{:id :scope-for-let-first-iteration :group :scoping :source "var keep; for (let i = (keep = () => i, 0); i < 1; i = i + 1) { i = 5; } console.log(keep());"}
+{:id :scope-function-expr-name-const :group :scoping :source "const f = function g() { try { g = 1; } catch (e) { console.log(e.name); } return typeof g; }; console.log(f());"}
+{:id :control-if-else :group :control :source "const t = (n) => { if (n < 0) return 'neg'; else if (n === 0) return 'zero'; else return 'pos'; }; console.log(t(-1), t(0), t(1));"}
+{:id :control-do-while :group :control :source "let i = 10; do { i++; } while (i < 5); console.log(i);"}
+{:id :control-for :group :control :source "let s = 0; for (let i = 1; i <= 10; i++) s += i; console.log(s);"}
+{:id :control-for-empty :group :control :source "let i = 0; for (;;) { if (++i > 4) break; } console.log(i);"}
+{:id :control-break-continue :group :control :source "let s = 0; for (let i = 0; i < 10; i++) { if (i % 2) continue; if (i > 6) break; s += i; } console.log(s);"}
+{:id :control-labelled-break :group :control :source "let n = 0; outer: for (let a = 0; a < 3; a++) { for (let b = 0; b < 3; b++) { if (b === 1) continue outer; if (a === 2) break outer; n++; } } console.log(n);"}
+{:id :control-labelled-block :group :control :source "blk: { console.log('in'); break blk; } console.log('out');"}
+{:id :control-labelled-while :group :control :source "let i = 0; loop: while (true) { i++; while (true) { if (i < 3) continue loop; break loop; } } console.log(i);"}
+{:id :control-label-chain-continue-outer :group :control :source "let n = 0; outer: inner: for (let a = 0; a < 3; a++) { for (let b = 0; b < 3; b++) { if (b === 1) continue outer; n++; } } console.log(n);"}
+{:id :control-label-chain-continue-inner :group :control :source "let n = 0; outer: inner: for (let a = 0; a < 3; a++) { for (let b = 0; b < 3; b++) { if (b === 1) continue inner; n++; } } console.log(n);"}
+{:id :control-label-chain-break-outer :group :control :source "let n = 0; outer: inner: for (let a = 0; a < 3; a++) { if (a === 2) break outer; n++; } console.log(n);"}
+{:id :control-label-chain-block :group :control :source "outer: inner: { console.log('in'); break outer; } console.log('out');"}
+{:id :control-switch-fallthrough :group :control :source "switch (2) { case 1: console.log('a'); case 2: console.log('b'); case 3: console.log('c'); break; default: console.log('d'); }"}
+{:id :control-switch-default-mid :group :control :source "const t = (x) => { switch (x) { case 1: return 'one'; default: console.log('dflt'); case 2: return 'two'; } }; console.log(t(1), t(2), t(9));"}
+{:id :control-switch-strict :group :control :source "switch ('1') { case 1: console.log('num'); break; case '1': console.log('str'); break; }"}
+{:id :control-switch-no-match :group :control :source "switch (5) { case 1: console.log('a'); } console.log('done');"}
+{:id :control-short-circuit :group :control :source "let hit = 0; const bump = () => { hit++; return true; }; false && bump(); true || bump(); true && bump(); console.log(hit);"}
+{:id :control-fizz :group :control :source "for (let i = 1; i <= 15; i++) { console.log(i % 15 === 0 ? 'FizzBuzz' : (i % 5 === 0 ? 'Buzz' : (i % 3 === 0 ? 'Fizz' : i))); }"}
+{:id :func-declaration :group :functions :source "function add(a, b) { return a + b; } console.log(add(1, 2), add('a', 'b'), add(1));"}
+{:id :func-arrow :group :functions :source "const sq = (x) => x * x; const k = () => 7; const id = x => x; console.log(sq(5), k(), id('i'));"}
+{:id :func-no-return :group :functions :source "function f() {} function g() { return; } console.log(f(), g());"}
+{:id :func-recursion :group :functions :source "function fact(n) { return n <= 1 ? 1 : n * fact(n - 1); } console.log(fact(10), fact(20), fact(25));"}
+{:id :func-mutual :group :functions :source "function even(n) { return n === 0 ? true : odd(n - 1); } function odd(n) { return n === 0 ? false : even(n - 1); } console.log(even(10), odd(7));"}
+{:id :func-print-function :group :functions :source "function named() {} const anon = function () {}; const arrow = () => 1; console.log(named, anon, arrow);"}
+{:id :func-this-undefined :group :functions :source "function f() { return this === undefined; } console.log(f());"}
+{:id :func-early-return :group :functions :source "function f(n) { for (let i = 0; i < 10; i++) { if (i === n) return i * 10; } return -1; } console.log(f(3), f(20));"}
+{:id :func-return-in-loops :group :functions :source "function find(limit) { let i = 0; while (true) { i++; for (;;) { if (i * i > limit) return i; break; } } } console.log(find(50));"}
+{:id :closure-counter :group :closures :source "function mk() { let n = 0; return () => ++n; } const c = mk(); c(); c(); console.log(c());"}
+{:id :closure-independent :group :closures :source "function mk() { let n = 0; return () => ++n; } const a = mk(), b = mk(); a(); a(); console.log(a(), b());"}
+{:id :closure-in-loop-while :group :closures :source "var fs = null; let i = 0; while (i < 3) { let j = i; if (j === 1) fs = () => j; i++; } console.log(fs());"}
+{:id :exc-throw-catch :group :exceptions :source "try { throw new Error('boom'); } catch (e) { console.log('caught', e.message, e.name); }"}
+{:id :exc-error-kinds :group :exceptions :source "console.log(new Error('a').name, new TypeError('b').name, new ReferenceError('c').name, new RangeError('d').name, new SyntaxError('e').name); console.log(String(new TypeError('b')), String(new RangeError('d')));"}
+{:id :exc-error-fields :group :exceptions :source "const e = new Error('m'); console.log(e.name, e.message, String(e), typeof e);"}
+{:id :exc-finally-ordering :group :exceptions :source "try { console.log('try'); } finally { console.log('finally'); }"}
+{:id :exc-finally-return :group :exceptions :source "function f() { try { return 'r'; } finally { console.log('f'); } } console.log(f());"}
+{:id :exc-finally-overrides :group :exceptions :source "function f() { try { return 'try'; } finally { return 'finally'; } } console.log(f());"}
+{:id :exc-finally-break :group :exceptions :source "for (let i = 0; i < 3; i++) { try { if (i === 1) break; console.log('body', i); } finally { console.log('fin', i); } }"}
+{:id :exc-finally-continue :group :exceptions :source "for (let i = 0; i < 3; i++) { try { if (i === 1) continue; console.log('body', i); } finally { console.log('fin', i); } }"}
+{:id :exc-finally-throw :group :exceptions :source "try { try { throw 'inner'; } finally { console.log('cleanup'); } } catch (e) { console.log('outer caught', e); }"}
+{:id :exc-catch-finally :group :exceptions :source "try { throw 1; } catch (e) { console.log('c', e); } finally { console.log('f'); }"}
+{:id :exc-rethrow :group :exceptions :source "try { try { throw new Error('first'); } catch (e) { throw e; } } catch (e2) { console.log(e2.message); }"}
+{:id :exc-thrown-primitive :group :exceptions :source "try { throw 42; } catch (e) { console.log(e, typeof e); }"}
+{:id :exc-through-function :group :exceptions :source "function f() { throw new RangeError('deep'); } function g() { f(); } try { g(); } catch (e) { console.log(e.name, e.message); }"}
+{:id :exc-uncaught-error :group :exceptions :source "console.log('before'); throw new Error('boom'); console.log('after');"}
+{:id :exc-uncaught-primitive :group :exceptions :source "console.log('p'); throw 7;"}
+{:id :exc-uncaught-string :group :exceptions :source "throw 'bare';"}
+{:id :exc-uncaught-type-error :group :exceptions :source "console.log('x'); null.p;"}
+{:id :exc-property-of-undefined :group :exceptions :source "try { undefined.x; } catch (e) { console.log(e.name); }"}
+{:id :exc-try-value-flow :group :exceptions :source "function f(x) { try { if (x) throw 'bad'; return 'good'; } catch (e) { return 'caught ' + e; } finally { console.log('done', x); } } console.log(f(false)); console.log(f(true));"}
+{:id :str-index-slice :group :strings :source "console.log('hello'.slice(1, 4), 'hello'.slice(-3), 'hello'.slice(2), 'hello'.slice(0, -1), 'hello'.slice(3, 1));"}
+{:id :str-substring-indexof :group :strings :source "console.log('hello'.substring(1, 3), 'hello'.indexOf('l'), 'hello'.indexOf('z'), 'hello'.at(-1), 'hello'.at(0));"}
+{:id :str-charcodeat :group :strings :source "console.log('A'.charCodeAt(0), 'abc'.charCodeAt(2), 'abc'.charCodeAt(5));"}
+{:id :str-surrogate-length :group :strings :source "console.log('\\uD83D\\uDE00'.length, '😀'.length);"}
+{:id :str-surrogate-charcodeat :group :strings :source "const s = '😀'; console.log(s.charCodeAt(0), s.charCodeAt(1), s.codePointAt(0), s.codePointAt(1));"}
+{:id :str-surrogate-slice :group :strings :source "const s = '😀'; console.log(s.slice(0, 1).length, s.slice(0, 1).charCodeAt(0), s.slice(1).charCodeAt(0));"}
+{:id :str-surrogate-index :group :strings :source "const s = '😀'; console.log(s.at(0).length, s.at(1).charCodeAt(0));"}
+{:id :str-surrogate-concat :group :strings :source "const s = '😀'; const joined = s.slice(0, 1) + s.slice(1); console.log(joined === s, joined.length, joined.charCodeAt(0));"}
+{:id :str-lone-surrogate-eq :group :strings :source "console.log('\\uD800' === '\\uD800', '\\uD800' === '\\uDC00', '\\uD800'.length, '\\uD800'.charCodeAt(0));"}
+{:id :str-lone-surrogate-concat :group :strings :source "const hi = '\\uD83D'; const lo = '\\uDE00'; console.log(hi.length, (hi + lo).length, hi + lo === '😀');"}
+{:id :str-compare :group :strings :source "console.log('a' < 'b', 'b' < 'a', 'a' < 'ab', 'Z' < 'a', '' < 'a', 'abc' === 'abc', 'abc' == 'abd');"}
+{:id :str-escapes :group :strings :source "console.log('a\\tb', 'q\\'q', \"d\\\"d\", 'A\\x41\\u0041', 'l\\\\r'.length);"}
+{:id :str-template-substitutions :group :strings :source "const name = 'w'; const n = 2; console.log(`hello ${name}`, `${n} + ${n} = ${n + n}`, `a${''}b`);"}
+
+]
