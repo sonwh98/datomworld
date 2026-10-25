@@ -1,0 +1,5 @@
+{"type":"thread.started","thread_id":"01a16d38-d4fc-7253-8098-51e80bd692b9"}
+{"type":"turn.started"}
+2026-10-25T15:22:54.172366Z ERROR codex_core::session::turn: Failed to run pre-sampling compact
+{"type":"error","message":"Error running remote compact task: You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at Oct 26th, 2026 12:25 AM."}
+{"type":"turn.failed","error":{"message":"Error running remote compact task: You’ve hit your usage limit. Upgrade to Pro (https://chatgpt.com/explore/pro), visit https://chatgpt.com/settings/usage to purchase more credits or try again at Oct 26th, 2026 12:25 AM."}}
