@@ -275,6 +275,11 @@
    ;; made check-manifest! refuse every lane mode; 17 tests, 57 assertions,
    ;; 0 failures on jolt (macOS).
    "dao.space.datomic-query-conformance-test"
+   ;; Listed 2026-10-25 (4b merge note, argon sign-off): the four portable
+   ;; suites added by the phase 4b checked-traversal merge — pure
+   ;; cursor/reader/bounded-query logic, no sockets/fs.
+   "dao.data.btree.cursor-test" "dao.data.btree.storage-read-test"
+   "dao.space.published-read-test" "dao.space.query.published-bounded-test"
    "yin.vm.ledger-test"
    "yin.vm.semantic.analysis-test" "yin.vm.debruijn-register-code-test"
    "yin.vm.semantic.scan-test" "yin.vm.debruijn-register-effects-test"
