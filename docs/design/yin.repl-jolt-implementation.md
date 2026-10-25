@@ -1788,6 +1788,16 @@ refresh brief `collab/1792740000000-engineer-jolt-design-refresh.codex.prompt.md
    landed table still needs the ruling applied; J2 gate (b) remains open.
 6. **PHP (2026-10-22).** PHP stays supported in the standard catalog and
    local shell/frontends acceptance (§3, J3/J5); no scope reduction.
+7. **Mixed lock families — documented limitation (2026-10-25).** Owner
+   ruling (option "document it" of the design's three-way, §3 cross-host
+   limit, review F5): a Node session holding a store directory via its
+   claim file and an OS-lock host (jolt, JVM, Dart) holding via fcntl are
+   invisible to each other; simultaneous use of one store directory across
+   the two families can double-own. Sequential reopen is unaffected and
+   tested. The limitation is pre-existing (JVM↔Node) and recorded in
+   known-gaps; J4b's acceptance must not claim universal cross-runtime
+   exclusion. A future common-lock design or the best-effort Node-claim
+   refusal remain available supersessions, not J4b scope.
 
 ---
 
