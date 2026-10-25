@@ -23,24 +23,42 @@
    :helpers ["Java/PhpLexerBase.java"],
    :out "build/antlr/php/java",
    ;; Upstream rewrites a heredoc end line into a SemiColon built without
-   ;; source indices (its span reads back as [0 1] on any source) and rewrites
-   ;; the text of the token after a semicolon-less end line (a `)` reads
-   ;; "EOF\n;"). The patch keeps both tokens as the real source tokens: the
-   ;; end line becomes a SemiColon over its own text and span, and the
-   ;; following token keeps its own text, so every span is the source it
-   ;; came from.
+   ;; source indices and rewrites the text of the token after it, and it only
+   ;; recognizes an end line that is the identifier alone (optionally with
+   ;; `;`) ending in a newline. The patch lexes the closing identifier as its
+   ;; own HereDocEnd token (required by the parser's string rule) wherever it begins a line and is not
+   ;; followed by a name character (so before `);` and at EOF), accepts a
+   ;; double-quoted opening identifier, and makes a close tag swallow one
+   ;; following newline.
    :patches
-   {"Java/PhpLexerBase.java"
-    [["                            token = new CommonToken(PhpLexer.SemiColon, heredocIdentifier + \";\\n\");"
-      "                            token.setType(PhpLexer.SemiColon);"]
-     ["                            token.setText(heredocIdentifier + \"\\n;\");"
-      "                            // keeps its own source text"]]},
+   {"PhpLexer.g4"
+    [["'>' | '</script>'" "'>' ('\\r'? '\\n')? | '</script>'"]
+     ["PHPEndSingleLineComment : '?' '>';"
+      "PHPEndSingleLineComment : '?' '>' ('\\r'? '\\n')?;"]
+     ["StartHereDoc : '<<<' [ \\t]* NameString {"
+      "StartHereDoc : '<<<' [ \\t]* ('\"' NameString '\"' | NameString) {"]
+     ["HereDocText: ~[\\r\\n]*? ('\\r'? '\\n' | '\\r');"
+      "HereDocText: ~[\\r\\n]*? ('\\r'? '\\n' | '\\r');\n// Never matches: HeredocEndToken in PhpLexerBase builds this token.\nHereDocEnd: [ \\t]* NameString { false }?;"]],
+    "PhpParser.g4"
+    [["    : StartHereDoc HereDocText+\n" "    : StartHereDoc HereDocText+ HereDocEnd\n"]
+     ["    | StartNowDoc HereDocText+\n" "    | StartNowDoc HereDocText+ HereDocEnd\n"]],
+    "Java/PhpLexerBase.java"
+    [["    protected String _heredocIdentifier;\n"
+      "    protected String _heredocIdentifier;\n    protected boolean _heredocLineStart;\n"]
+     ["        CommonToken token = (CommonToken)super.nextToken();\n"
+      "        if (_mode == PhpLexer.HereDoc && _heredocLineStart)\n        {\n            Token end = HeredocEndToken();\n            if (end != null) return end;\n        }\n\n        CommonToken token = (CommonToken)super.nextToken();\n"]
+     ["                    _heredocIdentifier = token.getText().substring(3).trim().replace(\"'\",\"\");\n"
+      "                    _heredocIdentifier = token.getText().substring(3).trim().replace(\"'\",\"\").replace(\"\\\"\",\"\");\n                    _heredocLineStart = false;\n"]
+     ["                case PhpLexer.HereDocText:\n                    if (CheckHeredocEnd(token.getText()))\n                    {\n                        popMode();\n\n                        String heredocIdentifier = GetHeredocIdentifier(token.getText());\n                        if (token.getText().trim().endsWith(\";\"))\n                        {\n                            token = new CommonToken(PhpLexer.SemiColon, heredocIdentifier + \";\\n\");\n                        }\n                        else\n                        {\n                            token = (CommonToken)super.nextToken();\n                            token.setText(heredocIdentifier + \"\\n;\");\n                        }\n                    }\n                    break;"
+      "                case PhpLexer.HereDocText:\n                    _heredocLineStart = true;\n                    break;"]
+     ["    private String GetHeredocIdentifier(String text) {\n        String trimmedText = text.trim();\n        boolean semi = (trimmedText.length() > 0) ? (trimmedText.charAt(trimmedText.length() - 1) == ';') : false;\n        return semi ? trimmedText.substring(0, trimmedText.length() - 1) : trimmedText;\n    }\n\n    private boolean CheckHeredocEnd(String text) {\n        return GetHeredocIdentifier(text).equals(_heredocIdentifier);\n    }\n"
+      "    // At the start of a heredoc line: the closing identifier, after optional\n    // indentation and before any non-name character (or EOF), is its own\n    // token; whatever follows it on the line (`;`, `)`, `,`) lexes as PHP.\n    private Token HeredocEndToken() {\n        int[] id = _heredocIdentifier.codePoints().toArray();\n        int p = 1;\n        while (_input.LA(p) == ' ' || _input.LA(p) == '\\t') p++;\n        for (int k = 0; k < id.length; k++, p++)\n        {\n            if (_input.LA(p) != id[k]) return null;\n        }\n        int c = _input.LA(p);\n        if (c == '_' || c >= 0x80 || (c >= '0' && c <= '9') || (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z'))\n        {\n            return null;\n        }\n        int start = _input.index();\n        int line = getLine();\n        int column = getCharPositionInLine();\n        for (int k = 1; k < p; k++) getInterpreter().consume(_input);\n        popMode();\n        return _factory.create(_tokenFactorySourcePair, PhpLexer.HereDocEnd, null, Token.DEFAULT_CHANNEL,\n                               start, _input.index() - 1, line, column);\n    }\n"]]},
    :generated {"PhpLexer.java"
-               "a286d57ccd2b9515bbd0249bc54a795efabb008e2bbc3bb331e7e5eb49e54464",
+               "deda018f412b4b649e0387df0ac2ce5e1e03ac316f16f7edb1502992acc4fbd7",
                "PhpLexerBase.java"
-               "d0f3615a097d4713b8d17c663d5a9fe387aafb8e460c2247f50eb965a7cd1ac7",
+               "9d719b7c28a361458a0cc55870c2d39034ef34cdd329b175d8c847268e3769ca",
                "PhpParser.java"
-               "21c8d97ce80b03d6fa96fa68350a5eab5631e2618ccab7ca7812d352e001d0d9"}}},
+               "182d7095f6fdeb03f02556acde575282d137247953102ae03d286cb0e4bbe8ad"}}},
  ;; yang.php.md section 6 license review
  :license {"PhpLexer.g4" "MIT (header: Copyright (c) 2015-2019 Ivan Kochurkin, Positive Technologies; (c) 2019 Thierry Marianne); vendored with its notice verbatim",
            "PhpParser.g4" "MIT (header: Copyright (c) 2015-2019 Ivan Kochurkin, Positive Technologies; (c) 2019 Thierry Marianne); vendored with its notice verbatim",

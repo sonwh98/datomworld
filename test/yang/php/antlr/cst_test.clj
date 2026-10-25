@@ -51,9 +51,33 @@
         pk (parse src)]
     (is (= "<<<EOF" (:text (first (typed pk "StartHereDoc")))))
     (is (= "  hi $n\n" (:text (second (typed pk "HereDocText")))))
-    (testing "the end line is a real SemiColon over its own source"
-      (is (= ["  EOF;\n" [26 33]]
+    (testing "the end identifier and the `;` are real tokens over their own source"
+      (is (= ["  EOF" [26 31]]
+             ((juxt :text :span) (first (typed pk "HereDocEnd")))))
+      (is (= [";" [31 32]]
              ((juxt :text :span) (first (typed pk "SemiColon"))))))))
+
+
+(deftest heredoc-end-boundaries-test
+  (testing "terminator at EOF without a newline"
+    (let [pk (parse "<?php $a = <<<EOF\nhello\nEOF;")]
+      (is (= ["EOF"] (mapv :text (typed pk "HereDocEnd"))))
+      (is (= [";"] (mapv :text (typed pk "SemiColon"))))))
+  (testing "terminator before same-line punctuation"
+    (let [pk (parse "<?php f(<<<EOF\nhi\nEOF);\n")]
+      (is (= ["EOF"] (mapv :text (typed pk "HereDocEnd"))))
+      (is (= [")"] (mapv :text (typed pk "CloseRoundBracket"))))
+      (is (= [","] (mapv :text (typed (parse "<?php f(<<<EOF\nhi\nEOF, 1);\n")
+                                      "Comma"))))))
+  (testing "a longer name is body, not the terminator"
+    (let [pk (parse "<?php $a = <<<EOF\nEOFX\nEOF;\n")]
+      (is (= ["\n" "EOFX\n"] (mapv :text (typed pk "HereDocText")))))))
+
+
+(deftest double-quoted-heredoc-test
+  (let [pk (parse "<?php $a = <<<\"EOF\"\nhello\nEOF;\n")]
+    (is (= ["<<<\"EOF\""] (mapv :text (typed pk "StartHereDoc"))))
+    (is (= ["EOF"] (mapv :text (typed pk "HereDocEnd"))))))
 
 
 (deftest heredoc-without-semicolon-test
@@ -78,14 +102,26 @@
 
 
 (deftest close-tag-newline-and-text-test
-  (testing "?> then newline: the newline belongs to the close tag's successor"
+  (testing "?> swallows one following LF"
     (let [pk (parse "<?php echo 1 ?>\nfoo")]
-      (is (= ["?>" [13 15]]
+      (is (= ["?>\n" [13 16]]
              ((juxt :text :span) (first (typed pk "SemiColon")))))
-      (is (= ["\nfoo" [15 19]]
+      (is (= ["foo" [16 19]]
+             ((juxt :text :span) (first (typed pk "HtmlText")))))))
+  (testing "?> swallows one following CRLF"
+    (let [pk (parse "<?php echo 1 ?>\r\nfoo")]
+      (is (= ["?>\r\n" [13 17]]
+             ((juxt :text :span) (first (typed pk "SemiColon")))))
+      (is (= ["foo" [17 20]]
+             ((juxt :text :span) (first (typed pk "HtmlText")))))))
+  (testing "only the first of two newlines is swallowed"
+    (let [pk (parse "<?php echo 1 ?>\n\nfoo")]
+      (is (= ["?>\n" [13 16]]
+             ((juxt :text :span) (first (typed pk "SemiColon")))))
+      (is (= ["\nfoo" [16 20]]
              ((juxt :text :span) (first (typed pk "HtmlText")))))))
   (let [pk (parse "<?= $x ?>\n")]
-    (is (= ["?>" [7 9]]
+    (is (= ["?>\n" [7 10]]
            ((juxt :text :span) (first (typed pk "SemiColon"))))))
   (let [pk (parse "<?php echo 1; ?>b")]
     (is (= ["b" [16 17]]
