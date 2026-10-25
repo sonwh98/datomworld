@@ -1043,13 +1043,13 @@
                               [:statement
                                [:staticVariableStatement
                                 ["Static" "static"]
-                                [:variableInitializer
+                                [:staticInitializer
                                  ["VarName" "$n"]
                                  ["Eq" "="]
-                                 [:constantInitializer
+                                 [:expression
                                   [:constant [:literalConstant [:numericConstant ["Decimal" "5"]]]]]]
                                 ["Comma" ","]
-                                [:variableInitializer ["VarName" "$m"]]
+                                [:staticInitializer ["VarName" "$m"]]
                                 ["SemiColon" ";"]]]]
                              [:innerStatement
                               [:statement
@@ -1062,7 +1062,8 @@
                               [:statement
                                [:expressionStatement
                                 [:expression
-                                 [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$m"]]]]]]
+                                 [:assignable
+                                  [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$m"]]]]]]
                                  [:assignmentOperator ["Concaequal" ".="]]
                                  [:expression
                                   [:string
@@ -1075,7 +1076,8 @@
                                [:returnStatement
                                 ["Return" "return"]
                                 [:expression
-                                 [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]]
+                                 [:expression
+                                  [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]]
                                  ["Dot" "."]
                                  [:expression
                                   [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$m"]]]]]]]
@@ -1091,7 +1093,8 @@
                                [:chainOrigin
                                 [:functionCall
                                  [:functionCallName
-                                  [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "counter"]]]]]
+                                  [:qualifiedNamespaceName
+                                   [:namespaceNameList [:identifier ["Label" "counter"]]]]]
                                  [:actualArguments
                                   [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]
                              ["Comma" ","]
@@ -1100,7 +1103,8 @@
                                [:chainOrigin
                                 [:functionCall
                                  [:functionCallName
-                                  [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "counter"]]]]]
+                                  [:qualifiedNamespaceName
+                                   [:namespaceNameList [:identifier ["Label" "counter"]]]]]
                                  [:actualArguments
                                   [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]
                              ["Comma" ","]
@@ -1109,7 +1113,8 @@
                                [:chainOrigin
                                 [:functionCall
                                  [:functionCallName
-                                  [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "counter"]]]]]
+                                  [:qualifiedNamespaceName
+                                   [:namespaceNameList [:identifier ["Label" "counter"]]]]]
                                  [:actualArguments
                                   [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]
                              ["Comma" ","]
@@ -1133,10 +1138,10 @@
                               [:statement
                                [:staticVariableStatement
                                 ["Static" "static"]
-                                [:variableInitializer
+                                [:staticInitializer
                                  ["VarName" "$calls"]
                                  ["Eq" "="]
-                                 [:constantInitializer
+                                 [:expression
                                   [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]
                                 ["SemiColon" ";"]]]]
                              [:innerStatement
@@ -1156,7 +1161,8 @@
                                   [:expression
                                    [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$d"]]]]]]
                                   ["Greater" ">"]
-                                  [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]
+                                  [:expression
+                                   [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]
                                  ["CloseRoundBracket" ")"]]
                                 [:statement
                                  [:expressionStatement
@@ -1165,14 +1171,16 @@
                                     [:chainOrigin
                                      [:functionCall
                                       [:functionCallName
-                                       [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "rec"]]]]]
+                                       [:qualifiedNamespaceName
+                                        [:namespaceNameList [:identifier ["Label" "rec"]]]]]
                                       [:actualArguments
                                        [:arguments
                                         ["OpenRoundBracket" "("]
                                         [:actualArgument
                                          [:expression
                                           [:expression
-                                           [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$d"]]]]]]
+                                           [:chain
+                                            [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$d"]]]]]]
                                           ["Minus" "-"]
                                           [:expression
                                            [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]]
@@ -1201,7 +1209,8 @@
                                   [:arguments
                                    ["OpenRoundBracket" "("]
                                    [:actualArgument
-                                    [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "3"]]]]]]
+                                    [:expression
+                                     [:constant [:literalConstant [:numericConstant ["Decimal" "3"]]]]]]
                                    ["CloseRoundBracket" ")"]]]]]]]
                              ["Comma" ","]
                              [:expression
@@ -1214,7 +1223,8 @@
                                   [:arguments
                                    ["OpenRoundBracket" "("]
                                    [:actualArgument
-                                    [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]
+                                    [:expression
+                                     [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]
                                    ["CloseRoundBracket" ")"]]]]]]]
                              ["Comma" ","]
                              [:expression
@@ -1237,10 +1247,10 @@
                               [:statement
                                [:staticVariableStatement
                                 ["Static" "static"]
-                                [:variableInitializer
+                                [:staticInitializer
                                  ["VarName" "$v"]
                                  ["Eq" "="]
-                                 [:constantInitializer
+                                 [:expression
                                   [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
                                 ["SemiColon" ";"]]]]
                              [:innerStatement
@@ -1266,10 +1276,10 @@
                               [:statement
                                [:staticVariableStatement
                                 ["Static" "static"]
-                                [:variableInitializer
+                                [:staticInitializer
                                  ["VarName" "$v"]
                                  ["Eq" "="]
-                                 [:constantInitializer
+                                 [:expression
                                   [:constant [:literalConstant [:numericConstant ["Decimal" "100"]]]]]]
                                 ["SemiColon" ";"]]]]
                              [:innerStatement
@@ -1623,4 +1633,2708 @@
                                   ["Dot" "."]
                                   [:expression [:string ["SingleQuoteString" "'e\\nf'"]]]]]
                                 ["SemiColon" ";"]]]]]
-                            ["EOF" "<EOF>"]]})
+                            ["EOF" "<EOF>"]]
+    :variables-and-assignment [:htmlDocument
+                               [:phpBlock
+                                [:topStatement
+                                 [:statement
+                                  [:expressionStatement
+                                   [:expression
+                                    [:assignable
+                                     [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$x"]]]]]]
+                                    [:assignmentOperator ["Eq" "="]]
+                                    [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+                                   ["SemiColon" ";"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:expressionStatement
+                                   [:expression
+                                    [:assignable
+                                     [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$x"]]]]]]
+                                    [:assignmentOperator ["PlusEqual" "+="]]
+                                    [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+                                   ["SemiColon" ";"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:expressionStatement
+                                   [:expression
+                                    [:assignable
+                                     [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$x"]]]]]]
+                                    [:assignmentOperator ["Concaequal" ".="]]
+                                    [:expression
+                                     [:string
+                                      ["DoubleQuote" "\""]
+                                      [:interpolatedStringPart ["StringPart" "a"]]
+                                      ["DoubleQuote" "\""]]]]
+                                   ["SemiColon" ";"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:echoStatement
+                                   ["Echo" "echo"]
+                                   [:expressionList
+                                    [:expression
+                                     [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$x"]]]]]]
+                                    ["Comma" ","]
+                                    [:expression
+                                     [:string
+                                      ["DoubleQuote" "\""]
+                                      [:interpolatedStringPart ["StringPart" "|"]]
+                                      ["DoubleQuote" "\""]]]]
+                                   ["SemiColon" ";"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:expressionStatement
+                                   [:expression
+                                    [:assignable
+                                     [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$y"]]]]]]
+                                    [:assignmentOperator ["Eq" "="]]
+                                    [:expression
+                                     [:expression
+                                      [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$z"]]]]]]
+                                     ["NullCoalescing" "??"]
+                                     [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "7"]]]]]]]
+                                   ["SemiColon" ";"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:echoStatement
+                                   ["Echo" "echo"]
+                                   [:expressionList
+                                    [:expression
+                                     [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$y"]]]]]]]
+                                   ["SemiColon" ";"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:expressionStatement
+                                   [:expression
+                                    [:assignable
+                                     [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+                                    [:assignmentOperator ["Eq" "="]]
+                                    [:expression
+                                     [:assignable
+                                      [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]
+                                     [:assignmentOperator ["Eq" "="]]
+                                     [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "3"]]]]]]]
+                                   ["SemiColon" ";"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:echoStatement
+                                   ["Echo" "echo"]
+                                   [:expressionList
+                                    [:expression
+                                     [:expression
+                                      [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+                                     ["Plus" "+"]
+                                     [:expression
+                                      [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]]]
+                                   ["SemiColon" ";"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:expressionStatement
+                                   [:expression
+                                    [:assignable
+                                     [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$c"]]]]]]
+                                    [:assignmentOperator ["Eq" "="]]
+                                    [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "5"]]]]]]
+                                   ["SemiColon" ";"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:expressionStatement
+                                   [:expression
+                                    [:assignable
+                                     [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$c"]]]]]]
+                                    [:assignmentOperator ["PowEqual" "**="]]
+                                    [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+                                   ["SemiColon" ";"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:expressionStatement
+                                   [:expression
+                                    [:assignable
+                                     [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$c"]]]]]]
+                                    [:assignmentOperator ["MinusEqual" "-="]]
+                                    [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+                                   ["SemiColon" ";"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:expressionStatement
+                                   [:expression
+                                    [:assignable
+                                     [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$c"]]]]]]
+                                    [:assignmentOperator ["MulEqual" "*="]]
+                                    [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+                                   ["SemiColon" ";"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:expressionStatement
+                                   [:expression
+                                    [:assignable
+                                     [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$c"]]]]]]
+                                    [:assignmentOperator ["DivEqual" "/="]]
+                                    [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "4"]]]]]]
+                                   ["SemiColon" ";"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:expressionStatement
+                                   [:expression
+                                    [:assignable
+                                     [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$c"]]]]]]
+                                    [:assignmentOperator ["ModEqual" "%="]]
+                                    [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "7"]]]]]]
+                                   ["SemiColon" ";"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:expressionStatement
+                                   [:expression
+                                    [:assignable
+                                     [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$c"]]]]]]
+                                    [:assignmentOperator ["ShiftLeftEqual" "<<="]]
+                                    [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+                                   ["SemiColon" ";"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:echoStatement
+                                   ["Echo" "echo"]
+                                   [:expressionList
+                                    [:expression
+                                     [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$c"]]]]]]]
+                                   ["SemiColon" ";"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:echoStatement
+                                   ["Echo" "echo"]
+                                   [:expressionList
+                                    [:expression
+                                     [:expression
+                                      [:chain
+                                       [:chainOrigin
+                                        [:functionCall
+                                         [:functionCallName
+                                          [:qualifiedNamespaceName
+                                           [:namespaceNameList [:identifier ["IsSet" "isset"]]]]]
+                                         [:actualArguments
+                                          [:arguments
+                                           ["OpenRoundBracket" "("]
+                                           [:actualArgument
+                                            [:expression
+                                             [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$c"]]]]]]]
+                                           ["CloseRoundBracket" ")"]]]]]]]
+                                     ["QuestionMark" "?"]
+                                     [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]
+                                     ["Colon" ":"]
+                                     [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]
+                                    ["Comma" ","]
+                                    [:expression
+                                     [:expression
+                                      [:chain
+                                       [:chainOrigin
+                                        [:functionCall
+                                         [:functionCallName
+                                          [:qualifiedNamespaceName
+                                           [:namespaceNameList [:identifier ["Empty" "empty"]]]]]
+                                         [:actualArguments
+                                          [:arguments
+                                           ["OpenRoundBracket" "("]
+                                           [:actualArgument
+                                            [:expression
+                                             [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$c"]]]]]]]
+                                           ["CloseRoundBracket" ")"]]]]]]]
+                                     ["QuestionMark" "?"]
+                                     [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]
+                                     ["Colon" ":"]
+                                     [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]]
+                                   ["SemiColon" ";"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:expressionStatement
+                                   [:expression
+                                    [:chain
+                                     [:chainOrigin
+                                      [:functionCall
+                                       [:functionCallName
+                                        [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Unset" "unset"]]]]]
+                                       [:actualArguments
+                                        [:arguments
+                                         ["OpenRoundBracket" "("]
+                                         [:actualArgument
+                                          [:expression
+                                           [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$c"]]]]]]]
+                                         ["CloseRoundBracket" ")"]]]]]]]
+                                   ["SemiColon" ";"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:echoStatement
+                                   ["Echo" "echo"]
+                                   [:expressionList
+                                    [:expression
+                                     [:expression
+                                      [:chain
+                                       [:chainOrigin
+                                        [:functionCall
+                                         [:functionCallName
+                                          [:qualifiedNamespaceName
+                                           [:namespaceNameList [:identifier ["IsSet" "isset"]]]]]
+                                         [:actualArguments
+                                          [:arguments
+                                           ["OpenRoundBracket" "("]
+                                           [:actualArgument
+                                            [:expression
+                                             [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$c"]]]]]]]
+                                           ["CloseRoundBracket" ")"]]]]]]]
+                                     ["QuestionMark" "?"]
+                                     [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]
+                                     ["Colon" ":"]
+                                     [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]]
+                                   ["SemiColon" ";"]]]]]
+                               ["EOF" "<EOF>"]]
+    :null-coalescing-and-elvis [:htmlDocument
+                                [:phpBlock
+                                 [:topStatement
+                                  [:statement
+                                   [:expressionStatement
+                                    [:expression
+                                     [:assignable
+                                      [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$t"]]]]]]
+                                     [:assignmentOperator ["Eq" "="]]
+                                     [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]
+                                    ["SemiColon" ";"]]]]
+                                 [:topStatement
+                                  [:statement
+                                   [:echoStatement
+                                    ["Echo" "echo"]
+                                    [:expressionList
+                                     [:expression
+                                      [:expression
+                                       [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$t"]]]]]]
+                                      ["QuestionMark" "?"]
+                                      ["Colon" ":"]
+                                      [:expression
+                                       [:string
+                                        ["DoubleQuote" "\""]
+                                        [:interpolatedStringPart ["StringPart" "elvis"]]
+                                        ["DoubleQuote" "\""]]]]
+                                     ["Comma" ","]
+                                     [:expression
+                                      [:expression
+                                       [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$t"]]]]]]
+                                      ["NullCoalescing" "??"]
+                                      [:expression
+                                       [:string
+                                        ["DoubleQuote" "\""]
+                                        [:interpolatedStringPart ["StringPart" "n"]]
+                                        ["DoubleQuote" "\""]]]]
+                                     ["Comma" ","]
+                                     [:expression
+                                      [:string
+                                       ["DoubleQuote" "\""]
+                                       [:interpolatedStringPart ["StringPart" "|"]]
+                                       ["DoubleQuote" "\""]]]]
+                                    ["SemiColon" ";"]]]]
+                                 [:topStatement
+                                  [:statement
+                                   [:expressionStatement
+                                    [:expression
+                                     [:assignable
+                                      [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$q"]]]]]]
+                                     [:assignmentOperator ["Eq" "="]]
+                                     [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "5"]]]]]]
+                                    ["SemiColon" ";"]]]]
+                                 [:topStatement
+                                  [:statement
+                                   [:expressionStatement
+                                    [:expression
+                                     [:assignable
+                                      [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$q"]]]]]]
+                                     [:assignmentOperator ["NullCoalescingEqual" "??="]]
+                                     [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "9"]]]]]]
+                                    ["SemiColon" ";"]]]]
+                                 [:topStatement
+                                  [:statement
+                                   [:expressionStatement
+                                    [:expression
+                                     [:assignable
+                                      [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$r"]]]]]]
+                                     [:assignmentOperator ["NullCoalescingEqual" "??="]]
+                                     [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "9"]]]]]]
+                                    ["SemiColon" ";"]]]]
+                                 [:topStatement
+                                  [:statement
+                                   [:echoStatement
+                                    ["Echo" "echo"]
+                                    [:expressionList
+                                     [:expression
+                                      [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$q"]]]]]]
+                                     ["Comma" ","]
+                                     [:expression
+                                      [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$r"]]]]]]]
+                                    ["SemiColon" ";"]]]]]
+                                ["EOF" "<EOF>"]]
+    :increments [:htmlDocument
+                 [:phpBlock
+                  [:topStatement
+                   [:statement
+                    [:expressionStatement
+                     [:expression
+                      [:assignable
+                       [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                      [:assignmentOperator ["Eq" "="]]
+                      [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "5"]]]]]]
+                     ["SemiColon" ";"]]]]
+                  [:topStatement
+                   [:statement
+                    [:echoStatement
+                     ["Echo" "echo"]
+                     [:expressionList
+                      [:expression
+                       [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]
+                       ["Inc" "++"]]
+                      ["Comma" ","]
+                      [:expression
+                       [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                      ["Comma" ","]
+                      [:expression
+                       ["Inc" "++"]
+                       [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                      ["Comma" ","]
+                      [:expression
+                       [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]
+                       ["Dec" "--"]]
+                      ["Comma" ","]
+                      [:expression
+                       ["Dec" "--"]
+                       [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                      ["Comma" ","]
+                      [:expression
+                       [:string
+                        ["DoubleQuote" "\""]
+                        [:interpolatedStringPart ["StringPart" "|"]]
+                        ["DoubleQuote" "\""]]]]
+                     ["SemiColon" ";"]]]]
+                  [:topStatement
+                   [:statement
+                    [:expressionStatement
+                     [:expression
+                      [:assignable
+                       [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$s"]]]]]]
+                      [:assignmentOperator ["Eq" "="]]
+                      [:expression
+                       [:string
+                        ["DoubleQuote" "\""]
+                        [:interpolatedStringPart ["StringPart" "a"]]
+                        ["DoubleQuote" "\""]]]]
+                     ["SemiColon" ";"]]]]
+                  [:topStatement
+                   [:statement
+                    [:expressionStatement
+                     [:expression
+                      [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$s"]]]]]
+                      ["Inc" "++"]]
+                     ["SemiColon" ";"]]]]
+                  [:topStatement
+                   [:statement
+                    [:echoStatement
+                     ["Echo" "echo"]
+                     [:expressionList
+                      [:expression
+                       [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$s"]]]]]]]
+                     ["SemiColon" ";"]]]]
+                  [:topStatement
+                   [:statement
+                    [:expressionStatement
+                     [:expression
+                      [:assignable
+                       [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$z"]]]]]]
+                      [:assignmentOperator ["Eq" "="]]
+                      [:expression
+                       [:string
+                        ["DoubleQuote" "\""]
+                        [:interpolatedStringPart ["StringPart" "Zz"]]
+                        ["DoubleQuote" "\""]]]]
+                     ["SemiColon" ";"]]]]
+                  [:topStatement
+                   [:statement
+                    [:expressionStatement
+                     [:expression
+                      [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$z"]]]]]
+                      ["Inc" "++"]]
+                     ["SemiColon" ";"]]]]
+                  [:topStatement
+                   [:statement
+                    [:echoStatement
+                     ["Echo" "echo"]
+                     [:expressionList
+                      [:expression
+                       [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$z"]]]]]]]
+                     ["SemiColon" ";"]]]]
+                  [:topStatement
+                   [:statement
+                    [:expressionStatement
+                     [:expression
+                      [:assignable
+                       [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]]
+                      [:assignmentOperator ["Eq" "="]]
+                      [:expression [:constant ["Null" "null"]]]]
+                     ["SemiColon" ";"]]]]
+                  [:topStatement
+                   [:statement
+                    [:expressionStatement
+                     [:expression
+                      [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]
+                      ["Inc" "++"]]
+                     ["SemiColon" ";"]]]]
+                  [:topStatement
+                   [:statement
+                    [:expressionStatement
+                     [:expression
+                      [:chain
+                       [:chainOrigin
+                        [:functionCall
+                         [:functionCallName
+                          [:qualifiedNamespaceName
+                           [:namespaceNameList [:identifier ["Label" "var_dump"]]]]]
+                         [:actualArguments
+                          [:arguments
+                           ["OpenRoundBracket" "("]
+                           [:actualArgument
+                            [:expression
+                             [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]]]
+                           ["CloseRoundBracket" ")"]]]]]]]
+                     ["SemiColon" ";"]]]]
+                  [:topStatement
+                   [:statement
+                    [:expressionStatement
+                     [:expression
+                      [:assignable
+                       [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$m"]]]]]]
+                      [:assignmentOperator ["Eq" "="]]
+                      [:expression [:constant ["Null" "null"]]]]
+                     ["SemiColon" ";"]]]]
+                  [:topStatement
+                   [:statement
+                    [:expressionStatement
+                     [:expression
+                      [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$m"]]]]]
+                      ["Dec" "--"]]
+                     ["SemiColon" ";"]]]]
+                  [:topStatement
+                   [:statement
+                    [:expressionStatement
+                     [:expression
+                      [:chain
+                       [:chainOrigin
+                        [:functionCall
+                         [:functionCallName
+                          [:qualifiedNamespaceName
+                           [:namespaceNameList [:identifier ["Label" "var_dump"]]]]]
+                         [:actualArguments
+                          [:arguments
+                           ["OpenRoundBracket" "("]
+                           [:actualArgument
+                            [:expression
+                             [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$m"]]]]]]]
+                           ["CloseRoundBracket" ")"]]]]]]]
+                     ["SemiColon" ";"]]]]
+                  [:topStatement
+                   [:statement
+                    [:expressionStatement
+                     [:expression
+                      [:assignable
+                       [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$f"]]]]]]
+                      [:assignmentOperator ["Eq" "="]]
+                      [:expression [:constant [:literalConstant ["Real" "1.5"]]]]]
+                     ["SemiColon" ";"]]]]
+                  [:topStatement
+                   [:statement
+                    [:expressionStatement
+                     [:expression
+                      [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$f"]]]]]
+                      ["Dec" "--"]]
+                     ["SemiColon" ";"]]]]
+                  [:topStatement
+                   [:statement
+                    [:expressionStatement
+                     [:expression
+                      [:chain
+                       [:chainOrigin
+                        [:functionCall
+                         [:functionCallName
+                          [:qualifiedNamespaceName
+                           [:namespaceNameList [:identifier ["Label" "var_dump"]]]]]
+                         [:actualArguments
+                          [:arguments
+                           ["OpenRoundBracket" "("]
+                           [:actualArgument
+                            [:expression
+                             [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$f"]]]]]]]
+                           ["CloseRoundBracket" ")"]]]]]]]
+                     ["SemiColon" ";"]]]]
+                  [:topStatement
+                   [:statement
+                    [:expressionStatement
+                     [:expression
+                      [:assignable
+                       [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$big"]]]]]]
+                      [:assignmentOperator ["Eq" "="]]
+                      [:expression
+                       [:constant [:literalConstant [:stringConstant ["Label" "PHP_INT_MAX"]]]]]]
+                     ["SemiColon" ";"]]]]
+                  [:topStatement
+                   [:statement
+                    [:expressionStatement
+                     [:expression
+                      [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$big"]]]]]
+                      ["Inc" "++"]]
+                     ["SemiColon" ";"]]]]
+                  [:topStatement
+                   [:statement
+                    [:expressionStatement
+                     [:expression
+                      [:chain
+                       [:chainOrigin
+                        [:functionCall
+                         [:functionCallName
+                          [:qualifiedNamespaceName
+                           [:namespaceNameList [:identifier ["Label" "var_dump"]]]]]
+                         [:actualArguments
+                          [:arguments
+                           ["OpenRoundBracket" "("]
+                           [:actualArgument
+                            [:expression
+                             [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$big"]]]]]]]
+                           ["CloseRoundBracket" ")"]]]]]]]
+                     ["SemiColon" ";"]]]]]
+                 ["EOF" "<EOF>"]]
+    :if-elseif-else [:htmlDocument
+                     [:phpBlock
+                      [:topStatement
+                       [:statement
+                        [:forStatement
+                         ["For" "for"]
+                         ["OpenRoundBracket" "("]
+                         [:forInit
+                          [:expressionList
+                           [:expression
+                            [:assignable
+                             [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                            [:assignmentOperator ["Eq" "="]]
+                            [:expression
+                             [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]]]
+                         ["SemiColon" ";"]
+                         [:expressionList
+                          [:expression
+                           [:expression
+                            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                           ["Less" "<"]
+                           [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "4"]]]]]]]
+                         ["SemiColon" ";"]
+                         [:forUpdate
+                          [:expressionList
+                           [:expression
+                            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]
+                            ["Inc" "++"]]]]
+                         ["CloseRoundBracket" ")"]
+                         [:statement
+                          [:blockStatement
+                           ["OpenCurlyBracket" "{"]
+                           [:innerStatementList
+                            [:innerStatement
+                             [:statement
+                              [:ifStatement
+                               ["If" "if"]
+                               [:parentheses
+                                ["OpenRoundBracket" "("]
+                                [:expression
+                                 [:expression
+                                  [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                                 ["IsEqual" "=="]
+                                 [:expression
+                                  [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]
+                                ["CloseRoundBracket" ")"]]
+                               [:statement
+                                [:blockStatement
+                                 ["OpenCurlyBracket" "{"]
+                                 [:innerStatementList
+                                  [:innerStatement
+                                   [:statement
+                                    [:echoStatement
+                                     ["Echo" "echo"]
+                                     [:expressionList
+                                      [:expression
+                                       [:string
+                                        ["DoubleQuote" "\""]
+                                        [:interpolatedStringPart ["StringPart" "zero"]]
+                                        ["DoubleQuote" "\""]]]]
+                                     ["SemiColon" ";"]]]]]
+                                 ["CloseCurlyBracket" "}"]]]
+                               [:elseIfStatement
+                                ["ElseIf" "elseif"]
+                                [:parentheses
+                                 ["OpenRoundBracket" "("]
+                                 [:expression
+                                  [:expression
+                                   [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                                  ["IsEqual" "=="]
+                                  [:expression
+                                   [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+                                 ["CloseRoundBracket" ")"]]
+                                [:statement
+                                 [:echoStatement
+                                  ["Echo" "echo"]
+                                  [:expressionList
+                                   [:expression
+                                    [:string
+                                     ["DoubleQuote" "\""]
+                                     [:interpolatedStringPart ["StringPart" "one"]]
+                                     ["DoubleQuote" "\""]]]]
+                                  ["SemiColon" ";"]]]]
+                               [:elseStatement
+                                ["Else" "else"]
+                                [:statement
+                                 [:ifStatement
+                                  ["If" "if"]
+                                  [:parentheses
+                                   ["OpenRoundBracket" "("]
+                                   [:expression
+                                    [:expression
+                                     [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                                    ["IsEqual" "=="]
+                                    [:expression
+                                     [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+                                   ["CloseRoundBracket" ")"]]
+                                  [:statement
+                                   [:blockStatement
+                                    ["OpenCurlyBracket" "{"]
+                                    [:innerStatementList
+                                     [:innerStatement
+                                      [:statement
+                                       [:echoStatement
+                                        ["Echo" "echo"]
+                                        [:expressionList
+                                         [:expression
+                                          [:string
+                                           ["DoubleQuote" "\""]
+                                           [:interpolatedStringPart ["StringPart" "two"]]
+                                           ["DoubleQuote" "\""]]]]
+                                        ["SemiColon" ";"]]]]]
+                                    ["CloseCurlyBracket" "}"]]]
+                                  [:elseStatement
+                                   ["Else" "else"]
+                                   [:statement
+                                    [:blockStatement
+                                     ["OpenCurlyBracket" "{"]
+                                     [:innerStatementList
+                                      [:innerStatement
+                                       [:statement
+                                        [:echoStatement
+                                         ["Echo" "echo"]
+                                         [:expressionList
+                                          [:expression
+                                           [:string
+                                            ["DoubleQuote" "\""]
+                                            [:interpolatedStringPart ["StringPart" "many"]]
+                                            ["DoubleQuote" "\""]]]]
+                                         ["SemiColon" ";"]]]]]
+                                     ["CloseCurlyBracket" "}"]]]]]]]]]]
+                            [:innerStatement
+                             [:statement
+                              [:echoStatement
+                               ["Echo" "echo"]
+                               [:expressionList
+                                [:expression
+                                 [:string
+                                  ["DoubleQuote" "\""]
+                                  [:interpolatedStringPart ["StringPart" ","]]
+                                  ["DoubleQuote" "\""]]]]
+                               ["SemiColon" ";"]]]]]
+                           ["CloseCurlyBracket" "}"]]]]]]
+                      [:topStatement
+                       [:statement
+                        [:ifStatement
+                         ["If" "if"]
+                         [:parentheses
+                          ["OpenRoundBracket" "("]
+                          [:expression
+                           [:expression
+                            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                           ["Greater" ">"]
+                           [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "3"]]]]]]
+                          ["CloseRoundBracket" ")"]]
+                         ["Colon" ":"]
+                         [:innerStatementList
+                          [:innerStatement
+                           [:statement
+                            [:echoStatement
+                             ["Echo" "echo"]
+                             [:expressionList
+                              [:expression
+                               [:string
+                                ["DoubleQuote" "\""]
+                                [:interpolatedStringPart ["StringPart" "alt"]]
+                                ["DoubleQuote" "\""]]]]
+                             ["SemiColon" ";"]]]]]
+                         [:elseIfColonStatement
+                          ["ElseIf" "elseif"]
+                          [:parentheses
+                           ["OpenRoundBracket" "("]
+                           [:expression
+                            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                           ["CloseRoundBracket" ")"]]
+                          ["Colon" ":"]
+                          [:innerStatementList
+                           [:innerStatement
+                            [:statement
+                             [:echoStatement
+                              ["Echo" "echo"]
+                              [:expressionList
+                               [:expression
+                                [:string
+                                 ["DoubleQuote" "\""]
+                                 [:interpolatedStringPart ["StringPart" "no"]]
+                                 ["DoubleQuote" "\""]]]]
+                              ["SemiColon" ";"]]]]
+                           [:innerStatement [:statement [:identifier ["Else" "else"]] ["Colon" ":"]]]
+                           [:innerStatement
+                            [:statement
+                             [:echoStatement
+                              ["Echo" "echo"]
+                              [:expressionList
+                               [:expression
+                                [:string
+                                 ["DoubleQuote" "\""]
+                                 [:interpolatedStringPart ["StringPart" "no"]]
+                                 ["DoubleQuote" "\""]]]]
+                              ["SemiColon" ";"]]]]]]
+                         ["EndIf" "endif"]
+                         ["SemiColon" ";"]]]]
+                      [:topStatement
+                       [:statement
+                        [:ifStatement
+                         ["If" "if"]
+                         [:parentheses
+                          ["OpenRoundBracket" "("]
+                          [:expression
+                           [:expression
+                            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                           ["Less" "<"]
+                           [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]
+                          ["CloseRoundBracket" ")"]]
+                         ["Colon" ":"]
+                         [:innerStatementList
+                          [:innerStatement
+                           [:statement
+                            [:echoStatement
+                             ["Echo" "echo"]
+                             [:expressionList
+                              [:expression
+                               [:string
+                                ["DoubleQuote" "\""]
+                                [:interpolatedStringPart ["StringPart" "no"]]
+                                ["DoubleQuote" "\""]]]]
+                             ["SemiColon" ";"]]]]
+                          [:innerStatement [:statement [:identifier ["Else" "else"]] ["Colon" ":"]]]
+                          [:innerStatement
+                           [:statement
+                            [:echoStatement
+                             ["Echo" "echo"]
+                             [:expressionList
+                              [:expression
+                               [:string
+                                ["DoubleQuote" "\""]
+                                [:interpolatedStringPart ["StringPart" "-else"]]
+                                ["DoubleQuote" "\""]]]]
+                             ["SemiColon" ";"]]]]]
+                         ["EndIf" "endif"]
+                         ["SemiColon" ";"]]]]]
+                     ["EOF" "<EOF>"]]
+    :loops [:htmlDocument
+            [:phpBlock
+             [:topStatement
+              [:statement
+               [:expressionStatement
+                [:expression
+                 [:assignable
+                  [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                 [:assignmentOperator ["Eq" "="]]
+                 [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]
+                ["SemiColon" ";"]]]]
+             [:topStatement
+              [:statement
+               [:whileStatement
+                ["While" "while"]
+                [:parentheses
+                 ["OpenRoundBracket" "("]
+                 [:expression
+                  [:expression
+                   [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                  ["Less" "<"]
+                  [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "3"]]]]]]
+                 ["CloseRoundBracket" ")"]]
+                [:statement
+                 [:blockStatement
+                  ["OpenCurlyBracket" "{"]
+                  [:innerStatementList
+                   [:innerStatement
+                    [:statement
+                     [:echoStatement
+                      ["Echo" "echo"]
+                      [:expressionList
+                       [:expression
+                        [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]
+                        ["Inc" "++"]]]
+                      ["SemiColon" ";"]]]]]
+                  ["CloseCurlyBracket" "}"]]]]]]
+             [:topStatement
+              [:statement
+               [:echoStatement
+                ["Echo" "echo"]
+                [:expressionList
+                 [:expression
+                  [:string
+                   ["DoubleQuote" "\""]
+                   [:interpolatedStringPart ["StringPart" "|"]]
+                   ["DoubleQuote" "\""]]]]
+                ["SemiColon" ";"]]]]
+             [:topStatement
+              [:statement
+               [:doWhileStatement
+                ["Do" "do"]
+                [:statement
+                 [:blockStatement
+                  ["OpenCurlyBracket" "{"]
+                  [:innerStatementList
+                   [:innerStatement
+                    [:statement
+                     [:echoStatement
+                      ["Echo" "echo"]
+                      [:expressionList
+                       [:expression
+                        [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]
+                        ["Dec" "--"]]]
+                      ["SemiColon" ";"]]]]]
+                  ["CloseCurlyBracket" "}"]]]
+                ["While" "while"]
+                [:parentheses
+                 ["OpenRoundBracket" "("]
+                 [:expression
+                  [:expression
+                   [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                  ["Greater" ">"]
+                  [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]
+                 ["CloseRoundBracket" ")"]]
+                ["SemiColon" ";"]]]]
+             [:topStatement
+              [:statement
+               [:echoStatement
+                ["Echo" "echo"]
+                [:expressionList
+                 [:expression
+                  [:string
+                   ["DoubleQuote" "\""]
+                   [:interpolatedStringPart ["StringPart" "|"]]
+                   ["DoubleQuote" "\""]]]]
+                ["SemiColon" ";"]]]]
+             [:topStatement
+              [:statement
+               [:forStatement
+                ["For" "for"]
+                ["OpenRoundBracket" "("]
+                [:forInit
+                 [:expressionList
+                  [:expression
+                   [:assignable
+                    [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+                   [:assignmentOperator ["Eq" "="]]
+                   [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]
+                  ["Comma" ","]
+                  [:expression
+                   [:assignable
+                    [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]
+                   [:assignmentOperator ["Eq" "="]]
+                   [:expression
+                    [:constant [:literalConstant [:numericConstant ["Decimal" "3"]]]]]]]]
+                ["SemiColon" ";"]
+                [:expressionList
+                 [:expression
+                  [:expression
+                   [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+                  ["Less" "<"]
+                  [:expression
+                   [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]]]
+                ["SemiColon" ";"]
+                [:forUpdate
+                 [:expressionList
+                  [:expression
+                   [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]
+                   ["Inc" "++"]]
+                  ["Comma" ","]
+                  [:expression
+                   [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]
+                   ["Dec" "--"]]]]
+                ["CloseRoundBracket" ")"]
+                [:statement
+                 [:echoStatement
+                  ["Echo" "echo"]
+                  [:expressionList
+                   [:expression
+                    [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+                   ["Comma" ","]
+                   [:expression
+                    [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]
+                   ["Comma" ","]
+                   [:expression
+                    [:string
+                     ["DoubleQuote" "\""]
+                     [:interpolatedStringPart ["StringPart" ","]]
+                     ["DoubleQuote" "\""]]]]
+                  ["SemiColon" ";"]]]]]]
+             [:topStatement
+              [:statement
+               [:echoStatement
+                ["Echo" "echo"]
+                [:expressionList
+                 [:expression
+                  [:string
+                   ["DoubleQuote" "\""]
+                   [:interpolatedStringPart ["StringPart" "|"]]
+                   ["DoubleQuote" "\""]]]]
+                ["SemiColon" ";"]]]]
+             [:topStatement
+              [:statement
+               [:forStatement
+                ["For" "for"]
+                ["OpenRoundBracket" "("]
+                ["SemiColon" ";"]
+                ["SemiColon" ";"]
+                ["CloseRoundBracket" ")"]
+                [:statement
+                 [:blockStatement
+                  ["OpenCurlyBracket" "{"]
+                  [:innerStatementList
+                   [:innerStatement
+                    [:statement [:breakStatement ["Break" "break"] ["SemiColon" ";"]]]]]
+                  ["CloseCurlyBracket" "}"]]]]]]
+             [:topStatement
+              [:statement
+               [:whileStatement
+                ["While" "while"]
+                [:parentheses
+                 ["OpenRoundBracket" "("]
+                 [:expression
+                  [:expression
+                   [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                  ["Less" "<"]
+                  [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+                 ["CloseRoundBracket" ")"]]
+                ["Colon" ":"]
+                [:innerStatementList
+                 [:innerStatement
+                  [:statement
+                   [:echoStatement
+                    ["Echo" "echo"]
+                    [:expressionList
+                     [:expression
+                      [:string
+                       ["DoubleQuote" "\""]
+                       [:interpolatedStringPart ["StringPart" "w"]]
+                       ["DoubleQuote" "\""]]]
+                     ["Comma" ","]
+                     [:expression
+                      [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]]
+                    ["SemiColon" ";"]]]]
+                 [:innerStatement
+                  [:statement
+                   [:expressionStatement
+                    [:expression
+                     [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]
+                     ["Inc" "++"]]
+                    ["SemiColon" ";"]]]]]
+                ["EndWhile" "endwhile"]
+                ["SemiColon" ";"]]]]
+             [:topStatement
+              [:statement
+               [:forStatement
+                ["For" "for"]
+                ["OpenRoundBracket" "("]
+                [:forInit
+                 [:expressionList
+                  [:expression
+                   [:assignable
+                    [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$j"]]]]]]
+                   [:assignmentOperator ["Eq" "="]]
+                   [:expression
+                    [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]]]
+                ["SemiColon" ";"]
+                [:expressionList
+                 [:expression
+                  [:expression
+                   [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$j"]]]]]]
+                  ["Less" "<"]
+                  [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]]
+                ["SemiColon" ";"]
+                [:forUpdate
+                 [:expressionList
+                  [:expression
+                   [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$j"]]]]]
+                   ["Inc" "++"]]]]
+                ["CloseRoundBracket" ")"]
+                ["Colon" ":"]
+                [:innerStatementList
+                 [:innerStatement
+                  [:statement
+                   [:echoStatement
+                    ["Echo" "echo"]
+                    [:expressionList
+                     [:expression
+                      [:string
+                       ["DoubleQuote" "\""]
+                       [:interpolatedStringPart ["StringPart" "f"]]
+                       ["DoubleQuote" "\""]]]
+                     ["Comma" ","]
+                     [:expression
+                      [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$j"]]]]]]]
+                    ["SemiColon" ";"]]]]]
+                ["EndFor" "endfor"]
+                ["SemiColon" ";"]]]]]
+            ["EOF" "<EOF>"]]
+    :interpolation [:htmlDocument
+                    [:phpBlock
+                     [:topStatement
+                      [:statement
+                       [:expressionStatement
+                        [:expression
+                         [:assignable
+                          [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]]
+                         [:assignmentOperator ["Eq" "="]]
+                         [:expression
+                          [:string
+                           ["DoubleQuote" "\""]
+                           [:interpolatedStringPart ["StringPart" "w"]]
+                           ["DoubleQuote" "\""]]]]
+                        ["SemiColon" ";"]]]]
+                     [:topStatement
+                      [:statement
+                       [:expressionStatement
+                        [:expression
+                         [:assignable
+                          [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                         [:assignmentOperator ["Eq" "="]]
+                         [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "5"]]]]]]
+                        ["SemiColon" ";"]]]]
+                     [:topStatement
+                      [:statement
+                       [:expressionStatement
+                        [:expression
+                         [:assignable
+                          [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$f"]]]]]]
+                         [:assignmentOperator ["Eq" "="]]
+                         [:expression [:constant [:literalConstant ["Real" "2.5"]]]]]
+                        ["SemiColon" ";"]]]]
+                     [:topStatement
+                      [:statement
+                       [:echoStatement
+                        ["Echo" "echo"]
+                        [:expressionList
+                         [:expression
+                          [:string
+                           ["DoubleQuote" "\""]
+                           [:interpolatedStringPart ["StringPart" "a "]]
+                           [:interpolatedStringPart
+                            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]]
+                           [:interpolatedStringPart ["StringPart" " b "]]
+                           [:interpolatedStringPart
+                            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]]
+                           [:interpolatedStringPart ["StringPart" "c "]]
+                           [:interpolatedStringPart
+                            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                           [:interpolatedStringPart
+                            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                           [:interpolatedStringPart ["StringPart" " "]]
+                           [:interpolatedStringPart ["StringPart" "\\$"]]
+                           [:interpolatedStringPart ["StringPart" "n x"]]
+                           [:interpolatedStringPart ["StringPart" "\\n"]]
+                           ["DoubleQuote" "\""]]]
+                         ["Comma" ","]
+                         [:expression
+                          [:string
+                           ["DoubleQuote" "\""]
+                           [:interpolatedStringPart ["StringPart" "f="]]
+                           [:interpolatedStringPart
+                            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$f"]]]]]]
+                           ["DoubleQuote" "\""]]]
+                         ["Comma" ","]
+                         [:expression
+                          [:string
+                           ["DoubleQuote" "\""]
+                           [:interpolatedStringPart
+                            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]]
+                           ["DoubleQuote" "\""]]]
+                         ["Comma" ","]
+                         [:expression [:string ["DoubleQuote" "\""] ["DoubleQuote" "\""]]]]
+                        ["SemiColon" ";"]]]]]
+                    ["EOF" "<EOF>"]]
+    :functions [:htmlDocument
+                [:phpBlock
+                 [:topStatement
+                  [:statement
+                   [:echoStatement
+                    ["Echo" "echo"]
+                    [:expressionList
+                     [:expression
+                      [:chain
+                       [:chainOrigin
+                        [:functionCall
+                         [:functionCallName
+                          [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "fib"]]]]]
+                         [:actualArguments
+                          [:arguments
+                           ["OpenRoundBracket" "("]
+                           [:actualArgument
+                            [:expression
+                             [:constant [:literalConstant [:numericConstant ["Decimal" "10"]]]]]]
+                           ["CloseRoundBracket" ")"]]]]]]]
+                     ["Comma" ","]
+                     [:expression
+                      [:string
+                       ["DoubleQuote" "\""]
+                       [:interpolatedStringPart ["StringPart" "|"]]
+                       ["DoubleQuote" "\""]]]
+                     ["Comma" ","]
+                     [:expression
+                      [:chain
+                       [:chainOrigin
+                        [:functionCall
+                         [:functionCallName
+                          [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "add"]]]]]
+                         [:actualArguments
+                          [:arguments
+                           ["OpenRoundBracket" "("]
+                           [:actualArgument
+                            [:expression
+                             [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+                           ["CloseRoundBracket" ")"]]]]]]]
+                     ["Comma" ","]
+                     [:expression
+                      [:string
+                       ["DoubleQuote" "\""]
+                       [:interpolatedStringPart ["StringPart" "|"]]
+                       ["DoubleQuote" "\""]]]
+                     ["Comma" ","]
+                     [:expression
+                      [:chain
+                       [:chainOrigin
+                        [:functionCall
+                         [:functionCallName
+                          [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "add"]]]]]
+                         [:actualArguments
+                          [:arguments
+                           ["OpenRoundBracket" "("]
+                           [:actualArgument
+                            [:expression
+                             [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+                           ["Comma" ","]
+                           [:actualArgument
+                            [:expression
+                             [:constant [:literalConstant [:numericConstant ["Decimal" "5"]]]]]]
+                           ["CloseRoundBracket" ")"]]]]]]]
+                     ["Comma" ","]
+                     [:expression
+                      [:string
+                       ["DoubleQuote" "\""]
+                       [:interpolatedStringPart ["StringPart" "|"]]
+                       ["DoubleQuote" "\""]]]
+                     ["Comma" ","]
+                     [:expression
+                      [:chain
+                       [:chainOrigin
+                        [:functionCall
+                         [:functionCallName
+                          [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "ADD"]]]]]
+                         [:actualArguments
+                          [:arguments
+                           ["OpenRoundBracket" "("]
+                           [:actualArgument
+                            [:expression
+                             [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+                           ["Comma" ","]
+                           [:actualArgument
+                            [:expression
+                             [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+                           ["CloseRoundBracket" ")"]]]]]]]
+                     ["Comma" ","]
+                     [:expression
+                      [:string
+                       ["DoubleQuote" "\""]
+                       [:interpolatedStringPart ["StringPart" "|"]]
+                       ["DoubleQuote" "\""]]]]
+                    ["SemiColon" ";"]]]]
+                 [:topStatement
+                  [:functionDeclaration
+                   ["Function_" "function"]
+                   [:identifier ["Label" "fib"]]
+                   ["OpenRoundBracket" "("]
+                   [:formalParameterList [:formalParameter [:variableInitializer ["VarName" "$n"]]]]
+                   ["CloseRoundBracket" ")"]
+                   [:blockStatement
+                    ["OpenCurlyBracket" "{"]
+                    [:innerStatementList
+                     [:innerStatement
+                      [:statement
+                       [:ifStatement
+                        ["If" "if"]
+                        [:parentheses
+                         ["OpenRoundBracket" "("]
+                         [:expression
+                          [:expression
+                           [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]]
+                          ["Less" "<"]
+                          [:expression
+                           [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+                         ["CloseRoundBracket" ")"]]
+                        [:statement
+                         [:returnStatement
+                          ["Return" "return"]
+                          [:expression
+                           [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]]
+                          ["SemiColon" ";"]]]]]]
+                     [:innerStatement
+                      [:statement
+                       [:returnStatement
+                        ["Return" "return"]
+                        [:expression
+                         [:expression
+                          [:chain
+                           [:chainOrigin
+                            [:functionCall
+                             [:functionCallName
+                              [:qualifiedNamespaceName
+                               [:namespaceNameList [:identifier ["Label" "fib"]]]]]
+                             [:actualArguments
+                              [:arguments
+                               ["OpenRoundBracket" "("]
+                               [:actualArgument
+                                [:expression
+                                 [:expression
+                                  [:chain
+                                   [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]]
+                                 ["Minus" "-"]
+                                 [:expression
+                                  [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]]
+                               ["CloseRoundBracket" ")"]]]]]]]
+                         ["Plus" "+"]
+                         [:expression
+                          [:chain
+                           [:chainOrigin
+                            [:functionCall
+                             [:functionCallName
+                              [:qualifiedNamespaceName
+                               [:namespaceNameList [:identifier ["Label" "fib"]]]]]
+                             [:actualArguments
+                              [:arguments
+                               ["OpenRoundBracket" "("]
+                               [:actualArgument
+                                [:expression
+                                 [:expression
+                                  [:chain
+                                   [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]]
+                                 ["Minus" "-"]
+                                 [:expression
+                                  [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]]
+                               ["CloseRoundBracket" ")"]]]]]]]]
+                        ["SemiColon" ";"]]]]]
+                    ["CloseCurlyBracket" "}"]]]]
+                 [:topStatement
+                  [:functionDeclaration
+                   ["Function_" "function"]
+                   [:identifier ["Label" "add"]]
+                   ["OpenRoundBracket" "("]
+                   [:formalParameterList
+                    [:formalParameter [:variableInitializer ["VarName" "$a"]]]
+                    ["Comma" ","]
+                    [:formalParameter
+                     [:variableInitializer
+                      ["VarName" "$b"]
+                      ["Eq" "="]
+                      [:constantInitializer
+                       [:constant [:literalConstant [:numericConstant ["Decimal" "10"]]]]]]]]
+                   ["CloseRoundBracket" ")"]
+                   [:blockStatement
+                    ["OpenCurlyBracket" "{"]
+                    [:innerStatementList
+                     [:innerStatement
+                      [:statement
+                       [:returnStatement
+                        ["Return" "return"]
+                        [:expression
+                         [:expression
+                          [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+                         ["Plus" "+"]
+                         [:expression
+                          [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]]
+                        ["SemiColon" ";"]]]]]
+                    ["CloseCurlyBracket" "}"]]]]
+                 [:topStatement
+                  [:functionDeclaration
+                   ["Function_" "function"]
+                   [:identifier ["Label" "first_over"]]
+                   ["OpenRoundBracket" "("]
+                   [:formalParameterList [:formalParameter [:variableInitializer ["VarName" "$limit"]]]]
+                   ["CloseRoundBracket" ")"]
+                   [:blockStatement
+                    ["OpenCurlyBracket" "{"]
+                    [:innerStatementList
+                     [:innerStatement
+                      [:statement
+                       [:forStatement
+                        ["For" "for"]
+                        ["OpenRoundBracket" "("]
+                        [:forInit
+                         [:expressionList
+                          [:expression
+                           [:assignable
+                            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                           [:assignmentOperator ["Eq" "="]]
+                           [:expression
+                            [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]]]
+                        ["SemiColon" ";"]
+                        ["SemiColon" ";"]
+                        [:forUpdate
+                         [:expressionList
+                          [:expression
+                           [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]
+                           ["Inc" "++"]]]]
+                        ["CloseRoundBracket" ")"]
+                        [:statement
+                         [:blockStatement
+                          ["OpenCurlyBracket" "{"]
+                          [:innerStatementList
+                           [:innerStatement
+                            [:statement
+                             [:ifStatement
+                              ["If" "if"]
+                              [:parentheses
+                               ["OpenRoundBracket" "("]
+                               [:expression
+                                [:expression
+                                 [:expression
+                                  [:chain
+                                   [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                                 ["Asterisk" "*"]
+                                 [:expression
+                                  [:chain
+                                   [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]]
+                                ["Greater" ">"]
+                                [:expression
+                                 [:chain
+                                  [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$limit"]]]]]]]
+                               ["CloseRoundBracket" ")"]]
+                              [:statement
+                               [:returnStatement
+                                ["Return" "return"]
+                                [:expression
+                                 [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$i"]]]]]]
+                                ["SemiColon" ";"]]]]]]]
+                          ["CloseCurlyBracket" "}"]]]]]]]
+                    ["CloseCurlyBracket" "}"]]]]
+                 [:topStatement
+                  [:statement
+                   [:echoStatement
+                    ["Echo" "echo"]
+                    [:expressionList
+                     [:expression
+                      [:chain
+                       [:chainOrigin
+                        [:functionCall
+                         [:functionCallName
+                          [:qualifiedNamespaceName
+                           [:namespaceNameList [:identifier ["Label" "first_over"]]]]]
+                         [:actualArguments
+                          [:arguments
+                           ["OpenRoundBracket" "("]
+                           [:actualArgument
+                            [:expression
+                             [:constant [:literalConstant [:numericConstant ["Decimal" "50"]]]]]]
+                           ["CloseRoundBracket" ")"]]]]]]]
+                     ["Comma" ","]
+                     [:expression
+                      [:string
+                       ["DoubleQuote" "\""]
+                       [:interpolatedStringPart ["StringPart" "|"]]
+                       ["DoubleQuote" "\""]]]]
+                    ["SemiColon" ";"]]]]
+                 [:topStatement
+                  [:functionDeclaration
+                   ["Function_" "function"]
+                   [:identifier ["Label" "noret"]]
+                   ["OpenRoundBracket" "("]
+                   [:formalParameterList]
+                   ["CloseRoundBracket" ")"]
+                   [:blockStatement
+                    ["OpenCurlyBracket" "{"]
+                    [:innerStatementList
+                     [:innerStatement
+                      [:statement
+                       [:expressionStatement
+                        [:expression
+                         [:assignable
+                          [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$x"]]]]]]
+                         [:assignmentOperator ["Eq" "="]]
+                         [:expression
+                          [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+                        ["SemiColon" ";"]]]]]
+                    ["CloseCurlyBracket" "}"]]]]
+                 [:topStatement
+                  [:statement
+                   [:expressionStatement
+                    [:expression
+                     [:chain
+                      [:chainOrigin
+                       [:functionCall
+                        [:functionCallName
+                         [:qualifiedNamespaceName
+                          [:namespaceNameList [:identifier ["Label" "var_dump"]]]]]
+                        [:actualArguments
+                         [:arguments
+                          ["OpenRoundBracket" "("]
+                          [:actualArgument
+                           [:expression
+                            [:chain
+                             [:chainOrigin
+                              [:functionCall
+                               [:functionCallName
+                                [:qualifiedNamespaceName
+                                 [:namespaceNameList [:identifier ["Label" "noret"]]]]]
+                               [:actualArguments
+                                [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
+                          ["CloseRoundBracket" ")"]]]]]]]
+                    ["SemiColon" ";"]]]]
+                 [:topStatement
+                  [:functionDeclaration
+                   ["Function_" "function"]
+                   [:identifier ["Label" "nested"]]
+                   ["OpenRoundBracket" "("]
+                   [:formalParameterList]
+                   ["CloseRoundBracket" ")"]
+                   [:blockStatement
+                    ["OpenCurlyBracket" "{"]
+                    [:innerStatementList
+                     [:innerStatement
+                      [:functionDeclaration
+                       ["Function_" "function"]
+                       [:identifier ["Label" "inner"]]
+                       ["OpenRoundBracket" "("]
+                       [:formalParameterList]
+                       ["CloseRoundBracket" ")"]
+                       [:blockStatement
+                        ["OpenCurlyBracket" "{"]
+                        [:innerStatementList
+                         [:innerStatement
+                          [:statement
+                           [:returnStatement
+                            ["Return" "return"]
+                            [:expression
+                             [:string
+                              ["DoubleQuote" "\""]
+                              [:interpolatedStringPart ["StringPart" "inner"]]
+                              ["DoubleQuote" "\""]]]
+                            ["SemiColon" ";"]]]]]
+                        ["CloseCurlyBracket" "}"]]]]
+                     [:innerStatement
+                      [:statement
+                       [:returnStatement
+                        ["Return" "return"]
+                        [:expression
+                         [:string
+                          ["DoubleQuote" "\""]
+                          [:interpolatedStringPart ["StringPart" "outer"]]
+                          ["DoubleQuote" "\""]]]
+                        ["SemiColon" ";"]]]]]
+                    ["CloseCurlyBracket" "}"]]]]
+                 [:topStatement
+                  [:statement
+                   [:echoStatement
+                    ["Echo" "echo"]
+                    [:expressionList
+                     [:expression
+                      [:chain
+                       [:chainOrigin
+                        [:functionCall
+                         [:functionCallName
+                          [:qualifiedNamespaceName
+                           [:namespaceNameList [:identifier ["Label" "nested"]]]]]
+                         [:actualArguments
+                          [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]
+                     ["Comma" ","]
+                     [:expression
+                      [:chain
+                       [:chainOrigin
+                        [:functionCall
+                         [:functionCallName
+                          [:qualifiedNamespaceName
+                           [:namespaceNameList [:identifier ["Label" "inner"]]]]]
+                         [:actualArguments
+                          [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]
+                     ["Comma" ","]
+                     [:expression
+                      [:string
+                       ["DoubleQuote" "\""]
+                       [:interpolatedStringPart ["StringPart" "|"]]
+                       ["DoubleQuote" "\""]]]]
+                    ["SemiColon" ";"]]]]
+                 [:topStatement
+                  [:statement
+                   [:ifStatement
+                    ["If" "if"]
+                    [:parentheses
+                     ["OpenRoundBracket" "("]
+                     [:expression [:constant [:literalConstant ["BooleanConstant" "true"]]]]
+                     ["CloseRoundBracket" ")"]]
+                    [:statement
+                     [:blockStatement
+                      ["OpenCurlyBracket" "{"]
+                      [:innerStatementList
+                       [:innerStatement
+                        [:functionDeclaration
+                         ["Function_" "function"]
+                         [:identifier ["Label" "cond"]]
+                         ["OpenRoundBracket" "("]
+                         [:formalParameterList]
+                         ["CloseRoundBracket" ")"]
+                         [:blockStatement
+                          ["OpenCurlyBracket" "{"]
+                          [:innerStatementList
+                           [:innerStatement
+                            [:statement
+                             [:returnStatement
+                              ["Return" "return"]
+                              [:expression
+                               [:string
+                                ["DoubleQuote" "\""]
+                                [:interpolatedStringPart ["StringPart" "cond"]]
+                                ["DoubleQuote" "\""]]]
+                              ["SemiColon" ";"]]]]]
+                          ["CloseCurlyBracket" "}"]]]]]
+                      ["CloseCurlyBracket" "}"]]]]]]
+                 [:topStatement
+                  [:statement
+                   [:echoStatement
+                    ["Echo" "echo"]
+                    [:expressionList
+                     [:expression
+                      [:chain
+                       [:chainOrigin
+                        [:functionCall
+                         [:functionCallName
+                          [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "cond"]]]]]
+                         [:actualArguments
+                          [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
+                    ["SemiColon" ";"]]]]
+                 [:topStatement
+                  [:functionDeclaration
+                   ["Function_" "function"]
+                   [:identifier ["Label" "early"]]
+                   ["OpenRoundBracket" "("]
+                   [:formalParameterList [:formalParameter [:variableInitializer ["VarName" "$x"]]]]
+                   ["CloseRoundBracket" ")"]
+                   [:blockStatement
+                    ["OpenCurlyBracket" "{"]
+                    [:innerStatementList
+                     [:innerStatement
+                      [:statement
+                       [:ifStatement
+                        ["If" "if"]
+                        [:parentheses
+                         ["OpenRoundBracket" "("]
+                         [:expression
+                          [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$x"]]]]]]
+                         ["CloseRoundBracket" ")"]]
+                        [:statement
+                         [:blockStatement
+                          ["OpenCurlyBracket" "{"]
+                          [:innerStatementList
+                           [:innerStatement
+                            [:statement
+                             [:returnStatement
+                              ["Return" "return"]
+                              [:expression
+                               [:string
+                                ["DoubleQuote" "\""]
+                                [:interpolatedStringPart ["StringPart" "early"]]
+                                ["DoubleQuote" "\""]]]
+                              ["SemiColon" ";"]]]]]
+                          ["CloseCurlyBracket" "}"]]]]]]
+                     [:innerStatement
+                      [:statement
+                       [:echoStatement
+                        ["Echo" "echo"]
+                        [:expressionList
+                         [:expression
+                          [:string
+                           ["DoubleQuote" "\""]
+                           [:interpolatedStringPart ["StringPart" "late;"]]
+                           ["DoubleQuote" "\""]]]]
+                        ["SemiColon" ";"]]]]]
+                    ["CloseCurlyBracket" "}"]]]]
+                 [:topStatement
+                  [:statement
+                   [:echoStatement
+                    ["Echo" "echo"]
+                    [:expressionList
+                     [:expression
+                      [:chain
+                       [:chainOrigin
+                        [:functionCall
+                         [:functionCallName
+                          [:qualifiedNamespaceName
+                           [:namespaceNameList [:identifier ["Label" "early"]]]]]
+                         [:actualArguments
+                          [:arguments
+                           ["OpenRoundBracket" "("]
+                           [:actualArgument
+                            [:expression
+                             [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+                           ["CloseRoundBracket" ")"]]]]]]]
+                     ["Comma" ","]
+                     [:expression
+                      [:expression
+                       [:expression
+                        [:chain
+                         [:chainOrigin
+                          [:functionCall
+                           [:functionCallName
+                            [:qualifiedNamespaceName
+                             [:namespaceNameList [:identifier ["Label" "early"]]]]]
+                           [:actualArguments
+                            [:arguments
+                             ["OpenRoundBracket" "("]
+                             [:actualArgument
+                              [:expression
+                               [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]
+                             ["CloseRoundBracket" ")"]]]]]]]
+                       ["IsIdentical" "==="]
+                       [:expression [:constant ["Null" "null"]]]]
+                      ["QuestionMark" "?"]
+                      [:expression
+                       [:string
+                        ["DoubleQuote" "\""]
+                        [:interpolatedStringPart ["StringPart" "N"]]
+                        ["DoubleQuote" "\""]]]
+                      ["Colon" ":"]
+                      [:expression
+                       [:string
+                        ["DoubleQuote" "\""]
+                        [:interpolatedStringPart ["StringPart" "?"]]
+                        ["DoubleQuote" "\""]]]]]
+                    ["SemiColon" ";"]]]]]
+                ["EOF" "<EOF>"]]
+    :local-scope [:htmlDocument
+                  [:phpBlock
+                   [:topStatement
+                    [:statement
+                     [:expressionStatement
+                      [:expression
+                       [:assignable
+                        [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$g"]]]]]]
+                       [:assignmentOperator ["Eq" "="]]
+                       [:expression
+                        [:string
+                         ["DoubleQuote" "\""]
+                         [:interpolatedStringPart ["StringPart" "global"]]
+                         ["DoubleQuote" "\""]]]]
+                      ["SemiColon" ";"]]]]
+                   [:topStatement
+                    [:functionDeclaration
+                     ["Function_" "function"]
+                     [:identifier ["Label" "f"]]
+                     ["OpenRoundBracket" "("]
+                     [:formalParameterList [:formalParameter [:variableInitializer ["VarName" "$p"]]]]
+                     ["CloseRoundBracket" ")"]
+                     [:blockStatement
+                      ["OpenCurlyBracket" "{"]
+                      [:innerStatementList
+                       [:innerStatement
+                        [:statement
+                         [:expressionStatement
+                          [:expression
+                           [:assignable
+                            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$l"]]]]]]
+                           [:assignmentOperator ["Eq" "="]]
+                           [:expression
+                            [:expression
+                             [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$p"]]]]]]
+                            ["Dot" "."]
+                            [:expression
+                             [:string
+                              ["DoubleQuote" "\""]
+                              [:interpolatedStringPart ["StringPart" "!"]]
+                              ["DoubleQuote" "\""]]]]]
+                          ["SemiColon" ";"]]]]
+                       [:innerStatement
+                        [:statement
+                         [:returnStatement
+                          ["Return" "return"]
+                          [:expression
+                           [:expression
+                            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$l"]]]]]]
+                           ["Dot" "."]
+                           [:expression
+                            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$g"]]]]]]]
+                          ["SemiColon" ";"]]]]]
+                      ["CloseCurlyBracket" "}"]]]]
+                   [:topStatement
+                    [:statement
+                     [:echoStatement
+                      ["Echo" "echo"]
+                      [:expressionList
+                       [:expression
+                        [:chain
+                         [:chainOrigin
+                          [:functionCall
+                           [:functionCallName
+                            [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "f"]]]]]
+                           [:actualArguments
+                            [:arguments
+                             ["OpenRoundBracket" "("]
+                             [:actualArgument
+                              [:expression
+                               [:string
+                                ["DoubleQuote" "\""]
+                                [:interpolatedStringPart ["StringPart" "a"]]
+                                ["DoubleQuote" "\""]]]]
+                             ["CloseRoundBracket" ")"]]]]]]]
+                       ["Comma" ","]
+                       [:expression
+                        [:string
+                         ["DoubleQuote" "\""]
+                         [:interpolatedStringPart ["StringPart" "|"]]
+                         ["DoubleQuote" "\""]]]
+                       ["Comma" ","]
+                       [:expression
+                        [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$g"]]]]]]]
+                      ["SemiColon" ";"]]]]]
+                  ["EOF" "<EOF>"]]
+    :argument-count-error [:htmlDocument
+                           [:phpBlock
+                            [:topStatement
+                             [:functionDeclaration
+                              ["Function_" "function"]
+                              [:identifier ["Label" "f"]]
+                              ["OpenRoundBracket" "("]
+                              [:formalParameterList
+                               [:formalParameter [:variableInitializer ["VarName" "$a"]]]
+                               ["Comma" ","]
+                               [:formalParameter [:variableInitializer ["VarName" "$b"]]]]
+                              ["CloseRoundBracket" ")"]
+                              [:blockStatement
+                               ["OpenCurlyBracket" "{"]
+                               [:innerStatementList]
+                               ["CloseCurlyBracket" "}"]]]]
+                            [:topStatement
+                             [:statement
+                              [:echoStatement
+                               ["Echo" "echo"]
+                               [:expressionList
+                                [:expression
+                                 [:string
+                                  ["DoubleQuote" "\""]
+                                  [:interpolatedStringPart ["StringPart" "a"]]
+                                  ["DoubleQuote" "\""]]]]
+                               ["SemiColon" ";"]]]]
+                            [:topStatement
+                             [:statement
+                              [:expressionStatement
+                               [:expression
+                                [:chain
+                                 [:chainOrigin
+                                  [:functionCall
+                                   [:functionCallName
+                                    [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "f"]]]]]
+                                   [:actualArguments
+                                    [:arguments
+                                     ["OpenRoundBracket" "("]
+                                     [:actualArgument
+                                      [:expression
+                                       [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+                                     ["CloseRoundBracket" ")"]]]]]]]
+                               ["SemiColon" ";"]]]]]
+                           ["EOF" "<EOF>"]]
+    :undefined-function [:htmlDocument
+                         [:phpBlock
+                          [:topStatement
+                           [:statement
+                            [:echoStatement
+                             ["Echo" "echo"]
+                             [:expressionList
+                              [:expression
+                               [:chain
+                                [:chainOrigin
+                                 [:functionCall
+                                  [:functionCallName
+                                   [:qualifiedNamespaceName
+                                    [:namespaceNameList [:identifier ["Label" "undefined_fn"]]]]]
+                                  [:actualArguments
+                                   [:arguments
+                                    ["OpenRoundBracket" "("]
+                                    [:actualArgument
+                                     [:expression
+                                      [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+                                    ["CloseRoundBracket" ")"]]]]]]]]
+                             ["SemiColon" ";"]]]]]
+                         ["EOF" "<EOF>"]]
+    :string-supplementary-unicode [:htmlDocument
+                                   [:phpBlock
+                                    [:topStatement
+                                     [:statement
+                                      [:expressionStatement
+                                       [:expression
+                                        [:chain
+                                         [:chainOrigin
+                                          [:functionCall
+                                           [:functionCallName
+                                            [:qualifiedNamespaceName
+                                             [:namespaceNameList [:identifier ["Label" "var_dump"]]]]]
+                                           [:actualArguments
+                                            [:arguments
+                                             ["OpenRoundBracket" "("]
+                                             [:actualArgument
+                                              [:expression
+                                               [:string
+                                                ["DoubleQuote" "\""]
+                                                [:interpolatedStringPart ["StringPart" "😀"]]
+                                                ["DoubleQuote" "\""]]]]
+                                             ["CloseRoundBracket" ")"]]]]]]]
+                                       ["SemiColon" ";"]]]]]
+                                   ["EOF" "<EOF>"]]
+    :static-initializer-call [:htmlDocument
+                              [:phpBlock
+                               [:topStatement
+                                [:functionDeclaration
+                                 ["Function_" "function"]
+                                 [:identifier ["Label" "g"]]
+                                 ["OpenRoundBracket" "("]
+                                 [:formalParameterList]
+                                 ["CloseRoundBracket" ")"]
+                                 [:blockStatement
+                                  ["OpenCurlyBracket" "{"]
+                                  [:innerStatementList
+                                   [:innerStatement
+                                    [:statement
+                                     [:echoStatement
+                                      ["Echo" "echo"]
+                                      [:expressionList
+                                       [:expression
+                                        [:string
+                                         ["DoubleQuote" "\""]
+                                         [:interpolatedStringPart ["StringPart" "init"]]
+                                         ["DoubleQuote" "\""]]]]
+                                      ["SemiColon" ";"]]]]
+                                   [:innerStatement
+                                    [:statement
+                                     [:returnStatement
+                                      ["Return" "return"]
+                                      [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "67"]]]]]
+                                      ["SemiColon" ";"]]]]]
+                                  ["CloseCurlyBracket" "}"]]]]
+                               [:topStatement
+                                [:functionDeclaration
+                                 ["Function_" "function"]
+                                 [:identifier ["Label" "f"]]
+                                 ["OpenRoundBracket" "("]
+                                 [:formalParameterList]
+                                 ["CloseRoundBracket" ")"]
+                                 [:blockStatement
+                                  ["OpenCurlyBracket" "{"]
+                                  [:innerStatementList
+                                   [:innerStatement
+                                    [:statement
+                                     [:staticVariableStatement
+                                      ["Static" "static"]
+                                      [:staticInitializer
+                                       ["VarName" "$n"]
+                                       ["Eq" "="]
+                                       [:expression
+                                        [:chain
+                                         [:chainOrigin
+                                          [:functionCall
+                                           [:functionCallName
+                                            [:qualifiedNamespaceName
+                                             [:namespaceNameList [:identifier ["Label" "g"]]]]]
+                                           [:actualArguments
+                                            [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
+                                      ["SemiColon" ";"]]]]
+                                   [:innerStatement
+                                    [:statement
+                                     [:echoStatement
+                                      ["Echo" "echo"]
+                                      [:expressionList
+                                       [:expression
+                                        [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]]]
+                                      ["SemiColon" ";"]]]]]
+                                  ["CloseCurlyBracket" "}"]]]]
+                               [:topStatement
+                                [:statement
+                                 [:expressionStatement
+                                  [:expression
+                                   [:chain
+                                    [:chainOrigin
+                                     [:functionCall
+                                      [:functionCallName
+                                       [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "f"]]]]]
+                                      [:actualArguments
+                                       [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]
+                                  ["SemiColon" ";"]]]]]
+                              ["EOF" "<EOF>"]]
+    :static-initializer-twice [:htmlDocument
+                               [:phpBlock
+                                [:topStatement
+                                 [:functionDeclaration
+                                  ["Function_" "function"]
+                                  [:identifier ["Label" "g"]]
+                                  ["OpenRoundBracket" "("]
+                                  [:formalParameterList]
+                                  ["CloseRoundBracket" ")"]
+                                  [:blockStatement
+                                   ["OpenCurlyBracket" "{"]
+                                   [:innerStatementList
+                                    [:innerStatement
+                                     [:statement
+                                      [:echoStatement
+                                       ["Echo" "echo"]
+                                       [:expressionList
+                                        [:expression
+                                         [:string
+                                          ["DoubleQuote" "\""]
+                                          [:interpolatedStringPart ["StringPart" "init"]]
+                                          ["DoubleQuote" "\""]]]]
+                                       ["SemiColon" ";"]]]]
+                                    [:innerStatement
+                                     [:statement
+                                      [:returnStatement
+                                       ["Return" "return"]
+                                       [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "67"]]]]]
+                                       ["SemiColon" ";"]]]]]
+                                   ["CloseCurlyBracket" "}"]]]]
+                                [:topStatement
+                                 [:functionDeclaration
+                                  ["Function_" "function"]
+                                  [:identifier ["Label" "f"]]
+                                  ["OpenRoundBracket" "("]
+                                  [:formalParameterList]
+                                  ["CloseRoundBracket" ")"]
+                                  [:blockStatement
+                                   ["OpenCurlyBracket" "{"]
+                                   [:innerStatementList
+                                    [:innerStatement
+                                     [:statement
+                                      [:staticVariableStatement
+                                       ["Static" "static"]
+                                       [:staticInitializer
+                                        ["VarName" "$n"]
+                                        ["Eq" "="]
+                                        [:expression
+                                         [:chain
+                                          [:chainOrigin
+                                           [:functionCall
+                                            [:functionCallName
+                                             [:qualifiedNamespaceName
+                                              [:namespaceNameList [:identifier ["Label" "g"]]]]]
+                                            [:actualArguments
+                                             [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
+                                       ["SemiColon" ";"]]]]
+                                    [:innerStatement
+                                     [:statement
+                                      [:echoStatement
+                                       ["Echo" "echo"]
+                                       [:expressionList
+                                        [:expression
+                                         [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]]]
+                                       ["SemiColon" ";"]]]]]
+                                   ["CloseCurlyBracket" "}"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:expressionStatement
+                                   [:expression
+                                    [:chain
+                                     [:chainOrigin
+                                      [:functionCall
+                                       [:functionCallName
+                                        [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "f"]]]]]
+                                       [:actualArguments
+                                        [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]
+                                   ["SemiColon" ";"]]]]
+                                [:topStatement
+                                 [:statement
+                                  [:expressionStatement
+                                   [:expression
+                                    [:chain
+                                     [:chainOrigin
+                                      [:functionCall
+                                       [:functionCallName
+                                        [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "f"]]]]]
+                                       [:actualArguments
+                                        [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]
+                                   ["SemiColon" ";"]]]]]
+                               ["EOF" "<EOF>"]]
+    :static-initializer-expression [:htmlDocument
+                                    [:phpBlock
+                                     [:topStatement
+                                      [:functionDeclaration
+                                       ["Function_" "function"]
+                                       [:identifier ["Label" "f"]]
+                                       ["OpenRoundBracket" "("]
+                                       [:formalParameterList]
+                                       ["CloseRoundBracket" ")"]
+                                       [:blockStatement
+                                        ["OpenCurlyBracket" "{"]
+                                        [:innerStatementList
+                                         [:innerStatement
+                                          [:statement
+                                           [:staticVariableStatement
+                                            ["Static" "static"]
+                                            [:staticInitializer
+                                             ["VarName" "$n"]
+                                             ["Eq" "="]
+                                             [:expression
+                                              [:expression
+                                               [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]
+                                              ["Plus" "+"]
+                                              [:expression
+                                               [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]]
+                                            ["Comma" ","]
+                                            [:staticInitializer
+                                             ["VarName" "$m"]
+                                             ["Eq" "="]
+                                             [:expression
+                                              [:expression
+                                               [:expression
+                                                [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]]
+                                               ["Asterisk" "*"]
+                                               [:expression
+                                                [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+                                              ["Plus" "+"]
+                                              [:expression
+                                               [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]]
+                                            ["SemiColon" ";"]]]]
+                                         [:innerStatement
+                                          [:statement
+                                           [:expressionStatement
+                                            [:expression
+                                             [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]
+                                             ["Inc" "++"]]
+                                            ["SemiColon" ";"]]]]
+                                         [:innerStatement
+                                          [:statement
+                                           [:expressionStatement
+                                            [:expression
+                                             [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$m"]]]]]
+                                             ["Inc" "++"]]
+                                            ["SemiColon" ";"]]]]
+                                         [:innerStatement
+                                          [:statement
+                                           [:returnStatement
+                                            ["Return" "return"]
+                                            [:expression
+                                             [:expression
+                                              [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]]
+                                             ["Dot" "."]
+                                             [:expression
+                                              [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$m"]]]]]]]
+                                            ["SemiColon" ";"]]]]]
+                                        ["CloseCurlyBracket" "}"]]]]
+                                     [:topStatement
+                                      [:statement
+                                       [:echoStatement
+                                        ["Echo" "echo"]
+                                        [:expressionList
+                                         [:expression
+                                          [:chain
+                                           [:chainOrigin
+                                            [:functionCall
+                                             [:functionCallName
+                                              [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "f"]]]]]
+                                             [:actualArguments
+                                              [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]
+                                         ["Comma" ","]
+                                         [:expression
+                                          [:chain
+                                           [:chainOrigin
+                                            [:functionCall
+                                             [:functionCallName
+                                              [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "f"]]]]]
+                                             [:actualArguments
+                                              [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
+                                        ["SemiColon" ";"]]]]]
+                                    ["EOF" "<EOF>"]]
+    :static-initializer-recursion [:htmlDocument
+                                   [:phpBlock
+                                    [:topStatement
+                                     [:functionDeclaration
+                                      ["Function_" "function"]
+                                      [:identifier ["Label" "g"]]
+                                      ["OpenRoundBracket" "("]
+                                      [:formalParameterList]
+                                      ["CloseRoundBracket" ")"]
+                                      [:blockStatement
+                                       ["OpenCurlyBracket" "{"]
+                                       [:innerStatementList
+                                        [:innerStatement
+                                         [:statement
+                                          [:echoStatement
+                                           ["Echo" "echo"]
+                                           [:expressionList
+                                            [:expression
+                                             [:string
+                                              ["DoubleQuote" "\""]
+                                              [:interpolatedStringPart ["StringPart" "i"]]
+                                              ["DoubleQuote" "\""]]]]
+                                           ["SemiColon" ";"]]]]
+                                        [:innerStatement
+                                         [:statement
+                                          [:returnStatement
+                                           ["Return" "return"]
+                                           [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]
+                                           ["SemiColon" ";"]]]]]
+                                       ["CloseCurlyBracket" "}"]]]]
+                                    [:topStatement
+                                     [:functionDeclaration
+                                      ["Function_" "function"]
+                                      [:identifier ["Label" "r"]]
+                                      ["OpenRoundBracket" "("]
+                                      [:formalParameterList [:formalParameter [:variableInitializer ["VarName" "$d"]]]]
+                                      ["CloseRoundBracket" ")"]
+                                      [:blockStatement
+                                       ["OpenCurlyBracket" "{"]
+                                       [:innerStatementList
+                                        [:innerStatement
+                                         [:statement
+                                          [:staticVariableStatement
+                                           ["Static" "static"]
+                                           [:staticInitializer
+                                            ["VarName" "$n"]
+                                            ["Eq" "="]
+                                            [:expression
+                                             [:chain
+                                              [:chainOrigin
+                                               [:functionCall
+                                                [:functionCallName
+                                                 [:qualifiedNamespaceName
+                                                  [:namespaceNameList [:identifier ["Label" "g"]]]]]
+                                                [:actualArguments
+                                                 [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
+                                           ["SemiColon" ";"]]]]
+                                        [:innerStatement
+                                         [:statement
+                                          [:ifStatement
+                                           ["If" "if"]
+                                           [:parentheses
+                                            ["OpenRoundBracket" "("]
+                                            [:expression
+                                             [:expression
+                                              [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$d"]]]]]]
+                                             ["Greater" ">"]
+                                             [:expression
+                                              [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]
+                                            ["CloseRoundBracket" ")"]]
+                                           [:statement
+                                            [:blockStatement
+                                             ["OpenCurlyBracket" "{"]
+                                             [:innerStatementList
+                                              [:innerStatement
+                                               [:statement
+                                                [:expressionStatement
+                                                 [:expression
+                                                  [:chain
+                                                   [:chainOrigin
+                                                    [:functionCall
+                                                     [:functionCallName
+                                                      [:qualifiedNamespaceName
+                                                       [:namespaceNameList [:identifier ["Label" "r"]]]]]
+                                                     [:actualArguments
+                                                      [:arguments
+                                                       ["OpenRoundBracket" "("]
+                                                       [:actualArgument
+                                                        [:expression
+                                                         [:expression
+                                                          [:chain
+                                                           [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$d"]]]]]]
+                                                         ["Minus" "-"]
+                                                         [:expression
+                                                          [:constant
+                                                           [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]]
+                                                       ["CloseRoundBracket" ")"]]]]]]]
+                                                 ["SemiColon" ";"]]]]]
+                                             ["CloseCurlyBracket" "}"]]]]]]
+                                        [:innerStatement
+                                         [:statement
+                                          [:returnStatement
+                                           ["Return" "return"]
+                                           [:expression
+                                            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]]
+                                           ["SemiColon" ";"]]]]]
+                                       ["CloseCurlyBracket" "}"]]]]
+                                    [:topStatement
+                                     [:statement
+                                      [:echoStatement
+                                       ["Echo" "echo"]
+                                       [:expressionList
+                                        [:expression
+                                         [:chain
+                                          [:chainOrigin
+                                           [:functionCall
+                                            [:functionCallName
+                                             [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "r"]]]]]
+                                            [:actualArguments
+                                             [:arguments
+                                              ["OpenRoundBracket" "("]
+                                              [:actualArgument
+                                               [:expression
+                                                [:constant [:literalConstant [:numericConstant ["Decimal" "3"]]]]]]
+                                              ["CloseRoundBracket" ")"]]]]]]]
+                                        ["Comma" ","]
+                                        [:expression
+                                         [:chain
+                                          [:chainOrigin
+                                           [:functionCall
+                                            [:functionCallName
+                                             [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "r"]]]]]
+                                            [:actualArguments
+                                             [:arguments
+                                              ["OpenRoundBracket" "("]
+                                              [:actualArgument
+                                               [:expression
+                                                [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]
+                                              ["CloseRoundBracket" ")"]]]]]]]]
+                                       ["SemiColon" ";"]]]]]
+                                   ["EOF" "<EOF>"]]
+    :static-initializer-unreached [:htmlDocument
+                                   [:phpBlock
+                                    [:topStatement
+                                     [:functionDeclaration
+                                      ["Function_" "function"]
+                                      [:identifier ["Label" "g"]]
+                                      ["OpenRoundBracket" "("]
+                                      [:formalParameterList]
+                                      ["CloseRoundBracket" ")"]
+                                      [:blockStatement
+                                       ["OpenCurlyBracket" "{"]
+                                       [:innerStatementList
+                                        [:innerStatement
+                                         [:statement
+                                          [:echoStatement
+                                           ["Echo" "echo"]
+                                           [:expressionList
+                                            [:expression
+                                             [:string
+                                              ["DoubleQuote" "\""]
+                                              [:interpolatedStringPart ["StringPart" "init"]]
+                                              ["DoubleQuote" "\""]]]]
+                                           ["SemiColon" ";"]]]]
+                                        [:innerStatement
+                                         [:statement
+                                          [:returnStatement
+                                           ["Return" "return"]
+                                           [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]
+                                           ["SemiColon" ";"]]]]]
+                                       ["CloseCurlyBracket" "}"]]]]
+                                    [:topStatement
+                                     [:functionDeclaration
+                                      ["Function_" "function"]
+                                      [:identifier ["Label" "f"]]
+                                      ["OpenRoundBracket" "("]
+                                      [:formalParameterList [:formalParameter [:variableInitializer ["VarName" "$x"]]]]
+                                      ["CloseRoundBracket" ")"]
+                                      [:blockStatement
+                                       ["OpenCurlyBracket" "{"]
+                                       [:innerStatementList
+                                        [:innerStatement
+                                         [:statement
+                                          [:ifStatement
+                                           ["If" "if"]
+                                           [:parentheses
+                                            ["OpenRoundBracket" "("]
+                                            [:expression
+                                             [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$x"]]]]]]
+                                            ["CloseRoundBracket" ")"]]
+                                           [:statement
+                                            [:blockStatement
+                                             ["OpenCurlyBracket" "{"]
+                                             [:innerStatementList
+                                              [:innerStatement
+                                               [:statement
+                                                [:returnStatement
+                                                 ["Return" "return"]
+                                                 [:expression
+                                                  [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]
+                                                 ["SemiColon" ";"]]]]]
+                                             ["CloseCurlyBracket" "}"]]]]]]
+                                        [:innerStatement
+                                         [:statement
+                                          [:staticVariableStatement
+                                           ["Static" "static"]
+                                           [:staticInitializer
+                                            ["VarName" "$n"]
+                                            ["Eq" "="]
+                                            [:expression
+                                             [:chain
+                                              [:chainOrigin
+                                               [:functionCall
+                                                [:functionCallName
+                                                 [:qualifiedNamespaceName
+                                                  [:namespaceNameList [:identifier ["Label" "g"]]]]]
+                                                [:actualArguments
+                                                 [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
+                                           ["SemiColon" ";"]]]]
+                                        [:innerStatement
+                                         [:statement
+                                          [:returnStatement
+                                           ["Return" "return"]
+                                           [:expression
+                                            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$n"]]]]]]
+                                           ["SemiColon" ";"]]]]]
+                                       ["CloseCurlyBracket" "}"]]]]
+                                    [:topStatement
+                                     [:statement
+                                      [:echoStatement
+                                       ["Echo" "echo"]
+                                       [:expressionList
+                                        [:expression
+                                         [:chain
+                                          [:chainOrigin
+                                           [:functionCall
+                                            [:functionCallName
+                                             [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "f"]]]]]
+                                            [:actualArguments
+                                             [:arguments
+                                              ["OpenRoundBracket" "("]
+                                              [:actualArgument
+                                               [:expression
+                                                [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+                                              ["CloseRoundBracket" ")"]]]]]]]
+                                        ["Comma" ","]
+                                        [:expression
+                                         [:string
+                                          ["DoubleQuote" "\""]
+                                          [:interpolatedStringPart ["StringPart" "end"]]
+                                          ["DoubleQuote" "\""]]]]
+                                       ["SemiColon" ";"]]]]]
+                                   ["EOF" "<EOF>"]]
+    :silence-error-reporting-zero [:htmlDocument
+                                   [:phpBlock
+                                    [:topStatement
+                                     [:functionDeclaration
+                                      ["Function_" "function"]
+                                      [:identifier ["Label" "f"]]
+                                      ["OpenRoundBracket" "("]
+                                      [:formalParameterList]
+                                      ["CloseRoundBracket" ")"]
+                                      [:blockStatement
+                                       ["OpenCurlyBracket" "{"]
+                                       [:innerStatementList
+                                        [:innerStatement
+                                         [:statement
+                                          [:expressionStatement
+                                           [:expression
+                                            [:chain
+                                             [:chainOrigin
+                                              [:functionCall
+                                               [:functionCallName
+                                                [:qualifiedNamespaceName
+                                                 [:namespaceNameList [:identifier ["Label" "error_reporting"]]]]]
+                                               [:actualArguments
+                                                [:arguments
+                                                 ["OpenRoundBracket" "("]
+                                                 [:actualArgument
+                                                  [:expression
+                                                   [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]
+                                                 ["CloseRoundBracket" ")"]]]]]]]
+                                           ["SemiColon" ";"]]]]
+                                        [:innerStatement
+                                         [:statement
+                                          [:echoStatement
+                                           ["Echo" "echo"]
+                                           [:expressionList
+                                            [:expression
+                                             [:chain
+                                              [:chainOrigin
+                                               [:functionCall
+                                                [:functionCallName
+                                                 [:qualifiedNamespaceName
+                                                  [:namespaceNameList [:identifier ["Label" "error_reporting"]]]]]
+                                                [:actualArguments
+                                                 [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
+                                           ["SemiColon" ";"]]]]]
+                                       ["CloseCurlyBracket" "}"]]]]
+                                    [:topStatement
+                                     [:statement
+                                      [:expressionStatement
+                                       [:expression
+                                        ["SuppressWarnings" "@"]
+                                        [:expression
+                                         [:chain
+                                          [:chainOrigin
+                                           [:functionCall
+                                            [:functionCallName
+                                             [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "f"]]]]]
+                                            [:actualArguments
+                                             [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
+                                       ["SemiColon" ";"]]]]
+                                    [:topStatement
+                                     [:statement
+                                      [:echoStatement
+                                       ["Echo" "echo"]
+                                       [:expressionList
+                                        [:expression
+                                         [:string
+                                          ["DoubleQuote" "\""]
+                                          [:interpolatedStringPart ["StringPart" "|"]]
+                                          ["DoubleQuote" "\""]]]
+                                        ["Comma" ","]
+                                        [:expression
+                                         [:chain
+                                          [:chainOrigin
+                                           [:functionCall
+                                            [:functionCallName
+                                             [:qualifiedNamespaceName
+                                              [:namespaceNameList [:identifier ["Label" "error_reporting"]]]]]
+                                            [:actualArguments
+                                             [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
+                                       ["SemiColon" ";"]]]]]
+                                   ["EOF" "<EOF>"]]
+    :silence-nested [:htmlDocument
+                     [:phpBlock
+                      [:topStatement
+                       [:functionDeclaration
+                        ["Function_" "function"]
+                        [:identifier ["Label" "h"]]
+                        ["OpenRoundBracket" "("]
+                        [:formalParameterList
+                         [:formalParameter [:variableInitializer ["VarName" "$n"]]]
+                         ["Comma" ","]
+                         [:formalParameter [:variableInitializer ["VarName" "$s"]]]]
+                        ["CloseRoundBracket" ")"]
+                        [:blockStatement
+                         ["OpenCurlyBracket" "{"]
+                         [:innerStatementList
+                          [:innerStatement
+                           [:statement
+                            [:echoStatement
+                             ["Echo" "echo"]
+                             [:expressionList
+                              [:expression
+                               [:string
+                                ["DoubleQuote" "\""]
+                                [:interpolatedStringPart ["StringPart" "H"]]
+                                ["DoubleQuote" "\""]]]
+                              ["Comma" ","]
+                              [:expression
+                               [:chain
+                                [:chainOrigin
+                                 [:functionCall
+                                  [:functionCallName
+                                   [:qualifiedNamespaceName
+                                    [:namespaceNameList [:identifier ["Label" "error_reporting"]]]]]
+                                  [:actualArguments
+                                   [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]
+                              ["Comma" ","]
+                              [:expression
+                               [:string
+                                ["DoubleQuote" "\""]
+                                [:interpolatedStringPart ["StringPart" ";"]]
+                                ["DoubleQuote" "\""]]]]
+                             ["SemiColon" ";"]]]]
+                          [:innerStatement
+                           [:statement
+                            [:returnStatement
+                             ["Return" "return"]
+                             [:expression [:constant [:literalConstant ["BooleanConstant" "true"]]]]
+                             ["SemiColon" ";"]]]]]
+                         ["CloseCurlyBracket" "}"]]]]
+                      [:topStatement
+                       [:statement
+                        [:expressionStatement
+                         [:expression
+                          [:chain
+                           [:chainOrigin
+                            [:functionCall
+                             [:functionCallName
+                              [:qualifiedNamespaceName
+                               [:namespaceNameList [:identifier ["Label" "set_error_handler"]]]]]
+                             [:actualArguments
+                              [:arguments
+                               ["OpenRoundBracket" "("]
+                               [:actualArgument [:expression [:string ["SingleQuoteString" "'h'"]]]]
+                               ["CloseRoundBracket" ")"]]]]]]]
+                         ["SemiColon" ";"]]]]
+                      [:topStatement
+                       [:functionDeclaration
+                        ["Function_" "function"]
+                        [:identifier ["Label" "f"]]
+                        ["OpenRoundBracket" "("]
+                        [:formalParameterList]
+                        ["CloseRoundBracket" ")"]
+                        [:blockStatement
+                         ["OpenCurlyBracket" "{"]
+                         [:innerStatementList
+                          [:innerStatement
+                           [:statement
+                            [:returnStatement
+                             ["Return" "return"]
+                             [:expression
+                              [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$u"]]]]]]
+                             ["SemiColon" ";"]]]]]
+                         ["CloseCurlyBracket" "}"]]]]
+                      [:topStatement
+                       [:statement
+                        [:echoStatement
+                         ["Echo" "echo"]
+                         [:expressionList
+                          [:expression
+                           ["SuppressWarnings" "@"]
+                           [:expression
+                            [:parentheses
+                             ["OpenRoundBracket" "("]
+                             [:expression
+                              ["SuppressWarnings" "@"]
+                              [:expression
+                               [:chain
+                                [:chainOrigin
+                                 [:functionCall
+                                  [:functionCallName
+                                   [:qualifiedNamespaceName
+                                    [:namespaceNameList [:identifier ["Label" "f"]]]]]
+                                  [:actualArguments
+                                   [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
+                             ["CloseRoundBracket" ")"]]]]
+                          ["Comma" ","]
+                          [:expression
+                           [:chain
+                            [:chainOrigin
+                             [:functionCall
+                              [:functionCallName
+                               [:qualifiedNamespaceName
+                                [:namespaceNameList [:identifier ["Label" "error_reporting"]]]]]
+                              [:actualArguments
+                               [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
+                         ["SemiColon" ";"]]]]]
+                     ["EOF" "<EOF>"]]
+    :silence-intersects-saved-mask [:htmlDocument
+                                    [:phpBlock
+                                     [:topStatement
+                                      [:statement
+                                       [:expressionStatement
+                                        [:expression
+                                         [:chain
+                                          [:chainOrigin
+                                           [:functionCall
+                                            [:functionCallName
+                                             [:qualifiedNamespaceName
+                                              [:namespaceNameList [:identifier ["Label" "error_reporting"]]]]]
+                                            [:actualArguments
+                                             [:arguments
+                                              ["OpenRoundBracket" "("]
+                                              [:actualArgument
+                                               [:expression
+                                                [:constant [:literalConstant [:numericConstant ["Decimal" "8191"]]]]]]
+                                              ["CloseRoundBracket" ")"]]]]]]]
+                                        ["SemiColon" ";"]]]]
+                                     [:topStatement
+                                      [:statement
+                                       [:echoStatement
+                                        ["Echo" "echo"]
+                                        [:expressionList
+                                         [:expression
+                                          ["SuppressWarnings" "@"]
+                                          [:expression
+                                           [:chain
+                                            [:chainOrigin
+                                             [:functionCall
+                                              [:functionCallName
+                                               [:qualifiedNamespaceName
+                                                [:namespaceNameList [:identifier ["Label" "error_reporting"]]]]]
+                                              [:actualArguments
+                                               [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
+                                         ["Comma" ","]
+                                         [:expression
+                                          [:string
+                                           ["DoubleQuote" "\""]
+                                           [:interpolatedStringPart ["StringPart" "|"]]
+                                           ["DoubleQuote" "\""]]]]
+                                        ["SemiColon" ";"]]]]
+                                     [:topStatement
+                                      [:statement
+                                       [:echoStatement
+                                        ["Echo" "echo"]
+                                        [:expressionList
+                                         [:expression
+                                          [:chain
+                                           [:chainOrigin
+                                            [:functionCall
+                                             [:functionCallName
+                                              [:qualifiedNamespaceName
+                                               [:namespaceNameList [:identifier ["Label" "error_reporting"]]]]]
+                                             [:actualArguments
+                                              [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]
+                                         ["Comma" ","]
+                                         [:expression
+                                          [:string
+                                           ["DoubleQuote" "\""]
+                                           [:interpolatedStringPart ["StringPart" "|"]]
+                                           ["DoubleQuote" "\""]]]]
+                                        ["SemiColon" ";"]]]]
+                                     [:topStatement
+                                      [:statement
+                                       [:expressionStatement
+                                        [:expression
+                                         ["SuppressWarnings" "@"]
+                                         [:expression
+                                          [:chain
+                                           [:chainOrigin
+                                            [:functionCall
+                                             [:functionCallName
+                                              [:qualifiedNamespaceName
+                                               [:namespaceNameList [:identifier ["Label" "error_reporting"]]]]]
+                                             [:actualArguments
+                                              [:arguments
+                                               ["OpenRoundBracket" "("]
+                                               [:actualArgument
+                                                [:expression
+                                                 [:constant [:literalConstant [:numericConstant ["Decimal" "32767"]]]]]]
+                                               ["CloseRoundBracket" ")"]]]]]]]]
+                                        ["SemiColon" ";"]]]]
+                                     [:topStatement
+                                      [:statement
+                                       [:echoStatement
+                                        ["Echo" "echo"]
+                                        [:expressionList
+                                         [:expression
+                                          [:chain
+                                           [:chainOrigin
+                                            [:functionCall
+                                             [:functionCallName
+                                              [:qualifiedNamespaceName
+                                               [:namespaceNameList [:identifier ["Label" "error_reporting"]]]]]
+                                             [:actualArguments
+                                              [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
+                                        ["SemiColon" ";"]]]]]
+                                    ["EOF" "<EOF>"]]
+    :single-quote-raw-nul [:htmlDocument
+                           [:phpBlock
+                            [:topStatement
+                             [:statement
+                              [:echoStatement
+                               ["Echo" "echo"]
+                               [:expressionList
+                                [:expression
+                                 [:chain
+                                  [:chainOrigin
+                                   [:functionCall
+                                    [:functionCallName
+                                     [:qualifiedNamespaceName
+                                      [:namespaceNameList [:identifier ["Label" "strlen"]]]]]
+                                    [:actualArguments
+                                     [:arguments
+                                      ["OpenRoundBracket" "("]
+                                      [:actualArgument [:expression [:string ["SingleQuoteString" "'a\u0000b'"]]]]
+                                      ["CloseRoundBracket" ")"]]]]]]]
+                                ["Comma" ","]
+                                [:expression [:string ["SingleQuoteString" "'\u0000'"]]]]
+                               ["SemiColon" ";"]]]]]
+                           ["EOF" "<EOF>"]]})

@@ -47,7 +47,11 @@
       "HereDocText: ~[\\r\\n]*? ('\\r'? '\\n' | '\\r');\n// Never matches: HeredocEndToken in PhpLexerBase builds this token.\nHereDocEnd: [ \\t]* NameString { false }?;"]],
     "PhpParser.g4"
     [["    : StartHereDoc HereDocText+\n" "    : StartHereDoc HereDocText+ HereDocEnd\n"]
-     ["    | StartNowDoc HereDocText+\n" "    | StartNowDoc HereDocText+ HereDocEnd\n"]],
+     ["    | StartNowDoc HereDocText+\n" "    | StartNowDoc HereDocText+ HereDocEnd\n"]
+     ;; `static` initializers are expressions evaluated at run time, not the
+     ;; constant initializers of properties and parameter defaults
+     ["    : Static variableInitializer (',' variableInitializer)* SemiColon\n    ;\n"
+      "    : Static staticInitializer (',' staticInitializer)* SemiColon\n    ;\n\nstaticInitializer\n    : VarName (Eq expression)?\n    ;\n"]],
     "Java/PhpLexerBase.java"
     [["    protected String _heredocIdentifier;\n"
       "    protected String _heredocIdentifier;\n    protected boolean _heredocLineStart;\n"]
@@ -64,7 +68,7 @@
                "PhpLexerBase.java"
                "9d719b7c28a361458a0cc55870c2d39034ef34cdd329b175d8c847268e3769ca",
                "PhpParser.java"
-               "3645ab50daa699bbd54f7ce53dc98d0972e0110352a33b870ae0c075144853cf"}}},
+               "5b878b5997529089ef84bef6727f4c24852767109db9e8dddef2e716f822da6c"}}},
  ;; yang.php.md section 6 license review
  :license {"PhpLexer.g4" "MIT (header: Copyright (c) 2015-2019 Ivan Kochurkin, Positive Technologies; (c) 2019 Thierry Marianne); vendored with its notice verbatim",
            "PhpParser.g4" "MIT (header: Copyright (c) 2015-2019 Ivan Kochurkin, Positive Technologies; (c) 2019 Thierry Marianne); vendored with its notice verbatim",

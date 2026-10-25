@@ -55,6 +55,8 @@
     :criterion "a supplementary code point is four bytes",
     :source "<?php var_dump(\"😀\");",
     :out "string(4) \"😀\"\n",
+    ;; the portable lanes compare the byte carrier (UTF-8 bytes as chars)
+    :carrier "string(4) \"\u00F0\u009F\u0098\u0080\"\n",
     :oracle :pending}
    {:id :single-quote-escapes,
     :criterion "single-quoted escapes resolve in one scan",
@@ -304,6 +306,62 @@
     :criterion "an undefined function is an Error",
     :source "<?php echo undefined_fn(1);",
     :out "PHP Fatal error:  Uncaught Error: Call to undefined function undefined_fn()",
+    :oracle :pending}
+   {:id :static-initializer-call,
+    :criterion "a static initializer is an expression, evaluated once in the function",
+    :source (str "<?php function g() { echo \"init\"; return 67; }"
+                 " function f() { static $n = g(); echo $n; } f();"),
+    :out "init67",
+    :oracle :pending}
+   {:id :static-initializer-twice,
+    :criterion "the initializer runs on the first reach only",
+    :source (str "<?php function g() { echo \"init\"; return 67; }"
+                 " function f() { static $n = g(); echo $n; } f(); f();"),
+    :out "init6767",
+    :oracle :pending}
+   {:id :static-initializer-expression,
+    :criterion "a static initializer may be an arithmetic expression, two per statement",
+    :source (str "<?php function f() { static $n = 1 + 2, $m = $n * 2 + 1; $n++; $m++; return $n . $m; }"
+                 " echo f(), f();"),
+    :out "4859",
+    :oracle :pending}
+   {:id :static-initializer-recursion,
+    :criterion "a recursing first call runs the initializer once",
+    :source (str "<?php function g() { echo \"i\"; return 1; }"
+                 " function r($d) { static $n = g(); if ($d > 0) { r($d - 1); } return $n; }"
+                 " echo r(3), r(0);"),
+    :out "i11",
+    :oracle :pending}
+   {:id :static-initializer-unreached,
+    :criterion "a declaration never reached never runs its initializer",
+    :source (str "<?php function g() { echo \"init\"; return 1; }"
+                 " function f($x) { if ($x) { return 0; } static $n = g(); return $n; }"
+                 " echo f(1), \"end\";"),
+    :out "0end",
+    :oracle :pending}
+   {:id :silence-error-reporting-zero,
+    :criterion "under @ error_reporting(0) is seen, and the saved mask is restored after",
+    :source (str "<?php function f() { error_reporting(0); echo error_reporting(); }"
+                 " @f(); echo \"|\", error_reporting();"),
+    :out "0|32767",
+    :oracle :pending}
+   {:id :silence-nested,
+    :criterion "a nested @ sees the intersected mask and restores in order",
+    :source (str "<?php function h($n, $s) { echo \"H\", error_reporting(), \";\"; return true; }"
+                 " set_error_handler('h'); function f() { return $u; }"
+                 " echo @(@f()), error_reporting();"),
+    :out "H4437;32767",
+    :oracle :pending}
+   {:id :silence-intersects-saved-mask,
+    :criterion "@ enters with saved & 4437; a mask the guarded code raised is kept",
+    :source (str "<?php error_reporting(8191); echo @error_reporting(), \"|\";"
+                 " echo error_reporting(), \"|\"; @error_reporting(32767); echo error_reporting();"),
+    :out "4437|8191|32767",
+    :oracle :pending}
+   {:id :single-quote-raw-nul,
+    :criterion "a raw NUL byte in a single-quoted string survives",
+    :source (str "<?php echo strlen('a" "\u0000" "b'), '" "\u0000" "';"),
+    :out (str "3" "\u0000"),
     :oracle :pending}])
 
 

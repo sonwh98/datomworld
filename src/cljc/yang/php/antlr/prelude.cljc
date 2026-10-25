@@ -291,8 +291,14 @@
      (fn [thunk]
        (let [saved (cell/get php.rt/error-reporting)]
          (php/try-finally
-           (fn [] (do (cell/set! php.rt/error-reporting 4437) (thunk)))
-           (fn [x] (cell/set! php.rt/error-reporting saved)))))]
+           (fn []
+             (do (cell/set! php.rt/error-reporting (integer/bit-and saved 4437))
+                 (thunk)))
+           ;; ZEND_END_SILENCE: leave a mask the guarded code raised itself
+           (fn [x]
+             (if (= (integer/bit-and (cell/get php.rt/error-reporting) -4438) 0)
+               (cell/set! php.rt/error-reporting saved)
+               :php/null)))))]
 
     ;; ---------------------------------------------------------------- output
     [php/echo
@@ -673,12 +679,58 @@
                            (get r 1)
                            (php/arg-type-error fname idx aname tname v)))
                        (php/arg-type-error fname idx aname tname v)))))))]
+    [php/arg-null
+     ;; null to a scalar parameter: deprecated, and coerces to the zero
+     (fn [fname idx aname tname]
+       (do (php/warn 8192
+                     (data/str-concat fname "(): Passing null to parameter #"
+                                      (integer/format idx) " ($" aname
+                                      ") of type " tname " is deprecated"))
+           0))]
+    [php/arg-int-float
+     ;; zend_parse_arg_long_weak on a float h: NaN, INF and out of range are
+     ;; a TypeError naming the original value v; a fractional one truncates
+     ;; after a deprecation (`shown` is the number as PHP prints it)
+     (fn [h v shown fname idx aname]
+       (if (php/nan? h)
+         (php/arg-type-error fname idx aname "int" v)
+         (if (= (php/abs-h h) (php/inf))
+           (php/arg-type-error fname idx aname "int" v)
+           (let [n (integer/from-float h)]
+             (if (php/in-range? n)
+               (do (if (= (integer/to-float n) h)
+                     :php/null
+                     (php/warn 8192
+                               (data/str-concat "Implicit conversion from "
+                                                shown " to int loses precision")))
+                   n)
+               (php/arg-type-error fname idx aname "int" v))))))]
     [php/arg-int
      (fn [v fname idx aname]
-       (php/to-int (php/arg-num v fname idx aname "int")))]
+       (let [k (php/kind v)]
+         (if (= k :int) v
+             (if (= k :null) (php/arg-null fname idx aname "int")
+                 (if (= k :bool) (if v 1 0)
+                     (if (= k :float)
+                       (php/arg-int-float (php/h v) v
+                                          (data/str-concat "float " (php/float-text v 17))
+                                          fname idx aname)
+                       (if (= k :string)
+                         (let [r (php/numeric-string v)]
+                           (if (php/full-num? r)
+                             (if (= (get r 0) :int)
+                               (get r 1)
+                               (php/arg-int-float
+                                 (php/h (get r 1)) v
+                                 (data/str-concat "float-string \"" v "\"")
+                                 fname idx aname))
+                             (php/arg-type-error fname idx aname "int" v)))
+                         (php/arg-type-error fname idx aname "int" v))))))))]
     [php/arg-float
      (fn [v fname idx aname]
-       (php/to-float (php/arg-num v fname idx aname "float")))]
+       (if (= (php/kind v) :null)
+         (do (php/arg-null fname idx aname "float") (php/f (php/zero-h)))
+         (php/to-float (php/arg-num v fname idx aname "float"))))]
     [php/intdiv
      (fn [a b]
        (let [x (php/to-int a) y (php/to-int b)]

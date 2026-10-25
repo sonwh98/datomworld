@@ -69,7 +69,6 @@
            ["<?php static $a = 1;" :static]
            ["<?php return 1;" :return]
            ["<?php echo [1];" :array]
-           ["<?php echo 2 ** 0.5;" nil]
            ["<?php echo FOO;" :constant]
            ["<?php echo \"a$b[0]\";" :interpolation]
            ["<?php echo \"a$b->c\";" :interpolation]
@@ -94,6 +93,14 @@
     (is (= [] (:php/diag (h/run-raw "<?php echo \" 5 \" + 1;"))))))
 
 
+(deftest pow-fractional-refusal-test
+  (testing "G-pow-frac: a fractional exponent refuses at run time, with the ledger id"
+    (let [r (h/run-raw "<?php echo 2 ** 0.5;")]
+      (is (= "Error" (-> r :php/uncaught :class)))
+      (is (= "** with a fractional exponent is not supported yet (yang.php known gap G-pow-frac)"
+             (-> r :php/uncaught :message))))))
+
+
 (deftest compile-errors-are-named-test
   (doseq [[source fragment]
           [["<?php break;" "'break' not in the 'loop' or 'switch' context"]
@@ -106,7 +113,13 @@
            ["<?php while (1) { break; } while (1) { break 2; }" "Cannot 'break' 2 levels"]
            ["<?php $n = 1; while (1) { break $n; }" "non-integer operand"]
            ["<?php function f() {} function F() {}" "Cannot redeclare F()"]
-           ["<?php function strlen() {}" "Cannot redeclare strlen()"]]]
+           ["<?php function strlen() {}" "Cannot redeclare strlen()"]
+           ["<?php switch (1) { default: echo 1; default: echo 2; }"
+            "Switch statements may only contain one default clause"]
+           ["<?php switch (1): default: echo 1; case 2: break; default: echo 2; endswitch;"
+            "Switch statements may only contain one default clause"]
+           ["<?php function f() { switch (1) { default: break; default: break; } }"
+            "Switch statements may only contain one default clause"]]]
     (let [{:keys [diagnostics]} (h/run-php source)
           d (first diagnostics)]
       (is (= :yang.php/compile-error (:yang.php/diagnostic d)) source)
@@ -167,6 +180,50 @@
     (is (= "NULL\nstring(1) \"h\"\n"
            (h/run-walker (str "<?php function h() {} var_dump(set_error_handler('h'));"
                               " var_dump(set_error_handler(null));"))))))
+
+
+(deftest argument-coercion-weak-mode-test
+  (doseq [[arg out diag uncaught]
+          [["1.0" "1" [] nil]
+           ["1.5" "1" [[8192 "Implicit conversion from float 1.5 to int loses precision"]] nil]
+           ["-1.5" "-1" [[8192 "Implicit conversion from float -1.5 to int loses precision"]] nil]
+           ["\"1.5\"" "1"
+            [[8192 "Implicit conversion from float-string \"1.5\" to int loses precision"]] nil]
+           ["\"1e3\"" "1000" [] nil]
+           ["-9223372036854775808.0" "-9223372036854775808" [] nil]
+           ["null" "0" [[8192 "intdiv(): Passing null to parameter #1 ($num1) of type int is deprecated"]]
+            nil]
+           ["true" "1" [] nil]
+           ["INF" "" []
+            "intdiv(): Argument #1 ($num1) must be of type int, float given"]
+           ["NAN" "" []
+            "intdiv(): Argument #1 ($num1) must be of type int, float given"]
+           ["1e30" "" []
+            "intdiv(): Argument #1 ($num1) must be of type int, float given"]
+           ["-1e30" "" []
+            "intdiv(): Argument #1 ($num1) must be of type int, float given"]
+           ["\"1e30\"" "" []
+            "intdiv(): Argument #1 ($num1) must be of type int, string given"]
+           ["9.2233720368547758E+18" "" []
+            "intdiv(): Argument #1 ($num1) must be of type int, float given"]
+           ["(float)PHP_INT_MAX" "" []
+            "intdiv(): Argument #1 ($num1) must be of type int, float given"]]
+          :let [r (h/run-raw (str "<?php echo intdiv(" arg ", 1);"))]]
+    (testing arg
+      (is (= out (:php/out r)))
+      (is (= diag (mapv (juxt :errno :message) (:php/diag r))))
+      (is (= uncaught (-> r :php/uncaught :message)))))
+  (testing "arg-float: null deprecates and is 0.0; a non-numeric string is a TypeError"
+    (let [r (h/run-raw "<?php var_dump(fmod(null, 2));")]
+      (is (= "float(0)\n" (:php/out r)))
+      (is (= [[8192 "fmod(): Passing null to parameter #1 ($num1) of type float is deprecated"]]
+             (mapv (juxt :errno :message) (:php/diag r)))))
+    (is (= "fmod(): Argument #2 ($num2) must be of type float, string given"
+           (-> (h/run-raw "<?php fmod(1, \"1x\");") :php/uncaught :message))))
+  (testing "deprecations route through a user handler"
+    (is (= "8192:Implicit conversion from float 1.5 to int loses precision;1"
+           (:php/out (h/run-raw (str "<?php function h($n, $s) { echo $n, \":\", $s, \";\"; return true; }"
+                                     " set_error_handler('h'); echo intdiv(1.5, 1);")))))))
 
 
 (deftest typed-builtin-argument-coercion-test

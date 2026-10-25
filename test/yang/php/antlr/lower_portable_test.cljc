@@ -76,5 +76,5 @@
 
 (deftest portable-fixtures-test
   (doseq [[id form] packets/forms
-          :let [{:keys [out]} (first (filter #(= id (:id %)) programs/fixtures))]]
-    (is (= out (h/run-packet (h/packet form))) (name id))))
+          :let [{:keys [out carrier]} (first (filter #(= id (:id %)) programs/fixtures))]]
+    (is (= (or carrier out) (h/run-packet (h/packet form))) (name id))))

@@ -96,7 +96,7 @@
                                       (note-name :statics nm)
                                       (note-name :assigned nm))))
                               scope
-                              (p/child-rules pk k "variableInitializer"))
+                              (p/child-rules pk k "staticInitializer"))
                       "globalStatement"
                       (reduce (fn [sc v]
                                 (if (p/token? v)

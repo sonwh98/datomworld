@@ -1054,7 +1054,7 @@
             [entries lst]
             (reduce (fn [es item]
                       (if (= "Default" (label-type ctx item))
-                        (conj es {:default? true, :stmts []})
+                        (conj es {:default? true, :node item, :stmts []})
                         (update-in es [(dec (count es)) :stmts] conj item)))
                     entries
                     (core/rule-kids ctx lst)))]
@@ -1063,7 +1063,7 @@
         (reduce (fn [es k]
                   (cond
                     (p/token? k) (if (= "Default" (:type k))
-                                   (conj es {:default? true, :stmts []})
+                                   (conj es {:default? true, :node k, :stmts []})
                                    es)
                     (p/rule? k "expression") (conj es {:test k, :stmts []})
                     (p/rule? k "innerStatementList") (add-body es k)
@@ -1083,6 +1083,9 @@
   (let [fr (loop-frame n true)
         sw (core/gen "sw" n)
         entries (vec (switch-entries ctx n))
+        _ (when-let [dup (second (filter :default? entries))]
+            (compile-error! (or (:node dup) n)
+                            "Switch statements may only contain one default clause"))
         case-sym (fn [i] (symbol (str "%case" (:id n) "_" i)))
         bctx (push-frame ctx fr)
         bodies (mapv #(items-node bctx (:stmts %)) entries)
@@ -1148,7 +1151,7 @@
 
 
 (defn- lower-initializer
-  "A parameter default or a `static` initializer: a `constantInitializer`."
+  "A parameter default: a `constantInitializer`."
   [ctx n]
   (let [ks (core/kids ctx n)
         k0 (first ks)]
@@ -1172,12 +1175,12 @@
   (sequence-node
     (mapv (fn [vi]
             (let [vks (core/kids ctx vi)
-                  init (if (> (count vks) 1) (lower-initializer ctx (nth vks 2)) (u/lit :php/null))]
+                  init (if (> (count vks) 1) (lower ctx (nth vks 2)) (u/lit :php/null))]
               (app* 'php/static-init!
                     (u/v '%fn)
                     (u/lit (bare (:text (first vks))))
                     (u/lam [] init))))
-          (core/rules ctx n "variableInitializer"))))
+          (core/rules ctx n "staticInitializer"))))
 
 
 (defn- lower-return
