@@ -37,12 +37,12 @@
 
 (deftest the-operation-to-unit-table-is-published
   (is (= {:candidate 1 :scan-advance 1 :rule-entry 1 :aggregate-input 1
-          :pull-advance 1 :parse-step 1 :output-row 1}
+          :pull-advance 1 :tree-step 1 :node-read 1 :parse-step 1 :output-row 1}
          ex/step-units)
       "every accountable operation and its unit cost")
-  (is (= [:parse :realize :plan :join :nested :recursion :aggregate :pull :output]
+  (is (= [:parse :realize :plan :join :nested :recursion :aggregate :pull :output :read]
          ex/phases)
-      "phase boundaries observed at entry and exit"))
+      "phase boundaries observed at entry and exit, plus :read (the storage-read bracket)"))
 
 
 ;; ---------------------------------------------------------------------------

@@ -7,12 +7,17 @@
    error taxonomy:
 
    - KVStorage (kv-storage): the sync rule-1 adapter. Absence is
-     authoritative: a missing blob throws \"missing index segment\".
-     Optional same-host integrity verification (§5.2): rehash the fetched
-     blob against its content address; mismatch throws \"corrupt index
-     segment\". Off by default — dao.jing's print-based content hash is not
-     host-stable, so cross-host reads must not verify (dao.jing.md, Current
-     Scope).
+     authoritative: a missing blob throws \"missing index segment\". Every
+     read goes through `dao.jing/get`, which ALWAYS hash-verifies the stored
+     bytes against the content address and decodes them. The optional
+     `:verify?` flag (§5.2) is a different, additional check: it re-serializes
+     the decoded blob and compares its key to the address, mismatch throwing
+     \"corrupt index segment\". That re-serialization check is off by
+     default because dao.jing's print-based content hash is not host-stable,
+     so cross-host reads must not use it (dao.jing.md, Current Scope).
+   - `read-node-blob`: ONE verified read of ONE node blob for a caller that
+     drives traversal itself (the checked cursor,
+     dao.data.btree.cursor); it restores nothing and builds no node.
    - HydrationStorage (hydration-storage): the §5.4 hydration-cache
      adapter for async-only backends. Reads answer only from the cache;
      any miss throws \"unhydrated segment\" — the cache cannot distinguish
@@ -38,6 +43,20 @@
   #?(:cljd (Object.)
      :clj (Object.)
      :cljs (js-obj)))
+
+
+(defn read-node-blob
+  "Read the decoded blob of exactly ONE node: one `dao.jing/get` (which
+   hash-verifies the stored bytes against `address` and decodes them), and
+   nothing else. It does not build a node, traverse or hydrate children, open
+   a handle, cache, or retry. An absent address throws \"missing index
+   segment\" with {:address address}; any failure `jing/get` raises (for
+   example corrupt bytes) propagates unchanged so its cause is preserved."
+  [store address]
+  (let [blob (jing/get store address absent)]
+    (when (identical? blob absent)
+      (throw (ex-info "missing index segment" {:address address})))
+    blob))
 
 
 (deftype KVStorage

@@ -123,13 +123,17 @@ surface is a documented difference, not Client parity:
   `:timeout` or `:step-budget-exhausted` (`:cognitect.anomalies/interrupted`)
   and never returns a partial relation. Client timeout behavior is
   unmeasured.
-- A call supplying either bound is admitted only over explicit materialized
-  relation/fact-relation sources and views over them. Opened published
-  indexes, deferred rows and unrecognized sources are refused
-  `:unsupported` / `:bounded-source-unqualified` before any read. Checked
-  published-index traversal is Phase 4b.
-- Pinned in `dao.space.query.datomic-execution-test` and
-  `dao.space.query.execution-test`, not executed by this harness. Case
+- A call supplying either bound is admitted over explicit materialized
+  relation/fact-relation sources and views over them (Phase 4a) and,
+  since Phase 4b, over exactly a `current` view with no `as-of` directly
+  over a published value carrying a structurally valid checked-read
+  descriptor, read through the checked cursor. Every other published shape
+  (a bare published value, history, `as-of`, nested views, descriptor-less
+  values), deferred rows and unrecognized sources are refused
+  `:unsupported` / `:bounded-source-unqualified` before any read.
+- Pinned in `dao.space.query.datomic-execution-test`,
+  `dao.space.query.execution-test` and (the published profile)
+  `dao.space.query.published-bounded-test`, not executed by this harness. Case
   `bounds.published-source-refused` records the admission rule as `pending`
   (there is no Client counterpart to measure). Full timeout oracle cases
   remain Phase 5.
