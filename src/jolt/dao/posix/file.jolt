@@ -1,10 +1,11 @@
-(ns dao.host.file
-  "Host-local plumbing for the jolt branch of dao.jing.file's file seams (J4a,
-   collab/1792769713135-architect-j4-file-seams-design §2): POSIX descriptor
-   I/O over native/jolt-file, which `bb build:jolt-native` builds.
+(ns dao.posix.file
+  "Jolt-only POSIX descriptor plumbing for the jolt branch of dao.jing.file's
+   file seams (J4a, collab/1792769713135-architect-j4-file-seams-design §2):
+   descriptor I/O over native/jolt-file, which `bb build:jolt-native` builds.
 
-   This is NOT a dao.host profile namespace. It has no src/cljc counterpart,
-   no portable entries and no refusal table: it is private linkage behind
+   dao.posix.* is not the dao.host profile (src/jolt/README.md): it has no
+   src/cljc counterpart, no portable entries and no refusal table, and it is
+   reached only from :jolt arms, never from a :default arm. It is linkage behind
    dao.jing.file's existing seams (open-file!, file-length!, read-int!,
    read-bytes!, truncate-file!, append-frame!, sync-file!, close-file!), which
    call it from their :jolt arms. The framing, validation, recovery cut and

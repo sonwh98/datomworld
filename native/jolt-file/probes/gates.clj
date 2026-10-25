@@ -1,7 +1,7 @@
 ;; Run under jolt -Srepro -M:jolt by probes/run.clj: the in-process J4a gate
-;; rows over dao.host.file and dao.jing.file's :jolt arms
+;; rows over dao.posix.file and dao.jing.file's :jolt arms
 ;; (collab/1792769713135-architect-j4-file-seams-design §5, J4a row; review
-;; F2). The test-only indirection is dao.host.file's single-transfer vars
+;; F2). The test-only indirection is dao.posix.file's single-transfer vars
 ;; (pread-once, pwrite-once, fsync-once, close-once), redefined here; the
 ;; library has no fault mode. jolt.ffi/alloc and free are wrapped to account
 ;; for every native buffer.
@@ -12,7 +12,7 @@
   (:require [jolt.ffi :as ffi]))
 
 
-(require '[dao.host.file :as hf] '[dao.jing :as jing] '[dao.jing.file :as jf])
+(require '[dao.posix.file :as hf] '[dao.jing :as jing] '[dao.jing.file :as jf])
 
 (def failures (atom 0))
 
@@ -60,17 +60,17 @@
   (try (f) nil (catch Throwable e e)))
 
 
-(def eintr @(ns-resolve 'dao.host.file 'eintr))
-(def pread-var (ns-resolve 'dao.host.file 'pread-once))
-(def pwrite-var (ns-resolve 'dao.host.file 'pwrite-once))
-(def fsync-var (ns-resolve 'dao.host.file 'fsync-once))
-(def close-var (ns-resolve 'dao.host.file 'close-once))
+(def eintr @(ns-resolve 'dao.posix.file 'eintr))
+(def pread-var (ns-resolve 'dao.posix.file 'pread-once))
+(def pwrite-var (ns-resolve 'dao.posix.file 'pwrite-once))
+(def fsync-var (ns-resolve 'dao.posix.file 'fsync-once))
+(def close-var (ns-resolve 'dao.posix.file 'close-once))
 (def orig-pread @pread-var)
 (def orig-pwrite @pwrite-var)
 (def orig-fsync @fsync-var)
 (def orig-close @close-var)
-(def c-s32be-put @(ns-resolve 'dao.host.file 'c-s32be-put))
-(def c-s32be-get @(ns-resolve 'dao.host.file 'c-s32be-get))
+(def c-s32be-put @(ns-resolve 'dao.posix.file 'c-s32be-put))
+(def c-s32be-get @(ns-resolve 'dao.posix.file 'c-s32be-get))
 
 
 ;; EIO and ENOSPC are 5 and 28 on both qualified platforms (sys/errno.h)

@@ -1,6 +1,6 @@
 ;; Run under jolt -Srepro -M:jolt by probes/run.clj: collect-safety of the
 ;; jolt-file bindings (design §2: GC completes during a blocked native call).
-;; One thread runs dao.host.file's own :blocking binding of a disk entry, a
+;; One thread runs dao.posix.file's own :blocking binding of a disk entry, a
 ;; 1 GiB jolt_file_pwrite and then the jolt_file_sync of that data; once the
 ;; call is under way this thread runs a full collection. The gate holds when
 ;; the collection both starts and completes while the pwrite is still
@@ -11,11 +11,11 @@
   (:require [jolt.ffi :as ffi]))
 
 
-(require '[dao.host.file :as hf])
+(require '[dao.posix.file :as hf])
 
 
-(def c-pwrite @(ns-resolve 'dao.host.file 'c-pwrite))
-(def c-sync @(ns-resolve 'dao.host.file 'c-sync))
+(def c-pwrite @(ns-resolve 'dao.posix.file 'c-pwrite))
+(def c-sync @(ns-resolve 'dao.posix.file 'c-sync))
 
 
 (defn- ms

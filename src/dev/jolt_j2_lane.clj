@@ -260,7 +260,7 @@
    "dao.jing.mem-test"
    ;; Rejoined (J4a): excluded with capability "file random access
    ;; (writeInt)" (owner J4) until dao.jing.file's :jolt arms reached
-   ;; native/jolt-file through dao.host.file.
+   ;; native/jolt-file through dao.posix.file.
    "dao.jing.file-test" "yin.vm.linker-authority-test"
    "yin.vm.linker.sign-test" "dao.data.btree-async-test" "dao.jing.content-test"
    "dao.space.index-numeric-test"

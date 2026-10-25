@@ -2,7 +2,7 @@
  * jolt-file: the POSIX descriptor wrapper behind the jolt host branch of
  * dao.jing.file (the content log), J4a of
  * collab/1792769713135-architect-j4-file-seams-design §2. Private linkage,
- * not a dao.host profile and not an ABI: dao.host.file (src/jolt) is its only
+ * not a dao.host profile and not an ABI: dao.posix.file (src/jolt) is its only
  * caller.
  *
  * Every entry has a fixed signature of fixed-width integers and pointers (no
@@ -49,7 +49,7 @@
 _Static_assert(sizeof(off_t) == 8, "jolt-file needs a 64-bit off_t");
 
 /* Bump when an entry's signature, a result meaning, or the exported set
-   changes; dao.host.file refuses a library that answers another layout. */
+   changes; dao.posix.file refuses a library that answers another layout. */
 #define JOLT_FILE_LAYOUT 1
 
 /* The largest single transfer: bounds one call independently of the frame

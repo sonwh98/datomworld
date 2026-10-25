@@ -12,11 +12,20 @@ except where the owner has ruled otherwise: the `dao.host.*` profile takes no
 `:jolt` arm in its shared files, and jolt supplies whole-file overrides here
 (J1). Never a copy of `yin.repl`, `yin.vm.engine` or `dao.jing.cbor`.
 
+`dao.host.*` is the portable profile only: a `src/cljc/dao/host/*.cljc`
+namespace plus its per-host overrides, each entry stated by law, kind and
+oracle (docs/design/dao.stream.host-boundary.md §4.2, table A). `dao.posix.*`
+is jolt-only descriptor plumbing over a project-owned native wrapper: it has
+no `.cljc` counterpart and no profile entry, and it is reached only from
+`:jolt` arms, never from a `:default` arm. A jolt-only native facade never
+takes a `dao.host` name; J4b's lock and filesystem entries join
+`dao.posix.file` or a sibling under `dao.posix`.
+
 The `.jolt` extension keeps these files out of JVM, ClojureScript and Dart
 tooling (clj-kondo does not lint them as `.cljc`); `.cljstyle` lists `jolt`
 among its extensions so the formatter still checks them.
 
-Contents (J0c–J2):
+Contents (J0c–J4a):
 - `dao/host/{integer,bytes,text,float,number}.jolt`: the primitive profile
   (docs/design/dao.stream.host-boundary.md §4.2, table A) over Chez's exact
   integers, flonums, strings and jolt byte arrays.
@@ -53,6 +62,21 @@ Contents (J0c–J2):
   decoder over jolt primitives, replacing the JVM Boring adapter. The
   decoder re-encodes to refuse non-canonical bytes; `bb test:jolt-cbor-parity`
   compares the JVM and jolt bytes against the same cases.
+- `dao/posix/file.jolt` (J4a): POSIX descriptor I/O for `dao.jing.file`'s
+  eight file seams (its `:jolt` arms), over `native/jolt-file`, which `bb
+  build:jolt-native` builds with the pinned CMake. The wrapper is layout 1
+  and exports exactly 13 `jolt_file_*` entries (the allowlist in
+  `native/jolt-file/exports.{darwin,linux}`; the build fails on any other
+  export set). It links system libc only, and its digest is in
+  `build/native/<platform>/build-record.edn :jolt-file`. The s32BE frame
+  prefix is packed in C. The read and write loops are the facade's, behind
+  single-transfer vars that the gates redefine; there is no production fault
+  mode. Loading the namespace refuses a missing or wrong-layout wrapper.
+  Contract: `dao.jing.file-test` on the jolt lane. Gates: `bb
+  probe:jolt-file` (JVM-identical frame bytes, F2 prefixes, strict reads,
+  injected transfers, corrupt-open byte identity, idempotent close, no fd or
+  native-memory leak, GC during a `:blocking` call, missing/wrong wrapper,
+  export allowlist). No lock operations yet (J4b).
 
 The toolchain pins the owner's fork, `https://github.com/sonwh98/jolt`, at
 `697b91eefabf3e964acea787cbc9cb1b6b85a28c` (`jolt-toolchain.edn`). Fork PR
