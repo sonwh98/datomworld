@@ -1,0 +1,161 @@
+#:blog{:title "The Runtime Is the Vulnerability: PHP Security By Architecture",
+       :date #inst "2026-10-25T00:00:00.000-00:00",
+       :abstract
+       [:p
+        "On October 21, 2026 PHP shipped emergency fixes for two unauthenticated remote-code-execution flaws, "
+        [:strong "CVE-2026-109618 and CVE-2026-109619"]
+        " (PHP2Shell), exploited in the wild within days. The WordPress ecosystem logged 11,334 new "
+        "vulnerabilities in 2025, 91% of them in plugins. When the runtime and the application share one "
+        "long-lived C process with ambient authority, patching is the only defense. This post maps each recent "
+        "incident class to the architectural control in datom.world that addresses it, "
+        [:strong "and is honest about what it does not fix"]
+        "."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+          [:h2 "Four days ago: PHP2Shell"]
+          [:p
+           "On October 21, 2026 the PHP project released emergency security releases and CISA urged immediate "
+           "patching. Two flaws, tracked as "
+           [:code "CVE-2026-109618"]
+           " and "
+           [:code "CVE-2026-109619"]
+           " and dubbed PHP2Shell by the researchers at "
+           [:a {:href "https://watchtowr.com/intelligence/php-cve-2026-109618-faq"} "watchTowr"]
+           ", are unauthenticated remote code execution in PHP itself, not in any application. CVSS 9.2. Both. "
+           "Exploitation was observed in the wild the same week."]
+          [:p
+           "The root causes are worth sitting with. The first: when PHP runs out of memory partway through "
+           "setting up a request, internal request data is left half built, and the cleanup code trusts it "
+           "anyway. The second: internal state that outlives the request memory it points to, so a worker "
+           "process carrying leftovers from one request acts on them while serving the next. Both land in the "
+           "request-lifecycle machinery of the C runtime, and the worst exposure is Apache mod_php, where an "
+           "attack can succeed before any of the application's own code has run, which is why no authentication "
+           "helps. Fixed in 8.2.35, 8.3.36, 8.4.27 and 8.5.12; PHP 7.3 and older have no fix coming at all."]
+          [:p
+           "Meanwhile the application layer is not quiet either: "
+           [:a {:href "https://www.securityweek.com/over-3-million-wordpress-sites-affected-by-migration-plugin-vulnerability"} "three million plus WordPress sites"]
+           " exposed by one migration plugin in September 2026, and trackers logging 250+ new plugin "
+           "vulnerabilities a week, 43% of them exploitable without authentication."]
+          [:h2 "The pattern: one long-lived C process with ambient authority"]
+          [:p
+           "Twenty years of PHP CVEs share a stage. A PHP request is executed by a worker process that owns "
+           "everything: mutable C memory it manages by hand, the filesystem, the network, the shell, the "
+           "clock, the entropy pool, a database connection holding live credentials, and (across requests, in "
+           "every SAPI but the CLI) warmed-up shared state. Every incident class above is an exploit of one of "
+           "those grants. Memory-safety bugs corrupt the C heap and become code execution. Webshells work "
+           "because the process can exec, write to the docroot, or eval. SQL injection is loud because a live "
+           "MySQL server with filesystem tricks sits behind the query string. Supply-chain attacks work "
+           "because code arrives as silent file writes into a directory the process also executes."]
+          [:p
+           "The standard answer is patching, plus hardening advice around the edges. The architectural "
+           "question we asked in the datom.world design work is different: "
+           [:strong "what if the PHP program ran where none of those grants exist by default?"]
+           ]
+          [:h2 "yang.php: a request is a value, not a worker"]
+          [:p
+           "In our design docs, PHP is a frontend (yang.php) over a universal VM (yin.vm). The guest language "
+           "is compiled to an AST of immutable facts and interpreted as data on memory-safe hosts: the JVM, "
+           "Node, Dart. A request is one task whose entire state is a value. There is no worker process that "
+           "outlives it, no hand-managed C heap, no SAPI initialization path."]
+          [:p
+           "Run the PHP2Shell classes against that shape. An out-of-memory during request setup is an "
+           "allocation failure that throws an exception over immutable data; there is no half-built internal "
+           "struct for cleanup code to trust, because the request context is an explicit request record, a "
+           "plain value the composition hands to the task. And state outliving request memory cannot happen: "
+           "the task's state ceases to exist when the task does. Two requests share nothing is not a hardening "
+           "goal, it is an exit criterion of the frontend spec, verified by fixture."]
+          [:p
+           "This does not mean our code has no bugs. It means the bug class has no substrate: a bug in the "
+           "frontend is a Clojure exception, not control-flow hijack. The monthly critical-PHP-RCE genre needs "
+           "C memory to corrupt, and there is none."]
+          [:h2 "Effects are interpreted, never performed"]
+          [:p
+           "The deeper doctrine in datom.world (ADR 0004 in our docs) is that external effects are interpreted "
+           "stream deposits. Guest code cannot touch the filesystem, the network, the process, or the entropy "
+           "pool directly. It emits a deposit describing what it wants; a composition reads the deposit and "
+           "decides. Effects are unforgeable values in the VM, minted only by the runtime, and what crosses "
+           "the stream is a plain descriptor. When the task needs the answer to proceed, its continuation "
+           "parks and the VM wakes it when the reply lands."]
+          [:p
+           "Look at the webshell, the standard PHP post-exploitation payload, under that regime. Its three "
+           "legs each need a grant that does not exist by default: process execution has no shell to reach, "
+           "docroot writes go through a filesystem interpreter that can allowlist one uploads directory onto "
+           "content-addressed storage, and eval is refused outright in the first slices of the design. A "
+           "successful injection of "
+           [:code "<?php"]
+           " into a template collapses from server takeover to one sandboxed task whose every effect attempt "
+           "is visible on a stream."]
+          [:p
+           "That visibility is the quiet superpower. A response is a pure function of the request record and "
+           "the reply stream, so the deposit stream is an audit log by construction, and incident response "
+           "becomes replay: same inputs, byte-identical response, exact forensic record. No compromised box to "
+           "image."]
+          [:h2 "dao.space.query/sql: the parser is the policy"]
+          [:p
+           "The database deserves its own treatment, because SQL injection is the perennial WordPress plugin "
+           "bug and because our answer is structural. In our design, the SQL WordPress issues is executed by "
+           "a query language over the same fact store that runs everything else, not proxied to a live MySQL "
+           "server holding credentials and filesystem tricks. The interpreter parses the statement, plans it "
+           "over tuple-space indexes, and executes the plan inside a step budget."]
+          [:p
+           "Three consequences follow. First, the parser is a policy point: the fragment WordPress actually "
+           "uses is the spec, and everything outside it is refused by name (no INTO OUTFILE, no stacked "
+           "queries, no UDFs, not blocked, simply absent from the fragment the engine will accept). Second, "
+           "error surfaces are shaped diagnostic records, not raw server error strings leaking schema to an "
+           "attacker. Third, runaway queries hit the step budget instead of the worker, so the "
+           "resource-exhaustion genre lands on a resource meter."]
+          [:p
+           "Honesty note: a plugin that concatenates user input into SQL still produces a query that parses. "
+           "Architecture does not fix developer mistakes. What changes is the blast radius: no live server "
+           "behind the string, no filesystem write primitives, no second query piggybacked on the first, and "
+           "an interpreter that can scope sessions to read-only or per-table allowlists because it sees the "
+           "parsed plan, not just bytes."]
+          [:h2 "Code arrives by publication, not by file write"]
+          [:p
+           "91% of those 11,334 vulnerabilities were in plugins, and the 2026 season brought full "
+           "supply-chain incidents. In our model, code units are published and content-addressed; the "
+           "interpreter loads them over a linker, and including an unpublished target is refused by name. A "
+           "plugin update is a new publication: a reviewable, diffable unit set, against a pinned set the "
+           "composition chose. The trust question moves from which files silently appeared in a docroot to "
+           "which publications the site pinned. We do not claim this fixes the ecosystem's incentive "
+           "problems; it makes the trusted computing base of a site small and inspectable, which is the "
+           "direction that helps."]
+          [:h2 "What this does not fix"]
+          [:ul
+           [:li
+            "Application logic bugs. Auth bypasses, CSRF, stored XSS: 43% of the 2026 plugin flood is "
+            "unauthenticated and most of that is logic, not memory or effects. Wrong code on a safe substrate "
+            "is still wrong."]
+           [:li
+            "People. Phished admins and malicious plugin authors are unaffected by runtime architecture."]
+           [:li
+            "Performance. An interpreter over immutable data on three hosts is not FPM speed. That is a "
+            "separate engineering track for us, and we have written about it before."]]
+          [:h2 "Status, honestly"]
+          [:p
+           "This post is a design thesis, not a product claim. The PHP frontend specification is complete and "
+           "reviewed, but unimplemented; the SQL query language is specified as new surface and not built; "
+           "the WordPress composition exists as a design document (dao.wordpress.md in our docs) specifying "
+           "slices, exit criteria and named corners, including the performance corner we do not pretend to "
+           "have solved. What we stand behind today is the mapping you just read: every incident class from "
+           "this month's news lands on a control that is a signed-off line in a design document, not a "
+           "hardening checklist item. The runtime is the vulnerability. We are designing the runtime away "
+           "from being one."]
+          [:h2 "Further reading"]
+          [:ul
+           [:li
+            [:a {:href "https://watchtowr.com/intelligence/php-cve-2026-109618-faq"} "watchTowr: PHP2Shell FAQ"]
+            " (exploitation details and the patched version matrix)"]
+           [:li
+            [:a {:href "https://www.wordfence.com/blog/2026/10/critical-php-update-wordpress-vulnerabilities-testing"} "Wordfence on the October 2026 PHP releases"]
+            " (WordPress-hosting impact and testing guidance)"]
+           [:li
+            [:a {:href "https://hidemywpghost.com/wordpress-security-statistics-2025-2026-vulnerabilities-attacks-and-prevention-data"} "WordPress security statistics 2025-2026"]
+            " (the 11,334 count, plugin share, and weekly tracking)"]
+           [:li
+            "In this repository: docs/design/yang.php.md (the frontend spec), docs/design/dao.wordpress.md "
+            "(the WordPress composition spec), and ADR 0004 (effects are interpreted stream deposits)"]]]]]}
