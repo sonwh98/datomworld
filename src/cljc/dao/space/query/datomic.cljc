@@ -33,9 +33,12 @@
    Refused loudly (never silently ignored): the db-first call shape, raw
    vectors/maps at source positions, unknown options, `:ret`,
    `:io-context`, `:query-stats`,
-   four-/five-position history patterns, rest patterns, parameterized
-   aggregate syntax, unvalidated pull syntax (recursion, reverse
-   attributes, dynamic or source-qualified patterns).
+   four-/five-position history patterns, rest patterns, the excluded
+   randomized aggregates (rand, sample), unvalidated pull syntax (recursion,
+   reverse attributes, dynamic or source-qualified patterns). Aggregates are
+   count, count-distinct, sum, avg, distinct, median, variance, stddev and
+   min/max, optionally with the positive integer n (Phase 2); arity and
+   parameters are validated before evaluation.
 
    Numeric limitation (corpus errata E1): core builds its final result set
    with host `=`, so content-distinct numerics that compare equal on a host
@@ -329,12 +332,18 @@
 ;; Find validation (aggregates and finite pull)
 ;; ==========================================================================
 
-(def ^:private core-aggregates
-  #{'count 'count-distinct 'sum 'min 'max 'avg})
+(def ^:private aggregate-arities
+  "The aggregates the profile admits and the argument counts each accepts
+   (parameters included): only min and max take the leading positive
+   integer n."
+  {'count #{1} 'count-distinct #{1} 'sum #{1} 'avg #{1}
+   'distinct #{1} 'median #{1} 'variance #{1} 'stddev #{1}
+   'min #{1 2} 'max #{1 2}})
 
 
-(def ^:private later-aggregates
-  #{'distinct 'median 'variance 'stddev 'rand 'sample})
+(def ^:private excluded-aggregates
+  "Excluded by the contract: ambient randomness has no entropy ownership."
+  #{'rand 'sample})
 
 
 (declare check-pull-pattern)
@@ -411,11 +420,18 @@
                       "source-qualified or malformed pull is outside the admitted profile"
                       {:clause (fragment el)}))
               (check-pull-pattern (nth el 2)))
-          (or (contains? later-aggregates h) (> (count el) 2))
-          (fail :unsupported "aggregate or parameterized aggregate is not available yet"
+          (contains? excluded-aggregates h)
+          (fail :unsupported "randomized aggregates are excluded from the profile"
                 {:variable (fragment el)})
-          (not (contains? core-aggregates h))
-          (fail :invalid-request "unknown aggregate" {:variable (fragment el)}))))))
+          (not (contains? aggregate-arities h))
+          (fail :invalid-request "unknown aggregate" {:variable (fragment el)})
+          (not (contains? (get aggregate-arities h) (dec (count el))))
+          (fail :invalid-request "aggregate arity does not match its definition"
+                {:variable (fragment el)})
+          (and (= 3 (count el))
+               (not (and (integer? (second el)) (pos? (second el)))))
+          (fail :invalid-request "aggregate parameter must be a positive integer"
+                {:variable (fragment el)}))))))
 
 
 ;; ==========================================================================

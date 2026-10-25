@@ -80,6 +80,7 @@ Each case is one JSON object (one line in the file):
 | `unordered-nested` | pull results: vectors that are map values compare as multisets |
 | `row-count` | the expectation is the integer size of the result (used for E1) |
 | `slice-size` | pagination: the size of the slice only; never page membership or order |
+| `numeric-value` | numerics agree when they compare equal in exact numeric order (kind-loose); sets and sequences structurally; everything else by `=` (used where a host cannot tell an integral double from the integer) |
 
 Offset/limit is an unordered query slice, not stable ordered pagination. No
 case promises order or cross-call page membership. A numeric tolerance is
@@ -125,8 +126,8 @@ object has exactly one tag key:
 The `points` array mirrors the supported-domain table of the contract
 (28 points). The integrity test requires every point to have at least one
 case, every case to cite a declared point, and all five web-app workload
-classes to appear. Phase 0 totals: 82 cases (31 executable, 9 difference, 6
-refusal, 36 pending), 9 fixtures. The digest and counts are in
+classes to appear. Phase 0 totals: 99 cases (47 executable, 9 difference, 13
+refusal, 30 pending), 11 fixtures. The digest and counts are in
 `datomic-q-v1.provenance.edn`.
 
 ## Regeneration and promotion procedure

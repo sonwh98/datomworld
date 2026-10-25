@@ -623,9 +623,14 @@ memoization.
   failures, never a silent empty or an endless traversal. Validation is
   limited to leaf/branch shape, equal key/address lengths with present
   addresses, keys strictly ordered under the pinned comparator, strictly
-  decreasing levels (leaves are 0), and child-maximum equality with the
+  decreasing levels (leaves are 0), child-maximum equality with the
   parent separator under the comparator (comparison equality, never
-  content identity). Occupancy, fill, balance and branching-factor key
+  content identity), and, across the traversal, strictly increasing
+  yielded keys (a cross-leaf check in addition to the intra-node ordering
+  and the separator equality; it is strict because persisted trees come
+  from sorted sets, which cannot hold comparator-equal elements, so the
+  check must neither be weakened nor extended to formats where
+  comparator-equal neighbors are legal). Occupancy, fill, balance and branching-factor key
   counts are builder policy and are **not** validated: roots,
   single-child spines and partial final chunks read fine.
 - A single-node reader, `dao.data.btree.storage/read-node-blob`, performs
@@ -794,8 +799,14 @@ groups and evaluate pull for every matching entity before returning
 twenty rows.
 
 The unselective three-fixed-position path falls back to
-`(seq (:eavt idx))` at baseline `query.cljc:526`. This walks the restored
-tree and resolves current state; it is not an indexed bounded page fetch.
+`(seq (:eavt idx))` at the pre-4b baseline `query.cljc:526`. This walks the
+restored tree and resolves current state; it is not an indexed bounded page
+fetch. Since Phase 4b, bounded calls over a checked published source
+execute that same unselective walk through `dao.data.btree.cursor`, one
+accounted transition and one bracketed node read at a time (the unbounded
+path is unchanged). The warning stands unchanged: the walk is still a full
+EAVT traversal with state resolution, not a bounded page fetch, and its
+cost grows with the index.
 
 Capacity planning must account for:
 

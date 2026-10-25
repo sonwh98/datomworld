@@ -94,10 +94,10 @@
 
 (def resource-blake3
   "BLAKE3 of datomic-q-v1.json's bytes, frozen at corpus review."
-  "a1c99136b1d87d1c93e336d9e8cb44142eea02d07b945a08703eeffe9771fa7b")
+  "73f92822b0db7abdd8933c9bb83adf5159e9938f75da48184e68088b875da456")
 
 
-(def expected-case-count 82)
+(def expected-case-count 99)
 
 
 ;; ==========================================================================
@@ -111,7 +111,7 @@
 
 (def ^:private implemented-comparisons
   "The comparison rules `same?` implements; keep in step with its case."
-  #{"exact" "unordered-coll" "unordered-nested" "row-count" "slice-size"})
+  #{"exact" "unordered-coll" "unordered-nested" "row-count" "slice-size" "numeric-value"})
 
 
 (def ^:private required-case-keys
@@ -311,6 +311,22 @@
     :else x))
 
 
+(defn- cell-same?
+  "Value agreement across hosts: two numerics agree when they compare equal in
+   exact numeric order (kind-loose, so an integral double equals the integer
+   on a host that cannot tell them apart); sets and sequences agree
+   structurally, everything else by =."
+  [a b]
+  (cond
+    (and (cbor/numeric? a) (cbor/numeric? b)) (zero? (cbor/num-compare a b))
+    (and (set? a) (set? b))
+    (and (= (count a) (count b))
+         (every? (fn [x] (some #(cell-same? x %) b)) a))
+    (and (sequential? a) (sequential? b))
+    (and (= (count a) (count b)) (every? true? (map cell-same? a b)))
+    :else (= a b)))
+
+
 (defn- same?
   "Apply the comparison rule named by the case."
   [rule expected actual]
@@ -319,6 +335,7 @@
     "unordered-coll" (= (frequencies expected) (frequencies actual))
     "unordered-nested" (= (norm-nested expected) (norm-nested actual))
     ("row-count" "slice-size") (= expected (count actual))
+    "numeric-value" (cell-same? expected actual)
     false))
 
 
