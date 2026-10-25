@@ -40,7 +40,7 @@
         (let [id (:dao.stream/identity (stream/descriptor claims-stream))
               record (evidence-record id (:dao.stream/cursor c) root)
               r (record-evidence! (evidence-datom record))]
-          (if (or (nil? r) (ok? r))
+          (if (and (some? r) (ok? r))
             {:evidence record}
             {:refused :yang.claims/evidence-failed, :outcome r}))
         {:refused :yang.claims/cursor-unavailable, :outcome c}))))
@@ -49,7 +49,11 @@
 (defn append-claims!
   "Append `claims` about `root` to the claims medium `claims-stream`.
    `ledger` is `{:find-evidence (fn [root] record-or-nil)
-                 :record-evidence! (fn [datom] ...)}`. When `root` has no
+                 :record-evidence! (fn [datom] outcome)}`.
+   `:find-evidence` answers the earliest evidence record of `root` in ledger
+   order, or nil. `:record-evidence!` answers a successful dao.stream outcome
+   map (`{:dao.stream/outcome :dao.stream/ok}`) once the datom is published;
+   nil or any other outcome is refused as `:yang.claims/evidence-failed`. When `root` has no
    evidence record, mint the `:dao.stream/newest` cursor, record the evidence
    datom, then append the claims; otherwise just append them. Minting
    precedes the first claim, so the cursor is at or before it. Answers

@@ -31,6 +31,18 @@
       (is (= :refused (:status r)))
       (is (= :yang.claims/evidence-failed (:reason r)))
       (is (zero? (count-claims h)))))
+  (testing "a nil or unknown evidence outcome is refused, appending no claims"
+    (doseq [out [nil {} {:dao.stream/outcome :dao.stream/unknown}]]
+      (let [h (claims-stream)
+            r (claims/append-claims!
+                h
+                {:find-evidence (constantly nil),
+                 :record-evidence! (constantly out)}
+                :root
+                [{:c 1}])]
+        (is (= :refused (:status r)))
+        (is (= :yang.claims/evidence-failed (:reason r)))
+        (is (zero? (count-claims h))))))
   (testing "a recorded evidence appends the claims"
     (let [h (claims-stream)
           r (claims/append-claims!
