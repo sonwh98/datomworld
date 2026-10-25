@@ -67,8 +67,9 @@
 (ffi/defcfn ^:private c-layout-version "jolt_file_layout_version" [] :int32)
 
 
-;; native/jolt-file/jolt_file.c JOLT_FILE_LAYOUT
-(def ^:private layout 1)
+;; native/jolt-file/jolt_file.c JOLT_FILE_LAYOUT (2 since J4b: a J4a-built
+;; library is refused here, not at the first lock call)
+(def ^:private layout 2)
 
 
 (let [actual (c-layout-version)]
@@ -92,6 +93,19 @@
 (ffi/defcfn ^:private c-s32be-get "jolt_file_s32be_get" [:pointer :int64] :int32)
 (ffi/defcfn ^:private c-s32be-put "jolt_file_s32be_put" [:pointer :int64 :int32] :void)
 (ffi/defcfn ^:private c-strerror "jolt_file_strerror" [:int64 :pointer :int64] :int64)
+;; J4b (layout 2)
+(ffi/defcfn ^:private c-classify "jolt_file_classify"
+  [:pointer :int64 :int32] :int64 :blocking)
+(ffi/defcfn ^:private c-fclassify "jolt_file_fclassify" [:int64] :int64 :blocking)
+(ffi/defcfn ^:private c-fidentity "jolt_file_fidentity" [:int64 :pointer] :int64 :blocking)
+(ffi/defcfn ^:private c-open-excl "jolt_file_open_excl" [:pointer :int64] :int64 :blocking)
+(ffi/defcfn ^:private c-open-read "jolt_file_open_read" [:pointer :int64] :int64 :blocking)
+(ffi/defcfn ^:private c-lock "jolt_file_lock" [:int64] :int64 :blocking)
+(ffi/defcfn ^:private c-realpath "jolt_file_realpath"
+  [:pointer :int64 :pointer :int64] :int64 :blocking)
+(ffi/defcfn ^:private c-rename "jolt_file_rename"
+  [:pointer :int64 :pointer :int64] :int64 :blocking)
+(ffi/defcfn ^:private c-sync-dir "jolt_file_sync_dir" [:pointer :int64] :int64 :blocking)
 
 
 (def ^:private eintr (c-eintr))
@@ -330,3 +344,241 @@
       (when (and (neg? r) (not= r (- eintr)))
         (throw (io-error handle "close" (- r) {})))))
   nil)
+
+
+;; =============================================================================
+;; J4b: directory ownership, bounded reads, HEAD replacement
+;; =============================================================================
+
+;; dao.space.store.fs's :jolt arms call these. Its `held` registry, the
+;; refusal texts and the lock!/atomic-replace! sequences stay there; this is
+;; only the syscalls behind them.
+
+(defn- native-path
+  "path resolved against user.dir, as java.io.File does (see `open`)."
+  [path]
+  (.getAbsolutePath (java.io.File. ^String path)))
+
+
+(defn- fs-error
+  [operation path errno data]
+  (ex-info (str "dao.posix.file " operation " failed on " path ": "
+                (error-text errno) " (errno " errno ")")
+           (merge {:operation operation, :path path, :errno errno} data)))
+
+
+;; native/jolt-file/jolt_file.c JF_*
+(def ^:private kinds
+  {0 :absent, 1 :regular, 2 :directory, 3 :fifo, 4 :symlink, 5 :other})
+
+
+(defn classify
+  "What path names, as :absent, :regular, :directory, :fifo, :symlink or
+   :other: lstat without `follow?` (a symlink is :symlink, dangling or not),
+   stat with it (a dangling symlink is :absent). Any failure other than no
+   entry throws; it is never read as absence."
+  [path follow?]
+  (let [r (path-bytes! (native-path path) #(c-classify %1 %2 (if follow? 1 0)))]
+    (when (neg? r) (throw (fs-error (if follow? "stat" "lstat") path (- r) {})))
+    (kinds r)))
+
+
+;; Single system calls the J4b sequences make, through vars for the same
+;; test-only indirection as pread-once: the HEAD seam trace and the injected
+;; lock, rename and directory-sync failures redefine them.
+
+(defn- lock-once
+  [fd]
+  (c-lock fd))
+
+
+(defn- open-excl-once
+  [p n]
+  (c-open-excl p n))
+
+
+(defn- rename-once
+  [from to]
+  (path-bytes! from (fn [a n1] (path-bytes! to (fn [b n2] (c-rename a n1 b n2))))))
+
+
+(defn- sync-dir-once
+  [dir]
+  (path-bytes! dir c-sync-dir))
+
+
+(defn fidentity
+  "[st_dev st_ino] of the open descriptor fd (the O_CLOEXEC gate compares
+   descriptors by identity, never by number)."
+  [fd]
+  (with-native 16
+    (fn [out]
+      (let [r (c-fidentity fd out)]
+        (when (neg? r) (throw (fs-error "fstat" (str "fd " fd) (- r) {})))
+        (vec (ffi/read-array out :uint64 2))))))
+
+
+(defn lock-file!
+  "Open (creating) the lock file at path, close-on-exec, and take its
+   whole-file fcntl write lock without waiting. Answers the handle on
+   success, :held when another process holds the lock (EAGAIN/EACCES; this
+   handle is closed first, and only this one), and throws on any other
+   failure (closing this handle). The lock is released by close! of the
+   handle, exactly once: a record lock drops with the descriptor."
+  [path]
+  (let [fd (path-bytes! (native-path path) c-open)]
+    (when (neg? fd) (throw (fs-error "open" path (- fd) {})))
+    (let [h {:fd fd, :path path, :released (atom false)}
+          r (try (lock-once fd)
+                 (catch Throwable t (close! h) (throw t)))]
+      (cond
+        (zero? r) h
+        (= 1 r) (do (close! h) :held)
+        :else (do (close! h) (throw (fs-error "fcntl(F_SETLK)" path (- r) {})))))))
+
+
+(defn realpath
+  "The canonical path of an existing path (realpath)."
+  [path]
+  (with-native 4096
+    (fn [buf]
+      (let [r (path-bytes! (native-path path) #(c-realpath %1 %2 buf 4096))]
+        (when (neg? r) (throw (fs-error "realpath" path (- r) {})))
+        (text/utf8-decode (ffi/read-array buf r))))))
+
+
+(defn- read-to!
+  "pread from fd into buf[0, cap) until end of file or cap bytes: the count.
+   Short reads continue, EINTR retries, an error throws."
+  [path fd buf cap]
+  (loop [done 0]
+    (if (>= done cap)
+      done
+      (let [r (pread-once fd done buf done (- cap done))]
+        (cond
+          (pos? r) (recur (+ done r))
+          (zero? r) done
+          (= r (- eintr)) (recur done)
+          :else (throw (fs-error "pread" path (- r) {:read done})))))))
+
+
+(defn- with-read-descriptor
+  "(f fd) over path opened read-only, non-blocking and close-on-exec, the
+   descriptor rechecked by fstat: :not-regular unless it is a regular file.
+   Closed however f exits."
+  [path f]
+  (let [fd (path-bytes! (native-path path) c-open-read)]
+    (when (neg? fd) (throw (fs-error "open" path (- fd) {})))
+    (let [h {:fd fd, :path path, :released (atom false)}]
+      (try
+        (let [k (c-fclassify fd)]
+          (when (neg? k) (throw (fs-error "fstat" path (- k) {})))
+          (if (= :regular (kinds k)) (f fd) :not-regular))
+        (finally (close! h))))))
+
+
+(def ^:private max-bound
+  ;; the JVM arm reads (int (inc limit)) bytes: one more than the limit must
+  ;; fit a signed 32-bit count
+  2147483646)
+
+
+(defn read-bounded
+  "At most limit + 1 bytes of the regular file at path, as a fresh byte
+   array; :absent when no entry exists there (lstat); :not-regular for a
+   dangling symlink, a directory, a FIFO or anything else that is not a
+   regular file, decided by stat before the open and by fstat of the
+   non-blocking descriptor after it, so a FIFO never blocks. A symlink to a
+   regular file is followed."
+  [path limit]
+  (when-not (and (integer? limit) (<= 0 limit max-bound))
+    (throw (ex-info (str "read-bounded limit out of range: " limit)
+                    {:path path, :limit limit})))
+  (cond
+    (= :absent (classify path false)) :absent
+    (not= :regular (classify path true)) :not-regular
+    :else (let [cap (inc limit)]
+            (with-native cap
+              (fn [buf]
+                (with-read-descriptor path
+                  (fn [fd]
+                    (let [n (read-to! path fd buf cap)]
+                      (if (zero? n) (byte-array 0) (ffi/read-array buf n))))))))))
+
+
+(def ^:private text-chunk (* 64 1024))
+
+
+(defn read-all
+  "Every byte of the regular file at path (following a symlink), or :absent
+   when nothing is there (stat); :not-regular otherwise. Read to end of file
+   in bounded chunks."
+  [path]
+  (case (classify path true)
+    :absent :absent
+    :regular (with-native text-chunk
+               (fn [buf]
+                 (with-read-descriptor path
+                   (fn [fd]
+                     (loop [offset 0, acc (transient [])]
+                       (let [n (loop [done 0]
+                                 (if (>= done text-chunk)
+                                   done
+                                   (let [r (pread-once fd (+ offset done) buf done
+                                                       (- text-chunk done))]
+                                     (cond
+                                       (pos? r) (recur (+ done r))
+                                       (zero? r) done
+                                       (= r (- eintr)) (recur done)
+                                       :else (throw (fs-error "pread" path (- r)
+                                                              {:offset offset}))))))
+                             acc (if (pos? n)
+                                   (reduce conj! acc (ffi/read-array buf n))
+                                   acc)]
+                         (if (< n text-chunk)
+                           (byte-array (persistent! acc))
+                           (recur (+ offset n) acc))))))))
+    :not-regular))
+
+
+(defn write-new-synced!
+  "The HEAD temp, steps 1-3 of the replacement: create path exclusively
+   (O_CREAT | O_EXCL, mode 0666 under the umask, close-on-exec), write every
+   byte of bs (short writes continue, EINTR retries, zero progress throws),
+   fsync, then close with its outcome checked. The temp is left in place on
+   failure, as the other hosts leave theirs; nothing here renames."
+  [path bs]
+  (let [fd (path-bytes! (native-path path) open-excl-once)]
+    (when (neg? fd) (throw (fs-error "open(O_EXCL)" path (- fd) {})))
+    (let [h {:fd fd, :path path, :released (atom false)}
+          n (alength bs)]
+      (try
+        (when (pos? n)
+          (with-native n
+            (fn [buf]
+              (ffi/write-array buf bs)
+              (write-from! h buf 0 n))))
+        (sync! h)
+        (catch Throwable t
+          (try (close! h) (catch Throwable _ nil))
+          (throw t)))
+      (close! h))))
+
+
+(defn rename!
+  "rename(from, to), atomic within one directory: no copy-and-delete
+   fallback, so a cross-device rename fails."
+  [from to]
+  (let [r (rename-once (native-path from) (native-path to))]
+    (when (neg? r) (throw (fs-error "rename" from (- r) {:to to})))
+    nil))
+
+
+(defn sync-dir!
+  "Open the directory, fsync it, close it: a rename in it is then durable,
+   not merely visible. A failure throws; it is never read as a host without
+   directory sync."
+  [dir]
+  (let [r (sync-dir-once (native-path dir))]
+    (when (neg? r) (throw (fs-error "fsync(directory)" dir (- r) {})))
+    nil))
