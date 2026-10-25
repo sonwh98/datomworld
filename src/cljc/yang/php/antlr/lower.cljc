@@ -604,7 +604,7 @@
     (let [o (core/gen "o" n)
           pruned (app* 'php/path-unset (u/v o) (path-node (:path loc)))]
       (u/let1 o
-              (peek-var ctx (:var loc))
+              (read-var ctx (:var loc))
               (u/if-node (app* 'php/array? (u/v o))
                          (write-var ctx (:var loc) pruned)
                          pruned)))))

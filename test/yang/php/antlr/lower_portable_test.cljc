@@ -76,13 +76,11 @@
 
 (deftest portable-fixtures-test
   (doseq [[id form] packets/forms
-          :let [{:keys [out carrier diag uncaught]}
+          :let [{:keys [out carrier diag uncaught oracle]}
                 (first (filter #(= id (:id %)) programs/fixtures))
-                pk (h/packet form)]]
-    (if (or diag uncaught)
-      (let [r (h/run-packet-raw pk)]
-        (is (= out (:php/out r)) (name id))
-        (is (= (vec diag) (mapv (juxt :errno :message) (:php/diag r))) (name id))
-        (is (= uncaught (some-> (:php/uncaught r) (select-keys [:class :message])))
-            (name id)))
-      (is (= (or carrier out) (h/run-packet pk)) (name id)))))
+                r (h/run-packet-raw (h/packet form))]]
+    (is (not= :pending oracle) (name id))
+    (is (= (or carrier out) (:php/out r)) (name id))
+    (is (= (vec diag) (mapv (juxt :errno :message) (:php/diag r))) (name id))
+    (is (= uncaught (some-> (:php/uncaught r) (select-keys [:class :message])))
+        (name id))))

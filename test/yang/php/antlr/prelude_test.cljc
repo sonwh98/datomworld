@@ -155,13 +155,13 @@
               [8192 "Implicit conversion from float -1.5 to int loses precision"]]
              (diag r)))))
   (testing "an array key is a TypeError, worded for the operation"
-    (is (= "PHP Fatal error:  Uncaught TypeError: Illegal offset type"
+    (is (= "PHP Fatal error:  Uncaught TypeError: Cannot access offset of type array on array"
            (run '(php/array-key (php/empty-array)))))
-    (is (= "PHP Fatal error:  Uncaught TypeError: Illegal offset type in unset"
+    (is (= "PHP Fatal error:  Uncaught TypeError: Cannot unset offset of type array on array"
            (run '(php/path-unset (php/array-put (php/empty-array) 0 1)
                                  (php/vconj [] (php/empty-array))))))
     (is (= "NULL\n" (dump '(php/dim-peek :php/null (php/empty-array)))))
-    (is (= "PHP Fatal error:  Uncaught TypeError: Illegal offset type in isset or empty"
+    (is (= "PHP Fatal error:  Uncaught TypeError: Cannot access offset of type array in isset or empty"
            (run '(php/dim-peek (php/empty-array) (php/empty-array)))))))
 
 
@@ -275,8 +275,8 @@
     (is (= "int(1)\nint(2)\nNULL\nNULL\nNULL\nNULL\nNULL\nNULL\n" (:php/out r)))
     (is (= [[2 "Undefined array key \"y\""]
             [2 "Undefined array key 6"]
-            [2 "Trying to access array offset on value of type null"]
-            [2 "Trying to access array offset on value of type int"]]
+            [2 "Trying to access array offset on null"]
+            [2 "Trying to access array offset on int"]]
            (diag r))))
   (testing "string offsets"
     (let [r (run-raw '(do (php/var-dump (php/dim-get "abc" 1))

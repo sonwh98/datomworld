@@ -2,7 +2,7 @@
 
 Status: Designed 2026-10-17. Slices P1 and P2 (section 15) are implemented on
 the `yang.php.antlr` route (P2: arrays, key coercion, `foreach` by value, the
-core array builtins and sorting; oracle run and final gate pending, section
+core array builtins and sorting, oracle-verified against `php-8.3.35`, section
 17.3); later slices are unstarted, and the legacy `yang/php.cljc` frontend is
 still the installed one. Design by Fable (Lead
 System Architect seat); adversarial review by codex (gpt-6.1-sol) over a
@@ -101,16 +101,16 @@ duplication follows the engine (section 4).
 
 - **Reads.** A missing key warns (2) `Undefined array key "x"` or
   `Undefined array key 5` and answers null; an offset read on null, bool, int
-  or float warns `Trying to access array offset on value of type <type>`; a
+  or float warns `Trying to access array offset on <type|true|false>`; a
   string container answers the one byte at the offset (negative counts from the
   end), out of range warns `Uninitialized string offset N` and answers `""`.
   `$a[]` in read position is a compile error `Cannot use [] for reading`.
-- **`isset`/`empty` on a string container** coerce the offset silently, then
-  test the range: int itself; `true`, `false`, null as `1`, `0`, `0`; a float
-  by the cast seam (`php/to-int`, no deprecation, no "String offset cast"
-  warning, which belongs to reads); an integer-numeric string as that int;
-  anything else is not an offset (`isset` false, `empty` true). They never
-  diagnose.
+- **`isset`/`empty` on a string container** coerce the offset, then test the
+  range: int itself; `true`, `false`, null as `1`, `0`, `0` silently; a float
+  by the float-key seam (`php/float-key`, precision deprecation when
+  fractional, no "String offset cast" warning, which belongs to reads); an
+  integer-numeric string as that int; anything else is not an offset (`isset`
+  false, `empty` true).
 - **`unset` on a non-array**: a missing key or null at any level is a no-op;
   a string terminal is `Error "Cannot unset string offsets"`; int, float and
   `true` are `Error "Cannot unset offset in a non-array variable"`; `false`
@@ -1727,7 +1727,8 @@ would be `yrt`'s second consumer.
 +-----------------+------------------------------------------------------------+
 | array, plain    | `{:php/type :array :index {key slot} :order [key ...]      |
 |                 | :next-index n}` stored directly in its holder (section     |
-|                 | 4.2)                                                       |
+|                 | 4.2); `:next-index` is absent until the first integer key  |
+|                 | is written                                                 |
 +-----------------+------------------------------------------------------------+
 | array, instance | cell `{:php/type :arr :rc n :value <plain map> :deps       |
 |                 | #{keys} :iterators #{it} :ptr i}`, held through `{:php/arr |
@@ -2157,26 +2158,26 @@ decision B8.11).
 |                     | whole-array operations on           |                  |
 |                     | `$GLOBALS` refused                  |                  |
 +---------------------+-------------------------------------+------------------+
-| G-str-offset-write  | Engine: `$s[0] = 'x'` writes one   | restricted; P9   |
-| (C5, row 3)         | byte. Here: refused at run time    | (strings II)     |
-|                     | with `Error "string offset writes  |                  |
-|                     | are not supported yet"`; reads are |                  |
-|                     | in, and row 3's single-byte        |                  |
-|                     | in-range writes move with this gap |                  |
+| G-str-offset-write  | Engine: `$s[0] = 'x'` writes one    | restricted; P9   |
+| (C5, row 3)         | byte. Here: refused at run time     | (strings II)     |
+|                     | with `Error "string offset writes   |                  |
+|                     | are not supported yet"`; reads are  |                  |
+|                     | in, and row 3's single-byte         |                  |
+|                     | in-range writes move with this gap  |                  |
 +---------------------+-------------------------------------+------------------+
-| G-sort-flags        | Engine: `SORT_NATURAL`,            | restricted; P9   |
-|                     | `SORT_FLAG_CASE`,                  | (arrays II)      |
-|                     | `SORT_LOCALE_STRING`. Here:        |                  |
-|                     | refused with `Error "sort flag N   |                  |
-|                     | is not supported yet"`             |                  |
+| G-sort-flags        | Engine: `SORT_NATURAL`,             | restricted; P9   |
+|                     | `SORT_FLAG_CASE`,                   | (arrays II)      |
+|                     | `SORT_LOCALE_STRING`. Here:         |                  |
+|                     | refused with `Error "sort flag N    |                  |
+|                     | is not supported yet"`              |                  |
 +---------------------+-------------------------------------+------------------+
-| G-sort-inconsistent | Engine: `zend_sort` comparison     | restricted; none |
-| -cmp                | sequence for a user comparator     | scheduled; P3    |
-|                     | that is not antisymmetric after    | severity         |
-|                     | the bool retry. Here: the stable   |                  |
-|                     | merge sort's sequence; consistent  |                  |
-|                     | and bool comparators and all       |                  |
-|                     | built-in flags are unaffected      |                  |
+| G-sort-inconsistent | Engine: `zend_sort` comparison      | restricted; none |
+| -cmp                | sequence for a user comparator      | scheduled; P3    |
+|                     | that is not antisymmetric after     | severity         |
+|                     | the bool retry. Here: the stable    |                  |
+|                     | merge sort's sequence; consistent   |                  |
+|                     | and bool comparators and all        |                  |
+|                     | built-in flags are unaffected       |                  |
 +---------------------+-------------------------------------+------------------+
 | C14 `ArrayObject`,  | Engine: SPL wrappers sharing        | unsupported; an  |
 | `ArrayIterator`     | storage with an array by reference. | SPL slice        |

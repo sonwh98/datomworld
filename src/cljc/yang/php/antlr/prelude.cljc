@@ -1100,8 +1100,8 @@
                                           " to int loses precision")))
              n)))]
     [php/array-key2
-     ;; `msg` is the TypeError text of the calling operation
-     (fn [k msg]
+     ;; `prefix` and `suffix` frame the TypeError text of the calling operation
+     (fn [k prefix suffix]
        (let [kind (php/kind k)]
          (if (= kind :int) k
              (if (= kind :string)
@@ -1109,8 +1109,11 @@
                (if (= kind :float) (php/float-key k)
                    (if (= kind :bool) (if k 1 0)
                        (if (= kind :null) ""
-                           (php/throw-error "TypeError" msg))))))))]
-    [php/array-key (fn [k] (php/array-key2 k "Illegal offset type"))]
+                           (php/throw-error
+                             "TypeError"
+                             (data/str-concat prefix (php/type-name kind) suffix)))))))))]
+    [php/array-key
+     (fn [k] (php/array-key2 k "Cannot access offset of type " " on array"))]
     [php/array-has? (fn [arr k] (not (nil? (get (get arr :index) k))))]
     [php/array-get (fn [arr k] (get (get arr :index) k))]
     [php/array-set
@@ -1198,12 +1201,12 @@
                nil))))]
     [php/string-peek-int
      ;; the int an isset/empty offset stands for on a string, nil when none;
-     ;; bool, null and float coerce silently
+     ;; bool and null coerce silently, float uses the float-key seam
      (fn [k]
        (let [kind (php/kind k)]
          (if (= kind :bool) (php/to-int k)
              (if (= kind :null) (php/to-int k)
-                 (if (= kind :float) (php/to-int k)
+                 (if (= kind :float) (php/float-key k)
                      (php/string-offset-int k))))))]
     [php/string-char
      ;; the one-byte string of s at offset i (negative counts from the end),
@@ -1246,8 +1249,10 @@
              (if (= kind :obj)
                (php/throw-error "Error" "Cannot use object as array")
                (do (php/warn 2 (data/str-concat
-                                 "Trying to access array offset on value of type "
-                                 (php/type-name kind)))
+                                 "Trying to access array offset on "
+                                 (if (= kind :bool)
+                                   (if c "true" "false")
+                                   (php/type-name kind))))
                    :php/null))))))]
     [php/dim-peek
      ;; no diagnostic for a missing key or a non-array: null
@@ -1255,7 +1260,7 @@
        (let [kind (php/kind c)]
          (if (= kind :array)
            (let [v (get (get c :index)
-                        (php/array-key2 k "Illegal offset type in isset or empty"))]
+                        (php/array-key2 k "Cannot access offset of type " " in isset or empty"))]
              (if (nil? v) :php/null v))
            (if (= kind :string)
              (let [i (php/string-peek-int k)]
@@ -1311,7 +1316,7 @@
      (fn [c ks i]
        (let [kind (php/kind c)]
          (if (= kind :array)
-           (let [key (php/array-key2 (get ks i) "Illegal offset type in unset")]
+           (let [key (php/array-key2 (get ks i) "Cannot unset offset of type " " on array")]
              (if (= (+ i 1) (data/count ks))
                (php/array-unset c key)
                (let [child (get (get c :index) key)]
@@ -1436,14 +1441,18 @@
      (fn [v]
        (let [k (php/kind v)]
          (if (php/numk? k) (php/sub v 1)
-             (if (= k :null) :php/null
-                 (if (= k :bool) v
-                     (if (= k :string)
-                       (if (= v "")
-                         -1
-                         (let [r (php/numeric-string v)]
-                           (if (php/full-num? r) (php/sub (get r 1) 1) v)))
-                       (php/throw-error "TypeError" "Cannot decrement this value")))))))]
+             (if (= k :null)
+               (do (php/warn
+                     2
+                     "Decrement on type null has no effect, this will change in the next major version of PHP")
+                   :php/null)
+               (if (= k :bool) v
+                   (if (= k :string)
+                     (if (= v "")
+                       -1
+                       (let [r (php/numeric-string v)]
+                         (if (php/full-num? r) (php/sub (get r 1) 1) v)))
+                     (php/throw-error "TypeError" "Cannot decrement this value")))))))]
 
     ;; ---------------------------------------------------------------- functions
     [php/make-statics

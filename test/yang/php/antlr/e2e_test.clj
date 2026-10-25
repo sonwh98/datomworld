@@ -34,14 +34,13 @@
 
 
 (deftest fixtures-on-the-walker-test
-  (doseq [{:keys [id source out diag uncaught]} programs/fixtures]
-    (if (or diag uncaught)
-      (let [r (h/run-raw source)]
-        (is (= out (:php/out r)) (name id))
-        (is (= (vec diag) (mapv (juxt :errno :message) (:php/diag r))) (name id))
-        (is (= uncaught (some-> (:php/uncaught r) (select-keys [:class :message])))
-            (name id)))
-      (is (= out (h/run-walker source)) (name id)))))
+  (doseq [{:keys [id source out diag uncaught oracle]} programs/fixtures
+          :let [r (h/run-raw source)]]
+    (is (not= :pending oracle) (name id))
+    (is (= out (h/latin1->text (:php/out r))) (name id))
+    (is (= (vec diag) (mapv (juxt :errno :message) (:php/diag r))) (name id))
+    (is (= uncaught (some-> (:php/uncaught r) (select-keys [:class :message])))
+        (name id))))
 
 
 (deftest packets-match-source-test
