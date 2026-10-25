@@ -121,9 +121,11 @@
    anything else can fail."
   [n f]
   (let [p (ffi/alloc (max 1 n))]
+    ;; a null answer acquired nothing, so it is refused before the release
+    ;; is established, never handed to ffi/free (J4a review R4)
+    (when (ffi/null? p)
+      (throw (ex-info "jolt-file native allocation failed" {:bytes n})))
     (try
-      (when (ffi/null? p)
-        (throw (ex-info "jolt-file native allocation failed" {:bytes n})))
       (f p)
       (finally (ffi/free p)))))
 
