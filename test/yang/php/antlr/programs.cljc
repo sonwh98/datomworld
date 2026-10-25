@@ -6,7 +6,9 @@
    confirmed against a PHP 8.3 CLI, which must be provisioned before the
    slice lands (section 17.3). The tests compare `:out` byte for byte; an
    uncaught error ends the output with `PHP Fatal error:  Uncaught <class>:
-   <message>` and no path.")
+   <message>` and no path. A fixture with `:diag` (a vector of `[errno
+   message]`) or `:uncaught` (`{:class c :message m}`) is compared raw: `:out`
+   is then the unit's own output, without the fatal line.")
 
 
 (def fixtures
@@ -362,6 +364,114 @@
     :criterion "a raw NUL byte in a single-quoted string survives",
     :source (str "<?php echo strlen('a" "\u0000" "b'), '" "\u0000" "';"),
     :out (str "3" "\u0000"),
+    :oracle :pending}
+   {:id :arg-int-weak-mode,
+    :criterion "weak-mode int coercion of scalars to intdiv: truncation, deprecations, boundaries",
+    :source "<?php echo intdiv(1.0, 1); echo \"|\"; echo intdiv(1.5, 1); echo \"|\"; echo intdiv(-1.5, 1); echo \"|\"; echo intdiv(\"1.5\", 1); echo \"|\"; echo intdiv(\"1e3\", 1); echo \"|\"; echo intdiv(null, 1); echo \"|\"; echo intdiv(true, 1); echo \"|\"; echo intdiv(PHP_INT_MAX, 1); echo \"|\"; echo intdiv(PHP_INT_MIN, 1); echo \"|\"; echo intdiv(-9223372036854775808.0, 1); echo \"|\"; echo intdiv(9223372036854774784.0, 1);",
+    :out "1|1|-1|1|1000|0|1|9223372036854775807|-9223372036854775808|-9223372036854775808|9223372036854774784",
+    :diag [[8192 "Implicit conversion from float 1.5 to int loses precision"] [8192 "Implicit conversion from float -1.5 to int loses precision"] [8192 "Implicit conversion from float-string \"1.5\" to int loses precision"] [8192 "intdiv(): Passing null to parameter #1 ($num1) of type int is deprecated"]],
+    :oracle :pending}
+   {:id :arg-int-inf,
+    :criterion "intdiv rejects INF with a TypeError",
+    :source "<?php echo intdiv(INF, 1);",
+    :out "",
+    :diag [],
+    :uncaught {:class "TypeError", :message "intdiv(): Argument #1 ($num1) must be of type int, float given"},
+    :oracle :pending}
+   {:id :arg-int-neg-inf,
+    :criterion "intdiv rejects -INF with a TypeError",
+    :source "<?php echo intdiv(-INF, 1);",
+    :out "",
+    :diag [],
+    :uncaught {:class "TypeError", :message "intdiv(): Argument #1 ($num1) must be of type int, float given"},
+    :oracle :pending}
+   {:id :arg-int-nan,
+    :criterion "intdiv rejects NAN with a TypeError",
+    :source "<?php echo intdiv(NAN, 1);",
+    :out "",
+    :diag [],
+    :uncaught {:class "TypeError", :message "intdiv(): Argument #1 ($num1) must be of type int, float given"},
+    :oracle :pending}
+   {:id :arg-int-1e30,
+    :criterion "intdiv rejects 1e30 with a TypeError",
+    :source "<?php echo intdiv(1e30, 1);",
+    :out "",
+    :diag [],
+    :uncaught {:class "TypeError", :message "intdiv(): Argument #1 ($num1) must be of type int, float given"},
+    :oracle :pending}
+   {:id :arg-int-neg-1e30,
+    :criterion "intdiv rejects -1e30 with a TypeError",
+    :source "<?php echo intdiv(-1e30, 1);",
+    :out "",
+    :diag [],
+    :uncaught {:class "TypeError", :message "intdiv(): Argument #1 ($num1) must be of type int, float given"},
+    :oracle :pending}
+   {:id :arg-int-2-63,
+    :criterion "intdiv rejects 9.2233720368547758E+18 with a TypeError",
+    :source "<?php echo intdiv(9.2233720368547758E+18, 1);",
+    :out "",
+    :diag [],
+    :uncaught {:class "TypeError", :message "intdiv(): Argument #1 ($num1) must be of type int, float given"},
+    :oracle :pending}
+   {:id :arg-int-float-int-max,
+    :criterion "intdiv rejects (float)PHP_INT_MAX with a TypeError",
+    :source "<?php echo intdiv((float)PHP_INT_MAX, 1);",
+    :out "",
+    :diag [],
+    :uncaught {:class "TypeError", :message "intdiv(): Argument #1 ($num1) must be of type int, float given"},
+    :oracle :pending}
+   {:id :arg-int-string-1e30,
+    :criterion "intdiv rejects \"1e30\" with a TypeError",
+    :source "<?php echo intdiv(\"1e30\", 1);",
+    :out "",
+    :diag [],
+    :uncaught {:class "TypeError", :message "intdiv(): Argument #1 ($num1) must be of type int, string given"},
+    :oracle :pending}
+   {:id :arg-int-string-abc,
+    :criterion "intdiv rejects \"abc\" with a TypeError",
+    :source "<?php echo intdiv(\"abc\", 1);",
+    :out "",
+    :diag [],
+    :uncaught {:class "TypeError", :message "intdiv(): Argument #1 ($num1) must be of type int, string given"},
+    :oracle :pending}
+   {:id :arg-int-string-5-apples,
+    :criterion "intdiv rejects a leading-numeric string as the second argument",
+    :source "<?php echo intdiv(1, \"5 apples\");",
+    :out "",
+    :diag [],
+    :uncaught {:class "TypeError", :message "intdiv(): Argument #2 ($num2) must be of type int, string given"},
+    :oracle :pending}
+   {:id :arg-float-null,
+    :criterion "fmod(null) deprecates and is 0.0",
+    :source "<?php var_dump(fmod(null, 2));",
+    :out "float(0)
+",
+    :diag [[8192 "fmod(): Passing null to parameter #1 ($num1) of type float is deprecated"]],
+    :oracle :pending}
+   {:id :arg-float-string-2,
+    :criterion "fmod rejects a non-numeric string, second argument",
+    :source "<?php fmod(1, \"1x\");",
+    :out "",
+    :diag [],
+    :uncaught {:class "TypeError", :message "fmod(): Argument #2 ($num2) must be of type float, string given"},
+    :oracle :pending}
+   {:id :arg-float-string-1,
+    :criterion "fmod rejects a non-numeric string, first argument",
+    :source "<?php fmod(\"x\", 1);",
+    :out "",
+    :diag [],
+    :uncaught {:class "TypeError", :message "fmod(): Argument #1 ($num1) must be of type float, string given"},
+    :oracle :pending}
+   {:id :arg-int-handler,
+    :criterion "deprecations route through a user error handler",
+    :source "<?php function h($n, $s) { echo $n, \":\", $s, \";\"; return true; } set_error_handler('h'); echo intdiv(1.5, 1);",
+    :out "8192:Implicit conversion from float 1.5 to int loses precision;1",
+    :diag [],
+    :oracle :pending}
+   {:id :static-initializer-increment,
+    :criterion "a static cell is incremented after its initializer ran once",
+    :source "<?php function g() { echo 'init'; return 5; } function f() { static $n = g(); return ++$n; } echo f(), f();",
+    :out "init67",
     :oracle :pending}])
 
 

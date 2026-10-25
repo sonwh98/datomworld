@@ -689,8 +689,9 @@
            0))]
     [php/arg-int-float
      ;; zend_parse_arg_long_weak on a float h: NaN, INF and out of range are
-     ;; a TypeError naming the original value v; a fractional one truncates
-     ;; after a deprecation (`shown` is the number as PHP prints it)
+     ;; a TypeError (Zend's message names the type given, not the value; v is
+     ;; only classified); a fractional one truncates after a deprecation
+     ;; (`shown` is the number as PHP prints it)
      (fn [h v shown fname idx aname]
        (if (php/nan? h)
          (php/arg-type-error fname idx aname "int" v)

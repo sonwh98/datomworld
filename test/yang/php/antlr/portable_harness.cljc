@@ -88,10 +88,18 @@
           {:ast (nth batch root), :warnings (vec warnings)})))))
 
 
-(defn run-packet
-  "The rendered output of packet `pk` on the AST walker, or its diagnostics."
+(defn run-packet-raw
+  "The unit's value, `{:php/out :php/diag :php/uncaught}`, of packet `pk` on
+   the AST walker, or `{:diagnostics d}`."
   [pk]
   (let [{:keys [ast diagnostics]} (lower-through-stage pk)]
     (if diagnostics
       {:diagnostics diagnostics}
-      (render (vm/value (vm/eval (tu/create-vm {:modules (host-registry)}) ast))))))
+      (vm/value (vm/eval (tu/create-vm {:modules (host-registry)}) ast)))))
+
+
+(defn run-packet
+  "The rendered output of packet `pk` on the AST walker, or its diagnostics."
+  [pk]
+  (let [r (run-packet-raw pk)]
+    (if (:diagnostics r) r (render r))))

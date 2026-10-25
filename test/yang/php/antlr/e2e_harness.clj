@@ -52,6 +52,20 @@
           {:ast (nth batch root), :warnings (vec warnings)})))))
 
 
+(defn packet->form
+  "The nested form of a CST packet, spans dropped: `[:rule child ...]` for a
+   rule, `[\"TYPE\" \"text\"]` for a token. The inverse of
+   `portable-harness/packet`."
+  [{:yang.cst/keys [root nodes]}]
+  (letfn [(form
+            [id]
+            (let [{:keys [kind rule type text children]} (nth nodes id)]
+              (if (= :token kind)
+                [type text]
+                (into [(keyword rule)] (map form) children))))]
+    (form root)))
+
+
 (defn latin1->text
   "The UTF-8 text of the byte carrier `s`."
   [s]

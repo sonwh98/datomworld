@@ -6,15 +6,26 @@
   (:require
     [clojure.string :as str]
     [clojure.test :refer [deftest is testing]]
+    [yang.php.antlr.cst :as cst]
     [yang.php.antlr.e2e-harness :as h]
+    [yang.php.antlr.packets :as packets]
     [yang.php.antlr.programs :as programs]))
 
 
 (def ^:private vms [:ast-walker :semantic :stack :register])
 
 
+(defn- rendered
+  "The text `fixture` prints: `:out`, then the fatal line of an `:uncaught`."
+  [{:keys [out uncaught]}]
+  (str out
+       (when uncaught
+         (str "PHP Fatal error:  Uncaught " (:class uncaught) ": " (:message uncaught)))))
+
+
 (deftest ^:slow fixtures-on-every-vm-test
-  (doseq [{:keys [id source out]} programs/fixtures]
+  (doseq [{:keys [id source] :as fixture} programs/fixtures
+          :let [out (rendered fixture)]]
     (testing (name id)
       (let [results (h/run-php source)]
         (is (not (contains? results :diagnostics)) (pr-str results))
@@ -23,8 +34,20 @@
 
 
 (deftest fixtures-on-the-walker-test
-  (doseq [{:keys [id source out]} programs/fixtures]
-    (is (= out (h/run-walker source)) (name id))))
+  (doseq [{:keys [id source out diag uncaught]} programs/fixtures]
+    (if (or diag uncaught)
+      (let [r (h/run-raw source)]
+        (is (= out (:php/out r)) (name id))
+        (is (= (vec diag) (mapv (juxt :errno :message) (:php/diag r))) (name id))
+        (is (= uncaught (some-> (:php/uncaught r) (select-keys [:class :message])))
+            (name id)))
+      (is (= out (h/run-walker source)) (name id)))))
+
+
+(deftest packets-match-source-test
+  (doseq [[id form] packets/forms
+          :let [{:keys [source]} (first (filter #(= id (:id %)) programs/fixtures))]]
+    (is (= form (h/packet->form (cst/parse-source source))) (name id))))
 
 
 (defn- matrix-rows
@@ -180,61 +203,3 @@
     (is (= "NULL\nstring(1) \"h\"\n"
            (h/run-walker (str "<?php function h() {} var_dump(set_error_handler('h'));"
                               " var_dump(set_error_handler(null));"))))))
-
-
-(deftest argument-coercion-weak-mode-test
-  (doseq [[arg out diag uncaught]
-          [["1.0" "1" [] nil]
-           ["1.5" "1" [[8192 "Implicit conversion from float 1.5 to int loses precision"]] nil]
-           ["-1.5" "-1" [[8192 "Implicit conversion from float -1.5 to int loses precision"]] nil]
-           ["\"1.5\"" "1"
-            [[8192 "Implicit conversion from float-string \"1.5\" to int loses precision"]] nil]
-           ["\"1e3\"" "1000" [] nil]
-           ["-9223372036854775808.0" "-9223372036854775808" [] nil]
-           ["null" "0" [[8192 "intdiv(): Passing null to parameter #1 ($num1) of type int is deprecated"]]
-            nil]
-           ["true" "1" [] nil]
-           ["INF" "" []
-            "intdiv(): Argument #1 ($num1) must be of type int, float given"]
-           ["NAN" "" []
-            "intdiv(): Argument #1 ($num1) must be of type int, float given"]
-           ["1e30" "" []
-            "intdiv(): Argument #1 ($num1) must be of type int, float given"]
-           ["-1e30" "" []
-            "intdiv(): Argument #1 ($num1) must be of type int, float given"]
-           ["\"1e30\"" "" []
-            "intdiv(): Argument #1 ($num1) must be of type int, string given"]
-           ["9.2233720368547758E+18" "" []
-            "intdiv(): Argument #1 ($num1) must be of type int, float given"]
-           ["(float)PHP_INT_MAX" "" []
-            "intdiv(): Argument #1 ($num1) must be of type int, float given"]]
-          :let [r (h/run-raw (str "<?php echo intdiv(" arg ", 1);"))]]
-    (testing arg
-      (is (= out (:php/out r)))
-      (is (= diag (mapv (juxt :errno :message) (:php/diag r))))
-      (is (= uncaught (-> r :php/uncaught :message)))))
-  (testing "arg-float: null deprecates and is 0.0; a non-numeric string is a TypeError"
-    (let [r (h/run-raw "<?php var_dump(fmod(null, 2));")]
-      (is (= "float(0)\n" (:php/out r)))
-      (is (= [[8192 "fmod(): Passing null to parameter #1 ($num1) of type float is deprecated"]]
-             (mapv (juxt :errno :message) (:php/diag r)))))
-    (is (= "fmod(): Argument #2 ($num2) must be of type float, string given"
-           (-> (h/run-raw "<?php fmod(1, \"1x\");") :php/uncaught :message))))
-  (testing "deprecations route through a user handler"
-    (is (= "8192:Implicit conversion from float 1.5 to int loses precision;1"
-           (:php/out (h/run-raw (str "<?php function h($n, $s) { echo $n, \":\", $s, \";\"; return true; }"
-                                     " set_error_handler('h'); echo intdiv(1.5, 1);")))))))
-
-
-(deftest typed-builtin-argument-coercion-test
-  (doseq [[source message]
-          [["<?php intdiv(\"abc\", 1);"
-            "intdiv(): Argument #1 ($num1) must be of type int, string given"]
-           ["<?php intdiv(1, \"5 apples\");"
-            "intdiv(): Argument #2 ($num2) must be of type int, string given"]
-           ["<?php fmod(\"x\", 1);"
-            "fmod(): Argument #1 ($num1) must be of type float, string given"]]]
-    (let [r (h/run-raw source)]
-      (is (= "TypeError" (-> r :php/uncaught :class)) source)
-      (is (= message (-> r :php/uncaught :message)) source)))
-  (is (= "3" (:php/out (h/run-raw "<?php echo intdiv(\"7\", \"2\");")))))
