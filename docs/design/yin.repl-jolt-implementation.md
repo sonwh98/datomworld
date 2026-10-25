@@ -427,6 +427,12 @@ paths and helper sources from production and test classpaths.
 | Store (`dao.space.store.fs`)   | OS adapter, not slurp/spit emulation: exclusive locks, same-process duplicate-open tracking, complete temp writes,      | J4          |
 |                                | fsync, atomic same-directory HEAD rename, directory-sync capability or refusal. Kill/restart, competing-process,        |             |
 |                                | stale-temp and failure-injection fixtures gate completion.                                                              |             |
+|                                | J4b: `:jolt` arms over `dao.posix.file` (native/jolt-file layout 2): a whole-file fcntl(F_SETLK) write lock,            |             |
+|                                | close-on-exec, the JVM's and Dart's lock family; the journal's `:lock-kind` reads the `:clj` arm (`:os-lock`, correct   |             |
+|                                | for fcntl, no edit); `directory-sync-supported?` is declared true on jolt, and a directory-sync error fails the         |             |
+|                                | replacement (never flips the capability); the HEAD temp is O_EXCL, mode 0666 & ~umask; bounded reads classify, open     |             |
+|                                | O_NONBLOCK and recheck by fstat; strict UTF-8 via `text.jolt`. Node/OS-lock mixed ownership is the known-gaps P2 row,   |             |
+|                                | not claimed.                                                                                                            |             |
 +--------------------------------+-------------------------------------------------------------------------------------------------------------------------+-------------+
 | Signing (`yin.vm.linker.sign`) | libcrypto EVP Ed25519 with raw 32-byte seeds/keys, detached signatures and the exact existing message bytes             | J4          |
 |                                | (`sign.cljc:69,90,127-197`). RFC 8032 and envelope vectors (`sign_test.cljc:29-35`, `sign_vectors.edn`), bidirectional  |             |
