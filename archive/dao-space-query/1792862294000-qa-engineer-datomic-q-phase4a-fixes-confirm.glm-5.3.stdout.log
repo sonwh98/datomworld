@@ -1,0 +1,18 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+All five items verified resolved (read-only; every suite re-run firsthand):
+
+**(A) Trampoline — RESOLVED per r4.** `max-bounded-rule-depth`/`:rule-depth-limit` grep-clean (0 hits across src+tests); the trampoline landed (query.cljc:412 "explicit execution frames", 17 bounce/run-comp sites); the four stack-safety deftests are present exactly as described (fresh-value beyond the former ~330-level overflow, mutual ping/pong, many-bindings/deep-chains, nested-evaluation incl. witness-at-depth and the infinite-alternative first-witness case). Execution suite ran **39 tests / 246 assertions / 0 failures** firsthand. The amended contract's stack-safety paragraph is transcribed (:499–502).
+
+**(B) Per-host clock smoke — RESOLVED.** `real-clock-smoke` is now unguarded (datomic_execution_test.cljc:203, runs JVM+Node+Dart: adjacent-reading checks + 60s-timeout query); the JVM-only nanoTime margin test is split out and guarded (:214–216); the machinery smoke stays JVM-only as allowed.
+
+**(C) Corpus — RESOLVED.** `bounds.published-source-refused` exists (pending, documented-difference, E12) with the *right* honesty — "no Client counterpart… nothing to measure against the oracle" (it correctly does not masquerade as an oracle case); counts 82/36 confirmed by jq; digest `a4983d69…` pinned exactly 1× in the test literal + 1× in provenance; `3b20589f` survives only in the `:authored` superseded line.
+
+**(D) Gates — noted as orchestrator-reproduced** (clj 413/0, cljs 407/0, cljd 407/0; downstream 232/38,925 with query-test 304/39,207). My JVM-side numbers (72/282 unchanged, 29/222, 39/246, 18/172, conformance 17/41 — all 0 failures, exit 0) match the claims exactly and are consistent with the reported gate composition.
+
+**(E) E13 — RESOLVED.** Routes the pre-existing `realize-st` relation-slot laxness to Phase 2 explicitly, "no code changed here and no corpus case pins it" — the correct disposition for a non-4a regression.
+
+**Honest residual — accepted.** Per-step frame allocation (~18–20s execution suite) is a disclosed performance cost, not a correctness issue; pattern parsing and pull nesting remain bounded recursion over the *query text's* own depth, which is finite by construction and (for string queries) pre-bounded by the 64-depth/100k scanner. No hidden unbounded stack remains in kernel evaluation.
+
+**Verdict: ENDORSE** — Phase 4a is cleared to land: the r4 trampoline replaces the depth heuristic with structured exhaustion at constant host stack, all five suites reproduce exactly, both landing-condition gates are reproduced, and the residual costs are disclosed and bounded.

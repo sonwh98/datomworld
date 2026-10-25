@@ -1,0 +1,30 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+Plan skeleton is drafted. Three Explore agents are now mapping (1) the eight deliverable files, (2) the contract docs + cbor-v1 precedent, and (3) the core `query.cljc` behavior the errata claims rest on. Once they report back I'll read the critical files myself, finalize the review-execution plan, and present it for approval.
+
+Errata verification is folded in — six of the eight errata claims traced to matching code paths, with E6 left for a firsthand read. Still waiting on the contract/precedent explorer before I can finalize the coverage cross-check step and present the plan.
+
+ExitPlanMode isn't available in this harness (confirmed by tool search), so here is the plan summary for approval — the full detail lives in the plan file at `/Users/sto/.claude-glm/plans/read-collab-1792844888000-qa-engineer-da-tingly-magpie.md`.
+
+## Plan summary: adversarial QA review of the datomic-q-v1 Phase 0 slice
+
+**Context.** The orchestrator's prompt (`collab/1792844888000-…review.prompt.md`) asks for a read-only, family-independent verification of the claude-opus-5-5 Phase 0 deliverables (corpus + README/errata/provenance + fixtures + conformance test + oracle runner + `deps.edn` alias) against `docs/design/dao.space.query.datomic-compat.md` and the cbor-v1 precedent. My response text is the deliverable — no repo files get edited.
+
+**What exploration already established** (3 Explore agents + my own jq recounts):
+
+- **Digest pinning is real and tamper-evident**: literal pinned in both test (:95–97) and provenance (:9–10); the test recomputes BLAKE3 over the resource bytes (:262–269), so editing the corpus without re-digesting fails the run. Counting artifact resolved — cases-only classification is 43/17/13/7 = 80; the explorers had summed cases + points.
+- **Honesty signals check out structurally**: 0 `oracle-executed`, all 80 cases `oracle:"pending"`, executable expectations labelled DaoSpace-side pins, pending cases assert no expectations.
+- **Errata E1–E5, E7 all trace to matching code** in `query.cljc` @ f6856bbc (string query → `#{[]}`, `(min 2 ?a)` → `#{[nil]}`, etc.). E6 still needs a firsthand trace.
+- **Oracle cannot overwrite the frozen corpus** (`safe-output!` throws on any `/test/resources/` or `datomic-q-v1.json` path; writes only to `target/`).
+- **Coverage**: 28 corpus points map onto all 25 design-table rows + 2 finer-grained extras; five workload classes declared.
+
+**Open threads to adjudicate during execution** (candidate findings, severity TBD): missing `"slice-size"` branch in `same?` (latent, 4 pending cases), justification for the 5 clj-only cases, no post-run digest re-assert vs the cbor precedent's `use-fixtures` guard, the 7-vs-8 unverified classification/evidence skew.
+
+**Execution steps once approved**:
+1. Read all 8 deliverables + pull section of `query.cljc` firsthand.
+2. Adjudicate the candidate findings with file:line evidence; finish the 25-row coverage mapping via jq.
+3. Run: `mise exec -- clojure -M:test -n dao.space.datomic-query-conformance-test` (expect 16/39/0), clj-kondo over the three new files, an independent digest recompute in a separate `clojure` process (b3sum absent), and the `--backend unselected` oracle smoke (writes only to `target/`, no real backend, corpus untouched).
+4. Emit the mandated output block: `Completed-GMT` header, `P0-P3 | file:line | evidence | concrete fix` findings, commands run with outcomes, and one ENDORSE / ENDORSE WITH CHANGES / REJECT verdict line.
+
+Say the word and I'll execute the review.

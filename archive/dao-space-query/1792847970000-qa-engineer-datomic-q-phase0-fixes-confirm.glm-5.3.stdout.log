@@ -1,0 +1,14 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+All five findings verified resolved firsthand (read-only checks; the orchestrator's 17/41/0 run stands as the execution evidence):
+
+1. **`same?` slice-size — RESOLVED.** Branch at test:319 (`("row-count" "slice-size") (= expected (count actual))`), `implemented-comparisons` set at :111–113, integrity check at :176–178 rejects any case whose comparison isn't implemented, slice-size now also requires an integer expectation (:171), and `every-vocabulary-comparison-is-implemented` (:419–420) ties the vocabulary to the implemented set — the vocabulary can no longer drift from `same?`.
+2. **Pull-option re-encoding — RESOLVED.** All three cases now encode nested vectors (`[[:person/age :default 0]]` etc.); the re-pins match my own live probes exactly (`{:person/age 0, :db/id 4}`, `{:person/email ("a2@x"), :db/id 1}`; the alias pin `{n "Ken", :db/id 4}` is shape-consistent with my Ada probe); reclassified `unverified`+`pending` with honest reasons ("the core honors :default… Client pull acceptance is unmeasured"). `pull.limit-option` is clj-only citing E9 — justified, since the kept element is core enumeration order.
+3. **E9/E10 — RESOLVED.** E9 gives the missing rationale for both clj-only host reductions (reverse-attribute + limit-option: seq shape + enumeration order, other hosts unrun); E10 records the supersession without rewriting history, including the old digest `e129fd6a…9d43`. New digest `109f88d7…` pinned exactly once in the test (:97) and once in provenance (:10); the old hex survives only in E10. Case count still 80, status counts unchanged (31/9/6/34).
+4. **README oracle line — RESOLVED.** README:158 is now `clj -M:oracle -m dao.space.datomic-query-oracle --backend unselected`, the form I verified actually runs the oracle (77/3).
+5. **Post-run digest re-assert — RESOLVED.** test:425–440: JVM-gated `use-fixtures :once` re-asserts the pin after the whole namespace, with the CBOR precedent's rationale quoted.
+
+Nothing remains open; the follow-up is cleaner than my minimum ask (E10's supersession record is exactly right).
+
+**Verdict: ENDORSE** — all five findings are resolved with verified evidence, every claim in the fix round reproduced under my own checks, and the slice now meets Phase 0 acceptance with no open items.
