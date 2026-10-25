@@ -814,6 +814,9 @@
          :supported [:manual :fn]}))))
 
 
+(declare selected-primitives)
+
+
 (defn create-state
   "Create the shell value.  `:primitives` is a host-supplied map merged over
    the REPL primitives; it is kept as `:extra-primitives` so every session
@@ -954,7 +957,10 @@
                                            :write-heads! write-heads!})
                            (store/open index-store-spec)))]
      (merge
-       (update (make-session vm-type output-stream primitives shell-token
+       (update (make-session vm-type output-stream
+                             (merge (selected-primitives frontends lang)
+                                    primitives)
+                             shell-token
                              index-store link-source)
                :indexer index/rehydrate (:recovery index-store))
        {:lang lang
@@ -1699,6 +1705,28 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
     :else (frontend/refused :yang.frontend/unknown {:id lang})))
 
 
+(defn- selected-primitives
+  "The `:primitives` the binding selected by `lang` registers, else {}.
+   A language's primitives belong to its binding; the primitives of
+   unselected languages are never merged into the session."
+  [catalog lang]
+  (or (:primitives (:binding (select-frontend catalog lang))) {}))
+
+
+(defn- switch-lang
+  "Select `lang`: its binding's primitives replace the previous binding's
+   in the live VM (host `:extra-primitives` stay over them), and the
+   frontend session is dropped."
+  [state lang]
+  (let [new (selected-primitives (:frontends state) lang)]
+    (-> state
+        (assoc :lang lang :frontend-session nil)
+        (assoc-in [:vm :primitives]
+                  (merge (make-repl-primitives (:output-stream state))
+                         new
+                         (:extra-primitives state))))))
+
+
 (defn- usable-binding
   "The binding of a successful `selected`, when it has a parse and a lower
    stage, else nil."
@@ -1806,7 +1834,9 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
   [state vm-type]
   (merge state
          (cond-> (make-session vm-type (:output-stream state)
-                               (:extra-primitives state)
+                               (merge (selected-primitives (:frontends state)
+                                                           (:lang state))
+                                      (:extra-primitives state))
                                (:shell-token state)
                                (:index-store state)
                                (:link-source state))
@@ -1876,7 +1906,7 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
                          (pr-str (vec (keys vm-constructors))))]))
       lang (let [lang (first args)]
              (if (usable-binding (select-frontend (:frontends state) lang))
-               [(assoc state :lang lang)
+               [(switch-lang state lang)
                 (str "Switched to " lang)]
                [state (str "Error: unavailable-parser: Yin REPL language "
                            (pr-str lang) " is not in the frontend catalog; "

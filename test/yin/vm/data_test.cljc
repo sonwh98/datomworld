@@ -358,7 +358,9 @@
   (is (= #{'count 'nth 'contains? 'dissoc 'disj 'peek 'pop 'subvec 'hash-set
            'into 'str-concat 'str-length 'substring 'str-index-of 'str-split
            'str-join 'char-at 'str->code-points 'code-points->str
-           'str-compare 'number? 'float64 'float-value 'content= 'callable?}
+           'str-compare 'str-unit-length 'str-unit-at 'str-units 'units->str
+           'well-formed-utf16? 'number? 'float64 'float-value 'content=
+           'callable?}
          (set (keys data/data-module))
          (set (keys data/data-profiles))))
   (doseq [[sym profile] data/data-profiles]
@@ -566,3 +568,30 @@
       (is (= {:effect :vm/store-put, :key 'kd, :val 1} (vm/value result))
           (str k))
       (is (not (contains? (vm/store result) 'kd)) (str k)))))
+
+
+(deftest utf16-code-unit-exports-test
+  (let [s (call 'code-points->str [97 0x1F600])]
+    (testing "length and indexing are UTF-16 code units"
+      (is (= 2 (call 'str-length s)))
+      (is (= 3 (call 'str-unit-length s)))
+      (is (= [97 0xD83D 0xDE00] (call 'str-units s)))
+      (is (= 0xDE00 (call 'str-unit-at s 2)))
+      (is (= 0 (call 'str-unit-length ""))))
+    (testing "units->str round-trips well-formed units"
+      (is (= s (call 'units->str [97 0xD83D 0xDE00])))
+      (is (= "" (call 'units->str []))))
+    (testing "an unpaired surrogate is a refusal datum, not a string"
+      (is (= {::data/refusal :ill-formed-utf16} (call 'units->str [0xD800])))
+      (is (= {::data/refusal :ill-formed-utf16}
+             (call 'units->str [0xDE00 0xD83D]))))
+    (testing "well-formed-utf16?"
+      (is (true? (call 'well-formed-utf16? s)))
+      (is (true? (call 'well-formed-utf16? "")))
+      (is (false? (call 'well-formed-utf16? (call 'code-points->str [0xD800])))))
+    (testing "refusals"
+      (is (= (wrong-type 'str-unit-at 1 :integer) (refusal 'str-unit-at s "x")))
+      (is (= (wrong-type 'str-unit-length 0 :string)
+             (refusal 'str-unit-length nil)))
+      (is (= (wrong-type 'units->str 0 :code-units)
+             (refusal 'units->str [0x10000]))))))

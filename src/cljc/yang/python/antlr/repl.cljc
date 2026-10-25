@@ -91,7 +91,7 @@
         packet (cond-> packet
                  (not (contains? packet :yang.python.antlr/max-digits))
                  (assoc :yang.python.antlr/max-digits 4300))
-        _ (p/validate! packet)
+        _ (p/validate! packet {:diagnostic-ns "yang.python.antlr"})
         body (lower/lower-module-body packet nil true)
         main (u/let1 '%repl-body
                      (u/lam [lower/globals-sym lower/globals-fn-sym] body)

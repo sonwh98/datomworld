@@ -51,11 +51,9 @@
    invisible across a module boundary. Every key this prelude defines is
    in `py.sp`."
   (:require
-    [clojure.walk :as walk]
+    [yang.core.prelude :as core]
     [yang.python.antlr.prelude :as prelude]
-    [yang.python.antlr.uast :as u]
-    [yin.vm :as vm]
-    [yin.vm.module :as module]))
+    [yang.python.antlr.uast :as u]))
 
 
 (def profile
@@ -419,56 +417,36 @@
    resolved through the registry once `py` is linked, and stripping them
    would collide with this module's own bare keys."
   [sym]
-  (if (and (symbol? sym) (= "py.sp" (namespace sym)))
-    (symbol (name sym))
-    sym))
-
-
-(defn- strip-form
-  "A prelude-notation form with every symbol `strip`ped: references,
-   definition keys and quoted keys alike. Keywords, strings and the
-   keys of literal maps are untouched."
-  [form]
-  (walk/postwalk strip form))
+  (core/strip "py.sp" sym))
 
 
 (def ^:private module-definitions
   "The module's definition list: a `:py/uninit` placeholder for every
    runtime key, so each read of one is discharged by an unconditional
    module-level definition, then every definition, stripped."
-  (into (mapv (fn [k] [(strip k) :py/uninit]) runtime-keys)
-        (map (fn [[k form]] [(strip k) (strip-form form)]))
-        function-definitions))
+  (core/module-definitions "py.sp" :py/uninit runtime-keys function-definitions))
 
 
 (def module-uast
   "The module tree: one application whose operands define hooks, then
    deliver the pinned base prelude, applied to a lambda returning nil.
    Every definition precedes every call, including require, so the
-   linker's scanners discharge sibling and runtime-key reads. A `then`
-   chain would nest definitions in closure bodies. Defining runs nothing;
-   delivery never initializes either runtime."
-  (let [nodes (conj (mapv (fn [[k form]] (u/def! k (u/sexp->uast form)))
-                          module-definitions)
-                    (u/sexp->uast '(require (quote py))))
-        params (mapv (fn [i] (symbol (str "%d" i))) (range (count nodes)))]
-    (u/mark-tails (apply u/app (u/lam params (u/lit nil)) nodes))))
+   linker's scanners discharge sibling and runtime-key reads. Defining
+   runs nothing; delivery never initializes either runtime."
+  (core/module-tree module-definitions [(u/sexp->uast '(require (quote py)))]))
 
 
 (def module-exports
   "The module's exports: every `py.sp/` key of the definition list,
    stripped. The two runtime keys are internal."
-  (set (keep (fn [[k _]] (when (= "py.sp" (namespace k)) (strip k)))
-             function-definitions)))
+  (core/exports "py.sp" function-definitions))
 
 
 (def ^:private module-free-names
   "The names the module tree reads and does not define, sorted: the
    primitives, the host exports and the base prelude's `py/*` exports its
    manifest declares."
-  (vec (sort-by str
-                (remove (conj (prelude/defined-keys module-uast) 'yin/def)
-                        (prelude/free-names module-uast)))))
+  (core/free-name-vec module-uast))
 
 
 (defn module-spec
@@ -484,30 +462,13 @@
    none of these supplies is refused before anything is published. This
    namespace emits; it never publishes."
   [registry py-address]
-  {:name module-name,
-   :ast module-uast,
-   :exports module-exports,
-   :requires {prelude/module-name py-address},
-   :primitives
-   (into {}
-         (keep (fn [n]
-                 (cond
-                   ;; the requirement declares these; `into` skips the nil.
-                   ;; `module-name` is unqualified, so its name is the
-                   ;; namespace the requirement covers
-                   (= (name prelude/module-name) (namespace n)) nil
-                   :else (if-let [profile (vm/profile-of vm/primitives n)]
-                           [n profile]
-                           (if-let [address (module/host-export-profile registry n)]
-                             (let [entry (module/module-entry (:modules registry)
-                                                              (symbol (namespace n)))
-                                   f (get-in entry [:slice (symbol (name n))])]
-                               [n {:yin.k/profile address,
-                                   :yin.k/effects
-                                   (get (:callable-effects registry) f #{})}])
-                             (throw (ex-info
-                                      "the pysp module reads an undeclared name"
-                                      {:yang.python.antlr/refusal
-                                       :yang.python.antlr/undeclared-free,
-                                       :name n})))))))
-         module-free-names)})
+  (core/module-spec {:module-name module-name,
+                     :ast module-uast,
+                     :exports module-exports,
+                     :requires {prelude/module-name py-address},
+                     :free-names module-free-names,
+                     ;; the requirement declares names qualified by `py`
+                     :skip? (fn [n] (= (name prelude/module-name) (namespace n))),
+                     :registry registry,
+                     :message "the pysp module reads an undeclared name",
+                     :refusal-ns "yang.python.antlr"}))

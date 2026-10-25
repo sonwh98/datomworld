@@ -1,24 +1,17 @@
 (ns yang.python.antlr.publication
   "C4 slices I3 and I5 (docs/design/yang.antlr.md 8.5.6): a set of compiled Python
-   units published as linker modules.
-
-   A unit set publishes bottom-up. Each unit's static imports
-   (`lower/imported-module-names`, the requires `lower/module-packet`
-   hoists) order it after the units it imports, and each is published
-   pinning the manifest address of every import. Cyclic components are
-   bundled into one unit with lazy member bodies and thin member aliases
-   (ruling 9, I5), eliminating circular content pins.
+   units published as linker modules. The ordering, SCC bundling and publish
+   loop are `yang.core.publication`'s; this namespace supplies the Python
+   hooks: the imports `lower/imported-module-names` hoists, the
+   `lower/module-spec` and `lower/scc-module-specs` emitters, the I7 site
+   set, and no binder table.
    Name assertions stay the linker's (`yin.vm.linker.publish/assertion`
    and `name-envelopes`): this namespace publishes content, it signs
    nothing."
-  (:require [yang.python.antlr.lower :as lower]
+  (:require [yang.core.publication :as core]
+            [yang.python.antlr.lower :as lower]
             [yang.python.antlr.siteset :as siteset]
             [yin.vm.linker.publish :as publish]))
-
-
-(defn- refused
-  [reason data]
-  (merge {:status :refused, :reason reason} data))
 
 
 (defn- unit-imports
@@ -28,45 +21,18 @@
                                {:name name, :package? (boolean package?)}))
 
 
-(defn- components
-  "Kosaraju's two passes, with immutable search state. Members are sorted;
-   singleton components keep the old depth-first publication order."
-  [names imports]
-  (let [names-set (set names)
-        edges (into {} (map (fn [n] [n (filterv names-set (get imports n))])) names)
-        reverse-edges (reduce (fn [acc [n deps]]
-                                (reduce #(update %1 %2 (fnil conj []) n) acc deps))
-                              {} edges)]
-    (letfn [(finish
-              [acc n]
-              (if (contains? (:seen acc) n)
-                acc
-                (update (reduce finish (update acc :seen conj n) (get edges n))
-                        :order conj n)))
-            (collect
-              [acc n]
-              (if (contains? (:seen acc) n)
-                acc
-                (reduce collect (-> acc (update :seen conj n) (update :members conj n))
-                        (get reverse-edges n))))]
-      (let [finished (:order (reduce finish {:seen #{}, :order []} names))
-            partition (reduce (fn [acc n]
-                                (if (contains? (:seen acc) n)
-                                  acc
-                                  (let [r (collect {:seen (:seen acc), :members []} n)]
-                                    {:seen (:seen r),
-                                     :groups (conj (:groups acc) (vec (sort (:members r))))})))
-                              {:seen #{}, :groups []} (reverse finished))
-            group-of (into {} (mapcat (fn [g] (map #(vector % g) g))) (:groups partition))]
-        (letfn [(order-group
-                  [acc g]
-                  (if (contains? (:done acc) g)
-                    acc
-                    (let [deps (distinct (map group-of (mapcat edges g)))
-                          next (reduce order-group (update acc :done conj g)
-                                       (remove #{g} deps))]
-                      (update next :order conj g))))]
-          (:order (reduce order-group {:done #{}, :order []} (map group-of names))))))))
+(defn- config
+  [publish-fn]
+  {:imported-names unit-imports,
+   :module-spec (fn [registry {:keys [name package? packet]} py-address deps]
+                  (lower/module-spec registry packet
+                                     {:name name, :package? package?,
+                                      :py-address py-address, :deps deps})),
+   :scc-module-specs lower/scc-module-specs,
+   :site-set siteset/publish!,
+   :binder-table nil,
+   :refusal-ns "yang.python.antlr",
+   :publish-fn publish-fn})
 
 
 (defn publication-order
@@ -74,20 +40,7 @@
    Cyclic components appear as sorted member vectors in :order, one
    publication step per SCC. External imports must be in `published`."
   [units published]
-  (let [by-name (into {} (map (juxt :name identity)) units)
-        imports (into {} (map (juxt :name unit-imports)) units)
-        missing (some (fn [u]
-                        (some (fn [m]
-                                (when-not (or (contains? by-name m)
-                                              (contains? published m))
-                                  {:module m, :imported-by (:name u)}))
-                              (get imports (:name u))))
-                      units)]
-    (if missing
-      (refused :yang.python.antlr/unpublished-import missing)
-      {:status :ok,
-       :order (mapv #(if (= 1 (count %)) (first %) %)
-                    (components (mapv :name units) imports))})))
+  (core/publication-order (config publish/publish-module!) units published))
 
 
 (defn publish-units!
@@ -115,62 +68,4 @@
   ([handle registry py-address units published]
    (publish-units! handle registry py-address units published publish/publish-module!))
   ([handle registry py-address units published publish-fn]
-   (let [plan (publication-order units published)
-         by-name (into {} (map (juxt :name identity)) units)]
-     (if (= :refused (:status plan))
-       plan
-       (reduce
-         (fn [acc step]
-           (let [members (if (vector? step) step [step])
-                 known (merge published (:addresses acc))
-                 deps (select-keys known
-                                   (mapcat #(unit-imports (get by-name %)) members))
-                 specs (if (vector? step)
-                         (lower/scc-module-specs registry (mapv by-name members)
-                                                 py-address deps)
-                         [(lower/module-spec registry (:packet (get by-name step))
-                                             {:name step,
-                                              :package? (:package? (get by-name step)),
-                                              :py-address py-address, :deps deps})])
-                 bundle (first specs)
-                 result (publish-fn handle bundle)
-                 sited (fn [acc k r]
-                         ;; a handle with no byte store (a stub publisher)
-                         ;; has nowhere to put a set; a backend failure is
-                         ;; a refusal, not a throw
-                         (if-not (:put-bytes-fn handle)
-                           acc
-                           (try (assoc-in acc [:sites k]
-                                          (siteset/publish! handle (:address r)
-                                                            (:ast bundle)))
-                                (catch #?(:cljd Object :clj Exception :cljs :default) e
-                                  (reduced
-                                    (refused :yang.python.antlr/site-set-unpublished
-                                             {:unit k,
-                                              :message (ex-message e)}))))))]
-             (if (= :refused (:status result))
-               (reduced (assoc result :unit (if (vector? step) (str (:name bundle)) step)))
-               (if (vector? step)
-                 ;; a member alias holds no marks: the marks live in the
-                 ;; bundle, so the bundle alone carries a site set and an
-                 ;; alias import under a hook profile is refused as having none
-                 (let [base (-> acc
-                                (assoc-in [:bundles (:name bundle)] (:address result))
-                                (sited (:name bundle) result))]
-                   (if (reduced? base)
-                     base
-                     (let [aliases (reduce (fn [a [n spec]]
-                                             (let [r (publish-fn
-                                                       handle (assoc spec :requires
-                                                                     {(:name bundle) (:address result)}))]
-                                               (if (= :refused (:status r))
-                                                 (reduced (assoc r :unit n))
-                                                 (assoc-in a [:addresses n] (:address r)))))
-                                           base
-                                           (map vector members (rest specs)))]
-                       (if (= :refused (:status aliases)) (reduced aliases) aliases))))
-                 (-> acc
-                     (assoc-in [:addresses step] (:address result))
-                     (sited step result))))))
-         {:status :ok, :addresses {}, :bundles {}}
-         (:order plan))))))
+   (core/publish-units! (config publish-fn) handle registry py-address units published)))

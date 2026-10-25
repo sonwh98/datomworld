@@ -167,11 +167,16 @@
                                 {:event (:yang.source/event event)})]]])))))
 
 
+(def default-diagnostic-ns
+  "The diagnostic namespace of a caller that names none."
+  "yang.cst")
+
+
 (defn- malformed!
-  [message data]
+  [diagnostic-ns message data]
   (throw (ex-info message
-                  (merge {:yang.python.antlr/diagnostic
-                          :yang.python.antlr/malformed-cst}
+                  (merge {(keyword diagnostic-ns "diagnostic")
+                          (keyword diagnostic-ns "malformed-cst")}
                          data))))
 
 
@@ -419,12 +424,14 @@
   "Return the packet when it keeps the contract (`violations`); otherwise
    throw a qualified malformed-cst error carrying the first violation and
    all of them. Without `opts` the check is structural; with `:source` it is
-   source-aware."
+   source-aware. The error's diagnostic is `<ns>/malformed-cst` under the
+   caller's `:diagnostic-ns` (`default-diagnostic-ns` when it names none)."
   ([packet] (validate! packet nil))
   ([packet opts]
    (let [bad (violations packet opts)]
      (when (seq bad)
-       (malformed! (str "CST packet violates its contract: "
+       (malformed! (get opts :diagnostic-ns default-diagnostic-ns)
+                   (str "CST packet violates its contract: "
                         (name (:violation (first bad))))
                    (assoc (select-keys (first bad) [:id :error])
                           :violations bad)))

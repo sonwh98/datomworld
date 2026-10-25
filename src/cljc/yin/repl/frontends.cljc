@@ -74,6 +74,7 @@
                       {:parse (fn [source]
                                 (python.antlr.parser/parse-source (str source "\n"))),
                        :lower python.antlr.repl/lower,
+                       :primitives python.antlr.repl/primitives,
                        :lower-session python.antlr.repl/lower-session,
                        :render python.antlr.repl/display-value,
                        :probe python.antlr.probe/probe})]
@@ -83,6 +84,7 @@
                          {:parse (fn [source]
                                    (python.antlr.parser/parse-source (str source "\n"))),
                           :lower python.antlr.repl/lower,
+                          :primitives python.antlr.repl/primitives,
                           :lower-session python.antlr.repl/lower-session,
                           :render python.antlr.repl/display-value,
                           :probe python.antlr.probe/probe})])))
@@ -90,12 +92,8 @@
 
 (defn create-state
   "`yin.repl/create-state` composed with the standard catalog unless the
-   host supplies its own `:frontends`."
+   host supplies its own `:frontends`.  Each binding registers its own
+   `:primitives`; none is merged ambiently."
   ([] (create-state {}))
   ([opts]
-   (repl/create-state
-     (-> opts
-         (update :frontends #(or % (standard)))
-         (update :primitives #?(:cljd #(merge python.antlr.repl/primitives %)
-                                :jolt identity
-                                :default #(merge python.antlr.repl/primitives %)))))))
+   (repl/create-state (update opts :frontends #(or % (standard))))))
