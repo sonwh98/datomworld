@@ -1718,14 +1718,13 @@ Hint: If you wanted to evaluate these datoms as data, use a quote: '[[...]]"
    in the live VM (host `:extra-primitives` stay over them), and the
    frontend session is dropped."
   [state lang]
-  (let [old (selected-primitives (:frontends state) (:lang state))
-        new (selected-primitives (:frontends state) lang)]
+  (let [new (selected-primitives (:frontends state) lang)]
     (-> state
         (assoc :lang lang :frontend-session nil)
-        (update-in [:vm :primitives]
-                   #(merge (apply dissoc % (keys old))
-                           new
-                           (:extra-primitives state))))))
+        (assoc-in [:vm :primitives]
+                  (merge (make-repl-primitives (:output-stream state))
+                         new
+                         (:extra-primitives state))))))
 
 
 (defn- usable-binding

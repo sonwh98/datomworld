@@ -38,9 +38,11 @@
     (let [c (stream/cursor claims-stream stream/anchor-newest)]
       (if (ok? c)
         (let [id (:dao.stream/identity (stream/descriptor claims-stream))
-              record (evidence-record id (:dao.stream/cursor c) root)]
-          (record-evidence! (evidence-datom record))
-          {:evidence record})
+              record (evidence-record id (:dao.stream/cursor c) root)
+              r (record-evidence! (evidence-datom record))]
+          (if (or (nil? r) (ok? r))
+            {:evidence record}
+            {:refused :yang.claims/evidence-failed, :outcome r}))
         {:refused :yang.claims/cursor-unavailable, :outcome c}))))
 
 

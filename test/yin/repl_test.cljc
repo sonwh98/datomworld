@@ -811,25 +811,37 @@
 
 
 (defn- toy-state
-  []
-  (repl.frontends/create-state
-    {:frontends (frontend/install
-                  (repl.frontends/standard)
-                  {:yang.frontend/id :yang/toy,
-                   :yang.frontend/spi 1,
-                   :yang.frontend/revision "t1",
-                   :yang.frontend/language :toy,
-                   :yang.frontend/grammar {:yang.grammar/package "none",
-                                           :yang.grammar/entries {:module "program"},
-                                           :yang.grammar/export-profile :yang.cst/v1},
-                   :yang.frontend/options-schema :segment/none,
-                   :yang.frontend/lowering-profile :segment/legacy,
-                   :yang.frontend/runtime-profile :segment/legacy,
-                   :yang.frontend/support-profile :segment/legacy}
-                  {:input :forms,
-                   :parse identity,
-                   :lower first,
-                   :primitives {'toy/prim (fn [& _] :toy)}})}))
+  ([] (toy-state {'toy/prim (fn [& _] :toy)}))
+  ([prims]
+   (repl.frontends/create-state
+     {:frontends (frontend/install
+                   (repl.frontends/standard)
+                   {:yang.frontend/id :yang/toy,
+                    :yang.frontend/spi 1,
+                    :yang.frontend/revision "t1",
+                    :yang.frontend/language :toy,
+                    :yang.frontend/grammar {:yang.grammar/package "none",
+                                            :yang.grammar/entries {:module "program"},
+                                            :yang.grammar/export-profile :yang.cst/v1},
+                    :yang.frontend/options-schema :segment/none,
+                    :yang.frontend/lowering-profile :segment/legacy,
+                    :yang.frontend/runtime-profile :segment/legacy,
+                    :yang.frontend/support-profile :segment/legacy}
+                   {:input :forms,
+                    :parse identity,
+                    :lower first,
+                    :primitives prims})})))
+
+
+(deftest leaving-a-shadowing-frontend-restores-the-base-primitive
+  (let [shadow (fn [& _] :shadowed)
+        state (toy-state {'println shadow})
+        [toy _] (repl/eval-input state "(lang :yang/toy)")
+        [back _] (repl/eval-input toy "(lang :yang/clojure)")]
+    (is (= shadow (get-in toy [:vm :primitives 'println])))
+    (is (fn? (get-in back [:vm :primitives 'println])))
+    (is (not= shadow (get-in back [:vm :primitives 'println]))
+        "the base println is restored, not dropped")))
 
 
 (defn- has-toy?

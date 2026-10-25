@@ -638,3 +638,32 @@
         (is (= [:yang.python.antlr/syntax]
                (mapv :yang.python.antlr/diagnostic diagnostics))
             src)))))
+
+
+(defn- stage-digits
+  "Run one parsed unit, merged with `packet-extra`, through a lowering stage
+   opened with `opts`."
+  [opts packet-extra]
+  (let [cst (tu/new-memory-log)
+        program (tu/new-memory-log)
+        diagnostics (tu/new-memory-log)
+        packet (merge (parser/parse-source (parser/make-worker)
+                                           [:u 1]
+                                           "x = 12345678\n")
+                      packet-extra)]
+    (stream/append! cst packet)
+    (lower/step-stage (lower/open-stage cst program diagnostics opts))
+    {:program (tu/drain program), :diagnostics (tu/drain diagnostics)}))
+
+
+(deftest stage-digit-budget-on-the-streaming-path-test
+  (testing "the stage's budget applies to a packet declaring none"
+    (let [{:keys [program diagnostics]} (stage-digits {:max-digits 5} {})]
+      (is (empty? program))
+      (is (= 1 (count diagnostics)))))
+  (testing "within budget lowers"
+    (is (= 1 (count (:program (stage-digits {:max-digits 50} {}))))))
+  (testing "the packet's own budget wins"
+    (is (= 1 (count (:program (stage-digits
+                                {:max-digits 5}
+                                {:yang.python.antlr/max-digits 50})))))))

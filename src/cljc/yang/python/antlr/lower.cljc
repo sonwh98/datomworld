@@ -2300,7 +2300,13 @@
    :program-medium program-medium,
    :ok? #(= :yang.cst/ok (:yang.cst/outcome %)),
    :lower (fn [state packet]
-            (lower-packet packet {:prelude (get state :prelude :bundled)})),
+            (lower-packet (if (and (contains? state :max-digits)
+                                   (not (contains? packet
+                                                   :yang.python.antlr/max-digits)))
+                            (assoc packet
+                                   :yang.python.antlr/max-digits (:max-digits state))
+                            packet)
+                          {:prelude (get state :prelude :bundled)})),
    :option-keys [:max-digits :prelude]})
 
 
@@ -2313,10 +2319,7 @@
   (core-stage/lower-transform
     stage-config
     state
-    (if (and (contains? state :max-digits)
-             (not (contains? packet :yang.python.antlr/max-digits)))
-      (assoc packet :yang.python.antlr/max-digits (:max-digits state))
-      packet)))
+    packet))
 
 
 (defn open-stage
