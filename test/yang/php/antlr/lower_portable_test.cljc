@@ -47,10 +47,10 @@
 
 (deftest unsupported-rule-names-its-construct-test
   (is (= {:yang.php/diagnostic :yang.php/unsupported,
-          :rule "foreachStatement",
-          :construct :foreach}
+          :rule "throwStatement",
+          :construct :throw}
          (diagnostic (h/packet [:htmlDocument
-                                [:phpBlock [:topStatement [:statement [:foreachStatement]]]]
+                                [:phpBlock [:topStatement [:statement [:throwStatement]]]]
                                 ["EOF" "<EOF>"]])))))
 
 

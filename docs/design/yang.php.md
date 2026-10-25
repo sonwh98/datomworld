@@ -1,8 +1,10 @@
 # yang.php: the PHP frontend
 
-Status: Designed 2026-10-17. Implementation pending: no part of this frontend
-is built, every slice in section 15 is unstarted, and the legacy
-`yang/php.cljc` frontend is still the installed one. Design by Fable (Lead
+Status: Designed 2026-10-17. Slices P1 and P2 (section 15) are implemented on
+the `yang.php.antlr` route (P2: arrays, key coercion, `foreach` by value, the
+core array builtins and sorting; oracle run and final gate pending, section
+17.3); later slices are unstarted, and the legacy `yang/php.cljc` frontend is
+still the installed one. Design by Fable (Lead
 System Architect seat); adversarial review by codex (gpt-6.1-sol) over a
 nine-round design loop that ended READY with sign-off granted. Section 20
 ("Design provenance") cites the loop.
@@ -86,11 +88,56 @@ duplication follows the engine (section 4).
   0; `null` becomes `""`; any other string stays a string.
 - `next-index` is one more than the largest integer key ever used and never
   decreases on unset; negative keys follow PHP 8.3's rule (next is max + 1).
-  `$a[] = v` appends at `next-index`.
-- Iteration follows `:order`. Unset splices `:order`. Nested arrays are nested
+  `$a[] = v` appends at `next-index`. The one decrement is `array_pop`, which
+  lowers it when the popped key was `next-index - 1`.
+- Iteration follows the key order (`php/array-keys`; the prelude's array
+  operations are the only code that reads `:index`, `:order` or `:next-index`).
+  Unset splices the order. Nested arrays are nested
   values: `$a['x']['y'] = 1` is one path update.
 - Large arrays cost one path copy per write; a packed-vector fast path is an
   attached optimizer's business, not the lowering's.
+
+#### 3.2.1 Reads, `isset`, `empty`, `unset` and builtins (P2)
+
+- **Reads.** A missing key warns (2) `Undefined array key "x"` or
+  `Undefined array key 5` and answers null; an offset read on null, bool, int
+  or float warns `Trying to access array offset on value of type <type>`; a
+  string container answers the one byte at the offset (negative counts from the
+  end), out of range warns `Uninitialized string offset N` and answers `""`.
+  `$a[]` in read position is a compile error `Cannot use [] for reading`.
+- **`isset`/`empty` on a string container** coerce the offset silently, then
+  test the range: int itself; `true`, `false`, null as `1`, `0`, `0`; a float
+  by the cast seam (`php/to-int`, no deprecation, no "String offset cast"
+  warning, which belongs to reads); an integer-numeric string as that int;
+  anything else is not an offset (`isset` false, `empty` true). They never
+  diagnose.
+- **`unset` on a non-array**: a missing key or null at any level is a no-op;
+  a string terminal is `Error "Cannot unset string offsets"`; int, float and
+  `true` are `Error "Cannot unset offset in a non-array variable"`; `false`
+  emits Deprecated (8192) `Automatic conversion of false to array is
+  deprecated` and stays `false`.
+- **Builtin protocol.** One table (`yang.php.antlr.builtins/supported`) feeds
+  the prelude registration and the lowering's by-reference positions. For a
+  call with `:by-ref` positions the lowering (1) binds each by-ref location's
+  keys at that argument's place in left-to-right order; (2) evaluates every
+  other argument left to right into temporaries (a non-location at a by-ref
+  position warns 8 `Only variables should be passed by reference`); (3)
+  immediately before the call, reads each by-ref location through its bound
+  keys and builds the argument vector; (4) calls; (5) writes each out back
+  through the same keys, in position order.
+- **`foreach` by value** iterates a snapshot (`php/foreach-array`, then
+  `php/array-keys` and `php/array-get`), so writes, `unset`, appends and
+  `sort` of the source in the body never change the iteration (the by-value
+  half of C15). A non-array warns and iterates nothing.
+- **Sorting** is one stable merge sort in the prelude (no host sort), with
+  flags `SORT_REGULAR`, `SORT_NUMERIC`, `SORT_STRING`; `r*` variants flip the
+  sign without reversing equal elements. A **bool** comparator is retried
+  swapped and emits Deprecated 8192 `usort(): Returning bool from comparison
+  function is deprecated, return an integer less than, equal to, or greater
+  than zero` once per call. Parity claim: `usort` with a bool comparator
+  `return $a > $b;` over `[3, 1, 2]` matches the CLI's order and emits the
+  deprecation exactly once per call. Stability is not parity for a comparator
+  that disagrees with itself (corner G-sort-inconsistent-cmp, section 17.2).
 
 ### 3.3 Scope
 
@@ -2109,6 +2156,27 @@ decision B8.11).
 |                     | Here: element writes supported;     |                  |
 |                     | whole-array operations on           |                  |
 |                     | `$GLOBALS` refused                  |                  |
++---------------------+-------------------------------------+------------------+
+| G-str-offset-write  | Engine: `$s[0] = 'x'` writes one   | restricted; P9   |
+| (C5, row 3)         | byte. Here: refused at run time    | (strings II)     |
+|                     | with `Error "string offset writes  |                  |
+|                     | are not supported yet"`; reads are |                  |
+|                     | in, and row 3's single-byte        |                  |
+|                     | in-range writes move with this gap |                  |
++---------------------+-------------------------------------+------------------+
+| G-sort-flags        | Engine: `SORT_NATURAL`,            | restricted; P9   |
+|                     | `SORT_FLAG_CASE`,                  | (arrays II)      |
+|                     | `SORT_LOCALE_STRING`. Here:        |                  |
+|                     | refused with `Error "sort flag N   |                  |
+|                     | is not supported yet"`             |                  |
++---------------------+-------------------------------------+------------------+
+| G-sort-inconsistent | Engine: `zend_sort` comparison     | restricted; none |
+| -cmp                | sequence for a user comparator     | scheduled; P3    |
+|                     | that is not antisymmetric after    | severity         |
+|                     | the bool retry. Here: the stable   |                  |
+|                     | merge sort's sequence; consistent  |                  |
+|                     | and bool comparators and all       |                  |
+|                     | built-in flags are unaffected      |                  |
 +---------------------+-------------------------------------+------------------+
 | C14 `ArrayObject`,  | Engine: SPL wrappers sharing        | unsupported; an  |
 | `ArrayIterator`     | storage with an array by reference. | SPL slice        |

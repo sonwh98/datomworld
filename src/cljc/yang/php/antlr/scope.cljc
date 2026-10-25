@@ -54,22 +54,40 @@
   (:text (first (filter #(p/token? %) (p/children pk n)))))
 
 
+(defn- chain-base
+  "The base variable of `chain`, sigil included: `$a` for `$a`, `$a[0][]`,
+   `$a{1}`; nil when the chain is not a variable with offsets."
+  [pk chain]
+  (when (p/rule? chain "chain")
+    (let [origin (first (p/children pk chain))
+          base (when (p/rule? origin "chainOrigin") (first (p/children pk origin)))
+          keyed (when (p/rule? base "chainBase") (first (p/children pk base)))
+          [v & offsets] (when (p/rule? keyed "keyedVariable") (p/children pk keyed))]
+      (when (and v
+                 (p/token? v)
+                 (= "VarName" (:type v))
+                 (every? #(p/rule? % "squareCurlyExpression") offsets))
+        (:text v)))))
+
+
 (defn- assign-targets
   "Variable names an assignment expression writes: the base variable of its
-   `assignable` chain."
+   `assignable` chain (`$a[k] = v` writes `$a`)."
   [pk n]
   (let [target (first (p/children pk n))]
     (when (p/rule? target "assignable")
-      (let [chain (first (p/children pk target))]
-        (when (p/rule? chain "chain")
-          (let [origin (first (p/children pk chain))
-                base (when (p/rule? origin "chainOrigin")
-                       (first (p/children pk origin)))
-                keyed (when (p/rule? base "chainBase")
-                        (first (p/children pk base)))
-                kids (when (p/rule? keyed "keyedVariable") (p/children pk keyed))]
-            (when (and (= 1 (count kids)) (= "VarName" (:type (first kids))))
-              [(:text (first kids))])))))))
+      (some-> (chain-base pk (first (p/children pk target))) vector))))
+
+
+(defn- foreach-targets
+  "Base variables a `foreach` writes: the value target and the key target."
+  [pk n]
+  (let [kids (p/children pk n)
+        after-arrow (rest (drop-while #(not (p/token? % "=>")) kids))]
+    (keep identity
+          (concat (map #(chain-base pk (first (p/children pk %)))
+                       (filter #(p/rule? % "assignable") kids))
+                  (map #(chain-base pk %) (filter #(p/rule? % "chain") after-arrow))))))
 
 
 (declare analyze-fn)
@@ -111,6 +129,10 @@
                       (reduce #(note-name %1 :assigned %2)
                               scope
                               (assign-targets pk k))
+                      "foreachStatement"
+                      (reduce #(note-name %1 :assigned %2)
+                              scope
+                              (foreach-targets pk k))
                       scope)
               scope (if (and (p/rule? k "keyedVariable")
                              (some #(p/token? % "$") (p/children pk k)))

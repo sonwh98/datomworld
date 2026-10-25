@@ -48,3 +48,23 @@
 (deftest function-vars-test
   (let [s (function-scope "<?php function f($a) { static $n = 0; $b = $a; echo $c; unset($d); }")]
     (is (= ["$a" "$n" "$b" "$c" "$d"] (:vars s)))))
+
+
+(deftest keyed-assignment-assigns-its-base-test
+  (is (= ["$a" "$b" "$c"]
+         (get-in (analysis "<?php $a['x'][0] = 1; $b[] = 2; $c{1} .= 3; echo $d[0];")
+                 [:unit :assigned]))))
+
+
+(deftest foreach-targets-are-assigned-test
+  (is (= ["$k" "$v"]
+         (get-in (analysis "<?php foreach ($s as $k => $v) { echo $k; }") [:unit :assigned])))
+  (is (= ["$o" "$p"]
+         (get-in (analysis "<?php foreach ($s as $o['x'] => $p[0]) {}") [:unit :assigned])))
+  (is (= ["$s" "$v"]
+         (:assigned (function-scope "<?php function f($s) { foreach ($s as $v) {} }")))))
+
+
+(deftest array-spread-is-a-read-test
+  (let [a (analysis "<?php $a = [1]; $b = [...$a, ...$c];")]
+    (is (= ["$a" "$b"] (get-in a [:unit :assigned])))))

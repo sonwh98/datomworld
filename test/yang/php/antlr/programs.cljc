@@ -472,7 +472,361 @@
     :criterion "a static cell is incremented after its initializer ran once",
     :source "<?php function g() { echo 'init'; return 5; } function f() { static $n = g(); return ++$n; } echo f(), f();",
     :out "init67",
-    :oracle :pending}])
+    :oracle :pending}
+   {:id :array-key-coercion,
+    :criterion "1, \"1\", 1.0 and true share a slot; non-canonical strings stay strings; null is \"\"",
+    :source "<?php $a = []; $a[1] = 'a'; $a['1'] = 'b'; $a[1.0] = 'c'; $a[true] = 'd'; $a['01'] = 'e'; $a['-0'] = 'f'; $a[null] = 'g'; $a[false] = 'h'; $a['-5'] = 'i'; $a[' 1'] = 'j'; $a['1.5'] = 'k'; var_dump($a);",
+    :out "array(8) {\n  [1]=>\n  string(1) \"d\"\n  [\"01\"]=>\n  string(1) \"e\"\n  [\"-0\"]=>\n  string(1) \"f\"\n  [\"\"]=>\n  string(1) \"g\"\n  [0]=>\n  string(1) \"h\"\n  [-5]=>\n  string(1) \"i\"\n  [\" 1\"]=>\n  string(1) \"j\"\n  [\"1.5\"]=>\n  string(1) \"k\"\n}\n",
+    :oracle :pending}
+   {:id :array-key-float-deprecation,
+    :criterion "a fractional float key truncates with a deprecation",
+    :source "<?php $a = []; $a[1.5] = 'x'; $a[-1.5] = 'y'; var_dump($a);",
+    :out "array(2) {\n  [1]=>\n  string(1) \"x\"\n  [-1]=>\n  string(1) \"y\"\n}\n",
+    :diag [[8192 "Implicit conversion from float 1.5 to int loses precision"] [8192 "Implicit conversion from float -1.5 to int loses precision"]],
+    :oracle :pending}
+   {:id :array-key-illegal-offset,
+    :criterion "an array as a key is a TypeError",
+    :source "<?php $a = []; $a[[]] = 1;",
+    :out "",
+    :diag [],
+    :uncaught {:class "TypeError", :message "Illegal offset type"},
+    :oracle :pending}
+   {:id :array-cow,
+    :criterion "a copy is unaffected by writes to the other, also through a parameter",
+    :source "<?php $a = [1, 2]; $b = $a; $b[] = 3; $b[0] = 9; var_dump($a, $b); function f($p) { $p[] = 1; return $p; } $x = [0]; $y = f($x); var_dump($x, $y);",
+    :out "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(3) {\n  [0]=>\n  int(9)\n  [1]=>\n  int(2)\n  [2]=>\n  int(3)\n}\narray(1) {\n  [0]=>\n  int(0)\n}\narray(2) {\n  [0]=>\n  int(0)\n  [1]=>\n  int(1)\n}\n",
+    :oracle :pending}
+   {:id :array-order-after-unset,
+    :criterion "order after unset and re-add; append never reuses a freed key",
+    :source "<?php $a = [0, 1, 2]; unset($a[1]); $a[1] = 9; var_dump($a); $a[] = 7; var_dump($a); $b = [0, 1, 2]; unset($b[2]); $b[] = 5; var_dump($b);",
+    :out "array(3) {\n  [0]=>\n  int(0)\n  [2]=>\n  int(2)\n  [1]=>\n  int(9)\n}\narray(4) {\n  [0]=>\n  int(0)\n  [2]=>\n  int(2)\n  [1]=>\n  int(9)\n  [3]=>\n  int(7)\n}\narray(3) {\n  [0]=>\n  int(0)\n  [1]=>\n  int(1)\n  [3]=>\n  int(5)\n}\n",
+    :oracle :pending}
+   {:id :array-next-index,
+    :criterion "the next-index family: negative first key, string keys, unset",
+    :source "<?php $a = []; $a[-5] = 1; $a[] = 2; var_dump($a); $b = [5 => 1]; $b[] = 2; $b['x'] = 3; $b[] = 4; var_dump($b); $c = [3 => 'a']; unset($c[3]); $c[] = 'b'; var_dump($c);",
+    :out "array(2) {\n  [-5]=>\n  int(1)\n  [-4]=>\n  int(2)\n}\narray(4) {\n  [5]=>\n  int(1)\n  [6]=>\n  int(2)\n  [\"x\"]=>\n  int(3)\n  [7]=>\n  int(4)\n}\narray(1) {\n  [4]=>\n  string(1) \"b\"\n}\n",
+    :oracle :pending}
+   {:id :array-next-index-saturated,
+    :criterion "an append after PHP_INT_MAX is an Error",
+    :source "<?php $d = [PHP_INT_MAX => 1]; $d[] = 2;",
+    :out "",
+    :diag [],
+    :uncaught {:class "Error", :message "Cannot add element to the array as the next element is already occupied"},
+    :oracle :pending}
+   {:id :array-eval-order,
+    :criterion "keys, then the right side, then the write; a compound key runs once",
+    :source "<?php function k($n) { echo \"k$n \"; return $n; } function v() { echo \"v \"; return 'V'; } $a = []; $a[k(1)][k(2)] = v(); echo \"|\"; $a[k(3)] .= v(); echo \"|\"; $a[k(4)]++; var_dump($a);",
+    :out "k1 k2 v |k3 v |k4 array(3) {\n  [1]=>\n  array(1) {\n    [2]=>\n    string(1) \"V\"\n  }\n  [3]=>\n  string(1) \"V\"\n  [4]=>\n  int(1)\n}\n",
+    :diag [[2 "Undefined array key 3"] [2 "Undefined array key 4"]],
+    :oracle :pending}
+   {:id :array-vivify-undefined,
+    :criterion "a write to an undefined or null variable creates the array silently",
+    :source "<?php $u[1][2] = 3; $n = null; $n['a'] = 1; $e = []; $e[][] = 1; var_dump($u, $n, $e);",
+    :out "array(1) {\n  [1]=>\n  array(1) {\n    [2]=>\n    int(3)\n  }\n}\narray(1) {\n  [\"a\"]=>\n  int(1)\n}\narray(1) {\n  [0]=>\n  array(1) {\n    [0]=>\n    int(1)\n  }\n}\n",
+    :oracle :pending}
+   {:id :array-vivify-false,
+    :criterion "a write to false creates the array with a deprecation",
+    :source "<?php $f = false; $f[] = 1; var_dump($f);",
+    :out "array(1) {\n  [0]=>\n  int(1)\n}\n",
+    :diag [[8192 "Automatic conversion of false to array is deprecated"]],
+    :oracle :pending}
+   {:id :array-write-scalar,
+    :criterion "a write to an int is an Error",
+    :source "<?php $i = 5; $i[0] = 1;",
+    :out "",
+    :diag [],
+    :uncaught {:class "Error", :message "Cannot use a scalar value as an array"},
+    :oracle :pending}
+   {:id :array-read-warnings,
+    :criterion "undefined key and offset-on-type warnings",
+    :source "<?php $a = ['x' => 1]; var_dump($a['y']); var_dump($a[3]); $n = null; var_dump($n[0]); $i = 5; var_dump($i['k']); $t = true; var_dump($t[0]); $f = 1.5; var_dump($f[0]); var_dump($u[0]);",
+    :out "NULL\nNULL\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+    :diag [[2 "Undefined array key \"y\""] [2 "Undefined array key 3"] [2 "Trying to access array offset on value of type null"] [2 "Trying to access array offset on value of type int"] [2 "Trying to access array offset on value of type bool"] [2 "Trying to access array offset on value of type float"] [2 "Undefined variable $u"] [2 "Trying to access array offset on value of type null"]],
+    :oracle :pending}
+   {:id :string-offset-read,
+    :criterion "string offset reads, negative offsets, isset",
+    :source "<?php $s = 'abc'; var_dump($s[0], $s[-1], $s['1']); echo $s[5]; var_dump(isset($s[1]), isset($s[5]), isset($s['x']), isset($s['1']), empty($s[0]));",
+    :out "string(1) \"a\"\nstring(1) \"c\"\nstring(1) \"b\"\nbool(true)\nbool(false)\nbool(false)\nbool(true)\nbool(false)\n",
+    :diag [[2 "Uninitialized string offset 5"]],
+    :oracle :pending}
+   {:id :string-offset-write,
+    :criterion "G-str-offset-write: string offset writes are refused",
+    :source "<?php $s = 'abc'; $s[0] = 'x';",
+    :out "",
+    :diag [],
+    :uncaught {:class "Error", :message "string offset writes are not supported yet (yang.php known gap G-str-offset-write)"},
+    :gap "G-str-offset-write",
+    :oracle :pending}
+   {:id :string-offset-peek,
+    :criterion "isset/empty on a string coerce bool, null and float offsets silently",
+    :source "<?php $s = 'abc'; var_dump(isset($s[true]), isset($s[false]), isset($s[null]), isset($s[1.0]), isset($s[1.5]), isset($s[-1]), isset($s[-4]), isset($s[3]), isset($s['1.5']), isset($s[' 1'])); $z = '0b'; var_dump(empty($z[true]), empty($z[0]), empty($s[true]));",
+    :out "bool(true)\nbool(true)\nbool(true)\nbool(true)\nbool(true)\nbool(true)\nbool(false)\nbool(false)\nbool(false)\nbool(true)\nbool(false)\nbool(true)\nbool(false)\n",
+    :diag [],
+    :oracle :pending}
+   {:id :array-spread-renumber,
+    :criterion "spread renumbers int keys",
+    :source "<?php $a = [5 => 'x', 7 => 'y']; var_dump([...$a]);",
+    :out "array(2) {\n  [0]=>\n  string(1) \"x\"\n  [1]=>\n  string(1) \"y\"\n}\n",
+    :oracle :pending}
+   {:id :array-spread-mixed,
+    :criterion "spread mixed with keys: string keys overwrite in place, int keys append",
+    :source "<?php $a = ['p', 'q']; var_dump([0, ...$a, 'k' => 1, ...['k' => 2, 3 => 'z']]);",
+    :out "array(5) {\n  [0]=>\n  int(0)\n  [1]=>\n  string(1) \"p\"\n  [2]=>\n  string(1) \"q\"\n  [\"k\"]=>\n  int(2)\n  [3]=>\n  string(1) \"z\"\n}\n",
+    :oracle :pending}
+   {:id :array-spread-nested,
+    :criterion "spread of empty and nested arrays",
+    :source "<?php var_dump([...[]]); var_dump([1, ...[[2, 3]], ...[[]]]);",
+    :out "array(0) {\n}\narray(3) {\n  [0]=>\n  int(1)\n  [1]=>\n  array(2) {\n    [0]=>\n    int(2)\n    [1]=>\n    int(3)\n  }\n  [2]=>\n  array(0) {\n  }\n}\n",
+    :oracle :pending}
+   {:id :array-spread-scalar,
+    :criterion "spreading a non-array is an Error",
+    :source "<?php $a = [1]; var_dump([...$a, ...1]);",
+    :out "",
+    :uncaught {:class "Error", :message "Only arrays and Traversables can be unpacked"},
+    :oracle :pending}
+   {:id :unset-dim-false,
+    :criterion "unset on false is deprecated and a no-op",
+    :source "<?php $a = false; unset($a[0]); var_dump($a); echo 'k';",
+    :out "bool(false)\nk",
+    :diag [[8192 "Automatic conversion of false to array is deprecated"]],
+    :oracle :pending}
+   {:id :unset-dim-true,
+    :criterion "unset on true is an Error",
+    :source "<?php $t = true; unset($t[0]);",
+    :out "",
+    :uncaught {:class "Error", :message "Cannot unset offset in a non-array variable"},
+    :oracle :pending}
+   {:id :array-isset-empty-unset,
+    :criterion "isset, empty and unset over nested keys, never vivifying",
+    :source "<?php $a = ['x' => ['y' => 0, 'n' => null], 'z' => 1]; var_dump(isset($a['x']), isset($a['x']['y']), isset($a['x']['n']), isset($a['q']['r']), isset($a['x'], $a['z']), isset($a['x'], $a['nope']), isset($u[0]), empty($a['x']['y']), empty($a['z']), empty($a['q']), empty($u['k'])); unset($a['x']['y'], $a['nope']['deep'], $u['v'][1]); var_dump($a); var_dump(isset($u));",
+    :out "bool(true)\nbool(true)\nbool(false)\nbool(false)\nbool(true)\nbool(false)\nbool(false)\nbool(true)\nbool(false)\nbool(true)\nbool(true)\narray(2) {\n  [\"x\"]=>\n  array(1) {\n    [\"n\"]=>\n    NULL\n  }\n  [\"z\"]=>\n  int(1)\n}\nbool(false)\n",
+    :oracle :pending}
+   {:id :array-literals,
+    :criterion "literals: duplicate keys, trailing comma, array(), nesting, dereference",
+    :source "<?php $a = [1, 2, 'k' => 3, 4, 'k' => 5, 9 => 6, 7,]; var_dump($a); $b = array(); var_dump($b); $c = array('x' => array(1, array()), 2); var_dump($c); echo [10, 20, 30][1], array('p' => 'q')['p'];",
+    :out "array(6) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n  [\"k\"]=>\n  int(5)\n  [2]=>\n  int(4)\n  [9]=>\n  int(6)\n  [10]=>\n  int(7)\n}\narray(0) {\n}\narray(2) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    array(0) {\n    }\n  }\n  [0]=>\n  int(2)\n}\n20q",
+    :oracle :pending}
+   {:id :array-compound-assign,
+    :criterion "compound assignment, ??= and ++/-- on array elements",
+    :source "<?php $a = ['n' => 1, 's' => 'a']; $a['n'] += 5; $a['s'] .= 'b'; $a['n'] *= 2; $a['m'] ??= 'dflt'; $a['m'] ??= 'other'; $a['n']++; --$a['n']; var_dump($a);",
+    :out "array(3) {\n  [\"n\"]=>\n  int(12)\n  [\"s\"]=>\n  string(2) \"ab\"\n  [\"m\"]=>\n  string(4) \"dflt\"\n}\n",
+    :oracle :pending}
+   {:id :array-null-coalesce,
+    :criterion "?? over nested keys never warns",
+    :source "<?php $a = ['x' => ['y' => 1]]; echo $a['x']['y'] ?? 'd', $a['x']['z'] ?? 'd', $a['q']['z'] ?? 'd', $u['k'] ?? 'd', $a['x']['y']['w'] ?? 'd';",
+    :out "1dddd",
+    :oracle :pending}
+   {:id :array-to-string,
+    :criterion "an array in string context is Array with a warning",
+    :source "<?php echo 'x' . [1] . 'y';",
+    :out "xArrayy",
+    :diag [[2 "Array to string conversion"]],
+    :oracle :pending}
+   {:id :array-operators,
+    :criterion "array union, comparison, and casts",
+    :source "<?php var_dump([1, 2] + [5, 6, 7]); var_dump([1] == [1], [1] === ['1'], ['a' => 1, 'b' => 2] == ['b' => 2, 'a' => 1], ['a' => 1, 'b' => 2] === ['b' => 2, 'a' => 1], [] == false, [0] == true); var_dump((bool)[], (bool)[0], (int)[], (int)[3]);",
+    :out "array(3) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n  [2]=>\n  int(7)\n}\nbool(true)\nbool(false)\nbool(true)\nbool(false)\nbool(true)\nbool(true)\nbool(false)\nbool(true)\nint(0)\nint(1)\n",
+    :oracle :pending}
+   {:id :array-plus-int,
+    :criterion "array + int is a TypeError",
+    :source "<?php [] + 1;",
+    :out "",
+    :diag [],
+    :uncaught {:class "TypeError", :message "Unsupported operand types: array + int"},
+    :oracle :pending}
+   {:id :array-assign-value,
+    :criterion "an array element assignment yields the assigned value",
+    :source "<?php $x = ($a[] = 5) + 1; $r = ($a['k'] = 7); var_dump($x, $r, $a);",
+    :out "int(6)\nint(7)\narray(2) {\n  [0]=>\n  int(5)\n  [\"k\"]=>\n  int(7)\n}\n",
+    :oracle :pending}
+   {:id :array-local-loop,
+    :criterion "arrays in a function body, built in a loop",
+    :source "<?php function f() { $a = []; for ($i = 0; $i < 3; $i++) { $a[] = $i * 2; } $a[1] += 1; return $a; } var_dump(f());",
+    :out "array(3) {\n  [0]=>\n  int(0)\n  [1]=>\n  int(3)\n  [2]=>\n  int(4)\n}\n",
+    :oracle :pending}
+   {:id :array-dim-of-string-dim,
+    :criterion "a string element is read by offset",
+    :source "<?php $a = ['x' => 'str']; echo $a['x'][0], $a['x'][2];",
+    :out "sr",
+    :oracle :pending}
+   {:id :foreach-value,
+    :criterion "foreach by value; the value variable survives the loop",
+    :source "<?php foreach ([1, 2, 3] as $v) echo $v; echo $v;",
+    :out "1233",
+    :oracle :pending}
+   {:id :foreach-key-value,
+    :criterion "foreach with key and value over string and int keys",
+    :source "<?php $a = ['x' => 1, 'y' => 2, 5 => 3]; foreach ($a as $k => $v) { echo \"$k=$v,\"; }",
+    :out "x=1,y=2,5=3,",
+    :oracle :pending}
+   {:id :foreach-snapshot,
+    :criterion "body writes to the source never affect the iteration",
+    :source "<?php $a = [1, 2, 3]; foreach ($a as $v) { $a[] = $v; unset($a[0]); echo $v; } echo count($a);",
+    :out "1235",
+    :oracle :pending}
+   {:id :foreach-nested-escapes,
+    :criterion "break 2 and continue 2 across nested foreach",
+    :source "<?php foreach ([1, 2, 3] as $i) { foreach ([1, 2, 3] as $j) { if ($j == 2) continue 2; if ($i == 3) break 2; echo $i, $j, ','; } }",
+    :out "11,21,",
+    :oracle :pending}
+   {:id :foreach-non-array,
+    :criterion "foreach over a non-array warns and runs zero times",
+    :source "<?php foreach (5 as $v) echo 'x'; echo 'done';",
+    :out "done",
+    :diag [[2 "foreach() argument must be of type array|object, int given"]],
+    :oracle :pending}
+   {:id :foreach-alt-syntax,
+    :criterion "foreach in the alternative syntax",
+    :source "<?php foreach ([1, 2] as $k => $v): echo $k, $v; endforeach;",
+    :out "0112",
+    :oracle :pending}
+   {:id :foreach-keyed-target,
+    :criterion "foreach writes through a keyed value target",
+    :source "<?php foreach ([7, 8] as $k => $r['last']) {} echo $k, $r['last'];",
+    :out "18",
+    :oracle :pending}
+   {:id :foreach-in-function,
+    :criterion "foreach inside a function body",
+    :source "<?php function s($xs) { $t = 0; foreach ($xs as $x) { $t += $x; } return $t; } echo s([1, 2, 3, 4]);",
+    :out "10",
+    :oracle :pending}
+   {:id :builtin-count-keys-values,
+    :criterion "count, array_keys and array_values",
+    :source "<?php $a = ['x' => 1, 5 => 'b', 'c']; echo count($a), '|'; var_dump(array_keys($a)); var_dump(array_values([3 => 'p', 'q' => 'r']));",
+    :out "3|array(3) {\n  [0]=>\n  string(1) \"x\"\n  [1]=>\n  int(5)\n  [2]=>\n  int(6)\n}\narray(2) {\n  [0]=>\n  string(1) \"p\"\n  [1]=>\n  string(1) \"r\"\n}\n",
+    :oracle :pending}
+   {:id :builtin-array-merge,
+    :criterion "array_merge renumbers integer keys and overwrites string keys",
+    :source "<?php var_dump(array_merge([5 => 'a', 'k' => 1], [9 => 'b', 'k' => 2]));",
+    :out "array(3) {\n  [0]=>\n  string(1) \"a\"\n  [\"k\"]=>\n  int(2)\n  [1]=>\n  string(1) \"b\"\n}\n",
+    :oracle :pending}
+   {:id :builtin-exists-in-array,
+    :criterion "array_key_exists and in_array",
+    :source "<?php var_dump(array_key_exists('1', [1 => 0]), array_key_exists('z', []), in_array('1', [1, 2]), in_array('1', [1, 2], true), in_array(null, [0]));",
+    :out "bool(true)\nbool(false)\nbool(true)\nbool(false)\nbool(true)\n",
+    :oracle :pending}
+   {:id :builtin-push-pop,
+    :criterion "array_push and array_pop; pop releases the next index",
+    :source "<?php $a = [1]; echo array_push($a, 2, 3), array_pop($a); $a[] = 9; var_dump($a);",
+    :out "33array(3) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n  [2]=>\n  int(9)\n}\n",
+    :oracle :pending}
+   {:id :builtin-shift-unshift,
+    :criterion "array_shift and array_unshift renumber integer keys",
+    :source "<?php $a = [3 => 'a', 'k' => 'b', 7 => 'c']; echo array_shift($a); array_unshift($a, 'z'); var_dump($a);",
+    :out "aarray(3) {\n  [0]=>\n  string(1) \"z\"\n  [\"k\"]=>\n  string(1) \"b\"\n  [1]=>\n  string(1) \"c\"\n}\n",
+    :oracle :pending}
+   {:id :builtin-by-ref-nested,
+    :criterion "a by-reference builtin on a nested location",
+    :source "<?php $a = [[3, 1]]; array_push($a[0], 0); sort($a[0]); foreach ($a[0] as $k => $v) echo \"$k=$v,\";",
+    :out "0=0,1=1,2=3,",
+    :oracle :pending}
+   {:id :builtin-by-ref-non-variable,
+    :criterion "a by-reference builtin given a non-variable notices",
+    :source "<?php function g() { return [3, 1]; } echo sort(g());",
+    :out "1",
+    :diag [[8 "Only variables should be passed by reference"]],
+    :oracle :pending}
+   {:id :builtin-count-type-error,
+    :criterion "count of a scalar is a TypeError",
+    :source "<?php count(5);",
+    :out "",
+    :diag [],
+    :uncaught {:class "TypeError", :message "count(): Argument #1 ($value) must be of type Countable|array, int given"},
+    :oracle :pending}
+   {:id :sort-basic,
+    :criterion "sort and rsort renumber",
+    :source "<?php $a = [3, 1, 2]; sort($a); foreach ($a as $k => $v) echo \"$k=$v,\"; rsort($a); foreach ($a as $k => $v) echo \"$k=$v,\";",
+    :out "0=1,1=2,2=3,0=3,1=2,2=1,",
+    :oracle :pending}
+   {:id :sort-asort-stable,
+    :criterion "asort and arsort keep keys and are stable",
+    :source "<?php $a = ['a' => 2, 'b' => 1, 'c' => 2, 'd' => 1]; asort($a); foreach ($a as $k => $v) echo \"$k=$v,\"; arsort($a); foreach ($a as $k => $v) echo \"$k=$v,\";",
+    :out "b=1,d=1,a=2,c=2,a=2,c=2,b=1,d=1,",
+    :oracle :pending}
+   {:id :sort-ksort,
+    :criterion "ksort and krsort order by key",
+    :source "<?php $a = ['b' => 1, 'a' => 2, 'c' => 3]; ksort($a); foreach ($a as $k => $v) echo \"$k=$v,\"; krsort($a); foreach ($a as $k => $v) echo \"$k=$v,\";",
+    :out "a=2,b=1,c=3,c=3,b=1,a=2,",
+    :oracle :pending}
+   {:id :sort-usort,
+    :criterion "usort calls a named comparator",
+    :source "<?php function d($x, $y) { return $y <=> $x; } $a = [3, 1, 2]; usort($a, 'd'); foreach ($a as $k => $v) echo \"$k=$v,\";",
+    :out "0=3,1=2,2=1,",
+    :oracle :pending}
+   {:id :sort-thousand,
+    :criterion "a 1000 element sort",
+    :source "<?php $a = []; for ($i = 0; $i < 1000; $i++) { $a[] = ($i * 7919) % 1000; } sort($a); echo $a[0], ',', $a[1], ',', $a[999], ',', count($a);",
+    :out "0,1,999,1000",
+    :oracle :pending}
+   {:id :foreach-key-target-order,
+    :criterion "foreach stores the value before the key (Zend order)",
+    :source "<?php foreach ([5 => 7] as $k => $a[$k]) {} var_dump($a, $k);",
+    :out "array(1) {\n  [\"\"]=>\n  int(7)\n}\nint(5)\n",
+    :diag [[2 "Undefined variable $k"]],
+    :oracle :pending}
+   {:id :foreach-key-expr-write,
+    :criterion "a foreach target key expression binds before the holder is fetched",
+    :source "<?php foreach ([7] as $a[$a[0] = 1]) {} var_dump($a);",
+    :out "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(7)\n}\n",
+    :oracle :pending}
+   {:id :foreach-key-expr-once,
+    :criterion "a foreach target key expression runs once per iteration",
+    :source "<?php function k() { echo \"k\"; return 0; } foreach ([1, 2] as $a[k()]) {} echo count($a);",
+    :out "kk1",
+    :oracle :pending}
+   {:id :by-ref-late-read,
+    :criterion "a by-reference builtin reads its location after later arguments run",
+    :source "<?php $a = [[1]]; array_push($a[0], $a[0][] = 2); var_dump($a);",
+    :out "array(1) {\n  [0]=>\n  array(3) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n    [2]=>\n    int(2)\n  }\n}\n",
+    :oracle :pending}
+   {:id :by-ref-late-read-sibling,
+    :criterion "a later argument writing a sibling key survives the by-reference write",
+    :source "<?php $a = [[1], 0]; array_push($a[0], $a[1] = 5); var_dump($a);",
+    :out "array(2) {\n  [0]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(5)\n  }\n  [1]=>\n  int(5)\n}\n",
+    :oracle :pending}
+   {:id :sort-mixed-scalars,
+    :criterion "sort over mixed scalars uses the loose comparison",
+    :source "<?php $a = [10, \"9\", \"abc\", 1.5, true, null]; sort($a); var_dump($a);",
+    :out "array(6) {\n  [0]=>\n  NULL\n  [1]=>\n  float(1.5)\n  [2]=>\n  string(1) \"9\"\n  [3]=>\n  int(10)\n  [4]=>\n  string(3) \"abc\"\n  [5]=>\n  bool(true)\n}\n",
+    :oracle :pending}
+   {:id :sort-bool-comparator,
+    :criterion "usort with a bool comparator retries swapped and deprecates once",
+    :source "<?php function c($x, $y) { return $x > $y; } $a = [3, 1, 2]; usort($a, \"c\"); foreach ($a as $k => $v) echo \"$k=$v,\";",
+    :out "0=1,1=2,2=3,",
+    :diag [[8192 "usort(): Returning bool from comparison function is deprecated, return an integer less than, equal to, or greater than zero"]],
+    :oracle :pending}
+   {:id :sort-ksort-mixed-keys,
+    :criterion "ksort over mixed int and string keys",
+    :source "<?php $a = [10 => \"a\", \"9\" => \"b\", \"x\" => \"c\", \"A\" => \"d\"]; ksort($a); foreach ($a as $k => $v) echo \"$k=$v,\";",
+    :out "9=b,10=a,A=d,x=c,",
+    :oracle :pending}
+   {:id :sort-uasort,
+    :criterion "uasort keeps keys",
+    :source "<?php function d($x, $y) { return $x <=> $y; } $a = [\"p\" => 3, \"q\" => 1, \"r\" => 2]; uasort($a, \"d\"); foreach ($a as $k => $v) echo \"$k=$v,\";",
+    :out "q=1,r=2,p=3,",
+    :oracle :pending}
+   {:id :sort-uksort,
+    :criterion "uksort orders by key through the comparator",
+    :source "<?php function d($x, $y) { return $x <=> $y; } $a = [\"b\" => 1, \"c\" => 2, \"a\" => 3]; uksort($a, \"d\"); foreach ($a as $k => $v) echo \"$k=$v,\";",
+    :out "a=3,b=1,c=2,",
+    :oracle :pending}
+   {:id :sort-rsort-stable,
+    :criterion "rsort keeps equal values in their original order",
+    :source "<?php $a = [1, 1.0, \"1\", 2]; rsort($a); var_dump($a);",
+    :out "array(4) {\n  [0]=>\n  int(2)\n  [1]=>\n  int(1)\n  [2]=>\n  float(1)\n  [3]=>\n  string(1) \"1\"\n}\n",
+    :oracle :pending}
+   {:id :foreach-sort-source-inside,
+    :criterion "sort of the source inside the loop leaves the by-value iteration alone",
+    :source "<?php $a = [3, 1, 2]; foreach ($a as $v) { sort($a); echo $v; }",
+    :out "312",
+    :oracle :pending}
+   {:id :sort-inconsistent-cmp-departure,
+    :criterion "a 0/1 integer comparator is not a total preorder; the merge sort departs from zend_sort (G-sort-inconsistent-cmp)",
+    :source "<?php function c($a, $b) { return (int)($a > $b); } $a = [3, 2, 1]; usort($a, \"c\"); var_dump($a);",
+    :out "array(3) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n  [2]=>\n  int(3)\n}\n",
+    :departure {:gap "G-sort-inconsistent-cmp", :zend "array(3) {\n  [0]=>\n  int(2)\n  [1]=>\n  int(1)\n  [2]=>\n  int(3)\n}\n"},
+    :diag [],
+    :oracle :departure}])
 
 
 ;; =============================================================================
@@ -483,59 +837,63 @@
   "The scalar subset of the section 3.5 matrix, as PHP source. The `[]` and
    `[0]` columns are P2's and the object columns P4's."
   ["null" "true" "false" "0" "1" "-1" "\"0\"" "\"\"" "\"1\"" "\"01\"" "\"1e1\""
-   "\"10\"" "\"abc\"" "\" 1\"" "\"1 \"" "0.0" "NAN" "INF"])
+   "\"10\"" "\"abc\"" "\" 1\"" "\"1 \"" "0.0" "NAN" "INF" "[]" "[0]"])
 
 
 (def matrix-slice
   "The slice that owns each matrix column; later slices add columns and never
    regenerate the cells of earlier ones."
-  (zipmap matrix-values (repeat :p1)))
+  (into (zipmap matrix-values (repeat :p1)) [["[]" :p2] ["[0]" :p2]]))
 
 
 (def equal-matrix
   "`==` over every pair of `matrix-values`: row `a`, column `b`, `1` for true.
    `:oracle :pending`: pinned from the PHP 8 comparison rules, with the
    cells below checked by hand against them."
-  ["101100010000000100"
-   "010011001111111011"
-   "101100110000000100"
-   "101100100000000100"
-   "010010001100011000"
-   "010001000000000000"
-   "001100100000000100"
-   "101000010000000000"
-   "010010001100011000"
-   "010010001100011000"
-   "010000000011000000"
-   "010000000011000000"
-   "010000000000100000"
-   "010010001100011000"
-   "010010001100011000"
-   "101100100000000100"
-   "010000000000000000"
-   "010000000000000001"])
+  ["10110001000000010010"
+   "01001100111111101101"
+   "10110011000000010010"
+   "10110010000000010000"
+   "01001000110001100000"
+   "01000100000000000000"
+   "00110010000000010000"
+   "10100001000000000000"
+   "01001000110001100000"
+   "01001000110001100000"
+   "01000000001100000000"
+   "01000000001100000000"
+   "01000000000010000000"
+   "01001000110001100000"
+   "01001000110001100000"
+   "10110010000000010000"
+   "01000000000000000000"
+   "01000000000000000100"
+   "10100000000000000010"
+   "01000000000000000001"])
 
 
 (def spaceship-matrix
   "`<=>` over every pair, `<` `=` `>` for -1, 0, 1. `:oracle :pending`."
-  ["=<==<<<=<<<<<<<=<<"
-   ">=>>==>>=======>=="
-   "=<==<<==<<<<<<<=<<"
-   "=<==<>=><<<<<<<=><"
-   ">=>>=>>>==<<<==>><"
-   ">=><<=<><<<<<<<<><"
-   "><==<>=><<<<<<<=><"
-   "=<=<<<<=<<<<<<<<><"
-   ">=>>=>>>==<<<==>><"
-   ">=>>=>>>==<<<==>><"
-   ">=>>>>>>>>==<>>>><"
-   ">=>>>>>>>>==<>>>><"
-   ">=>>>>>>>>>>=>>>>>"
-   ">=>>=>>>==<<<==>><"
-   ">=>>=>>>==<<<==>><"
-   "=<==<>=><<<<<<<=><"
-   ">=>>>>>>>>>>>>>>>>"
-   ">=>>>>>>>>>><>>>>="])
+  ["=<==<<<=<<<<<<<=<<=<"
+   ">=>>==>>=======>==>="
+   "=<==<<==<<<<<<<=<<=<"
+   "=<==<>=><<<<<<<=><<<"
+   ">=>>=>>>==<<<==>><<<"
+   ">=><<=<><<<<<<<<><<<"
+   "><==<>=><<<<<<<=><<<"
+   "=<=<<<<=<<<<<<<<><<<"
+   ">=>>=>>>==<<<==>><<<"
+   ">=>>=>>>==<<<==>><<<"
+   ">=>>>>>>>>==<>>>><<<"
+   ">=>>>>>>>>==<>>>><<<"
+   ">=>>>>>>>>>>=>>>>><<"
+   ">=>>=>>>==<<<==>><<<"
+   ">=>>=>>>==<<<==>><<<"
+   "=<==<>=><<<<<<<=><<<"
+   ">=>>>>>>>>>>>>>>>><<"
+   ">=>>>>>>>>>><>>>>=<<"
+   "=<=>>>>>>>>>>>>>>>=<"
+   ">=>>>>>>>>>>>>>>>>>="])
 
 
 (def matrix-source
@@ -557,7 +915,9 @@
    ["\"1\"" "\"01\"" true 0] ["\"10\"" "\"1e1\"" true 0]
    ["\"abc\"" "\"abc\"" true 0] ["NAN" "NAN" false 1] ["INF" "INF" true 0]
    ["1" "\" 1\"" true 0] ["1" "\"1 \"" true 0] ["true" "\"abc\"" true 0]
-   ["false" "\"0\"" true 0]])
+   ["false" "\"0\"" true 0] ["[]" "false" true 0] ["[]" "null" true 0]
+   ["[0]" "true" true 0] ["[]" "1" false 1] ["[0]" "\"abc\"" false 1]
+   ["[]" "[0]" false -1]])
 
 
 (def float-cases

@@ -52,9 +52,10 @@
 
 (defn- matrix-rows
   [out]
-  (let [[eq sp] (str/split-lines out)]
-    {:eq (mapv #(apply str %) (partition 18 eq)),
-     :sp (mapv #(apply str (map {\0 "<", \1 "=", \2 ">"} %)) (partition 18 sp))}))
+  (let [[eq sp] (str/split-lines out)
+        w (count programs/matrix-values)]
+    {:eq (mapv #(apply str %) (partition w eq)),
+     :sp (mapv #(apply str (map {\0 "<", \1 "=", \2 ">"} %)) (partition w sp))}))
 
 
 (deftest scalar-comparison-matrix-test
@@ -80,22 +81,24 @@
 
 (deftest refusals-are-named-test
   (doseq [[source construct]
-          [["<?php $a[0] = 1;" :assignment-target]
-           ["<?php $a = &$b;" :reference]
-           ["<?php echo $a[0];" :variable]
+          [["<?php $a = &$b;" :reference]
+           ["<?php $a->b = 1;" :assignment-target]
+           ["<?php $$a[0] = 1;" :assignment-target]
+           ["<?php [$a, $b] = $c;" :list]
+           ["<?php echo [&$a];" :reference]
            ["<?php function f(int $a) {}" :type-declaration]
            ["<?php function f(): int {}" :return-type]
            ["<?php function f(&$a) {}" :reference]
            ["<?php function f(...$a) {}" :variadic]
-           ["<?php foreach ($a as $b) {}" :foreach]
+           ["<?php foreach ($a as &$b) {}" :reference]
+           ["<?php foreach ($a as [$b, $c]) {}" :list]
            ["<?php global $a;" :global]
            ["<?php static $a = 1;" :static]
            ["<?php return 1;" :return]
-           ["<?php echo [1];" :array]
            ["<?php echo FOO;" :constant]
            ["<?php echo \"a$b[0]\";" :interpolation]
            ["<?php echo \"a$b->c\";" :interpolation]
-           ["<?php echo isset($a[0]);" :isset-target]
+           ["<?php echo isset($a->b);" :isset-target]
            ["<?php echo (array)1;" :cast/array]]
           :when construct]
     (let [{:keys [diagnostics]} (h/run-php source)
@@ -142,7 +145,14 @@
            ["<?php switch (1): default: echo 1; case 2: break; default: echo 2; endswitch;"
             "Switch statements may only contain one default clause"]
            ["<?php function f() { switch (1) { default: break; default: break; } }"
-            "Switch statements may only contain one default clause"]]]
+            "Switch statements may only contain one default clause"]
+           ["<?php echo $a[];" "Cannot use [] for reading"]
+           ["<?php $a[] += 1;" "Cannot use [] for reading"]
+           ["<?php $a[]++;" "Cannot use [] for reading"]
+           ["<?php $a[] ??= 1;" "Cannot use [] for reading"]
+           ["<?php echo $a[0][] ?? 1;" "Cannot use [] for reading"]
+           ["<?php echo isset($a[]);" "Cannot use [] for reading"]
+           ["<?php unset($a[]);" "Cannot use [] for unsetting"]]]
     (let [{:keys [diagnostics]} (h/run-php source)
           d (first diagnostics)]
       (is (= :yang.php/compile-error (:yang.php/diagnostic d)) source)
