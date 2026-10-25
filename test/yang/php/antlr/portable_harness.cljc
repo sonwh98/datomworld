@@ -71,7 +71,8 @@
 
 
 (defn lower-through-stage
-  "`{:ast a}` or `{:diagnostics d}` for `pk` through the lowering stage."
+  "`{:ast a :warnings w}` or `{:diagnostics d}` for `pk` through the lowering
+   stage. Warning-severity diagnostics do not stop the program."
   [pk]
   (let [cst-log (tu/new-memory-log)
         program (tu/new-memory-log)
@@ -79,11 +80,12 @@
     (stream/append! cst-log pk)
     (lower/step-stage (lower/open-stage cst-log program diagnostics
                                         {:medium lower/program-medium}))
-    (let [problems (tu/drain diagnostics)]
+    (let [{warnings true, problems false}
+          (group-by #(= :warning (:severity %)) (tu/drain diagnostics))]
       (if (seq problems)
         {:diagnostics problems}
         (let [{:yin/keys [batch root]} (first (tu/drain program))]
-          {:ast (nth batch root)})))))
+          {:ast (nth batch root), :warnings (vec warnings)})))))
 
 
 (defn run-packet

@@ -15,6 +15,52 @@
     :source "a <?php echo 1; ?>b <?= 2 ?>c",
     :out "a 1b 2c",
     :oracle :pending}
+   {:id :html-markup-attributes,
+    :criterion "inline HTML keeps markup bytes",
+    :source "<p class=\"a\">x</p>",
+    :out "<p class=\"a\">x</p>",
+    :oracle :pending}
+   {:id :html-comment,
+    :criterion "inline HTML keeps a comment",
+    :source "<!-- c -->",
+    :out "<!-- c -->",
+    :oracle :pending}
+   {:id :html-leading-newline,
+    :criterion "inline HTML keeps a newline before markup",
+    :source "\n<p>x</p>",
+    :out "\n<p>x</p>",
+    :oracle :pending}
+   {:id :html-script-body,
+    :criterion "inline HTML keeps a script body",
+    :source "<script>var a = 1;</script>",
+    :out "<script>var a = 1;</script>",
+    :oracle :pending}
+   {:id :html-close-tag-blank-line,
+    :criterion "a close tag swallows one newline before markup",
+    :source "<?php echo 1; ?>\n\n<p>",
+    :out "1\n<p>",
+    :oracle :pending}
+   {:id :pow-negative-underflowing-power,
+    :criterion "2 ** -1074 is the smallest subnormal",
+    :source "<?php var_dump(2.0 ** -1074, 0.5 ** -2000);",
+    :out "float(5.0E-324)\nfloat(INF)\n",
+    :oracle :pending}
+   {:id :numeric-string-padding,
+    :criterion "leading zeros do not change a numeric string's value",
+    :source (str "<?php var_dump(\"0000000000000000000000012\" + 0, \"1e0000000000005\" + 0,"
+                 " \"1e-0000000000005\" + 0);"),
+    :out "int(12)\nfloat(100000)\nfloat(1.0E-5)\n",
+    :oracle :pending}
+   {:id :string-supplementary-unicode,
+    :criterion "a supplementary code point is four bytes",
+    :source "<?php var_dump(\"😀\");",
+    :out "string(4) \"😀\"\n",
+    :oracle :pending}
+   {:id :single-quote-escapes,
+    :criterion "single-quoted escapes resolve in one scan",
+    :source "<?php echo 'a\\\\'.'b\\'c'.'\\\\\\'d'.'e\\nf';",
+    :out "a\\b'c\\'de\\nf",
+    :oracle :pending}
    {:id :close-tag-newline,
     :criterion "the ?> newline rule",
     :source "<?php echo 1 ?>\nx",
@@ -143,6 +189,116 @@
     :criterion "print is an expression",
     :source "<?php echo print \"x\";",
     :out "x1",
+    :oracle :pending}
+   {:id :variables-and-assignment,
+    :criterion "top-level variables, compound assignment, isset, empty, unset",
+    :source (str "<?php $x = 1; $x += 2; $x .= \"a\"; echo $x, \"|\"; $y = $z ?? 7; echo $y;"
+                 " $a = $b = 3; echo $a + $b; $c = 5; $c **= 2; $c -= 1; $c *= 2;"
+                 " $c /= 4; $c %= 7; $c <<= 1; echo $c; echo isset($c) ? 1 : 0,"
+                 " empty($c) ? 1 : 0; unset($c); echo isset($c) ? 1 : 0;"),
+    :out "3a|7610100",
+    :oracle :pending}
+   {:id :null-coalescing-and-elvis,
+    :criterion "??, ?:, ??= on variables",
+    :source (str "<?php $t = 0; echo $t ?: \"elvis\", $t ?? \"n\", \"|\"; $q = 5; $q ??= 9;"
+                 " $r ??= 9; echo $q, $r;"),
+    :out "elvis0|59",
+    :oracle :pending}
+   {:id :increments,
+    :criterion "++ and -- over int, string, null and float",
+    :source (str "<?php $i = 5; echo $i++, $i, ++$i, $i--, --$i, \"|\"; $s = \"a\"; $s++;"
+                 " echo $s; $z = \"Zz\"; $z++; echo $z; $n = null; $n++; var_dump($n);"
+                 " $m = null; $m--; var_dump($m); $f = 1.5; $f--; var_dump($f);"
+                 " $big = PHP_INT_MAX; $big++; var_dump($big);"),
+    :out (str "56775|bAAa" "int(1)\nNULL\nfloat(0.5)\nfloat(9.223372036854776E+18)\n"),
+    :oracle :pending}
+   {:id :if-elseif-else,
+    :criterion "if, elseif, else if and the alternative syntax",
+    :source (str "<?php for ($i = 0; $i < 4; $i++) { if ($i == 0) { echo \"zero\"; }"
+                 " elseif ($i == 1) echo \"one\"; else if ($i == 2) { echo \"two\"; }"
+                 " else { echo \"many\"; } echo \",\"; } if ($i > 3): echo \"alt\";"
+                 " elseif ($i): echo \"no\"; else: echo \"no\"; endif; if ($i < 0):"
+                 " echo \"no\"; else: echo \"-else\"; endif;"),
+    :out "zero,one,two,many,alt-else",
+    :oracle :pending}
+   {:id :loops,
+    :criterion "while, do, for with comma lists, alternative syntax",
+    :source (str "<?php $i = 0; while ($i < 3) { echo $i++; } echo \"|\";"
+                 " do { echo $i--; } while ($i > 0); echo \"|\";"
+                 " for ($a = 0, $b = 3; $a < $b; $a++, $b--) echo $a, $b, \",\";"
+                 " echo \"|\"; for (;;) { break; } while ($i < 2): echo \"w\", $i; $i++;"
+                 " endwhile; for ($j = 0; $j < 2; $j++): echo \"f\", $j; endfor;"),
+    :out "012|321|03,12,|w0w1f0f1",
+    :oracle :pending}
+   {:id :break-continue-levels,
+    :criterion "break n and continue n index the loop stack",
+    :source (str "<?php for ($i = 0; $i < 3; $i++) { for ($j = 0; $j < 3; $j++) {"
+                 " if ($j == 1) continue 2; if ($i == 2) break 2; echo $i, $j, \";\"; } }"
+                 " echo \"|\"; $k = 0; while (true) { $k++; if ($k < 3) continue;"
+                 " if ($k > 4) break; echo $k; } echo \"|\";"
+                 " do { echo \"once\"; break; echo \"never\"; } while (true);"),
+    :out "00;10;|34|once",
+    :oracle :pending}
+   {:id :switch,
+    :criterion "switch: loose match, fallthrough, default anywhere, one loop level",
+    :source (str "<?php switch (2) { case 1: echo \"one\"; case 2: echo \"two\";"
+                 " case 3: echo \"three\"; break; default: echo \"dflt\"; }"
+                 " switch (\"x\") { case 1: echo \"one\"; break; default: echo \"dflt\";"
+                 " case 2: echo \"two\"; } switch (\"2\") { case 1: echo \"a\"; break;"
+                 " case 2: echo \"loose\"; break; } for ($i = 0; $i < 3; $i++) {"
+                 " switch ($i) { case 1: continue 2; default: echo $i; } echo \",\"; }"
+                 " switch (9) { case 1: echo \"no\"; }"
+                 " switch (3) { default: echo \"d\"; break; case 3: echo \"three\"; }"),
+    :out "twothreedflttwoloose0,2,three",
+    :oracle :pending}
+   {:id :interpolation,
+    :criterion "scalar string interpolation: $x and {$x}",
+    :source (str "<?php $n = \"w\"; $i = 5; $f = 2.5; echo \"a $n b {$n}c $i$i \\$n x\\n\","
+                 " \"f=$f\", \"$n\", \"\";"),
+    :out "a w b wc 55 $n x\nf=2.5w",
+    :oracle :pending}
+   {:id :functions,
+    :criterion "declarations, hoisting, defaults, return, recursion",
+    :source (str "<?php echo fib(10), \"|\", add(1), \"|\", add(1, 5), \"|\", ADD(2, 2), \"|\";"
+                 " function fib($n) { if ($n < 2) return $n; return fib($n - 1) + fib($n - 2); }"
+                 " function add($a, $b = 10) { return $a + $b; }"
+                 " function first_over($limit) { for ($i = 0; ; $i++) {"
+                 " if ($i * $i > $limit) return $i; } } echo first_over(50), \"|\";"
+                 " function noret() { $x = 1; } var_dump(noret());"
+                 " function nested() { function inner() { return \"inner\"; } return \"outer\"; }"
+                 " echo nested(), inner(), \"|\"; if (true) { function cond() { return \"cond\"; } }"
+                 " echo cond(); function early($x) { if ($x) { return \"early\"; } echo \"late;\"; }"
+                 " echo early(1), early(0) === null ? \"N\" : \"?\";"),
+    :out "55|11|6|4|8|NULL\nouterinner|condearlylate;N",
+    :oracle :pending}
+   {:id :static-variables,
+    :criterion "static slots survive calls and recursion, one per function",
+    :source (str "<?php function counter() { static $n = 5, $m; $n++; $m .= \"x\"; return $n . $m; }"
+                 " echo counter(), counter(), counter(), \"|\";"
+                 " function rec($d) { static $calls = 0; $calls++; if ($d > 0) rec($d - 1);"
+                 " return $calls; } echo rec(3), rec(0), \"|\";"
+                 " function a() { static $v = 1; return $v++; }"
+                 " function b() { static $v = 100; return $v++; } echo a(), b(), a(), b();"),
+    :out "6x7xx8xxx|45|11002101",
+    :oracle :pending}
+   {:id :local-scope,
+    :criterion "a function sees its own variables, not the unit's",
+    :source (str "<?php $g = \"global\"; function f($p) { $l = $p . \"!\"; return $l . $g; }"
+                 " echo f(\"a\"), \"|\", $g;"),
+    :out "a!|global",
+    :oracle :pending}
+   {:id :argument-count-error,
+    :criterion "too few arguments is an uncaught ArgumentCountError",
+    :source "<?php function f($a, $b) {} echo \"a\"; f(1);",
+    :out (str "aPHP Fatal error:  Uncaught ArgumentCountError: Too few arguments to"
+              " function f(), 1 passed and exactly 2 expected"),
+    :oracle :pending}
+   {:id :silence-with-counting-handler,
+    :criterion "@ with a counting handler: the handler runs and sees 4437",
+    :source (str "<?php function h($n, $s) { echo \"H\", error_reporting(), \";\"; return true; }"
+                 " set_error_handler('h'); @$u; echo @$u ?? \"x\"; echo \"done|\";"
+                 " echo $v; echo error_reporting();"),
+    :out "H4437;H4437;xdone|H32767;32767",
     :oracle :pending}
    {:id :undefined-function,
     :criterion "an undefined function is an Error",

@@ -43,3 +43,8 @@
 
 (deftest dynamic-variable-test
   (is (true? (:dynamic? (function-scope "<?php function f() { $$a = 1; }")))))
+
+
+(deftest function-vars-test
+  (let [s (function-scope "<?php function f($a) { static $n = 0; $b = $a; echo $c; unset($d); }")]
+    (is (= ["$a" "$n" "$b" "$c" "$d"] (:vars s)))))

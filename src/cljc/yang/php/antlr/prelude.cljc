@@ -83,7 +83,7 @@
   '#{cell/new cell/get cell/set! data/count data/subvec data/str-concat
      data/str-length data/str-join data/str-compare data/str->code-points
      data/code-points->str data/substring data/float64 data/float-value
-     data/content= data/number?
+     data/content= data/number? data/dissoc data/into
      integer/add integer/sub integer/neg integer/mul integer/compare
      integer/to-float integer/compare-float integer/true-div integer/pow
      integer/shift-left integer/shift-right integer/bit-and integer/bit-or
@@ -167,12 +167,36 @@
        (php/vconj (php/vconj (php/vconj (php/vconj (php/vconj [] kind) payload) rest)
                              (+ 1 (php/frame-depth rest)))
                   (get (cell/get php.rt/ctx) :depth)))]
+    [php/pop-frame
+     ;; the handler stack below frame hs, at the call depth hs was pushed at
+     (fn [hs]
+       (cell/set! php.rt/ctx
+                  (assoc (assoc (cell/get php.rt/ctx) :handlers (get hs 2))
+                         :depth (get hs 4))))]
     [php/raise
-     ;; deliver the error to the innermost handler; the unit root always
-     ;; installs one, so an empty stack is a defect and answers the error
+     ;; deliver the error to the innermost handler, running each :finally
+     ;; thunk it unwinds through; the unit root always installs a handler,
+     ;; so an empty stack is a defect and answers the error
      (fn [e]
        (let [hs (php/handlers)]
-         (if (nil? hs) e ((get hs 1) e))))]
+         (if (nil? hs)
+           e
+           (if (= (get hs 0) :finally)
+             (do (php/pop-frame hs)
+                 ((get hs 1) e)
+                 (php/raise e))
+             ((get hs 1) e)))))]
+    [php/unwind-to
+     ;; pop frames above frame count n, running each finally thunk with null
+     (fn [n]
+       (let [hs (php/handlers)]
+         (if (nil? hs)
+           :php/null
+           (if (<= (get hs 3) n)
+             :php/null
+             (do (php/pop-frame hs)
+                 (if (= (get hs 0) :finally) ((get hs 1) :php/null) :php/null)
+                 (php/unwind-to n))))))]
     [php/try
      (fn [body handler orelse]
        (let [saved (cell/get php.rt/ctx)
@@ -186,6 +210,31 @@
                   (orelse))
               (do (php/restore! saved)
                   (handler r))))
+          (%capture))))]
+    [php/try-finally
+     ;; normal exit runs `fin` here; raise and escapes run it as they
+     ;; unwind through the :finally frame
+     (fn [body fin]
+       (let [saved (cell/get php.rt/ctx)]
+         (do (php/set-handlers! (php/frame :finally fin (get saved :handlers)))
+             (let [v (body)]
+               (do (php/restore! saved)
+                   (fin :php/null)
+                   v)))))]
+    [php/call-ec
+     ;; `f` receives an escape: calling it unwinds to here and answers its
+     ;; argument as this call's value (break, continue, return)
+     (fn [f]
+       (let [saved (cell/get php.rt/ctx)
+             flag (cell/new :first)]
+         ((fn [r]
+            (if (= (cell/get flag) :first)
+              (do (cell/set! flag :re-entered)
+                  (f (fn [x]
+                       (do (php/unwind-to (php/frame-depth (get saved :handlers)))
+                           (php/restore! saved)
+                           (r x)))))
+              r))
           (%capture))))]
 
     ;; ---------------------------------------------------------------- errors
@@ -202,17 +251,48 @@
      (fn [e]
        (assoc (assoc {} :class (get e :class))
               :message (get (get e :props) "message")))]
-    [php/warn
-     ;; P1 sink: a record on php.rt/diag when the mask admits it; the handler
-     ;; and the stream sink are P5
+    [php/warn-record
      (fn [errno msg]
-       (if (= (integer/bit-and errno (cell/get php.rt/error-reporting)) 0)
+       (assoc (assoc (assoc {} :php.diag/warning true) :errno errno)
+              :message msg))]
+    [php/warn-sink
+     ;; the P1 sink: a record on php.rt/diag when the mask admits it; P5
+     ;; replaces the cell with the composition's stream
+     (fn [rec]
+       (if (= (integer/bit-and (get rec :errno) (cell/get php.rt/error-reporting))
+              0)
          :php/null
-         (cell/set! php.rt/diag
-                    (php/vconj (cell/get php.rt/diag)
-                               (assoc (assoc (assoc {} :php.diag/warning true)
-                                             :errno errno)
-                                      :message msg)))))]
+         (cell/set! php.rt/diag (php/vconj (cell/get php.rt/diag) rec))))]
+    [php/invoke-handler
+     ;; the user handler is unset while it runs, so its own warnings go to
+     ;; the sink, and restored when it returns or an escape unwinds through it
+     (fn [h errno msg]
+       (php/try-finally
+         (fn []
+           (do (cell/set! php.rt/error-handler :php/null)
+               (php/call (php/callable-fn h)
+                         (php/vconj (php/vconj (php/vconj (php/vconj [] errno) msg) "")
+                                    0))))
+         (fn [x] (cell/set! php.rt/error-handler h))))]
+    [php/warn
+     ;; a handler is called whatever error_reporting says; returning false
+     ;; falls through to the default sink
+     (fn [errno msg]
+       (let [rec (php/warn-record errno msg)
+             h (cell/get php.rt/error-handler)]
+         (if (= h :php/null)
+           (php/warn-sink rec)
+           (if (= (php/invoke-handler h errno msg) false)
+             (php/warn-sink rec)
+             :php/null))))]
+    [php/silence
+     ;; `@e`: error_reporting is the PHP 8 mask while `thunk` runs, restored
+     ;; by an escape too; the handler is still invoked and observes the mask
+     (fn [thunk]
+       (let [saved (cell/get php.rt/error-reporting)]
+         (php/try-finally
+           (fn [] (do (cell/set! php.rt/error-reporting 4437) (thunk)))
+           (fn [x] (cell/set! php.rt/error-reporting saved)))))]
 
     ;; ---------------------------------------------------------------- output
     [php/echo
@@ -384,27 +464,32 @@
        (if (< i n) (if (php/digit? (get cs i)) (php/skip-digits cs (+ i 1) n) i) i))]
     [php/cp-slice
      (fn [cs a b] (data/code-points->str (data/subvec cs a b)))]
+    [php/skip-zeros
+     (fn [cs i n]
+       (if (< i n) (if (= (get cs i) 48) (php/skip-zeros cs (+ i 1) n) i) i))]
     [php/exp-value
      ;; the exponent digits [j1, j2) as an integer, capped so a huge exponent
      ;; saturates instead of asking `integer/parse` for a long digit string
      (fn [cs j1 j2 eneg]
-       (let [v (if (> (- j2 j1) 9)
+       (let [k (php/skip-zeros cs j1 j2)
+             v (if (> (- j2 k) 9)
                  999999999
-                 (integer/parse (php/cp-slice cs j1 j2)))]
+                 (if (= k j2) 0 (integer/parse (php/cp-slice cs k j2))))]
          (if eneg (- 0 v) v)))]
     [php/num-value
      ;; the value of the number spelled by cs[i1, i2) . cs[i2+1, i3) e exp
      (fn [cs i1 i2 i3 dot neg isfloat exp]
        (let [idig (php/cp-slice cs i1 i2)
-             fdig (if dot (php/cp-slice cs (+ i2 1) i3) "")]
+             fdig (if dot (php/cp-slice cs (+ i2 1) i3) "")
+             isig (php/cp-slice cs (php/skip-zeros cs i1 i2) i2)]
          (if isfloat
            (let [v (integer/decimal->float (data/str-concat idig fdig)
                                            (- exp (data/str-length fdig)))]
              (php/f (if neg (php/neg-h v) v)))
-           (if (> (data/str-length idig) 19)
-             (let [v (integer/decimal->float idig 0)]
+           (if (> (data/str-length isig) 19)
+             (let [v (integer/decimal->float isig 0)]
                (php/f (if neg (php/neg-h v) v)))
-             (let [v (integer/parse idig)]
+             (let [v (integer/parse (if (= isig "") "0" isig))]
                (php/int-result (if neg (integer/neg v) v)))))))]
     [php/num-prefix
      ;; [value end isfloat] for the longest number prefix at cs[i], or nil
@@ -566,6 +651,34 @@
          (if (= y 0)
            (php/throw-error "DivisionByZeroError" "Modulo by zero")
            (get (integer/quot-rem x y) 1))))]
+    [php/arg-type-error
+     (fn [fname idx aname tname v]
+       (php/throw-error
+         "TypeError"
+         (data/str-concat fname "(): Argument #" (integer/format idx) " ($"
+                          aname ") must be of type " tname ", "
+                          (php/type-name (php/kind v)) " given")))]
+    [php/arg-num
+     ;; the parameter-coercion seam for a typed numeric builtin parameter:
+     ;; a numeric string coerces, a non-numeric or leading-numeric one is a
+     ;; TypeError; null and bool coerce (null is deprecated in PHP, not here)
+     (fn [v fname idx aname tname]
+       (let [k (php/kind v)]
+         (if (php/numk? k) v
+             (if (= k :null) 0
+                 (if (= k :bool) (if v 1 0)
+                     (if (= k :string)
+                       (let [r (php/numeric-string v)]
+                         (if (php/full-num? r)
+                           (get r 1)
+                           (php/arg-type-error fname idx aname tname v)))
+                       (php/arg-type-error fname idx aname tname v)))))))]
+    [php/arg-int
+     (fn [v fname idx aname]
+       (php/to-int (php/arg-num v fname idx aname "int")))]
+    [php/arg-float
+     (fn [v fname idx aname]
+       (php/to-float (php/arg-num v fname idx aname "float")))]
     [php/intdiv
      (fn [a b]
        (let [x (php/to-int a) y (php/to-int b)]
@@ -613,6 +726,23 @@
          (let [half (get (integer/floor-div-mod n 2) 0)
                r (php/pow-sq (* x x) half)]
            (if (= (get (integer/floor-div-mod n 2) 1) 1) (* r x) r))))]
+    [php/pow-neg
+     ;; x ** -n for an integer n > 0: 1 / x^n while x^n is finite, so every
+     ;; exact case is exact; when x^n overflows, the reciprocals of its two
+     ;; halves, so 2 ** -1074 is 5e-324. Underflow of x^n is INF.
+     (fn [x n]
+       (let [p (php/pow-sq x n)]
+         (if (= (php/abs-h p) (php/inf))
+           (let [h (get (integer/floor-div-mod n 2) 0)]
+             (* (/ (data/float-value 1) (php/pow-sq x h))
+                (/ (data/float-value 1) (php/pow-sq x (integer/sub n h)))))
+           (if (= p (php/zero-h))
+             (if (< x 0)
+               (if (= (get (integer/floor-div-mod n 2) 1) 1)
+                 (php/neg-h (php/inf))
+                 (php/inf))
+               (php/inf))
+             (/ (data/float-value 1) p)))))]
     [php/pow-float
      (fn [x y]
        (if (= y (php/zero-h))
@@ -626,12 +756,11 @@
                        (if (< n 0)
                          (if (= x (php/zero-h))
                            (php/inf-const)
-                           (php/f (/ (data/float-value 1)
-                                     (php/pow-sq x (integer/neg n)))))
+                           (php/f (php/pow-neg x (integer/neg n))))
                          (php/f (php/pow-sq x n)))
                        (php/throw-error
                          "Error"
-                         "php/pow: a fractional exponent needs a host pow kernel"))))))))]
+                         "** with a fractional exponent is not supported yet (yang.php known gap G-pow-frac)"))))))))]
     [php/pow-int
      (fn [x y]
        (if (= x 0)
@@ -788,14 +917,169 @@
                                               "\"\n"))
                    (php/throw-error "Error" "var_dump: this value kind is not supported yet"))))))))]
 
+    ;; ---------------------------------------------------------------- variables
+    ;; Top-level variables live in `php.rt/globals` (the `$GLOBALS` array
+    ;; shape); a function's variables are cells holding :php/undef until set.
+    [php/undef-warning
+     (fn [name]
+       (php/warn 2 (data/str-concat "Undefined variable $" name)))]
+    [php/global-peek
+     (fn [name]
+       (let [v (get (get (cell/get php.rt/globals) :index) name)]
+         (if (nil? v) :php/null v)))]
+    [php/global-get
+     (fn [name]
+       (let [v (get (get (cell/get php.rt/globals) :index) name)]
+         (if (nil? v)
+           (do (php/undef-warning name) :php/null)
+           v)))]
+    [php/global-set!
+     (fn [name v]
+       (let [g (cell/get php.rt/globals)
+             idx (get g :index)]
+         (do (cell/set! php.rt/globals
+                        (assoc (assoc g :index (assoc idx name v))
+                               :order
+                               (if (nil? (get idx name))
+                                 (php/vconj (get g :order) name)
+                                 (get g :order))))
+             v)))]
+    [php/global-isset? (fn [name] (not (= (php/global-peek name) :php/null)))]
+    [php/vec-remove
+     (fn [xs x i n acc]
+       (if (< i n)
+         (php/vec-remove xs x (+ i 1) n
+                         (if (= (get xs i) x) acc (php/vconj acc (get xs i))))
+         acc))]
+    [php/global-unset!
+     (fn [name]
+       (let [g (cell/get php.rt/globals)]
+         (do (cell/set! php.rt/globals
+                        (assoc (assoc g :index (data/dissoc (get g :index) name))
+                               :order
+                               (php/vec-remove (get g :order) name 0
+                                               (data/count (get g :order)) [])))
+             :php/null)))]
+    [php/local-peek
+     (fn [c] (let [v (cell/get c)] (if (= v :php/undef) :php/null v)))]
+    [php/local-get
+     (fn [c name]
+       (let [v (cell/get c)]
+         (if (= v :php/undef)
+           (do (php/undef-warning name) :php/null)
+           v)))]
+    [php/local-set! (fn [c v] (do (cell/set! c v) v))]
+    [php/local-isset? (fn [c] (not (= (php/local-peek c) :php/null)))]
+    [php/local-unset! (fn [c] (do (cell/set! c :php/undef) :php/null))]
+
+    ;; ---------------------------------------------------------------- ++ and --
+    [php/lower-cp (fn [c] (if (>= c 65) (if (<= c 90) (+ c 32) c) c))]
+    [php/lc-loop
+     (fn [cs i n acc]
+       (if (< i n)
+         (php/lc-loop cs (+ i 1) n (php/vconj acc (php/lower-cp (get cs i))))
+         acc))]
+    [php/lc
+     ;; ASCII lower case, as PHP 8 does for function names
+     (fn [s]
+       (let [cs (data/str->code-points s)]
+         (data/code-points->str (php/lc-loop cs 0 (data/count cs) []))))]
+    [php/carry
+     (fn [cs i wrap prefix]
+       (let [cs2 (assoc cs i wrap)]
+         (if (= i 0)
+           (data/into (php/vconj [] prefix) cs2)
+           (php/inc-at cs2 (- i 1)))))]
+    [php/inc-at
+     ;; Perl-style string increment from position i; a non-alphanumeric
+     ;; character stops the carry
+     (fn [cs i]
+       (let [c (get cs i)]
+         (if (if (>= c 97) (<= c 122) false)
+           (if (= c 122) (php/carry cs i 97 97) (assoc cs i (+ c 1)))
+           (if (if (>= c 65) (<= c 90) false)
+             (if (= c 90) (php/carry cs i 65 65) (assoc cs i (+ c 1)))
+             (if (if (>= c 48) (<= c 57) false)
+               (if (= c 57) (php/carry cs i 48 49) (assoc cs i (+ c 1)))
+               cs)))))]
+    [php/inc-string
+     (fn [s]
+       (if (= s "")
+         "1"
+         (let [r (php/numeric-string s)]
+           (if (php/full-num? r)
+             (php/add (get r 1) 1)
+             (let [cs (data/str->code-points s)]
+               (data/code-points->str (php/inc-at cs (- (data/count cs) 1))))))))]
+    [php/inc
+     (fn [v]
+       (let [k (php/kind v)]
+         (if (php/numk? k) (php/add v 1)
+             (if (= k :null) 1
+                 (if (= k :bool) v
+                     (if (= k :string) (php/inc-string v)
+                         (php/throw-error "TypeError" "Cannot increment this value")))))))]
+    [php/dec
+     (fn [v]
+       (let [k (php/kind v)]
+         (if (php/numk? k) (php/sub v 1)
+             (if (= k :null) :php/null
+                 (if (= k :bool) v
+                     (if (= k :string)
+                       (if (= v "")
+                         -1
+                         (let [r (php/numeric-string v)]
+                           (if (php/full-num? r) (php/sub (get r 1) 1) v)))
+                       (php/throw-error "TypeError" "Cannot decrement this value")))))))]
+
     ;; ---------------------------------------------------------------- functions
+    [php/make-statics
+     ;; one slot per `static` name, :php/undef until its statement first runs
+     (fn [names i n acc]
+       (if (< i n)
+         (php/make-statics names (+ i 1) n (assoc acc (get names i) (cell/new :php/undef)))
+         acc))]
     [php/make-function
-     (fn [name code]
-       (cell/new (assoc (assoc (assoc {} :php/type :function) :name name) :code code)))]
+     ;; the function cell; `code` is (fn [fn-cell args]) so the body can
+     ;; reach its own statics
+     (fn [name spec code statics]
+       (cell/new (assoc (assoc (assoc (assoc (assoc {} :php/type :function) :name name)
+                                      :spec spec)
+                               :code code)
+                        :statics
+                        (php/make-statics statics 0 (data/count statics) {}))))]
     [php/register!
      (fn [name code]
        (cell/set! php.rt/functions
-                  (assoc (cell/get php.rt/functions) name (php/make-function name code))))]
+                  (assoc (cell/get php.rt/functions)
+                         name
+                         (php/make-function name :php/null (fn [f args] (code args)) []))))]
+    [php/declare-function!
+     (fn [lc f]
+       (if (nil? (get (cell/get php.rt/functions) lc))
+         (do (cell/set! php.rt/functions (assoc (cell/get php.rt/functions) lc f))
+             :php/null)
+         (php/throw-error "Error"
+                          (data/str-concat "Cannot redeclare "
+                                           (get (cell/get f) :name)
+                                           "()"))))]
+    [php/static-slot (fn [f name] (get (get (cell/get f) :statics) name))]
+    [php/static-init!
+     ;; runs the initializer when execution first reaches the statement,
+     ;; once per function: the slot survives calls and recursion
+     (fn [f name thunk]
+       (let [slot (php/static-slot f name)]
+         (if (= (cell/get slot) :php/undef)
+           (do (cell/set! slot (thunk)) :php/null)
+           :php/null)))]
+    [php/too-few
+     (fn [name passed required exact]
+       (php/throw-error
+         "ArgumentCountError"
+         (data/str-concat "Too few arguments to function " name "(), "
+                          (integer/format passed) " passed and "
+                          (if exact "exactly " "at least ")
+                          (integer/format required) " expected")))]
     [php/resolve-fn
      ;; the function cell of lower-cased `lc`, before any argument runs
      (fn [lc written]
@@ -806,7 +1090,10 @@
                                              written "()"))
            f)))]
     [php/call
-     (fn [f args] ((get (cell/get f) :code) args))]
+     (fn [f args] ((get (cell/get f) :code) f args))]
+    [php/callable-fn
+     ;; the function cell of a string callable (closures are P3)
+     (fn [h] (php/resolve-fn (php/lc h) h))]
     [php/arg (fn [args i] (get args i))]
     [php/arity-error
      (fn [name want args]
@@ -830,12 +1117,14 @@
     [php/bi-intdiv
      (fn [args]
        (if (= (data/count args) 2)
-         (php/intdiv (get args 0) (get args 1))
+         (php/intdiv (php/arg-int (get args 0) "intdiv" 1 "num1")
+                     (php/arg-int (get args 1) "intdiv" 2 "num2"))
          (php/arity-error "intdiv" "exactly 2" args)))]
     [php/bi-fmod
      (fn [args]
        (if (= (data/count args) 2)
-         (php/fmod (get args 0) (get args 1))
+         (php/fmod (php/arg-float (get args 0) "fmod" 1 "num1")
+                   (php/arg-float (get args 1) "fmod" 2 "num2"))
          (php/arity-error "fmod" "exactly 2" args)))]
     [php/bi-strlen
      (fn [args]
@@ -862,6 +1151,26 @@
        (if (= (data/count args) 1)
          (php/to-bool (get args 0))
          (php/arity-error "boolval" "exactly 1" args)))]
+    [php/bi-set-error-handler
+     (fn [args]
+       (if (< (data/count args) 1)
+         (php/throw-error "ArgumentCountError"
+                          "set_error_handler() expects at least 1 argument, 0 given")
+         (let [old (cell/get php.rt/error-handler)]
+           (do (cell/set! php.rt/error-handler (get args 0))
+               old))))]
+    [php/bi-restore-error-handler
+     ;; one level in P1: the previous handler is not remembered (P5)
+     (fn [args] (do (cell/set! php.rt/error-handler :php/null) true))]
+    [php/bi-error-reporting
+     (fn [args]
+       (let [old (cell/get php.rt/error-reporting)]
+         (do (if (> (data/count args) 0)
+               (if (= (get args 0) :php/null)
+                 :php/null
+                 (cell/set! php.rt/error-reporting (php/to-int (get args 0))))
+               :php/null)
+             old)))]
     [php/bi-is-nan
      (fn [args]
        (if (= (data/count args) 1)
@@ -889,7 +1198,15 @@
   [["var_dump" 'php/bi-var-dump] ["intdiv" 'php/bi-intdiv] ["fmod" 'php/bi-fmod]
    ["strlen" 'php/bi-strlen] ["intval" 'php/bi-intval]
    ["floatval" 'php/bi-floatval] ["strval" 'php/bi-strval]
-   ["boolval" 'php/bi-boolval] ["is_nan" 'php/bi-is-nan]])
+   ["boolval" 'php/bi-boolval] ["is_nan" 'php/bi-is-nan]
+   ["set_error_handler" 'php/bi-set-error-handler]
+   ["restore_error_handler" 'php/bi-restore-error-handler]
+   ["error_reporting" 'php/bi-error-reporting]])
+
+
+(def builtin-names
+  "The lower-cased names of the functions `php/init!` registers."
+  (set (map first builtins)))
 
 
 (def ^:private error-classes

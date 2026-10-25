@@ -8,6 +8,8 @@
      :params          parameter variable names in order, sigil included
      :assigned        variable names written in the scope, first occurrence
                       first (parameters and statics included)
+     :vars            every variable name the scope mentions, first occurrence
+                      first (what a function allocates local cells for)
      :statics         names declared `static`
      :globals         names declared `global`
      :uses            closure `use` names (closures are refused in P1)
@@ -32,6 +34,7 @@
   {:kind kind,
    :params [],
    :assigned [],
+   :vars [],
    :statics [],
    :globals [],
    :uses [],
@@ -79,7 +82,9 @@
   (reduce
     (fn [[scope scopes :as acc] k]
       (cond
-        (not (p/rule? k)) acc
+        (not (p/rule? k)) (if (= "VarName" (:type k))
+                            [(note-name scope :vars (:text k)) scopes]
+                            acc)
         (contains? scope-rules (:rule k)) (let [[s ss] (analyze-fn pk k scopes)]
                                             [scope (assoc ss (:id k) s)])
         :else
@@ -127,7 +132,7 @@
                             (some->> (p/child-rules pk fp "variableInitializer")
                                      first
                                      (var-name pk)))))
-        base (reduce #(note-name %1 :assigned %2)
+        base (reduce #(note-name (note-name %1 :assigned %2) :vars %2)
                      (assoc (empty-scope :function) :params (vec params))
                      params)]
     (walk pk fn-node [base scopes])))

@@ -7,11 +7,13 @@
   (:require
     [clojure.string :as str]
     [clojure.test :refer [deftest is testing]]
+    [yang.core.uast :as u]
     [yang.php.antlr.lower :as lower]
     [yang.php.antlr.packets :as packets]
     [yang.php.antlr.portable-harness :as h]
     [yang.php.antlr.prelude :as prelude]
-    [yin.vm :as vm]))
+    [yin.vm :as vm]
+    [yin.vm.test-utils :as tu]))
 
 
 (def ^:private closed-names
@@ -54,3 +56,22 @@
       (is (= 'php (:name spec)))
       (is (= prelude/module-exports (:exports spec)))
       (is (every? (:primitives spec) (filter #(= "integer" (namespace %)) prelude/host-names))))))
+
+
+(deftest static-slot-initializes-once-when-first-reached-test
+  (let [body (u/sexp->uast
+               '(let [f (php/make-function
+                          "f"
+                          0
+                          (fn [me as]
+                            (do (php/echo "enter;")
+                                (php/static-init! me "n" (fn [] (do (php/echo "init;") 5)))
+                                (cell/set! (php/static-slot me "n")
+                                           (+ (cell/get (php/static-slot me "n")) 1))
+                                (php/echo (php/to-string (cell/get (php/static-slot me "n"))))
+                                (if (< (data/count as) 1) :php/null (php/call me []))))
+                          ["n"])]
+                  (do (php/call f []) (php/call f []) (php/call f []) (php/call f [0]))))
+        program (u/mark-tails (u/then prelude/uast (u/app (u/v 'php/run-main) (u/lam [] body))))]
+    (is (= "enter;init;6enter;7enter;8enter;9enter;10"
+           (h/render (vm/value (vm/eval (tu/create-vm {:modules (h/host-registry)}) program)))))))

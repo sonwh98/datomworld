@@ -35,7 +35,8 @@
 
 
 (defn lower-program
-  "`{:ast a}` for `source` through the lowering stage, or `{:diagnostics d}`."
+  "`{:ast a :warnings w}` for `source` through the lowering stage, or
+   `{:diagnostics d}`. Warning-severity diagnostics do not stop the program."
   [source]
   (let [cst-log (tu/new-memory-log)
         program (tu/new-memory-log)
@@ -43,11 +44,12 @@
     (stream/append! cst-log (cst/parse-source source))
     (lower/step-stage (lower/open-stage cst-log program diagnostics
                                         {:medium lower/program-medium}))
-    (let [problems (tu/drain diagnostics)]
+    (let [{warnings true, problems false}
+          (group-by #(= :warning (:severity %)) (tu/drain diagnostics))]
       (if (seq problems)
         {:diagnostics problems}
         (let [{:yin/keys [batch root]} (first (tu/drain program))]
-          {:ast (nth batch root)})))))
+          {:ast (nth batch root), :warnings (vec warnings)})))))
 
 
 (defn latin1->text

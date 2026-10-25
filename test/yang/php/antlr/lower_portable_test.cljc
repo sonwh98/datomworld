@@ -47,10 +47,10 @@
 
 (deftest unsupported-rule-names-its-construct-test
   (is (= {:yang.php/diagnostic :yang.php/unsupported,
-          :rule "ifStatement",
-          :construct :if}
+          :rule "foreachStatement",
+          :construct :foreach}
          (diagnostic (h/packet [:htmlDocument
-                                [:phpBlock [:topStatement [:statement [:ifStatement]]]]
+                                [:phpBlock [:topStatement [:statement [:foreachStatement]]]]
                                 ["EOF" "<EOF>"]])))))
 
 
@@ -67,11 +67,11 @@
   (testing "a refusal is one diagnostic and no program"
     (let [r (h/lower-through-stage
               (h/packet [:htmlDocument
-                         [:phpBlock [:topStatement [:statement [:whileStatement]]]]
+                         [:phpBlock [:topStatement [:statement [:gotoStatement]]]]
                          ["EOF" "<EOF>"]]))]
       (is (= :yang.php/unsupported
              (:yang.php/diagnostic (first (:diagnostics r)))))
-      (is (= :while (:construct (first (:diagnostics r))))))))
+      (is (= :goto (:construct (first (:diagnostics r))))))))
 
 
 (deftest portable-fixtures-test

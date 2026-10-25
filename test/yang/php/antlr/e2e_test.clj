@@ -57,17 +57,24 @@
 
 (deftest refusals-are-named-test
   (doseq [[source construct]
-          [["<?php $x = 1;" :assignment]
-           ["<?php echo $x;" :variable]
-           ["<?php function f() {}" :function-declaration]
-           ["<?php if (1) {}" :if]
+          [["<?php $a[0] = 1;" :assignment-target]
+           ["<?php $a = &$b;" :reference]
+           ["<?php echo $a[0];" :variable]
+           ["<?php function f(int $a) {}" :type-declaration]
+           ["<?php function f(): int {}" :return-type]
+           ["<?php function f(&$a) {}" :reference]
+           ["<?php function f(...$a) {}" :variadic]
+           ["<?php foreach ($a as $b) {}" :foreach]
+           ["<?php global $a;" :global]
+           ["<?php static $a = 1;" :static]
+           ["<?php return 1;" :return]
            ["<?php echo [1];" :array]
            ["<?php echo 2 ** 0.5;" nil]
            ["<?php echo FOO;" :constant]
-           ["<?php echo @1;" :silence]
-           ["<?php echo \"a$b\";" :interpolation]
-           ["<?php echo (array)1;" :cast/array]
-           ["<p class=\"a\">x</p>" :inline-html-markup]]
+           ["<?php echo \"a$b[0]\";" :interpolation]
+           ["<?php echo \"a$b->c\";" :interpolation]
+           ["<?php echo isset($a[0]);" :isset-target]
+           ["<?php echo (array)1;" :cast/array]]
           :when construct]
     (let [{:keys [diagnostics]} (h/run-php source)
           d (first diagnostics)]
@@ -85,3 +92,92 @@
     (is (nil? (:php/uncaught r))))
   (testing "a well formed numeric string does not warn"
     (is (= [] (:php/diag (h/run-raw "<?php echo \" 5 \" + 1;"))))))
+
+
+(deftest compile-errors-are-named-test
+  (doseq [[source fragment]
+          [["<?php break;" "'break' not in the 'loop' or 'switch' context"]
+           ["<?php function f() { while (1) { } break; }"
+            "'break' not in the 'loop' or 'switch' context"]
+           ["<?php while (1) { break 0; }" "'break' operator accepts only positive integers"]
+           ["<?php while (1) { continue 0; }" "'continue' operator accepts only positive integers"]
+           ["<?php while (1) { break 2; }" "Cannot 'break' 2 levels"]
+           ["<?php while (1) { while (1) { continue 3; } }" "Cannot 'continue' 3 levels"]
+           ["<?php while (1) { break; } while (1) { break 2; }" "Cannot 'break' 2 levels"]
+           ["<?php $n = 1; while (1) { break $n; }" "non-integer operand"]
+           ["<?php function f() {} function F() {}" "Cannot redeclare F()"]
+           ["<?php function strlen() {}" "Cannot redeclare strlen()"]]]
+    (let [{:keys [diagnostics]} (h/run-php source)
+          d (first diagnostics)]
+      (is (= :yang.php/compile-error (:yang.php/diagnostic d)) source)
+      (is (str/includes? (str (:message d)) fragment) source))))
+
+
+(deftest lowering-warnings-test
+  (testing "a catalogue function the prelude lacks warns, and the program lowers"
+    (let [{:keys [ast warnings]} (h/lower-program "<?php echo strtoupper(\"a\");")]
+      (is (some? ast))
+      (is (= [{:yang.php/diagnostic :yang.php/unknown-builtin,
+               :severity :warning,
+               :name "strtoupper"}]
+             (mapv #(select-keys % [:yang.php/diagnostic :severity :name]) warnings)))
+      (testing "and the call is an Error at run time"
+        (is (= "PHP Fatal error:  Uncaught Error: Call to undefined function strtoupper()"
+               (h/run-walker "<?php echo strtoupper(\"a\");"))))))
+  (testing "a unit that declares the function, or a prelude builtin, does not"
+    (is (empty? (:warnings (h/lower-program
+                             "<?php function strtoupper($s) { return $s; } echo STRTOUPPER(\"a\");"))))
+    (is (empty? (:warnings (h/lower-program "<?php echo strlen(\"a\");"))))
+    (is (empty? (:warnings (h/lower-program "<?php echo not_a_php_function(1);")))))
+  (testing "continue aimed at a switch is a break and says so"
+    (let [{:keys [warnings]}
+          (h/lower-program "<?php for (;;) { switch (1) { case 1: continue; } break; }")]
+      (is (= [:yang.php/compile-warning] (mapv :yang.php/diagnostic warnings))))
+    (is (= "ab" (h/run-walker "<?php switch (1) { case 1: echo \"a\"; continue; echo \"no\"; } echo \"b\";")))))
+
+
+(deftest undefined-variable-warns-test
+  (let [r (h/run-raw "<?php echo $a; function f() { return $b; } echo f() ?? \"n\";")]
+    (is (= "n" (:php/out r)))
+    (is (= ["Undefined variable $a" "Undefined variable $b"] (mapv :message (:php/diag r))))
+    (is (= [2 2] (mapv :errno (:php/diag r)))))
+  (testing "isset, empty and ?? do not warn"
+    (is (= [] (:php/diag (h/run-raw "<?php isset($a); empty($a); echo $a ?? 1;")))))
+  (testing "a local read of an unset local warns, a static is its own slot"
+    (is (= ["Undefined variable $x"]
+           (mapv :message
+                 (:php/diag (h/run-raw "<?php function f() { $x = 1; unset($x); return $x; } f();")))))))
+
+
+(deftest error-handler-test
+  (testing "the handler sees the errno and message and may take the warning"
+    (let [r (h/run-raw (str "<?php function h($n, $s) { echo $n, $s, \";\"; return true; }"
+                            " set_error_handler('h'); echo $u;"))]
+      (is (= "2Undefined variable $u;" (:php/out r)))
+      (is (= [] (:php/diag r)))))
+  (testing "a handler that returns false falls through to the default sink"
+    (let [r (h/run-raw (str "<?php function h($n, $s) { return false; }"
+                            " set_error_handler('h'); echo $u;"))]
+      (is (= ["Undefined variable $u"] (mapv :message (:php/diag r))))))
+  (testing "@ silences the default sink, and error_reporting is restored"
+    (let [r (h/run-raw "<?php echo @$u; echo error_reporting(); echo $w;")]
+      (is (= "32767" (:php/out r)))
+      (is (= ["Undefined variable $w"] (mapv :message (:php/diag r))))))
+  (testing "set_error_handler answers the previous handler"
+    (is (= "NULL\nstring(1) \"h\"\n"
+           (h/run-walker (str "<?php function h() {} var_dump(set_error_handler('h'));"
+                              " var_dump(set_error_handler(null));"))))))
+
+
+(deftest typed-builtin-argument-coercion-test
+  (doseq [[source message]
+          [["<?php intdiv(\"abc\", 1);"
+            "intdiv(): Argument #1 ($num1) must be of type int, string given"]
+           ["<?php intdiv(1, \"5 apples\");"
+            "intdiv(): Argument #2 ($num2) must be of type int, string given"]
+           ["<?php fmod(\"x\", 1);"
+            "fmod(): Argument #1 ($num1) must be of type float, string given"]]]
+    (let [r (h/run-raw source)]
+      (is (= "TypeError" (-> r :php/uncaught :class)) source)
+      (is (= message (-> r :php/uncaught :message)) source)))
+  (is (= "3" (:php/out (h/run-raw "<?php echo intdiv(\"7\", \"2\");")))))
