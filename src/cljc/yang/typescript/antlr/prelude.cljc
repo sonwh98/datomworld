@@ -1568,6 +1568,15 @@
                              {:js/str "length"}
                              (js/slot (data/float64 length) false false true))
              (js/define-own! f {:js/str "name"} (js/slot name false false true))
+             (if (= kind :normal)
+               (let [p (js/make-object js.rt/obj-proto)]
+                 (do (js/define-own! f
+                                     {:js/str "prototype"}
+                                     (js/slot p true false false))
+                     (js/define-own! p
+                                     {:js/str "constructor"}
+                                     (js/slot f true false true))))
+               :js/undefined)
              f)))]
     [js/call
      (fn [f this args]
@@ -1577,16 +1586,27 @@
             (if (= (get c :this-mode) :lexical) :js/undefined this)
             args))
          (js/throw-type-error {:js/str "value is not a function"})))]
+    [js/is-constructor?
+     ;; [[Construct]] exists on :normal functions and on the builtins
+     ;; flagged :ctor?; arrows, methods, accessors and the rest have none
+     (fn [v]
+       (if (js/callable? v)
+         (let [c (cell/get v)]
+           (if (= (get c :kind) :normal)
+             true
+             (if (= (get c :kind) :builtin) (= (get c :ctor?) true) false)))
+         false))]
     [js/construct
      (fn [f args]
-       (if (js/callable? f)
+       (if (js/is-constructor? f)
          (let [c (cell/get f)]
-           (if (= (get c :this-mode) :lexical)
-             (js/throw-type-error {:js/str "value is not a constructor"})
+           (if (nil? (get c :bound-target))
              (let [pr (js/get-prop f {:js/str "prototype"})
                    o (js/make-object (if (js/object? pr) pr js.rt/obj-proto))
                    r ((get c :code) o args)]
-               (if (js/object? r) r o))))
+               (if (js/object? r) r o))
+             (js/construct (get c :bound-target)
+                           (data/into (get c :bound-args) args))))
          (js/throw-type-error {:js/str "value is not a constructor"})))]
 
     ;; ---------------------------------------------------------- escapes
@@ -1905,7 +1925,6 @@
              radix (js/radix-arg (js/arg args 0))]
          (assoc {} :js/str (js/int-result (integer/format b radix)))))]
     [js/bigint-value-of (fn [this args] (js/this-bigint this))]
-    [js/object-to-string (fn [this args] {:js/str "[object Object]"})]
     [js/object-value-of (fn [this args] this)]
     [js/console-log (fn [this args] (js/log! args))]
     [js/string-fn
@@ -1985,7 +2004,7 @@
        (js/define-own!
          o
          (assoc {} :js/str name)
-         (js/slot (js/make-function (assoc {} :js/str name) length :strict :normal code)
+         (js/slot (js/make-function (assoc {} :js/str name) length :strict :builtin code)
                   true
                   false
                   true)))]
@@ -1996,9 +2015,10 @@
                        (js/slot value true false true)))]
     [js/install-ctor!
      ;; a constructor function cell wired to its prototype both ways
-     (fn [name length code proto]
-       (let [f (js/make-function (assoc {} :js/str name) length :strict :normal code)]
-         (do (js/define-own! f
+     (fn [name length code proto ctor?]
+       (let [f (js/make-function (assoc {} :js/str name) length :strict :builtin code)]
+         (do (cell/set! f (assoc (cell/get f) :ctor? ctor?))
+             (js/define-own! f
                              {:js/str "prototype"}
                              (js/slot proto false false false))
              (js/define-own! proto
@@ -2006,6 +2026,931 @@
                              (js/slot f true false true))
              (js/define-global! name f)
              f)))]])
+
+
+(defquoted ^:private object-definitions
+  "Stage 0 (the T2 remainder): Function.prototype call/apply/bind, the
+   Object.prototype methods, the own-key helpers and the Object statics."
+  '[;; ------------------------------------------------- Function.prototype
+    [js/args-rest
+     (fn [args i] (if (< i (data/count args)) (data/subvec args i) []))]
+    [js/length-of
+     (fn [a]
+       (let [n (js/to-integer (js/get-prop a {:js/str "length"}))]
+         (if (< n 0) 0 n)))]
+    [js/array-like-args
+     (fn [a i n acc]
+       (if (< i n)
+         (js/array-like-args
+           a
+           (+ i 1)
+           n
+           (conj acc (js/get-prop a (js/number->string (data/float64 i)))))
+         acc))]
+    [js/list-from-array-like
+     (fn [a]
+       (if (if (= a :js/undefined) true (= a :js/null))
+         []
+         (if (js/object? a)
+           (js/array-like-args a 0 (js/length-of a) [])
+           (js/throw-type-error
+             {:js/str "CreateListFromArrayLike called on non-object"}))))]
+    [js/this-callable
+     (fn [this nm]
+       (if (js/callable? this)
+         this
+         (js/throw-type-error
+           (js/str-concat {:js/str "Function.prototype."}
+                          (js/str-concat nm {:js/str " called on a non-function"})))))]
+    [js/function-call
+     (fn [this args]
+       (js/call (js/this-callable this {:js/str "call"})
+                (js/arg args 0)
+                (js/args-rest args 1)))]
+    [js/function-apply
+     (fn [this args]
+       (js/call (js/this-callable this {:js/str "apply"})
+                (js/arg args 0)
+                (js/list-from-array-like (js/arg args 1))))]
+    [js/function-bind
+     ;; a bound function is a :builtin cell holding :bound-target, :bound-this
+     ;; and :bound-args; construct delegates to the target
+     (fn [this args]
+       (let [target (js/this-callable this {:js/str "bind"})
+             bthis (js/arg args 0)
+             bargs (js/args-rest args 1)
+             nm0 (js/get-prop target {:js/str "name"})
+             tl (js/get-prop target {:js/str "length"})
+             len (if (= (js/kind-of tl) :number)
+                   (js/imax 0 (- (js/to-integer tl) (data/count bargs)))
+                   0)
+             b (js/make-function
+                 (js/str-concat {:js/str "bound "}
+                                (if (js/str? nm0) nm0 {:js/str ""}))
+                 len
+                 :strict
+                 :builtin
+                 (fn [this2 args2]
+                   (js/call target bthis (data/into bargs args2))))]
+         (do (cell/set! b
+                        (assoc (assoc (assoc (assoc (assoc (cell/get b)
+                                                           :bound-target
+                                                           target)
+                                                    :bound-this
+                                                    bthis)
+                                             :bound-args
+                                             bargs)
+                                      :ctor?
+                                      (js/is-constructor? target))
+                               :proto
+                               (get (cell/get target) :proto)))
+             b)))]
+    [js/string-to-string
+     (fn [this args]
+       (if (= (js/kind-of this) :string)
+         this
+         (js/throw-type-error
+           {:js/str "String.prototype.toString requires that 'this' be a String"})))]
+
+    ;; ---------------------------------------------------------- own keys
+    [js/require-object-coercible
+     (fn [v]
+       (let [k (js/kind-of v)]
+         (if (if (= k :undefined) true (= k :null))
+           (js/throw-type-error
+             {:js/str "Cannot convert undefined or null to object"})
+           v)))]
+    [js/own-slot-any
+     ;; the own slot of an object, or the virtual view of a string (R9c)
+     (fn [v key]
+       (if (js/object? v)
+         (js/own-slot v key)
+         (if (= (js/kind-of v) :string)
+           (if (= key {:js/str "length"})
+             (js/slot (data/float64 (js/str-unit-length v)) false false false)
+             (let [i (js/index-key-value key)]
+               (if (if (<= 0 i) (< i (js/str-unit-length v)) false)
+                 (js/slot (js/str-slice v i (+ i 1)) false true false)
+                 nil)))
+           nil)))]
+    [js/index-keys-upto
+     (fn [i n acc]
+       (if (< i n)
+         (js/index-keys-upto
+           (+ i 1)
+           n
+           (conj acc (js/number->string (data/float64 i))))
+         acc))]
+    [js/own-keys-any
+     (fn [v]
+       (if (js/object? v)
+         (js/own-keys v)
+         (if (= (js/kind-of v) :string)
+           (data/into (js/index-keys-upto 0 (js/str-unit-length v) [])
+                      [{:js/str "length"}])
+           [])))]
+    [js/keys-select
+     ;; mode :strs (string keys), :enum (enumerable string keys), :syms
+     (fn [v keys mode i acc]
+       (if (< i (data/count keys))
+         (let [k (get keys i)
+               ok (if (js/symbol? k)
+                    (= mode :syms)
+                    (if (= mode :syms)
+                      false
+                      (if (= mode :enum)
+                        (get (js/own-slot-any v k) :enumerable)
+                        true)))]
+           (js/keys-select v keys mode (+ i 1) (if ok (conj acc k) acc)))
+         acc))]
+    [js/own-string-keys
+     (fn [v] (js/keys-select v (js/own-keys-any v) :strs 0 []))]
+    [js/own-enumerable-string-keys
+     (fn [v] (js/keys-select v (js/own-keys-any v) :enum 0 []))]
+    [js/own-symbol-keys
+     (fn [v] (js/keys-select v (js/own-keys-any v) :syms 0 []))]
+    [js/define-accessor-half!
+     ;; merge a getter (kind :get) or setter (kind :set) into the accessor
+     ;; slot at `key`, replacing a data slot of the same key
+     (fn [o key kind f enumerable]
+       (let [cur (js/own-slot o key)
+             acc? (if (nil? cur) false (js/accessor-slot? cur))
+             g (if (= kind :get) f (if acc? (get cur :get) :js/undefined))
+             s (if (= kind :set) f (if acc? (get cur :set) :js/undefined))]
+         (js/define-own! o key (js/mk-accessor-slot g s enumerable true))))]
+    [js/list->array (fn [v] (js/make-array js.rt/array-proto v))]
+
+    ;; -------------------------------------------------- Object.prototype
+    [js/object-has-own-property
+     (fn [this args]
+       (let [k (js/to-property-key (js/arg args 0))]
+         (not (nil? (js/own-slot-any (js/require-object-coercible this) k)))))]
+    [js/proto-chain-has?
+     (fn [p o]
+       (if (= p :js/null)
+         false
+         (if (= p o) true (js/proto-chain-has? (get (cell/get p) :proto) o))))]
+    [js/object-is-prototype-of
+     (fn [this args]
+       (let [v (js/arg args 0)]
+         (if (js/object? v)
+           (js/proto-chain-has? (get (cell/get v) :proto)
+                                (js/require-object-coercible this))
+           false)))]
+    [js/object-property-is-enumerable
+     (fn [this args]
+       (let [k (js/to-property-key (js/arg args 0))
+             sl (js/own-slot-any (js/require-object-coercible this) k)]
+         (if (nil? sl) false (get sl :enumerable))))]
+    [js/object-tag
+     (fn [v k]
+       (if (= k :undefined)
+         {:js/str "Undefined"}
+         (if (= k :null)
+           {:js/str "Null"}
+           (if (= k :function)
+             {:js/str "Function"}
+             (if (= k :boolean)
+               {:js/str "Boolean"}
+               (if (= k :number)
+                 {:js/str "Number"}
+                 (if (= k :string)
+                   {:js/str "String"}
+                   (if (= k :symbol)
+                     {:js/str "Symbol"}
+                     (if (= k :bigint)
+                       {:js/str "BigInt"}
+                       (if (js/array? v)
+                         {:js/str "Array"}
+                         (if (= (get (cell/get v) :js/class) :error)
+                           {:js/str "Error"}
+                           {:js/str "Object"})))))))))))]
+    [js/object-to-string
+     (fn [this args]
+       (js/str-concat {:js/str "[object "}
+                      (js/str-concat (js/object-tag this (js/kind-of this))
+                                     {:js/str "]"})))]
+    [js/proto-cycle?
+     (fn [o p]
+       (if (= p :js/null)
+         false
+         (if (= p o) true (js/proto-cycle? o (get (cell/get p) :proto)))))]
+    [js/set-proto!
+     ;; OrdinarySetPrototypeOf: a boolean, the cycle walk iterative
+     (fn [o p]
+       (let [c (cell/get o)]
+         (if (= (get c :proto) p)
+           true
+           (if (get c :extensible?)
+             (if (js/proto-cycle? o p)
+               false
+               (do (cell/set! o (assoc c :proto p)) true))
+             false))))]
+    [js/proto-of-any
+     (fn [v]
+       (do (js/require-object-coercible v)
+           (if (js/object? v)
+             (get (cell/get v) :proto)
+             (js/proto-of-primitive v))))]
+    ;; for-in (R4): a state cell {:obj :keys :i :visited}; the walk takes each
+    ;; object's own-key snapshot when it reaches that object, looks the slot
+    ;; up at visit time, and adds every present key (enumerable or not) to
+    ;; `visited`. `visited` is a host map used for membership only.
+    [js/for-in-start
+     (fn [v]
+       (let [k (js/kind-of v)
+             live (if (js/object? v) true (= k :string))]
+         (cell/new
+           (assoc (assoc (assoc (assoc {} :obj (if live v :js/null))
+                                :keys
+                                (if live (js/own-keys-any v) []))
+                         :i
+                         0)
+                  :visited
+                  {}))))]
+    [js/for-in-next
+     (fn [st]
+       (let [s (cell/get st)
+             o (get s :obj)
+             keys (get s :keys)
+             i (get s :i)]
+         (if (= o :js/null)
+           :js/done
+           (if (< i (data/count keys))
+             (let [key (get keys i)
+                   sl (js/own-slot-any o key)]
+               (do (cell/set! st (assoc s :i (+ i 1)))
+                   (if (if (nil? sl) true (js/symbol? key))
+                     (js/for-in-next st)
+                     (if (nil? (get (get s :visited) key))
+                       (do (cell/set! st
+                                      (assoc (cell/get st)
+                                             :visited
+                                             (assoc (get s :visited) key true)))
+                           (if (get sl :enumerable) key (js/for-in-next st)))
+                       (js/for-in-next st)))))
+             (let [p (js/proto-of-any o)]
+               (if (= p :js/null)
+                 (do (cell/set! st (assoc s :obj :js/null)) :js/done)
+                 (do (cell/set! st
+                                (assoc (assoc (assoc s :obj p)
+                                              :keys
+                                              (js/own-keys-any p))
+                                       :i
+                                       0))
+                     (js/for-in-next st))))))))]
+    [js/new-object (fn [] (js/make-object js.rt/obj-proto))]
+    [js/new-array (fn [items] (js/make-array js.rt/array-proto items))]
+    [js/literal-proto!
+     ;; `{__proto__: v}`: sets [[Prototype]] for an object or null, else ignored
+     (fn [o v]
+       (do (if (if (js/object? v) true (= v :js/null))
+             (js/set-proto! o v)
+             false)
+           :js/undefined))]
+    [js/proto-getter (fn [this args] (js/proto-of-any this))]
+    [js/proto-setter
+     (fn [this args]
+       (let [p (js/arg args 0)]
+         (do (js/require-object-coercible this)
+             (if (if (js/object? p) true (= p :js/null))
+               (if (js/object? this)
+                 (if (js/set-proto! this p)
+                   :js/undefined
+                   (js/throw-type-error {:js/str "Cyclic __proto__ value"}))
+                 :js/undefined)
+               :js/undefined))))]
+
+    ;; ------------------------------------------------------------ Object
+    [js/object-fn
+     (fn [this args]
+       (let [v (js/arg args 0)]
+         (if (js/object? v)
+           v
+           (if (if (= v :js/undefined) true (= v :js/null))
+             (js/make-object js.rt/obj-proto)
+             (js/throw-type-error
+               {:js/str "Object(value) of a primitive is not supported (no wrapper objects)"})))))]
+    [js/object-keys
+     (fn [this args]
+       (js/list->array
+         (js/own-enumerable-string-keys
+           (js/require-object-coercible (js/arg args 0)))))]
+    [js/enum-collect
+     (fn [v keys mode i acc]
+       (if (< i (data/count keys))
+         (let [k (get keys i)
+               sl (js/own-slot-any v k)]
+           (js/enum-collect
+             v
+             keys
+             mode
+             (+ i 1)
+             (if (nil? sl)
+               acc
+               (if (get sl :enumerable)
+                 (conj acc
+                       (if (= mode :values)
+                         (js/get-value v k)
+                         (js/list->array (js/pair k (js/get-value v k)))))
+                 acc))))
+         acc))]
+    [js/object-values
+     (fn [this args]
+       (let [v (js/require-object-coercible (js/arg args 0))]
+         (js/list->array
+           (js/enum-collect v (js/own-string-keys v) :values 0 []))))]
+    [js/object-entries
+     (fn [this args]
+       (let [v (js/require-object-coercible (js/arg args 0))]
+         (js/list->array
+           (js/enum-collect v (js/own-string-keys v) :entries 0 []))))]
+    [js/assign-from
+     (fn [target src keys i]
+       (if (< i (data/count keys))
+         (let [k (get keys i)
+               sl (js/own-slot-any src k)]
+           (do (if (nil? sl)
+                 :js/undefined
+                 (if (get sl :enumerable)
+                   (js/put-value target k (js/get-value src k))
+                   :js/undefined))
+               (js/assign-from target src keys (+ i 1))))
+         target))]
+    [js/assign-sources
+     (fn [target args i]
+       (if (< i (data/count args))
+         (let [src (get args i)]
+           (do (if (if (= src :js/undefined) true (= src :js/null))
+                 :js/undefined
+                 (js/assign-from target src (js/own-keys-any src) 0))
+               (js/assign-sources target args (+ i 1))))
+         target))]
+    [js/object-assign
+     (fn [this args]
+       (let [t (js/arg args 0)]
+         (if (js/object? t)
+           (js/assign-sources t args 1)
+           (js/throw-type-error
+             {:js/str "Object.assign target must be an object (no wrapper objects)"}))))]
+    [js/collect-descs
+     (fn [props keys i acc]
+       (if (< i (data/count keys))
+         (let [k (get keys i)
+               sl (js/own-slot-any props k)]
+           (js/collect-descs
+             props
+             keys
+             (+ i 1)
+             (if (nil? sl)
+               acc
+               (if (get sl :enumerable)
+                 (conj acc
+                       (js/pair k
+                                (js/to-property-descriptor (js/get-value props k))))
+                 acc))))
+         acc))]
+    [js/apply-descs
+     (fn [o descs i]
+       (if (< i (data/count descs))
+         (do (js/define-property-or-throw o
+                                          (get (get descs i) 0)
+                                          (get (get descs i) 1))
+             (js/apply-descs o descs (+ i 1)))
+         o))]
+    [js/define-properties
+     (fn [o props]
+       (js/apply-descs
+         o
+         (js/collect-descs (js/require-object-coercible props)
+                           (js/own-keys-any props)
+                           0
+                           [])
+         0))]
+    [js/object-create
+     (fn [this args]
+       (let [p (js/arg args 0)]
+         (if (if (js/object? p) true (= p :js/null))
+           (let [o (js/make-object p)]
+             (if (= (js/arg args 1) :js/undefined)
+               o
+               (js/define-properties o (js/arg args 1))))
+           (js/throw-type-error
+             {:js/str "Object prototype may only be an Object or null"}))))]
+    [js/object-define-property
+     (fn [this args]
+       (let [o (js/arg args 0)]
+         (if (js/object? o)
+           (let [key (js/to-property-key (js/arg args 1))
+                 d (js/to-property-descriptor (js/arg args 2))]
+             (do (js/define-property-or-throw o key d) o))
+           (js/throw-type-error
+             {:js/str "Object.defineProperty called on non-object"}))))]
+    [js/object-define-properties
+     (fn [this args]
+       (let [o (js/arg args 0)]
+         (if (js/object? o)
+           (js/define-properties o (js/arg args 1))
+           (js/throw-type-error
+             {:js/str "Object.defineProperties called on non-object"}))))]
+    [js/object-get-own-property-descriptor
+     (fn [this args]
+       (let [o (js/require-object-coercible (js/arg args 0))
+             key (js/to-property-key (js/arg args 1))]
+         (js/from-property-descriptor (js/own-slot-any o key))))]
+    [js/descs-into
+     (fn [res o keys i]
+       (if (< i (data/count keys))
+         (let [k (get keys i)
+               d (js/from-property-descriptor (js/own-slot-any o k))]
+           (do (if (= d :js/undefined)
+                 :js/undefined
+                 (js/create-data-prop! res k d))
+               (js/descs-into res o keys (+ i 1))))
+         res))]
+    [js/object-get-own-property-descriptors
+     (fn [this args]
+       (let [o (js/require-object-coercible (js/arg args 0))]
+         (js/descs-into (js/make-object js.rt/obj-proto)
+                        o
+                        (js/own-keys-any o)
+                        0)))]
+    [js/object-get-own-property-names
+     (fn [this args]
+       (js/list->array
+         (js/own-string-keys (js/require-object-coercible (js/arg args 0)))))]
+    [js/object-get-own-property-symbols
+     (fn [this args]
+       (js/list->array
+         (js/own-symbol-keys (js/require-object-coercible (js/arg args 0)))))]
+    [js/object-get-prototype-of
+     (fn [this args] (js/proto-of-any (js/arg args 0)))]
+    [js/object-set-prototype-of
+     (fn [this args]
+       (let [o (js/require-object-coercible (js/arg args 0))
+             p (js/arg args 1)]
+         (if (if (js/object? p) true (= p :js/null))
+           (if (js/object? o)
+             (if (js/set-proto! o p)
+               o
+               (js/throw-type-error
+                 {:js/str "Cyclic __proto__ value or object is not extensible"}))
+             o)
+           (js/throw-type-error
+             {:js/str "Object prototype may only be an Object or null"}))))]
+    [js/object-prevent-extensions
+     (fn [this args]
+       (let [o (js/arg args 0)]
+         (do (if (js/object? o)
+               (cell/set! o (assoc (cell/get o) :extensible? false))
+               :js/undefined)
+             o)))]
+    [js/object-is-extensible
+     (fn [this args]
+       (let [o (js/arg args 0)]
+         (if (js/object? o) (get (cell/get o) :extensible?) false)))]
+    [js/lock-slots!
+     (fn [o keys i frozen?]
+       (if (< i (data/count keys))
+         (let [k (get keys i)
+               sl (js/om-get (get (cell/get o) :props) k)]
+           (do (if (nil? sl)
+                 :js/undefined
+                 (js/define-own!
+                   o
+                   k
+                   (if (if frozen? (not (js/accessor-slot? sl)) false)
+                     (assoc (assoc sl :configurable false) :writable false)
+                     (assoc sl :configurable false))))
+               (js/lock-slots! o keys (+ i 1) frozen?)))
+         :js/undefined))]
+    [js/lock-object!
+     (fn [o frozen?]
+       (let [c (cell/get o)
+             c2 (assoc c :extensible? false)]
+         (do (cell/set!
+               o
+               (if (js/array? o)
+                 (assoc (assoc c2
+                               :items-mode
+                               (if frozen?
+                                 :frozen
+                                 (if (= (get c :items-mode) :frozen)
+                                   :frozen
+                                   :sealed)))
+                        :length-writable?
+                        (if frozen?
+                          false
+                          (not (= (get c :length-writable?) false))))
+                 c2))
+             (js/lock-slots! o (js/om-keys (get c :props)) 0 frozen?)
+             o)))]
+    [js/object-freeze
+     (fn [this args]
+       (let [o (js/arg args 0)]
+         (if (js/object? o) (js/lock-object! o true) o)))]
+    [js/object-seal
+     (fn [this args]
+       (let [o (js/arg args 0)]
+         (if (js/object? o) (js/lock-object! o false) o)))]
+    [js/locked?
+     (fn [o keys i frozen?]
+       (if (< i (data/count keys))
+         (let [sl (js/own-slot-any o (get keys i))]
+           (if (nil? sl)
+             (js/locked? o keys (+ i 1) frozen?)
+             (if (get sl :configurable)
+               false
+               (if (if frozen?
+                     (if (js/accessor-slot? sl) false (get sl :writable))
+                     false)
+                 false
+                 (js/locked? o keys (+ i 1) frozen?)))))
+         true))]
+    [js/object-is-frozen
+     (fn [this args]
+       (let [o (js/arg args 0)]
+         (if (js/object? o)
+           (if (get (cell/get o) :extensible?)
+             false
+             (js/locked? o (js/own-keys o) 0 true))
+           true)))]
+    [js/object-is-sealed
+     (fn [this args]
+       (let [o (js/arg args 0)]
+         (if (js/object? o)
+           (if (get (cell/get o) :extensible?)
+             false
+             (js/locked? o (js/own-keys o) 0 false))
+           true)))]
+    [js/object-is
+     (fn [this args] (js/same-value (js/arg args 0) (js/arg args 1)))]
+    [js/object-has-own
+     (fn [this args]
+       (let [o (js/require-object-coercible (js/arg args 0))
+             key (js/to-property-key (js/arg args 1))]
+         (not (nil? (js/own-slot-any o key)))))]
+    [js/entries-into
+     (fn [res items i]
+       (if (< i (data/count items))
+         (let [e (get items i)]
+           (if (js/object? e)
+             (let [k (js/get-value e {:js/str "0"})
+                   v (js/get-value e {:js/str "1"})]
+               (do (js/create-data-prop! res (js/to-property-key k) v)
+                   (js/entries-into res items (+ i 1))))
+             (js/throw-type-error
+               {:js/str "Iterator value is not an entry object"})))
+         res))]
+    [js/object-from-entries
+     (fn [this args]
+       (let [a (js/arg args 0)]
+         (if (js/array? a)
+           (js/entries-into (js/make-object js.rt/obj-proto)
+                            (get (cell/get a) :items)
+                            0)
+           (js/throw-type-error
+             {:js/str "Object.fromEntries accepts arrays only (iterables are T5)"}))))]
+    [js/install-object!
+     (fn []
+       (let [f (js/install-ctor! "Object" 1 js/object-fn js.rt/obj-proto true)]
+         (do (js/def-method! f "keys" 1 js/object-keys)
+             (js/def-method! f "values" 1 js/object-values)
+             (js/def-method! f "entries" 1 js/object-entries)
+             (js/def-method! f "assign" 2 js/object-assign)
+             (js/def-method! f "create" 2 js/object-create)
+             (js/def-method! f "defineProperty" 3 js/object-define-property)
+             (js/def-method! f "defineProperties" 2 js/object-define-properties)
+             (js/def-method! f
+                             "getOwnPropertyDescriptor"
+                             2
+                             js/object-get-own-property-descriptor)
+             (js/def-method! f
+                             "getOwnPropertyDescriptors"
+                             1
+                             js/object-get-own-property-descriptors)
+             (js/def-method! f
+                             "getOwnPropertyNames"
+                             1
+                             js/object-get-own-property-names)
+             (js/def-method! f
+                             "getOwnPropertySymbols"
+                             1
+                             js/object-get-own-property-symbols)
+             (js/def-method! f "getPrototypeOf" 1 js/object-get-prototype-of)
+             (js/def-method! f "setPrototypeOf" 2 js/object-set-prototype-of)
+             (js/def-method! f "preventExtensions" 1 js/object-prevent-extensions)
+             (js/def-method! f "isExtensible" 1 js/object-is-extensible)
+             (js/def-method! f "freeze" 1 js/object-freeze)
+             (js/def-method! f "isFrozen" 1 js/object-is-frozen)
+             (js/def-method! f "seal" 1 js/object-seal)
+             (js/def-method! f "isSealed" 1 js/object-is-sealed)
+             (js/def-method! f "is" 2 js/object-is)
+             (js/def-method! f "hasOwn" 2 js/object-has-own)
+             (js/def-method! f "fromEntries" 1 js/object-from-entries)
+             (js/define-own!
+               js.rt/obj-proto
+               {:js/str "__proto__"}
+               (js/mk-accessor-slot
+                 (js/make-function {:js/str "get __proto__"}
+                                   0
+                                   :strict
+                                   :accessor
+                                   js/proto-getter)
+                 (js/make-function {:js/str "set __proto__"}
+                                   1
+                                   :strict
+                                   :accessor
+                                   js/proto-setter)
+                 false
+                 true))
+             :js/undefined)))]])
+
+
+(defquoted ^:private array-definitions
+  "Stage 0 S5 (partial): the Array constructor, isArray/of, and the
+   Array.prototype methods that need an array receiver (ledger L-T2-5)."
+  '[[js/this-items
+     (fn [this]
+       (if (js/array? this)
+         (get (cell/get this) :items)
+         (js/throw-type-error
+           {:js/str "Array.prototype method requires an array receiver"})))]
+    [js/item-val (fn [it] (if (= it :js/hole) :js/undefined it))]
+    [js/check-open!
+     (fn [a]
+       (let [c (cell/get a)]
+         (if (if (= (get c :items-mode) :open) (get c :extensible?) false)
+           a
+           (js/throw-type-error
+             {:js/str "Cannot modify a frozen, sealed or non-extensible array"}))))]
+    [js/this-fn
+     (fn [f]
+       (if (js/callable? f)
+         f
+         (js/throw-type-error {:js/str "callback is not a function"})))]
+    [js/items-length (fn [items] (data/float64 (data/count items)))]
+    [js/array-push
+     (fn [this args]
+       (let [items (js/this-items this)]
+         (do (js/check-open! this)
+             (js/array-set-items! this (data/into items args))
+             (js/items-length (js/this-items this)))))]
+    [js/array-pop
+     (fn [this args]
+       (let [items (js/this-items this)
+             n (data/count items)]
+         (if (= n 0)
+           :js/undefined
+           (do (js/check-open! this)
+               (js/array-set-items! this (data/subvec items 0 (- n 1)))
+               (js/item-val (get items (- n 1)))))))]
+    [js/array-shift
+     (fn [this args]
+       (let [items (js/this-items this)]
+         (if (= (data/count items) 0)
+           :js/undefined
+           (do (js/check-open! this)
+               (js/array-set-items! this (data/subvec items 1))
+               (js/item-val (get items 0))))))]
+    [js/array-unshift
+     (fn [this args]
+       (let [items (js/this-items this)]
+         (do (js/check-open! this)
+             (js/array-set-items! this (data/into (data/into [] args) items))
+             (js/items-length (js/this-items this)))))]
+    [js/join-text
+     (fn [it]
+       (if (= it :js/hole)
+         {:js/str ""}
+         (if (if (= it :js/undefined) true (= it :js/null))
+           {:js/str ""}
+           (js/to-string it))))]
+    [js/join-items
+     (fn [items sep i acc]
+       (if (< i (data/count items))
+         (js/join-items
+           items
+           sep
+           (+ i 1)
+           (js/str-concat (if (< 0 i) (js/str-concat acc sep) acc)
+                          (js/join-text (get items i))))
+         acc))]
+    [js/array-join
+     (fn [this args]
+       (let [items (js/this-items this)
+             s (js/arg args 0)]
+         (js/join-items items
+                        (if (= s :js/undefined) {:js/str ","} (js/to-string s))
+                        0
+                        {:js/str ""})))]
+    [js/array-to-string (fn [this args] (js/array-join this []))]
+    [js/array-slice
+     (fn [this args]
+       (let [items (js/this-items this)
+             n (data/count items)
+             from (js/rel-clamp (js/to-integer (js/arg args 0)) n)
+             e (js/arg args 1)
+             to (if (= e :js/undefined) n (js/rel-clamp (js/to-integer e) n))]
+         (js/list->array (if (< from to) (data/subvec items from to) []))))]
+    [js/array-concat
+     (fn [this args]
+       (js/list->array (js/concat-into (js/this-items this) args 0)))]
+    [js/concat-into
+     (fn [acc args i]
+       (if (< i (data/count args))
+         (let [a (get args i)]
+           (js/concat-into
+             (if (js/array? a)
+               (data/into acc (get (cell/get a) :items))
+               (conj acc a))
+             args
+             (+ i 1)))
+         acc))]
+    [js/index-search
+     ;; the first index >= i whose element satisfies `same?` against x, or -1
+     (fn [items x i same? skip-holes?]
+       (if (< i (data/count items))
+         (let [it (get items i)]
+           (if (if (= it :js/hole) skip-holes? false)
+             (js/index-search items x (+ i 1) same? skip-holes?)
+             (if (same? (js/item-val it) x)
+               i
+               (js/index-search items x (+ i 1) same? skip-holes?))))
+         -1))]
+    [js/array-index-of
+     (fn [this args]
+       (let [items (js/this-items this)
+             n (data/count items)]
+         (data/float64
+           (js/index-search items
+                            (js/arg args 0)
+                            (js/rel-clamp (js/to-integer (js/arg args 1)) n)
+                            js/strict-eq
+                            true))))]
+    [js/array-includes
+     (fn [this args]
+       (let [items (js/this-items this)
+             n (data/count items)]
+         (<= 0
+             (js/index-search items
+                              (js/arg args 0)
+                              (js/rel-clamp (js/to-integer (js/arg args 1)) n)
+                              js/same-value-zero
+                              false))))]
+    [js/array-at
+     (fn [this args]
+       (let [items (js/this-items this)
+             n (data/count items)
+             k (js/to-integer (js/arg args 0))
+             i (if (< k 0) (+ n k) k)]
+         (if (if (<= 0 i) (< i n) false) (js/item-val (get items i)) :js/undefined)))]
+    [js/array-reverse
+     (fn [this args]
+       (let [items (js/this-items this)]
+         (do (js/check-open! this)
+             (js/array-set-items! this (js/reverse-items items (data/count items) []))
+             this)))]
+    [js/reverse-items
+     (fn [items i acc]
+       (if (< 0 i) (js/reverse-items items (- i 1) (conj acc (get items (- i 1)))) acc))]
+    [js/callback-args
+     (fn [it i a] (js/vconj (js/vconj (js/vconj [] it) (js/mknum i)) a))]
+    [js/array-for-each
+     (fn [this args]
+       (let [f (js/this-fn (js/arg args 0))]
+         (js/each-step this f (js/arg args 1) 0 (data/count (js/this-items this)))))]
+    [js/each-step
+     (fn [a f t i n]
+       (if (< i n)
+         (let [items (get (cell/get a) :items)]
+           (do (if (if (< i (data/count items)) (not (= (get items i) :js/hole)) false)
+                 (js/call f t (js/callback-args (get items i) i a))
+                 :js/undefined)
+               (js/each-step a f t (+ i 1) n)))
+         :js/undefined))]
+    [js/array-map
+     (fn [this args]
+       (let [f (js/this-fn (js/arg args 0))]
+         (js/list->array
+           (js/map-step this f (js/arg args 1) 0 (data/count (js/this-items this)) []))))]
+    [js/map-step
+     (fn [a f t i n acc]
+       (if (< i n)
+         (let [items (get (cell/get a) :items)]
+           (js/map-step
+             a f t (+ i 1) n
+             (conj acc
+                   (if (if (< i (data/count items)) (not (= (get items i) :js/hole)) false)
+                     (js/call f t (js/callback-args (get items i) i a))
+                     :js/hole))))
+         acc))]
+    [js/array-filter
+     (fn [this args]
+       (let [f (js/this-fn (js/arg args 0))]
+         (js/list->array
+           (js/filter-step this f (js/arg args 1) 0 (data/count (js/this-items this)) []))))]
+    [js/filter-step
+     (fn [a f t i n acc]
+       (if (< i n)
+         (let [items (get (cell/get a) :items)
+               ok (if (< i (data/count items)) (not (= (get items i) :js/hole)) false)]
+           (js/filter-step
+             a f t (+ i 1) n
+             (if ok
+               (if (js/to-boolean (js/call f t (js/callback-args (get items i) i a)))
+                 (conj acc (get items i))
+                 acc)
+               acc)))
+         acc))]
+    [js/array-reduce
+     (fn [this args]
+       (let [f (js/this-fn (js/arg args 0))
+             items (js/this-items this)
+             n (data/count items)]
+         (if (< 1 (data/count args))
+           (js/reduce-step this f (js/arg args 1) 0 n)
+           (let [i (js/first-present items 0)]
+             (if (< i 0)
+               (js/throw-type-error {:js/str "Reduce of empty array with no initial value"})
+               (js/reduce-step this f (get items i) (+ i 1) n))))))]
+    [js/first-present
+     (fn [items i]
+       (if (< i (data/count items))
+         (if (= (get items i) :js/hole) (js/first-present items (+ i 1)) i)
+         -1))]
+    [js/reduce-step
+     (fn [a f acc i n]
+       (if (< i n)
+         (let [items (get (cell/get a) :items)]
+           (js/reduce-step
+             a f
+             (if (if (< i (data/count items)) (not (= (get items i) :js/hole)) false)
+               (js/call f
+                        :js/undefined
+                        (js/vconj (js/vconj (js/vconj (js/vconj [] acc) (get items i))
+                                            (js/mknum i))
+                                  a))
+               acc)
+             (+ i 1)
+             n))
+         acc))]
+    [js/find-step
+     ;; mode :value, :index; holes read as undefined
+     (fn [a f t i n mode]
+       (if (< i n)
+         (let [items (get (cell/get a) :items)
+               it (if (< i (data/count items)) (js/item-val (get items i)) :js/undefined)]
+           (if (js/to-boolean (js/call f t (js/callback-args it i a)))
+             (if (= mode :index) (js/mknum i) it)
+             (js/find-step a f t (+ i 1) n mode)))
+         (if (= mode :index) (js/mknum -1) :js/undefined)))]
+    [js/array-find
+     (fn [this args]
+       (js/find-step this (js/this-fn (js/arg args 0)) (js/arg args 1) 0
+                     (data/count (js/this-items this)) :value))]
+    [js/array-find-index
+     (fn [this args]
+       (js/find-step this (js/this-fn (js/arg args 0)) (js/arg args 1) 0
+                     (data/count (js/this-items this)) :index))]
+    [js/array-some
+     (fn [this args]
+       (let [f (js/this-fn (js/arg args 0))]
+         (js/some-step this f (js/arg args 1) 0 (data/count (js/this-items this)) true)))]
+    [js/array-every
+     (fn [this args]
+       (let [f (js/this-fn (js/arg args 0))]
+         (js/some-step this f (js/arg args 1) 0 (data/count (js/this-items this)) false)))]
+    [js/some-step
+     ;; some (want true) stops at the first truthy; every (want false) stops
+     ;; at the first falsy
+     (fn [a f t i n want]
+       (if (< i n)
+         (let [items (get (cell/get a) :items)]
+           (if (if (< i (data/count items)) (not (= (get items i) :js/hole)) false)
+             (if (= (js/to-boolean (js/call f t (js/callback-args (get items i) i a))) want)
+               want
+               (js/some-step a f t (+ i 1) n want))
+             (js/some-step a f t (+ i 1) n want)))
+         (not want)))]
+    [js/array-fn
+     (fn [this args]
+       (let [n (data/count args)
+             a0 (js/arg args 0)]
+         (if (if (= n 1) (= (js/kind-of a0) :number) false)
+           (let [len (js/array-length-value a0)]
+             (do (js/check-sparse 0 len)
+                 (js/list->array (js/items-pad [] len))))
+           (js/list->array args))))]
+    [js/array-is-array
+     (fn [this args] (js/array? (js/arg args 0)))]
+    [js/array-of (fn [this args] (js/list->array args))]
+    [js/install-array!
+     (fn []
+       (let [f (js/install-ctor! "Array" 1 js/array-fn js.rt/array-proto true)]
+         (do (js/def-method! f "isArray" 1 js/array-is-array)
+             (js/def-method! f "of" 0 js/array-of)
+             :js/undefined)))]])
 
 
 (def ^:private define core/define)
@@ -2031,12 +2976,30 @@
 (def ^:private methods-of
   "[proto-key [[name length code] ...]]: the intrinsic methods."
   [['js.rt/obj-proto
-    [["toString" 0 'js/object-to-string] ["valueOf" 0 'js/object-value-of]]]
+    [["toString" 0 'js/object-to-string] ["valueOf" 0 'js/object-value-of]
+     ["hasOwnProperty" 1 'js/object-has-own-property]
+     ["isPrototypeOf" 1 'js/object-is-prototype-of]
+     ["propertyIsEnumerable" 1 'js/object-property-is-enumerable]]]
+   ['js.rt/array-proto
+    [["push" 1 'js/array-push] ["pop" 0 'js/array-pop]
+     ["shift" 0 'js/array-shift] ["unshift" 1 'js/array-unshift]
+     ["join" 1 'js/array-join] ["toString" 0 'js/array-to-string]
+     ["slice" 2 'js/array-slice] ["concat" 1 'js/array-concat]
+     ["indexOf" 1 'js/array-index-of] ["includes" 1 'js/array-includes]
+     ["at" 1 'js/array-at] ["reverse" 0 'js/array-reverse]
+     ["forEach" 1 'js/array-for-each] ["map" 1 'js/array-map]
+     ["filter" 1 'js/array-filter] ["reduce" 1 'js/array-reduce]
+     ["find" 1 'js/array-find] ["findIndex" 1 'js/array-find-index]
+     ["some" 1 'js/array-some] ["every" 1 'js/array-every]]]
+   ['js.rt/fn-proto
+    [["call" 1 'js/function-call] ["apply" 2 'js/function-apply]
+     ["bind" 1 'js/function-bind]]]
    ['js.rt/str-proto
     [["charCodeAt" 1 'js/string-char-code-at]
      ["codePointAt" 1 'js/string-code-point-at] ["at" 1 'js/string-at]
      ["slice" 2 'js/string-slice] ["substring" 2 'js/string-substring]
-     ["indexOf" 1 'js/string-index-of] ["concat" 1 'js/string-concat]]]
+     ["indexOf" 1 'js/string-index-of] ["concat" 1 'js/string-concat]
+     ["toString" 0 'js/string-to-string] ["valueOf" 0 'js/string-to-string]]]
    ['js.rt/num-proto
     [["toString" 1 'js/number-to-string] ["valueOf" 0 'js/number-value-of]]]
    ['js.rt/bool-proto
@@ -2072,7 +3035,8 @@
               (rest error-classes))
         (mapv (fn [[key _ _]] (define key '(js/make-object js.rt/obj-proto)))
               primitive-protos)
-        [(define 'js.rt/symbol-proto '(js/make-object js.rt/obj-proto))]
+        [(define 'js.rt/symbol-proto '(js/make-object js.rt/obj-proto))
+         (define 'js.rt/array-proto '(js/make-object js.rt/obj-proto))]
         (mapcat (fn [[proto ms]]
                   (mapv (fn [[nm n code]]
                           (list 'js/def-method! proto nm n code))
@@ -2093,12 +3057,13 @@
                          (list 'fn
                                '[this args]
                                (list 'js/make-error key '(js/arg args 0)))
-                         key)])
+                         key
+                         true)])
                 error-classes)
         (mapv (fn [[key nm code]]
-                (list 'js/install-ctor! nm 1 code key))
+                (list 'js/install-ctor! nm 1 code key false))
               primitive-protos)
-        ['(let [f (js/make-function {:js/str "Symbol"} 0 :lexical :normal js/symbol-fn)]
+        ['(let [f (js/make-function {:js/str "Symbol"} 0 :lexical :builtin js/symbol-fn)]
             (do (js/define-own! f
                                 {:js/str "prototype"}
                                 (js/slot js.rt/symbol-proto false false false))
@@ -2117,6 +3082,8 @@
                                   false
                                   true))
                 (js/define-global! "Symbol" f)))
+         '(js/install-object!)
+         '(js/install-array!)
          '(js/define-own! js.rt/global
                           {:js/str "undefined"}
                           (js/slot :js/undefined false false false))
@@ -2139,7 +3106,7 @@
   "The single definition list, `[store-key form]` in definition order:
    every prelude function, the literal state slot, then `js/init!`.
    Defining them runs nothing."
-  (into core-definitions
+  (into (into (into core-definitions object-definitions) array-definitions)
         [['js.rt/state :js/uninit] ['js/init! (init-form)]]))
 
 
@@ -2173,7 +3140,7 @@
   "Every key `js/init!` allocates, the ready flag aside, sorted."
   (vec (sort-by str
                 (concat '[js.rt/ctx js.rt/out js.rt/global js.rt/obj-proto
-                          js.rt/fn-proto js.rt/symbol-proto]
+                          js.rt/fn-proto js.rt/symbol-proto js.rt/array-proto]
                         (map second error-classes)
                         (map first primitive-protos)))))
 

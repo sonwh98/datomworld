@@ -80,8 +80,6 @@
    "namespaceDeclaration" {:construct "namespace", :slice :T9},
    "generatorFunctionDeclaration" {:construct "generator function",
                                    :slice :T5},
-   "arrayLiteral" {:construct "array literal", :slice :T2},
-   "objectLiteral" {:construct "object literal", :slice :T2},
    "iteratorBlock" {:construct "iterator block", :slice :T5},
    "generatorBlock" {:construct "generator block", :slice :T5},
    "decoratorList" {:construct "decorator", :slice :never},
@@ -111,6 +109,7 @@
     "returnStatement" "switchStatement" "labelledStatement" "throwStatement"
     "tryStatement" "debuggerStatement" "functionDeclaration"
     "expressionSequence" "singleExpression" "anonymousFunction"
+    "arrayLiteral" "objectLiteral"
     "arrowFunctionDeclaration" "literal" "templateStringLiteral"})
 
 
@@ -491,7 +490,8 @@
     (flush parts raw)))
 
 
-(declare lower-expr lower-seq lower-named)
+(declare lower-expr lower-seq lower-named member-expression? member-parts
+         lower-name-update lower-name-assign)
 
 
 (defn- lower-template
@@ -779,15 +779,6 @@
         (when-not (contains? #{"null" "true" "false"} t) t)))))
 
 
-(defn- member-target?
-  [ctx n]
-  (let [ks (kids ctx n)]
-    (and (< 1 (count ks))
-         (or (and (p/token? (nth ks 1) ".") (p/rule? (peek ks) "identifierName"))
-             (and (some #(p/token? % "[") ks)
-                  (p/rule? (nth ks (- (count ks) 2)) "expressionSequence"))))))
-
-
 (defn- target-name!
   "The identifier an assignment or update writes; refuse member targets."
   [ctx n]
@@ -798,9 +789,7 @@
         (when inner
           (when-let [e (first (rules ctx inner "singleExpression"))]
             (simple-name ctx e))))
-      (if (member-target? ctx n)
-        (refuse! n "property write" :T2)
-        (syntax! n "Invalid left-hand side in assignment"))))
+      (syntax! n "Invalid left-hand side in assignment")))
 
 
 (defn- one-for
@@ -811,8 +800,41 @@
              (u/lit (cbor/float64 1.0))))
 
 
+(defn- lower-member-update
+  "`++o.p` and friends: receiver and key evaluated once, the key converted
+   once before the read."
+  [ctx n target op prefix?]
+  (let [[obj key] (member-parts ctx target)
+        o (gen "mo" n)
+        kk (gen "mk" n)
+        old (gen "o" n)
+        nv (gen "n" n)
+        f (if (= "++" op) 'js/add 'js/sub)]
+    (u/let1 o
+            (lower-expr ctx obj)
+            (u/let1 kk
+                    key
+                    (u/let1 old
+                            (app* 'js/to-numeric
+                                  (app* 'js/get-value (u/v o) (u/v kk)))
+                            (u/let1 nv
+                                    (app* f (u/v old) (one-for (u/v old)))
+                                    (u/then (app* 'js/put-value
+                                                  (u/v o)
+                                                  (u/v kk)
+                                                  (u/v nv))
+                                            (u/v (if prefix? nv old)))))))))
+
+
 (defn- lower-update
-  "`++x`, `--x`, `x++`, `x--` on an identifier."
+  "`++x`, `--x`, `x++`, `x--` on an identifier or a member."
+  [ctx n target op prefix?]
+  (if (member-expression? ctx target)
+    (lower-member-update ctx n target op prefix?)
+    (lower-name-update ctx n target op prefix?)))
+
+
+(defn- lower-name-update
   [ctx n target op prefix?]
   (let [nm (target-name! ctx target)
         old (gen "o" n)
@@ -826,7 +848,43 @@
                             (u/v (if prefix? nv old)))))))
 
 
+(defn- lower-member-assign
+  "`o.p = v` (the key converted after the right-hand side) and `o.p op= v`
+   (the key converted once, before the read)."
+  [ctx n lhs op rhs]
+  (let [[obj key] (member-parts ctx lhs (= op "="))
+        o (gen "mo" n)
+        kk (gen "mk" n)
+        v (gen "v" n)
+        bin (get compound-ops op)]
+    (when-not (or (= op "=") bin)
+      (refuse! n (str "assignment operator " op) :T4))
+    (u/let1 o
+            (lower-expr ctx obj)
+            (u/let1 kk
+                    key
+                    (if (= op "=")
+                      (u/let1 v
+                              (lower-expr ctx rhs)
+                              (app* 'js/put-value
+                                    (u/v o)
+                                    (app* 'js/to-property-key (u/v kk))
+                                    (u/v v)))
+                      (u/let1 v
+                              (app* (get binary-ops bin)
+                                    (app* 'js/get-value (u/v o) (u/v kk))
+                                    (lower-expr ctx rhs))
+                              (app* 'js/put-value (u/v o) (u/v kk) (u/v v))))))))
+
+
 (defn- lower-assign
+  [ctx n lhs op rhs]
+  (if (member-expression? ctx lhs)
+    (lower-member-assign ctx n lhs op rhs)
+    (lower-name-assign ctx n lhs op rhs)))
+
+
+(defn- lower-name-assign
   [ctx n lhs op rhs]
   (let [nm (target-name! ctx lhs)
         v (gen "v" n)]
@@ -858,23 +916,26 @@
 
 
 (defn- member-parts
-  "`[object-node key-node]` of a member read `n` (dot or index form)."
-  [ctx n]
-  (let [ks (kids ctx n)
-        obj (first ks)]
-    (when (some #(p/token? % "?.") ks) (refuse! n "optional chaining" :T4))
-    (cond
-      (and (some #(p/token? % ".") ks)
-           (p/rule? (peek ks) "identifierName"))
-      (do (when (some #(p/token? % "?") ks) (refuse! n "optional chaining" :T4))
-          (when (some #(p/token? % "!") ks) (refuse! n "type syntax" :T8))
-          (when (some #(p/token? % "#") ks) (refuse! n "private name" :T3))
-          [obj (u/lit (jstr (text-of ctx (peek ks))))])
-      (and (some #(p/token? % ".") ks) (p/rule? (peek ks) "typeGeneric"))
-      (refuse! n "type syntax" :T8)
-      :else
-      [obj (app* 'js/to-property-key
-                 (lower-seq ctx (nth ks (- (count ks) 2))))])))
+  "`[object-node key-node]` of a member read `n` (dot or index form). With
+   `raw?` an index key is left unconverted (plain `=` converts it after the
+   right-hand side)."
+  ([ctx n] (member-parts ctx n false))
+  ([ctx n raw?]
+   (let [ks (kids ctx n)
+         obj (first ks)]
+     (when (some #(p/token? % "?.") ks) (refuse! n "optional chaining" :T4))
+     (cond
+       (and (some #(p/token? % ".") ks)
+            (p/rule? (peek ks) "identifierName"))
+       (do (when (some #(p/token? % "?") ks) (refuse! n "optional chaining" :T4))
+           (when (some #(p/token? % "!") ks) (refuse! n "type syntax" :T8))
+           (when (some #(p/token? % "#") ks) (refuse! n "private name" :T3))
+           [obj (u/lit (jstr (text-of ctx (peek ks))))])
+       (and (some #(p/token? % ".") ks) (p/rule? (peek ks) "typeGeneric"))
+       (refuse! n "type syntax" :T8)
+       :else
+       (let [k (lower-seq ctx (nth ks (- (count ks) 2)))]
+         [obj (if raw? k (app* 'js/to-property-key k))])))))
 
 
 (defn- member-expression?
@@ -933,6 +994,17 @@
     (app* 'js/typeof (lower-expr ctx operand))))
 
 
+(defn- lower-delete
+  [ctx n operand]
+  (cond
+    (member-expression? ctx operand)
+    (let [[obj key] (member-parts ctx operand)]
+      (app* 'js/delete-value (lower-expr ctx obj) key))
+    (simple-name ctx operand)
+    (syntax! n "Delete of an unqualified identifier in strict mode.")
+    :else (u/then (lower-expr ctx operand) (u/lit true))))
+
+
 (defn- lower-prefix
   [ctx n op operand]
   (case op
@@ -944,7 +1016,7 @@
     "void" (u/then (lower-expr ctx operand) undefined)
     "++" (lower-update ctx n operand op true)
     "--" (lower-update ctx n operand op true)
-    "delete" (refuse! n "delete" :T2)
+    "delete" (lower-delete ctx n operand)
     "await" (refuse! n "await" :T6)
     (default-arm n)))
 
@@ -971,15 +1043,100 @@
       "??" (refuse! n "nullish coalescing" :T4)
       "?." (refuse! n "optional chaining" :T4)
       "instanceof" (refuse! n "instanceof" :T3)
-      "in" (refuse! n "in operator" :T2)
+      "in" (app* 'js/in-op (lower-expr ctx a) (lower-expr ctx b))
       (if-let [f (get binary-ops op)]
         (app* f (lower-expr ctx a) (lower-expr ctx b))
         (default-arm n)))))
 
 
+(defn- lower-array
+  [ctx k]
+  (let [el (first (rules ctx k "elementList"))
+        step (fn [[items prev?] c]
+               (cond
+                 (p/token? c ",")
+                 [(if prev? items (conj items (u/lit :js/hole))) false]
+                 (p/rule? c "arrayElement")
+                 (do (when (p/has-token? (:pk ctx) c "...")
+                       (refuse! c "spread element" :T4))
+                     [(conj items
+                            (if-let [e (first (rules ctx c "singleExpression"))]
+                              (lower-expr ctx e)
+                              (read-name ctx (text-of ctx c))))
+                      (not (some #(p/token? % ",") (kids ctx c)))])
+                 :else [items prev?]))
+        [items _] (reduce step [[] false] (kids ctx el))]
+    (app* 'js/new-array (build-vector items))))
+
+
+(defn- property-key
+  "`{:key node :hint name-or-nil :proto? bool}` of `propertyName` `pn`."
+  [ctx pn]
+  (let [c (first (kids ctx pn))]
+    (cond
+      (p/token? c "[")
+      {:key (app* 'js/to-property-key
+                  (lower-expr ctx (first (rules ctx pn "singleExpression"))))}
+      (p/rule? c "identifierName")
+      (let [t (text-of ctx c)]
+        {:key (u/lit (jstr t)), :hint t, :proto? (= t "__proto__")})
+      (p/token? c)
+      (let [lit (string-literal pn (:text c))]
+        {:key (u/lit lit),
+         :hint (:js/str lit),
+         :proto? (= (:js/str lit) "__proto__")})
+      :else {:key (app* 'js/to-property-key
+                        (number-literal c (text-of ctx c)))})))
+
+
+(defn- lower-object-member
+  [ctx o pa]
+  (let [c (first (kids ctx pa))]
+    (cond
+      (p/rule? c "propertyName")
+      (let [{:keys [key hint proto?]} (property-key ctx c)
+            sep (second (kids ctx pa))
+            v (nth (kids ctx pa) 2)]
+        (when (p/token? sep "=") (refuse! pa "destructuring" :T4))
+        (if proto?
+          (app* 'js/literal-proto! (u/v o) (lower-expr ctx v))
+          (app* 'js/create-data-prop!
+                (u/v o)
+                key
+                (if hint (lower-named ctx v hint) (lower-expr ctx v)))))
+      (p/token? c "[")
+      (app* 'js/create-data-prop!
+            (u/v o)
+            (app* 'js/to-property-key
+                  (lower-expr ctx (first (rules ctx pa "singleExpression"))))
+            (lower-expr ctx (nth (kids ctx pa) 4)))
+      (p/rule? c "identifierOrKeyWord")
+      (let [t (text-of ctx c)]
+        (app* 'js/create-data-prop! (u/v o) (u/lit (jstr t)) (read-name ctx t)))
+      (p/rule? c "restParameter") (refuse! pa "destructuring" :T4)
+      (or (p/rule? c "getAccessor")
+          (p/rule? c "setAccessor")
+          (p/rule? c "generatorMethod"))
+      (refuse! pa "object method or accessor" :T2)
+      :else (refuse! pa "spread property" :T4))))
+
+
+(defn- lower-object
+  [ctx k]
+  (let [o (gen "obj" k)]
+    (u/let1 o
+            (app* 'js/new-object)
+            (u/seq-nodes
+              (conj (mapv #(lower-object-member ctx o %)
+                          (rules ctx k "propertyAssignment"))
+                    (u/v o))))))
+
+
 (defn- lower-primary
   [ctx n k]
   (cond
+    (p/rule? k "arrayLiteral") (lower-array ctx k)
+    (p/rule? k "objectLiteral") (lower-object ctx k)
     (p/token? k "this") (u/v (:this ctx))
     (p/token? k "super") (refuse! n "super" :T3)
     (p/token? k "class") (refuse! n "class" :T3)
@@ -1266,6 +1423,51 @@
                       []))))))
 
 
+(defn- lower-for-in
+  "`for (head in subject) body`: each turn pulls the next key from the
+   `js/for-in-*` walk; `let`/`const` heads get fresh cells per turn."
+  [ctx n labels]
+  (let [pk (:pk ctx)
+        body (last (rules ctx n "statement"))
+        subject (first (rules ctx n "expressionSequence"))
+        vd (first (rules ctx n "variableDeclaration"))
+        kind (scope/declaration-kind pk (first (rules ctx n "varModifier")))
+        lexical? (contains? #{:let :const} kind)
+        sctx (if lexical? (assoc ctx :scope (:id n)) ctx)
+        it (gen "it" n)
+        k (gen "k" n)
+        w (gen "w" n)
+        {:keys [brk? brk] b :body} (loop-parts ctx n labels sctx body)
+        head (if vd
+               (let [nm (scope/declaration-name pk vd)]
+                 (when-not nm (refuse! vd "destructuring" :T4))
+                 (if lexical?
+                   (init-name nm (u/v k))
+                   (assign-name ctx nm k)))
+               (let [target (first (rules ctx n "singleExpression"))]
+                 (if (member-expression? ctx target)
+                   (let [[obj key] (member-parts ctx target)]
+                     (app* 'js/put-value (lower-expr ctx obj) key (u/v k)))
+                   (assign-name ctx (target-name! ctx target) k))))
+        turn (u/then head b)
+        turn (if lexical?
+               (bind-cells (block-pairs (scope-of ctx n)) turn)
+               turn)]
+    (wrap-escape
+      brk?
+      brk
+      (u/let1 it
+              (app* 'js/for-in-start (lower-seq ctx subject))
+              (spin w
+                    []
+                    (u/let1 k
+                            (app* 'js/for-in-next (u/v it))
+                            (u/if-node (app* '= (u/v k) (u/lit :js/done))
+                                       undefined
+                                       (u/then turn (u/app (u/v w) (u/v w)))))
+                    [])))))
+
+
 (defn- lower-iteration
   [ctx n labels]
   (let [ks (kids ctx n)
@@ -1273,7 +1475,7 @@
     (cond
       (p/token? k0 "do") (lower-do ctx n labels)
       (p/token? k0 "while") (lower-while ctx n labels)
-      (token-kid ctx n "in") (refuse! n "for-in" :T2)
+      (token-kid ctx n "in") (lower-for-in ctx n labels)
       (= 2 (count (filter #(p/token? % ";") ks))) (lower-for ctx n labels)
       :else (refuse! n "for-of" :T5))))
 
