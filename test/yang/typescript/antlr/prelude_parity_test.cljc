@@ -592,33 +592,33 @@
   "[form expected]: function cells, the calling convention, ordinary
    ToPrimitive, escapes."
   [;; (js/call f this args) with a strict function sees its receiver
-   ['(js/call (js/make-function {:js/str "f"} 1 :strict (fn [this args] this))
+   ['(js/call (js/make-function {:js/str "f"} 1 :strict :normal (fn [this args] this))
               {:js/str "r"}
               [])
     {:js/str "r"}]
-   ['(js/call (js/make-function {:js/str "f"} 1 :lexical (fn [this args] this))
+   ['(js/call (js/make-function {:js/str "f"} 1 :lexical :normal (fn [this args] this))
               {:js/str "r"}
               [])
     :js/undefined]
    [(list 'js/call
-          '(js/make-function {:js/str "f"} 2 :strict
+          '(js/make-function {:js/str "f"} 2 :strict :normal
                              (fn [this args]
                                (js/add (js/arg args 0) (js/arg args 1))))
           :js/undefined
           (av {:n 1} {:n 2}))
     {:n 3}]
    ['(js/arg [1] 5) :js/undefined]
-   ['(js/get-prop (js/make-function {:js/str "f"} 2 :strict (fn [t a] t))
+   ['(js/get-prop (js/make-function {:js/str "f"} 2 :strict :normal (fn [t a] t))
                   {:js/str "name"})
     {:js/str "f"}]
-   ['(js/get-prop (js/make-function {:js/str "f"} 2 :strict (fn [t a] t))
+   ['(js/get-prop (js/make-function {:js/str "f"} 2 :strict :normal (fn [t a] t))
                   {:js/str "length"})
     {:n 2}]
-   ['(js/typeof (js/make-function {:js/str "f"} 0 :strict (fn [t a] t)))
+   ['(js/typeof (js/make-function {:js/str "f"} 0 :strict :normal (fn [t a] t)))
     {:js/str "function"}]
    ;; construct: a fresh object whose prototype is F.prototype
    ['(let [proto (js/make-object :js/null)
-           f (js/make-function {:js/str "F"} 0 :strict
+           f (js/make-function {:js/str "F"} 0 :strict :normal
                                (fn [this args]
                                  (do (js/define-own! this
                                                      {:js/str "v"}
@@ -635,10 +635,10 @@
                        (= (get (cell/get o) :proto) proto)))))
     [{:n 4} {:n 9} true]]
    ['(let [other (js/make-object :js/null)
-           f (js/make-function {:js/str "F"} 0 :strict (fn [this args] other))]
+           f (js/make-function {:js/str "F"} 0 :strict :normal (fn [this args] other))]
        (= (js/construct f []) other))
     true]
-   [(throws '(js/construct (js/make-function {:js/str "a"} 0 :lexical
+   [(throws '(js/construct (js/make-function {:js/str "a"} 0 :lexical :normal
                                              (fn [t a] t))
                            []))
     {:js/str "TypeError"}]
@@ -647,7 +647,7 @@
    ['(let [o (js/make-object js.rt/obj-proto)]
        (do (js/define-own! o
                            {:js/str "valueOf"}
-                           (js/slot (js/make-function {:js/str "valueOf"} 0 :strict
+                           (js/slot (js/make-function {:js/str "valueOf"} 0 :strict :normal
                                                       (fn [t a] {:n 41}))
                                     true
                                     false
@@ -657,7 +657,7 @@
    ['(let [o (js/make-object js.rt/obj-proto)]
        (do (js/define-own! o
                            {:js/str "toString"}
-                           (js/slot (js/make-function {:js/str "toString"} 0 :strict
+                           (js/slot (js/make-function {:js/str "toString"} 0 :strict :normal
                                                       (fn [t a] {:js/str "ts"}))
                                     true
                                     false
@@ -837,7 +837,7 @@
                                               5)
                                             :js/null)
                                           (js/neg {:n 0}))
-                                        (js/make-function {:js/str "f"} 0 :strict
+                                        (js/make-function {:js/str "f"} 0 :strict :normal
                                                           (fn [t a] t)))))))
                        (js/run-main
                          (fn [this]

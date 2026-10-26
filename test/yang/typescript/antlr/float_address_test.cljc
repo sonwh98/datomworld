@@ -98,8 +98,8 @@
             moves with every prelude change and is re-minted from source)"
     (is (= (keyword
              (str "segment/blake3-"
-                  "7b9d7dbd532c8e4ee28035723bc3c50a"
-                  "9879c16c300bc0c87515789afa178abd"))
+                  "42d0ac43cbb61210720bf50a41ea8153"
+                  "9dcce2f323474bb515f2caf22656a400"))
            (:root (vm/ast->semantic-bytecode prelude/uast))))))
 
 
@@ -136,8 +136,8 @@
             golden)"
     (is (= (keyword
              (str "segment/blake3-"
-                  "0a2ed2c02a5fea1e96a7c0b43c214bd1"
-                  "18d68db648f2a9114c565708d5116766"))
+                  "33a619deb1c0bf1eefa2493439e1c0c4"
+                  "b6d4681b08c57c7c7f548ba728886af2"))
            (:root (vm/ast->semantic-bytecode float-program)))))
   (testing "decoding the program and projecting it again keeps the address"
     (let [bytecode (vm/ast->semantic-bytecode float-program)
