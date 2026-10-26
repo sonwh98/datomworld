@@ -35,10 +35,14 @@ observation is a regression pin, not an expectation.
 `[:find ?z :where [?e :person/name "Ada"]]` returns `#{[nil]}`. The adapter
 must refuse this statically. Case `find.unbound-var` is `pending`.
 
-Routing: the Phase 1 adapter does not perform this check
-(`(q '[:find ?z ...] db)` still returns `[[nil]]`). The static bound-find-var
-check is owned by Phase 2's "special-form edges" acceptance, and the case
-stays `pending` until that lands.
+**RESOLVED in Phase 2.** The core now refuses statically, before any
+evaluation, a `:find`, `:with` or aggregate-argument variable that neither
+`:in` nor any `:where` clause can bind (a variable merely tested inside a
+`not` does not count). Case `find.unbound-var` graduated from `pending` to an
+executable refusal (message contains "not bound"); `find.unbound-var-in-aggregate`
+and `find.in-bound-var` pin the aggregate and the `:in` sides. The check is
+conservative: a variable that appears only as a function argument is not
+rejected statically and still fails at run time as an unbound-variable error.
 
 ## E4 — A trailing map argument is accepted as options without validation
 
@@ -48,10 +52,11 @@ not be silently ignored. Case `opts.unknown-option-refused` is `pending`.
 
 ## E5 — Aggregate parameters are dropped
 
-`(min 2 ?a)` parses but its parameter is not preserved; the core returns
-`#{[nil]}`. Parameterized `min`/`max` are an Amended Phase 0 addition and are
-`pending` (`agg.parameterized-min`). `distinct`, `median`, `variance` and
-`stddev` are refused today as `Unknown aggregate` and are `pending`.
+**RESOLVED in Phase 2.** The aggregate parser preserves parameters and
+validates arity; `distinct`, `median`, `variance`, `stddev` and parameterized
+`(min n ?x)` / `(max n ?x)` are implemented and their cases are executable
+DaoSpace-side pins (oracle comparison still pending, as for every case). The
+conventions they freeze, and what they do not claim, are E15.
 
 ## E6 — Recursive pull markers fail with a host exception
 
@@ -71,10 +76,12 @@ result is recorded only as a regression pin.
 ## E8 — Cross-host float equality is unverified; hosts other than `clj` are unrun in phase 0
 
 Float64 results (for example `avg`) depend on carrier equality
-(`dao.jing.cbor/float64`) that this phase verified only on the JVM
-(`agg.avg` is `clj` only). Cases listing `cljs` and `cljd` declare intended
-host applicability; phase 0 qualification ran the JVM focused gate and a
-Node discovery check. The three-host G1 run is the next gate.
+(`dao.jing.cbor/float64`). Phase 0 verified only the JVM. Phase 2 adds the
+corpus comparison rule `numeric-value` (numerics agree when they compare equal
+in exact numeric order, so an integral double equals the integer on a host
+that cannot tell them apart) and `agg.avg` now lists every host with it.
+Cases listing `cljs` and `cljd` declare host applicability that the
+three-host gates exercise.
 
 ## E9 — Some pull results depend on JVM shape or enumeration order
 
@@ -144,8 +151,55 @@ surface is a documented difference, not Client parity:
 is a map carrying one of the three source keys. A value such as
 `{:dao.space.query/relation <delay of a non-sequence>}` yields an empty
 result instead of a refusal. The condition predates Phase 4a and bounded
-calls are unaffected (admission requires a vector). It is routed to the
-Phase 2 core slice; no code changed here and no corpus case pins it.
+calls are unaffected (admission requires a vector). **RESOLVED in Phase 2.**
+A relation slot must be nil, a sequential collection, a set, or a delay of
+one: anything else (including a delay of a non-sequence, checked when it is
+forced) is refused with "relation source must be a sequence of tuples"
+instead of reading as empty. Pinned in `dao.space.query-aggregates-test`; no
+corpus case, because the harness builds sources only through the fixture
+DSL.
+
+## E15 — Phase 2 aggregate conventions and their limits
+
+Frozen DaoSpace-side conventions (Client behavior is unmeasured; every case
+is `oracle` pending):
+
+- Aggregates fold the content-distinct rows projected to the `:find`,
+  `:with` and aggregate-argument variables, so duplicates vanish unless
+  `:with` distinguishes them; `distinct` returns a set.
+- `median`: odd count -> the middle element itself (its kind kept); even
+  count -> the double mean of the two middle elements. `variance`:
+  POPULATION variance (divide by n); a single value gives 0.0; `stddev` is its
+  square root. `(min n ?x)` -> the n smallest ascending, `(max n ?x)` -> the n
+  largest descending, duplicates kept, n above the count returns everything.
+- Order statistics sort by exact numeric order across kinds with the owner's
+  tie rule (an exact operand before a float64, then the shorter canonical
+  encoding), so tied kinds order identically on every host; non-numeric
+  operands are refused ("requires numeric operands"), never coerced.
+- Float results are asserted for EXACT equality with no tolerance: values are
+  folded as doubles in the fixed sorted order, and `+ - * /` and `sqrt` are
+  correctly rounded IEEE-754 operations on every host. This is claimed only
+  for the integer inputs the cases use, not for arbitrary floats.
+- The kind of an INTEGRAL double result (7.0) is not host-portable: a
+  JavaScript number cannot be told from the integer 7 without a carrier, so
+  the corpus compares such results by value (`numeric-value`); the JVM kind
+  is pinned in `dao.space.query-aggregates-test`. The tie ORDER of kinds is
+  likewise pinned there, with `cbor/content=`, not in this harness.
+- A `distinct` set collapses elements the host treats as `=`: on the JVM
+  `1.0M` and `1.00M` are one member (the E1 limitation applied to a set).
+- Numeric carriers (decimals, ratios, float64 carriers) have no host
+  arithmetic on JavaScript and Dart: `variance`, `stddev` and an even-count
+  `median` refuse explicitly ("does not accept a numeric carrier",
+  `agg.variance-carrier-refused`, hosts `cljs` and `cljd`). The JVM evaluates
+  BigDecimal as a host number. Order statistics (odd `median`, `min`/`max`
+  with n) never do arithmetic and work with carriers everywhere. A float64
+  is a carrier on JavaScript only; a Dart double and a JVM Double are native
+  numbers. Decimals are carriers on both JavaScript and Dart. So an
+  even-count `median` over tied kinds is evaluated on `clj` and `cljd`
+  (`agg.median-tied-kinds`), refused explicitly on `cljs`
+  (`agg.median-tied-kinds-carrier-refused`), and the odd-count
+  `agg.median-tied-kinds-odd` (no arithmetic) runs on every host.
+- `rand` and `sample` remain excluded ("Unknown aggregate").
 
 ## E14 — Syntax depth is bounded by a documented constant
 

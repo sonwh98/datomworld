@@ -7,13 +7,13 @@
  ;; BLAKE3 of the resource bytes (the file is pure ASCII). Equals
  ;; resource-blake3 in the conformance test.
  :digest {:algorithm :blake3
-          :hex "a1c99136b1d87d1c93e336d9e8cb44142eea02d07b945a08703eeffe9771fa7b"}
- :cases {:total 82 :executable 31 :difference 9 :refusal 6 :pending 36}
+          :hex "17b53dd3edcc6d9c2760ce2cec49166fa1abe7d900b4465bb468aaaa813dc6cb"}
+ :cases {:total 101 :executable 48 :difference 9 :refusal 14 :pending 30}
  :points 28
- :fixtures 9
+ :fixtures 11
  :baseline-revision "f6856bbc"
  :contract "docs/design/dao.space.query.datomic-compat.md"
- :authored "2026-10-24, phase 0 engineer slice (claude-opus-5-5 lane); revised after glm-5.3 reviews (pull-option re-encode; list-form pull case added; previous digest 109f88d7 superseded; Phase 4a timeout/admission case added, previous digest 3b20589f superseded; bounds.published-source-refused note updated for the Phase 4b admission profile, previous digest a4983d69 superseded)"
+ :authored "2026-10-24, phase 0 engineer slice (claude-opus-5-5 lane); revised after glm-5.3 reviews (pull-option re-encode; list-form pull case added; previous digest 109f88d7 superseded; Phase 4a timeout/admission case added, previous digest 3b20589f superseded; bounds.published-source-refused note updated for the Phase 4b admission profile, previous digest a4983d69 superseded; Phase 2: aggregate, unbound-variable and fixture cases promoted/added and numeric-value comparison introduced, previous digest a1c99136 superseded; tied-kind even median host-scoped (arithmetic needs a float64 CARRIER, which only JavaScript has), refusal and odd-count cases added, previous digest 73f92822 superseded)"
  :reviewed-by nil
  :inspected-artifacts
  [{:coordinate com.datomic/client-api
@@ -40,9 +40,9 @@
  :unresolved-observations
  ["E1 final-set collapse of content-distinct numerics (clj asserted; cljs/cljd unasserted)"
   "E2 core string query returns #{[]} (adapter must read safe EDN)"
-  "E3 unbound find variable yields a nil row"
+  "E3 unbound find variable: RESOLVED in Phase 2 (static refusal)"
   "E4 trailing map accepted as options; unknown options not refused"
-  "E5 aggregate parameters dropped; distinct/median/variance/stddev absent"
+  "E5 aggregate parameters and the four new aggregates: RESOLVED in Phase 2 (see E15)"
   "E6 recursive pull markers fail with a host exception"
   "E7 empty-input aggregate behavior unmeasured against Datomic"
   "E8 cross-host float carrier equality unverified"
@@ -50,5 +50,6 @@
   "E11 adapter-executed refusals (list-form pull option) are pinned in dao.space.query.datomic-test, not this harness"
   "E10 first pull-option pins recorded list-shape refusal only; re-encoded and re-pinned after review (previous digest e129fd6a superseded)"
   "E12 Phase 4a timeout/max-steps surface and admission refusal are DaoSpace-specific, pinned in the adapter tests, not this harness"
-  "E13 core relation-slot laxness (non-tuple delay yields empty) routed to the Phase 2 core slice"
-  "36 cases are pending: adapter, option validation, timeout and Client oracle evidence are all outstanding"]}
+  "E13 core relation-slot laxness: RESOLVED in Phase 2 (refused)"
+  "E15 Phase 2 aggregate conventions: population variance, median even/odd, n smallest/largest, exact float equality only for the integer inputs used, carrier refusals on cljs/cljd"
+  "30 cases are pending: adapter, option validation, timeout and Client oracle evidence are all outstanding"]}

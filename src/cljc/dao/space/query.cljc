@@ -26,7 +26,8 @@
             [dao.space.index :as index]
             [dao.stream :as stream]
             [dao.space.query.execution :as exec]
-            [dao.stream.observe :as observe]))
+            [dao.stream.observe :as observe]
+            #?@(:cljd [["dart:math" :as dart-math]])))
 
 
 ;; =============================================================================
@@ -498,13 +499,28 @@
                             relation)))
 
 
+(defn- tuple-source?
+  "A valid row source: nil (no rows), a sequential collection or a set of
+   tuples."
+  [x]
+  (or (nil? x) (sequential? x) (set? x)))
+
+
+(defn- refuse-relation
+  []
+  (throw (ex-info "relation source must be a sequence of tuples"
+                  {:reason :invalid-relation})))
+
+
 (defn- force-relation
   "Force a relation if it is delayed (e.g. from a lazy covered-index
    realization) or return it directly. Memoization belongs to the delay:
-   forcing is therefore at most one walk, but this function itself neither
-   creates nor guarantees non-nilness."
+   forcing is therefore at most one walk. A delay whose value is not a
+   tuple source is refused here (E13), never read as empty."
   [relation]
-  (if (delay? relation) @relation relation))
+  (let [r (if (delay? relation) @relation relation)]
+    (when-not (tuple-source? r) (refuse-relation))
+    r))
 
 
 (declare realize-st)
@@ -633,6 +649,7 @@
   (cond
     (contains? db-value :dao.space.query/relation)
     (let [tuples (:dao.space.query/relation db-value)
+          _ (when-not (or (delay? tuples) (tuple-source? tuples)) (refuse-relation))
           fact? (:fact? db-value)
           st (spend-n st ctx :scan-advance (if fact? (relation-size tuples) 0))]
       (if (exec/terminal? st)
@@ -2148,13 +2165,123 @@
               (recur (inc i) result cur-key (conj cur-vals x)))))))))
 
 
+(defn- host-double
+  "A host number as a double, refusing a numeric carrier loudly (the same
+   refusal as the arithmetic builtins): no silent conversion of a value the
+   host cannot safely evaluate."
+  [op x]
+  (when (and (cbor/numeric? x) (not (number? x)))
+    (throw (ex-info (str "query arithmetic builtin " op
+                         " does not accept a numeric carrier")
+                    {:fn op, :operand x, :type (type-label x)})))
+  (require-numeric! op x)
+  (double x))
+
+
+(defn- numeric-order
+  "The total, deterministic order aggregates sort by: exact numeric order
+   across every kind (cbor/num-compare), and on a numeric tie the owner's
+   min/max tie rule (an exact operand before a float64; else the shorter
+   canonical encoding first), so tied kinds order identically on every host
+   whatever order the group arrived in. Non-numeric operands are refused."
+  [a b]
+  (let [c (cbor/num-compare (require-numeric! 'sort a) (require-numeric! 'sort b))]
+    (cond (not (zero? c)) c
+          (cbor/content= a b) 0
+          (cbor/content= (preferred-tie a b) a) -1
+          :else 1)))
+
+
+(defn- sorted-numeric
+  [xs]
+  (vec (sort numeric-order xs)))
+
+
+(defn- sqrt-double
+  [x]
+  #?(:cljd (dart-math/sqrt x)
+     :clj (Math/sqrt x)
+     :cljs (js/Math.sqrt x)))
+
+
+(defn- agg-median
+  "Median of numeric values: sort by `numeric-order`; an odd count answers
+   the middle element itself (its kind preserved); an even count answers the
+   double mean of the two middle elements."
+  [xs]
+  (let [v (sorted-numeric xs)
+        n (count v)
+        mid (quot n 2)]
+    (if (odd? n)
+      (nth v mid)
+      (let [a (host-double 'median (nth v (dec mid)))
+            b (host-double 'median (nth v mid))]
+        (/ (+ a b) 2.0)))))
+
+
+(defn- agg-variance
+  "POPULATION variance (the sum of squared deviations from the mean divided
+   by n), a double. Values are converted to doubles and folded in `numeric-order`
+   so the evaluation order, and therefore every IEEE-754 rounding step, is
+   fixed: addition, subtraction, multiplication and division are correctly
+   rounded on every host, so the result is the same double on all of them for
+   the same inputs. A single value has variance 0.0."
+  [xs]
+  (let [ds (mapv #(host-double 'variance %) (sorted-numeric xs))
+        n (count ds)
+        mean (/ (reduce + 0.0 ds) n)
+        ss (reduce (fn [acc d] (let [e (- d mean)] (+ acc (* e e)))) 0.0 ds)]
+    (/ ss n)))
+
+
 (def ^:private aggregate-fns
-  {'count count,
-   'count-distinct (fn [xs] (count (content-distinct xs))),
-   'sum (fn [xs] (reduce (host-arithmetic 'sum +) 0 xs)),
-   'min (fn [xs] (reduce portable-min xs)),
-   'max (fn [xs] (reduce portable-max xs)),
-   'avg (fn [xs] (double (/ (reduce (host-arithmetic 'avg +) 0 xs) (count xs))))})
+  "name -> {:arities #{counts of arguments incl. parameters}, :f (fn [params
+   xs])}. `params` are the literal leading arguments (only min and max take
+   one: the positive count n)."
+  {'count {:arities #{1}, :f (fn [_ xs] (count xs))},
+   'count-distinct {:arities #{1}, :f (fn [_ xs] (count (content-distinct xs)))},
+   'sum {:arities #{1}, :f (fn [_ xs] (reduce (host-arithmetic 'sum +) 0 xs))},
+   'min {:arities #{1 2},
+         :f (fn [[n] xs]
+              (if n
+                (vec (take n (sorted-numeric xs)))
+                (reduce portable-min xs)))},
+   'max {:arities #{1 2},
+         :f (fn [[n] xs]
+              (if n
+                (vec (take n (reverse (sorted-numeric xs))))
+                (reduce portable-max xs)))},
+   'avg {:arities #{1},
+         :f (fn [_ xs]
+              (double (/ (reduce (host-arithmetic 'avg +) 0 xs) (count xs))))},
+   'distinct {:arities #{1}, :f (fn [_ xs] (set (content-distinct xs)))},
+   'median {:arities #{1}, :f (fn [_ xs] (agg-median xs))},
+   'variance {:arities #{1}, :f (fn [_ xs] (agg-variance xs))},
+   'stddev {:arities #{1}, :f (fn [_ xs] (sqrt-double (agg-variance xs)))}})
+
+
+(defn- parse-aggregate
+  "Parse `(name arg)` or `(min|max n arg)`: the parameters are preserved
+   (the leading literals), the arity validated against the aggregate's
+   declared arities, and a parameter must be a positive integer."
+  [el]
+  (let [[agg-sym & args] el
+        spec (get aggregate-fns agg-sym)]
+    (when-not spec
+      (throw (ex-info "Unknown aggregate in :find" {:aggregate agg-sym})))
+    (when-not (contains? (:arities spec) (count args))
+      (throw (ex-info "Aggregate arity does not match its definition"
+                      {:aggregate agg-sym, :arity (count args)})))
+    (let [arg (last args)
+          params (vec (butlast args))]
+      (when (and (seq? arg) (= 'pull (first arg)))
+        (throw (ex-info "pull cannot be used as an aggregate argument"
+                        {:element el})))
+      (doseq [p params]
+        (when-not (and (integer? p) (pos? p))
+          (throw (ex-info "aggregate parameter must be a positive integer"
+                          {:aggregate agg-sym, :parameter p}))))
+      {:agg (fn [xs] ((:f spec) params xs)), :arg arg, :agg-name agg-sym, :agg-params params})))
 
 
 (defn- parse-find-element
@@ -2165,16 +2292,7 @@
             (throw (ex-info "pull find element requires a variable"
                             {:element el})))
           {:pull-var pull-var, :pull-pattern pull-pattern})
-        (seq? el) (let [[agg-sym arg] el
-                        agg-fn (get aggregate-fns agg-sym)]
-                    (when-not agg-fn
-                      (throw (ex-info "Unknown aggregate in :find"
-                                      {:aggregate agg-sym})))
-                    (when (and (seq? arg) (= 'pull (first arg)))
-                      (throw (ex-info
-                               "pull cannot be used as an aggregate argument"
-                               {:element el})))
-                    {:agg agg-fn, :arg arg})
+        (seq? el) (parse-aggregate el)
         :else {:var el}))
 
 
@@ -2264,6 +2382,43 @@
         (doseq [s [var arg pull-var]]
           (when (and (symbol? s) (not (query-var-symbol? s)))
             (refuse :find s)))))))
+
+
+(defn- clause-bound-vars
+  "The ?variables a where clause can bind (conservative: a variable that a
+   clause merely tests, such as one inside `not`, does not count)."
+  [clause]
+  (cond
+    (vector? clause)
+    (filter query-var-symbol?
+            (tree-seq coll? seq (if (seq? (first clause)) (rest clause) clause)))
+    (seq? clause)
+    (let [h (first clause)]
+      (cond (contains? #{'not 'not-join} h) nil
+            (= 'or h) (mapcat #(mapcat clause-bound-vars (branch-clauses %)) (rest clause))
+            (= 'or-join h) (filter query-var-symbol? (nth clause 1))
+            (= 'and h) (mapcat clause-bound-vars (rest clause))
+            :else (filter query-var-symbol? (rest clause))))
+    :else nil))
+
+
+(defn- check-find-vars-bound!
+  "Static refusal (E3): every variable the :find, :with and aggregate
+   arguments name must be bound by :in or by some :where clause; otherwise it
+   would silently project nil."
+  [in find with where]
+  (let [bound (-> #{}
+                  (into (filter query-var-symbol?) (tree-seq coll? seq (vec in)))
+                  (into (mapcat clause-bound-vars) where))
+        used (concat with
+                     (mapcat (fn [element]
+                               (let [{:keys [var arg pull-var]} (parse-find-element element)]
+                                 (filter query-var-symbol? [var arg pull-var])))
+                             (:find-vars (parse-find find))))]
+    (doseq [v used]
+      (when-not (contains? bound v)
+        (throw (ex-info (str "Find variable is not bound by :in or :where: " v)
+                        {:var v}))))))
 
 
 (defn- project-element-st
@@ -2374,6 +2529,7 @@
         {:keys [find in with where keys syms strs]} (normalize-query query)
         in-patterns (or in '[$])
         _ (check-declared-symbols in-patterns find)
+        _ (check-find-vars-bound! in-patterns find with where)
         extra-count (- (count inputs) (count in-patterns))
         _ (when (> extra-count 1)
             (throw (ex-info "query input arity permits at most one options map"

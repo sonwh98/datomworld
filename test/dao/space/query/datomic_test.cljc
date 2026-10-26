@@ -398,18 +398,48 @@
            (set (dq/q '[:find (sum ?a) (min ?a) (max ?a) :where [?e :person/age ?a]] db))))))
 
 
-(deftest parameterized-and-later-aggregates-are-refused
-  (let [db (people)]
-    (testing "core would silently drop the parameter, so the adapter refuses the syntax"
-      (is (refused? :unsupported #(dq/q '[:find (min 2 ?a) :where [?e :person/age ?a]] db)))
-      (is (refused? :unsupported #(dq/q '[:find (max 2 ?a) :where [?e :person/age ?a]] db))))
-    (testing "later-phase aggregates"
-      (doseq [agg '[distinct median variance stddev rand sample]]
+(deftest phase-2-aggregates-and-parameters-are-admitted
+  (let [db (people)
+        q (fn [form] (set (dq/q form db)))]
+    (testing "parameterized min and max are lifted (Phase 2): n smallest ascending, n largest descending"
+      (is (= #{[[37 45]]} (q '[:find (min 2 ?a) :where [?e :person/age ?a]])))
+      (is (= #{[[45 37]]} (q '[:find (max 2 ?a) :where [?e :person/age ?a]])))
+      (is (= #{[[37 37]]} (q '[:find (min 2 ?a) :with ?e :where [?e :person/age ?a]]))
+          ":with keeps both 37s"))
+    (testing "distinct, median, variance, stddev are lifted"
+      (is (= #{[#{37 45}]} (q '[:find (distinct ?a) :where [?e :person/age ?a]])))
+      (is (= #{[41.0]} (q '[:find (median ?a) :where [?e :person/age ?a]])))
+      (is (= #{[37]} (q '[:find (median ?a) :with ?e :where [?e :person/age ?a]])))
+      (is (= #{[16.0 4.0]} (q '[:find (variance ?a) (stddev ?a) :where [?e :person/age ?a]]))))
+    (testing "randomized aggregates stay excluded"
+      (doseq [agg '[rand sample]]
         (is (refused? :unsupported
                       #(dq/q [:find (list agg '?a) :where '[?e :person/age ?a]] db))
             (str agg))))
+    (testing "arity and parameter validation"
+      (is (refused? :invalid-request #(dq/q '[:find (min 1 2 ?a) :where [?e :person/age ?a]] db)))
+      (is (refused? :invalid-request #(dq/q '[:find (median 2 ?a) :where [?e :person/age ?a]] db)))
+      (is (refused? :invalid-request #(dq/q '[:find (min 0 ?a) :where [?e :person/age ?a]] db)))
+      (is (refused? :invalid-request #(dq/q '[:find (min -1 ?a) :where [?e :person/age ?a]] db)))
+      (is (refused? :invalid-request #(dq/q '[:find (min 1.5 ?a) :where [?e :person/age ?a]] db))))
     (testing "a truly unknown aggregate is an invalid request"
-      (is (refused? :invalid-request #(dq/q '[:find (frobnicate ?a) :where [?e :person/age ?a]] db))))))
+      (is (refused? :invalid-request #(dq/q '[:find (frobnicate ?a) :where [?e :person/age ?a]] db))))
+    (testing "a non-numeric operand is a refusal, not a coercion"
+      (is (refused? :invalid-request
+                    #(dq/q '[:find (median ?n) :where [?e :person/name ?n]] db))))))
+
+
+(deftest unbound-find-variables-are-refused-statically
+  (let [db (people)]
+    (is (refused? :invalid-request #(dq/q '[:find ?z :where [?e :person/name "Ada"]] db)))
+    (is (refused? :invalid-request #(dq/q '[:find (count ?z) :where [?e :person/name "Ada"]] db)))
+    (is (refused? :invalid-request
+                  #(dq/q '[:find ?e :with ?w :where [?e :person/name "Ada"]] db)))
+    (is (refused? :invalid-request
+                  #(dq/q '[:find (pull ?p [:person/name]) :where [?e :person/name "Ada"]] db)))
+    (testing "variables bound by :in or by a clause are fine"
+      (is (= [[1 "x"]] (dq/q '[:find ?e ?z :in $ ?z :where [?e :person/name "Ada"]] db "x")))
+      (is (= #{[1 1]} (set (dq/q '[:find ?e ?y :where [?e :person/name "Ada"] [(ground 1) ?y]] db)))))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -489,7 +519,7 @@
                 #(dq/q {:query ada-query :args [db] :ret :coll})
                 #(dq/q {:query ada-query :args [db] :offset -1})
                 #(dq/q '[:find ?e :where [?e :a ?v 1 2]] db)
-                #(dq/q '[:find (min 2 ?a) :where [?e :person/age ?a]] db)
+                #(dq/q '[:find (rand ?a) :where [?e :person/age ?a]] db)
                 #(dq/q "#=(foo)" db)
                 #(dq/q '[:find ?e :in $ ?x :where [?e :a _]] db)
                 #(dq/q '[:find ?e :where [?e :person/age ?v] [(unknown-fn ?v) ?x]] db)]]
