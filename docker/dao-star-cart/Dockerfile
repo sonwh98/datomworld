@@ -1,0 +1,27 @@
+# dao.star cart demo.  Build context: the repository root, with the product
+# images present at resources/dao_star_cart/public/images/ (gitignored; the
+# orchestrator copies them to the build host out of band).
+#
+#   docker build -f docker/dao-star-cart/Dockerfile -t dao-star-cart .
+#   docker run -p 3004:3004 -v star-cart-data:/data -e CATALOG_PATH=/data/catalog.edn dao-star-cart
+
+FROM clojure:temurin-21-tools-deps AS build
+WORKDIR /app
+# deps first, so the dependency layer caches
+COPY docker/dao-star-cart/deps.edn deps.edn
+RUN clj -P
+COPY src/clj src/clj
+COPY src/cljc src/cljc
+COPY resources/dao_star_cart resources/dao_star_cart
+
+FROM clojure:temurin-21-tools-deps
+WORKDIR /app
+COPY --from=build /root/.m2 /root/.m2
+COPY --from=build /root/.clojure /root/.clojure
+COPY --from=build /app /app
+ENV PORT=3004 \
+    CATALOG_PATH=/data/catalog.edn \
+    ASSET_ROOT=/app/resources/dao_star_cart/public
+VOLUME /data
+EXPOSE 3004
+CMD ["clj", "-M", "-m", "dao.star-cart.main"]
