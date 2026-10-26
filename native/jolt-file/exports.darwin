@@ -20,3 +20,5 @@ _jolt_file_lock
 _jolt_file_realpath
 _jolt_file_rename
 _jolt_file_sync_dir
+_jolt_file_open_private
+_jolt_file_eexist

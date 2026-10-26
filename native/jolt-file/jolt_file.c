@@ -40,6 +40,9 @@
  * No registry lives here: the process's own holdings stay in
  * dao.space.store.fs `held`.
  *
+ * J4d (layout 3) adds jolt_file_open_private, the O_EXCL create at 0600 a
+ * key file needs, and jolt_file_eexist.
+ *
  * Export policy: the jolt_file_* entries below and nothing else. A new
  * export is a reviewed event; bump JOLT_FILE_LAYOUT with it.
  */
@@ -62,7 +65,7 @@ _Static_assert(sizeof(off_t) == 8, "jolt-file needs a 64-bit off_t");
 
 /* Bump when an entry's signature, a result meaning, or the exported set
    changes; dao.posix.file refuses a library that answers another layout. */
-#define JOLT_FILE_LAYOUT 2
+#define JOLT_FILE_LAYOUT 3
 
 /* The largest single transfer: bounds one call independently of the frame
    size (the facade loops), and stays below Linux's 0x7ffff000 per-call cap. */
@@ -74,6 +77,11 @@ JOLT_FILE_EXPORT int32_t jolt_file_layout_version(void) {
 
 /* EINTR as this platform's headers define it: the facade retries on it. */
 JOLT_FILE_EXPORT int32_t jolt_file_eintr(void) { return EINTR; }
+
+/* EEXIST as this platform's headers define it (layout 3): an exclusive
+   create that finds an entry, which a key file reports as "never
+   overwritten". */
+JOLT_FILE_EXPORT int32_t jolt_file_eexist(void) { return EEXIST; }
 
 /* A terminated copy of path bytes; NULL with *err set on refusal. */
 static char *path_copy(const uint8_t *path, int64_t n, int *err) {
@@ -347,6 +355,17 @@ static int64_t open_flags(const uint8_t *path, int64_t n, int flags,
  */
 JOLT_FILE_EXPORT int64_t jolt_file_open_excl(const uint8_t *path, int64_t n) {
   return open_flags(path, n, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0666);
+}
+
+/*
+ * A key file (J4d, layout 3): O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, mode
+ * 0600, so it is created readable by its owner only (the umask can only
+ * narrow it) and an existing entry is EEXIST, never overwritten. Private
+ * permissions are the key file's requirement, not HEAD's (review F4).
+ */
+JOLT_FILE_EXPORT int64_t jolt_file_open_private(const uint8_t *path,
+                                                int64_t n) {
+  return open_flags(path, n, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, 0600);
 }
 
 /*
