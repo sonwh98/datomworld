@@ -605,11 +605,11 @@
       (u/let1 w
               node
               (u/then (put-var ctx
-                                 (:var loc)
-                                 (app* 'php/path-assign
-                                       (peek-var ctx (:var loc))
-                                       (path-node (:path loc))
-                                       (u/v w)))
+                               (:var loc)
+                               (app* 'php/path-assign
+                                     (peek-var ctx (:var loc))
+                                     (path-node (:path loc))
+                                     (u/v w)))
                       (u/v w))))))
 
 

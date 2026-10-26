@@ -237,8 +237,7 @@
    docker php:8.3-cli), copied exactly from the pass log. A fixture listed
    here has its :oracle set to the banner by `pin`; `:closure-call-invoke`
    is deliberately absent (see its note)."
-  {
-   :ref-alias-write {:out "2", :diag [], :uncaught nil}
+  {:ref-alias-write {:out "2", :diag [], :uncaught nil}
    :ref-unset-breaks-binding {:out "15", :diag [], :uncaught nil}
    :ref-self-assign {:out "3", :diag [], :uncaught nil}
    :ref-element-survives-copy {:out "9", :diag [], :uncaught nil}
@@ -319,11 +318,11 @@
 (def all-fixtures
   "Unconditional registry; the oracle iterates it regardless of activation."
   (mapv pin (concat ref-lifecycle-v1
-               iteration-v1
-               calls-v1
-               closures-v1
-               destructure-v1
-               oracle-only)))
+                    iteration-v1
+                    calls-v1
+                    closures-v1
+                    destructure-v1
+                    oracle-only)))
 
 
 (defn enabled?
