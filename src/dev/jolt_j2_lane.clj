@@ -280,6 +280,12 @@
    ;; cursor/reader/bounded-query logic, no sockets/fs.
    "dao.data.btree.cursor-test" "dao.data.btree.storage-read-test"
    "dao.space.published-read-test" "dao.space.query.published-bounded-test"
+   ;; Listed 2026-10-26 (J4b review C1): the three remaining phase 4a/4b
+   ;; suites, verified on jolt by the J4b engineer (144 tests / 2,266
+   ;; assertions / 0 failures, macOS); the fourth recurrence of the
+   ;; datomic-track unlisted-namespace break.
+   "dao.space.query.datomic-test" "dao.space.query.execution-test"
+   "dao.space.query.datomic-execution-test"
    "yin.vm.ledger-test"
    "yin.vm.semantic.analysis-test" "yin.vm.debruijn-register-code-test"
    "yin.vm.semantic.scan-test" "yin.vm.debruijn-register-effects-test"
