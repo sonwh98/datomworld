@@ -24,8 +24,10 @@
 
 (def completed-steps
   "Implementation steps of the P3 plan that have landed. S1 is the counted-cell
-   substrate (b317c139); nothing of the program-level lowering has landed."
-  #{:s1})
+   substrate (b317c139); S2 to S5 (marker-aware variables, write/unset fetches, `=&`, `global`,
+   `static` binding, by-reference parameters, marker-preserving sorts) are
+   confirmed by the parser run."
+  #{:s1 :s2 :s3 :s4 :s5})
 
 
 (defn- fx

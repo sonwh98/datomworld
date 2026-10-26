@@ -379,7 +379,7 @@
   (is (= "2,1,1,1"
          (run (nums '(php/array-count (php/new-arr (php/array-append (php/array-append (php/empty-array) 1) 2) {}))
                     '(php/array-get (php/new-arr (php/array-append (php/empty-array) 1) {}) 0)
-                    '(php/array-get (php/array-set (php/empty-array) 0 (php/new-ref 1)) 0)
+                    '(php/array-get (php/table-set (php/empty-array) 0 (php/new-ref 1)) 0)
                     '(if (php/array-has? (php/new-arr (php/array-append (php/empty-array) 1) {}) 0) 1 0)))))
   (testing "slot-get answers the marker, array-get the value"
     (is (= "1,0"
@@ -496,6 +496,23 @@
                      (php/echo (php/to-string (data/count (php/check-invariants (php/global-peek "a")))))))))))
 
 
+(deftest s5-borrowed-elements-are-addrefed-test
+  (testing "a rebuild that copies a counted element ADDREFs it and upgrades the table"
+    (is (= "2,2,0"
+           (run (nums '(let [m (php/new-ref 7)
+                             src (php/store (php/empty-array) 0 m)
+                             dst (php/array-set (php/empty-array) 0 (php/slot-get src 0))]
+                         (php/rc-of m))
+                      '(let [h (php/new-arr (php/empty-array) {})
+                             t (php/array-append (php/empty-array) h)]
+                         (php/rc-of h))
+                      '(data/count (php/check-invariants
+                                     (php/array-append (php/empty-array) (php/new-arr (php/empty-array) {})))))))))
+  (testing "scalars keep a plain table"
+    (is (= "1"
+           (run (nums (slot-kind-is '(php/array-append (php/empty-array) 3) :plain)))))))
+
+
 (deftest anchor-5-one-reference-rc-3-no-nesting-test
   (is (= "3,0,0"
          (run (nums '(let [a (cell/new 1)
@@ -608,7 +625,7 @@
            (run (nums '(let [inner (php/new-arr (php/empty-array) {})
                              outer (php/store (php/new-arr (php/empty-array) {}) 0 inner)]
                          (do (php/delref outer) (php/rc-of inner)))
-                      '(let [o (php/new-obj "C" (php/array-set (php/empty-array) "p" (php/new-arr (php/empty-array) {})))
+                      '(let [o (php/new-obj "C" (php/table-set (php/empty-array) "p" (php/new-arr (php/empty-array) {})))
                              p (php/slot-get (get (cell/get (get o :php/obj)) :props) "p")]
                          (do (php/delref o) (php/rc-of p))))))))
   (testing "unwrap on dup: an rc-1 marker becomes its value; the source is unchanged"
@@ -636,11 +653,11 @@
     (is (= "0"
            (run (nums '(data/count
                          (php/check-invariants
-                           (php/new-arr (php/array-set (php/empty-array) 0 (php/new-ref 1)) {0 true})))))))
+                           (php/new-arr (php/table-set (php/empty-array) 0 (php/new-ref 1)) {0 true})))))))
     (is (= "1"
            (run (nums '(data/count
                          (php/check-invariants
-                           (php/array-set (php/empty-array) 0 (php/new-ref 1))))))))))
+                           (php/table-set (php/empty-array) 0 (php/new-ref 1))))))))))
 
 
 (def ^:private row18
@@ -670,7 +687,7 @@
                                    (do (php/delref o) (if (php/released? t) 1 0)))
                         row18)
                       (with-fix '(let [t FIX
-                                       o (php/new-obj "C" (php/array-set (php/empty-array) "p" t))]
+                                       o (php/new-obj "C" (php/table-set (php/empty-array) "p" t))]
                                    (do (php/delref o) (if (php/released? t) 1 0)))
                         row18))))))
   (testing "a two-member cycle: A's marker holds B, B's marker holds A"

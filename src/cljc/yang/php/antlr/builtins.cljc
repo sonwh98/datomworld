@@ -29,6 +29,7 @@
               "count" 'php/bi-count, "sizeof" 'php/bi-count,
               "array_keys" 'php/bi-array-keys, "array_values" 'php/bi-array-values,
               "array_merge" 'php/bi-array-merge,
+              "implode" 'php/bi-implode, "join" 'php/bi-implode, "array_sum" 'php/bi-array-sum,
               "array_key_exists" 'php/bi-array-key-exists,
               "key_exists" 'php/bi-array-key-exists, "in_array" 'php/bi-in-array,
               "is_array" 'php/bi-is-array, "array_key_first" 'php/bi-array-key-first,

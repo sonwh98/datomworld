@@ -9,7 +9,9 @@
     [yang.php.antlr.cst :as cst]
     [yang.php.antlr.e2e-harness :as h]
     [yang.php.antlr.packets :as packets]
-    [yang.php.antlr.programs :as programs]))
+    [yang.php.antlr.packets-p3b :as packets-p3b]
+    [yang.php.antlr.programs :as programs]
+    [yang.php.antlr.programs-p3b :as p3b]))
 
 
 (def ^:private vms [:ast-walker :semantic :stack :register])
@@ -80,18 +82,15 @@
 
 (deftest refusals-are-named-test
   (doseq [[source construct]
-          [["<?php $a = &$b;" :reference]
+          [["<?php $a = &f();" :reference-source]
            ["<?php $a->b = 1;" :assignment-target]
            ["<?php $$a[0] = 1;" :assignment-target]
            ["<?php [$a, $b] = $c;" :list]
-           ["<?php echo [&$a];" :reference]
            ["<?php function f(int $a) {}" :type-declaration]
            ["<?php function f(): int {}" :return-type]
-           ["<?php function f(&$a) {}" :reference]
            ["<?php function f(...$a) {}" :variadic]
            ["<?php foreach ($a as &$b) {}" :reference]
            ["<?php foreach ($a as [$b, $c]) {}" :list]
-           ["<?php global $a;" :global]
            ["<?php static $a = 1;" :static]
            ["<?php return 1;" :return]
            ["<?php echo FOO;" :constant]
@@ -212,3 +211,29 @@
     (is (= "NULL\nstring(1) \"h\"\n"
            (h/run-walker (str "<?php function h() {} var_dump(set_error_handler('h'));"
                               " var_dump(set_error_handler(null));"))))))
+
+
+(deftest stage0-enabled-fixtures-on-the-walker-test
+  (doseq [{:keys [id source out diag uncaught level]} p3b/enabled
+          :when (= :program level)
+          :let [r (h/run-raw source)]]
+    (is (= out (h/latin1->text (:php/out r))) (name id))
+    (is (= (vec diag) (mapv (juxt :errno :message) (:php/diag r))) (name id))
+    (is (= uncaught (some-> (:php/uncaught r) (select-keys [:class :message])))
+        (name id))))
+
+
+(deftest ^:slow stage0-enabled-fixtures-on-every-vm-test
+  (doseq [{:keys [id source level] :as fixture} p3b/enabled
+          :when (= :program level)
+          :let [out (rendered fixture)]]
+    (let [results (h/run-php source)]
+      (is (not (contains? results :diagnostics)) (pr-str results))
+      (doseq [k vms]
+        (is (= out (get results k)) (str (name id) " on " k))))))
+
+
+(deftest stage0-packets-match-source-test
+  (doseq [[id form] packets-p3b/forms
+          :let [{:keys [source]} (first (filter #(= id (:id %)) p3b/all-fixtures))]]
+    (is (= form (h/packet->form (cst/parse-source source))) (name id))))

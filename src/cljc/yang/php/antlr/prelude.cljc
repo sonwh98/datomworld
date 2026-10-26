@@ -1327,15 +1327,15 @@
          (if (= (php/slot-kind cont) :arr-handle)
            (let [c (get cont :php/arr)
                  st (cell/get c)]
-             (do (cell/set! c (assoc (assoc st :value (php/array-set (get st :value) k v))
+             (do (cell/set! c (assoc (assoc st :value (php/table-set (get st :value) k v))
                                      :deps
                                      (if counted
                                        (assoc (get st :deps) k true)
                                        (data/dissoc (get st :deps) k))))
                  cont))
            (if counted
-             (php/new-arr (php/array-set cont k v) (assoc {} k true))
-             (php/array-set cont k v)))))]
+             (php/new-arr (php/table-set cont k v) (assoc {} k true))
+             (php/table-set cont k v)))))]
     [php/next-key
      (fn [cont] (let [nx (get (php/arr-table cont) :next-index)] (if (nil? nx) 0 nx)))]
     [php/make-ref
@@ -1492,7 +1492,8 @@
     [php/array-get (fn [arr k] (php/deref (php/slot-get arr k)))]
     [php/array-order (fn [arr] (get (php/arr-table arr) :order))]
     [php/array-count (fn [arr] (data/count (php/array-order arr)))]
-    [php/array-set
+    [php/table-set
+     ;; raw write into a plain table; the caller owns every count
      (fn [arr k v]
        (let [idx (get arr :index)
              a (assoc (assoc arr :index (assoc idx k v))
@@ -1501,6 +1502,14 @@
                         (php/vconj (get arr :order) k)
                         (get arr :order)))]
          (if (php/int? k) (php/bump-next a k) a)))]
+    [php/array-set
+     ;; a borrowed value goes in: a counted one is ADDREFed and upgrades a
+     ;; plain table, an instance takes the write through `store`
+     (fn [arr k v]
+       (if (php/counted? v)
+         (php/store arr k (php/addref v))
+         (if (= (php/slot-kind arr) :arr-handle) (php/store arr k v) (php/table-set arr k v))))]
+    [php/array-store-borrowed (fn [arr k v] (php/store arr k (php/addref v)))]
     [php/append-key
      ;; the key `[]` writes to, or the engine's occupied-slot error
      (fn [arr]
@@ -1511,7 +1520,7 @@
              "Error"
              "Cannot add element to the array as the next element is already occupied")
            h)))]
-    [php/array-append (fn [arr v] (php/store arr (php/append-key arr) v))]
+    [php/array-append (fn [arr v] (php/array-store-borrowed arr (php/append-key arr) v))]
     [php/array-put-ref
      ;; `[k => &$x]`: the marker is stored and counted by the slot
      (fn [arr k m] (php/store arr (php/array-key k) (php/addref m)))]
@@ -1540,7 +1549,7 @@
                 :order
                 (php/vec-remove (get arr :order) k 0 (data/count (get arr :order)) []))
          arr))]
-    [php/array-put (fn [arr k v] (php/store arr (php/array-key k) v))]
+    [php/array-put (fn [arr k v] (php/array-set arr (php/array-key k) v))]
     [php/array-keys (fn [arr] (php/array-order arr))]
     [php/values-loop
      (fn [arr ord i n acc]
@@ -1968,6 +1977,20 @@
          (if (= (cell/get slot) :php/undef)
            (do (cell/set! slot (thunk)) :php/null)
            :php/null)))]
+    [php/static-bind!
+     ;; `static $n = e;`: the persistent slot holds a marker made on first
+     ;; reach; the activation's CV is bound to it (row 17)
+     (fn [f name cv thunk]
+       (let [slot (php/static-slot f name)]
+         (do (if (= (cell/get slot) :php/undef)
+               (cell/set! slot (php/new-ref (thunk)))
+               :php/null)
+             (php/bind-marker cv (cell/get slot)))))]
+    [php/param-ref
+     ;; a by-reference parameter: the caller's marker (counted by the CV), or
+     ;; a fresh one around a value that is not a variable
+     (fn [arg]
+       (if (= (php/slot-kind arg) :ref-marker) (php/addref arg) (php/new-ref arg)))]
     [php/too-few
      (fn [name passed required exact]
        (php/throw-error
@@ -2148,6 +2171,32 @@
                                 (if (> (data/count args) 2) (php/to-bool (get args 2)) false)
                                 0 (php/array-count arr) (php/empty-array))
                (php/vec->array (php/array-order arr) 0 (php/array-count arr) (php/empty-array))))))]
+    [php/implode-loop
+     (fn [sep arr i n acc]
+       (if (< i n)
+         (php/implode-loop sep arr (+ i 1) n
+                           (data/str-concat acc (if (= i 0) "" sep)
+                                            (php/to-string (php/array-get arr (get (php/array-order arr) i)))))
+         acc))]
+    [php/bi-implode
+     (fn [args]
+       (do (php/arity-between "implode" args 1 2 "at least 1")
+           (if (= (data/count args) 1)
+             (let [arr (php/arg-array (get args 0) "implode" 1 "array")]
+               (php/implode-loop "" arr 0 (php/array-count arr) ""))
+             (let [arr (php/arg-array (get args 1) "implode" 2 "array")]
+               (php/implode-loop (php/to-string (get args 0)) arr 0 (php/array-count arr) "")))))]
+    [php/sum-loop
+     (fn [arr i n acc]
+       (if (< i n)
+         (php/sum-loop arr (+ i 1) n
+                       (php/add acc (php/array-get arr (get (php/array-order arr) i))))
+         acc))]
+    [php/bi-array-sum
+     (fn [args]
+       (do (php/arity-between "array_sum" args 1 1 "exactly 1")
+           (let [arr (php/arg-array (get args 0) "array_sum" 1 "array")]
+             (php/sum-loop arr 0 (php/array-count arr) 0))))]
     [php/bi-array-values
      (fn [args]
        (do (php/arity-between "array_values" args 1 1 "exactly 1")
@@ -2253,7 +2302,7 @@
      (fn [arr i n acc]
        (if (< i n)
          (let [k (get (php/array-order arr) i)]
-           (php/pairs arr (+ i 1) n (php/vconj acc (php/pair k (php/array-get arr k)))))
+           (php/pairs arr (+ i 1) n (php/vconj acc (php/triple k (php/array-get arr k) (php/slot-get arr k)))))
          acc))]
     [php/take-rest
      (fn [acc xs i n]
@@ -2312,16 +2361,24 @@
          (let [it (get sorted i)]
            (php/rebuild sorted (+ i 1) n
                         (if keep
-                          (php/array-set acc (get it 0) (get it 1))
-                          (php/array-append acc (get it 1)))
+                          (php/array-set acc (get it 0) (get it 2))
+                          (php/array-append acc (get it 2)))
                         keep))
          acc))]
     [php/sort-finish
      (fn [arr sorted keep]
        (let [out (php/rebuild sorted 0 (data/count sorted) (php/empty-array) keep)
-             nx (get arr :next-index)]
+             nx (get (php/arr-table arr) :next-index)]
          (php/out1 true
-                   (if keep (if (nil? nx) out (assoc out :next-index nx)) out))))]
+                   (if keep (if (nil? nx) out (php/with-next-index out nx)) out))))]
+    [php/with-next-index
+     (fn [out nx]
+       (if (= (php/slot-kind out) :arr-handle)
+         (let [c (get out :php/arr)
+               st (cell/get c)]
+           (do (cell/set! c (assoc st :value (assoc (get st :value) :next-index nx))) out))
+         (assoc out :next-index nx)))]
+    [php/triple (fn [a b c] (php/vconj (php/vconj (php/vconj [] a) b) c))]
     [php/do-sort
      (fn [name args by keep sign]
        (do (php/arity-between name args 1 2 "at least 1")

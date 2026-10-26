@@ -7,6 +7,7 @@
     [clojure.test :refer [deftest is testing]]
     [yang.php.antlr.lower :as lower]
     [yang.php.antlr.packets :as packets]
+    [yang.php.antlr.packets-p3b :as packets-p3b]
     [yang.php.antlr.portable-harness :as h]
     [yang.php.antlr.programs :as programs]
     [yang.php.antlr.programs-p3b :as p3b]
@@ -87,6 +88,21 @@
         (name id))))
 
 
+(deftest enabled-stage0-fixtures-run-from-packets-test
+  (let [enabled (filter #(= :program (:level %)) p3b/enabled)]
+    (testing "every enabled program fixture has a packet, and no stale packets"
+      (is (= (set (map :id enabled)) (set (keys packets-p3b/forms)))))
+    (doseq [{:keys [id out diag uncaught oracle]} enabled
+            :let [form (get packets-p3b/forms id)
+                  r (when form (h/run-packet-raw (h/packet form)))]
+            :when form]
+      (is (not= :pending oracle) (name id))
+      (is (= out (:php/out r)) (name id))
+      (is (= (vec diag) (mapv (juxt :errno :message) (:php/diag r))) (name id))
+      (is (= uncaught (some-> (:php/uncaught r) (select-keys [:class :message])))
+          (name id)))))
+
+
 (deftest stage0-registry-and-activation-test
   (let [all p3b/all-fixtures
         ids (map :id all)]
@@ -104,8 +120,8 @@
     (testing "an enabled fixture is never pending (activation fails the run)"
       (is (empty? (filter #(= :pending (:oracle %)) p3b/enabled))))
     (testing "the wiring fixtures stay disabled until their step lands"
-      (is (some #(= :ref-alias-write (:id %)) all))
-      (is (not-any? #(= :ref-alias-write (:id %)) p3b/enabled)))
+      (is (some #(= :foreach-ref-doubles (:id %)) all))
+      (is (not-any? #(= :foreach-ref-doubles (:id %)) p3b/enabled)))
     (testing "every recorded oracle result equals the design-pinned expectation"
       (doseq [f all
               :let [r (get p3b/recorded (:id f))]

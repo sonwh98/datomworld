@@ -85,8 +85,7 @@
 
 (def unsupported-rules
   "Grammar rules P1 does not lower, with the construct each names."
-  {"globalStatement" :global,
-   "tryCatchFinally" :try,
+  {"tryCatchFinally" :try,
    "throwStatement" :throw,
    "gotoStatement" :goto,
    "declareStatement" :declare,
@@ -878,14 +877,22 @@
 
 
 (defn- lower-arguments
-  "The nodes of a call's `arguments` rule: positional expressions only."
-  [ctx args]
-  (mapv (fn [a]
-          (let [ks (core/kids ctx a)]
-            (when (or (p/token? (first ks)) (not= 1 (count ks)))
-              (unsupported! a :argument-form))
-            (lower ctx (first ks))))
-        (core/rules ctx args "actualArgument")))
+  "The nodes of a call's `arguments` rule: positional expressions only. A
+   position in `refs` (a by-reference parameter of a unit function) that holds
+   a variable or element sends the reference marker."
+  ([ctx args] (lower-arguments ctx args nil))
+  ([ctx args refs]
+   (vec (map-indexed
+          (fn [i a]
+            (let [ks (core/kids ctx a)]
+              (when (or (p/token? (first ks)) (not= 1 (count ks)))
+                (unsupported! a :argument-form))
+              (let [chain (when (some #{i} refs)
+                            (first (core/rules ctx (first ks) "chain")))]
+                (if (and chain (chain-location ctx chain))
+                  (ref-source ctx a chain)
+                  (lower ctx (first ks))))))
+          (core/rules ctx args "actualArgument")))))
 
 
 (defn- argument-chains
@@ -1024,7 +1031,8 @@
                   (lower-by-ref-call ctx n f by-ref arguments)
                   (core/site :call
                              (app* 'php/call (u/v f)
-                                   (args-vector (lower-arguments ctx arguments))))))))))
+                                   (args-vector (lower-arguments ctx arguments
+                                                                 (get (:declared ctx) lc)))))))))))
 
 
 (defn- lower-chain
@@ -1085,8 +1093,8 @@
                               (app* 'php/array-append-ref acc m)))
                           (p/token? (first kids) "...")
                           (app* 'php/array-spread acc (lower ctx k))
-                          v (app* 'php/array-put acc (lower ctx k) (acquired ctx v))
-                          :else (app* 'php/array-append acc (acquired ctx k)))))
+                          v (app* 'php/array-put acc (lower ctx k) (lower ctx v))
+                          :else (app* 'php/array-append acc (lower ctx k)))))
                     (app* 'php/empty-array)
                     items)
         deref (first (core/rules ctx n "expression"))]
@@ -1535,7 +1543,6 @@
               (cond
                 (p/rule? k "typeHint") :type-declaration
                 (p/token? k "?") :type-declaration
-                (p/token? k "&") :reference
                 (p/token? k "...") :variadic
                 (p/rule? k "attributes") :attribute
                 (p/rule? k "memberModifier") :promoted-parameter))
@@ -1548,10 +1555,14 @@
    `constantInitializer` node or nil."
   [ctx n]
   (mapv (fn [fp]
-          (let [ks (core/kids ctx fp)]
+          (let [all (core/kids ctx fp)
+                ref? (boolean (some #(p/token? % "&") all))
+                ks (remove #(p/token? % "&") all)]
             (when (not= 1 (count ks)) (unsupported! fp (parameter-refusal ctx fp)))
             (let [vks (core/kids ctx (first ks))]
-              {:name (:text (first vks)), :default (when (> (count vks) 1) (nth vks 2))})))
+              {:name (:text (first vks)),
+               :ref? ref?,
+               :default (when (> (count vks) 1) (nth vks 2))})))
         (core/rules ctx (first (core/rules ctx n "formalParameterList")) "formalParameter")))
 
 
@@ -1581,11 +1592,29 @@
     (mapv (fn [vi]
             (let [vks (core/kids ctx vi)
                   init (if (> (count vks) 1) (lower ctx (nth vks 2)) (u/lit :php/null))]
-              (app* 'php/static-init!
+              (app* 'php/static-bind!
                     (u/v '%fn)
                     (u/lit (bare (:text (first vks))))
+                    (u/v (symbol (:text (first vks))))
                     (u/lam [] init))))
           (core/rules ctx n "staticInitializer"))))
+
+
+(defn- lower-global
+  "`global $x;`: inside a function the CV binds to the global's marker (made
+   on first use, null); at the top level it is the same variable, a no-op."
+  [ctx n]
+  (sequence-node
+    (mapv (fn [gv]
+            (let [v (first (core/kids ctx gv))]
+              (when-not (and (p/token? v) (= "VarName" (:type v)))
+                (unsupported! gv :variable-variable))
+              (if (:fn ctx)
+                (app* 'php/bind-marker
+                      (u/v (symbol (:text v)))
+                      (app* 'php/global-make-ref! (u/lit (bare (:text v)))))
+                (u/lit :php/null))))
+          (core/rules ctx n "globalVar"))))
 
 
 (defn- lower-return
@@ -1608,12 +1637,13 @@
 (defn- param-binding
   "The cell of parameter `i`: the argument when passed, else the default
    (evaluated here, in the callee), else an `ArgumentCountError`."
-  [ctx written required exact? i {:keys [default]}]
+  [ctx written required exact? i {:keys [default ref?]}]
   (app* 'cell/new
         (u/if-node (app* '< (u/lit i) (app* 'data/count (u/v '%args)))
-                   (if (:counted ctx)
-                     (app* 'php/addref (app* 'get (u/v '%args) (u/lit i)))
-                     (app* 'get (u/v '%args) (u/lit i)))
+                   (cond
+                     ref? (app* 'php/param-ref (app* 'get (u/v '%args) (u/lit i)))
+                     (:counted ctx) (app* 'php/addref (app* 'get (u/v '%args) (u/lit i)))
+                     :else (app* 'get (u/v '%args) (u/lit i)))
                    (if default
                      (lower-initializer ctx default)
                      (app* 'php/too-few
@@ -1637,6 +1667,7 @@
         scope (get-in (:analysis ctx) [:scopes (:id n)])
         param-names (set (map :name params))
         static-names (set (:statics scope))
+        static-names-v (vec (:statics scope))
         locals (remove #(or (contains? param-names %) (contains? static-names %) (= "$this" %))
                        (:vars scope))
         block (first (core/rules ctx n "blockStatement"))
@@ -1644,11 +1675,11 @@
                                          block
                                          "returnStatement"
                                          #{"functionDeclaration" "lambdaFunctionExpr"})
-        counted? (boolean (mentions-reference? ctx n))
+        counted? (boolean (or (mentions-reference? ctx n) (seq (:statics scope))))
         fctx (assoc ctx :fn true :loops [] :ret (when has-return? '%ret) :counted counted?)
         body (u/then (lower fctx block) (u/lit :php/null))
         body (if has-return? (app* 'php/call-ec (u/lam ['%ret] body)) body)
-        cvs (concat (map :name params) locals)
+        cvs (concat (map :name params) static-names-v locals)
         body (if counted?
                (app* 'php/try-finally
                      (u/lam [] body)
@@ -1665,7 +1696,7 @@
                                   [(symbol (:name p))
                                    (param-binding fctx written required (= required total) i p)])
                                 params)
-                   (map (fn [nm] [(symbol nm) (app* 'php/static-slot (u/v '%fn) (u/lit (bare nm)))])
+                   (map (fn [nm] [(symbol nm) (app* 'cell/new (u/lit :php/undef))])
                         (:statics scope))
                    (map (fn [nm] [(symbol nm) (app* 'cell/new (u/lit :php/undef))]) locals))
         wrapped (reduce (fn [inner [sym value]] (u/let1 sym value inner))
@@ -1706,6 +1737,7 @@
     "continueStatement" (lower-escape ctx n :continue)
     "returnStatement" (lower-return ctx n)
     "staticVariableStatement" (lower-static ctx n)
+    "globalStatement" (lower-global ctx n)
     "unsetStatement" (lower-unset ctx n (core/rules ctx (first (core/rules ctx n "chainList")) "chain"))
     "functionDeclaration" (lower-function ctx n)
     "constant" (lower-constant ctx n)
@@ -1738,13 +1770,20 @@
 
 
 (defn- declared-functions
-  "The lower-cased names of every function the unit declares."
+  "Every function the unit declares: lower-cased name to the vector of its
+   by-reference parameter positions."
   [ctx]
-  (letfn [(walk
+  (letfn [(refs
+            [n]
+            (let [fps (core/rules ctx (first (core/rules ctx n "formalParameterList"))
+                                  "formalParameter")]
+              (vec (keep-indexed (fn [i fp] (when (some #(p/token? % "&") (core/kids ctx fp)) i))
+                                 fps))))
+          (walk
             [n]
             (into (if (p/rule? n "functionDeclaration")
-                    #{(str/lower-case (function-written ctx n))}
-                    #{})
+                    {(str/lower-case (function-written ctx n)) (refs n)}
+                    {})
                   (mapcat walk)
                   (core/rule-kids ctx n)))]
     (walk (p/root (:pk ctx)))))
