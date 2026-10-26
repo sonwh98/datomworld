@@ -25,7 +25,7 @@ The `.jolt` extension keeps these files out of JVM, ClojureScript and Dart
 tooling (clj-kondo does not lint them as `.cljc`); `.cljstyle` lists `jolt`
 among its extensions so the formatter still checks them.
 
-Contents (J0c–J4b):
+Contents (J0c–J4c):
 - `dao/host/{integer,bytes,text,float,number}.jolt`: the primitive profile
   (docs/design/dao.stream.host-boundary.md §4.2, table A) over Chez's exact
   integers, flonums, strings and jolt byte arrays.
@@ -89,6 +89,13 @@ Contents (J0c–J4b):
   recovery, O_CLOEXEC in an exec'd child, the HEAD cut matrix and the
   bounded-read refusals. Mixed Node/OS-lock ownership is the known-gaps P2
   row: not claimed.
+  J4c: the content-log handle is fail-closed after a torn append or a
+  failed fsync (review F3; a jolt-only divergence, spec §5 Files row): every
+  later append through that descriptor throws naming the path and the
+  operation, get keeps serving, close closes once, and a reopen's validated
+  recovery decides what stands. A failed fsync is never retried. The file
+  journal and the UCF suites run over it unchanged; the kill-mid-append and
+  the composition's no-yin.repl tests gain a jolt-child leg.
 
 The toolchain pins the owner's fork, `https://github.com/sonwh98/jolt`, at
 `697b91eefabf3e964acea787cbc9cb1b6b85a28c` (`jolt-toolchain.edn`). Fork PR

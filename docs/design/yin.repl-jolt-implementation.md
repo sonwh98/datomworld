@@ -423,6 +423,12 @@ paths and helper sources from production and test classpaths.
 | Files (`dao.jing.file`)        | Keep framing/recovery shared; random-access read/write/truncate/sync/close via Chez file APIs plus narrow POSIX FFI     | J4          |
 |                                | where needed (V `file.cljc:159-259` shows RandomAccessFile use; the spike did not exercise it). Test partial writes,    |             |
 |                                | truncation, replay/corruption, cross-host reopen.                                                                       |             |
+|                                | J4a/J4c: `:jolt` arms over `dao.posix.file` (pread/pwrite loops, fstat, ftruncate, fsync, one close; s32BE prefix in    |             |
+|                                | C). Jolt-only divergence (review F3): after a torn append or a failed fsync the jolt handle is fail-closed, refusing    |             |
+|                                | every later append with an ex-info naming the path and the failed operation, while get keeps serving the in-memory map  |             |
+|                                | and close closes once; a reopen's validated recovery decides what stands. The JVM, Node and Dart handles stay usable    |             |
+|                                | after a failed write. A failed fsync is never retried: on Linux it may drop the dirty pages it could not write, so a    |             |
+|                                | retry can answer success for data that never reached storage.                                                           |             |
 +--------------------------------+-------------------------------------------------------------------------------------------------------------------------+-------------+
 | Store (`dao.space.store.fs`)   | OS adapter, not slurp/spit emulation: exclusive locks, same-process duplicate-open tracking, complete temp writes,      | J4          |
 |                                | fsync, atomic same-directory HEAD rename, directory-sync capability or refusal. Kill/restart, competing-process,        |             |
