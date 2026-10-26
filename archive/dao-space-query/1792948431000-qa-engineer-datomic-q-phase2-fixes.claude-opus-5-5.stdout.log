@@ -1,0 +1,57 @@
+Completed-GMT: 2026-10-25 18:08:00 GMT
+Completed-Local: 2026-10-26 01:08:00 +07
+Coding-Agent: claude
+Session-ID: 6e84b906-f5ab-4551-bd47-73efc3d4a7c4
+
+All three CI failures are fixed. The two affected namespaces now pass locally on the JVM, on Node (shadow compile and run) and on Dart (`cljd_agg --only` compile and run). Nothing is committed.
+
+## Working-tree reset
+Partway through this session the working tree was reset to master `a9dd014e`, with no Phase 2 changes. I re-applied the diff from `datomic-q-p2-ci` (`git diff master datomic-q-p2-ci | git apply`, no staging) and then made my fixes on top. The tree now holds Phase 2 plus these fixes relative to master, so recreate your branch from the working tree.
+
+## 1. Tied-kinds median: I took option (a), host-scoping
+Option (b) cannot work for this case. An even-count median over rows `[1 1 1.0 2.0]` averages the middle pair `1` and `1.0`, which is arithmetic. That arithmetic refuses numeric carriers by the frozen convention table.
+
+Dart behaved differently from what I had assumed, so the host split differs from my first guess. A float64 is a carrier on JavaScript only; a Dart `double` and a JVM `Double` are native numbers. Decimals are carriers on both JavaScript and Dart. So:
+- `agg.median-tied-kinds`: hosts `clj` and `cljd`, executable.
+- `agg.median-tied-kinds-carrier-refused` (new): host `cljs`, explicit refusal.
+- `agg.median-tied-kinds-odd` (new): odd count, no arithmetic, all hosts, executable. This is the order-statistics side of your option (b).
+- `agg.variance-carrier-refused` stays `cljs` and `cljd`; decimals really are carriers on both.
+- Errata E15 now states the JavaScript-only float64 rule. The unit test uses the same split.
+
+The first Dart run failed on the original `cljs`/`cljd` refusal split (with `refusal-cases-are-refused-by-the-core` failing in the conformance test), because Dart does not refuse. That is how I found the Dart behavior.
+
+The corpus now has 101 cases (48 executable, 9 difference, 14 refusal, 30 pending). The new BLAKE3 is `17b53dd3edcc6d9c2760ce2cec49166fa1abe7d900b4465bb468aaaa813dc6cb`, pinned once in the test and once in provenance. The case-count pin, README and provenance are updated, and provenance records the superseded `73f92822` and `86305d60`.
+
+## 2. CLJS unbound-variable "failure"
+The core check works on Node. The failing assertions came from my own test: on Node, `(is (re-find #"not bound" (str (refusal ...))))` reads an empty string for `(str ...)` inside the cljs.test expansion. I reproduced it in isolation. The same message passes without `str` around the call, so the core's refusal was correct all along.
+- **Fix:** a boolean helper, `refused-with?`, calls the function, then matches the message with `re-find` on the bound string. Both affected assertions use it, and no assertion wraps a call in `str` any more.
+- **Hidden failures:** the same run showed that the earlier error at the tied-kinds median had hidden later assertions in that test (the `distinct` and odd-median ones). They now run and pass on Node.
+
+## 3. CLJD compile error
+- `the-jvm-set-collapse-of-tied-decimals-is-the-documented-limitation` is now guarded at the deftest level with `#?(:cljd nil :clj (deftest ...))`.
+- I also removed a hazard in `carriers-in-arithmetic-aggregates`. The `:clj` / `:default` fork would have taken the `:clj` branch on Dart. It now lists `:cljd`, `:clj` and `:cljs` explicitly, and the refusal assertions live in a public helper, `carrier-refusals`, that only the JavaScript and Dart branches call.
+- I checked every other host-conditional in the file; the rest are `:cljd`-first catch clauses.
+
+## Verification (local)
+| Check | Result |
+|---|---|
+| `dao.space.query-aggregates-test` (JVM) | 14 tests, 66 assertions |
+| `dao.space.datomic-query-conformance-test` (JVM) | 17 tests, 41 assertions |
+| Node, shadow compile + run of both namespaces | 30 tests, 105 assertions, 0 failures |
+| Dart, `cljd_agg --only` on both namespaces | 30 tests, `All tests passed!` |
+| Dart, `cljd_agg --only` on aggregates alone | 13 tests, `All tests passed!` |
+| `dao.space.query-test` | 72 tests, 282 assertions (unchanged) |
+| `dao.space.query.datomic-test` | 30 tests, 235 assertions |
+| `dao.space.query.execution-test` | 42 tests, 261 assertions |
+| `dao.space.query.datomic-execution-test` | 22 tests, 190 assertions |
+| `dao.data.btree.cursor-test` | 17 tests, 1227 assertions |
+| `dao.space.published-read-test` | 5 tests, 37 assertions |
+| `dao.space.query.published-bounded-test` | 24 tests, 312 assertions |
+| query-numeric / positional-query | 18/922 and 11/27 |
+| index / index-numeric | 56/531 and 5/345 |
+| transactor / dht / transact / schema | 16/100, 46/36,764, 8/26, 72/210 |
+
+All of these have 0 failures. kondo on the changed files: 0 errors, 0 warnings. `bb check:node-discovery`: `Node discovery OK: 234 source files outside test/`.
+
+## For the remote re-run
+I ran the full JVM battery locally but only the two affected namespaces on Node and Dart. Please run the whole `dao.data` and `dao.space` subsystems on all three hosts; other namespaces were not re-run on Node or Dart here.

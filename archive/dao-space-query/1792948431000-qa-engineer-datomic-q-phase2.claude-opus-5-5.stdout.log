@@ -1,0 +1,65 @@
+Completed-GMT: 2026-10-25 17:25:05 GMT
+Completed-Local: 2026-10-26 00:25:05 +07
+Coding-Agent: claude
+Session-ID: 6e84b906-f5ab-4551-bd47-73efc3d4a7c4
+
+Phase 2 is implemented and the local JVM gates pass. I did not run Node or Dart, per your instruction, so everything claimed for those hosts is untested. Nothing is staged or committed.
+
+## What changed
+
+**Aggregates (`query.cljc`).**
+- **Parser and table.** The parser keeps parameters and validates arity against a name-to-`{:arities :f}` table.
+- **Added:** `distinct` (a set of the content-distinct values), `median`, `variance`, `stddev`, and `(min n ?x)` / `(max n ?x)`. `n` must be a positive integer, and arity or parameter errors throw before evaluation.
+- **Adapter lifted.** `datomic.cljc` now admits all of these and refuses only `rand` and `sample` as `:unsupported`. It validates arity and the parameter as `:invalid-request`, and its tests are updated.
+- **Frozen conventions.**
+  - **Rows:** aggregates fold the content-distinct rows, so duplicates vanish unless `:with` distinguishes them.
+  - **Ordering:** values sort by exact numeric order, and a tie puts the exact operand before the float64 (then the shorter encoding). Results therefore don't depend on row arrival order.
+  - **Median and variance:** an odd-count median is the middle element with its kind kept, and an even count gives the double mean of the middle two. Variance is population variance (divide by n), a single value gives 0.0, and stddev is its square root.
+  - **min/max with n:** the n smallest ascending, or the n largest descending, with duplicates kept.
+  - **Numerics and exclusions:** non-numeric operands are refused. Numeric carriers get an explicit "does not accept a numeric carrier" refusal on arithmetic aggregates. `rand` and `sample` stay excluded.
+- **Float equality.** Float results are asserted for exact equality, with no tolerance. The claim is limited to the integer inputs the cases use: `+ - * /` and `sqrt` are correctly rounded IEEE-754 operations folded in a fixed sorted order. I'm not claiming general bit-identical float arithmetic.
+
+**E3 (unbound find variables).** The core now refuses statically, before any evaluation, a `:find`, `:with` or aggregate-argument variable that neither `:in` nor any `:where` clause can bind. A variable that appears only inside `not` does not count; a variable that appears only as a function argument is not rejected statically and still fails at run time.
+
+**E13 (relation slot).** A relation slot must be nil, sequential, a set, or a delay of one. Anything else is refused ("relation source must be a sequence of tuples"), including a delay of a non-sequence, which is refused when it is forced.
+
+**Doc polish (compat doc, 4a/4b only).**
+- The Phase 4b validation bullet now includes the cross-leaf strictly-increasing check and says why it is strict.
+- The Sizing sentence about `(seq (:eavt idx))` now says bounded checked sources run that unselective walk through the cursor, with the warning kept.
+
+## Tests and corpus
+- **New `query_aggregates_test.cljc`** (14 tests, 66 assertions). It covers distinct, median, variance and stddev (odd/even, grouped, `:with`, exact doubles), parameterized min/max, arity and parameter validation, empty input, non-numeric refusals, input-order independence, tied kinds (exact-before-float) and the JVM `1.0M`/`1.00M` collapse. Carrier cases are host-conditional: odd median and order statistics work everywhere, while variance and an even-count median refuse on cljs/cljd and run on the JVM. E3 and E13 are covered too.
+- **Corpus is now 99 cases** (47 executable, 9 difference, 13 refusal, 30 pending, 11 fixtures).
+  - Promoted to executable pins: `agg.distinct`, `agg.median`, `agg.variance`, `agg.stddev`, `agg.parameterized-min`, plus new `agg.*` pins for max, grouping, `:with` multiplicity and ties.
+  - `find.unbound-var` graduates to an executable refusal, with companion cases for aggregates and `:in`-bound variables.
+  - `agg.variance-carrier-refused` is an explicit refusal listing hosts `cljs` and `cljd`, so the unsupported-carrier case is a pin and not a skip.
+- **New comparison rule `numeric-value`** (numerics agree when they compare equal in exact numeric order). It lets integral doubles be compared across hosts that can't tell 7.0 from 7. `agg.avg` is widened to all three hosts using it.
+- **Digest and errata.** The new BLAKE3 is `73f92822b0db7abdd8933c9bb83adf5159e9938f75da48184e68088b875da456`, pinned once in the test and once in provenance, with the superseded `a1c99136` recorded. Errata E3, E5 and E13 are marked resolved, E8 is updated, and E15 is added with the conventions and their limits. The case-count pin and README totals are updated.
+
+## Verification (local, JVM)
+| Suite | Result |
+|---|---|
+| `dao.space.query-test` | 72 tests, 282 assertions (unchanged) |
+| `dao.space.query-aggregates-test` | 14 tests, 66 assertions |
+| `dao.space.query.datomic-test` | 30 tests, 235 assertions |
+| `dao.space.query.execution-test` | 42 tests, 261 assertions |
+| `dao.space.query.datomic-execution-test` | 22 tests, 190 assertions |
+| `dao.space.datomic-query-conformance-test` | 17 tests, 41 assertions |
+| `dao.data.btree.cursor-test` | 17 tests, 1227 assertions |
+| `dao.space.published-read-test` | 5 tests, 37 assertions |
+| `dao.space.query.published-bounded-test` | 24 tests, 312 assertions |
+| query-numeric / positional-query | 18/922 and 11/27 |
+| index / index-numeric | 56/531 and 5/345 |
+| transactor / dht / transact / schema | 16/100, 46/36,764, 8/26, 72/210 |
+
+All of these have 0 failures. kondo on the changed files: 0 errors, 0 warnings. `bb check:node-discovery`: `Node discovery OK: 234 source files outside test/`.
+
+## For the orchestrator's remote run
+- **Test runs:** run `dao.space.query-aggregates-test` and `dao.space.datomic-query-conformance-test` on all three hosts. They are the first code to use `dart:math` `sqrt` and `js/Math.sqrt` in the core, and the first to exercise the `numeric-value` rule with Float64 carriers.
+- **Likeliest failure points:** exact float equality on Node/Dart (the justified claim, but unproven there), `distinct` set equality with carriers, and the carrier-refusal cases on cljs/cljd.
+- **`agg.avg` widening:** it now runs on all hosts, so it will fail the remote gate if `avg` differs there.
+
+## Concerns
+- **Dart ns require.** The `#?@(:cljd [["dart:math" :as dart-math]])` require in the `dao.space.query` ns form is unverified under the Dart compiler.
+- **Predicate scope.** The static bound-variable check is conservative by design, so a few bad queries still fail at run time rather than statically.
+- **Nothing here is Client-verified.** Every new aggregate case is `oracle: pending`. The median, variance and min/max conventions are my choices under the contract's "freeze via fixtures" instruction, not measured Datomic behavior.

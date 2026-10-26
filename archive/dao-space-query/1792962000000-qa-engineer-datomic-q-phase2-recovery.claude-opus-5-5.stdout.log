@@ -1,0 +1,37 @@
+Completed-GMT: 2026-10-26 12:10:45 GMT
+Completed-Local: 2026-10-26 19:10:45 +07
+Coding-Agent: claude
+Session-ID: 6e84b906-f5ab-4551-bd47-73efc3d4a7c4
+
+The recovery is done and the JVM gates pass, but I could not run Node, Dart or node-discovery in this worktree, so those are for you to run. The recovered `query_aggregates_test.cljc` passes as-is, and I did not touch it. I worked only in this worktree and committed nothing.
+
+## What I re-derived
+- **Corpus (99 → 101 cases):**
+  - `agg.median-tied-kinds` is now host-scoped to `clj` and `cljd`.
+  - `agg.median-tied-kinds-carrier-refused` is new: `cljs` only, an explicit "numeric carrier" refusal, classified `documented-difference`.
+  - `agg.median-tied-kinds-odd` is new: the distinct-row query (no `:with`), all three hosts, executable, no arithmetic.
+  - `agg.variance-carrier-refused` is unchanged on `cljs` and `cljd`.
+  - The counts are now 48 executable, 9 difference, 14 refusal and 30 pending.
+- **Digest.** The new BLAKE3 is `17b53dd3edcc6d9c2760ce2cec49166fa1abe7d900b4465bb468aaaa813dc6cb`. It is byte-identical to the one my lost fix round produced, so the re-derivation is faithful. It is pinned once in the conformance test and once in provenance, and provenance records the superseded `73f92822`. The case-count pin (101) and the README totals are updated.
+- **Errata E15.** It now states the carrier rule: "A float64 is a carrier on JavaScript only; a Dart double and a JVM Double are native numbers. Decimals are carriers on both JavaScript and Dart." It also lists the resulting host split for the tied-kinds cases.
+- **Compat-doc conventions text.** There was nothing to restore. My fix round never added a host-carrier table to `docs/design/dao.space.query.datomic-compat.md`. The conventions live in errata E15 and the test docstring, and the doc has no host-carrier text on this branch. If you want a table in the doc, that is a new doc edit.
+
+## Source check
+The fix round changed only tests and corpus. `query.cljc` and `datomic.cljc` at `cb4164e1` already satisfy the recovered test, so I made no source change.
+- **(a)** The tied-kinds median split matches the corpus: `clj`/`cljd` compute 1.0 and `cljs` refuses.
+- **(b)** The E3 static refusal and the `refused-with?` helper are in the recovered file and pass on the JVM.
+- **(c)** The deftest-level `#?(:cljd nil :clj ...)` guards are present.
+
+## Verification (local)
+| Check | Result |
+|---|---|
+| `dao.space.query-aggregates-test` | 14 tests, 66 assertions, 0 failures |
+| `dao.space.datomic-query-conformance-test` | 17 tests, 41 assertions, 0 failures |
+| kondo on `query.cljc` and both test files | 0 errors, 0 warnings |
+
+## Not run here
+- **Node and Dart:** the Node lane needs `npm ci`, the Dart lane needs mise, and `mise trust` / `npm ci` both required approval that was not granted.
+- **`bb check:node-discovery`:** it also needs mise. I made no change that affects discovery.
+- **Reproducing the cljs and Dart passes:** please run the aggregates and conformance namespaces on Node and Dart, or the dao.space lane, from a trusted checkout. In my lost fix round both namespaces passed on Node and Dart, and corpus and test are now byte-identical to that state (same digest), so I expect the same result.
+
+`git status` shows only the six files above as modified, plus the collab logs.

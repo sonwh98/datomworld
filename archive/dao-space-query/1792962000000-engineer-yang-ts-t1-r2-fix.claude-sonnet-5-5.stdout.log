@@ -1,0 +1,46 @@
+The slow-lane run is still going in the background. I'll report once it finishes.
+
+The R2-fix code is written but not yet verified. I'm still waiting on the slow lane (`DATOM_SLOW_TESTS=1`, `yang.typescript.*`), and the tri-host `bb test:sub yang.typescript` lane hasn't been run.
+
+I haven't reported lane counts or requested Gate R3. I also haven't written the per-finding report to `collab/<ts>-engineer-yang-ts-t1-r2-fix.<model>.findings.md`.
+
+**Done:**
+- **R2-01:** `satisfies` and `a<b>(c)` call type-arguments now refuse as `type syntax` / `:T8`. The new test that feeds every `cst_test` parse fixture to lowering found the type-arguments gap.
+- **R2-02:** a bare global `eval(...)` or `new Function(...)` refuses with `:slice :never`. A locally declared `eval` or `Function` still lowers.
+- **R2-03:** the first `for (let …)` iteration now copies the init cells.
+- **R2-04:** var/let collisions are caught in either source order, across block scopes.
+- **R2-05:** `for (const x; …)` is an early error. The initializer exemption now applies only to `in`/`of` heads.
+- **R2-10:** a named function expression's self-name is const, so assigning to it throws `TypeError`. A parameter of the same name shadows it.
+- **R2-11:** label chains work on loops and blocks.
+- **R2-12:** duplicate parameter names are rejected, with the second occurrence's span.
+- **Metadata:** `enum` and `namespace` now report `:T9`, per the adjudication, not the `:T4`/`:T5` your prompt gave.
+- **Ledger items:**
+  - The `G-pow-frac` and `G-radix-frac` messages are renamed.
+  - Both have refusal tests in `e2e_test.clj`, and the six rows are added to `known-gaps.md`.
+  - The corpus audit found no entry needing removal.
+
+**Results so far:**
+- **Fast lane:** `clojure -M:test -e :slow -r 'yang\.typescript\..*'` ran 61 tests with 1327 assertions and 0 failures. That run was before the last test-file import fix.
+- **Kondo:** 0 errors and 0 warnings on `src/cljc/yang/typescript` and `test/yang/typescript`.
+- **Oracle:** `t1_oracle.edn` and `t1_packets.edn` were regenerated with Node 25.6.1, and the corpus has 120 entries. I dropped my own function-expression shadow entry to stay within the 80–120 cap and covered shadowing in `scope_test` instead.
+- **Prelude address:** the address moved to `segment/blake3-7b9d7dbd532c8e4ee28035723bc3c50a9879c16c300bc0c87515789afa178abd`. The cause is the two reworded `TypeError` messages. I re-pinned that address and the float-program address in `float_address_test.cljc`.
+
+**One deviation:** R2-02 used `:never` as the permanent-refusal marker, matching `with`.
+
+The slow lane (`DATOM_SLOW_TESTS=1`) is still unverified. My earlier runs hit the 590s timeout and the output was lost. I restarted it in the background with a one-hour limit, writing to `/tmp/ts-t1-slow.log`, and I'll check it when it finishes.
+
+Still outstanding:
+- the slow-lane counts
+- `bb test:sub yang.typescript` on all three hosts
+- the findings report in `collab/`
+- the Gate R3 request
+
+The fast lane, kondo and the oracle regeneration results from my last update still stand. The fast lane ran before my last test-file import fix, so I'll rerun it before closing out.
+
+The slow lane passed: `DATOM_SLOW_TESTS=1 clojure -M:test -r 'yang\.typescript\..*'` ran 85 tests with 3704 assertions and 0 failures. That run included the final `lower_test.clj` import fix.
+
+The R2-fix round is not finished. I didn't run `bb test:sub yang.typescript`, so there are no Node or Dart lane counts. I haven't written the findings report to `collab/` or requested Gate R3. I also didn't rerun the fast lane or commit anything.
+
+The code changes and the earlier fast-lane, kondo and oracle results are as in my previous update. The prelude address moved to `segment/blake3-7b9d7dbd532c8e4ee28035723bc3c50a9879c16c300bc0c87515789afa178abd` because of the two reworded `TypeError` messages. I re-pinned that address and the float-program address in `float_address_test.cljc`.
+
+Do you want me to run the tri-host lane next, then write the report and request Gate R3?
