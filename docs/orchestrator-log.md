@@ -13260,3 +13260,147 @@ Decisions: two remote iterations were needed after recovery — each caught a re
 Verification: remote gate run 3 exact counts above (orchestrator-executed on jupiter); local JVM spot-checks from the recovery round.
 Delegates: recovery qa-engineer findings promoted to .claude/worktrees/datomic-p2-fixes/collab/ (worktree-local per protocol); reviewer glm-5.3 IN FLIGHT (log collab/1792962000000-stream-engineer-datomic-q-phase2-review.glm-5.3.stdout.log, session 37072475).
 Next: review verdict -> fixes -> confirmation -> ARCHITECT SIGN-OFF (argon, per the commit-authority clause) -> merge to master -> archive -> Phase 3 dispatch.
+
+## 2026-10-26 13:20:00 +0700 — datomic-compat track: PHASE 2 COMPLETE — argon SIGNED OFF WITH CONDITIONS (all executed); merged to master; branch and worktree cleaned; archived
+Completed-GMT: 2026-10-26 06:20:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 8f31f8f2 (Phase 2 merge ee1a550e + jolt manifest 3d87003f + archive 8f31f8f2); pushed: NO (not requested)
+Done: argon architect sign-off: SIGNED OFF WITH CONDITIONS — conditions all executed at merge time: (1) jolt J2 manifest registration of dao.space.query-aggregates-test (3d87003f, kondo-clean); carried to Phase 3: the cell-same? set-bijection hardening (conformance test :322-324), the 1-line (max n ?x) tie-order note in E15, and the two syntax/errata P3s. Merge ee1a550e (10 files +686/−80). Step-10: three suites 103/389/0 on the merged tree. Branch datomic-q-p2-ci deleted local+remote after copying out unique content (one log entry recovered into master's log before worktree removal — the worktree's log was a stale variant; verified subset relationship before removal; the untracked aggregates test file removed only after byte-identity check against the branch version). 28 collab artifacts archived (8f31f8f2).
+Decisions: merge blocker resolved by verifying the untracked file was byte-identical to the branch version before removal (never blind force); the worktree removal needed --force only after the copy-out verification proved nothing unique remained except the stale log variant.
+Verification: three-host gate (jupiter, run 3) 575/564/564 all pass; post-merge focused suites 103/389/0; argon static sign-off; glm firsthand suites. Unverified: jolt J2 lane run of the new suite (manifest registered; the lane's native build is a separate seat's responsibility — argon's condition phrased as verify-once-built).
+Delegates: full chain archived (implementer/recovery opus session 6e84b906; reviewer glm 37072475; architect argon conversation c1fe6b10-family).
+Next: Phase 3 dispatch (rules conformance, 8-14h) with carried items: required-bound rule heads + clause-bound-vars re-exercise; cell-same? hardening; E15 (max n ?x) tie-order note; the two syntax/errata P3s; E15 conventions oracle-pending (Phase 5). Then Phase 5 (owner's Datomic backend call still open).
+
+## 2026-10-26 13:30:00 +0700 — datomic-compat track: Phase 3 dispatched (rules conformance) with all carried items; autonomous pipeline continuing
+Completed-GMT: 2026-10-26 06:30:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 8f31f8f2 (Phase 2 landed: merge ee1a550e, manifest 3d87003f, archive 8f31f8f2)
+Done: Phase 2 fully landed under the new commit-authority rules: argon SIGNED OFF WITH CONDITIONS; condition 1 executed at merge (jolt manifest registration 3d87003f); three carried items bind Phase 3 (cell-same? hardening, E15 (max n ?x) note, the two syntax/errata P3s). Merge recovery: the untracked aggregates test file was verified byte-identical to the branch version before removal; the worktree's stale log variant was diffed and its unique entry (12:45 gate-green) appended to master's log BEFORE worktree removal — the copy-out rule followed to the letter. Phase 3 dispatched on the opus session with: required-bound rule heads (the contract's 'implementation pending' item) + the clause-bound-vars re-exercise the reviewer flagged, cell-same? hardening, E15 note, the two P3s, the recursion-class mandates (finite positive; mutual; negation-recursion refused; work-budget termination backstop tests; tabling where completeness requires; kernel contract preserved), corpus rules-case graduation, three-host feasibility, and the new procedure: the delegate creates and works in its OWN worktree/branch (datomic-q-p3-ci) with small commits per coherent unit — the loss lesson is now procedural.
+Decisions: delegate-owned worktree per the recorded loss lesson; remote gates + review + argon sign-off remain orchestrator steps.
+Verification: Phase 3 IN FLIGHT.
+Delegates: qa-engineer/claude-opus-5-5 Phase 3 IN FLIGHT (log collab/1792962000000-qa-engineer-datomic-q-phase3.claude-opus-5-5.stdout.log, session 6e84b906).
+Next: branch state -> push -> remote three-host gate -> glm review -> fixes -> argon sign-off -> merge -> archive -> Phase 5 (oracle; owner backend call STILL OPEN — the track will pause there).
+
+## 2026-10-26 19:3x +0700 — P3b completion landed (c4d93280), final shiva verification all green; Stage 0 gate dispatched to fable
+Completed-GMT: 2026-10-26 11:3x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master local f5397a15 (jolt's unpushed lineage); branch yang-php-p3b @ c4d93280 (pushed); branch yang-ts-t2b corpus-split round in flight
+Done: (1) The P3b completion round landed (c4d93280): the 23 third-pass oracle records folded as pins; the yang.php.md P3b landing status note; eight draft departures D1-D8 staged for gate ratification (variadic-by-ref refusal, string-key spread positional, ordinal foreach iterator, grammar limits, the Throwable/Closure method seam, cycle release, no *RECURSION*, strict_types unwired). (2) Final shiva verification at c4d93280: cljstyle rc=0; focused JVM 74/2879/0; permutation corpus quick rc=0; oracle 220/0. (3) The Stage 0 gate dispatched to fable (session 77300b2d): ratify D1-D8, rule the three held fixtures (:closure-call-invoke, :call-dynamic-dim, :foreach-key-and-destructure), accept-or-amend the partials (pcall granularity, permutation-full + phpt as a P4-seam condition), verdict GATE PASSED or GATE CHANGES.
+Decisions: the gate brief names the outstanding-by-size items (permutation full, phpt selection, linked profile, Dart) as proposed P4-seam conditions rather than Stage 0 blockers - the architect rules.
+Verification: shiva summary in ~/ci/p3b-final/summary.txt (start 08:58, c4d93280); oracle log in the same tree.
+Delegates: claude-fable-5-1 (P3b gate, session 77300b2d, IN FLIGHT); claude-sonnet-5-5 (T2b corpus split, session d175441a, IN FLIGHT; P3b completion, complete).
+Next: gate verdict -> on PASSED, the landing sequence (merge yang-php-p3b to master --no-ff, ledger row count, push, G3-appropriate gates, cleanup) under the standing sign-off rule. T2b round -> verify -> its own gate. Then P4 proper and T3 proper dispatches.
+
+## 2026-10-26 20:1x +0700 — P3b gate: GATE CHANGES (six items, ratifications rich); fix round + orchestrator items running
+Completed-GMT: 2026-10-26 12:1x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master local f5397a15 (jolt's unpushed lineage); branch yang-php-p3b @ b2366971 (pushed); branch yang-ts-t2b corpus-split round in flight
+Done: (1) The P3b Stage 0 gate returned from fable (collab/1793020431000-architect-php-p3b-gate.claude-fable-5-1.findings.md, promoted from stdout; session 77300b2d): GATE CHANGES, six items - (P1) the var_dump cycle guard (visited set + nesting error, X2); (P2) string-keyed spread silently positional, row 65 un-claimed with a named refusal; rows 43/45 prelude texts/semantics must match the pass-3 oracle; the quick permutation oracle was recorded but never checked in, so the corpus quick test compared against nothing (the gate caught that my earlier rc=0 was a no-crash run); the Dart lane must run before merge; C24-C29 ledger rows + the section 15 P3 narrowing + departure sources. RATIFIED: D1 as C24; D3 restricted (rows 54/60/61 + migration/rebuild clauses un-claimed; a P3-c iterator-registry slice required before P4-b); D4 as a grammar corner (manifest-patch slice); D5 the method seam until P4; D6 folded into C1 (closing P4 plan's R2 condition a); D8 DROPPED (declare already refused). The integrated call protocol accepted with a named-argument validation-order departure. Full corpus, phpt selection and linked profile move to the P4 seam. Fixture rulings: the closure call gets a new user-class source; the array-item call follows PHP's arrow-function semantics; keyed destructuring foreach is a grammar hold. (2) The gate-fix round dispatched to the engineer (items 1,2,3,6). (3) Orchestrator items: the quick permutation oracle RECORDED on shiva (518 programs, 153KB) and committed to the branch (b2366971) - the corpus quick test now actually compares; the p3b Dart clone is prepared and the Dart lane runs once at the gate-fix tip.
+Decisions: my verification gap acknowledged - "corpus quick rc=0" without the checked-in oracle file was a no-crash signal, not a comparison; the gate's instruction (record, check in, require zero mismatches) is executed and the distinction is now part of this seat's gate discipline.
+Verification: shiva oracle4 run at c4d93280 (rc=0, file written); the b2366971 commit carries the file.
+Delegates: claude-sonnet-5-5 (gate fixes, session c61cd179, IN FLIGHT; T2b corpus split, session d175441a, IN FLIGHT); claude-fable-5-1 (gate, complete).
+Next: gate-fix round returns -> fold + the final shiva pass (cljstyle, focused suites, oracle pass 4 for the new fixtures, corpus quick WITH comparison, Dart lane) -> GATE re-confirm (resume fable) -> landing. T2b round -> verify -> its gate.
+
+## 2026-10-26 14:15:00 +0700 — datomic-compat track: Phase 3 implemented; three-host + downstream gates GREEN first-run; glm review in flight; Datomic Local decision recorded
+Completed-GMT: 2026-10-26 07:15:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 8f31f8f2; Phase 3 on branch datomic-q-p3-ci @3af37af1 (pushed; worktree .claude/worktrees/datomic-p3-fixes)
+Done: Phase 3 delivered: required-bound rule heads implemented (the last 'implementation pending' language item), clause-bound-vars re-exercised for vector heads (carried a), per-call tabling + fixed-point loop REPLACING the active-call guard (which lost answers under left recursion), recursion-through-negation refused, non-flat/non-variable-aggregate-arg refusals (carried d resolved by refusal), cell-same? bijection (carried b), E15 notes (carried c + d), corpus 101->112 (digest 862e2042), rules.required-bound-head promoted, NEW rules test 21/61 with an independent BFS oracle. Owner decision recorded: Datomic Local (com.datomic/local 1.0.301, free Apache-2.0, :storage-dir :mem for CI) in Docker on JUPITER for the Phase 5 oracle — docker 29.9.2 confirmed accessible on both hosts; jupiter chosen (scratch clone + gate lane already there). Design nuance: Local is in-process, so the container is a reproducible oracle EXECUTION environment, not a DB server; Thread.interrupt intolerance noted (irrelevant for :mem single-shot).
+Gates (orchestrator on jupiter): three-host subsystem FIRST-RUN GREEN (clj 29ns/598/0, cljs 28/587/0, cljd 28/587/0); downstream JVM incl. yin.repl.query-test 256/39,276/0; ast-query-e2e 10/232/0. The delegate correctly worked in its own worktree and committed per-unit (the loss lesson, procedural).
+Decisions: Phase 5 oracle = Datomic Local 1.0.301 in Docker on jupiter; contract stale row ('implementation pending') flagged for the doc pass; implementer's worktree-path deviation (used .claude/worktrees/datomic-p3-fixes not the sibling path — outside its write scope) accepted as correct scoping.
+Delegates: qa-engineer Phase 3 findings promoted; reviewer glm-5.3 IN FLIGHT (session 37072475, 10-point checklist incl. tabling completeness, negation interaction, kernel invariants, host-semantic parity).
+Next: review verdict -> fixes -> argon sign-off -> merge -> archive -> Phase 5 (Docker oracle on jupiter; corpus promotion stays human-reviewed).
+
+## 2026-10-26 21:00:00 +0700 — datomic-compat track: Phase 3 review ENDORSE WITH CHANGES — 1xP1 blocks merge; fix round dispatched
+Completed-GMT: 2026-10-26 14:00:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 8f31f8f2 untouched; Phase 3 on datomic-q-p3-ci @3af37af1
+Done: glm Phase 3 review: ENDORSE WITH CHANGES. Tabling completeness PASS (verified against the reviewer's own independent BFS oracle: right/left/mutual recursion all equal exact transitive closure; the fixed-point design IS the completeness proof the guard never was); required-bound heads, kernel invariants, refusal taxonomy, corpus, cell-same?, portability, regression all PASS. One P1 BLOCKS MERGE: check-rules-stratified! accepts only list-head rules — a legal vector-head self-negating rule silently evaluates UNSTRATIFIED and returns wrong answers (reviewer's live probe: 6 rows returned for what must refuse). Fix dispatched: filter -> (sequential? (first %)) + vector-head refusal test + corpus case + re-digest. Three P3s applied: E16 records the required-bound adapter-category choice; compat doc notes diagnostic keys on the invocation state; the stale supported-domain row updated (doc authority granted to the implementer for exactly those edits this round).
+Decisions: P1 blocks merge per the review verdict; the wrong-answer class (silent unstratified evaluation) is precisely what the refusal exists to prevent.
+Verification: fix round IN FLIGHT; after: remote re-run -> glm confirmation -> argon sign-off -> merge.
+Delegates: reviewer findings promoted (session 37072475); fix round IN FLIGHT (session 6e84b906, in its worktree).
+Next: as above; then Phase 5 (Docker oracle on jupiter; 29 pending cases; promotion human-reviewed).
+
+## 2026-10-26 20:4x +0700 — T2b corpus round landed (90de31a5); Node lane fails on unsafe-integral numbers; fix round dispatched
+Completed-GMT: 2026-10-26 12:4x GMT
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master local f5397a15 (jolt's unpushed lineage); branch yang-ts-t2b @ 90de31a5 (pushed); branch yang-php-p3b @ b2366971 + gate-fix round in flight
+Done: (1) T2b corpus-split round landed: corpus_test split into t2-bundled/t2-linked/t1 legs, every leg 0 mismatches vs Node v25.6.1 locally; JSON.stringify/parse; the S5 leftover methods with callback length-snapshot tests; quick subsystem 79/2048/0 locally; kondo 0/0. Committed 90de31a5, pushed. (2) Shiva verification: cljstyle rc=0, but the scoped Node subsystem lane FAILS: object-prototype-methods-test, 6 failures, all four walkers throwing "dao.jing.cbor refused: unsupported-value (unsafe integral JavaScript number)" inside the parity harness - the new methods (or test inputs) produce a value beyond Number.isSafeInteger on JS hosts; JVM longs never trip it. Fix round dispatched to the engineer (resume d175441a) with the diagnose-then-fix-or-escalate discipline: careless test inputs get fixed; a genuine spec-exactness conflict with the CBOR contract escalates to the architect, no test-level workaround.
+Decisions: none new - the JS-lane gate keeps proving its worth (second real catch this week after the unqualify helper).
+Verification: shiva at 90de31a5 (cljstyle rc=0; node-sub 9 ns/57 tests/6 FAIL - the failure record above).
+Delegates: claude-sonnet-5-5 (T2b node-fix, session d175441a, IN FLIGHT; P3b gate fixes, session c61cd179, IN FLIGHT).
+Next: T2b node-fix returns -> shiva node-sub + dart re-verification -> S11 docs/goldens -> the T2b gate. P3b gate fixes return -> oracle pass 4 + corpus quick with comparison + Dart lane -> fable re-confirm -> P3b landing.
+
+## 2026-10-26 21:15:00 +0700 — dao.star Mode 1 track CLOSED: architect sign-off, merged to master b678374b, archived, worktree cleaned; G3 running on shiva
+Completed-GMT: 2026-10-26 14:15:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 671cd21f (pushed); dao-star-m1 branch and worktree deleted after merge
+Done: Owner pointed at the 2026-10-26 commit-authority rule (architect sign-off authorizes commit and merge); the track's architect (fable, session C34FEBEA) performed the sign-off review of b55fdfe1 (collab 1793022579714-architect-dao-star-m1-signoff, now archived): traced cap plumbing end to end including its own previously-untraced dao.lease :dao.lease/max validation, confirmed both doc amendments, verified its invariants (fact-before-UI, co-location refusal, complete history, cap-bounded tenure, no boundary clock), accepted five residual risks, SIGNED OFF. On that authority: merged dao-star-m1 into master (merge b678374b, clean — no file overlap with master's interim commits; ledger row-count check 81 on both parents and result per workflow step 10), pushed master and the branch, archived all 42 track artifacts (14 rounds x prompt/findings/log) to archive/dao-star/ (commit 671cd21f, pushed), removed the worktree (no unique files) and deleted the merged branch.
+Decisions: G3 not run on the laptop — the lane check found another seat's yang.php JVM lane running locally and a yang.typescript leg on shiva; G3 started on shiva in fresh scratch clones ~/ci/datomworld-ds1 (+ -dart) at b678374b in tmux ds1-g3 per build-n-test's remote pattern. Architect's non-blocking Sizing wording nit ("each session medium's window" ambiguity now session-facts is complete-history) left as a recorded follow-up for the owner, not self-fixed (it amends a ratified spec sentence).
+Verification: merge clean, ledger 81/81/81; archive 42 files committed and pushed. G3 (bb test lanes: JVM -e :slow + Node compile test + Dart agg) IN FLIGHT on shiva, results in ~/ci/datomworld-ds1/target-ci/summary.txt. Known limitations unchanged from the readiness report: JVM-only dao.star tests, host-boundary gate classification pending, lease-cap dead-peer detection (Honest Limit), usable-reading? duplication.
+Delegates: architect/claude-fable-5-1 sign-off (1793022579714, session C34FEBEA-30A9-4DC6-97C8-75FF6B67F0AD).
+Next: read shiva summary.txt when ds1-g3 completes; on green, the track is fully closed. Follow-ups for the owner: Sizing wording nit; host-boundary gate classification of the new namespaces; dao.lease public reading predicate to de-duplicate usable-reading?.
+
+## 2026-10-26 21:30:00 +0700 — datomic-compat track: Phase 3 P1 fixed (164da9c0); remote gate green (599/588/588); glm confirmation in flight
+Completed-GMT: 2026-10-26 14:30:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 8f31f8f2 untouched; Phase 3 branch datomic-q-p3-ci @164da9c0 (pushed)
+Done: P1 fix committed: the stratification filter now accepts any sequential-head rule; vector-head negation-recursion refusal tested (vector self-negating + vector mutual; rules suite 22/63); corpus case rules.recursion-through-negation-vector-head added (113 cases: 56/9/19/29; digest 51e02181); all three P3s landed (E16 category note, compat-doc diagnostic-keys line, supported-domain row -> Implemented (Phase 3)). Honest implementer disclosures: did not re-open the findings file (worked from the brief) and did not check the new test fails without the fix. REMOTE GATE: green on jupiter after the fix (clj 29ns/599/0, cljs 28/588/0, cljd 28/588/0). glm confirmation dispatched (asked to re-run its own vector-head probe).
+Decisions: orchestrator process note — a cwd-drift shell error killed the first fix launch before claude started (no work lost); re-dispatch used absolute paths. The implementer's not-checked-fails-without-fix disclosure is acceptable: the reviewer will re-run its own probe, which is the stronger check.
+Verification: remote gate green (orchestrator on jupiter); confirmation IN FLIGHT.
+Delegates: fix findings promoted (session 6e84b906); reviewer glm-5.3 confirmation IN FLIGHT (session 37072475).
+Next: confirmation -> argon sign-off -> merge -> archive -> Phase 5 (Docker oracle build-out on jupiter; 29->30 pending cases await oracle execution; promotion human-reviewed).
+
+## 2026-10-26 21:20:00 +0700 — datomic-compat track: Phase 3 confirmed ENDORSE; argon sign-off dispatched
+Completed-GMT: 2026-10-26 14:20:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 8f31f8f2 untouched; Phase 3 branch @164da9c0
+Done: glm confirmation: ENDORSE — the P1 fix verified with the reviewer's UNCHANGED probe (it refused both head shapes post-fix; the same probe had evaluated the vector shape to #{} on the pre-fix commit, so the fail-first disclosure is covered by cross-round firsthand evidence); the shape pinned at test AND corpus layers; all three P3s landed verbatim; 113/51e02181 re-pinned green; nothing open. Argon sign-off dispatched (landing authorization per the commit-authority clause).
+Decisions: sign-off brief carries the contract's Phase 3 acceptance list and the fail-first cross-round evidence.
+Verification: confirmation firsthand at 164da9c0; jupiter gate green post-fix.
+Delegates: reviewer confirm findings promoted (session 37072475); architect argon IN FLIGHT (log ...phase3-signoff.gemini-4-argon.stdout.log).
+Next: SIGNED OFF -> merge datomic-q-p3-ci -> step-10 -> branch/worktree cleanup -> archive -> Phase 5 dispatch (Docker oracle build-out on jupiter).
+
+## 2026-10-26 21:35:00 +0700 — datomic-compat track: Phase 3 sign-off REFUSED (D1-D4 + optional D5) — argon's static audit found what dynamic probes missed; fix round dispatched
+Completed-GMT: 2026-10-26 14:35:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 8f31f8f2 untouched; Phase 3 branch @164da9c0
+Done: argon Phase 3 sign-off: NOT SIGNED OFF. The static/mathematical audit found: D1 (P1, blocking) — ::hits key collision across NESTED same-call-key leader activations in rule-fixpoint: a nested leader's clear-hit erases the outer leader's marker (and the reduced exit LEAKS a hit), so left-recursive same-key conjunction/not-join queries silently lose rows (traced: 8 of 16 on the suite's own graph with left-rules; existing tests missed it because they used distinct keys or right recursion). Fix per the architect's exact recommendation: was-hit? capture on entry, restore on both exits. D2 (gate blocker): query-rules-test unlisted in jolt_j2_lane (6th recurrence of this class). D3 (P2): malformed rule heads (set/scalar) bypass stratification or misclassify :evaluation-failed — one exact head grammar mandated. D4 (P2): E16 misstates the adapter category (:invalid-request/:incorrect per classify-core-failure + the pinned test, not :evaluation-failed/:fault) — the implementer's earlier P3-1 fix was itself wrong; argon corrected it with the test citation. D5 optional stale doc line. Everything ELSE confirmed sound (Bekic structure, scope-vs-progress, content-strict call keys, demand, budget backstop).
+Decisions: sign-off fix round dispatched with the architect's exact corrections; D2's main-tree file handled per the branch situation (implementer instructed to report rather than improvise).
+Verification: fix round IN FLIGHT.
+Delegates: architect argon sign-off findings promoted (session 19a3d247-adc0-4f98-9d2b-e03cd1c5f3f5 — NEW argon conversation, the 4b one not reused); fix round qa-engineer IN FLIGHT (session 6e84b906).
+Next: fixes -> push -> remote gates -> RETURN TO ARGON for re-sign-off (resume session 19a3d247) -> on SIGNED OFF merge -> Phase 5.
+
+## 2026-10-26 22:10:00 +0700 — datomic-compat track: D1-D5 fixes landed (5dbe4c5f); all remote gates GREEN; argon re-sign-off in flight
+Completed-GMT: 2026-10-26 15:10:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 8f31f8f2 untouched; Phase 3 branch datomic-q-p3-ci @5dbe4c5f (pushed)
+Done: Sign-off fix round delivered all five: D1 was-hit? capture/restore on both rule-fixpoint exits + the same-call-key sibling regression suite (16-row assertions, both clause orders, right/both rules, three not-join variants); D2 manifest registration on the branch; D3 the exact head grammar (sequential rule + sequential head + symbol name) shared by stratification and evaluation, tested at both layers; D4 E16 corrected to :invalid-request/:incorrect; D5 doc row updated. Rules suite now 24/78.
+Orchestrator verification (jupiter at 5dbe4c5f): three-host subsystem clj 29ns/601/0, cljs 28/590/0, cljd 28/590/0 exit 0; downstream 256/39,276/0.
+Decisions: re-sign-off dispatched to the SAME argon conversation (19a3d247, resumed) — it holds the full audit context including its own D1 trace.
+Verification: gates as above; re-sign-off IN FLIGHT.
+Delegates: fix findings promoted; architect argon re-sign-off IN FLIGHT (log ...phase3-resignoff.gemini-4-argon.stdout.log).
+Next: SIGNED OFF -> merge -> step-10 -> cleanup -> archive -> Phase 5.
+
+## 2026-10-26 22:05:00 +0700 — datomic-compat track: agy quota exhausted mid-pipeline; re-sign-off rerouted to codex astra (r10, in flight)
+Completed-GMT: 2026-10-26 15:05:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 8f31f8f2 untouched; Phase 3 branch @5dbe4c5f pushed
+Done: argon re-sign-off dispatch failed at turn 1 — agy individual quota exhausted (429, resets ~2026-11-02; recorded in routing-status). Codex sanity probe SUCCEEDED (the owner's earlier relay had already superseded the codex usage-limit hold) — rerouted the Phase 3 re-sign-off to the astra design thread 01a16d38 (r10): re-examine the D1 trace with the was-hit? capture/restore, re-check D2-D5, rule on landing.
+Decisions: reroute to astra over fable (independence from the opus implementer; and astra holds the deepest track context — it authored r3/r4 whose requirements the tabling implements); the argon conversation 19a3d247 remains resumable after its quota resets if a follow-up is ever needed.
+Verification: codex probe success; r10 IN FLIGHT.
+Delegates: architect codex gpt-6-astra r10 IN FLIGHT (log ...phase3-resignoff.gpt-6-astra.stdout.log, thread 01a16d38).
+Next: SIGNED OFF -> merge datomic-q-p3-ci -> step-10 -> branch/worktree cleanup -> archive Phase 3 batch -> Phase 5 dispatch (Docker oracle on jupiter).
