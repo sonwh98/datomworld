@@ -1,0 +1,19 @@
+[claude-code:unrecognized_model] {"model":"glm-5.3","query_source":"sdk"}
+[claude-code:unrecognized_model] {"model":"glm-5.3-flash","query_source":"auto_mode"}
+We're changing auto mode to no longer charge for classifier requests in Claude Code. However, this session isn't eligible because your requests go through open.bigmodel.cn, which isn't compatible with this update. Nothing breaks: auto mode keeps working, and its classifier requests are billed as before. To fix it and access the new version of auto mode, ask your gateway to implement: https://code.claude.com/docs/en/auto-mode-classifier-billing
+Completed-GMT: 2026-10-26 14:13:22 GMT
+Completed-Local: 2026-10-26 21:13:22 +07
+Coding-Agent: glm
+Session-ID: 37072475-0422-4f8a-9fad-d7faa9b3b395
+
+Phase 3 confirmation round, verified at `164da9c0` in the worktree, firsthand.
+
+**(1) The P1 fix works — PASS.** The diff is exactly the one specified line (`(seq? (first %))` → `(sequential? (first %))`), and my **unchanged** probe from the review round now refuses both shapes: list-head and vector-head self-negation both throw "recursion through negation is not supported: rule p reaches itself through a negated call to p." On the fail-first disclosure: I can attest it from my own runs — the same probe evaluated the vector-head shape to `#{}` on the pre-fix commit `3af37af1` last round, and the fix commit's src diff is that single filter line, so the new test could not have passed before. Both sides verified firsthand across the two rounds; the missing fail-first check is covered.
+
+**(2) The shape is pinned — PASS.** `vector-head-rules-are-stratified-too` covers vector self-negation *and* vector mutual recursion (22/63 green firsthand); the corpus case `rules.recursion-through-negation-vector-head` is `refused` on all three hosts; 113 cases, digest `51e02181` confirmed pinned in the conformance test and in provenance (the README pin is claimed and consistent with the counts, but I verified the two load-bearing pins).
+
+**(3) The P3s landed as specified — PASS.** E16 records the deliberate `:evaluation-failed` adapter category for the required-bound-unbound error with the binding-dependent rationale and adds it to the Phase 5 oracle list; the compat doc now states that query-layer diagnostic keys (e.g. `:dao.space.query/hits`) may ride the invocation state's terminal value; the supported-domain row reads "Required-bound rule heads | Implemented (Phase 3)" with the head/call semantics.
+
+**(4) Nothing else from my findings is open.** All four items (P1 + three P3s) are resolved; conformance re-pins 113/`51e02181` green firsthand (18/46/0), and the jupiter three-host gate (599/588/588, first-run green) covers the hosts I cannot run locally. For Phase 5's carry list: the E16 rule conventions and the adapter-category question join the oracle measurements, as recorded.
+
+Verdict for Phase 3: **ENDORSE** — the stratification bypass is fixed with the specified one-line correction, pinned at both the test and corpus layers with the shape verified refused firsthand pre- and post-fix, all three P3s landed verbatim, and the three-host gate is reproduced green.

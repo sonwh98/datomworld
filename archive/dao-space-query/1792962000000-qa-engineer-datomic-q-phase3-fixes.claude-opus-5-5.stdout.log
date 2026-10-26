@@ -1,0 +1,38 @@
+Completed-GMT: 2026-10-26 00:00:00 GMT
+Completed-Local: 2026-10-26 07:00:00 +07
+Coding-Agent: claude
+Session-ID: 6e84b906-f5ab-4551-bd47-73efc3d4a7c4
+
+The P1 is fixed and committed as `164da9c0` on `datomic-q-p3-ci`, on top of `05c2b83c` and `3af37af1`, with nothing pushed. The focused JVM suites and kondo are clean, but the wider battery, the VM rule suites and the Node and Dart lanes were not re-run.
+
+I did not open the review file at `collab/1792962000000-…glm-5.3.findings.md`. I worked from your brief, so any finding in it beyond the P1 and the three P3s is unaddressed. I also did not check that the new test fails without the fix.
+
+**P1 fix**
+- The filter in `check-rules-stratified!` (`src/cljc/dao/space/query.cljc`) now accepts any rule whose head is sequential, not only list heads.
+- A vector-written head such as `[p ?x]` now goes through the same negation-recursion refusal as a list head. That refusal applies to a vector-head rule that negates itself or recurses through negation via another rule.
+- New test `vector-head-rules-are-stratified-too` covers a vector self-negating rule and a vector mutual one. `query_rules_test` is now 22 tests, 63 assertions.
+- New corpus case `rules.recursion-through-negation-vector-head`, a refusal. The corpus has 113 cases (56 executable, 9 difference, 19 refusal, 29 pending). The new BLAKE3 is `51e02181…128c`, updated in the conformance test pin, `provenance.edn` and the README totals.
+
+**P3s**
+1. E16 now says the "required-bound variable is not bound at the call" error surfaces through the adapter's generic `:evaluation-failed` path, deliberately, because it depends on bindings. It is added to the Phase 5 oracle measurement list.
+2. The compat doc has one added line: query-layer diagnostic keys such as `:dao.space.query/hits` may ride the invocation state's terminal value.
+3. The compat doc row "Required-bound rule heads" now reads "Implemented (Phase 3)".
+
+**Verification (JVM, 0 failures)**
+
+| Suite | Tests | Assertions |
+|---|---|---|
+| `query-rules-test` | 22 | 63 |
+| `datomic-query-conformance-test` | 18 | 46 |
+| `query-test` | 72 | 282 |
+| `query.datomic-test` | 30 | 235 |
+| `query-aggregates-test` | 15 | 70 |
+| `query.execution-test` | 42 | 261 |
+
+Kondo on `query.cljc`, `query_rules_test.cljc` and the conformance test reports 0 errors and 0 warnings.
+
+**Not run:**
+- Node, Dart and node-discovery are left to the remote gate, as before.
+- The wider JVM battery and the VM rule suites from the last round were not re-run, because this change only touches `check-rules-stratified!`. Re-run them at the remote gate if you want them current.
+
+I used the Edit tool for the digest changes because `sed -i` is blocked in this session. `collab/` was not staged, and I added no Co-Authored-By trailer, following your standing commit rule over the harness attribution reminder.

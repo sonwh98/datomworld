@@ -1,0 +1,46 @@
+Completed-GMT: 2026-10-26 00:00:00 GMT
+Completed-Local: 2026-10-26 07:00:00 +07
+Coding-Agent: claude
+Session-ID: 6e84b906-f5ab-4551-bd47-73efc3d4a7c4
+
+D1–D5 are done and committed as `5dbe4c5f` on `datomic-q-p3-ci`, on top of `164da9c0`. Nothing is pushed. All the JVM suites I ran pass, and kondo is clean. I did not read argon's findings file; I worked from your D1–D5 brief. I also did not check that the new D1 regressions fail on the old code.
+
+**D1 – nested same-key leader**
+- `rule-fixpoint` in `src/cljc/dao/space/query.cljc` now records `(hit? st call-key)` on entry. Both the stopped exit and the normal exit restore that marker: `note-hit` if it was set, `clear-hit` if not. The `(exec/terminal? st)` branch is untouched.
+- New test `same-call-key-siblings-keep-every-row`:
+  - `(path 1 ?x) (path 1 ?y)` on `left-rules`, in both clause orders, returns the full 16 rows. The same query on `right-rules` and `both-rules` also returns 16.
+  - Three `not-join` variants over `(path 1 ...)` also give the right answers: the survivors (`not-join` that excludes nothing), the empty set (`not-join` that excludes everything), and 16 rows through a `not-join []` placed between the two path calls.
+
+**D2 – lane manifest:** `"dao.space.query-rules-test"` is added to `src/dev/jolt_j2_lane.clj`. The branch has the file, so it needs no master commit.
+
+**D3 – head grammar**
+- `check-rules-stratified!` now requires every rule to satisfy `(and (sequential? rule) (sequential? (first rule)) (symbol? (ffirst rule)))`. Otherwise it throws "malformed rule head" with the head in ex-data.
+- That check runs for every `%` input, so stratification and evaluation share it. The stratifier now uses all rules instead of its own filter.
+- New test `malformed-rule-heads-are-refused-uniformly` covers a set head, a scalar head, a non-symbol name and a non-sequential rule. At the core layer each throws "malformed rule head". At the adapter layer each is `:invalid-request`.
+
+**D4 – E16:** E16 now says the required-bound "not bound at the call" error carries ex-data, so `classify-core-failure` maps it to `:invalid-request`/`:incorrect`. Datomic's exact category stays on the Phase 5 oracle list. The D3 head grammar is noted there too.
+
+**D5 – compat doc:** the "Finite positive recursive rules" row now describes the tabling and fixed point instead of the active-call guard, and states the head grammar. Nothing else in the doc changed.
+
+**Verification (JVM, 0 failures)**
+
+| Suite | Tests | Assertions |
+|---|---|---|
+| `query-rules-test` | 24 | 78 |
+| `datomic-query-conformance-test` | 18 | 46 |
+| `query-test` | 72 | 282 |
+| `query.datomic-test` | 30 | 235 |
+| `query-aggregates-test` | 15 | 70 |
+| `query.execution-test` | 42 | 261 |
+| `query.datomic-execution-test` | 22 | 190 |
+| `query.published-bounded-test` | 24 | 312 |
+| `query-numeric-test` | 18 | 922 |
+| `positional-query-test` | 11 | 27 |
+
+Kondo on `query.cljc`, `jolt_j2_lane.clj` and `query_rules_test.cljc` reports 0 errors and 0 warnings.
+
+**Not run:**
+- The Node and Dart lanes, node-discovery and the Jolt manifest check are left to the remote gate.
+- I did not re-run the index, transactor, dht, transact and schema suites, or the VM rule suites. `query.cljc` changed, so run them at the remote gate.
+
+The corpus did not change this round, so the digest is still `51e02181…` and the case count 113. I added no Co-Authored-By trailer, following your standing commit rule over the harness attribution reminder.

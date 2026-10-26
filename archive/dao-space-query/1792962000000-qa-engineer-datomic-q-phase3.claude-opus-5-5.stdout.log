@@ -1,0 +1,71 @@
+Completed-GMT: 2026-10-26 00:00:00 GMT
+Completed-Local: 2026-10-26 07:00:00 +07
+Coding-Agent: claude
+Session-ID: 6e84b906-f5ab-4551-bd47-73efc3d4a7c4
+
+The Phase 3 JVM gates are green, and the work is committed on `datomic-q-p3-ci`. The Node and Dart lanes and node-discovery were not run locally, so the new rule code is unverified on cljs and cljd. `bb`, `mise` and `npm ci` need approvals this session doesn't have.
+
+**Branch state:** `datomic-q-p3-ci` is based on master 8f31f8f2 and has two commits, with nothing pushed.
+- `05c2b83c` `feat(dao.space.query): required-bound rule heads and least-fixed-point recursion (phase 3)`
+- `3af37af1` `test(dao.space.query): rules corpus pins, set-bijection hardening, errata E15/E16`
+
+No `collab/` paths were staged, and I added no Co-Authored-By trailer. That follows your standing commit rule over the harness attribution reminder.
+
+**Worktree path:** The worktree is at `/Users/sto/workspace/datomworld/.claude/worktrees/datomic-p3-fixes`, not `../datomic-p3-fixes`. The sibling path is outside my allowed write directory, so I removed it and re-added the same branch here.
+
+**Changed files:**
+- `src/cljc/dao/space/query.cljc`
+  - Required-bound heads work, and `clause-bound-vars` counts variables in the new rule-call arguments.
+  - Recursion now uses per-call tabling with a fixed-point loop that re-runs only when a pass found new tuples and hit the table. The active-call guard lost answers under left recursion and is gone.
+  - Rules that recurse through negation are refused before evaluation (`:reason :recursion-through-negation`).
+  - Vector arguments in a rule call are refused as non-flat.
+  - A non-variable aggregate argument such as `(count [1 2])` is refused.
+- `src/cljc/dao/space/query/datomic.cljc`: recursion through negation is classified `:unsupported`.
+- `test/dao/space/query_rules_test.cljc` (new): 21 tests, 61 assertions. They cover:
+  - left, right, mutual and both-sided recursion, cycles, multiple definitions and unbound entry calls;
+  - required-bound heads, flat calls and malformed heads;
+  - the negation refusals;
+  - a divergent rule exhausting a bounded call structurally at 50, 500 and 5000 steps;
+  - the adapter's `:step-budget-exhausted`, first-witness stop and the exact-allowance boundary.
+  The oracle is an independent breadth-first search.
+- `test/dao/space/datomic_query_conformance_test.cljc`:
+  - `cell-same?` set comparison is now a bijection (item b).
+  - A new test, `numeric-value-set-agreement-is-a-bijection`, covers it.
+  - The corpus digest is `862e2042…`, with 112 cases.
+- `test/resources/dao/space/datomic-q-v1.json`, `.provenance.edn`, `.README.md`, `.errata.md`:
+  - 112 cases: 56 executable, 9 difference, 18 refusal, 29 pending.
+  - `rules.required-bound-head` is promoted to executable.
+  - New errata entry E16 covers the Phase 3 rule semantics.
+  - E15 gains three notes: the rand/sample refusal at both layers (adapter `:unsupported`, core "Unknown aggregate in :find"), the `(max n ?x)` tie order, and the non-variable aggregate argument decision.
+- `test/dao/space/query_aggregates_test.cljc`: new test `an-aggregate-argument-must-be-a-query-variable`. The file now has 15 tests and 70 assertions.
+
+**Carried items:**
+- (a) Done. Required-bound heads work, and `clause-bound-vars` was re-exercised for the vector-head syntax.
+- (b) Done. `cell-same?` is a bijection, with a test.
+- (c) Done. The `(max n ?x)` tie-order note is in E15.
+- (d) Done. The two-layer rand/sample note is in E15. I chose to refuse non-variable aggregate arguments rather than only document them, and E15 records that.
+
+**JVM results, all with 0 failures:**
+
+| Suite | Tests | Assertions |
+|---|---|---|
+| `query-rules-test` | 21 | 61 |
+| `query-test` | 72 | 282 |
+| `datomic-test` (adapter) | 30 | 235 |
+| `execution-test` | 42 | 261 |
+| adapter execution suite | 22 | 190 |
+| conformance | 18 | 46 |
+| `cursor-test` | 17 | 1227 |
+| `published-read-test` | 5 | 37 |
+| `published-bounded-test` | 24 | 312 |
+
+`query-aggregates-test` ran earlier at 15 tests and 70 assertions. Kondo on the five changed source and test files reports 0 errors and 0 warnings.
+
+**Not run locally:**
+- The VM rule suites `yin.repl.query-test`, `ast-query-e2e-test` and `ast-index-test` were not re-run after the final slice.
+- Downstream suites `query-numeric`, `positional-query`, `index`, `index-numeric`, `transactor`, `dht`, `transact` and `schema` were not run. Run all of these in the remote gate. Each VM suite needs the `-Sdeps` classpath override pointing at the main tree's generated ANTLR classes (see my notes below).
+- Risk points on cljs and cljd are the `unreduced`, `fnil` and `subvec` usage in the kernel and the new tests.
+
+**Doc not edited:** I had no authority over `docs/design/dao.space.query.datomic-compat.md`. Its "Required-bound rule heads — Exact target, implementation pending" row is now stale and needs an architect or doc update.
+
+**Note for the VM suites:** in a fresh worktree they fail with a missing `Python3Lexer` class. The `-Sdeps` override with `/Users/sto/workspace/datomworld/build/antlr/python3/classes` on the path fixes it.
