@@ -1,0 +1,154 @@
+#:blog{:title
+       "Dynamic Types, the JVM, and the Type-Blind Evaluator",
+       :date #inst "2026-10-25T21:00:00.000-00:00",
+       :abstract
+       [:p
+        "Why did dynamic languages struggle for decades on virtual machines designed for static types like the JVM, and why did fixing them require complex JIT deoptimizations and new bytecode instructions like invokedynamic? In datom.world, yin.vm takes a fundamentally different path: complete type blindness in the execution kernel, shifting language semantics into Universal AST runtime preludes, and separating type claims into queryable datom relations indexed by dao.space and dao.jing."],
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:h2 "The JVM Heritage and the Dynamic Penalty"]
+          [:p
+           "The Java Virtual Machine was built around nominal, static object-oriented dispatch. Its core call instruction, "
+           [:code "invokevirtual"]
+           ", expects a statically known class hierarchy and a fixed method signature baked into the constant pool. When dynamic languages like Clojure, JRuby, Jython, or Groovy targeted the JVM, they collided with this static bias."]
+          [:p
+           "In a dynamic language, a call site does not know its receiver or method signature until evaluation. Early implementations had to emulate dynamic invocation via heavy reflection, switch tables, or generated megamorphic dispatch stubs. Every operation required boxing primitives into heap objects, checking runtime types, and branching. To solve this, Java 7 introduced JSR 292 with "
+           [:code "invokedynamic"]
+           " and method handles, effectively giving the JVM a programmable call site with inline caching and speculative JIT compilation."]
+          [:p
+           "Yet even with "
+           [:code "invokedynamic"]
+           ", the underlying model remained tethered to the VM's need to understand and enforce class types. When speculative type assumptions failed, the JIT had to deoptimize and bail out back to interpreted bytecode. The fundamental friction arose because "
+           [:strong "the VM kernel coupled evaluation rules with nominal type semantics"]
+           "."]
+
+          [:h2 "The Type-Blindness of yin.vm"]
+          [:p
+           "Does "
+           [:code "yin.vm"]
+           " suffer from the same problem? No, because it does not attempt to enforce or interpret guest language types at the VM level."]
+          [:p
+           "The execution kernel of "
+           [:code "yin.vm"]
+           " is an evaluator for a tiny, universal semantic algebra: control flow, lexical environments, continuations, cells, and basic structural values (scalars, vectors, maps, symbols, and keywords). The VM does not possess an instruction for "
+           [:code "invokevirtual"]
+           ", nor does it possess Python addition, PHP array casting, or TypeScript interface resolution. It does not inspect values to enforce guest type invariants."]
+          [:p
+           "Where do dynamic types live, then? They live in "
+           [:strong "Yang runtime preludes"]
+           ". In the datom.world architecture, frontends (Yang) parse guest languages into a portable Universal AST and lower language semantics into ordinary programs and functional libraries. A Python integer addition lowers to "
+           [:code "(py/add a b)"]
+           ", which is an ordinary function written in the Universal AST. If values are dynamic, the prelude function inspects tags using standard map lookups, applies coercion rules, and branches through standard conditionals."]
+          [:p
+           "Because guest dispatch is expressed as normal data operations and functions, "
+           [:code "yin.vm"]
+           " never needs special bytecode instructions to support new language dispatch semantics. Whether a language uses prototype inheritance (JavaScript), multiple inheritance and dunder methods (Python), or nominal class and copy-on-write arrays (PHP), the evaluator runs them using the exact same structural primitives."]
+
+          [:h2 "Polymorphism and Multimethod Lowering"]
+          [:p
+           "A classic example of dynamic dispatch is Clojure's multimethods. In Clojure on the JVM, a multimethod must consult an internal hierarchy, evaluate a dispatch function, look up a method in a table, and handle cache invalidation."]
+          [:p
+           "When "
+           [:code "yang.clojure"]
+           " lowers a multimethod to "
+           [:code "yin.vm"]
+           ", it lowers it into an explicit table lookup and invocation:"]
+          [:ol
+           [:li
+            [:strong "Dispatch Evaluation: "]
+            "The arguments are passed to the dispatch function "
+            [:code "dispatch-fn"]
+            " yielding a dispatch value "
+            [:code "dv"]
+            "."]
+           [:li
+            [:strong "Table Lookup: "]
+            "The multimethod's table (stored in a cell holding a persistent map) is queried for "
+            [:code "dv"]
+            ". If missing, it checks hierarchy preferences or falls back to "
+            [:code ":default"]
+            "."]
+           [:li
+            [:strong "Application: "]
+            "The resolved function is applied to the original arguments with the current continuation."]
+           [:li
+            [:strong "Refusal and Protocol Fallback: "]
+            "If no matching implementation or default exists, a language-level dispatch failure is raised as an ordinary guest error."]]
+          [:p
+           "The VM has no awareness of multimethods, hierarchies, or polymorphism. It simply runs function application, vector destructuring, and map lookups. Polymorphic dispatch is completely unbundled from VM mechanics."]
+
+          [:h2 "Types as Claims: The Role of dao.jing and dao.space"]
+          [:p
+           "If the VM evaluator is blind to types, how does a developer perform static analysis, reflection, or IDE auto-completion? How can a program inspect its types if the VM throws away type knowledge?"]
+          [:p
+           "The answer lies in "
+           [:strong "separating code identity from type claims"]
+           ". In datom.world, code is content-addressed and stored in immutable datom streams:"]
+          [:ul
+           [:li
+            [:strong "dao.jing (Content Storage): "]
+            "Canonical Universal AST rows are encoded in CBOR and stored by cryptographic content hash: "
+            [:code "[address tag & slots]"]
+            ". Two identical function bodies share the exact same address regardless of their type annotations or surrounding comments."]
+           [:li
+            [:strong "dao.space (Indexing and Reflection): "]
+            "Type annotations, declared signatures, inferred return types, and runtime profiling observations are recorded not inside the code nodes, but as "
+            [:strong "external claims"]
+            " in the five-slot datom form: "
+            [:code "[occurrence :yin.sig/type type-value tx provenance]"]
+            ". These claims are ingested into "
+            [:code "dao.space"]
+            " and indexed across covered EAVT, AEVT, AVET, and VAET index trees."]]
+          [:p
+           "Here, "
+           [:code "occurrence"]
+           " is a pair of "
+           [:code "[root-address path]"]
+           " pointing to a specific binder, parameter, or expression occurrence. The type system exists not as VM execution state, but as a "
+           [:strong "queryable knowledge base"]
+           "."]
+
+          [:h2 "Dynamic Reflection via Datalog"]
+          [:p
+           "In traditional runtimes, reflection requires querying the runtime engine itself (e.g. Java's "
+           [:code "Class.forName()"]
+           " or Python's "
+           [:code "__class__"]
+           "). In datom.world, reflection is decoupled from the execution process. Any tool, editor, compiler, or even running agent can query the type evidence of any function using standard Datalog via "
+           [:code "dao.space.query/q"]
+           ":"]
+          [:pre
+           [:code
+            "(dao.space.query/q\n  '[:find ?type ?provenance\n    :in $ ?occurrence\n    :where\n    [?occurrence :yin.sig/type ?type ?tx ?provenance]]\n  (dao.space.index/db space)\n  [target-root-address target-path])"]]
+          [:p
+           "Because provenance is part of the datom tuple, the querier knows immediately whether a type claim was:"]
+          [:ul
+           [:li "An author's declared type annotation in TypeScript or PHP."]
+           [:li "An inferred constraint computed by an offline type checker."]
+           [:li "A concrete runtime observation recorded during a benchmark run."]]
+
+          [:h2 "Verification as an External Interpreter"]
+          [:p
+           "This architecture unties the Gordian knot that has plagued VM design since the 1990s. When static type checking, dynamic evaluation, and reflection are forced into a single runtime binary, every language compromise slows down the VM or restricts language expressiveness."]
+          [:p
+           "In datom.world:"]
+          [:ul
+           [:li
+            [:strong "yin.vm "]
+            "evaluates code without type baggage, keeping the execution kernel small, deterministic, and easily portable to JVM, Node.js, Dart, and Rust."]
+           [:li
+            [:strong "Yang "]
+            "lowers rich language semantics (classes, prototypes, dunder methods, multimethods) into straightforward AST functions and data cells."]
+           [:li
+            [:strong "Type Checkers "]
+            "run as separate stream interpreters with authority. A gated stream checker can inspect ASTs and type claims, admitting only well-typed code packets to the VM."]
+           [:li
+            [:strong "dao.space and dao.jing "]
+            "provide deep, temporal reflection over code and type evidence via relational Datalog queries without pausing or polluting execution."]]
+          [:p
+           "Types do not belong in the virtual machine's instruction set. They belong in the evidence ledger."]]]]}
