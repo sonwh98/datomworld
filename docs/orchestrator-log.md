@@ -13455,3 +13455,11 @@ Decisions: Architect (fable, session C34FEBEA) scoped, amended for the grid requ
 Verification: orchestrator-run: focused clojure -M:test five demo namespaces 37/529/0; kondo clean; local smoke run (shop/grid/image/traversal/datastar.js all as expected); shiva: image rebuilt from merged master ff4bc8fe in ds2, container dao-star-cart on port 3004 (localhost shop 200, grid 200, image 200). EXTERNAL access blocked by the shiva firewall (ufw needs owner sudo; jupiter also blocked) — the one open owner item. Browser behavior NOT exercised (no test for it; the vendored RC.7 client's retry:'always' is asserted in HTML and unit-tested, not browser-tested).
 Delegates: architect/claude-fable-5-1 (1793032277025 scope, 1793033722326 amend-grid, 1793038927884 signoff; session C34FEBEA-30A9-4DC6-97C8-75FF6B67F0AD); stream-engineer/claude-opus-5-5 (1793034230245 build, 1793037435251 fixes; session 59B70221-8A9E-4D0F-91EF-0A9609418224); reviewer/codex gpt-6.1-sol (1793036850448 round 1, 1793038016790 confirm, 1793038927884 confirm-low; thread 01a17965-8f28-7061-ba42-c83910793c47). All archived under archive/dao-star/ (commit ee38fe6b, pushed).
 Next: owner opens port 3004 (ufw allow 3004/tcp) and the demo is live outside shiva at http://shiva.stigmergy.systems:3004/ (shop) and /grid (NO AUTH — do not expose publicly). Follow-ups: browser-level check once the port is open; deletion of dao-star-demo worktree/branch on owner instruction; image licensing reminder (nothing public without the owner).
+
+## 2026-10-27 01:34:00 +0700 — correction: the previous entry's timestamp was estimated again
+Completed-GMT: 2026-10-26 18:34:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 8f34bc06 (pushed)
+Done: Corrects the "2026-10-27 02:35:00 +0700" dao.star cart closure entry: its actual time was 2026-10-27 01:33:38 +0700 (18:33:38 GMT). Same failure mode as the correction recorded in the Mode 1 track (2026-10-26 22:37 entry): an estimated timestamp written without reading the clock. The substantive content stands as written.
+Next: none.
