@@ -1523,7 +1523,7 @@
          (let [i (js/index-key-value key)]
            (if (if (<= 0 i) (< i (js/str-unit-length s)) false)
              (js/str-slice s i (+ i 1))
-             (js/get-prop js.rt/str-proto key)))))]
+             (js/get-prop-r js.rt/str-proto key s)))))]
     [js/get-value
      ;; a member read: primitive receivers read their intrinsic prototype
      (fn [v key]
@@ -1532,23 +1532,18 @@
            (js/get-prop v key)
            (if (= k :string)
              (js/string-get v key)
-             (if (= k :number)
-               (js/get-prop js.rt/num-proto key)
-               (if (= k :boolean)
-                 (js/get-prop js.rt/bool-proto key)
-                 (if (= k :bigint)
-                   (js/get-prop js.rt/bigint-proto key)
-                   (if (= k :symbol)
-                     (js/get-prop-r js.rt/symbol-proto key v)
-                     (js/throw-type-error
-                       (js/str-concat
-                         {:js/str "Cannot read properties of "}
-                         (js/str-concat
-                           (js/to-string v)
-                           (js/str-concat
-                             {:js/str " (reading '"}
-                             (js/str-concat (js/to-string key)
-                                            {:js/str "')"})))))))))))))]
+             (if (if (= k :number) true (if (= k :boolean) true (if (= k :bigint) true (= k :symbol))))
+               (js/get-prop-r (js/proto-of-primitive v) key v)
+               (js/throw-type-error
+                 (js/str-concat
+                   {:js/str "Cannot read properties of "}
+                   (js/str-concat
+                     (js/to-string v)
+                     (js/str-concat
+                       {:js/str " (reading '"}
+                       (js/str-concat (js/to-string key)
+                                      {:js/str "')"}))))))))))]
+
 
     ;; ------------------------------------------------------------ functions
     ;; A function cell holds {:js/type :function :code (fn [this args] ..)

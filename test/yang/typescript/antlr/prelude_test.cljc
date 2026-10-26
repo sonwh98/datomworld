@@ -603,6 +603,60 @@
     [1 true false 1 true false 0]]])
 
 
+(defn- receiver-cases
+  "Primitive member reads pass the primitive as the receiver: an accessor
+   on the intrinsic prototype whose getter returns `this` gives it back, and
+   an inherited data property reads through."
+  [proto prim tname]
+  (let [acc (k (str "me-" tname))
+        dat (k (str "dt-" tname))]
+    [`(do (js/define-own!
+            ~proto
+            ~acc
+            (assoc (assoc (js/slot :js/undefined false true true)
+                          :get
+                          (js/make-function ~(k "g")
+                                            0
+                                            :strict
+                                            :getter
+                                            (fn [~'this ~'args] ~'this)))
+                   :set
+                   :js/undefined))
+          (js/define-own! ~proto ~dat (js/slot 42 true true true))
+          (let [~'r (js/get-value ~prim ~acc)]
+            [(js/strict-eq ~'r ~prim) (js/same-value ~'r ~prim)
+             (js/typeof ~'r) (js/get-value ~prim ~dat)]))
+     [true true (k tname) 42]]))
+
+
+(def ^:private receiver-prim-cases
+  (into []
+        (map (fn [[proto prim tname]] (receiver-cases proto prim tname)))
+        [['js.rt/str-proto (k "ab") "string"]
+         ['js.rt/num-proto '(data/float64 5) "number"]
+         ['js.rt/bool-proto true "boolean"]
+         ['js.rt/bigint-proto 7 "bigint"]]))
+
+
+(def ^:private receiver-set-case
+  [`(let [~'cc (cell/new {})]
+      (do (js/define-own!
+            js.rt/num-proto
+            ~(k "sx")
+            (assoc (assoc (js/slot :js/undefined false true true) :get :js/undefined)
+                   :set
+                   (js/make-function ~(k "s")
+                                     1
+                                     :strict
+                                     :setter
+                                     (fn [~'this ~'args]
+                                       (do (cell/set! ~'cc (assoc {} :t ~'this))
+                                           :js/undefined)))))
+          (js/put-value (data/float64 5) ~(k "sx") 1)
+          (js/strict-eq (get (cell/get ~'cc) :t) (data/float64 5))))
+   true])
+
+
 (deftest define-own-property-matrix-test (check define-cases))
 
 
@@ -619,3 +673,7 @@
 
 
 (deftest symbol-core-test (check symbol-cases))
+
+
+(deftest primitive-receiver-test
+  (check (conj receiver-prim-cases receiver-set-case)))
