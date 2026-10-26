@@ -173,6 +173,9 @@
        "<?php $f = function () { return 1; }; $g = Closure::bind($f, null, null); echo $g();"
        "1")
    (fx :closure-call-invoke :closures-v1 [] #{:p4}
+       ;; oracle-vs-design: PHP 8.3 answers a Warning ("Cannot bind closure to
+       ;; scope of internal class stdClass") and prints nothing; left pending
+       ;; for architect escalation.
        "<?php $f = fn($x) => $x * 2; echo $f->call(new stdClass, 4);"
        nil)])
 
@@ -229,9 +232,93 @@
        "<?php $a = [1]; $a[0] = &$a; echo count($a), count($a[0]);" "11")])
 
 
+(def recorded
+  "Oracle RECORD values from the shiva pass (php-8.3.35 shiva 2026-10-25,
+   docker php:8.3-cli), copied exactly from the pass log. A fixture listed
+   here has its :oracle set to the banner by `pin`; `:closure-call-invoke`
+   is deliberately absent (see its note)."
+  {
+   :ref-alias-write {:out "2", :diag [], :uncaught nil}
+   :ref-unset-breaks-binding {:out "15", :diag [], :uncaught nil}
+   :ref-self-assign {:out "3", :diag [], :uncaught nil}
+   :ref-element-survives-copy {:out "9", :diag [], :uncaught nil}
+   :ref-element-unwrapped-after-unset {:out "1", :diag [], :uncaught nil}
+   :ref-element-target {:out "4", :diag [], :uncaught nil}
+   :ref-array-literal-element {:out "2", :diag [], :uncaught nil}
+   :ref-array-literal-nested-path {:out "7", :diag [], :uncaught nil}
+   :ref-vivify-by-reference {:out "5", :diag [], :uncaught nil}
+   :ref-global-binds-local {:out "2", :diag [], :uncaught nil}
+   :ref-global-unset-keeps-global {:out "1", :diag [], :uncaught nil}
+   :ref-global-at-root-noop {:out "2", :diag [], :uncaught nil}
+   :ref-static-binds-persistent-slot {:out "3", :diag [], :uncaught nil}
+   :ref-static-rebind-leaves-persistent {:out "100100", :diag [], :uncaught nil}
+   :ref-param-by-reference {:out "2", :diag [], :uncaught nil}
+   :ref-param-array-element {:out "7", :diag [], :uncaught nil}
+   :ref-param-by-value-is-a-copy {:out "1", :diag [], :uncaught nil}
+   :ref-builtin-sort-over-reference-slot {:out "1,2,9", :diag [], :uncaught nil}
+   :ref-function-release-cvs {:out "33", :diag [], :uncaught nil}
+   :foreach-ref-doubles {:out "2,4,6", :diag [], :uncaught nil}
+   :foreach-ref-leftover-binding {:out "1,2,2", :diag [], :uncaught nil}
+   :foreach-ref-leftover-unset-fixes {:out "1,2,3", :diag [], :uncaught nil}
+   :foreach-ref-append-while-iterating {:out "1234", :diag [], :uncaught nil}
+   :foreach-ref-unset-current {:out "13", :diag [], :uncaught nil}
+   :foreach-ref-break-frees-iterator {:out "34", :diag [], :uncaught nil}
+   :foreach-by-value-snapshot {:out "124", :diag [], :uncaught nil}
+   :foreach-key-and-destructure {:out "012134", :diag [], :uncaught nil}
+   :array-pointer-reset-end {:out "231", :diag [], :uncaught nil}
+   :array-pointer-copied-with-value {:out "2", :diag [], :uncaught nil}
+   :call-dynamic-variable {:out "3", :diag [], :uncaught nil}
+   :call-dynamic-dim {:out "2", :diag [], :uncaught nil}
+   :call-dynamic-chained {:out "3", :diag [], :uncaught nil}
+   :call-named-arguments-reorder {:out "1-5", :diag [], :uncaught nil}
+   :call-named-default-skipped {:out "129", :diag [], :uncaught nil}
+   :call-spread-positional {:out "3", :diag [], :uncaught nil}
+   :call-variadic-collects {:out "36", :diag [], :uncaught nil}
+   :call-variadic-named-collected {:out "0,k", :diag [], :uncaught nil}
+   :call-too-few-named-not-passed {:out "f(): Argument #1 ($a) not passed", :diag [], :uncaught nil}
+   :call-unknown-named-argument {:out "Unknown named parameter $z", :diag [], :uncaught nil}
+   :call-return-owned-temp-released {:out "33", :diag [], :uncaught nil}
+   :closure-use-by-value {:out "1", :diag [], :uncaught nil}
+   :closure-use-by-reference {:out "2", :diag [], :uncaught nil}
+   :closure-use-by-reference-writes {:out "3", :diag [], :uncaught nil}
+   :closure-counter-factory {:out "3", :diag [], :uncaught nil}
+   :closure-static-per-object {:out "2", :diag [], :uncaught nil}
+   :arrow-captures-by-value-at-creation {:out "4", :diag [], :uncaught nil}
+   :arrow-nested-transitive-capture {:out "6", :diag [], :uncaught nil}
+   :closure-bind-class-seam {:out "1", :diag [], :uncaught nil}
+   :list-short-positional {:out "12", :diag [], :uncaught nil}
+   :list-swap {:out "21", :diag [], :uncaught nil}
+   :list-skip {:out "13", :diag [], :uncaught nil}
+   :list-keyed {:out "12", :diag [], :uncaught nil}
+   :list-nested {:out "123", :diag [], :uncaught nil}
+   :list-writes-through-fetches {:out "78", :diag [], :uncaught nil}
+   :list-by-reference-element {:out "9", :diag [], :uncaught nil}
+   :list-null-source-assigns-null {:out "NULL\nNULL\n", :diag [], :uncaught nil}
+   :oracle-cycle-release-gc {:out "collected", :diag [], :uncaught nil}
+   :oracle-cycle-release-memory {:out "leaks", :diag [], :uncaught nil}
+   :ref-cycle-unset-terminates {:out "done", :diag [], :uncaught nil}
+   :ref-cycle-count {:out "11", :diag [], :uncaught nil}})
+
+
+(def banner "php-8.3.35 shiva 2026-10-25")
+
+
+(defn- pin
+  "The fixture with its recorded oracle result folded in: `:oracle` becomes
+   the banner, a fixture without a pinned `:out` takes the recorded one, and
+   non-empty `:diag`/`:uncaught` are kept. Unrecorded fixtures stay pending."
+  [fixture]
+  (if-let [r (get recorded (:id fixture))]
+    (cond-> (assoc fixture :oracle banner)
+      (not (contains? fixture :out)) (assoc :out (:out r))
+      (seq (:diag r)) (assoc :diag (:diag r))
+      (:uncaught r) (assoc :uncaught (:uncaught r)))
+    fixture))
+
+
 (def all-fixtures
   "Unconditional registry; the oracle iterates it regardless of activation."
-  (vec (concat ref-lifecycle-v1
+  (mapv pin (concat ref-lifecycle-v1
                iteration-v1
                calls-v1
                closures-v1

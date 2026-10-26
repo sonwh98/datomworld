@@ -105,4 +105,14 @@
       (is (empty? (filter #(= :pending (:oracle %)) p3b/enabled))))
     (testing "the wiring fixtures stay disabled until their step lands"
       (is (some #(= :ref-alias-write (:id %)) all))
-      (is (not-any? #(= :ref-alias-write (:id %)) p3b/enabled)))))
+      (is (not-any? #(= :ref-alias-write (:id %)) p3b/enabled)))
+    (testing "every recorded oracle result equals the design-pinned expectation"
+      (doseq [f all
+              :let [r (get p3b/recorded (:id f))]
+              :when r]
+        (is (= p3b/banner (:oracle f)) (name (:id f)))
+        (is (= (:out r) (:out f)) (name (:id f)))
+        (is (= (:diag r) (vec (:diag f))) (name (:id f)))
+        (is (= (:uncaught r) (:uncaught f)) (name (:id f)))))
+    (testing "only the escalated fixture is still pending"
+      (is (= [:closure-call-invoke] (mapv :id (filter #(= :pending (:oracle %)) all)))))))
