@@ -507,6 +507,138 @@
   (check "J4c fail-closed gates: child exited 0" (zero? (:exit r)) {:exit (:exit r)}))
 
 
+;; =============================================================================
+;; J4d: key files, saved state through the jolt -main, cross-host reopen
+;; =============================================================================
+
+(def j4d-scratch (fs/path root "build/j4d-probe"))
+(fs/delete-tree j4d-scratch)
+(fs/create-dirs j4d-scratch)
+
+
+(defn- octal-mode
+  [path]
+  (let [perms (fs/posix-file-permissions path)]
+    (reduce (fn [acc [bit k]] (if (contains? perms k) (bit-or acc bit) acc))
+            0
+            [[0400 java.nio.file.attribute.PosixFilePermission/OWNER_READ]
+             [0200 java.nio.file.attribute.PosixFilePermission/OWNER_WRITE]
+             [0100 java.nio.file.attribute.PosixFilePermission/OWNER_EXECUTE]
+             [040 java.nio.file.attribute.PosixFilePermission/GROUP_READ]
+             [020 java.nio.file.attribute.PosixFilePermission/GROUP_WRITE]
+             [010 java.nio.file.attribute.PosixFilePermission/GROUP_EXECUTE]
+             [04 java.nio.file.attribute.PosixFilePermission/OTHERS_READ]
+             [02 java.nio.file.attribute.PosixFilePermission/OTHERS_WRITE]
+             [01 java.nio.file.attribute.PosixFilePermission/OTHERS_EXECUTE]])))
+
+
+;; key file: exclusive, owner-only, never overwritten
+(let [path (str (fs/path j4d-scratch "keys/node.key"))
+      first-run (first (lines (:out (jolt root (str probes "/j4d/keygen.clj") path)) "RESULT"))
+      bytes-1 (when (fs/exists? path) (vec (fs/read-all-bytes path)))
+      mode (when (fs/exists? path) (octal-mode path))
+      second-run (first (lines (:out (jolt root (str probes "/j4d/keygen.clj") path)) "RESULT"))
+      bytes-2 (when (fs/exists? path) (vec (fs/read-all-bytes path)))]
+  (println "RECORD keygen" (pr-str {:first first-run, :second second-run,
+                                    :mode (some-> mode Long/toOctalString)}))
+  (check "keygen on jolt: a new key file, mode 0600 from creation (parents made), its principal printed and never its seed"
+         (and (= "RESULT 0 nil true false" first-run) (= 0600 mode) (seq bytes-1))
+         {:first first-run, :mode (some-> mode Long/toOctalString)})
+  (check "keygen on jolt refuses an existing key file and leaves it byte-identical"
+         (and (str/includes? (str second-run) "exists") (= bytes-1 bytes-2))
+         {:second second-run}))
+
+
+(defn- yin-repl
+  "Run host's yin-repl CLI (:jolt, :jvm, :node, :dart) with args, feeding
+   stdin-lines; answers {:exit :out}."
+  [host args stdin-lines]
+  (let [opts {:dir root :out :string :err :string :continue true
+              :in (str (str/join "\n" stdin-lines) "\n")}
+        r (case host
+            :jolt (apply p/shell opts "sh" "-c"
+                         ". build/tools/jolt-env.sh && exec \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-yin-repl \"$@\""
+                         "jolt" args)
+            :jvm (apply p/shell opts "clojure" "-M:clj-yin-repl" args)
+            :node (apply p/shell opts "node" "target/yin-repl.js" args)
+            :dart (apply p/shell opts "build/yin-repl-dart" args))]
+    {:exit (:exit r) :out (str (:out r) (:err r))}))
+
+
+(defn- history-q
+  [value]
+  (str "(dao.space.query/q (quote [:find ?s ?t :where [?e :yin/value " value
+       " ?t ?m] [?m :yin.repl/session ?s ?t1 ?m1]]) {:view :history})"))
+
+
+(def require-q "(require (quote dao.space.query))")
+(def found? #(boolean (re-find #"#\{\[\"" (str %))))
+
+
+;; saved state through the jolt -main (the J3 entry point, persisting since J4d)
+(let [node (str (fs/path j4d-scratch "node"))
+      store (str (fs/path j4d-scratch "state-store"))
+      state-file (str (fs/path node "state.edn"))
+      r1 (yin-repl :jolt ["--dir" node "--index-store" (str "file:" store)] ["(def alpha 5005)"])
+      saved-1 (when (fs/exists? state-file) (slurp state-file))
+      r2 (yin-repl :jolt ["--dir" node] [require-q (history-q 5005)])
+      r3 (yin-repl :jolt ["--dir" node "--reset"] [require-q (history-q 5005)])
+      saved-3 (when (fs/exists? state-file) (slurp state-file))
+      r4 (yin-repl :jolt ["--dir" node "--no-state" "--index-store" (str "file:" store)]
+                   [require-q (history-q 5005)])
+      saved-4 (when (fs/exists? state-file) (slurp state-file))]
+  (println "RECORD saved state" (pr-str {:saved-1 saved-1, :saved-3 saved-3}))
+  (check "jolt -main saves the flags it started with (state.edn in --dir) and evaluates against the file: store"
+         (and (zero? (:exit r1)) (str/includes? (:out r1) "state: saved to")
+              (str/includes? (str saved-1) (str "file:" store)))
+         {:exit (:exit r1)})
+  (check "a bare jolt start resumes the saved state: the same file: store answers q with the previous run's facts"
+         (and (zero? (:exit r2)) (str/includes? (:out r2) "state: resumed from") (found? (:out r2)))
+         {:out (last (str/split-lines (:out r2)))})
+  (check "--reset forgets the saved state: mem store, the old facts are not there, and the reset is saved"
+         (and (zero? (:exit r3)) (str/includes? (:out r3) "reset") (not (found? (:out r3)))
+              (not (str/includes? (str saved-3) "file:")))
+         {:saved saved-3})
+  (check "--no-state neither reads nor writes the saved state (state.edn unchanged), and the store still opens"
+         (and (zero? (:exit r4)) (not (str/includes? (:out r4) "state:")) (= saved-3 saved-4)
+              (found? (:out r4)))
+         nil))
+
+
+;; cross-host reopen: host writes, jolt replays and appends, host reopens
+(defn- cross-host!
+  [host v1 v2]
+  (let [store (str (fs/path j4d-scratch (str "cross-" (name host))))
+        flag ["--no-state" "--index-store" (str "file:" store)]
+        w (yin-repl host flag [(str "(def first-value " v1 ")")])
+        j (yin-repl :jolt flag [require-q (history-q v1) (str "(def second-value " v2 ")")])
+        r (yin-repl host flag [require-q (history-q v1) (history-q v2)])
+        answers (filter #(str/includes? % "#{") (str/split-lines (:out r)))]
+    (println "RECORD cross-host" host (pr-str {:host-write (:exit w), :jolt (:exit j),
+                                               :host-reopen (:exit r), :answers (vec answers)}))
+    (check (str "cross-host reopen: " (name host) " writes, jolt replays its facts and appends, "
+                (name host) " reopens and sees both")
+           (and (zero? (:exit w)) (zero? (:exit j)) (found? (:out j)) (zero? (:exit r))
+                (= 2 (count (filter found? answers))))
+           {:jolt-sees (found? (:out j)), :answers (vec answers),
+            :out (when-not (zero? (:exit r)) (:out r))})))
+
+
+(cross-host! :jvm 7001 7002)
+
+
+(if (fs/exists? (fs/path root "target/yin-repl.js"))
+  (cross-host! :node 7101 7102)
+  (partial! "cross-host reopen: Node (no target/yin-repl.js; run bb build:yin-repl-node)" {}))
+
+
+(if (fs/exists? (fs/path root "build/yin-repl-dart"))
+  (cross-host! :dart 7201 7202)
+  (partial! (str "cross-host reopen: Dart (no build/yin-repl-dart: clj -M:clojuredart:cljd-yin-repl-build"
+                 " compile, then dart compile exe lib/cljd-out/yin/repl/main.dart -o build/yin-repl-dart)")
+            {:dart dart?}))
+
+
 (when (seq @partials)
   (println "PARTIAL legs:" (pr-str @partials)))
 
