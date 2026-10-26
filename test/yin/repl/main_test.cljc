@@ -464,10 +464,10 @@
                              [malformed "malformed-key"]
                              [mismatched "public-mismatch"]]]
         (testing reason
-          (let [r (refusal path)]
-            (is (str/includes? (str r) reason) r)
-            (is (str/includes? (str r) path))
-            (is (not (str/includes? (str r) (:seed key)))))))
+          (let [text (or (refusal path) "")]
+            (is (str/includes? text reason) text)
+            (is (str/includes? text path))
+            (is (not (str/includes? text (:seed key)))))))
       (finally
         (run! cleanup-file! [good malformed mismatched absent])))))
 
