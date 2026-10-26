@@ -1,0 +1,162 @@
+#:blog{:title "Sharing Data Without Losing Control: Continuations, Capabilities, and Zero-Knowledge Proofs"
+       :date #inst "2026-10-26T14:17:04.000-00:00"
+       :abstract
+       [:p
+        "Once readable data reaches another party, it cannot be recalled. Datom.World approaches its founding goal by combining encrypted storage, mobile continuations, protected execution, capability-governed disclosure, and zero-knowledge proofs. A requesting party can obtain a verifiable answer while the source records remain inside an execution boundary controlled by their owner. This article explains the composition, its trust assumptions, and the work still required to implement it."]
+       :content
+       [:section.blog-article
+        [:div.section-inner
+         [:article
+          :$blog-title
+          :$blog-date
+
+          [:p
+           "Datom.World began with a question: how can we share data without losing control? A useful answer has to confront a basic fact. Once someone receives readable information, they can preserve it. Revoking an account, withdrawing a key, or changing a policy cannot make them forget what they already learned."]
+          [:p
+           "The architecture therefore gives the requesting party access to an authorized computation. Their code travels as a continuation into a protected "
+           [:code "yin.vm"]
+           " environment. The environment can decrypt data stored in "
+           [:code "dao.jing"]
+           ", constrain how the computation uses it, and release an approved answer. A zero-knowledge proof can make that answer independently verifiable without exposing the private inputs."]
+          [:p
+           "This requires a trusted execution boundary. Software restrictions and ZK proofs alone cannot prevent a host from inspecting memory. The plaintext-processing design therefore needs a trusted host, attested hardware isolation, or a cryptographic computation strategy with explicit trust assumptions."]
+          [:p
+           "This is the proposed composition of the sharing mechanism. Portable execution, resource references, and custody enforcement already provide parts of its foundation. Complete confidentiality, ShiBi authorization, and the ZK integration remain work to build."]
+
+          [:h2 "Possessing Ciphertext and Learning a Record Are Different Events"]
+          [:p
+           [:a {:href "/dao-jing.chp"} "DaoJing"]
+           " stores opaque content by address. For controlled sharing, the owner encrypts private payloads before they enter a store accessible to others. Storage nodes can retain and replicate the ciphertext without receiving the decryption key. Content addressing identifies the stored representation; encryption protects its contents."]
+          [:p
+           "Encryption alone leaves the familiar key-sharing problem. Handing the requesting party a reusable key also gives them the ability to decrypt and preserve the records. The proposed design keeps the key inside the protected execution environment. The mobile program receives a scoped way to request data processing, never the key itself."]
+          [:p
+           "Keys must stay out of public descriptors and portable program values. A data address is a name for content, not permission to decrypt it."]
+
+          [:h2 "Bring the Continuation to an Authorized Runtime"]
+          [:p
+           "Suppose a researcher wants to know whether a committed population dataset contains at least a specified number of eligible records. The researcher supplies a program expressed in the Universal AST. Its content address identifies the requested computation, and its continuation carries the execution state needed to reach the data-processing boundary."]
+          [:p
+           "The destination admits that continuation under an explicit policy. It binds only the resources the computation may use, checks its permitted operations, and applies execution bounds. A protected data operation retrieves ciphertext from DaoJing and decrypts it inside the boundary. The continuation may process authorized plaintext there, while the researcher receives only the approved result."]
+          [:p
+           "The engine keeps resource handles in a private table and gives guest programs sealed references. This prevents a continuation from forging direct resource access; composition policy must still constrain its permitted operations and outputs. These guest-level controls do not protect memory from the machine operator."]
+
+          [:h2 "ShiBi Governs Both Access and Disclosure"]
+          [:p
+           "The permission to read a record inside a computation and the permission to send information out are separate decisions. A capability might authorize a specified predicate over one dataset version, one approved output shape, a bounded amount of execution, and a limited number of disclosures."]
+          [:p
+           [:a {:href "/shibi.chp"} "ShiBi"]
+           " is intended to supply those authorization decisions. Its current architectural direction treats grants, restrictions, revocations, and budgets as facts on streams. An index interpreter observes those facts, and a query interpreter derives whether a particular operation is permitted. A capability token can be an emitted credential, but the token alone cannot enforce how a program behaves."]
+          [:p
+           "Enforcement belongs at the resource and disclosure boundaries. A protected composition must mediate every outward path: stream writes, return values, host functions, errors, diagnostics, and exported execution state. Host functions capable of direct I/O must be excluded or explicitly constrained in that composition."]
+          [:p
+           "An ordinary allowed return channel is enough to defeat confinement if an arbitrary program can return the source records. Admission must restrict what the computation can express and release. An inspectable AST makes a structural language restriction possible; inspectability does not automatically make an arbitrary program safe."]
+          [:p
+           "Even a one-bit answer can disclose too much when repeated. Asking whether a private number exceeds a sequence of chosen thresholds can reconstruct it. Disclosure budgets must account for related queries, identities, and concurrent requests. A snapshot-based authorization gate alone cannot safely reserve a shared budget: the budget must be consumed through an authoritative serialized or transactional admission step."]
+
+          [:h2 "ZK Makes the Answer Verifiable"]
+          [:p
+           "Confinement protects the records, but the researcher still needs a reason to believe the answer. Zero-knowledge proofs address that requirement. A prover can establish a public statement about private inputs without revealing those inputs beyond what the statement itself implies. "
+           [:a {:href "https://zcash.github.io/halo2/concepts/proofs.html"}
+            "The Halo2 Book explains the distinction between a public statement and its private witness."]]
+          [:p
+           "For the researcher, the statement could be: the approved predicate evaluated to true over the dataset represented by this commitment. The private witness includes the records and the information needed to open the commitment. The shared artifact contains the answer, the proof, and the public inputs required to verify it."]
+          [:pre
+           [:code
+            "Private witness: records X and commitment randomness r\nPublic statement: commitment C, approved program P, answer y\n\nProve:\n  Commit(X, r) = C\n  Execute(P, X) = y"]]
+          [:p
+           "The commitment must hide the records as well as bind the prover to them. A bare hash of a predictable value can be guessed by enumeration, so a content address is not automatically an appropriate privacy commitment. If the claim requires an authentic external source, the proof must also check the relevant issuer signature or attestation. A correct calculation over fabricated records proves little about the world."]
+          [:p
+           "For queries over a dataset, the committed snapshot and its scope must be defined precisely. Proving that selected records produce an answer is different from proving that every qualifying record in the authorized snapshot was included."]
+          [:p
+           "The proof system must constrain execution according to the intended semantics of the approved program. Attaching an AST hash to an unrelated proof establishes no such connection. An initial implementation can support a small set of predicates and aggregates rather than attempting to prove every Yin instruction and host effect."]
+
+          [:h2 "The Runtime Must Actually Be Protected"]
+          [:p
+           "A software VM can isolate a guest continuation from its host resources. It cannot hide plaintext from a hostile administrator who controls the process, debugger, or underlying machine. Keeping a key in a private resource table makes it inaccessible to the guest program, but the host can still inspect that table. Even if the key were kept outside process memory, plaintext decrypted into the CESK environment, store, or intermediate execution state would remain exposed to a host memory dump. ZK proves the specified computation; it does not prevent the machine generating the proof from copying its private inputs."]
+          [:p
+           "Cloud providers offer hardware protected execution for this threat. The processor encrypts private VM memory under hardware managed keys and blocks the host hypervisor from reading that memory as plaintext. The VM uses the memory normally, so the guest operating system and approved workload can still access their own state. Remote attestation lets a data owner check what booted before permitting key release."]
+          [:p
+           "These products protect different boundaries, so the choice depends on who is untrusted:"]
+          [:ul
+           [:li
+            [:strong "AWS Nitro System and Nitro Enclaves: "]
+            "AWS states that its Nitro hosts provide no operator access to EC2 memory. For a boundary against the instance owner too, Nitro Enclaves run a separate, constrained environment whose memory the parent instance's root user cannot read. Enclave measurements can gate AWS KMS operations, and attested KMS responses can be encrypted to a public key held by the enclave. "
+            [:a {:href "https://docs.aws.amazon.com/whitepapers/latest/security-design-of-aws-nitro-system/no-aws-operator-access.html"}
+             "Nitro operator access"]
+            ", "
+            [:a {:href "https://docs.aws.amazon.com/enclaves/latest/user/nitro-enclave.html"}
+             "Nitro Enclaves"]
+            ", and "
+            [:a {:href "https://docs.aws.amazon.com/kms/latest/developerguide/cryptographic-attestation.html"}
+             "KMS attestation"]
+            "."]
+           [:li
+            [:strong "Azure Confidential VMs: "]
+            "AMD SEV-SNP and Intel TDX protect a VM's memory and processor state from the cloud host and hypervisor. The guest OS is inside that protected boundary and therefore remains trusted. If a recipient has root within that VM, a whole-VM boundary does not hide process memory from that root; a finer application enclave or a separately controlled workload boundary is needed. "
+            [:a {:href "https://learn.microsoft.com/en-us/azure/confidential-computing/virtual-machine-options"}
+             "Azure Confidential VM options"]
+            " and "
+            [:a {:href "https://learn.microsoft.com/en-us/azure/confidential-computing/trusted-compute-base"}
+             "Azure's trusted computing base"]
+            "."]
+           [:li
+            [:strong "Google Confidential VMs and Confidential Space: "]
+            "Confidential VMs use hardware memory encryption with SEV-SNP or TDX. Confidential Space adds a hardened, attested workload and separates data owners, workload authors, and workload operators. Its key policy can release data only when the measured workload satisfies the owners' conditions, even when the workload operator administers the surrounding cloud project. "
+            [:a {:href "https://docs.cloud.google.com/confidential-computing/confidential-vm/docs/confidential-vm-overview"}
+             "Google Confidential VMs"]
+            " and "
+            [:a {:href "https://docs.cloud.google.com/confidential-computing/confidential-space/docs/confidential-space-overview"}
+             "Google Confidential Space"]
+            "."]]
+          [:p
+           "For datom.world, run Yin.VM inside the hardware protected boundary and release the data key only after attestation verifies the measured runtime and admission policy. The continuation can process plaintext there, while the host cannot read its protected memory. The runtime must still prevent unapproved data from leaving."]
+          [:p
+           "A full confidential VM trusts everything inside its boundary, including the guest OS. If the continuation submitter controls that OS, use an enclave or workload service that separates the submitter from the protected runtime. Attestation identifies the measured software at startup; Yin.VM must still govern each continuation admitted later."]
+          [:p
+           "Hardware isolation adds trust in the processor, firmware, and attestation roots. Timing, message sizes, and memory-access patterns may still leak information, so deployments must state which side channels they tolerate. For workloads that cannot trust any one host with plaintext, FHE or secure multiparty computation may fit, with different costs and limits."]
+
+          [:h2 "The Airbnb of Computing Needs a Trust Contract"]
+          [:p
+           "A consumer computer does have ordinary memory protection: the processor's memory management unit separates processes, and the operating system isolates users. That protects one process from another under a normally operating kernel. It does not protect a renter's process from a host who controls the hardware or has administrator access to the host or guest operating system. That administrator can inspect process memory, including the Yin.VM CESK state, data keys, and decrypted records. Ordinary virtual memory is not confidential computing."]
+          [:p
+           "The " [:a {:href "/blog/use-cases-datom-world.blog"} "Airbnb analogy"] " is about making spare machines available for other people's workloads. A marketplace needs a trust contract for each placement: who controls the host, what hardware protection it offers, and what attestation and workload policy cover."]
+          [:ul
+           [:li
+            [:strong "Ordinary consumer hardware: "]
+            "run public data workloads, or workloads whose owners trust the machine operator. Do not send a decryption key or private plaintext there on the strength of a software sandbox alone."]
+           [:li
+            [:strong "Attested confidential hardware: "]
+            "accept a sensitive workload only when the required memory protection and measured runtime are verified. Release the data key to the attested environment, and keep renter supplied code from administering that protected environment."]
+           [:li
+            [:strong "Cryptographic computation: "]
+            "use cryptographic computation when the parties cannot trust any single host with plaintext and the workload fits the supported model."]]
+          [:p
+           "A datom.world composition can state the minimum trust requirement alongside its computation and data policy. A placement interpreter can check that requirement against host evidence and refuse machines that fall short. Capabilities then govern what the admitted continuation can read or disclose within the accepted boundary. This makes mutual security a placement guarantee, not an assumption attached to mobility."]
+
+          [:h2 "A Continuation Leaving the Boundary Is an Output"]
+          [:p
+           "Mobility creates a less obvious disclosure path. After reading private data, a continuation can hold that data in its environment, heap, closures, or pending effects. Serializing the continuation may serialize those values too. Blocking a network write while freely exporting the checkpoint would leave the same information available through a different route."]
+          [:p
+           "The protected composition must therefore constrain checkpoint export. It can keep the continuation inside the boundary, release only an approved projection, or transfer protected state through an authenticated encrypted channel to another authorized environment. The destination must acquire its own authorized resource bindings. Neither a raw key nor an uncontrolled plaintext snapshot should travel as ordinary continuation data."]
+          [:p
+           "Execution traces and audit logs need the same treatment. Accountability can retain commitments, policy decisions, program identities, and release records without publishing every intermediate private value. An append-only history should not become a permanent plaintext leak."]
+
+          [:h2 "Withdrawal Stops Further Disclosure"]
+          [:p
+           "When the data owner withdraws permission, the authority appends the revocation facts and stops authorizing the affected access and release operations. Existing custody machinery provides a related enforcement pattern: a resource checks the active lease and epoch when admitting an effect, so an old continuation copy cannot manufacture current authority."]
+          [:p
+           "Immediate revocation cannot depend on a disconnected runtime voluntarily discovering the change. The confidentiality design needs explicit authorization freshness, expiry, and rollback rules. A runtime holding a reusable key and cached permission must not continue producing disclosures indefinitely. A policy can require an authoritative check at release, or define a bounded authorization lifetime and stop when it cannot renew."]
+          [:p
+           "A proof issued yesterday remains evidence for yesterday's statement. A verifier accepting it for a new action must separately check freshness and current authorization. A request nonce or audience binding can constrain acceptance, but it cannot erase the disclosed answer from someone's memory."]
+          [:p
+           "Retaining control consequently means controlling future access and future disclosures while keeping the source records confined. It does not include recalling answers already released. The shared ciphertext may remain everywhere; possession of it never granted independent access to the source plaintext."]
+
+          [:h2 "What Exists and What Remains to Build"]
+          [:p
+           "Datom.World already has the main representation and execution primitives: content-addressed storage, ordinary streams, a Universal AST, portable continuation machinery, private resource references, stream middleware, and custody admission with leases, epochs, and operation identities. Those mechanisms make the proposed composition concrete, but their presence does not establish a complete private-data service."]
+          [:p
+           "ShiBi remains a stub with defined integration seams. Complete capability-aware confinement, the restricted disclosure language, key provisioning, protected checkpoint migration, disclosure-budget admission, and the ZK prover and verifier integration still require specification and implementation. Public DaoSpace sharing continues to expose readable facts to its authorized readers; it does not acquire confidentiality merely because another composition uses encrypted storage."]
+          [:p
+           "A useful first implementation would prove one permitted predicate over an authenticated committed dataset on an owner-controlled host. It would expose no raw-record output, refuse unauthorized checkpoint export, account for every disclosure, and verify the result independently. That establishes a narrow promise before expanding to more programs or less trusted hardware."]
+          [:p
+           "The founding goal becomes an engineering contract: another party can submit useful computation and verify its answer, while the owner retains the private records and the authority over each further disclosure. Continuations supply mobility, the runtime supplies confinement, ShiBi supplies authorization, and ZK supplies evidence. Each has a distinct job, and the promise holds only when their boundaries compose."]]]]}

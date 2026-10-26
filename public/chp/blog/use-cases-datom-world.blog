@@ -98,7 +98,7 @@
           [:p "Compute is siloed. Your phone can't easily offload a heavy task to a nearby server."]
           [:h4 "The Datom.world Solution"]
           [:p [:a {:href "/yin.chp"} "Yin.vm"] " continuations allow running code to migrate between devices. Rent spare cycles, offload heavy compute, or move a running process from phone to desktop seamlessly."]
-          [:p [:em "Related blog: "] [:a {:href "/blog/unitarity-and-communication-limits.blog"} "Unitarity and Limits"]]
+          [:p [:em "Related blogs: "] [:a {:href "/blog/unitarity-and-communication-limits.blog"} "Unitarity and Limits"] " and " [:a {:href "/blog/sharing-data-without-losing-control.blog"} "Sharing Data Without Losing Control"] ", the trust contract for sending private workloads to another party's machine"]
 
           [:h3 "12. Unbreakable Offline-First Apps"]
           [:h4 "The Problem"]

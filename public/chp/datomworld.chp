@@ -1,6 +1,6 @@
 (let [template (load-file "public/chp/template.chp")]
   (clojure.walk/postwalk-replace
-    {:template/title "Datom.World: Share data wthout losing control"
+    {:template/title "Datom.World: Share data without losing control"
      :template/content
      (list
        [:section.hero
@@ -9,7 +9,11 @@
           [:h1 "Share data without losing control"]
           [:p.lead
            "Data has to be shared to be useful, but once it is shared, control is easy to lose. "
-           "Datom.World solves that tension with mobile continuations running inside the Yin.VM sandbox: execution stays local, explicit, and interpretable, while append-only streams of facts carry context to wherever work happens next."]
+           "Datom.World's architecture brings mobile continuations to encrypted data inside a Yin.VM environment on a trusted host or within appropriately attested hardware isolation. Capability-governed execution and disclosure, combined with zero-knowledge proofs of approved results, provide a path to useful computation while the source records remain private."]
+          [:p.learn-more
+           [:a {:href "/blog/sharing-data-without-losing-control.blog"}
+            "How continuations, capabilities, and zero-knowledge proofs implement the goal"]
+           ": the design, its trust boundaries, and what remains to build."]
           [:div.hero-actions
            [:a.btn {:href "/demo.html"} "Try the Live Demo"]]]]]
        [:section.section-dark
