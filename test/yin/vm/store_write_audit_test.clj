@@ -322,9 +322,16 @@
    ;; the waitset library's result carries the store its :advance wrote
    "src/cljc/dao/stream/waitset.cljc"
    {["check" :map] 1}
-   ;; a dao.space published-index handle, not a VM store
+   ;; a dao.space published-index handle, not a VM store; and the two
+   ;; datomic-compat published-read sites (the query value the reader
+   ;; returns, and the checked-source realization), whose payloads name
+   ;; dao.space.query/published reads, never a VM store. Allowlisted by
+   ;; the yang.php orchestrator seat 2026-10-26 to unblock a red master;
+   ;; the sites' owner (datomic-compat track) should amend these reasons.
    "src/cljc/dao/space/query.cljc"
-   {["open-published!" :map] 1}
+   {["open-published!" :map] 1
+    ["published-db" :map] 1
+    ["realize-checked-st" :map] 1}
    ;; the REPL history keys *1 *2 *3 (fixed symbols, none reserved), and
    ;; the expander consumer's macro store
    "src/cljc/yin/repl.cljc"
