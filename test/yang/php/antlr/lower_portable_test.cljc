@@ -9,6 +9,7 @@
     [yang.php.antlr.packets :as packets]
     [yang.php.antlr.portable-harness :as h]
     [yang.php.antlr.programs :as programs]
+    [yang.php.antlr.programs-p3b :as p3b]
     [yang.core.uast :as u]))
 
 
@@ -84,3 +85,24 @@
     (is (= (vec diag) (mapv (juxt :errno :message) (:php/diag r))) (name id))
     (is (= uncaught (some-> (:php/uncaught r) (select-keys [:class :message])))
         (name id))))
+
+
+(deftest stage0-registry-and-activation-test
+  (let [all p3b/all-fixtures
+        ids (map :id all)]
+    (testing "ids are unique across the whole registry"
+      (is (= (count ids) (count (set ids))))
+      (is (empty? (filter (set (map :id programs/fixtures)) ids))))
+    (testing "every fixture declares group, level, requires and source"
+      (doseq [f all]
+        (is (every? #(contains? f %) [:id :group :level :requires :source :rows :oracle])
+            (name (:id f)))))
+    (testing "enabled is exactly the fixtures whose steps have landed"
+      (is (= (set (map :id p3b/enabled))
+             (set (map :id (filter p3b/enabled? all)))))
+      (is (every? #(contains? p3b/completed-steps %) (mapcat :requires p3b/enabled))))
+    (testing "an enabled fixture is never pending (activation fails the run)"
+      (is (empty? (filter #(= :pending (:oracle %)) p3b/enabled))))
+    (testing "the wiring fixtures stay disabled until their step lands"
+      (is (some #(= :ref-alias-write (:id %)) all))
+      (is (not-any? #(= :ref-alias-write (:id %)) p3b/enabled)))))

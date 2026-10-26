@@ -1501,15 +1501,22 @@
                         (php/vconj (get arr :order) k)
                         (get arr :order)))]
          (if (php/int? k) (php/bump-next a k) a)))]
-    [php/array-append
-     (fn [arr v]
-       (let [next (get arr :next-index)
-             h (if (nil? next) 0 next)]
+    [php/append-key
+     ;; the key `[]` writes to, or the engine's occupied-slot error
+     (fn [arr]
+       (let [nx (get (php/arr-table arr) :next-index)
+             h (if (nil? nx) 0 nx)]
          (if (php/array-has? arr h)
            (php/throw-error
              "Error"
              "Cannot add element to the array as the next element is already occupied")
-           (php/array-set arr h v))))]
+           h)))]
+    [php/array-append (fn [arr v] (php/store arr (php/append-key arr) v))]
+    [php/array-put-ref
+     ;; `[k => &$x]`: the marker is stored and counted by the slot
+     (fn [arr k m] (php/store arr (php/array-key k) (php/addref m)))]
+    [php/array-append-ref
+     (fn [arr m] (php/store arr (php/append-key arr) (php/addref m)))]
     [php/spread-loop
      (fn [acc v i n]
        (if (< i n)
@@ -1533,7 +1540,7 @@
                 :order
                 (php/vec-remove (get arr :order) k 0 (data/count (get arr :order)) []))
          arr))]
-    [php/array-put (fn [arr k v] (php/array-set arr (php/array-key k) v))]
+    [php/array-put (fn [arr k v] (php/store arr (php/array-key k) v))]
     [php/array-keys (fn [arr] (php/array-order arr))]
     [php/values-loop
      (fn [arr ord i n acc]
@@ -1651,23 +1658,25 @@
          "Error"
          "string offset writes are not supported yet (yang.php known gap G-str-offset-write)"))]
     [php/assign-into
+     ;; the container after `$c[ks...] = v`: a shared instance is separated,
+     ;; a marker on the path is written through, a counted value upgrades a
+     ;; plain container (store)
      (fn [arr ks i v]
-       (let [last (= (+ i 1) (data/count ks))
-             k (get ks i)]
-         (if (= k :php/append)
-           (if last
-             (php/array-append arr v)
-             (php/array-append arr (php/path-assign-at :php/null ks (+ i 1) v)))
-           (let [key (php/array-key k)]
-             (if last
-               (php/array-set arr key v)
-               (let [child (php/array-get arr key)]
-                 (php/array-set arr
-                                key
-                                (php/path-assign-at (if (nil? child) :php/null child)
+       (let [a (php/separate arr)
+             k (get ks i)
+             key (if (= k :php/append) (php/append-key a) (php/array-key k))]
+         (if (= (+ i 1) (data/count ks))
+           (php/assign-slot a key v :owned)
+           (let [raw (php/slot-get a key)]
+             (if (= (php/slot-kind raw) :ref-marker)
+               (let [nv (php/path-assign-at (php/ref-value raw) ks (+ i 1) v)]
+                 (do (php/ref-set! raw nv) a))
+               (php/store a key (php/path-assign-at (if (nil? raw) :php/null raw)
                                                     ks
                                                     (+ i 1)
-                                                    v))))))))]
+                                                    v)))))))]
+    [php/ref-set!
+     (fn [m v] (let [rc (get m :php/ref)] (cell/set! rc (assoc (cell/get rc) :value v))))]
     [php/path-assign-at
      (fn [c ks i v]
        (let [kind (php/kind c)]
@@ -1693,11 +1702,15 @@
          (if (= kind :array)
            (let [key (php/array-key2 (get ks i) "Cannot unset offset of type " " on array")]
              (if (= (+ i 1) (data/count ks))
-               (php/array-unset c key)
-               (let [child (php/array-get c key)]
-                 (if (nil? child)
+               (php/unset-dim (php/separate c) key)
+               (let [raw (php/slot-get c key)]
+                 (if (nil? raw)
                    c
-                   (php/array-set c key (php/path-unset-at child ks (+ i 1)))))))
+                   (let [a (php/separate c)]
+                     (if (= (php/slot-kind raw) :ref-marker)
+                       (do (php/ref-set! raw (php/path-unset-at (php/ref-value raw) ks (+ i 1)))
+                           a)
+                       (php/store a key (php/path-unset-at raw ks (+ i 1)))))))))
            (if (= kind :null)
              c
              (if (= kind :bool)
@@ -1709,6 +1722,51 @@
                  (php/throw-error "Error" "Cannot unset string offsets")
                  (php/throw-error "Error" "Cannot unset offset in a non-array variable")))))))]
     [php/path-unset (fn [c ks] (php/path-unset-at c ks 0))]
+    [php/path-ref-at
+     ;; [container' marker] for `&$c[ks...]`; vivifies, separates, reuses a marker
+     (fn [c ks i]
+       (let [kind (php/kind c)]
+         (if (= kind :array)
+           (php/ref-into c ks i)
+           (if (= kind :null)
+             (php/ref-into (php/empty-array) ks i)
+             (php/throw-error "Error" "Cannot use a scalar value as an array")))))]
+    [php/ref-into
+     (fn [arr ks i]
+       (let [a (php/separate arr)
+             k (get ks i)
+             key (if (= k :php/append) (php/append-key a) (php/array-key k))]
+         (if (= (+ i 1) (data/count ks))
+           (php/make-ref a key)
+           (let [raw (php/slot-get a key)]
+             (if (= (php/slot-kind raw) :ref-marker)
+               (let [r (php/path-ref-at (php/ref-value raw) ks (+ i 1))]
+                 (do (php/ref-set! raw (get r 0)) (php/pair a (get r 1))))
+               (let [r (php/path-ref-at (if (nil? raw) :php/null raw) ks (+ i 1))]
+                 (php/pair (php/store a key (get r 0)) (get r 1))))))))]
+    [php/path-ref (fn [c ks] (php/path-ref-at c ks 0))]
+    [php/path-bind-at
+     ;; the container after `$c[ks...] =& <marker m>`
+     (fn [c ks i m]
+       (let [kind (php/kind c)]
+         (if (= kind :array)
+           (php/bind-into c ks i m)
+           (if (= kind :null)
+             (php/bind-into (php/empty-array) ks i m)
+             (php/throw-error "Error" "Cannot use a scalar value as an array")))))]
+    [php/bind-into
+     (fn [arr ks i m]
+       (let [a (php/separate arr)
+             k (get ks i)
+             key (if (= k :php/append) (php/append-key a) (php/array-key k))
+             raw (php/slot-get a key)]
+         (if (= (+ i 1) (data/count ks))
+           (let [c2 (php/store a key (php/addref m))]
+             (do (php/delref raw) c2))
+           (if (= (php/slot-kind raw) :ref-marker)
+             (do (php/ref-set! raw (php/path-bind-at (php/ref-value raw) ks (+ i 1) m)) a)
+             (php/store a key (php/path-bind-at (if (nil? raw) :php/null raw) ks (+ i 1) m))))))]
+    [php/path-bind (fn [c ks m] (php/path-bind-at c ks 0 m))]
 
     ;; ---------------------------------------------------------------- variables
     ;; Top-level variables live in `php.rt/globals` (the `$GLOBALS` array
@@ -1716,27 +1774,55 @@
     [php/undef-warning
      (fn [name]
        (php/warn 2 (data/str-concat "Undefined variable $" name)))]
+    [php/global-slot (fn [name] (php/slot-get (cell/get php.rt/globals) name))]
     [php/global-peek
      (fn [name]
-       (let [v (php/slot-get (cell/get php.rt/globals) name)]
-         (if (nil? v) :php/null v)))]
+       (let [v (php/global-slot name)]
+         (if (nil? v) :php/null (php/deref v))))]
     [php/global-get
      (fn [name]
-       (let [v (php/slot-get (cell/get php.rt/globals) name)]
+       (let [v (php/global-slot name)]
          (if (nil? v)
            (do (php/undef-warning name) :php/null)
-           v)))]
-    [php/global-set!
-     (fn [name v]
+           (php/deref v))))]
+    [php/global-store!
+     ;; raw slot write, no counting
+     (fn [name x]
        (let [g (cell/get php.rt/globals)
              idx (get g :index)]
-         (do (cell/set! php.rt/globals
-                        (assoc (assoc g :index (assoc idx name v))
-                               :order
-                               (if (nil? (get idx name))
-                                 (php/vconj (get g :order) name)
-                                 (get g :order))))
+         (cell/set! php.rt/globals
+                    (assoc (assoc g :index (assoc idx name x))
+                           :order
+                           (if (nil? (get idx name))
+                             (php/vconj (get g :order) name)
+                             (get g :order))))))]
+    [php/global-put!
+     ;; write back a container the variable already owns (through a marker)
+     (fn [name v]
+       (let [cur (php/global-slot name)]
+         (do (if (= (php/slot-kind cur) :ref-marker)
+               (php/ref-set! cur v)
+               (php/global-store! name v))
              v)))]
+    [php/global-set!
+     ;; ASSIGN: write through a marker, DELREF the old content
+     (fn [name v]
+       (let [cur (php/global-slot name)]
+         (if (= (php/slot-kind cur) :ref-marker)
+           (let [old (php/ref-value cur)]
+             (do (php/ref-set! cur v) (php/delref old) v))
+           (do (php/global-store! name v) (php/delref cur) v))))]
+    [php/global-make-ref!
+     (fn [name]
+       (let [cur (php/global-slot name)]
+         (if (= (php/slot-kind cur) :ref-marker)
+           cur
+           (let [m (php/new-ref (if (nil? cur) :php/null cur))]
+             (do (php/global-store! name m) m)))))]
+    [php/global-bind!
+     (fn [name m]
+       (let [cur (php/global-slot name)]
+         (do (php/addref m) (php/global-store! name m) (php/delref cur) :php/null)))]
     [php/global-isset? (fn [name] (not (= (php/global-peek name) :php/null)))]
     [php/vec-remove
      (fn [xs x i n acc]
@@ -1746,24 +1832,37 @@
          acc))]
     [php/global-unset!
      (fn [name]
-       (let [g (cell/get php.rt/globals)]
+       (let [g (cell/get php.rt/globals)
+             cur (php/global-slot name)]
          (do (cell/set! php.rt/globals
                         (assoc (assoc g :index (data/dissoc (get g :index) name))
                                :order
                                (php/vec-remove (get g :order) name 0
                                                (data/count (get g :order)) [])))
+             (php/delref cur)
              :php/null)))]
     [php/local-peek
-     (fn [c] (let [v (cell/get c)] (if (= v :php/undef) :php/null v)))]
+     (fn [c] (let [v (cell/get c)] (if (= v :php/undef) :php/null (php/deref v))))]
     [php/local-get
      (fn [c name]
        (let [v (cell/get c)]
          (if (= v :php/undef)
            (do (php/undef-warning name) :php/null)
-           v)))]
-    [php/local-set! (fn [c v] (do (cell/set! c v) v))]
+           (php/deref v))))]
+    [php/local-set!
+     ;; ASSIGN: write through a marker, DELREF the old content
+     (fn [c v]
+       (let [cur (cell/get c)]
+         (if (= (php/slot-kind cur) :ref-marker)
+           (let [old (php/ref-value cur)]
+             (do (php/ref-set! cur v) (php/delref old) v))
+           (do (cell/set! c v) (if (= cur :php/undef) :php/null (php/delref cur)) v))))]
+    [php/local-put!
+     (fn [c v]
+       (let [cur (cell/get c)]
+         (do (if (= (php/slot-kind cur) :ref-marker) (php/ref-set! cur v) (cell/set! c v)) v)))]
     [php/local-isset? (fn [c] (not (= (php/local-peek c) :php/null)))]
-    [php/local-unset! (fn [c] (do (cell/set! c :php/undef) :php/null))]
+    [php/local-unset! (fn [c] (do (php/unset-cv c) :php/null))]
 
     ;; ---------------------------------------------------------------- ++ and --
     [php/lower-cp (fn [c] (if (>= c 65) (if (<= c 90) (+ c 32) c) c))]

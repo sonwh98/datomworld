@@ -355,6 +355,31 @@
     (app* 'php/global-set! (u/lit (bare name)) node)))
 
 
+(defn- put-var
+  "Write back a container the variable already owns: through a marker, with
+   no counting."
+  [ctx name node]
+  (if (:fn ctx)
+    (app* 'php/local-put! (u/v (symbol name)) node)
+    (app* 'php/global-put! (u/lit (bare name)) node)))
+
+
+(defn- make-ref-var
+  "The reference marker of the variable, made on first use."
+  [ctx name]
+  (if (:fn ctx)
+    (app* 'php/make-ref-cv (u/v (symbol name)))
+    (app* 'php/global-make-ref! (u/lit (bare name)))))
+
+
+(defn- bind-var
+  "Bind the variable to the marker `m` (`$x =& ...`)."
+  [ctx name m]
+  (if (:fn ctx)
+    (app* 'php/bind-marker (u/v (symbol name)) m)
+    (app* 'php/global-bind! (u/lit (bare name)) m)))
+
+
 (defn- isset-var
   [ctx name]
   (if (:fn ctx)
@@ -438,7 +463,7 @@
 ;; Expressions
 ;; =============================================================================
 
-(declare lower)
+(declare lower lower-assign-value)
 
 
 (def ^:private binary-ops
@@ -579,7 +604,7 @@
     (let [w (core/gen "w" n)]
       (u/let1 w
               node
-              (u/then (write-var ctx
+              (u/then (put-var ctx
                                  (:var loc)
                                  (app* 'php/path-assign
                                        (peek-var ctx (:var loc))
@@ -606,7 +631,7 @@
       (u/let1 o
               (read-var ctx (:var loc))
               (u/if-node (app* 'php/array? (u/v o))
-                         (write-var ctx (:var loc) pruned)
+                         (put-var ctx (:var loc) pruned)
                          pruned)))))
 
 
@@ -748,10 +773,79 @@
    "XorEqual" 'php/bit-xor})
 
 
+(defn- fresh-value?
+  "True when expression `e` is syntactically a literal or constant, so the
+   value it answers is not another holder's (no ADDREF needed)."
+  [ctx e]
+  (let [ks (core/kids ctx e)]
+    (and (= 1 (count ks))
+         (p/rule? (first ks))
+         (contains? #{"constant" "string" "arrayCreation"} (:rule (first ks))))))
+
+
+(defn- acquired
+  "The lowered `e`, ADDREFed unless it is syntactically fresh."
+  [ctx e]
+  (if (fresh-value? ctx e) (lower ctx e) (app* 'php/addref (lower ctx e))))
+
+
+(defn- ref-source
+  "A node that answers the reference marker of the location `chain`, made on
+   first use: a variable's own, or the slot's after the path is fetched for
+   writing (separated, vivified, upgraded) and written back."
+  [ctx n chain]
+  (let [loc (chain-loc ctx n chain :reference-source)]
+    (with-keys
+      ctx
+      loc
+      (fn [l]
+        (if (empty? (:path l))
+          (make-ref-var ctx (:var l))
+          (let [p (core/gen "p" n)]
+            (u/let1 p
+                    (app* 'php/path-ref (peek-var ctx (:var l)) (path-node (:path l)))
+                    (u/then (put-var ctx (:var l) (app* 'get (u/v p) (u/lit 0)))
+                            (app* 'get (u/v p) (u/lit 1))))))))))
+
+
+(defn- lower-assign-ref
+  "`$x =& $y`, `$x =& $a[k]`, `$a[k] =& $y`: the source's marker first (its
+   keys, then the fetch), then the target's keys, then the binding."
+  [ctx n target src]
+  (let [chain (first (core/kids ctx target))
+        loc (if (p/rule? chain "chain")
+              (chain-loc ctx n chain :assignment-target)
+              (unsupported! n :list))
+        _ (when-not (p/rule? src "chain") (unsupported! n :reference))
+        m (core/gen "m" n)]
+    (u/let1 m
+            (ref-source ctx n src)
+            (with-keys ctx
+              loc
+              (fn [l]
+                (if (empty? (:path l))
+                  (u/then (bind-var ctx (:var l) (u/v m)) (app* 'php/ref-value (u/v m)))
+                  (let [p (core/gen "p" n)]
+                    (u/let1 p
+                            (app* 'php/path-bind
+                                  (peek-var ctx (:var l))
+                                  (path-node (:path l))
+                                  (u/v m))
+                            (u/then (put-var ctx (:var l) (u/v p))
+                                    (app* 'php/ref-value (u/v m)))))))))))
+
+
 (defn- lower-assign
   "`$x = e`, `$a[k] = e`, `$x op= e`, `$x ??= e`. The keys run first, left to
    right and once, then the right side, as in PHP; a compound assignment then
    reads the location."
+  [ctx n [target op :as ks]]
+  (if (and (p/token? op) (= 4 (count ks)) (p/token? (nth ks 2) "&"))
+    (lower-assign-ref ctx n target (nth ks 3))
+    (lower-assign-value ctx n ks)))
+
+
+(defn- lower-assign-value
   [ctx n [target op :as ks]]
   (when (p/token? op) (unsupported! n :reference))
   (when (not= 3 (count ks)) (unsupported! n :attribute))
@@ -767,7 +861,7 @@
       loc
       (fn [l]
         (case optype
-          "Eq" (write-loc ctx n l (lower ctx rhs))
+          "Eq" (write-loc ctx n l (acquired ctx rhs))
           "NullCoalescingEqual"
           (let [t (core/gen "t" n)]
             (u/let1 t
@@ -980,14 +1074,19 @@
   [ctx n]
   (let [items (mapcat #(core/rules ctx % "arrayItem") (core/rules ctx n "arrayItemList"))
         arr (reduce (fn [acc item]
-                      (when (some #(p/token? % "&") (core/kids ctx item))
-                        (unsupported! item :reference))
-                      (let [[k v] (core/rules ctx item "expression")]
+                      (let [kids (core/kids ctx item)
+                            [k v] (core/rules ctx item "expression")]
                         (cond
-                          (p/token? (first (core/kids ctx item)) "...")
+                          (some #(p/token? % "&") kids)
+                          (let [src (first (core/rules ctx item "chain"))
+                                m (ref-source ctx item src)]
+                            (if k
+                              (app* 'php/array-put-ref acc (lower ctx k) m)
+                              (app* 'php/array-append-ref acc m)))
+                          (p/token? (first kids) "...")
                           (app* 'php/array-spread acc (lower ctx k))
-                          v (app* 'php/array-put acc (lower ctx k) (lower ctx v))
-                          :else (app* 'php/array-append acc (lower ctx k)))))
+                          v (app* 'php/array-put acc (lower ctx k) (acquired ctx v))
+                          :else (app* 'php/array-append acc (acquired ctx k)))))
                     (app* 'php/empty-array)
                     items)
         deref (first (core/rules ctx n "expression"))]
@@ -1493,7 +1592,17 @@
   [ctx n]
   (when-not (:ret ctx) (unsupported! n :return))
   (let [e (first (core/rules ctx n "expression"))]
-    (u/app (u/v (:ret ctx)) (if e (lower ctx e) (u/lit :php/null)))))
+    (u/app (u/v (:ret ctx))
+           (if e
+             (if (:counted ctx) (app* 'php/addref (lower ctx e)) (lower ctx e))
+             (u/lit :php/null)))))
+
+
+(defn- mentions-reference?
+  "True when the subtree of `n` holds a `&` token (a reference construct)."
+  [ctx n]
+  (some (fn [k] (if (p/token? k) (p/token? k "&") (mentions-reference? ctx k)))
+        (core/kids ctx n)))
 
 
 (defn- param-binding
@@ -1502,7 +1611,9 @@
   [ctx written required exact? i {:keys [default]}]
   (app* 'cell/new
         (u/if-node (app* '< (u/lit i) (app* 'data/count (u/v '%args)))
-                   (app* 'get (u/v '%args) (u/lit i))
+                   (if (:counted ctx)
+                     (app* 'php/addref (app* 'get (u/v '%args) (u/lit i)))
+                     (app* 'get (u/v '%args) (u/lit i)))
                    (if default
                      (lower-initializer ctx default)
                      (app* 'php/too-few
@@ -1533,9 +1644,20 @@
                                          block
                                          "returnStatement"
                                          #{"functionDeclaration" "lambdaFunctionExpr"})
-        fctx (assoc ctx :fn true :loops [] :ret (when has-return? '%ret))
+        counted? (boolean (mentions-reference? ctx n))
+        fctx (assoc ctx :fn true :loops [] :ret (when has-return? '%ret) :counted counted?)
         body (u/then (lower fctx block) (u/lit :php/null))
         body (if has-return? (app* 'php/call-ec (u/lam ['%ret] body)) body)
+        cvs (concat (map :name params) locals)
+        body (if counted?
+               (app* 'php/try-finally
+                     (u/lam [] body)
+                     (u/lam ['%x]
+                            (app* 'php/release-cvs
+                                  (args-vector (map #(u/v (symbol %)) cvs))
+                                  (u/lit 0)
+                                  (u/lit (count cvs)))))
+               body)
         total (count params)
         required (inc (or (last (keep-indexed (fn [i p] (when-not (:default p) i)) params)) -1))
         bindings (concat

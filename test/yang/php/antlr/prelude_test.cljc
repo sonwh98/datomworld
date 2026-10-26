@@ -379,7 +379,7 @@
   (is (= "2,1,1,1"
          (run (nums '(php/array-count (php/new-arr (php/array-append (php/array-append (php/empty-array) 1) 2) {}))
                     '(php/array-get (php/new-arr (php/array-append (php/empty-array) 1) {}) 0)
-                    '(php/array-get (php/array-put (php/empty-array) 0 (php/new-ref 1)) 0)
+                    '(php/array-get (php/array-set (php/empty-array) 0 (php/new-ref 1)) 0)
                     '(if (php/array-has? (php/new-arr (php/array-append (php/empty-array) 1) {}) 0) 1 0)))))
   (testing "slot-get answers the marker, array-get the value"
     (is (= "1,0"
@@ -389,6 +389,111 @@
                       '(let [m (php/new-ref 7)
                              t (php/array-put (php/empty-array) 0 m)]
                          (if (= (php/slot-kind (php/array-get t 0)) :ref-marker) 1 0))))))))
+
+
+(deftest s2-s4-global-reference-forms-test
+  (testing "$y = &$x; $y = 2 writes $x (rows 2, 4)"
+    (is (= "2"
+           (run '(do (php/global-set! "x" 1)
+                     (php/global-bind! "y" (php/global-make-ref! "x"))
+                     (php/global-set! "y" 2)
+                     (php/echo (php/to-string (php/global-get "x"))))))))
+  (testing "unset($y) breaks the binding (row 8)"
+    (is (= "15"
+           (run '(do (php/global-set! "x" 1)
+                     (php/global-bind! "y" (php/global-make-ref! "x"))
+                     (php/global-unset! "y")
+                     (php/global-set! "y" 5)
+                     (php/echo (data/str-concat (php/to-string (php/global-get "x"))
+                                                (php/to-string (php/global-get "y")))))))))
+  (testing "$x = &$x is a no-op binding"
+    (is (= "3"
+           (run '(do (php/global-set! "x" 1)
+                     (php/global-bind! "x" (php/global-make-ref! "x"))
+                     (php/global-set! "x" 3)
+                     (php/echo (php/to-string (php/global-get "x")))))))))
+
+
+(deftest s2-s4-element-reference-forms-test
+  (testing "a reference element survives the copy (rows 1, 6): $r = &$a[0]; $b = $a; $b[0] = 9"
+    (is (= "9"
+           (run '(do (php/global-set! "a" (php/array-append (php/array-append (php/empty-array) 1) 2))
+                     (let [p (php/path-ref (php/global-peek "a") [0])]
+                       (do (php/global-put! "a" (get p 0))
+                           (php/global-bind! "r" (get p 1))))
+                     (php/global-set! "b" (php/addref (php/global-peek "a")))
+                     (php/global-put! "b" (php/path-assign (php/global-peek "b") [0] 9))
+                     (php/echo (php/to-string (php/dim-get (php/global-peek "a") 0))))))))
+  (testing "after unset($r) the copy unwraps the rc-1 reference (rows 1, 6, 8)"
+    (is (= "1"
+           (run '(do (php/global-set! "a" (php/array-append (php/empty-array) 1))
+                     (let [p (php/path-ref (php/global-peek "a") [0])]
+                       (do (php/global-put! "a" (get p 0))
+                           (php/global-bind! "r" (get p 1))))
+                     (php/global-unset! "r")
+                     (php/global-set! "b" (php/addref (php/global-peek "a")))
+                     (php/global-put! "b" (php/path-assign (php/global-peek "b") [0] 9))
+                     (php/echo (php/to-string (php/dim-get (php/global-peek "a") 0))))))))
+  (testing "$a[0] = &$x then $a[0] = 4 writes $x (row 5)"
+    (is (= "4"
+           (run '(do (php/global-set! "x" 1)
+                     (php/global-put! "a" (php/path-bind (php/empty-array) [0]
+                                                         (php/global-make-ref! "x")))
+                     (php/global-put! "a" (php/path-assign (php/global-peek "a") [0] 4))
+                     (php/echo (php/to-string (php/global-get "x"))))))))
+  (testing "[&$x] literal element, then $a[0] = 2 (row 3)"
+    (is (= "2"
+           (run '(do (php/global-set! "x" 1)
+                     (php/global-set! "a" (php/array-append-ref (php/empty-array)
+                                                                (php/global-make-ref! "x")))
+                     (php/global-put! "a" (php/path-assign (php/global-peek "a") [0] 2))
+                     (php/echo (php/to-string (php/global-get "x"))))))))
+  (testing "a nested path vivifies and shares: $r = &$a['x'][0]; $r = 7"
+    (is (= "7"
+           (run '(do (php/global-set! "a" (php/array-put (php/empty-array) "x"
+                                                         (php/array-append (php/empty-array) 1)))
+                     (let [p (php/path-ref (php/global-peek "a") ["x" 0])]
+                       (do (php/global-put! "a" (get p 0))
+                           (php/global-bind! "r" (get p 1))))
+                     (php/global-set! "r" 7)
+                     (php/echo (php/to-string (php/dim-get (php/dim-get (php/global-peek "a") "x") 0))))))))
+  (testing "$r = &$a['k'] on an unset $a vivifies"
+    (is (= "5"
+           (run '(let [p (php/path-ref (php/global-peek "a") ["k"])]
+                   (do (php/global-put! "a" (get p 0))
+                       (php/global-bind! "r" (get p 1))
+                       (php/global-set! "r" 5)
+                       (php/echo (php/to-string (php/dim-get (php/global-peek "a") "k"))))))))))
+
+
+(deftest s2-s4-local-cells-and-path-unset-test
+  (testing "local cells: bind, write through, unset"
+    (is (= "2,2,5"
+           (run '(let [x (cell/new 1)
+                       y (cell/new :php/undef)
+                       _ (php/bind-marker y (php/make-ref-cv x))
+                       _ (php/local-set! y 2)
+                       a (php/to-string (php/local-get x))
+                       _ (php/local-unset! y)
+                       _ (php/local-set! y 5)]
+                   (php/echo (data/str-concat a "," (php/to-string (php/local-get x)) ","
+                                              (php/to-string (php/local-get y)))))))))
+  (testing "unset through a path separates and writes through markers"
+    (is (= "1,0"
+           (run '(do (php/global-set! "a" (php/array-append (php/array-append (php/empty-array) 1) 2))
+                     (let [p (php/path-ref (php/global-peek "a") [0])]
+                       (php/global-put! "a" (get p 0)))
+                     (php/global-put! "a" (php/path-unset (php/global-peek "a") [1]))
+                     (php/echo (data/str-concat (php/to-string (php/array-count (php/global-peek "a")))
+                                                ","
+                                                (if (php/array-has? (php/global-peek "a") 1) "1" "0"))))))))
+  (testing "check-invariants holds after the reference operations"
+    (is (= "0"
+           (run '(do (php/global-set! "a" (php/array-append (php/empty-array) 1))
+                     (let [p (php/path-ref (php/global-peek "a") [0])]
+                       (do (php/global-put! "a" (get p 0))
+                           (php/global-bind! "r" (get p 1))))
+                     (php/echo (php/to-string (data/count (php/check-invariants (php/global-peek "a")))))))))))
 
 
 (deftest anchor-5-one-reference-rc-3-no-nesting-test
@@ -503,7 +608,7 @@
            (run (nums '(let [inner (php/new-arr (php/empty-array) {})
                              outer (php/store (php/new-arr (php/empty-array) {}) 0 inner)]
                          (do (php/delref outer) (php/rc-of inner)))
-                      '(let [o (php/new-obj "C" (php/array-put (php/empty-array) "p" (php/new-arr (php/empty-array) {})))
+                      '(let [o (php/new-obj "C" (php/array-set (php/empty-array) "p" (php/new-arr (php/empty-array) {})))
                              p (php/slot-get (get (cell/get (get o :php/obj)) :props) "p")]
                          (do (php/delref o) (php/rc-of p))))))))
   (testing "unwrap on dup: an rc-1 marker becomes its value; the source is unchanged"
@@ -531,11 +636,11 @@
     (is (= "0"
            (run (nums '(data/count
                          (php/check-invariants
-                           (php/new-arr (php/array-put (php/empty-array) 0 (php/new-ref 1)) {0 true})))))))
+                           (php/new-arr (php/array-set (php/empty-array) 0 (php/new-ref 1)) {0 true})))))))
     (is (= "1"
            (run (nums '(data/count
                          (php/check-invariants
-                           (php/array-put (php/empty-array) 0 (php/new-ref 1))))))))))
+                           (php/array-set (php/empty-array) 0 (php/new-ref 1))))))))))
 
 
 (def ^:private row18
@@ -565,7 +670,7 @@
                                    (do (php/delref o) (if (php/released? t) 1 0)))
                         row18)
                       (with-fix '(let [t FIX
-                                       o (php/new-obj "C" (php/array-put (php/empty-array) "p" t))]
+                                       o (php/new-obj "C" (php/array-set (php/empty-array) "p" t))]
                                    (do (php/delref o) (if (php/released? t) 1 0)))
                         row18))))))
   (testing "a two-member cycle: A's marker holds B, B's marker holds A"
