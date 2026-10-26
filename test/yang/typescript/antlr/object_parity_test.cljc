@@ -296,7 +296,7 @@
         (tag :js/null) (tag :js/undefined) (tag {:n 1}) (tag {:js/str "s"})
         (tag true) (tag (js/global-get {:js/str "Object"}))
         (tag (js/make-error js.rt/error-proto {:js/str "m"}))
-        (tag (js/make-symbol :js/undefined)) (tag 12345678901234567890)])
+        (tag (js/make-symbol :js/undefined)) (tag (js/string->bigint {:js/str "12345678901234567890"}))])
     [(k "[object Array]") (k "[object Object]") (k "[object Null]")
      (k "[object Undefined]") (k "[object Number]") (k "[object String]")
      (k "[object Boolean]") (k "[object Function]") (k "[object Error]")
