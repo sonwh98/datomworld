@@ -6,6 +6,7 @@
    list."
   (:require
     [clojure.string :as str]
+    [clojure.walk :as walk]
     [clojure.test :refer [deftest is testing]]
     [yang.core.uast :as u]
     [yang.php.antlr.lower :as lower]
@@ -333,3 +334,303 @@
   (testing "var_dump nests"
     (is (= "array(2) {\n  [0]=>\n  int(1)\n  [\"x\"]=>\n  array(0) {\n  }\n}\n"
            (dump '(php/array-put (php/array-append (php/empty-array) 1) "x" (php/empty-array)))))))
+
+
+;; -----------------------------------------------------------------------------
+;; The counted-cell substrate (P3 step S1): cell-level, no lowering
+;; -----------------------------------------------------------------------------
+
+(defn- nums
+  "A form that echoes the integer forms `xs`, comma separated."
+  [& xs]
+  (list 'php/echo
+        (cons 'data/str-concat (interpose "," (map #(list 'php/to-string %) xs)))))
+
+
+(defn- slot-kind-is
+  "A form that is 1 when `(php/slot-kind v)` is `kw`, else 0."
+  [v kw]
+  (list 'if (list '= (list 'php/slot-kind v) kw) 1 0))
+
+
+(deftest kinds-test
+  (testing "kind keeps its contract for handles, markers and objects"
+    (is (= "array,array,obj,int,array"
+           (run '(let [h (php/new-arr (php/empty-array) {})
+                       o (php/new-obj "C" (php/empty-array))]
+                   (php/echo (data/str-concat
+                               (php/type-name (php/kind (php/empty-array))) ","
+                               (php/type-name (php/kind h)) ","
+                               (if (= (php/kind o) :obj) "obj" "other") ","
+                               (php/type-name (php/kind (php/new-ref 5))) ","
+                               (php/type-name (php/kind (php/new-ref h))))))))))
+  (testing "slot-kind is the finer answer"
+    (is (= "1,1,1,1,1,1,1"
+           (run (nums (slot-kind-is 1 :scalar)
+                      (slot-kind-is :php/null :scalar)
+                      (slot-kind-is '(php/empty-array) :plain)
+                      (slot-kind-is '(php/new-arr (php/empty-array) {}) :arr-handle)
+                      (slot-kind-is '(php/new-obj "C" (php/empty-array)) :obj-handle)
+                      (slot-kind-is '(php/new-ref 1) :ref-marker)
+                      (slot-kind-is "s" :scalar)))))))
+
+
+(deftest value-helpers-deref-and-raw-slot-test
+  (is (= "2,1,1,1"
+         (run (nums '(php/array-count (php/new-arr (php/array-append (php/array-append (php/empty-array) 1) 2) {}))
+                    '(php/array-get (php/new-arr (php/array-append (php/empty-array) 1) {}) 0)
+                    '(php/array-get (php/array-put (php/empty-array) 0 (php/new-ref 1)) 0)
+                    '(if (php/array-has? (php/new-arr (php/array-append (php/empty-array) 1) {}) 0) 1 0)))))
+  (testing "slot-get answers the marker, array-get the value"
+    (is (= "1,0"
+           (run (nums '(let [m (php/new-ref 7)
+                             t (php/array-put (php/empty-array) 0 m)]
+                         (if (= (php/slot-kind (php/slot-get t 0)) :ref-marker) 1 0))
+                      '(let [m (php/new-ref 7)
+                             t (php/array-put (php/empty-array) 0 m)]
+                         (if (= (php/slot-kind (php/array-get t 0)) :ref-marker) 1 0))))))))
+
+
+(deftest anchor-5-one-reference-rc-3-no-nesting-test
+  (is (= "3,0,0"
+         (run (nums '(let [a (cell/new 1)
+                           b (cell/new :php/undef)
+                           c (cell/new :php/undef)]
+                       (do (php/assign-ref b a)
+                           (php/assign-ref c a)
+                           (php/rc-of (cell/get a))))
+                    '(let [a (cell/new 1)
+                           b (cell/new :php/undef)
+                           c (cell/new :php/undef)]
+                       (do (php/assign-ref b a)
+                           (php/assign-ref c a)
+                           (if (= (php/slot-kind (php/ref-value (cell/get a))) :ref-marker) 1 0)))
+                    '(let [a (cell/new 1)
+                           b (cell/new :php/undef)]
+                       (do (php/assign-ref b a)
+                           (php/assign-ref b a)
+                           (- (php/rc-of (cell/get a)) 2))))))))
+
+
+(defn- ref-into-array
+  "Forms binding `a` to [1 (2)] and `r` to a marker of `$a[0]` (rc 2)."
+  [& body]
+  (list 'let '[a (cell/new (php/empty-array)) b (cell/new :php/undef)
+               c (cell/new :php/undef) r (cell/new :php/undef)]
+        (list 'do
+              '(php/assign a (php/array-put (php/array-put (php/empty-array) 0 1) 1 2) :owned)
+              '(php/bind-marker r (php/make-ref-dim a 0))
+              (cons 'do body))))
+
+
+(deftest anchors-1-2-3-copy-with-a-shared-reference-test
+  (testing "anchor 1: $b=$a; $b[0]=2 writes through the shared reference"
+    (is (= "2"
+           (run (ref-into-array
+                  '(php/assign b (cell/get a) :borrowed)
+                  '(php/assign-dim b 0 2 :owned)
+                  '(php/echo (php/to-string (php/array-get (cell/get a) 0))))))))
+  (testing "anchor 2: after unset($r) the copy unwraps and a is untouched"
+    (is (= "1"
+           (run (ref-into-array
+                  '(php/unset-cv r)
+                  '(php/assign b (cell/get a) :borrowed)
+                  '(php/assign-dim b 0 2 :owned)
+                  '(php/echo (php/to-string (php/array-get (cell/get a) 0))))))))
+  (testing "anchor 3: unset($r) after the copy: the reference is rc 1, b's write is its own"
+    (is (= "1"
+           (run (ref-into-array
+                  '(php/assign b (cell/get a) :borrowed)
+                  '(php/unset-cv r)
+                  '(php/assign-dim b 0 2 :owned)
+                  '(php/echo (php/to-string (php/array-get (cell/get a) 0))))))))
+  (testing "anchor 4: unset($b[0]) leaves the reference with $a and $r"
+    (is (= "2"
+           (run (ref-into-array
+                  '(php/assign b (cell/get a) :borrowed)
+                  '(php/assign b (php/unset-dim (php/separate (cell/get b)) 0) :owned)
+                  '(php/assign-dim a 0 2 :owned)
+                  '(php/echo (php/to-string (php/ref-value (cell/get r)))))))))
+  (testing "anchor 6: a reference made in a copy is its own (a[1] unchanged)"
+    (is (= "2"
+           (run (ref-into-array
+                  '(php/assign b (cell/get a) :borrowed)
+                  '(php/assign-dim b 1 9 :owned)
+                  '(php/echo (php/to-string (php/array-get (cell/get a) 1)))))))))
+
+
+(deftest anchor-8-and-permutation-l-test
+  (testing "anchor 8: $x=&$a; $a=0; $b=[&$r]; unset($r); $c=$b; $c[0]=2; echo $b[0]"
+    (is (= "1"
+           (run (ref-into-array
+                  '(php/assign-ref (cell/new :php/undef) a)
+                  '(php/assign a 0 :owned)
+                  '(php/assign b (php/store (php/empty-array) 0 (php/addref (cell/get r))) :owned)
+                  '(php/unset-cv r)
+                  '(php/assign c (cell/get b) :borrowed)
+                  '(php/assign-dim c 0 2 :owned)
+                  '(php/echo (php/to-string (php/array-get (cell/get b) 0))))))))
+  (testing "permutation L: $q=[&$r]; unset($r) leaves the reference with a and q"
+    (is (= "2,1"
+           (run (ref-into-array
+                  '(php/assign b (php/store (php/empty-array) 0 (php/addref (cell/get r))) :owned)
+                  '(php/unset-cv r)
+                  (nums '(php/rc-of (php/slot-get (cell/get a) 0))
+                        '(php/rc-of (cell/get b)))))))
+    (is (= "0"
+           (run (nums '(data/count (php/check-invariants (php/empty-array)))))))))
+
+
+(deftest transfer-mode-test
+  (testing "a borrowed assign counts, an owned assign moves"
+    (is (= "2,1"
+           (run (nums '(let [h (php/new-arr (php/array-append (php/empty-array) (php/new-ref 1)) {0 true})
+                             v (cell/new :php/undef)]
+                         (do (php/assign v h :borrowed) (php/rc-of h)))
+                      '(let [h (php/new-arr (php/empty-array) {})
+                             v (cell/new :php/undef)]
+                         (do (php/assign v h :owned) (php/rc-of h))))))))
+  (testing "assigning over a counted value releases it after the store"
+    (is (= "0"
+           (run (nums '(let [h (php/new-arr (php/empty-array) {})
+                             v (cell/new h)]
+                         (do (php/assign v 5 :owned) (php/rc-of h)))))))))
+
+
+(deftest delref-recursion-and-dup-test
+  (testing "delref to zero releases the slots, recursively"
+    (is (= "0,0"
+           (run (nums '(let [inner (php/new-arr (php/empty-array) {})
+                             outer (php/store (php/new-arr (php/empty-array) {}) 0 inner)]
+                         (do (php/delref outer) (php/rc-of inner)))
+                      '(let [o (php/new-obj "C" (php/array-put (php/empty-array) "p" (php/new-arr (php/empty-array) {})))
+                             p (php/slot-get (get (cell/get (get o :php/obj)) :props) "p")]
+                         (do (php/delref o) (php/rc-of p))))))))
+  (testing "unwrap on dup: an rc-1 marker becomes its value; the source is unchanged"
+    (is (= "1,1,1"
+           (run (nums '(let [h (php/new-arr (php/empty-array) {})
+                             r (php/make-ref (php/assign-slot h 0 5 :owned) 0)
+                             d (php/dup (get r 0))]
+                         (if (= (php/slot-kind (php/slot-get d 0)) :scalar) 1 0))
+                      '(let [h (php/new-arr (php/empty-array) {})
+                             r (php/make-ref (php/assign-slot h 0 5 :owned) 0)
+                             d (php/dup (get r 0))]
+                         (php/rc-of (php/slot-get (get r 0) 0)))
+                      '(let [h (php/new-arr (php/empty-array) {})
+                             r (php/make-ref (php/assign-slot h 0 5 :owned) 0)
+                             d (php/dup (get r 0))]
+                         (if (= (php/slot-kind (php/slot-get (get r 0) 0)) :ref-marker) 1 0)))))))
+  (testing "self-reference exception: a marker holding its own table survives dup"
+    (is (= "2"
+           (run (nums '(let [h (php/new-arr (php/empty-array) {})
+                             r (php/make-ref (php/assign-slot h 0 1 :owned) 0)
+                             t (php/assign-slot (get r 0) 0 (get r 0) :borrowed)
+                             d (php/dup t)]
+                         (php/rc-of (get r 1))))))))
+  (testing "invariants: markers never nest, plain arrays hold nothing counted"
+    (is (= "0"
+           (run (nums '(data/count
+                         (php/check-invariants
+                           (php/new-arr (php/array-put (php/empty-array) 0 (php/new-ref 1)) {0 true})))))))
+    (is (= "1"
+           (run (nums '(data/count
+                         (php/check-invariants
+                           (php/array-put (php/empty-array) 0 (php/new-ref 1))))))))))
+
+
+(def ^:private row18
+  ;; $a = [1]; $r = &$a[0]; $a[0] = $a  (the marker holds its own table,
+  ;; uncounted: :owned moves instead of ADDREFing)
+  '(let [h (php/new-arr (php/empty-array) {})
+         r (php/make-ref (php/assign-slot h 0 1 :owned) 0)]
+     (php/assign-slot (get r 0) 0 (get r 0) :owned)))
+
+
+(defn- with-fix
+  "Substitute the symbol FIX in `tmpl` with `form`."
+  [tmpl form]
+  (walk/postwalk-replace {'FIX form} tmpl))
+
+
+(deftest cycle-release-test
+  (testing "row 18: releasing the last reference terminates, nothing goes negative"
+    (is (= "1,0,0"
+           (run (nums (with-fix '(let [t FIX] (do (php/delref t) (if (php/released? t) 1 0))) row18)
+                      (with-fix '(let [t FIX] (do (php/delref t) (data/count (php/check-invariants t)))) row18)
+                      (with-fix '(let [t FIX] (do (php/delref t) (if (< (php/rc-of t) 0) 1 0))) row18))))))
+  (testing "the same cycle nested under an array and under an object"
+    (is (= "1,1"
+           (run (nums (with-fix '(let [t FIX
+                                       o (php/store (php/new-arr (php/empty-array) {}) 0 t)]
+                                   (do (php/delref o) (if (php/released? t) 1 0)))
+                        row18)
+                      (with-fix '(let [t FIX
+                                       o (php/new-obj "C" (php/array-put (php/empty-array) "p" t))]
+                                   (do (php/delref o) (if (php/released? t) 1 0)))
+                        row18))))))
+  (testing "a two-member cycle: A's marker holds B, B's marker holds A"
+    (is (= "1,1,0"
+           (run (nums '(let [a (php/new-arr (php/empty-array) {})
+                             ra (php/make-ref (php/assign-slot a 0 1 :owned) 0)
+                             b (php/new-arr (php/empty-array) {})
+                             rb (php/make-ref (php/assign-slot b 0 1 :owned) 0)]
+                         (do (php/assign-slot (get ra 0) 0 (get rb 0) :owned)
+                             (php/assign-slot (get rb 0) 0 (get ra 0) :owned)
+                             (php/delref (get ra 0))
+                             (if (php/released? (get ra 0)) 1 0)))
+                      '(let [a (php/new-arr (php/empty-array) {})
+                             ra (php/make-ref (php/assign-slot a 0 1 :owned) 0)
+                             b (php/new-arr (php/empty-array) {})
+                             rb (php/make-ref (php/assign-slot b 0 1 :owned) 0)]
+                         (do (php/assign-slot (get ra 0) 0 (get rb 0) :owned)
+                             (php/assign-slot (get rb 0) 0 (get ra 0) :owned)
+                             (php/delref (get ra 0))
+                             (if (php/released? (get rb 0)) 1 0)))
+                      '(let [a (php/new-arr (php/empty-array) {})
+                             ra (php/make-ref (php/assign-slot a 0 1 :owned) 0)
+                             b (php/new-arr (php/empty-array) {})
+                             rb (php/make-ref (php/assign-slot b 0 1 :owned) 0)]
+                         (do (php/assign-slot (get ra 0) 0 (get rb 0) :owned)
+                             (php/assign-slot (get rb 0) 0 (get ra 0) :owned)
+                             (php/delref (get ra 0))
+                             (+ (if (< (php/rc-of (get ra 0)) 0) 1 0)
+                                (if (< (php/rc-of (get rb 0)) 0) 1 0)))))))))
+  (testing "addref/delref on a released cell are no-ops"
+    (is (= "0,0"
+           (run (nums '(let [h (php/new-arr (php/empty-array) {})]
+                         (do (php/delref h) (php/addref h) (php/rc-of h)))
+                      '(let [h (php/new-arr (php/empty-array) {})]
+                         (do (php/delref h) (php/delref h) (php/rc-of h))))))))
+  (testing "check-invariants accepts released cells, flags a negative live count"
+    (is (= "0,1"
+           (run (nums '(let [h (php/new-arr (php/empty-array) {})]
+                         (do (php/delref h) (data/count (php/check-invariants h))))
+                      '(let [h (php/new-arr (php/empty-array) {})]
+                         (do (cell/set! (get h :php/arr) (assoc (cell/get (get h :php/arr)) :rc -1))
+                             (data/count (php/check-invariants h)))))))))
+  (testing "dup does not copy the released flag"
+    (is (= "0"
+           (run (nums '(let [h (php/new-arr (php/empty-array) {})
+                             d (php/dup h)]
+                         (do (php/delref h) (if (php/released? d) 1 0)))))))))
+
+
+(deftest dim-reads-deref-test
+  (let [fixture '(let [h (php/new-arr (php/empty-array) {})
+                       r (php/make-ref (php/assign-slot h 0 7 :owned) 0)]
+                   (get r 0))
+        write '(let [m (php/slot-get t 0)]
+                 (cell/set! (get m :php/ref) (assoc (cell/get (get m :php/ref)) :value 9)))]
+    (testing "dim-get, dim-peek and array-get agree and never return a marker"
+      (is (= "7,7,7,0"
+             (run (nums (with-fix '(let [t FIX] (php/dim-get t 0)) fixture)
+                        (with-fix '(let [t FIX] (php/dim-peek t 0)) fixture)
+                        (with-fix '(let [t FIX] (php/array-get t 0)) fixture)
+                        (with-fix '(let [t FIX]
+                                     (if (= (php/slot-kind (php/dim-get t 0)) :ref-marker) 1 0))
+                          fixture))))))
+    (testing "after writing through the reference all three see the new value"
+      (is (= "9,9,9"
+             (run (nums (with-fix (list 'let '[t FIX] (list 'do write '(php/dim-get t 0))) fixture)
+                        (with-fix (list 'let '[t FIX] (list 'do write '(php/dim-peek t 0))) fixture)
+                        (with-fix (list 'let '[t FIX] (list 'do write '(php/array-get t 0))) fixture))))))))
