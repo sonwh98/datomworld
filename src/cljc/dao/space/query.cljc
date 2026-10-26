@@ -2064,7 +2064,12 @@
    pass finds nothing new; the work budget is the backstop when fresh values
    keep generating new tuples. A pass's progress is the state it returns."
   [st ctx binding rule-name call-args arg-vals call-key defs acc k]
-  (let [run (fn run [st table acc]
+  (let [;; a nested leader of the SAME key (k runs mid-pass) must hand the
+        ;; outer leader's marker back on exit, not erase or leak its own
+        was-hit? (hit? st call-key)
+        restore (fn [st]
+                  (if was-hit? (note-hit st call-key) (clear-hit st call-key)))
+        run (fn run [st table acc]
               (let [st (clear-hit st call-key)
                     a2 {:seen (:seen table), :new [], :acc acc}]
                 (bind (bounce (fn []
@@ -2075,11 +2080,11 @@
                               a2 (unreduced a2)
                               acc' (:acc a2)]
                           (cond
-                            stopped? [st (reduced acc')]
+                            stopped? [(restore st) (reduced acc')]
                             (exec/terminal? st) [st acc']
                             (and (seq (:new a2)) (hit? st call-key))
                             (run st {:tuples (into (:tuples table) (:new a2)), :seen (:seen a2)} acc')
-                            :else [(clear-hit st call-key) acc']))))))]
+                            :else [(restore st) acc']))))))]
     (run st {:tuples [], :seen #{}} acc)))
 
 
@@ -2549,7 +2554,14 @@
    negation inside a cycle has no such meaning here and is refused."
   [rules]
   (when (sequential? rules)
-    (let [named (filter #(and (sequential? %) (sequential? (first %))) rules)
+    (doseq [rule rules]
+      (when-not (and (sequential? rule)
+                     (sequential? (first rule))
+                     (symbol? (ffirst rule)))
+        (throw (ex-info "malformed rule head: a rule is [(name args...) body...]"
+                        {:head (when (sequential? rule) (first rule))
+                         :rule rule}))))
+    (let [named rules
           calls (reduce (fn [m rule]
                           (update m (first (first rule)) (fnil into [])
                                   (collect-rule-calls (rest rule) false)))

@@ -178,10 +178,14 @@ behavior is unmeasured):
   `(r 2 3 ?z)`. A required position that is unbound at the call (a variable
   with no binding, or `_`) throws "Rule required-bound variable is not
   bound at the call" naming the variable, evaluated with the bindings at the
-  call (a later clause does not rescue it). Through the adapter this surfaces
-  as the generic `:evaluation-failed` path, deliberately: the error is
-  binding-dependent and not statically decidable. It joins the Phase 5 oracle
-  measurement list. A vector inside a call is
+  call (a later clause does not rescue it). The error carries ex-data, so
+  through the adapter `classify-core-failure` maps it to
+  `:invalid-request` / `:incorrect` (pinned in `query_rules_test`), not
+  `:evaluation-failed`; it is raised at evaluation, not statically, because
+  it is binding-dependent. Datomic's exact category stays on the Phase 5
+  oracle measurement list. A rule that is not `[(name args...) body...]`
+  (set or scalar head, non-symbol name) is refused "malformed rule head"
+  before stratification and evaluation, `:invalid-request` at the adapter. A vector inside a call is
   refused ("rule call arguments are flat"); a vector anywhere but the head's
   leading position is a malformed head. Datomic's own diagnostics are
   unmeasured.

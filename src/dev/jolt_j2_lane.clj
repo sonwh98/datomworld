@@ -254,6 +254,8 @@
    ;; Listed 2026-10-26 (Phase 2 merge note, argon sign-off condition):
    ;; the portable aggregate/E3/E13 suite — pure logic, no sockets/fs.
    "dao.space.query-aggregates-test"
+   ;; Listed 2026-10-26 (Phase 3): portable rules/recursion suite, pure logic.
+   "dao.space.query-rules-test"
    "dao.space.stigmergy-test" ; rejoined (J4a)
    "dao.space.store.fs-test" ; rejoined (J4b)
    ;; Listed 2026-10-25: added by 3d77ed52 without a manifest entry, which

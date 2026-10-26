@@ -378,3 +378,48 @@
   (let [d (adapter-error (fn [] (dq/q '[:find ?e :in $ % :where (fan [2] ?e)]
                                 (friends) '[[(fan [?x] ?e) [?e :f ?x]]])))]
     (is (= :invalid-request (::dq/error d)))))
+
+
+;; ---------------------------------------------------------------------------
+;; Same-key nested leaders and the exact head grammar (phase 3 audit D1, D3)
+;; ---------------------------------------------------------------------------
+
+(def ^:private reach-1 #{1 2 3 4})
+
+
+(deftest same-call-key-siblings-keep-every-row
+  (let [full (set (for [x reach-1 y reach-1] [x y]))]
+    (testing "both clause orders, left recursion"
+      (is (= full (qq '[:find ?x ?y :in $ % :where (path 1 ?x) (path 1 ?y)]
+                      (graph) left-rules)))
+      (is (= full (qq '[:find ?x ?y :in $ % :where (path 1 ?y) (path 1 ?x)]
+                      (graph) left-rules))))
+    (testing "the other recursion shapes agree"
+      (doseq [rules [right-rules both-rules]]
+        (is (= full (qq '[:find ?x ?y :in $ % :where (path 1 ?x) (path 1 ?y)]
+                        (graph) rules)))))
+    (testing "an inner existential over the same key does not leak or erase"
+      (is (= (set (map vector reach-1))
+             (qq '[:find ?x :in $ % :where (path 1 ?x)
+                   (not-join [?x] (path 1 ?z) [(= ?z 99)])]
+                 (graph) left-rules)))
+      (is (= #{} (qq '[:find ?x :in $ % :where (path 1 ?x)
+                       (not-join [?x] (path 1 ?z) [(= ?z ?z)])]
+                     (graph) left-rules)))
+      (is (= full (qq '[:find ?x ?y :in $ % :where (path 1 ?x)
+                        (not-join [] (path 1 ?z) [(= ?z 99)]) (path 1 ?y)]
+                      (graph) left-rules))))))
+
+
+(deftest malformed-rule-heads-are-refused-uniformly
+  (doseq [[label rules] {"set head" '[[#{p ?x} [?x :e _]]]
+                         "scalar head" '[[p [?x :e _]]]
+                         "non-symbol name" '[[(1 ?x) [?x :e _]]]
+                         "non-sequential rule" '[#{(p ?x)}]}]
+    (testing label
+      (is (refused-with? (fn [] (qq '[:find ?x :in $ % :where (p ?x)] (graph) rules))
+                         #"malformed rule head")
+          (str "core: " label))
+      (let [d (adapter-error (fn [] (dq/q '[:find ?x :in $ % :where (p ?x)]
+                                        (graph) rules)))]
+        (is (= :invalid-request (::dq/error d)) (str "adapter: " label))))))

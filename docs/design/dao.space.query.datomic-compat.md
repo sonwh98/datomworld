@@ -230,7 +230,7 @@ domain. It does not mean oracle verification has already occurred.
 | Multiple sources and input binding forms | Exact target | Core presence verified; differential fixtures required. |
 | Negation/disjunction | Exact target for declared supported forms | Binding, scope and error behavior require conformance. |
 | Required-bound rule heads | Implemented (Phase 3) | `(r [?x] ?y)` heads with flat calls `(r 1 ?y)`; an unbound required argument fails at the call. |
-| Finite positive recursive rules | Exact target after conformance | Current active-call guard is not a completeness proof. Work budget provides an execution backstop. |
+| Finite positive recursive rules | Exact target after conformance | Implemented (Phase 3): per-call-key tabling with an immutable least fixed point (replaces the active-call guard); recursion through negation is refused before evaluation; the exact rule-head grammar is `[(name args...) body...]`. Work budget provides the execution backstop for fresh-value recursion. |
 | Numeric identity/arithmetic | Documented difference | Preserve the ratified CBOR identity policy and explicit unsupported-carrier refusals. |
 | `get-else`, `missing?` | Exact target on supported fact sources | Already index-aware special forms; edge semantics pending oracle cases. |
 | Deterministic aggregates | Exact target within declared numeric domain | Existing six plus additions specified below; edge cases pending. |
