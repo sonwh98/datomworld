@@ -12,7 +12,9 @@
                        ["dart:convert" :as convert]
                        ["dart:core" :as dart-core]
                        ["dart:io" :as io]]
-                :jolt [[yin.repl.host.common :as host-common]])
+                :jolt [[dao.host.text :as text]
+                       [dao.posix.file :as posix-file]
+                       [yin.repl.host.common :as host-common]])
             [clojure.string :as str]
             [dao.space.store.fs :as fs]
             [dao.stream.datagram :as datagram]
@@ -222,6 +224,10 @@
                (try (.createSync f .exclusive true)
                     (catch Object _ (throw (exists))))
                (.writeAsStringSync f text))
+       ;; O_CREAT | O_EXCL at 0600 in one call: owner-only from creation,
+       ;; never an existing file; written whole, fsynced, closed checked
+       :jolt (when (= :exists (posix-file/write-new-private! path (text/utf8-encode text)))
+               (throw (exists)))
        :clj (let [p (.toPath (java.io.File. ^String path))
                   owner-only
                   (java.nio.file.attribute.PosixFilePermissions/asFileAttribute
@@ -1388,9 +1394,10 @@
    (defn -main
      "One plain-thread owner. Stdin deposits only; EOF deposits (quit).
       A partial line without newline blocks the owner until its newline.
-      Flag persistence, --reset and --no-state are inert until J4."
+      Saved flags persist in the node directory, as on the JVM (J4d):
+      --reset forgets them and --no-state neither reads nor writes them."
      [& args]
-     (let [started (startup args)]
+     (let [started (startup args {:persist? true})]
        (when (contains? started :exit) (exit-with! started))
        (when (:port (:opts started))
          (refuse! host-common/missing-text))
