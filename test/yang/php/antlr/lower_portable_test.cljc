@@ -49,10 +49,10 @@
 
 (deftest unsupported-rule-names-its-construct-test
   (is (= {:yang.php/diagnostic :yang.php/unsupported,
-          :rule "throwStatement",
-          :construct :throw}
+          :rule "gotoStatement",
+          :construct :goto}
          (diagnostic (h/packet [:htmlDocument
-                                [:phpBlock [:topStatement [:statement [:throwStatement]]]]
+                                [:phpBlock [:topStatement [:statement [:gotoStatement]]]]
                                 ["EOF" "<EOF>"]])))))
 
 
@@ -120,8 +120,8 @@
     (testing "an enabled fixture is never pending (activation fails the run)"
       (is (empty? (filter #(= :pending (:oracle %)) p3b/enabled))))
     (testing "the wiring fixtures stay disabled until their step lands"
-      (is (some #(= :closure-bind-class-seam (:id %)) all))
-      (is (not-any? #(= :closure-bind-class-seam (:id %)) p3b/enabled)))
+      (is (some #(= :closure-call-invoke (:id %)) all))
+      (is (not-any? #(= :closure-call-invoke (:id %)) p3b/enabled)))
     (testing "every recorded oracle result equals the design-pinned expectation"
       (doseq [f all
               :let [r (get p3b/recorded (:id f))]
@@ -131,5 +131,10 @@
         (is (= (:diag r) (vec (:diag f))) (name (:id f)))
         (is (= (:uncaught r) (:uncaught f)) (name (:id f)))))
     (testing "only the escalated and not-yet-recorded fixtures are still pending"
-      (is (= #{:closure-call-invoke :foreach-destructure}
-             (set (map :id (filter #(= :pending (:oracle %)) all))))))))
+      (is (= #{:closure-call-invoke :foreach-destructure :try-catch-message :try-finally-runs-on-return
+               :try-unmatched-catch-propagates :try-finally-runs-on-error :throw-rethrows-caught
+               :catch-multi-type :match-first-arm :match-default :match-is-strict
+               :match-unhandled-message :closure-bind-to-null}
+             (set (map :id (filter #(and (= :pending (:oracle %)) (not= :typed-ref-candidates (:group %))) all)))))
+      (is (= 10 (count (filter #(= :typed-ref-candidates (:group %)) all)))
+          "the S9 text candidates await the next shiva pass"))))

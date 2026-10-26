@@ -1036,15 +1036,19 @@
                  (php/throw-error "Error" "var_dump: this value kind is not supported yet")))))))]
     [php/var-dump-at
      ;; `ind` is the indent of the value's own lines
-     (fn [v ind]
-       (let [k (php/kind v)]
+     (fn [slot ind]
+       (let [amp (if (= (php/slot-kind slot) :ref-marker)
+                   (if (> (php/rc-of slot) 1) "&" "")
+                   "")
+             v (php/deref slot)
+             k (php/kind v)]
          (if (= k :array)
-           (do (php/echo (data/str-concat ind "array("
+           (do (php/echo (data/str-concat ind amp "array("
                                           (integer/format (php/array-count v))
                                           ") {\n"))
                (php/var-dump-items v ind 0 (php/array-count v))
                (php/echo (data/str-concat ind "}\n")))
-           (php/echo (data/str-concat ind (php/scalar-dump v k))))))]
+           (php/echo (data/str-concat ind amp (php/scalar-dump v k))))))]
     [php/var-dump-items
      (fn [v ind i n]
        (if (< i n)
@@ -2298,6 +2302,106 @@
                :php/null)
              (php/obj-set-props! o (php/unset-dim (get st :props) prop))
              :php/null)))]
+    ;; ---------------------------------------------------------------- throwables, match, methods
+    [php/class-is?
+     (fn [name lc]
+       (if (nil? name)
+         false
+         (if (= (php/lc name) lc)
+           true
+           (let [c (get (cell/get php.rt/classes) name)]
+             (if (nil? c)
+               false
+               (if (= (get c :parent) :php/null) false (php/class-is? (get c :parent) lc)))))))]
+    [php/instance-of
+     (fn [v lc] (if (= (php/kind v) :obj) (php/class-is? (get v :class) lc) false))]
+    [php/throwable? (fn [v] (php/instance-of v "throwable"))]
+    [php/throw-value
+     (fn [v]
+       (if (php/throwable? v)
+         (php/raise v)
+         (php/throw-error "Error" "Can only throw objects")))]
+    [php/match-repr
+     (fn [v]
+       (let [k (php/kind v)]
+         (if (= k :int) (integer/format v)
+             (if (= k :string) (data/str-concat "'" v "'")
+                 (if (= k :bool) (if v "true" "false")
+                     (if (= k :null) "NULL"
+                         (if (= k :float) (php/to-string v)
+                             (data/str-concat "of type " (php/type-name k)))))))))]
+    [php/unhandled-match
+     (fn [v]
+       (php/throw-error "UnhandledMatchError"
+                        (data/str-concat "Unhandled match case " (php/match-repr v))))]
+    [php/throwable-method
+     ;; the Throwable accessors until P4 supplies real classes
+     (fn [o lc name]
+       (let [props (get o :props)]
+         (if (= lc "getmessage") (get props "message")
+             (if (= lc "getcode") (get props "code")
+                 (if (= lc "getprevious") (get props "previous")
+                     (php/throw-error "Error"
+                                      (data/str-concat "Call to undefined method "
+                                                       (get o :class) "::" name "()")))))))]
+    [php/closure?
+     (fn [v] (if (= (php/kind v) :obj) (= (get v :php/type) :closure) false))]
+    [php/closure-copy
+     (fn [v] (php/make-closure (cell/new (cell/get (get v :php/closure)))))]
+    [php/closure-method
+     (fn [o lc name args]
+       (if (= lc "bindto") (php/closure-copy o)
+           (if (= lc "__invoke") (php/call-value o args)
+               (php/throw-error
+                 "Error"
+                 (data/str-concat "Closure::" name "() needs objects (arrive with P4)")))))]
+    [php/method-call
+     ;; `$o->name(args)`: the seam P4's class model replaces
+     (fn [o name args]
+       (let [lc (php/lc name)]
+         (if (php/throwable? o)
+           (php/throwable-method o lc name)
+           (if (php/closure? o)
+             (php/closure-method o lc name args)
+             (php/throw-error "Error"
+                              (data/str-concat "Call to a member function " name "() on "
+                                               (php/type-name (php/kind o))))))))]
+    [php/closure-static
+     ;; `Closure::bind($f, $newThis, $scope)` and `Closure::fromCallable($c)`
+     (fn [lc name args]
+       (if (= lc "bind")
+         (php/closure-copy (get args 0))
+         (if (= lc "fromcallable")
+           (if (php/closure? (get args 0))
+             (get args 0)
+             (php/make-closure (php/callable-of (get args 0))))
+           (php/throw-error "Error"
+                            (data/str-concat "Call to undefined method Closure::" name "()")))))]
+    ;; the temporary list (rows 32 to 40): an owned counted value is
+    ;; registered, a statement releases what it registered
+    [php/tmp-mark (fn [] (data/count (cell/get php.rt/tmps)))]
+    [php/tmp!
+     (fn [v]
+       (do (if (php/counted? v)
+             (cell/set! php.rt/tmps (php/vconj (cell/get php.rt/tmps) v))
+             :php/null)
+           v))]
+    [php/tmp-prefix
+     (fn [ts i n acc] (if (< i n) (php/tmp-prefix ts (+ i 1) n (php/vconj acc (get ts i))) acc))]
+    [php/release-tmps
+     (fn [mark]
+       (let [ts (cell/get php.rt/tmps)
+             n (data/count ts)]
+         (if (> n mark)
+           (do (cell/set! php.rt/tmps (php/tmp-prefix ts 0 mark []))
+               (php/release-tmp-range ts n mark)
+               :php/null)
+           :php/null)))]
+    [php/release-tmp-range
+     (fn [ts i mark]
+       (if (> i mark)
+         (do (php/delref (get ts (- i 1))) (php/release-tmp-range ts (- i 1) mark))
+         :php/null))]
     [php/make-closure
      ;; a Closure value (an object, `kind` :obj) around the function cell
      (fn [f] (assoc (assoc {} :php/type :closure) :php/closure f))]
@@ -2819,7 +2923,8 @@
   "The Throwable hierarchy P1 raises, data only (P4 owns the class model)."
   [["Throwable" nil] ["Exception" "Throwable"] ["Error" "Throwable"]
    ["TypeError" "Error"] ["ValueError" "Error"] ["ArithmeticError" "Error"]
-   ["DivisionByZeroError" "ArithmeticError"] ["ArgumentCountError" "TypeError"]])
+   ["DivisionByZeroError" "ArithmeticError"] ["ArgumentCountError" "TypeError"]
+   ["UnhandledMatchError" "Error"]])
 
 
 (def ^:private define core/define)
@@ -2847,6 +2952,7 @@
                                            :parent (or parent :php/null)}]))
                                error-classes)))
                  (define 'php.rt/next-ord '(cell/new 1))
+                 (define 'php.rt/tmps '(cell/new []))
                  (define 'php.rt/next-cell '(cell/new 1))
                  (define 'php.rt/error-handler '(cell/new :php/null))
                  ;; E_ALL
@@ -2898,7 +3004,7 @@
   '[php.rt/classes php.rt/ctx php.rt/diag php.rt/error-handler
     php.rt/error-reporting php.rt/functions php.rt/globals php.rt/int-max
     php.rt/int-min php.rt/next-cell php.rt/next-ord
-    php.rt/out])
+    php.rt/out php.rt/tmps])
 
 
 (defn strip

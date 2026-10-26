@@ -154,11 +154,11 @@
    (fx :call-variadic-named-collected :calls-v1 [57 63] #{:s6}
        "<?php function s(...$xs) { return implode(',', array_keys($xs)); } echo s(1, k: 2);"
        "0,k")
-   (fx :call-too-few-named-not-passed :calls-v1 [63] #{:s6 :try-catch}
+   (fx :call-too-few-named-not-passed :calls-v1 [63] #{:s6}
        (str "<?php function f($a, $b) { return $a; } try { f(b: 1); }"
             " catch (ArgumentCountError $e) { echo $e->getMessage(); }")
        "f(): Argument #1 ($a) not passed")
-   (fx :call-unknown-named-argument :calls-v1 [65] #{:s6 :try-catch}
+   (fx :call-unknown-named-argument :calls-v1 [65] #{:s6}
        (str "<?php function f($a) { return $a; } try { f(1, z: 2); }"
             " catch (Error $e) { echo $e->getMessage(); }")
        "Unknown named parameter $z")
@@ -189,7 +189,7 @@
        "<?php $y = 3; $f = fn($x) => $x + $y; $y = 10; echo $f(1);" "4")
    (fx :arrow-nested-transitive-capture :closures-v1 [1] #{:s6}
        "<?php $a = 1; $f = fn($x) => fn($y) => $x + $y + $a; echo $f(2)(3);" "6")
-   (fx :closure-bind-class-seam :closures-v1 [] #{:s6 :closure-class}
+   (fx :closure-bind-class-seam :closures-v1 [] #{:s6}
        "<?php $f = function () { return 1; }; $g = Closure::bind($f, null, null); echo $g();"
        "1")
    (fx :closure-call-invoke :closures-v1 [] #{:p4}
@@ -338,6 +338,89 @@
     fixture))
 
 
+(def control-v1
+  "try/catch/finally, throw and match (docs/design/yang.php.md section 4 row 39
+   unwinding; the language semantics). Sources and expectations are written
+   from PHP's documented behaviour; every one waits for the shiva recording
+   (`:oracle-record`) before it is enabled."
+  [(fx :try-catch-message :control-v1 [39] #{:s6 :oracle-record}
+       "<?php try { nope(); } catch (Error $e) { echo $e->getMessage(); }"
+       "Call to undefined function nope()")
+   (fx :try-finally-runs-on-return :control-v1 [16 39] #{:s6 :oracle-record}
+       "<?php function f() { try { return 1; } finally { echo 'F'; } } echo f();"
+       "F1")
+   (fx :try-unmatched-catch-propagates :control-v1 [39] #{:s6 :oracle-record}
+       (str "<?php try { try { nope(); } catch (TypeError $e) { echo 'inner'; } }"
+            " catch (Error $e) { echo 'outer'; }")
+       "outer")
+   (fx :try-finally-runs-on-error :control-v1 [39] #{:s6 :oracle-record}
+       (str "<?php try { try { nope(); } finally { echo 'F'; } }"
+            " catch (Error $e) { echo 'C'; }")
+       "FC")
+   (fx :throw-rethrows-caught :control-v1 [39] #{:s6 :oracle-record}
+       (str "<?php try { try { nope(); } catch (Error $e) { throw $e; } }"
+            " catch (Error $x) { echo 're'; }")
+       "re")
+   (fx :catch-multi-type :control-v1 [39] #{:s6 :oracle-record}
+       "<?php try { nope(); } catch (TypeError | Error $e) { echo 'multi'; }"
+       "multi")
+   (fx :match-first-arm :control-v1 [] #{:s6 :oracle-record}
+       "<?php echo match (2) { 1, 2 => 'a', default => 'b' };" "a")
+   (fx :match-default :control-v1 [] #{:s6 :oracle-record}
+       "<?php echo match (5) { 1 => 'x', default => 'd' };" "d")
+   (fx :match-is-strict :control-v1 [] #{:s6 :oracle-record}
+       "<?php echo match ('1') { 1 => 'int', '1' => 'str' };" "str")
+   (fx :match-unhandled-message :control-v1 [] #{:s6 :oracle-record}
+       (str "<?php try { echo match (5) { 1 => 'x' }; }"
+            " catch (UnhandledMatchError $e) { echo $e->getMessage(); }")
+       "Unhandled match case 5")
+   (fx :closure-bind-to-null :control-v1 [] #{:s6 :oracle-record}
+       "<?php $f = function () { return 7; }; $g = $f->bindTo(null); echo $g();" "7")])
+
+
+(def typed-ref-candidates
+  "Oracle-only sources for the S9 texts the prelude tests do not pin: the
+   engine cannot run them before P4 (they use classes and typed properties),
+   so shiva records the PHP texts and the next prelude test pins them. Each
+   `:note` names the text the prelude currently produces."
+  (let [c (fn [id rows source note]
+            {:id id, :group :typed-ref-candidates, :rows rows, :level :oracle-only,
+             :requires #{}, :source source, :oracle :pending, :note note})
+        cls "class C { public int $p = 1; public ?int $n = null; public readonly int $ro; public int $u; function __construct() { $this->ro = 1; } } "]
+    [(c :typed-ref-row42-assign-string [42]
+        (str "<?php " cls "$c = new C; $r = &$c->p; try { $r = 'abc'; } catch (TypeError $e) { echo $e->getMessage(); }")
+        "design text: Cannot assign string to reference held by property C::$p of type int")
+     (c :typed-ref-row42-assign-null [42]
+        (str "<?php " cls "$c = new C; $r = &$c->p; try { $r = null; } catch (TypeError $e) { echo $e->getMessage(); }")
+        "prelude: Cannot assign null to reference held by property C::$p of type int")
+     (c :typed-ref-row42-coerces-numeric-string [42]
+        (str "<?php " cls "$c = new C; $r = &$c->p; $r = '7'; var_dump($c->p);")
+        "prelude: int(7)")
+     (c :typed-ref-row43-increment-past-max [43]
+        (str "<?php " cls "$c = new C; $c->p = PHP_INT_MAX; $r = &$c->p; try { $r++; } catch (TypeError $e) { echo $e->getMessage(); }")
+        "prelude: Cannot increment property C::$p of type int past its maximal value")
+     (c :typed-ref-row45-second-source-mismatch [45]
+        (str "<?php class D { public array $q = []; } " cls
+             "$c = new C; $d = new D; $r = &$c->p; try { $d->q = &$c->p; } catch (TypeError $e) { echo $e->getMessage(); }")
+        "prelude: Cannot assign int to property D::$q of type array")
+     (c :typed-ref-row45-first-failing-source [45]
+        (str "<?php class D { public int $q = 1; } class E { public bool $b = true; } "
+             "$d = new D; $e = new E; $r = &$d->q; $e->b = &$d->q; try { $r = [1]; } catch (TypeError $x) { echo $x->getMessage(); }")
+        "prelude: names the first failing source (D::$q of type int)")
+     (c :typed-ref-row41-uninitialized-non-nullable [41]
+        (str "<?php " cls "$c = new C; try { $r = &$c->u; } catch (Error $e) { echo $e->getMessage(); }")
+        "design text: Cannot access uninitialized non-nullable property C::$u by reference")
+     (c :typed-ref-row41-uninitialized-nullable [41]
+        "<?php class C { public ?int $n; } $c = new C; $r = &$c->n; var_dump($c->n);"
+        "design: the property becomes null")
+     (c :typed-ref-row41-readonly-initialized [41]
+        (str "<?php " cls "$c = new C; try { $r = &$c->ro; } catch (Error $e) { echo $e->getMessage(); }")
+        "design text: Cannot modify readonly property C::$ro")
+     (c :typed-ref-row44-unset-uninitializes [44]
+        (str "<?php " cls "$c = new C; $r = &$c->p; unset($c->p); try { echo $c->p; } catch (Error $e) { echo $e->getMessage(); }")
+        "design: Typed property C::$p must not be accessed before initialization")]))
+
+
 (def all-fixtures
   "Unconditional registry; the oracle iterates it regardless of activation."
   (mapv pin (concat ref-lifecycle-v1
@@ -345,7 +428,9 @@
                     calls-v1
                     closures-v1
                     destructure-v1
-                    oracle-only)))
+                    control-v1
+                    oracle-only
+                    typed-ref-candidates)))
 
 
 (defn enabled?

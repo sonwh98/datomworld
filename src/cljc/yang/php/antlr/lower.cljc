@@ -85,9 +85,7 @@
 
 (def unsupported-rules
   "Grammar rules P1 does not lower, with the construct each names."
-  {"tryCatchFinally" :try,
-   "throwStatement" :throw,
-   "gotoStatement" :goto,
+  {"gotoStatement" :goto,
    "declareStatement" :declare,
    "classDeclaration" :class,
    "useDeclaration" :use,
@@ -96,7 +94,6 @@
    "enumDeclaration" :enum,
    "importStatement" :import,
    "newExpr" :new,
-   "matchExpr" :match,
    "yieldExpression" :yield,
    "scriptText" :inline-script,
    "classConstant" :class-constant,
@@ -113,7 +110,6 @@
    "IncludeOnce" :include,
    "Require" :include,
    "RequireOnce" :include,
-   "Throw" :throw,
    "Yield" :yield,
    "List" :list})
 
@@ -751,6 +747,7 @@
       "Print" (u/then (app* 'php/echo (app* 'php/to-string (lower ctx operand)))
                       (u/lit 1))
       "OpenRoundBracket" (lower-cast ctx n ks)
+      "Throw" (app* 'php/throw-value (lower ctx operand))
       "List" (lower-destructure ctx n
                                 (pattern-of ctx n (first (core/rules ctx n "assignmentList")))
                                 (last ks))
@@ -1223,7 +1220,7 @@
       :else (unsupported! n :dynamic-call))))
 
 
-(defn- lower-call
+(defn- lower-call-plain
   [ctx n call]
   (let [[fname args] (core/rule-kids ctx call)
         groups (core/rules ctx args "arguments")
@@ -1245,7 +1242,7 @@
         (chain-dynamic
           (u/let1 f
                   (app* 'php/callable-of (callee-value ctx n fname))
-                  (call-node ctx (u/v f) arguments nil))
+                  (app* 'php/tmp! (call-node ctx (u/v f) arguments nil)))
           (rest groups)))
       (chain-dynamic
         (case lc
@@ -1262,25 +1259,165 @@
                     (app* 'php/resolve-fn (u/lit lc) (u/lit written))
                     (if by-ref
                       (lower-by-ref-call ctx n f by-ref arguments)
-                      (call-node ctx (u/v f) arguments (get (:declared ctx) lc))))))
+                      (let [call (call-node ctx (u/v f) arguments (get (:declared ctx) lc))]
+                        (if (contains? (:declared ctx) lc) (app* 'php/tmp! call) call))))))
         (rest groups)))))
+
+
+;; -----------------------------------------------------------------------------
+;; try, throw, match, member calls
+;; -----------------------------------------------------------------------------
+
+(defn- leftmost-token-text
+  "The text of the first token under `n`."
+  [ctx n]
+  (if (p/token? n) (:text n) (leftmost-token-text ctx (first (core/kids ctx n)))))
+
+
+(defn- catch-clause-node
+  "`(if matches (do bind body) rest)` for one `catch` clause over error `e`."
+  [ctx e clause rest]
+  (let [types (mapv #(str/lower-case (leftmost-token-text ctx %))
+                    (core/rules ctx clause "qualifiedStaticTypeRef"))
+        var (some #(when (and (p/token? %) (= "VarName" (:type %))) (:text %))
+                  (core/kids ctx clause))
+        test (reduce (fn [acc t]
+                       (u/if-node acc (u/lit true) (app* 'php/instance-of e (u/lit t))))
+                     (u/lit false)
+                     types)
+        body (lower ctx (first (core/rules ctx clause "blockStatement")))]
+    (u/if-node test
+               (u/then (if var (write-var ctx var e) (u/lit :php/null)) body)
+               rest)))
+
+
+(defn- lower-try
+  "`try { } catch (T $e) { } finally { }`: `php/try` delivers the error to the
+   catch clauses in order, an unmatched one is raised again; `php/try-finally`
+   runs the finally block on every exit, escapes and errors included."
+  [ctx n]
+  (let [block (first (core/rules ctx n "blockStatement"))
+        clauses (core/rules ctx n "catchClause")
+        fin (first (core/rules ctx n "finallyStatement"))
+        e (core/gen "e" n)
+        mark (core/gen "mk" n)
+        body (lower ctx block)
+        guarded (if (seq clauses)
+                  (u/let1 mark
+                          (app* 'php/tmp-mark)
+                          (app* 'php/try
+                                (u/lam [] body)
+                                (u/lam [e]
+                                       (u/then (app* 'php/release-tmps (u/v mark))
+                                               (reduce (fn [rest clause]
+                                                         (catch-clause-node ctx (u/v e) clause rest))
+                                                       (app* 'php/raise (u/v e))
+                                                       (reverse clauses))))
+                                (u/lam [] (u/lit :php/null))))
+                  body)]
+    (u/then (if fin
+              (app* 'php/try-finally
+                    (u/lam [] guarded)
+                    (u/lam [(core/gen "x" n)]
+                           (lower ctx (first (core/rules ctx fin "blockStatement")))))
+              guarded)
+            (u/lit :php/null))))
+
+
+(defn- lower-match
+  "`match (e) { a, b => r, default => d }`: strict comparison in order, the
+   default last, else `UnhandledMatchError`."
+  [ctx n]
+  (let [subject (first (core/rules ctx n "expression"))
+        m (core/gen "m" n)
+        items (core/rules ctx n "matchItem")
+        default? (fn [item]
+                   (let [es (core/rules ctx item "expression")]
+                     (and (= 2 (count es))
+                          (= "default" (str/lower-case (leftmost-token-text ctx (first es)))))))
+        default-item (first (filter default? items))
+        arms (remove default? items)]
+    (u/let1 m
+            (lower ctx subject)
+            (reduce (fn [rest item]
+                      (let [es (core/rules ctx item "expression")
+                            conds (butlast es)
+                            result (last es)]
+                        (u/if-node (reduce (fn [acc c]
+                                             (u/if-node acc
+                                                        (u/lit true)
+                                                        (app* 'php/identical (u/v m) (lower ctx c))))
+                                           (u/lit false)
+                                           conds)
+                                   (lower ctx result)
+                                   rest)))
+                    (if default-item
+                      (lower ctx (last (core/rules ctx default-item "expression")))
+                      (app* 'php/unhandled-match (u/v m)))
+                    (reverse arms)))))
+
+
+(defn- member-call
+  "Fold one `memberAccess` (`->name(args)`) over the object node `o`."
+  [ctx n o ma]
+  (let [fname (first (core/rules ctx ma "keyedFieldName"))
+        simple (when fname (first (core/kids ctx fname)))
+        ident (when (and simple (p/rule? simple "keyedSimpleFieldName"))
+                (first (core/kids ctx simple)))
+        args (first (core/rules ctx (first (core/rules ctx ma "actualArguments")) "arguments"))]
+    (when-not (and ident (p/rule? ident "identifier") args)
+      (unsupported! n :member-access))
+    (let [recv (core/gen "o" n)
+          [pos _] (lower-arguments ctx args)]
+      (u/let1 recv o
+              (app* 'php/tmp!
+                    (app* 'php/method-call (u/v recv)
+                          (u/lit (leftmost-token-text ctx ident)) pos))))))
+
+
+(defn- closure-static
+  "[\"Closure\" method] when `fname` is `Closure::method`, else nil."
+  [ctx fname]
+  (let [cc (first (core/kids ctx fname))]
+    (when (p/rule? cc "classConstant")
+      (let [ks (core/kids ctx cc)
+            ref (first ks)
+            ident (last ks)]
+        (when (and (p/rule? ref "qualifiedStaticTypeRef")
+                   (p/rule? ident "identifier")
+                   (= "closure" (str/lower-case (leftmost-token-text ctx ref))))
+          ["Closure" (leftmost-token-text ctx ident)])))))
+
+
+(defn- lower-call
+  [ctx n call]
+  (let [[fname args] (core/rule-kids ctx call)]
+    (if-let [[_ m] (closure-static ctx fname)]
+      (let [[pos _] (lower-arguments ctx (first (core/rules ctx args "arguments")))]
+        (app* 'php/closure-static (u/lit (str/lower-case m)) (u/lit m) pos))
+      (lower-call-plain ctx n call))))
 
 
 (defn- lower-chain
   [ctx n]
   (let [ks (core/kids ctx n)
-        origin (first ks)]
-    (when (> (count ks) 1) (unsupported! n :member-access))
-    (let [o (first (core/kids ctx origin))]
-      (cond
-        (p/rule? o "functionCall") (lower-call ctx n o)
-        (p/rule? o "chainBase")
-        (if-let [loc (chain-location ctx n)]
-          (do (checked-var n (:var loc))
-              (forbid-append! n loc "Cannot use [] for reading")
-              (read-loc ctx (lower-path ctx loc)))
-          (unsupported! n :variable))
-        :else (unsupported! n :new)))))
+        origin (first ks)
+        o (first (core/kids ctx origin))
+        base (cond
+               (p/rule? o "functionCall") (lower-call ctx n o)
+               (p/rule? o "chainBase")
+               (if-let [loc (base-location ctx o)]
+                 (do (checked-var n (:var loc))
+                     (forbid-append! n loc "Cannot use [] for reading")
+                     (read-loc ctx (lower-path ctx loc)))
+                 (unsupported! n :variable))
+               :else (unsupported! n :new))]
+    (reduce (fn [acc ma]
+              (if (p/rule? ma "memberAccess")
+                (member-call ctx n acc ma)
+                (unsupported! n :member-access)))
+            base
+            (rest ks))))
 
 
 (defn- lower-constant
@@ -1345,6 +1482,7 @@
         "string" (string-node ctx k0)
         "arrayCreation" (lower-array ctx k0)
         "lambdaFunctionExpr" (lower-lambda ctx k0)
+        "matchExpr" (lower-match ctx k0)
         "parentheses" (lower ctx (first (core/rule-kids ctx k0)))
         (core/default-arm diagnostic-ns "PHP" unsupported-rules k0))
       (and (= 1 cnt) (p/token? k0)) (constant-node n (:text k0))
@@ -1379,6 +1517,16 @@
             (mapcat (fn [k] (if (p/rule? k) (texts k) [(:text k)]))
                     (core/kids ctx x)))]
     (app* 'php/echo (u/lit (byte-string (apply str (texts n)))))))
+
+
+(defn- with-temps
+  "`node` followed by the release of the temporaries it registered, when the
+   statement `n` holds a call that can leave one (row 37)."
+  [ctx n node]
+  (if (core/contains-rule? ctx n "functionCall" #{})
+    (let [mark (core/gen "tm" n)]
+      (u/let1 mark (app* 'php/tmp-mark) (u/then node (app* 'php/release-tmps (u/v mark)))))
+    node))
 
 
 (defn- block-nodes
@@ -1931,7 +2079,7 @@
   (let [e (first (core/rules ctx n "expression"))]
     (u/app (u/v (:ret ctx))
            (if e
-             (if (:counted ctx) (app* 'php/addref (lower ctx e)) (lower ctx e))
+             (app* 'php/addref (lower ctx e))
              (u/lit :php/null)))))
 
 
@@ -2108,8 +2256,9 @@
     "phpBlock" (sequence-node (block-nodes ctx n))
     ("topStatement" "innerStatement" "statement")
     (lower ctx (first (core/rule-kids ctx n)))
-    "echoStatement" (sequence-node (echo-nodes ctx (first (core/rules ctx n "expressionList"))))
-    "expressionStatement" (lower ctx (first (core/rules ctx n "expression")))
+    "echoStatement" (with-temps ctx n
+                      (sequence-node (echo-nodes ctx (first (core/rules ctx n "expressionList")))))
+    "expressionStatement" (with-temps ctx n (lower ctx (first (core/rules ctx n "expression"))))
     "emptyStatement_" (u/lit :php/null)
     "inlineHtmlStatement" (sequence-node (block-nodes ctx n))
     "blockStatement" (lower ctx (first (core/rules ctx n "innerStatementList")))
@@ -2125,6 +2274,8 @@
     "breakStatement" (lower-escape ctx n :break)
     "continueStatement" (lower-escape ctx n :continue)
     "returnStatement" (lower-return ctx n)
+    "tryCatchFinally" (lower-try ctx n)
+    "throwStatement" (app* 'php/throw-value (lower ctx (first (core/rules ctx n "expression"))))
     "staticVariableStatement" (lower-static ctx n)
     "globalStatement" (lower-global ctx n)
     "unsetStatement" (lower-unset ctx n (core/rules ctx (first (core/rules ctx n "chainList")) "chain"))

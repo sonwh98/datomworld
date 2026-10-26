@@ -618,6 +618,38 @@
                    (php/echo (php/to-string (data/count (php/check-invariants o))))))))))
 
 
+(deftest s6-temp-list-test
+  (testing "tmp! registers a counted value, release-tmps drops it above the mark"
+    (is (= "2,1,0"
+           (run (nums '(let [h (php/new-arr (php/empty-array) {})
+                             mark (php/tmp-mark)]
+                         (do (php/addref h) (php/tmp! h) (php/rc-of h)))
+                      '(let [h (php/new-arr (php/empty-array) {})
+                             mark (php/tmp-mark)]
+                         (do (php/addref h) (php/tmp! h) (php/release-tmps mark) (php/rc-of h)))
+                      '(let [h (php/new-arr (php/empty-array) {})
+                             mark (php/tmp-mark)]
+                         (do (php/tmp! h) (php/release-tmps mark) (php/rc-of h))))))))
+  (testing "scalars are never registered"
+    (is (= "0"
+           (run (nums '(do (php/tmp! 5) (php/tmp! "s") (php/tmp-mark))))))))
+
+
+(deftest s6-throwables-and-match-test
+  (testing "instance-of walks the Throwable hierarchy"
+    (is (= "1,1,0"
+           (run (nums '(if (php/instance-of (php/make-error "ArgumentCountError" "m") "error") 1 0)
+                      '(if (php/instance-of (php/make-error "TypeError" "m") "throwable") 1 0)
+                      '(if (php/instance-of (php/make-error "Error" "m") "typeerror") 1 0))))))
+  (testing "throw-value refuses a non-object"
+    (is (= "Error: Can only throw objects"
+           (uncaught-message '(php/throw-value 5)))))
+  (testing "match repr"
+    (is (= "5,'a',true,NULL"
+           (run '(php/echo (data/str-concat (php/match-repr 5) "," (php/match-repr "a") ","
+                                            (php/match-repr true) "," (php/match-repr :php/null))))))))
+
+
 (deftest anchor-5-one-reference-rc-3-no-nesting-test
   (is (= "3,0,0"
          (run (nums '(let [a (cell/new 1)

@@ -4,12 +4,16 @@
    the semantic, stack and register VMs). Every fixture of
    `yang.php.antlr.programs` prints the same text on all four."
   (:require
+    [clojure.edn :as edn]
+    [clojure.java.io :as io]
     [clojure.string :as str]
     [clojure.test :refer [deftest is testing]]
     [yang.php.antlr.cst :as cst]
     [yang.php.antlr.e2e-harness :as h]
     [yang.php.antlr.packets :as packets]
     [yang.php.antlr.packets-p3b :as packets-p3b]
+    [yang.php.antlr.permutations :as perms]
+    [yang.php.antlr.phpt :as phpt]
     [yang.php.antlr.programs :as programs]
     [yang.php.antlr.programs-p3b :as p3b]))
 
@@ -235,3 +239,108 @@
   (doseq [[id form] packets-p3b/forms
           :let [{:keys [source]} (first (filter #(= id (:id %)) p3b/all-fixtures))]]
     (is (= form (h/packet->form (cst/parse-source source))) (name id))))
+
+
+;; -----------------------------------------------------------------------------
+;; S10: permutation corpus and php-src selection
+;; -----------------------------------------------------------------------------
+
+(defn- read-edn-file
+  [path]
+  (let [f (io/file path)]
+    (when (.exists f) (edn/read-string (slurp f)))))
+
+
+(defn- engine-result
+  "`{:out :diag :uncaught}` of `source` on the walker, in the oracle's shape, or
+   `{:refused diagnostics}` / `{:threw message}`."
+  [source]
+  (try
+    (let [r (h/run-raw source)]
+      (if (:diagnostics r)
+        {:refused (mapv :message (:diagnostics r))}
+        {:out (h/latin1->text (:php/out r)),
+         :diag (mapv (juxt :errno :message) (:php/diag r)),
+         :uncaught (some-> (:php/uncaught r) (select-keys [:class :message]))}))
+    (catch Throwable t {:threw (str t)})))
+
+
+(defn- run-corpus
+  "Run `programs` against the recorded oracle map: `{:total :compared :mismatches}`
+   where a host throw or a refusal is always a mismatch."
+  [programs oracle]
+  (reduce (fn [acc {:keys [id source]}]
+            (let [r (engine-result source)
+                  want (get oracle id)
+                  bad (or (contains? r :threw) (contains? r :refused)
+                          (and want (not= (update want :diag vec) (update r :diag vec))))]
+              (cond-> (update acc :total inc)
+                want (update :compared inc)
+                bad (update :mismatches conj [id r]))))
+          {:total 0, :compared 0, :mismatches []}
+          programs))
+
+
+(deftest permutation-corpus-quick-test
+  (let [oracle (read-edn-file "test/yang/php/antlr/permutation_oracle_quick.edn")
+        {:keys [total compared mismatches]} (run-corpus (perms/quick) oracle)]
+    (is (= (* 2 (count perms/quick-ids)) total))
+    (is (empty? mismatches) (pr-str (take 3 mismatches)))
+    (when-not oracle
+      (println "permutation corpus: no recorded oracle yet, ran" total "programs without comparison"))
+    (when oracle
+      (is (= total compared) "every quick program has a recorded oracle result"))))
+
+
+(deftest ^:slow permutation-corpus-full-test
+  (let [oracle (read-edn-file "build/yang-php/permutation_oracle_full.edn")
+        {:keys [total mismatches]} (run-corpus (perms/full) oracle)]
+    (is (= (* 2 (count perms/full-ids)) total))
+    (is (empty? mismatches) (pr-str (take 3 mismatches)))))
+
+
+(deftest phpt-parsing-and-matching-test
+  (let [text "--TEST--\nt\n--FILE--\n<?php echo 1;\n--EXPECTF--\nint(%d) %s\n"
+        sections (phpt/parse-phpt text)]
+    (is (= "t" (get sections "TEST")))
+    (is (= "<?php echo 1;" (get sections "FILE")))
+    (is (phpt/matches-expect? sections "int(42) abc\n"))
+    (is (not (phpt/matches-expect? sections "int(x) abc")))
+    (is (phpt/matches-expect? (phpt/parse-phpt "--FILE--\nx\n--EXPECT--\nhi\n") "hi\n")))
+  (testing "classification"
+    (is (= :select (:status (phpt/classify {"FILE" "<?php function f(&$x){} f($a); echo count([]);",
+                                            "EXPECT" "x"}))))
+    (is (= :p4 (:needs (phpt/classify {"FILE" "<?php class A {} new A;", "EXPECT" "x"}))))
+    (is (= :unsupported-surface
+           (:reason (phpt/classify {"FILE" "<?php preg_match('/a/', 'a');", "EXPECT" "x"}))))
+    (is (= :unknown-functions
+           (:reason (phpt/classify {"FILE" "<?php mystery_fn(1);", "EXPECT" "x"}))))
+    (is (= :no-expectation (:reason (phpt/classify {"FILE" "<?php echo 1;"})))))
+  (testing "path predicates"
+    (is (phpt/selected-path? "Zend/tests/list/list_001.phpt"))
+    (is (phpt/selected-path? "ext/standard/tests/array/current_variation1.phpt"))
+    (is (not (phpt/selected-path? "ext/standard/tests/strings/sprintf_basic1.phpt")))))
+
+
+(deftest phpt-selection-runs-test
+  (if-let [sel (read-edn-file "test/yang/php/antlr/phpt_selection.edn")]
+    (let [entries (remove :needs (:entries sel))
+          results (for [{:keys [id source expect expectf]} entries
+                        :let [r (engine-result source)]]
+                    (cond
+                      (:refused r) [:unsupported id]
+                      (:threw r) [:fail id]
+                      (phpt/matches-expect?
+                        (cond-> {} expect (assoc "EXPECT" expect) expectf (assoc "EXPECTF" expectf))
+                        (str (:out r)
+                             (when (:uncaught r)
+                               (str "Fatal error: Uncaught " (:class (:uncaught r)) ": "
+                                    (:message (:uncaught r))))))
+                      [:pass id]
+                      :else [:fail id]))
+          by (group-by first results)]
+      (println "php-src selection:" (count (:entries sel)) "entries;"
+               "pass" (count (:pass by)) "unsupported" (count (:unsupported by))
+               "fail" (count (:fail by)))
+      (is (empty? (:fail by)) (pr-str (take 5 (:fail by)))))
+    (println "php-src selection: phpt_selection.edn not generated yet (run yang.php.phpt on shiva)")))
