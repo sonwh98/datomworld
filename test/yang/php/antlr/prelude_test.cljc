@@ -513,6 +513,111 @@
            (run (nums (slot-kind-is '(php/array-append (php/empty-array) 3) :plain)))))))
 
 
+(defn- uncaught-message
+  [form]
+  (let [r (run-raw form)]
+    (str (get-in r [:php/uncaught :class]) ": " (get-in r [:php/uncaught :message]))))
+
+
+(deftest s9-typed-reference-rows-41-to-47-test
+  (testing "row 41: a reference to an initialized typed property carries the source"
+    (is (= "1,1"
+           (run (nums '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 5)
+                                                  (assoc {} "p" {:type {:t :int}}))
+                             m (php/obj-prop-ref o "p")]
+                         (data/count (php/ref-sources m)))
+                      '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 5)
+                                                  (assoc {} "p" {:type {:t :int}}))
+                             m (php/obj-prop-ref o "p")]
+                         (if (= (php/ref-value m) 5) 1 0)))))))
+  (testing "row 41: uninitialized nullable becomes null; non-nullable is an Error"
+    (is (= "null"
+           (run '(let [o (php/new-typed-obj "C" (php/empty-array)
+                                            (assoc {} "p" {:type {:t :union :of [{:t :int} {:t :null}]}}))
+                       m (php/obj-prop-ref o "p")]
+                   (php/echo (php/type-name (php/kind (php/ref-value m))))))))
+    (is (= "Error: Cannot access uninitialized non-nullable property C::$p by reference"
+           (uncaught-message
+             '(php/obj-prop-ref (php/new-typed-obj "C" (php/empty-array)
+                                                   (assoc {} "p" {:type {:t :int}}))
+                                "p")))))
+  (testing "row 41: readonly is an Error in every state"
+    (is (= "Error: Cannot modify readonly property C::$p"
+           (uncaught-message
+             '(php/obj-prop-ref (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 1)
+                                                   (assoc {} "p" {:type {:t :int} :readonly true}))
+                                "p"))))
+    (is (= "Error: Cannot indirectly modify readonly property C::$p"
+           (uncaught-message
+             '(php/obj-prop-ref (php/new-typed-obj "C" (php/empty-array)
+                                                   (assoc {} "p" {:type {:t :int} :readonly true}))
+                                "p")))))
+  (testing "row 42: the assigned value is verified and coerced once"
+    (is (= "TypeError: Cannot assign string to reference held by property C::$p of type int"
+           (uncaught-message
+             '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 5)
+                                         (assoc {} "p" {:type {:t :int}}))
+                    m (php/obj-prop-ref o "p")]
+                (php/ref-write! m "abc")))))
+    (is (= "7,int"
+           (run '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 5)
+                                            (assoc {} "p" {:type {:t :int}}))
+                       m (php/obj-prop-ref o "p")]
+                   (do (php/ref-write! m "7")
+                       (php/echo (data/str-concat (php/to-string (php/ref-value m)) ","
+                                                  (php/type-name (php/kind (php/ref-value m))))))))))
+    (is (= "TypeError: Cannot assign null to reference held by property C::$p of type int"
+           (uncaught-message
+             '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 5)
+                                         (assoc {} "p" {:type {:t :int}}))]
+                (php/ref-write! (php/obj-prop-ref o "p") :php/null)))))
+    (is (= "float"
+           (run '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 1.5)
+                                            (assoc {} "p" {:type {:t :float}}))
+                       m (php/obj-prop-ref o "p")]
+                   (do (php/ref-write! m 3)
+                       (php/echo (php/type-name (php/kind (php/ref-value m))))))))))
+  (testing "row 42: an assignment through an untyped reference is unchanged"
+    (is (= "x"
+           (run '(let [m (php/new-ref 1)] (do (php/ref-write! m "x") (php/echo (php/ref-value m))))))))
+  (testing "row 43: an int property incremented past its maximum"
+    (is (= "TypeError: Cannot increment property C::$p of type int past its maximal value"
+           (uncaught-message
+             '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" php.rt/int-max)
+                                         (assoc {} "p" {:type {:t :int}}))]
+                (php/typed-inc (php/obj-prop-ref o "p")))))))
+  (testing "row 44: unset removes the source and uninitializes; object free drops sources"
+    (is (= "0,1"
+           (run (nums '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 5)
+                                                  (assoc {} "p" {:type {:t :int}}))
+                             m (php/obj-prop-ref o "p")]
+                         (do (php/obj-unset-prop o "p")
+                             (data/count (php/ref-sources m))))
+                      '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 5)
+                                                  (assoc {} "p" {:type {:t :int}}))
+                             m (php/addref (php/obj-prop-ref o "p"))]
+                         (do (php/delref o)
+                             (+ 1 (data/count (php/ref-sources m))))))))))
+  (testing "row 45: a second source must accept the current value, then both bind"
+    (is (= "TypeError: Cannot assign string to property D::$q of type int"
+           (uncaught-message
+             '(let [m (php/new-ref "abc")]
+                (php/ref-add-source m {:obj 1 :class "D" :prop "q" :type {:t :int}})))))
+    (is (= "TypeError: Cannot assign string to reference held by property C::$p of type int"
+           (uncaught-message
+             '(let [m (php/new-ref "5")]
+                (do (php/ref-add-source m {:obj 1 :class "C" :prop "p" :type {:t :int}})
+                    (php/ref-add-source m {:obj 2 :class "D" :prop "q" :type {:t :int}})
+                    (php/ref-write! (php/ref-add-source m {:obj 3 :class "D" :prop "q" :type {:t :bool}})
+                                    "x")))))))
+  (testing "check-invariants still holds with sources on a marker"
+    (is (= "0"
+           (run '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 5)
+                                            (assoc {} "p" {:type {:t :int}}))
+                       m (php/obj-prop-ref o "p")]
+                   (php/echo (php/to-string (data/count (php/check-invariants o))))))))))
+
+
 (deftest anchor-5-one-reference-rc-3-no-nesting-test
   (is (= "3,0,0"
          (run (nums '(let [a (cell/new 1)

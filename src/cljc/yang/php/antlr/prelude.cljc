@@ -1181,7 +1181,7 @@
                                                     :id (php/next-cell!))
                                              :rc 1)
                                       :value v)
-                               :sources {}))))]
+                               :sources []))))]
     [php/new-arr
      ;; an instance array from a plain table and its counted-key map, rc 1
      (fn [tbl deps]
@@ -1272,7 +1272,17 @@
          (if (get st :destructed?)
            :php/null
            (do (cell/set! c (assoc (assoc st :destructed? true) :released? true))
+               (php/drop-sources props (get st :id) 0 (php/array-count props))
                (php/release-slots props :all 0 (php/array-count props))))))]
+    [php/drop-sources
+     ;; object free (row 44): every property's reference loses `[o p]`
+     (fn [props obj i n]
+       (if (< i n)
+         (let [k (get (php/array-order props) i)
+               x (php/slot-get props k)]
+           (do (if (= (php/slot-kind x) :ref-marker) (php/ref-remove-source x obj k) :php/null)
+               (php/drop-sources props obj (+ i 1) n)))
+         :php/null))]
     [php/dup-slot
      ;; the slot the copy of table `self` gets for source slot `x`
      (fn [self x]
@@ -1818,9 +1828,14 @@
      (fn [name v]
        (let [cur (php/global-slot name)]
          (if (= (php/slot-kind cur) :ref-marker)
-           (let [old (php/ref-value cur)]
-             (do (php/ref-set! cur v) (php/delref old) v))
-           (do (php/global-store! name v) (php/delref cur) v))))]
+           (php/ref-write! cur v)
+           (do (php/global-store! name v) (php/release-unless-same cur v) v))))]
+    [php/release-unless-same
+     ;; DELREF `old` after a store of `v`, except when `v` is that very cell
+     ;; (a builtin that mutated the array in place and answered it)
+     (fn [old v]
+       (let [id (php/cell-id old)]
+         (if (nil? id) :php/null (if (= id (php/cell-id v)) :php/null (php/delref old)))))]
     [php/global-make-ref!
      (fn [name]
        (let [cur (php/global-slot name)]
@@ -1863,9 +1878,8 @@
      (fn [c v]
        (let [cur (cell/get c)]
          (if (= (php/slot-kind cur) :ref-marker)
-           (let [old (php/ref-value cur)]
-             (do (php/ref-set! cur v) (php/delref old) v))
-           (do (cell/set! c v) (if (= cur :php/undef) :php/null (php/delref cur)) v))))]
+           (php/ref-write! cur v)
+           (do (cell/set! c v) (if (= cur :php/undef) :php/null (php/release-unless-same cur v)) v))))]
     [php/local-put!
      (fn [c v]
        (let [cur (cell/get c)]
@@ -2010,6 +2024,280 @@
            f)))]
     [php/call
      (fn [f args] ((get (cell/get f) :code) f args))]
+    ;; the internal array pointer (row 55): an ordinal in the table's `:ptr`,
+    ;; so it travels with the value (copy, DUP, upgrade); absent means 0
+    [php/ptr-of
+     (fn [arr] (let [p (get (php/arr-table arr) :ptr)] (if (nil? p) 0 p)))]
+    [php/ptr-set
+     (fn [arr p]
+       (if (= (php/slot-kind arr) :arr-handle)
+         (let [c (get arr :php/arr)
+               st (cell/get c)]
+           (do (cell/set! c (assoc st :value (assoc (get st :value) :ptr p))) arr))
+         (assoc arr :ptr p)))]
+    [php/ptr-valid? (fn [arr p] (if (>= p 0) (< p (php/array-count arr)) false))]
+    [php/ptr-elem
+     (fn [arr p] (if (php/ptr-valid? arr p) (php/array-get arr (get (php/array-order arr) p)) false))]
+    [php/ptr-move
+     (fn [arr p]
+       (let [q (if (< p 0) (php/array-count arr) p)
+             a2 (php/ptr-set arr q)]
+         (php/out1 (php/ptr-elem a2 q) a2)))]
+    [php/bi-current
+     (fn [args]
+       (do (php/arity-between "current" args 1 1 "exactly 1")
+           (let [arr (php/arg-array (get args 0) "current" 1 "array")]
+             (php/ptr-elem arr (php/ptr-of arr)))))]
+    [php/bi-key
+     (fn [args]
+       (do (php/arity-between "key" args 1 1 "exactly 1")
+           (let [arr (php/arg-array (get args 0) "key" 1 "array")
+                 p (php/ptr-of arr)]
+             (if (php/ptr-valid? arr p) (get (php/array-order arr) p) :php/null))))]
+    [php/bi-next
+     (fn [args]
+       (do (php/arity-between "next" args 1 1 "exactly 1")
+           (let [arr (php/arg-array (get args 0) "next" 1 "array")]
+             (php/ptr-move arr (+ (php/ptr-of arr) 1)))))]
+    [php/bi-prev
+     (fn [args]
+       (do (php/arity-between "prev" args 1 1 "exactly 1")
+           (let [arr (php/arg-array (get args 0) "prev" 1 "array")]
+             (php/ptr-move arr (- (php/ptr-of arr) 1)))))]
+    [php/bi-reset
+     (fn [args]
+       (do (php/arity-between "reset" args 1 1 "exactly 1")
+           (let [arr (php/arg-array (get args 0) "reset" 1 "array")]
+             (php/ptr-move arr 0))))]
+    [php/bi-end
+     (fn [args]
+       (do (php/arity-between "end" args 1 1 "exactly 1")
+           (let [arr (php/arg-array (get args 0) "end" 1 "array")]
+             (php/ptr-move arr (if (> (php/array-count arr) 0) (- (php/array-count arr) 1) 0)))))]
+    [php/fe-has-next
+     ;; by-reference foreach: is there an element at ordinal `i` of the array now?
+     (fn [tbl i] (if (php/array? tbl) (< i (php/array-count tbl)) false))]
+    [php/fe-key (fn [tbl i] (get (php/array-order tbl) i))]
+    [php/fe-next
+     ;; the ordinal after `key` in the array as the body left it; an element
+     ;; the body unset leaves the ordinal where its successor now sits
+     (fn [tbl key i]
+       (if (php/array? tbl)
+         (let [order (php/array-order tbl)
+               j (php/name-index order key 0 (data/count order))]
+           (if (nil? j) i (+ j 1)))
+         i))]
+    [php/list-get
+     ;; one destructuring read: a missing key warns, a non-array answers null
+     (fn [src k]
+       (if (= (php/kind src) :array)
+         (let [key (php/array-key k)
+               v (php/array-get src key)]
+           (if (nil? v)
+             (do (php/warn 2 (php/undef-key-msg key)) :php/null)
+             v))
+         :php/null))]
+    ;; ---------------------------------------------------------------- typed references (rows 41 to 47)
+    ;; Prelude level only (P3 plan R1): a type is data, `{:t :int}` and so on,
+    ;; `{:t :union :of [T ...]}` for unions and nullables; a source is
+    ;; `{:obj id :class "C" :prop "p" :type T}` held in the reference's
+    ;; `:sources` vector (a stable object-and-property identity). P4 adds the
+    ;; syntax that calls these functions.
+    [php/type-str
+     (fn [t]
+       (let [k (get t :t)]
+         (if (= k :union)
+           (php/type-union-str (get t :of) 0 (data/count (get t :of)) "")
+           (if (= k :class) (get t :name) (php/type-name k)))))]
+    [php/type-union-str
+     (fn [ts i n acc]
+       (if (< i n)
+         (php/type-union-str ts (+ i 1) n
+                             (data/str-concat acc (if (= i 0) "" "|") (php/type-str (get ts i))))
+         acc))]
+    [php/coerce-one
+     ;; `v` as type `t` (simple kinds), :php/undef when it does not fit
+     (fn [t v strict]
+       (let [k (get t :t)
+             vk (php/kind v)]
+         (if (= k :mixed) v
+             (if (= k :null) (if (= vk :null) v :php/undef)
+                 (if (= k vk) v
+                     (if (= k :float)
+                       (if (= vk :int) (php/to-float v)
+                           (if strict :php/undef (php/coerce-scalar k v vk)))
+                       (if strict :php/undef (php/coerce-scalar k v vk))))))))]
+    [php/coerce-scalar
+     ;; coercive mode: scalars convert among int, float, string and bool
+     (fn [k v vk]
+       (if (if (= vk :array) true (if (= vk :null) true (= vk :obj)))
+         :php/undef
+         (if (= k :int)
+           (if (= vk :bool) (php/to-int v)
+               (if (= vk :float)
+                 (if (= (php/to-float (php/to-int v)) v) (php/to-int v) :php/undef)
+                 (let [r (php/numeric-string v)]
+                   (if (php/full-num? r)
+                     (if (php/int? (get r 1)) (get r 1)
+                         (if (= (php/to-float (php/to-int (get r 1))) (get r 1))
+                           (php/to-int (get r 1))
+                           :php/undef))
+                     :php/undef))))
+           (if (= k :float)
+             (if (= vk :bool) (php/to-float v)
+                 (let [r (php/numeric-string v)]
+                   (if (php/full-num? r) (php/to-float (get r 1)) :php/undef)))
+             (if (= k :string) (php/to-string v)
+                 (if (= k :bool) (php/to-bool v) :php/undef))))))]
+    [php/type-accepts
+     ;; the value `v` becomes under type `t`, or :php/undef; a union keeps an
+     ;; exact member, else the first member that coerces
+     (fn [t v strict]
+       (if (= (get t :t) :union)
+         (let [exact (php/union-exact (get t :of) v 0 (data/count (get t :of)))]
+           (if (= exact :php/undef)
+             (php/union-coerce (get t :of) v strict 0 (data/count (get t :of)))
+             exact))
+         (php/coerce-one t v strict)))]
+    [php/union-exact
+     (fn [ts v i n]
+       (if (< i n)
+         (let [m (get ts i)]
+           (if (= (get m :t) (php/kind v)) v
+               (if (= (get m :t) :mixed) v (php/union-exact ts v (+ i 1) n))))
+         :php/undef))]
+    [php/union-coerce
+     (fn [ts v strict i n]
+       (if (< i n)
+         (let [r (php/coerce-one (get ts i) v strict)]
+           (if (= r :php/undef) (php/union-coerce ts v strict (+ i 1) n) r))
+         :php/undef))]
+    [php/source-key
+     (fn [obj prop] (data/str-concat (integer/format obj) "::" prop))]
+    [php/ref-sources (fn [m] (get (cell/get (get m :php/ref)) :sources))]
+    [php/ref-add-source
+     ;; row 41/45: the current value must satisfy the new source's type
+     (fn [m src]
+       (let [cur (php/ref-value m)
+             ok (php/type-accepts (get src :type) cur false)]
+         (if (= ok :php/undef)
+           (php/throw-error
+             "TypeError"
+             (data/str-concat "Cannot assign " (php/type-name (php/kind cur))
+                              " to property " (get src :class) "::$" (get src :prop)
+                              " of type " (php/type-str (get src :type))))
+           (let [c (get m :php/ref)
+                 st (cell/get c)]
+             (do (cell/set! c (assoc st :sources (php/vconj (get st :sources) src)))
+                 m)))))]
+    [php/sources-without
+     (fn [srcs obj prop i n acc]
+       (if (< i n)
+         (let [x (get srcs i)]
+           (php/sources-without srcs obj prop (+ i 1) n
+                                (if (if (= (get x :obj) obj) (= (get x :prop) prop) false)
+                                  acc
+                                  (php/vconj acc x))))
+         acc))]
+    [php/ref-remove-source
+     ;; row 44
+     (fn [m obj prop]
+       (let [c (get m :php/ref)
+             st (cell/get c)
+             srcs (get st :sources)]
+         (cell/set! c (assoc st :sources
+                             (php/sources-without srcs obj prop 0 (data/count srcs) [])))))]
+    [php/verify-loop
+     (fn [srcs v strict i n]
+       (if (< i n)
+         (let [src (get srcs i)
+               r (php/type-accepts (get src :type) v strict)]
+           (if (= r :php/undef)
+             (php/throw-error
+               "TypeError"
+               (data/str-concat "Cannot assign " (php/type-name (php/kind v))
+                                " to reference held by property " (get src :class) "::$"
+                                (get src :prop) " of type " (php/type-str (get src :type))))
+             (php/verify-loop srcs r strict (+ i 1) n)))
+         v))]
+    [php/verify-ref-assign
+     ;; row 42: the coerced value, which must satisfy every source in turn
+     (fn [m v strict]
+       (let [srcs (php/ref-sources m)]
+         (if (= (data/count srcs) 0) v (php/verify-loop srcs v strict 0 (data/count srcs)))))]
+    [php/ref-write!
+     ;; ASSIGN through marker `m` (rows 2 and 42): verify, store, DELREF the old
+     (fn [m v]
+       (let [v2 (php/verify-ref-assign m v false)
+             old (php/ref-value m)]
+         (do (php/ref-set! m v2) (php/release-unless-same old v2) v2)))]
+    [php/typed-inc
+     ;; row 43: `$r++` through a sourced reference; an int property at the maximum
+     (fn [m]
+       (let [old (php/ref-value m)
+             nv (php/inc old)
+             srcs (php/ref-sources m)]
+         (do (if (if (php/int? old) (php/float? nv) false)
+               (php/inc-overflow srcs 0 (data/count srcs))
+               :php/null)
+             (php/ref-write! m nv))))]
+    [php/inc-overflow
+     (fn [srcs i n]
+       (if (< i n)
+         (let [x (get srcs i)]
+           (if (= (get (get x :type) :t) :int)
+             (php/throw-error
+               "TypeError"
+               (data/str-concat "Cannot increment property " (get x :class) "::$" (get x :prop)
+                                " of type int past its maximal value"))
+             (php/inc-overflow srcs (+ i 1) n)))
+         :php/null))]
+    ;; a test-only object with property declarations (P4 owns `new`)
+    [php/new-typed-obj
+     (fn [cls props decls]
+       (let [o (php/new-obj cls props)]
+         (do (cell/set! (get o :php/obj) (assoc (cell/get (get o :php/obj)) :decls decls))
+             o)))]
+    [php/obj-decl
+     (fn [o prop] (get (get (cell/get (get o :php/obj)) :decls) prop))]
+    [php/obj-set-props!
+     (fn [o props] (cell/set! (get o :php/obj) (assoc (cell/get (get o :php/obj)) :props props)))]
+    [php/obj-prop-ref
+     ;; row 41: `&$o->prop` on a typed property
+     (fn [o prop]
+       (let [st (cell/get (get o :php/obj))
+             decl (php/obj-decl o prop)
+             props (get st :props)
+             cur (php/slot-get props prop)
+             nullable (php/type-accepts (get decl :type) :php/null false)]
+         (if (get decl :readonly)
+           (php/throw-error
+             "Error"
+             (data/str-concat (if (nil? cur) "Cannot indirectly modify readonly property "
+                                  "Cannot modify readonly property ")
+                              (get st :class) "::$" prop))
+           (if (if (nil? cur) (= nullable :php/undef) false)
+             (php/throw-error
+               "Error"
+               (data/str-concat "Cannot access uninitialized non-nullable property "
+                                (get st :class) "::$" prop " by reference"))
+             (let [r (php/make-ref props prop)]
+               (do (php/obj-set-props! o (get r 0))
+                   (php/ref-add-source (get r 1)
+                                       (assoc (assoc (assoc (assoc {} :obj (get st :id))
+                                                            :class (get st :class))
+                                                     :prop prop)
+                                              :type (get decl :type)))))))))]
+    [php/obj-unset-prop
+     ;; row 44: `unset($o->prop)`: the source goes, the property is uninitialized
+     (fn [o prop]
+       (let [st (cell/get (get o :php/obj))
+             cur (php/slot-get (get st :props) prop)]
+         (do (if (= (php/slot-kind cur) :ref-marker)
+               (php/ref-remove-source cur (get st :id) prop)
+               :php/null)
+             (php/obj-set-props! o (php/unset-dim (get st :props) prop))
+             :php/null)))]
     [php/make-closure
      ;; a Closure value (an object, `kind` :obj) around the function cell
      (fn [f] (assoc (assoc {} :php/type :closure) :php/closure f))]

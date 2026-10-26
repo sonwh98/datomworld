@@ -27,7 +27,7 @@
    substrate (b317c139); S2 to S5 (marker-aware variables, write/unset fetches, `=&`, `global`,
    `static` binding, by-reference parameters, marker-preserving sorts) are
    confirmed by the parser run."
-  #{:s1 :s2 :s3 :s4 :s5 :s6})
+  #{:s1 :s2 :s3 :s4 :s5 :s6 :s7 :s8})
 
 
 (defn- fx
@@ -113,9 +113,15 @@
    (fx :foreach-by-value-snapshot :iteration-v1 [28] #{:s7}
        "<?php $a = [1, 2]; foreach ($a as $v) { $a[] = 9; echo $v; } echo count($a);"
        "124")
-   (fx :foreach-key-and-destructure :iteration-v1 [28] #{:s7 :s8}
+   (fx :foreach-key-and-destructure :iteration-v1 [28] #{:s7 :s8 :grammar-foreach-key-destructure}
+       ;; oracle-vs-design: the ANTLR grammar has no `as $k => [$x, $y]`
+       ;; (the key form takes only a chain after `=>`); the source is a parse
+       ;; error here. Escalated; `:foreach-destructure` is the supported form.
        "<?php foreach ([[1, 2], [3, 4]] as $k => [$x, $y]) { echo $k, $x, $y; }"
        "012134")
+   (fx :foreach-destructure :iteration-v1 [28] #{:s7 :s8 :oracle-record}
+       "<?php foreach ([[1, 2], [3, 4]] as [$x, $y]) { echo $x, $y; }"
+       "1234")
    (fx :array-pointer-reset-end :iteration-v1 [55] #{:s7}
        "<?php $a = [1, 2, 3]; next($a); echo current($a); end($a); echo current($a); reset($a); echo current($a);"
        "231")
@@ -133,7 +139,7 @@
        ;; function. Escalated to the architect; the parenthesised variant below
        ;; is what runs.
        "<?php $a = [fn($x) => $x + 1]; echo $a[0](1);" "2")
-   (fx :call-dynamic-dim-paren :calls-v1 [53] #{:s6 :oracle-record}
+   (fx :call-dynamic-dim-paren :calls-v1 [53] #{:s6}
        "<?php $a = [(fn($x) => $x + 1)]; echo $a[0](1);" "2")
    (fx :call-dynamic-chained :calls-v1 [53] #{:s6}
        "<?php $mk = fn($x) => fn($y) => $x + $y; echo $mk(1)(2);" "3")
@@ -156,11 +162,10 @@
        (str "<?php function f($a) { return $a; } try { f(1, z: 2); }"
             " catch (Error $e) { echo $e->getMessage(); }")
        "Unknown named parameter $z")
-   ;; added after the oracle pass: need a shiva recording before they run
-   (assoc (fx :call-too-few-named-uncaught :calls-v1 [63] #{:s6 :oracle-record}
+   (assoc (fx :call-too-few-named-uncaught :calls-v1 [63] #{:s6}
               "<?php function f($a, $b) { return $a; } f(b: 1);" "")
           :uncaught {:class "ArgumentCountError", :message "f(): Argument #1 ($a) not passed"})
-   (assoc (fx :call-unknown-named-uncaught :calls-v1 [65] #{:s6 :oracle-record}
+   (assoc (fx :call-unknown-named-uncaught :calls-v1 [65] #{:s6}
               "<?php function f($a) { return $a; } f(1, z: 2);" "")
           :uncaught {:class "Error", :message "Unknown named parameter $z"})
    (fx :call-return-owned-temp-released :calls-v1 [36 37] #{:s6}
@@ -311,6 +316,9 @@
    :oracle-cycle-release-gc {:out "collected", :diag [], :uncaught nil}
    :oracle-cycle-release-memory {:out "leaks", :diag [], :uncaught nil}
    :ref-cycle-unset-terminates {:out "done", :diag [], :uncaught nil}
+   :call-dynamic-dim-paren {:out "2", :diag [], :uncaught nil}
+   :call-too-few-named-uncaught {:out "", :diag [], :uncaught {:class "ArgumentCountError", :message "f(): Argument #1 ($a) not passed"}}
+   :call-unknown-named-uncaught {:out "", :diag [], :uncaught {:class "Error", :message "Unknown named parameter $z"}}
    :ref-cycle-count {:out "11", :diag [], :uncaught nil}})
 
 

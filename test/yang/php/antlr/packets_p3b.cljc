@@ -5,7 +5,117 @@
 
 
 (def forms
-  '{:ref-static-rebind-leaves-persistent
+  '{:foreach-ref-leftover-binding
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression
+           [:arrayCreation
+            ["OpenSquareBracket" "["]
+            [:arrayItemList
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "3"]]]]]]]
+            ["CloseSquareBracket" "]"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:foreachStatement
+         ["Foreach" "foreach"]
+         ["OpenRoundBracket" "("]
+         [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]
+         ["As" "as"]
+         ["Ampersand" "&"]
+         [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]]
+         ["CloseRoundBracket" ")"]
+         [:statement
+          [:blockStatement
+           ["OpenCurlyBracket" "{"]
+           [:innerStatementList]
+           ["CloseCurlyBracket" "}"]]]]]]
+      [:topStatement
+       [:statement
+        [:foreachStatement
+         ["Foreach" "foreach"]
+         ["OpenRoundBracket" "("]
+         [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]
+         ["As" "as"]
+         [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]]
+         ["CloseRoundBracket" ")"]
+         [:statement
+          [:blockStatement
+           ["OpenCurlyBracket" "{"]
+           [:innerStatementList]
+           ["CloseCurlyBracket" "}"]]]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression
+           [:chain
+            [:chainOrigin
+             [:functionCall
+              [:functionCallName
+               [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "implode"]]]]]
+              [:actualArguments
+               [:arguments
+                ["OpenRoundBracket" "("]
+                [:actualArgument [:expression [:string ["SingleQuoteString" "','"]]]]
+                ["Comma" ","]
+                [:actualArgument
+                 [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]]
+                ["CloseRoundBracket" ")"]]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :list-short-positional
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:arrayDestructuring
+           ["OpenSquareBracket" "["]
+           [:indexedDestructItem
+            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+           ["Comma" ","]
+           [:indexedDestructItem
+            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]
+           ["CloseSquareBracket" "]"]]
+          ["Eq" "="]
+          [:expression
+           [:arrayCreation
+            ["OpenSquareBracket" "["]
+            [:arrayItemList
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]]
+            ["CloseSquareBracket" "]"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+          ["Comma" ","]
+          [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :ref-static-rebind-leaves-persistent
     [:htmlDocument
      [:phpBlock
       [:topStatement
@@ -193,6 +303,251 @@
                      [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]]
                    ["CloseSquareBracket" "]"]]]]
                 ["CloseRoundBracket" ")"]]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :list-keyed
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:arrayDestructuring
+           ["OpenSquareBracket" "["]
+           [:keyedDestructItem
+            [:expression [:string ["SingleQuoteString" "'x'"]]]
+            ["DoubleArrow" "=>"]
+            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$p"]]]]]]
+           ["Comma" ","]
+           [:keyedDestructItem
+            [:expression [:string ["SingleQuoteString" "'y'"]]]
+            ["DoubleArrow" "=>"]
+            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$q"]]]]]]
+           ["CloseSquareBracket" "]"]]
+          ["Eq" "="]
+          [:expression
+           [:arrayCreation
+            ["OpenSquareBracket" "["]
+            [:arrayItemList
+             [:arrayItem
+              [:expression [:string ["SingleQuoteString" "'x'"]]]
+              ["DoubleArrow" "=>"]
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:string ["SingleQuoteString" "'y'"]]]
+              ["DoubleArrow" "=>"]
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]]
+            ["CloseSquareBracket" "]"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$p"]]]]]]
+          ["Comma" ","]
+          [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$q"]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :list-null-source-assigns-null
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:arrayDestructuring
+           ["OpenSquareBracket" "["]
+           [:indexedDestructItem
+            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+           ["Comma" ","]
+           [:indexedDestructItem
+            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]
+           ["CloseSquareBracket" "]"]]
+          ["Eq" "="]
+          [:expression [:constant ["Null" "null"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:chain
+           [:chainOrigin
+            [:functionCall
+             [:functionCallName
+              [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "var_dump"]]]]]
+             [:actualArguments
+              [:arguments
+               ["OpenRoundBracket" "("]
+               [:actualArgument
+                [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]]
+               ["Comma" ","]
+               [:actualArgument
+                [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]]
+               ["CloseRoundBracket" ")"]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :array-pointer-copied-with-value
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression
+           [:arrayCreation
+            ["OpenSquareBracket" "["]
+            [:arrayItemList
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "3"]]]]]]]
+            ["CloseSquareBracket" "]"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:chain
+           [:chainOrigin
+            [:functionCall
+             [:functionCallName
+              [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "next"]]]]]
+             [:actualArguments
+              [:arguments
+               ["OpenRoundBracket" "("]
+               [:actualArgument
+                [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]]
+               ["CloseRoundBracket" ")"]]]]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression
+           [:chain
+            [:chainOrigin
+             [:functionCall
+              [:functionCallName
+               [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "current"]]]]]
+              [:actualArguments
+               [:arguments
+                ["OpenRoundBracket" "("]
+                [:actualArgument
+                 [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]]
+                ["CloseRoundBracket" ")"]]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :foreach-ref-append-while-iterating
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression
+           [:arrayCreation
+            ["OpenSquareBracket" "["]
+            [:arrayItemList
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]]
+            ["CloseSquareBracket" "]"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:foreachStatement
+         ["Foreach" "foreach"]
+         ["OpenRoundBracket" "("]
+         [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]
+         ["As" "as"]
+         ["Ampersand" "&"]
+         [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]]
+         ["CloseRoundBracket" ")"]
+         [:statement
+          [:blockStatement
+           ["OpenCurlyBracket" "{"]
+           [:innerStatementList
+            [:innerStatement
+             [:statement
+              [:ifStatement
+               ["If" "if"]
+               [:parentheses
+                ["OpenRoundBracket" "("]
+                [:expression
+                 [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]]
+                 ["Less" "<"]
+                 [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "3"]]]]]]
+                ["CloseRoundBracket" ")"]]
+               [:statement
+                [:blockStatement
+                 ["OpenCurlyBracket" "{"]
+                 [:innerStatementList
+                  [:innerStatement
+                   [:statement
+                    [:expressionStatement
+                     [:expression
+                      [:assignable
+                       [:chain
+                        [:chainOrigin
+                         [:chainBase
+                          [:keyedVariable
+                           ["VarName" "$a"]
+                           [:squareCurlyExpression
+                            ["OpenSquareBracket" "["]
+                            ["CloseSquareBracket" "]"]]]]]]]
+                      [:assignmentOperator ["Eq" "="]]
+                      [:expression
+                       [:expression
+                        [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]]
+                       ["Plus" "+"]
+                       [:expression
+                        [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]]
+                     ["SemiColon" ";"]]]]]
+                 ["CloseCurlyBracket" "}"]]]]]]
+            [:innerStatement
+             [:statement
+              [:echoStatement
+               ["Echo" "echo"]
+               [:expressionList
+                [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]]]
+               ["SemiColon" ";"]]]]]
+           ["CloseCurlyBracket" "}"]]]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:chain
+           [:chainOrigin
+            [:functionCall
+             [:functionCallName
+              [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Unset" "unset"]]]]]
+             [:actualArguments
+              [:arguments
+               ["OpenRoundBracket" "("]
+               [:actualArgument
+                [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]]]
+               ["CloseRoundBracket" ")"]]]]]]]
          ["SemiColon" ";"]]]]]
      ["EOF" "<EOF>"]],
     :ref-global-at-root-noop
@@ -513,6 +868,48 @@
           [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$y"]]]]]]]
          ["SemiColon" ";"]]]]]
      ["EOF" "<EOF>"]],
+    :list-skip
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          ["List" "list"]
+          ["OpenRoundBracket" "("]
+          [:assignmentList
+           [:assignmentListElement
+            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+           ["Comma" ","]
+           ["Comma" ","]
+           [:assignmentListElement
+            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$c"]]]]]]]
+          ["CloseRoundBracket" ")"]
+          ["Eq" "="]
+          [:expression
+           [:arrayCreation
+            ["OpenSquareBracket" "["]
+            [:arrayItemList
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "3"]]]]]]]
+            ["CloseSquareBracket" "]"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+          ["Comma" ","]
+          [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$c"]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
     :ref-element-target
     [:htmlDocument
      [:phpBlock
@@ -676,6 +1073,192 @@
          ["Echo" "echo"]
          [:expressionList
           [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$x"]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :foreach-ref-unset-current
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression
+           [:arrayCreation
+            ["OpenSquareBracket" "["]
+            [:arrayItemList
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "3"]]]]]]]
+            ["CloseSquareBracket" "]"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:foreachStatement
+         ["Foreach" "foreach"]
+         ["OpenRoundBracket" "("]
+         [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]
+         ["As" "as"]
+         [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$k"]]]]]]
+         ["DoubleArrow" "=>"]
+         ["Ampersand" "&"]
+         [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]
+         ["CloseRoundBracket" ")"]
+         [:statement
+          [:blockStatement
+           ["OpenCurlyBracket" "{"]
+           [:innerStatementList
+            [:innerStatement
+             [:statement
+              [:ifStatement
+               ["If" "if"]
+               [:parentheses
+                ["OpenRoundBracket" "("]
+                [:expression
+                 [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$k"]]]]]]
+                 ["IsEqual" "=="]
+                 [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]]
+                ["CloseRoundBracket" ")"]]
+               [:statement
+                [:blockStatement
+                 ["OpenCurlyBracket" "{"]
+                 [:innerStatementList
+                  [:innerStatement
+                   [:statement
+                    [:expressionStatement
+                     [:expression
+                      [:chain
+                       [:chainOrigin
+                        [:functionCall
+                         [:functionCallName
+                          [:qualifiedNamespaceName
+                           [:namespaceNameList [:identifier ["Unset" "unset"]]]]]
+                         [:actualArguments
+                          [:arguments
+                           ["OpenRoundBracket" "("]
+                           [:actualArgument
+                            [:expression
+                             [:chain
+                              [:chainOrigin
+                               [:chainBase
+                                [:keyedVariable
+                                 ["VarName" "$a"]
+                                 [:squareCurlyExpression
+                                  ["OpenSquareBracket" "["]
+                                  [:expression
+                                   [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]
+                                  ["CloseSquareBracket" "]"]]]]]]]]
+                           ["CloseRoundBracket" ")"]]]]]]]
+                     ["SemiColon" ";"]]]]]
+                 ["CloseCurlyBracket" "}"]]]]]]
+            [:innerStatement
+             [:statement
+              [:echoStatement
+               ["Echo" "echo"]
+               [:expressionList
+                [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]]]
+               ["SemiColon" ";"]]]]]
+           ["CloseCurlyBracket" "}"]]]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:chain
+           [:chainOrigin
+            [:functionCall
+             [:functionCallName
+              [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Unset" "unset"]]]]]
+             [:actualArguments
+              [:arguments
+               ["OpenRoundBracket" "("]
+               [:actualArgument
+                [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]]]
+               ["CloseRoundBracket" ")"]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :list-writes-through-fetches
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$t"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression [:arrayCreation ["OpenSquareBracket" "["] ["CloseSquareBracket" "]"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:arrayDestructuring
+           ["OpenSquareBracket" "["]
+           [:indexedDestructItem
+            [:chain
+             [:chainOrigin
+              [:chainBase
+               [:keyedVariable
+                ["VarName" "$t"]
+                [:squareCurlyExpression
+                 ["OpenSquareBracket" "["]
+                 [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]
+                 ["CloseSquareBracket" "]"]]]]]]]
+           ["Comma" ","]
+           [:indexedDestructItem
+            [:chain
+             [:chainOrigin
+              [:chainBase
+               [:keyedVariable
+                ["VarName" "$t"]
+                [:squareCurlyExpression
+                 ["OpenSquareBracket" "["]
+                 [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]
+                 ["CloseSquareBracket" "]"]]]]]]]
+           ["CloseSquareBracket" "]"]]
+          ["Eq" "="]
+          [:expression
+           [:arrayCreation
+            ["OpenSquareBracket" "["]
+            [:arrayItemList
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "7"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "8"]]]]]]]
+            ["CloseSquareBracket" "]"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression
+           [:chain
+            [:chainOrigin
+             [:chainBase
+              [:keyedVariable
+               ["VarName" "$t"]
+               [:squareCurlyExpression
+                ["OpenSquareBracket" "["]
+                [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]
+                ["CloseSquareBracket" "]"]]]]]]]
+          ["Comma" ","]
+          [:expression
+           [:chain
+            [:chainOrigin
+             [:chainBase
+              [:keyedVariable
+               ["VarName" "$t"]
+               [:squareCurlyExpression
+                ["OpenSquareBracket" "["]
+                [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]
+                ["CloseSquareBracket" "]"]]]]]]]]
          ["SemiColon" ";"]]]]]
      ["EOF" "<EOF>"]],
     :ref-param-array-element
@@ -870,6 +1453,108 @@
                 ["CloseSquareBracket" "]"]]]]]]]]
          ["SemiColon" ";"]]]]]
      ["EOF" "<EOF>"]],
+    :call-unknown-named-uncaught
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:functionDeclaration
+        ["Function_" "function"]
+        [:identifier ["Label" "f"]]
+        ["OpenRoundBracket" "("]
+        [:formalParameterList [:formalParameter [:variableInitializer ["VarName" "$a"]]]]
+        ["CloseRoundBracket" ")"]
+        [:blockStatement
+         ["OpenCurlyBracket" "{"]
+         [:innerStatementList
+          [:innerStatement
+           [:statement
+            [:returnStatement
+             ["Return" "return"]
+             [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+             ["SemiColon" ";"]]]]]
+         ["CloseCurlyBracket" "}"]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:chain
+           [:chainOrigin
+            [:functionCall
+             [:functionCallName
+              [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "f"]]]]]
+             [:actualArguments
+              [:arguments
+               ["OpenRoundBracket" "("]
+               [:actualArgument
+                [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+               ["Comma" ","]
+               [:actualArgument
+                [:argumentName [:identifier ["Label" "z"]] ["Colon" ":"]]
+                [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+               ["CloseRoundBracket" ")"]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :list-nested
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable
+           [:arrayCreation
+            ["OpenSquareBracket" "["]
+            [:arrayItemList
+             [:arrayItem
+              [:expression
+               [:arrayCreation
+                ["OpenSquareBracket" "["]
+                [:arrayItemList
+                 [:arrayItem
+                  [:expression
+                   [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]]
+                 ["Comma" ","]
+                 [:arrayItem
+                  [:expression
+                   [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]]]
+                ["CloseSquareBracket" "]"]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$c"]]]]]]]]
+            ["CloseSquareBracket" "]"]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression
+           [:arrayCreation
+            ["OpenSquareBracket" "["]
+            [:arrayItemList
+             [:arrayItem
+              [:expression
+               [:arrayCreation
+                ["OpenSquareBracket" "["]
+                [:arrayItemList
+                 [:arrayItem
+                  [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+                 ["Comma" ","]
+                 [:arrayItem
+                  [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]]
+                ["CloseSquareBracket" "]"]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "3"]]]]]]]
+            ["CloseSquareBracket" "]"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+          ["Comma" ","]
+          [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]
+          ["Comma" ","]
+          [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$c"]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
     :ref-alias-write
     [:htmlDocument
      [:phpBlock
@@ -904,6 +1589,59 @@
          ["Echo" "echo"]
          [:expressionList
           [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$x"]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :list-swap
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:arrayDestructuring
+           ["OpenSquareBracket" "["]
+           [:indexedDestructItem
+            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+           ["Comma" ","]
+           [:indexedDestructItem
+            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]
+           ["CloseSquareBracket" "]"]]
+          ["Eq" "="]
+          [:expression
+           [:arrayCreation
+            ["OpenSquareBracket" "["]
+            [:arrayItemList
+             [:arrayItem
+              [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]]]
+            ["CloseSquareBracket" "]"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+          ["Comma" ","]
+          [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]]
          ["SemiColon" ";"]]]]]
      ["EOF" "<EOF>"]],
     :ref-param-by-value-is-a-copy
@@ -1163,6 +1901,259 @@
                 ["Comma" ","]
                 [:actualArgument
                  [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "3"]]]]]]
+                ["CloseRoundBracket" ")"]]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :list-by-reference-element
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$arr"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression
+           [:arrayCreation
+            ["OpenSquareBracket" "["]
+            [:arrayItemList
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]]
+            ["CloseSquareBracket" "]"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:arrayDestructuring
+           ["OpenSquareBracket" "["]
+           [:indexedDestructItem
+            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+           ["Comma" ","]
+           [:indexedDestructItem
+            ["Ampersand" "&"]
+            [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]
+           ["CloseSquareBracket" "]"]]
+          ["Eq" "="]
+          [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$arr"]]]]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "9"]]]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression
+           [:chain
+            [:chainOrigin
+             [:chainBase
+              [:keyedVariable
+               ["VarName" "$arr"]
+               [:squareCurlyExpression
+                ["OpenSquareBracket" "["]
+                [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]
+                ["CloseSquareBracket" "]"]]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :foreach-ref-doubles
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression
+           [:arrayCreation
+            ["OpenSquareBracket" "["]
+            [:arrayItemList
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "3"]]]]]]]
+            ["CloseSquareBracket" "]"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:foreachStatement
+         ["Foreach" "foreach"]
+         ["OpenRoundBracket" "("]
+         [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]
+         ["As" "as"]
+         ["Ampersand" "&"]
+         [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]]
+         ["CloseRoundBracket" ")"]
+         [:statement
+          [:blockStatement
+           ["OpenCurlyBracket" "{"]
+           [:innerStatementList
+            [:innerStatement
+             [:statement
+              [:expressionStatement
+               [:expression
+                [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]]
+                [:assignmentOperator ["MulEqual" "*="]]
+                [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+               ["SemiColon" ";"]]]]]
+           ["CloseCurlyBracket" "}"]]]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:chain
+           [:chainOrigin
+            [:functionCall
+             [:functionCallName
+              [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Unset" "unset"]]]]]
+             [:actualArguments
+              [:arguments
+               ["OpenRoundBracket" "("]
+               [:actualArgument
+                [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]]]
+               ["CloseRoundBracket" ")"]]]]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression
+           [:chain
+            [:chainOrigin
+             [:functionCall
+              [:functionCallName
+               [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "implode"]]]]]
+              [:actualArguments
+               [:arguments
+                ["OpenRoundBracket" "("]
+                [:actualArgument [:expression [:string ["SingleQuoteString" "','"]]]]
+                ["Comma" ","]
+                [:actualArgument
+                 [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]]
+                ["CloseRoundBracket" ")"]]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :foreach-ref-break-frees-iterator
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression
+           [:arrayCreation
+            ["OpenSquareBracket" "["]
+            [:arrayItemList
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "3"]]]]]]]
+            ["CloseSquareBracket" "]"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:foreachStatement
+         ["Foreach" "foreach"]
+         ["OpenRoundBracket" "("]
+         [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]
+         ["As" "as"]
+         ["Ampersand" "&"]
+         [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]]
+         ["CloseRoundBracket" ")"]
+         [:statement
+          [:blockStatement
+           ["OpenCurlyBracket" "{"]
+           [:innerStatementList
+            [:innerStatement [:statement [:breakStatement ["Break" "break"] ["SemiColon" ";"]]]]]
+           ["CloseCurlyBracket" "}"]]]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:chain
+           [:chainOrigin
+            [:functionCall
+             [:functionCallName
+              [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Unset" "unset"]]]]]
+             [:actualArguments
+              [:arguments
+               ["OpenRoundBracket" "("]
+               [:actualArgument
+                [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]]]
+               ["CloseRoundBracket" ")"]]]]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable
+           [:chain
+            [:chainOrigin
+             [:chainBase
+              [:keyedVariable
+               ["VarName" "$b"]
+               [:squareCurlyExpression ["OpenSquareBracket" "["] ["CloseSquareBracket" "]"]]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "4"]]]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression
+           [:chain
+            [:chainOrigin
+             [:functionCall
+              [:functionCallName
+               [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "count"]]]]]
+              [:actualArguments
+               [:arguments
+                ["OpenRoundBracket" "("]
+                [:actualArgument
+                 [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]]
+                ["CloseRoundBracket" ")"]]]]]]]
+          ["Comma" ","]
+          [:expression
+           [:chain
+            [:chainOrigin
+             [:functionCall
+              [:functionCallName
+               [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "count"]]]]]
+              [:actualArguments
+               [:arguments
+                ["OpenRoundBracket" "("]
+                [:actualArgument
+                 [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$b"]]]]]]]
                 ["CloseRoundBracket" ")"]]]]]]]]
          ["SemiColon" ";"]]]]]
      ["EOF" "<EOF>"]],
@@ -1563,6 +2554,132 @@
               [:actualArguments [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
          ["SemiColon" ";"]]]]]
      ["EOF" "<EOF>"]],
+    :array-pointer-reset-end
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression
+           [:arrayCreation
+            ["OpenSquareBracket" "["]
+            [:arrayItemList
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "3"]]]]]]]
+            ["CloseSquareBracket" "]"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:chain
+           [:chainOrigin
+            [:functionCall
+             [:functionCallName
+              [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "next"]]]]]
+             [:actualArguments
+              [:arguments
+               ["OpenRoundBracket" "("]
+               [:actualArgument
+                [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]]
+               ["CloseRoundBracket" ")"]]]]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression
+           [:chain
+            [:chainOrigin
+             [:functionCall
+              [:functionCallName
+               [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "current"]]]]]
+              [:actualArguments
+               [:arguments
+                ["OpenRoundBracket" "("]
+                [:actualArgument
+                 [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]]
+                ["CloseRoundBracket" ")"]]]]]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:chain
+           [:chainOrigin
+            [:functionCall
+             [:functionCallName
+              [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "end"]]]]]
+             [:actualArguments
+              [:arguments
+               ["OpenRoundBracket" "("]
+               [:actualArgument
+                [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]]
+               ["CloseRoundBracket" ")"]]]]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression
+           [:chain
+            [:chainOrigin
+             [:functionCall
+              [:functionCallName
+               [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "current"]]]]]
+              [:actualArguments
+               [:arguments
+                ["OpenRoundBracket" "("]
+                [:actualArgument
+                 [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]]
+                ["CloseRoundBracket" ")"]]]]]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:chain
+           [:chainOrigin
+            [:functionCall
+             [:functionCallName
+              [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "reset"]]]]]
+             [:actualArguments
+              [:arguments
+               ["OpenRoundBracket" "("]
+               [:actualArgument
+                [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]]
+               ["CloseRoundBracket" ")"]]]]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression
+           [:chain
+            [:chainOrigin
+             [:functionCall
+              [:functionCallName
+               [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "current"]]]]]
+              [:actualArguments
+               [:arguments
+                ["OpenRoundBracket" "("]
+                [:actualArgument
+                 [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]]
+                ["CloseRoundBracket" ")"]]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
     :call-return-owned-temp-released
     [:htmlDocument
      [:phpBlock
@@ -1641,6 +2758,152 @@
                 ["CloseRoundBracket" ")"]]]]]]]]
          ["SemiColon" ";"]]]]]
      ["EOF" "<EOF>"]],
+    :foreach-ref-leftover-unset-fixes
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression
+           [:arrayCreation
+            ["OpenSquareBracket" "["]
+            [:arrayItemList
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "3"]]]]]]]
+            ["CloseSquareBracket" "]"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:foreachStatement
+         ["Foreach" "foreach"]
+         ["OpenRoundBracket" "("]
+         [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]
+         ["As" "as"]
+         ["Ampersand" "&"]
+         [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]]
+         ["CloseRoundBracket" ")"]
+         [:statement
+          [:blockStatement
+           ["OpenCurlyBracket" "{"]
+           [:innerStatementList]
+           ["CloseCurlyBracket" "}"]]]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:chain
+           [:chainOrigin
+            [:functionCall
+             [:functionCallName
+              [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Unset" "unset"]]]]]
+             [:actualArguments
+              [:arguments
+               ["OpenRoundBracket" "("]
+               [:actualArgument
+                [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]]]
+               ["CloseRoundBracket" ")"]]]]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:foreachStatement
+         ["Foreach" "foreach"]
+         ["OpenRoundBracket" "("]
+         [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]
+         ["As" "as"]
+         [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]]
+         ["CloseRoundBracket" ")"]
+         [:statement
+          [:blockStatement
+           ["OpenCurlyBracket" "{"]
+           [:innerStatementList]
+           ["CloseCurlyBracket" "}"]]]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression
+           [:chain
+            [:chainOrigin
+             [:functionCall
+              [:functionCallName
+               [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "implode"]]]]]
+              [:actualArguments
+               [:arguments
+                ["OpenRoundBracket" "("]
+                [:actualArgument [:expression [:string ["SingleQuoteString" "','"]]]]
+                ["Comma" ","]
+                [:actualArgument
+                 [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]]
+                ["CloseRoundBracket" ")"]]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :call-dynamic-dim-paren
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression
+           [:arrayCreation
+            ["OpenSquareBracket" "["]
+            [:arrayItemList
+             [:arrayItem
+              [:expression
+               [:parentheses
+                ["OpenRoundBracket" "("]
+                [:expression
+                 [:lambdaFunctionExpr
+                  ["LambdaFn" "fn"]
+                  ["OpenRoundBracket" "("]
+                  [:formalParameterList [:formalParameter [:variableInitializer ["VarName" "$x"]]]]
+                  ["CloseRoundBracket" ")"]
+                  ["DoubleArrow" "=>"]
+                  [:expression
+                   [:expression
+                    [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$x"]]]]]]
+                   ["Plus" "+"]
+                   [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]]]
+                ["CloseRoundBracket" ")"]]]]]
+            ["CloseSquareBracket" "]"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression
+           [:chain
+            [:chainOrigin
+             [:functionCall
+              [:functionCallName
+               [:chainBase
+                [:keyedVariable
+                 ["VarName" "$a"]
+                 [:squareCurlyExpression
+                  ["OpenSquareBracket" "["]
+                  [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "0"]]]]]
+                  ["CloseSquareBracket" "]"]]]]]
+              [:actualArguments
+               [:arguments
+                ["OpenRoundBracket" "("]
+                [:actualArgument
+                 [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+                ["CloseRoundBracket" ")"]]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
     :closure-static-per-object
     [:htmlDocument
      [:phpBlock
@@ -1699,6 +2962,82 @@
              [:functionCall
               [:functionCallName [:chainBase [:keyedVariable ["VarName" "$f"]]]]
               [:actualArguments [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :foreach-by-value-snapshot
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression
+           [:arrayCreation
+            ["OpenSquareBracket" "["]
+            [:arrayItemList
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+             ["Comma" ","]
+             [:arrayItem
+              [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]]
+            ["CloseSquareBracket" "]"]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:foreachStatement
+         ["Foreach" "foreach"]
+         ["OpenRoundBracket" "("]
+         [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]
+         ["As" "as"]
+         [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]]
+         ["CloseRoundBracket" ")"]
+         [:statement
+          [:blockStatement
+           ["OpenCurlyBracket" "{"]
+           [:innerStatementList
+            [:innerStatement
+             [:statement
+              [:expressionStatement
+               [:expression
+                [:assignable
+                 [:chain
+                  [:chainOrigin
+                   [:chainBase
+                    [:keyedVariable
+                     ["VarName" "$a"]
+                     [:squareCurlyExpression
+                      ["OpenSquareBracket" "["]
+                      ["CloseSquareBracket" "]"]]]]]]]
+                [:assignmentOperator ["Eq" "="]]
+                [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "9"]]]]]]
+               ["SemiColon" ";"]]]]
+            [:innerStatement
+             [:statement
+              [:echoStatement
+               ["Echo" "echo"]
+               [:expressionList
+                [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$v"]]]]]]]
+               ["SemiColon" ";"]]]]]
+           ["CloseCurlyBracket" "}"]]]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression
+           [:chain
+            [:chainOrigin
+             [:functionCall
+              [:functionCallName
+               [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "count"]]]]]
+              [:actualArguments
+               [:arguments
+                ["OpenRoundBracket" "("]
+                [:actualArgument
+                 [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]]
+                ["CloseRoundBracket" ")"]]]]]]]]
          ["SemiColon" ";"]]]]]
      ["EOF" "<EOF>"]],
     :arrow-captures-by-value-at-creation
@@ -2261,5 +3600,46 @@
                  [:argumentName [:identifier ["Label" "c"]] ["Colon" ":"]]
                  [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "9"]]]]]]
                 ["CloseRoundBracket" ")"]]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :call-too-few-named-uncaught
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:functionDeclaration
+        ["Function_" "function"]
+        [:identifier ["Label" "f"]]
+        ["OpenRoundBracket" "("]
+        [:formalParameterList
+         [:formalParameter [:variableInitializer ["VarName" "$a"]]]
+         ["Comma" ","]
+         [:formalParameter [:variableInitializer ["VarName" "$b"]]]]
+        ["CloseRoundBracket" ")"]
+        [:blockStatement
+         ["OpenCurlyBracket" "{"]
+         [:innerStatementList
+          [:innerStatement
+           [:statement
+            [:returnStatement
+             ["Return" "return"]
+             [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$a"]]]]]]
+             ["SemiColon" ";"]]]]]
+         ["CloseCurlyBracket" "}"]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:chain
+           [:chainOrigin
+            [:functionCall
+             [:functionCallName
+              [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "f"]]]]]
+             [:actualArguments
+              [:arguments
+               ["OpenRoundBracket" "("]
+               [:actualArgument
+                [:argumentName [:identifier ["Label" "b"]] ["Colon" ":"]]
+                [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+               ["CloseRoundBracket" ")"]]]]]]]
          ["SemiColon" ";"]]]]]
      ["EOF" "<EOF>"]]})

@@ -120,8 +120,8 @@
     (testing "an enabled fixture is never pending (activation fails the run)"
       (is (empty? (filter #(= :pending (:oracle %)) p3b/enabled))))
     (testing "the wiring fixtures stay disabled until their step lands"
-      (is (some #(= :foreach-ref-doubles (:id %)) all))
-      (is (not-any? #(= :foreach-ref-doubles (:id %)) p3b/enabled)))
+      (is (some #(= :closure-bind-class-seam (:id %)) all))
+      (is (not-any? #(= :closure-bind-class-seam (:id %)) p3b/enabled)))
     (testing "every recorded oracle result equals the design-pinned expectation"
       (doseq [f all
               :let [r (get p3b/recorded (:id f))]
@@ -131,6 +131,5 @@
         (is (= (:diag r) (vec (:diag f))) (name (:id f)))
         (is (= (:uncaught r) (:uncaught f)) (name (:id f)))))
     (testing "only the escalated and not-yet-recorded fixtures are still pending"
-      (is (= #{:closure-call-invoke :call-dynamic-dim-paren :call-too-few-named-uncaught
-               :call-unknown-named-uncaught}
+      (is (= #{:closure-call-invoke :foreach-destructure}
              (set (map :id (filter #(= :pending (:oracle %)) all))))))))
