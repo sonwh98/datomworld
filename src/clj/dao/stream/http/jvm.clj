@@ -36,7 +36,10 @@
   (kit/send! ch {:status status :headers {"content-type" "text/plain"}} true))
 
 
-(defn- handler
+(defn handler
+  "The listener's ring handler for `boundary`. Public by architect ruling
+   2026-10-26 (collab/1793033722326) so a composition's host edge can
+   dispatch to multiple boundaries on one port."
   [boundary]
   (fn [req]
     (let [exchange (atom nil)]
