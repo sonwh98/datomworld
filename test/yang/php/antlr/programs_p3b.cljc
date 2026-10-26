@@ -12,8 +12,8 @@
      :requires  implementation steps (P3 plan S2..S8) that must be complete
      :source    PHP source
      :out       expected stdout pinned from the rows, or absent for oracle-only
-     :oracle    always `:pending` here: this machine has no PHP. The shiva
-                recording pass sets the banner; a mismatch is escalated to the
+     :oracle    `:pending` until the shiva recording pass has run; `pin` then
+                sets the banner from `recorded`. A mismatch is escalated to the
                 architect and never fixed by editing :out.
 
    `all-fixtures` is unconditional (the oracle iterates it). `enabled` is the
@@ -125,7 +125,7 @@
    (fx :array-pointer-reset-end :iteration-v1 [55] #{:s7}
        "<?php $a = [1, 2, 3]; next($a); echo current($a); end($a); echo current($a); reset($a); echo current($a);"
        "231")
-   (fx :array-pointer-copied-with-value :iteration-v1 [55 60] #{:s7}
+   (fx :array-pointer-copied-with-value :iteration-v1 [55] #{:s7}
        "<?php $a = [1, 2, 3]; next($a); $b = $a; echo current($b);"
        "2")])
 
@@ -158,14 +158,14 @@
        (str "<?php function f($a, $b) { return $a; } try { f(b: 1); }"
             " catch (ArgumentCountError $e) { echo $e->getMessage(); }")
        "f(): Argument #1 ($a) not passed")
-   (fx :call-unknown-named-argument :calls-v1 [65] #{:s6}
+   (fx :call-unknown-named-argument :calls-v1 [57] #{:s6}
        (str "<?php function f($a) { return $a; } try { f(1, z: 2); }"
             " catch (Error $e) { echo $e->getMessage(); }")
        "Unknown named parameter $z")
    (assoc (fx :call-too-few-named-uncaught :calls-v1 [63] #{:s6}
               "<?php function f($a, $b) { return $a; } f(b: 1);" "")
           :uncaught {:class "ArgumentCountError", :message "f(): Argument #1 ($a) not passed"})
-   (assoc (fx :call-unknown-named-uncaught :calls-v1 [65] #{:s6}
+   (assoc (fx :call-unknown-named-uncaught :calls-v1 [57] #{:s6}
               "<?php function f($a) { return $a; } f(1, z: 2);" "")
           :uncaught {:class "Error", :message "Unknown named parameter $z"})
    (fx :call-return-owned-temp-released :calls-v1 [36 37] #{:s6}
@@ -191,13 +191,7 @@
        "<?php $a = 1; $f = fn($x) => fn($y) => $x + $y + $a; echo $f(2)(3);" "6")
    (fx :closure-bind-class-seam :closures-v1 [] #{:s6}
        "<?php $f = function () { return 1; }; $g = Closure::bind($f, null, null); echo $g();"
-       "1")
-   (fx :closure-call-invoke :closures-v1 [] #{:p4}
-       ;; oracle-vs-design: PHP 8.3 answers a Warning ("Cannot bind closure to
-       ;; scope of internal class stdClass") and prints nothing; left pending
-       ;; for architect escalation.
-       "<?php $f = fn($x) => $x * 2; echo $f->call(new stdClass, 4);"
-       nil)])
+       "1")])
 
 
 (def destructure-v1
@@ -255,8 +249,7 @@
 (def recorded
   "Oracle RECORD values from the shiva pass (php-8.3.35 shiva 2026-10-25,
    docker php:8.3-cli), copied exactly from the pass log. A fixture listed
-   here has its :oracle set to the banner by `pin`; `:closure-call-invoke`
-   is deliberately absent (see its note)."
+   here has its :oracle set to the banner by `pin`."
   {:ref-alias-write {:out "2", :diag [], :uncaught nil}
    :ref-unset-breaks-binding {:out "15", :diag [], :uncaught nil}
    :ref-self-assign {:out "3", :diag [], :uncaught nil}
@@ -319,6 +312,8 @@
    :call-dynamic-dim-paren {:out "2", :diag [], :uncaught nil}
    :call-too-few-named-uncaught {:out "", :diag [], :uncaught {:class "ArgumentCountError", :message "f(): Argument #1 ($a) not passed"}}
    :call-unknown-named-uncaught {:out "", :diag [], :uncaught {:class "Error", :message "Unknown named parameter $z"}}
+   :typed-ref-row43-increment-past-max {:out "Cannot increment a reference held by property C::$p of type int past its maximal value", :diag [], :uncaught nil}
+   :closure-call-stdclass {:out "", :diag [[2 "Cannot bind closure to scope of internal class stdClass"]], :uncaught nil}
    :ref-cycle-count {:out "11", :diag [], :uncaught nil}
    :foreach-destructure {:out "1234", :diag [], :uncaught nil}
    :try-catch-message {:out "Call to undefined function nope()", :diag [], :uncaught nil}
@@ -419,7 +414,7 @@
         "prelude: int(7)")
      (c :typed-ref-row43-increment-past-max [43]
         (str "<?php " cls "$c = new C; $c->p = PHP_INT_MAX; $r = &$c->p; try { $r++; } catch (TypeError $e) { echo $e->getMessage(); }")
-        "oracle-vs-design: PHP 8.3 says \"Cannot increment a reference held by property C::$p of type int past its maximal value\", the design row 43 and the prelude say \"Cannot increment property C::$p of type int past its maximal value\"; left pending for architect escalation")
+        "recorded: Cannot increment a reference held by property C::$p of type int past its maximal value (design row 43 amended)")
      (c :typed-ref-row45-second-source-mismatch [45]
         (str "<?php class D { public array $q = []; } " cls
              "$c = new C; $d = new D; $r = &$c->p; try { $d->q = &$c->p; } catch (TypeError $e) { echo $e->getMessage(); }")
@@ -442,6 +437,63 @@
         "design: Typed property C::$p must not be accessed before initialization")]))
 
 
+(def gate-v1
+  "Fixtures authored for the Stage 0 gate (collab/1793020431000-architect-
+   php-p3b-gate): the cycle guard, the departure sources of the ratified
+   ledger rows (C25 spread, C26 iterator, C28 call validation order) and the
+   user-class closure call held for P4. All wait for the next shiva pass."
+  [(fx :ref-cycle-var-dump :ref-lifecycle-v1 [18] #{:s4 :oracle-record}
+       "<?php $a = [1]; $a[0] = &$a; var_dump($a);" nil)
+   (fx :ref-cycle-compare :ref-lifecycle-v1 [18] #{:s4 :oracle-record}
+       (str "<?php $a = [1]; $a[0] = &$a; $b = [1]; $b[0] = &$b;"
+            " try { var_dump($a == $b); } catch (Error $e) { echo $e->getMessage(); }")
+       nil)
+   {:id :call-spread-string-key-gap,
+    :group :calls-v1,
+    :rows [65],
+    :level :oracle-only,
+    :requires #{},
+    :source "<?php function f($a, $b) { return $a - $b; } echo f(...['b' => 1, 'a' => 2]);",
+    :oracle :pending,
+    :note "C25: PHP binds the string keys as named arguments (prints 1); here the spread is refused (G-spread-string-keys)"}
+   {:id :foreach-ref-sort-inside-loop,
+    :group :iteration-v1,
+    :rows [26],
+    :level :oracle-only,
+    :requires #{},
+    :source "<?php $a = [3, 1, 2]; foreach ($a as &$v) { if ($v == 3) { sort($a); } echo $v; }",
+    :oracle :pending,
+    :note "C26: the rebuild clause of row 26 (iterator repositioned by ordinal) is not implemented; closes with the P3-c iterator registry"}
+   {:id :foreach-ref-array-reassigned-in-loop,
+    :group :iteration-v1,
+    :rows [25],
+    :level :oracle-only,
+    :requires #{},
+    :source "<?php $a = [1, 2]; foreach ($a as $k => &$v) { if ($k == 0) { $a = [7, 8]; } echo $v; }",
+    :oracle :pending,
+    :note "C26: the unrelated-table clause of row 25 is not implemented; closes with the P3-c iterator registry"}
+   {:id :call-unknown-named-later-arg-runs,
+    :group :calls-v1,
+    :rows [57],
+    :level :oracle-only,
+    :requires #{},
+    :source (str "<?php function f($a) { return $a; } function side() { echo 'S'; return 1; }"
+                 " try { f(1, z: 2, w: side()); } catch (Error $e) { echo $e->getMessage(); }"),
+    :oracle :pending,
+    :note "C28: PHP stops at the send of z (side() never runs); here php/call-named validates at entry, so side() runs first"}
+   {:id :closure-call-stdclass,
+    :group :closures-v1,
+    :rows [],
+    :level :oracle-only,
+    :requires #{},
+    :source "<?php $f = fn($x) => $x * 2; echo $f->call(new stdClass, 4);",
+    :oracle :pending,
+    :note "recorded warning: PHP refuses to bind a closure to an internal class; P4's bind rules pin it"}
+   (fx :closure-call-user-class :closures-v1 [] #{:p4}
+       "<?php class P { public $v = 2; } $f = fn($x) => $x * $this->v; echo $f->call(new P, 4);"
+       "8")])
+
+
 (def all-fixtures
   "Unconditional registry; the oracle iterates it regardless of activation."
   (mapv pin (concat ref-lifecycle-v1
@@ -451,7 +503,8 @@
                     destructure-v1
                     control-v1
                     oracle-only
-                    typed-ref-candidates)))
+                    typed-ref-candidates
+                    gate-v1)))
 
 
 (defn enabled?

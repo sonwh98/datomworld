@@ -344,3 +344,26 @@
                "fail" (count (:fail by)))
       (is (empty? (:fail by)) (pr-str (take 5 (:fail by)))))
     (println "php-src selection: phpt_selection.edn not generated yet (run yang.php.phpt on shiva)")))
+
+
+(deftest gate-fix-programs-test
+  (testing "var_dump of a self-referencing array terminates with *RECURSION*"
+    (let [r (engine-result "<?php $a = [1]; $a[0] = &$a; var_dump($a);")]
+      (is (str/includes? (:out r) "*RECURSION*") (pr-str r))
+      (is (nil? (:uncaught r)))))
+  (testing "comparing two cyclic arrays is a nesting Error"
+    (is (= "Nesting level too deep - recursive dependency?"
+           (:out (engine-result
+                   (str "<?php $a = [1]; $a[0] = &$a; $b = [1]; $b[0] = &$b;"
+                        " try { var_dump($a == $b); } catch (Error $e) { echo $e->getMessage(); }"))))))
+  (testing "C25: a string-key spread is refused with the named gap"
+    (let [r (engine-result (:source (first (filter #(= :call-spread-string-key-gap (:id %))
+                                                   p3b/all-fixtures))))]
+      (is (= {:class "Error",
+              :message "spread with string keys is not supported yet (yang.php known gap G-spread-string-keys)"}
+             (:uncaught r)))))
+  (testing "C28: a later named argument is evaluated before the unknown name is rejected"
+    (is (= "SUnknown named parameter $z"
+           (:out (engine-result
+                   (:source (first (filter #(= :call-unknown-named-later-arg-runs (:id %))
+                                           p3b/all-fixtures)))))))))

@@ -581,7 +581,7 @@
     (is (= "x"
            (run '(let [m (php/new-ref 1)] (do (php/ref-write! m "x") (php/echo (php/ref-value m))))))))
   (testing "row 43: an int property incremented past its maximum"
-    (is (= "TypeError: Cannot increment property C::$p of type int past its maximal value"
+    (is (= "TypeError: Cannot increment a reference held by property C::$p of type int past its maximal value"
            (uncaught-message
              '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" php.rt/int-max)
                                          (assoc {} "p" {:type {:t :int}}))]
@@ -603,13 +603,23 @@
            (uncaught-message
              '(let [m (php/new-ref "abc")]
                 (php/ref-add-source m {:obj 1 :class "D" :prop "q" :type {:t :int}})))))
-    (is (= "TypeError: Cannot assign string to reference held by property C::$p of type int"
+    (is (= "TypeError: Reference with value of type int held by property C::$p of type int is not compatible with property D::$q of type bool"
            (uncaught-message
              '(let [m (php/new-ref "5")]
                 (do (php/ref-add-source m {:obj 1 :class "C" :prop "p" :type {:t :int}})
                     (php/ref-add-source m {:obj 2 :class "D" :prop "q" :type {:t :int}})
-                    (php/ref-write! (php/ref-add-source m {:obj 3 :class "D" :prop "q" :type {:t :bool}})
-                                    "x")))))))
+                    (php/ref-add-source m {:obj 3 :class "D" :prop "q" :type {:t :bool}}))))))
+    (is (= "5,int"
+           (run '(let [m (php/new-ref "5")]
+                   (do (php/ref-add-source m {:obj 1 :class "C" :prop "p" :type {:t :int}})
+                       (php/echo (data/str-concat (php/to-string (php/ref-value m)) ","
+                                                  (php/type-name (php/kind (php/ref-value m))))))))))
+    (is (= "TypeError: Cannot assign string to reference held by property C::$p of type int"
+           (uncaught-message
+             '(let [m (php/new-ref 5)]
+                (do (php/ref-add-source m {:obj 1 :class "C" :prop "p" :type {:t :int}})
+                    (php/ref-add-source m {:obj 2 :class "D" :prop "q" :type {:t :int}})
+                    (php/ref-write! m "x")))))))
   (testing "check-invariants still holds with sources on a marker"
     (is (= "0"
            (run '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 5)
@@ -809,6 +819,25 @@
   "Substitute the symbol FIX in `tmpl` with `form`."
   [tmpl form]
   (walk/postwalk-replace {'FIX form} tmpl))
+
+
+(deftest gate-cycle-guard-test
+  (testing "var_dump of a self-referencing array terminates with *RECURSION*"
+    (is (= "array(1) {\n  [0]=>\n  *RECURSION*\n}\n"
+           (run (with-fix '(php/var-dump FIX) row18)))))
+  (testing "array comparison of a cycle is a nesting Error, not a host crash"
+    (is (= "Error: Nesting level too deep - recursive dependency?"
+           (uncaught-message (with-fix '(php/loose-eq FIX FIX) row18))))
+    (is (= "Error: Nesting level too deep - recursive dependency?"
+           (uncaught-message (with-fix '(php/identical FIX FIX) row18))))))
+
+
+(deftest gate-spread-string-keys-refused-test
+  (is (= "[1,2]"
+         (run '(php/echo (data/str-concat "[" (php/to-string (get (php/args-spread [] (php/array-append (php/array-append (php/empty-array) 1) 2)) 0))
+                                          "," (php/to-string (get (php/args-spread [] (php/array-append (php/array-append (php/empty-array) 1) 2)) 1)) "]")))))
+  (is (= "Error: spread with string keys is not supported yet (yang.php known gap G-spread-string-keys)"
+         (uncaught-message '(php/args-spread [] (php/array-put (php/empty-array) "a" 1))))))
 
 
 (deftest cycle-release-test

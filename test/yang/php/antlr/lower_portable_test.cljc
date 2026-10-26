@@ -120,8 +120,8 @@
     (testing "an enabled fixture is never pending (activation fails the run)"
       (is (empty? (filter #(= :pending (:oracle %)) p3b/enabled))))
     (testing "the wiring fixtures stay disabled until their step lands"
-      (is (some #(= :closure-call-invoke (:id %)) all))
-      (is (not-any? #(= :closure-call-invoke (:id %)) p3b/enabled)))
+      (is (some #(= :closure-call-user-class (:id %)) all))
+      (is (not-any? #(= :closure-call-user-class (:id %)) p3b/enabled)))
     (testing "every recorded oracle result equals the design-pinned expectation"
       (doseq [f all
               :let [r (get p3b/recorded (:id f))]
@@ -131,7 +131,9 @@
         (is (= (:diag r) (vec (:diag f))) (name (:id f)))
         (is (= (:uncaught r) (:uncaught f)) (name (:id f)))))
     (testing "only the escalated and not-yet-recorded fixtures are still pending"
-      (is (= #{:closure-call-invoke :typed-ref-row43-increment-past-max}
+      (is (= #{:closure-call-user-class :ref-cycle-var-dump :ref-cycle-compare
+               :call-spread-string-key-gap :foreach-ref-sort-inside-loop
+               :foreach-ref-array-reassigned-in-loop :call-unknown-named-later-arg-runs}
              (set (map :id (filter #(= :pending (:oracle %)) all)))))
       (is (= 10 (count (filter #(= :typed-ref-candidates (:group %)) all)))
-          "the S9 text candidates are recorded, bar the escalated row 43 text"))))
+          "the S9 text candidates are all recorded"))))

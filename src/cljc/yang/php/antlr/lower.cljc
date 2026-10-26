@@ -2116,8 +2116,7 @@
                                        (u/lit exact?)))
                                (cond
                                  ref? (app* 'php/param-ref (u/v a))
-                                 (:counted ctx) (app* 'php/addref (u/v a))
-                                 :else (u/v a))))))))
+                                 :else (app* 'php/addref (u/v a)))))))))
 
 
 (defn- function-lam
@@ -2163,7 +2162,18 @@
                                   (args-vector (map #(u/v (symbol %)) cvs))
                                   (u/lit 0)
                                   (u/lit (count cvs)))))
-               body)
+               (if (seq cvs)
+                 ;; no references or statics: release on the normal exit only (an
+                 ;; error leaves the counts high, which is safe)
+                 (let [rv (core/gen "rv" n)]
+                   (u/let1 rv
+                           body
+                           (u/then (app* 'php/release-cvs
+                                         (args-vector (map #(u/v (symbol %)) cvs))
+                                         (u/lit 0)
+                                         (u/lit (count cvs)))
+                                   (u/v rv))))
+                 body))
         variadic? (boolean (some :variadic? params))
         fixed (remove :variadic? params)
         total (count fixed)

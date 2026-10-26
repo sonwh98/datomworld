@@ -940,11 +940,21 @@
            (if (= kb :array)
              (if (if (= ka :null) true (= ka :bool)) (php/cmp-bool a b) -1)
              (php/cmp-scalar a b)))))]
+    [php/nest-enter!
+     ;; one array level deeper; a reference cycle makes the depth unbounded
+     (fn []
+       (let [d (+ (cell/get php.rt/cmp-depth) 1)]
+         (if (> d 100)
+           (do (cell/set! php.rt/cmp-depth 0)
+               (php/throw-error "Error" "Nesting level too deep - recursive dependency?"))
+           (cell/set! php.rt/cmp-depth d))))]
+    [php/nest-leave!
+     (fn [v] (do (cell/set! php.rt/cmp-depth (- (cell/get php.rt/cmp-depth) 1)) v))]
     [php/cmp-arrays
      (fn [a b]
        (let [na (php/array-count a) nb (php/array-count b)]
          (if (= na nb)
-           (php/cmp-pairs a b 0 na)
+           (do (php/nest-enter!) (php/nest-leave! (php/cmp-pairs a b 0 na)))
            (if (< na nb) -1 1))))]
     [php/cmp-pairs
      ;; per key of a; a key b lacks makes the pair uncomparable (1)
@@ -997,7 +1007,8 @@
                (= (php/h a) (php/h b))
                (if (= ka :array)
                  (if (= (php/array-count a) (php/array-count b))
-                   (php/identical-pairs a b 0 (php/array-count a))
+                   (do (php/nest-enter!)
+                       (php/nest-leave! (php/identical-pairs a b 0 (php/array-count a))))
                    false)
                  (= a b))))
            false)))]
@@ -1015,7 +1026,7 @@
     [php/not-identical (fn [a b] (not (php/identical a b)))]
 
     ;; ---------------------------------------------------------------- var_dump
-    [php/var-dump (fn [v] (php/var-dump-at v ""))]
+    [php/var-dump (fn [v] (php/var-dump-at v "" []))]
     [php/scalar-dump
      ;; the var_dump text of a scalar of kind k
      (fn [v k]
@@ -1035,22 +1046,34 @@
                                   "\"\n")
                  (php/throw-error "Error" "var_dump: this value kind is not supported yet")))))))]
     [php/var-dump-at
-     ;; `ind` is the indent of the value's own lines
-     (fn [slot ind]
+     ;; `ind` is the indent of the value's own lines; `path` holds the cell ids
+     ;; of the instance arrays being dumped, so a re-entry prints *RECURSION*
+     (fn [slot ind path]
        (let [amp (if (= (php/slot-kind slot) :ref-marker)
                    (if (> (php/rc-of slot) 1) "&" "")
                    "")
              v (php/deref slot)
              k (php/kind v)]
          (if (= k :array)
-           (do (php/echo (data/str-concat ind amp "array("
-                                          (integer/format (php/array-count v))
-                                          ") {\n"))
-               (php/var-dump-items v ind 0 (php/array-count v))
-               (php/echo (data/str-concat ind "}\n")))
+           (let [id (php/cell-id v)]
+             (if (php/path-has? path id 0)
+               (php/echo (data/str-concat ind amp "*RECURSION*\n"))
+               (do (php/echo (data/str-concat ind amp "array("
+                                              (integer/format (php/array-count v))
+                                              ") {\n"))
+                   (php/var-dump-items v ind 0 (php/array-count v)
+                                       (if (nil? id) path (php/vconj path id)))
+                   (php/echo (data/str-concat ind "}\n")))))
            (php/echo (data/str-concat ind amp (php/scalar-dump v k))))))]
+    [php/path-has?
+     (fn [path id i]
+       (if (nil? id)
+         false
+         (if (< i (data/count path))
+           (if (= (get path i) id) true (php/path-has? path id (+ i 1)))
+           false)))]
     [php/var-dump-items
-     (fn [v ind i n]
+     (fn [v ind i n path]
        (if (< i n)
          (let [k (get (php/array-order v) i)]
            (do (php/echo (data/str-concat ind "  ["
@@ -1058,8 +1081,8 @@
                                             (integer/format k)
                                             (data/str-concat "\"" k "\""))
                                           "]=>\n"))
-               (php/var-dump-at (php/slot-get v k) (data/str-concat ind "  "))
-               (php/var-dump-items v ind (+ i 1) n)))
+               (php/var-dump-at (php/slot-get v k) (data/str-concat ind "  ") path)
+               (php/var-dump-items v ind (+ i 1) n path)))
          :php/null))]
 
     ;; ---------------------------------------------------------------- arrays
@@ -2179,21 +2202,44 @@
     [php/source-key
      (fn [obj prop] (data/str-concat (integer/format obj) "::" prop))]
     [php/ref-sources (fn [m] (get (cell/get (get m :php/ref)) :sources))]
+    [php/type-exact?
+     ;; `v` is a member of `t` without coercion
+     (fn [t v]
+       (if (= (get t :t) :mixed) true
+           (if (= (get t :t) :union)
+             (not (= (php/union-exact (get t :of) v 0 (data/count (get t :of))) :php/undef))
+             (= (get t :t) (php/kind v)))))]
     [php/ref-add-source
-     ;; row 41/45: the current value must satisfy the new source's type
+     ;; rows 41 and 45. The value must be assignable to the new source's type
+     ;; (else "Cannot assign"); a reference that already has sources then
+     ;; needs the value to be an exact member of the new type, else the
+     ;; "not compatible" TypeError naming the first source; a reference
+     ;; without sources takes the coerced value.
      (fn [m src]
        (let [cur (php/ref-value m)
-             ok (php/type-accepts (get src :type) cur false)]
+             ok (php/type-accepts (get src :type) cur false)
+             srcs (php/ref-sources m)]
          (if (= ok :php/undef)
            (php/throw-error
              "TypeError"
              (data/str-concat "Cannot assign " (php/type-name (php/kind cur))
                               " to property " (get src :class) "::$" (get src :prop)
                               " of type " (php/type-str (get src :type))))
-           (let [c (get m :php/ref)
-                 st (cell/get c)]
-             (do (cell/set! c (assoc st :sources (php/vconj (get st :sources) src)))
-                 m)))))]
+           (if (if (> (data/count srcs) 0) (not (php/type-exact? (get src :type) cur)) false)
+             (let [first-src (get srcs 0)]
+               (php/throw-error
+                 "TypeError"
+                 (data/str-concat "Reference with value of type " (php/type-name (php/kind cur))
+                                  " held by property " (get first-src :class) "::$"
+                                  (get first-src :prop) " of type "
+                                  (php/type-str (get first-src :type))
+                                  " is not compatible with property " (get src :class) "::$"
+                                  (get src :prop) " of type " (php/type-str (get src :type)))))
+             (let [c (get m :php/ref)
+                   st (cell/get c)]
+               (do (if (= (data/count srcs) 0) (php/ref-set! m ok) :php/null)
+                   (cell/set! c (assoc (cell/get c) :sources (php/vconj (get st :sources) src)))
+                   m))))))]
     [php/sources-without
      (fn [srcs obj prop i n acc]
        (if (< i n)
@@ -2252,7 +2298,7 @@
            (if (= (get (get x :type) :t) :int)
              (php/throw-error
                "TypeError"
-               (data/str-concat "Cannot increment property " (get x :class) "::$" (get x :prop)
+               (data/str-concat "Cannot increment a reference held by property " (get x :class) "::$" (get x :prop)
                                 " of type int past its maximal value"))
              (php/inc-overflow srcs (+ i 1) n)))
          :php/null))]
@@ -2416,7 +2462,8 @@
     [php/callable-fn (fn [h] (php/callable-of h))]
     [php/call-value (fn [v args] (php/call (php/callable-of v) args))]
     [php/args-spread
-     ;; `f(...$xs)`: the values of `xs` appended to the argument vector
+     ;; `f(...$xs)`: the values of `xs` appended to the argument vector; a
+     ;; string key would be a named argument, which is a known gap (C25)
      (fn [acc xs]
        (if (= (php/kind xs) :array)
          (php/spread-args acc xs 0 (php/array-count xs))
@@ -2424,7 +2471,12 @@
     [php/spread-args
      (fn [acc xs i n]
        (if (< i n)
-         (php/spread-args (php/vconj acc (php/array-get xs (get (php/array-order xs) i))) xs (+ i 1) n)
+         (let [k (get (php/array-order xs) i)]
+           (if (php/int? k)
+             (php/spread-args (php/vconj acc (php/array-get xs k)) xs (+ i 1) n)
+             (php/throw-error
+               "Error"
+               "spread with string keys is not supported yet (yang.php known gap G-spread-string-keys)")))
          acc))]
     [php/name-index
      (fn [names name i n]
@@ -2952,6 +3004,7 @@
                                            :parent (or parent :php/null)}]))
                                error-classes)))
                  (define 'php.rt/next-ord '(cell/new 1))
+                 (define 'php.rt/cmp-depth '(cell/new 0))
                  (define 'php.rt/tmps '(cell/new []))
                  (define 'php.rt/next-cell '(cell/new 1))
                  (define 'php.rt/error-handler '(cell/new :php/null))
@@ -3001,7 +3054,7 @@
 
 (def runtime-keys
   "Every key `php/init!` allocates, the ready flag aside, sorted."
-  '[php.rt/classes php.rt/ctx php.rt/diag php.rt/error-handler
+  '[php.rt/classes php.rt/cmp-depth php.rt/ctx php.rt/diag php.rt/error-handler
     php.rt/error-reporting php.rt/functions php.rt/globals php.rt/int-max
     php.rt/int-min php.rt/next-cell php.rt/next-ord
     php.rt/out php.rt/tmps])
