@@ -1,27 +1,121 @@
-[{:id :proto-shadow-delete :group :prototypes :source "const p = {a: 1}; const o = Object.create(p); o.a = 2; console.log(o.a); delete o.a; console.log(o.a, 'a' in o, o.hasOwnProperty('a'));"}
- {:id :proto-null-chain :group :prototypes :source "const o = Object.create(null); let n = 0; let p = Object.getPrototypeOf(Object.create({})); while (p !== null) { n++; p = Object.getPrototypeOf(p); } console.log('toString' in o, n);"}
- {:id :proto-cycle :group :prototypes :source "const a = {}; const b = Object.create(a); try { Object.setPrototypeOf(a, b); } catch (e) { console.log(e.name); }"}
- {:id :proto-ctor :group :prototypes :source "function F() {} F.prototype.m = function () { return 1; }; const f = new F(); console.log(f.m(), F.prototype.constructor === F, f instanceof F);"}
- {:id :this-bare-call :group :this :source "function f() { return this; } console.log(f() === undefined);"}
- {:id :this-detached :group :this :source "const o = {x: 1, m() { return this.x; }}; const f = o.m; console.log(o.m()); try { f(); } catch (e) { console.log(e.name); }"}
- {:id :this-arrow :group :this :source "const o = {x: 7, m() { return (() => this.x)(); }}; console.log(o.m());"}
- {:id :keyorder-ints :group :keyorder :source "const o = {b: 1, 2: 1, a: 1, 1: 1}; console.log(Object.keys(o).join());"}
- {:id :keyorder-one-key :group :keyorder :source "const o = {}; o[1] = 'a'; o['1'] = 'b'; o[1.0] = 'c'; o[-0] = 'z'; o[NaN] = 'n'; console.log(Object.keys(o).join(), o[1]);"}
- {:id :keyorder-readd :group :keyorder :source "const o = {a: 1, b: 2}; delete o.a; o.a = 3; console.log(Object.keys(o).join());"}
- {:id :identity-objects :group :identity :source "const a = {}; const b = {}; console.log(a === a, a === b, [] === [], Symbol('a') === Symbol('a'), Object.is(NaN, NaN), [NaN].includes(NaN), [NaN].indexOf(NaN));"}
- {:id :identity-key-order :group :identity :source "const log = []; const k = {toString() { log.push('k'); return 'p'; }}; const o = {}; o[k] = (log.push('v'), 1); console.log(log.join());"}
- {:id :forin-order :group :forin :source "const p = {a: 1, c: 2}; const o = Object.create(p); o.b = 1; o[2] = 1; o.a = 1; o[1] = 1; const r = []; for (const k in o) r.push(k); console.log(r.join());"}
- {:id :forin-delete-add :group :forin :source "const o = {a: 1, b: 2, c: 3}; const r = []; for (const k in o) { r.push(k); delete o.b; o.z = 1; } console.log(r.join());"}
- {:id :delete-basic :group :delete :source "const o = {a: 1}; Object.defineProperty(o, 'c', {value: 1}); console.log(delete o.a, delete o.nope); try { delete o.c; } catch (e) { console.log(e.name); }"}
- {:id :delete-array-hole :group :delete :source "const a = [1, 2, 3]; delete a[1]; console.log(a.length, 1 in a);"}
- {:id :accessors-literal :group :accessors :source "const o = {get x() { return 1; }, set x(v) { this._x = v; }}; o.x = 5; console.log(o.x, o._x);"}
- {:id :accessors-getter-only :group :accessors :source "const o = {get x() { return 1; }}; try { o.x = 2; } catch (e) { console.log(e.name); }"}
- {:id :descriptors-defaults :group :descriptors :source "const o = {}; Object.defineProperty(o, 'a', {value: 1}); const d = Object.getOwnPropertyDescriptor(o, 'a'); console.log(d.writable, d.enumerable, d.configurable, Object.keys(o).length);"}
- {:id :descriptors-freeze :group :descriptors :source "const o = Object.freeze({a: 1}); try { o.a = 2; } catch (e) { console.log(e.name); } console.log(Object.isFrozen(o), Object.isSealed(o), Object.isExtensible(o));"}
- {:id :arrays-length :group :arrays :source "const a = [1, , 3,]; console.log(a.length, 1 in a); a.length = 1; console.log(a.join());"}
- {:id :arrays-methods :group :arrays :source "console.log([3, 1, 2].sort().join(), [1, 2, 3].slice(1).join(), Array.isArray([]), [1, [2, [3]]].flat().length);"}
- {:id :objectstar-basic :group :objectstar :source "const o = {a: 1, b: 2}; console.log(Object.entries(o).join(';'), Object.values(o).join(), Object.hasOwn(o, 'a'), Object.keys('ab').join());"}
- {:id :units-lone-surrogate :group :units :source "const o = {}; o['\\uD800'] = 1; o['a'] = 2; const k = Object.keys(o)[0]; console.log(k.length, k.charCodeAt(0), '\\uD800' in o);"}
- {:id :json-surrogates :group :json :source "console.log(JSON.stringify('\\uD800'), JSON.stringify('\\uD83D\\uDE00'), JSON.stringify({a: [1, undefined, null]}));"}
- {:id :json-roundtrip :group :json :source "console.log(JSON.stringify(JSON.parse('{\"a\":[1,2,{\"b\":null}]}')), JSON.stringify({a: 1}, null, 2));"}
- {:id :wrappers-primitive-proto :group :wrappers :source "String.prototype.twice = function () { return this + this; }; console.log('ab'.twice(), typeof Object.getPrototypeOf('s'));"}]
+[{:id :proto-shadow-delete :group :prototypes :step :S6 :source "const p = {a: 1}; const o = Object.create(p); o.a = 2; console.log(o.a); delete o.a; console.log(o.a, 'a' in o, o.hasOwnProperty('a'));"}
+ {:id :proto-null-chain :group :prototypes :step :S6 :source "const o = Object.create(null); let n = 0; let p = Object.getPrototypeOf(Object.create({})); while (p !== null) { n++; p = Object.getPrototypeOf(p); } console.log('toString' in o, n);"}
+ {:id :proto-cycle :group :prototypes :step :S6 :source "const a = {}; const b = Object.create(a); try { Object.setPrototypeOf(a, b); } catch (e) { console.log(e.name); }"}
+ {:id :proto-ctor :group :prototypes :step :S6 :source "function F() {} F.prototype.m = function () { return 1; }; const f = new F(); console.log(f.m(), F.prototype.constructor === F, Object.getPrototypeOf(f) === F.prototype);"}
+ {:id :proto-new-this :group :prototypes :step :S6 :source "function P(x) { this.x = x; } const p = new P(4); console.log(p.x, Object.keys(p).join(), p.constructor === P);"}
+ {:id :proto-ctor-return-object :group :prototypes :step :S6 :source "function F() { return {r: 1}; } function G() { return 5; } console.log(new F().r, typeof new G(), Object.getPrototypeOf(new G()) === G.prototype);"}
+ {:id :proto-literal-proto :group :prototypes :step :S6 :source "const p = {x: 1}; const o = {__proto__: p, y: 2}; console.log(o.x, o.y, Object.getPrototypeOf(o) === p, Object.keys(o).join());"}
+ {:id :proto-literal-computed-proto :group :prototypes :step :S6 :source "const o = {['__proto__']: 5}; console.log(Object.keys(o).join(), Object.getPrototypeOf(o) === Object.prototype);"}
+ {:id :proto-literal-null :group :prototypes :step :S6 :source "const o = {__proto__: null}; console.log(Object.getPrototypeOf(o), 'toString' in o);"}
+ {:id :proto-isprototypeof :group :prototypes :step :S6 :source "const p = {}; const o = Object.create(p); console.log(p.isPrototypeOf(o), o.isPrototypeOf(p), Object.prototype.isPrototypeOf(o));"}
+ {:id :proto-readonly-inherited :group :prototypes :step :S6 :source "const p = Object.defineProperty({}, 'k', {value: 1}); const o = Object.create(p); try { o.k = 2; } catch (e) { console.log(e.name); } console.log(o.k);"}
+ {:id :proto-string-prototype :group :prototypes :step :S6 :source "String.prototype.last = function () { return this.charCodeAt(this.length - 1); }; console.log('ab'.last());"}
+ {:id :proto-getprototypeof-prim :group :prototypes :step :S6 :source "console.log(Object.getPrototypeOf('s') === String.prototype, Object.getPrototypeOf(1) === Number.prototype, Object.getPrototypeOf(true) === Boolean.prototype);"}
+ {:id :proto-proto-accessor :group :prototypes :step :S6 :source "const p = {z: 1}; const o = {}; o.__proto__ = p; console.log(o.z, o.__proto__ === p);"}
+ {:id :this-bare-call :group :this :step :S6 :source "function f() { return this; } console.log(f() === undefined);"}
+ {:id :this-method-call :group :this :step :S6 :source "const o = {x: 3}; o.m = function () { return this.x; }; console.log(o.m());"}
+ {:id :this-detached :group :this :step :S6 :source "const o = {x: 1}; o.m = function () { return this.x; }; const f = o.m; console.log(o.m()); try { f(); } catch (e) { console.log(e.name); }"}
+ {:id :this-arrow :group :this :step :S6 :source "const o = {x: 7}; o.m = function () { return (() => this.x)(); }; console.log(o.m());"}
+ {:id :this-arrow-arrow :group :this :step :S6 :source "const o = {x: 8}; o.m = function () { return (() => (() => this.x)())(); }; console.log(o.m());"}
+ {:id :this-call-apply :group :this :step :S6 :source "function f(a, b) { return [this.v, a, b].join(); } const o = {v: 'o'}; console.log(f.call(o, 1, 2), f.apply(o, [3, 4]), f.apply(o), f.apply(o, {length: 1, 0: 'z'}));"}
+ {:id :this-call-primitive :group :this :step :S6 :source "function f() { return typeof this; } console.log(f.call(5), f.call('s'), f.call(undefined), f.call(null));"}
+ {:id :this-bind :group :this :step :S6 :source "function f(a, b) { return [this.v, a, b].join(); } const b = f.bind({v: 'x'}, 1); console.log(b(2), b.name, b.length);"}
+ {:id :this-bind-new :group :this :step :S6 :source "function P(a) { this.a = a; } const B = P.bind(null, 9); const o = new B(); console.log(o.a, Object.getPrototypeOf(o) === P.prototype);"}
+ {:id :this-bind-bound :group :this :step :S6 :source "function f() { return this.v; } const b1 = f.bind({v: 1}); const b2 = b1.bind({v: 2}); console.log(b2(), b2.name);"}
+ {:id :this-callback-undefined :group :this :step :S6 :source "[1].forEach(function () { console.log(this === undefined); });"}
+ {:id :this-thisarg :group :this :step :S6 :source "const o = {k: 'T'}; [1, 2].forEach(function (x) { console.log(this.k + x); }, o); console.log([1].map(function (x) { return this.k; }, o).join());"}
+ {:id :this-getter-setter :group :this :step :S6b :source "const o = {v: 1, get g() { return this.v; }, set g(x) { this.v = x * 2; }}; o.g = 5; console.log(o.g);"}
+ {:id :this-method-shorthand :group :this :step :S6b :source "const o = {x: 1, m() { return this.x; }}; console.log(o.m());"}
+ {:id :keyorder-ints :group :keyorder :step :S6 :source "const o = {b: 1, 2: 1, a: 1, 1: 1}; console.log(Object.keys(o).join());"}
+ {:id :keyorder-one-key :group :keyorder :step :S6 :source "const o = {}; o[1] = 'a'; o['1'] = 'b'; o[1.0] = 'c'; o[-0] = 'z'; o[NaN] = 'n'; console.log(Object.keys(o).join(), o[1]);"}
+ {:id :keyorder-string-ints :group :keyorder :step :S6 :source "const o = {}; o['01'] = 1; o['4294967295'] = 2; o['4294967294'] = 3; o[5] = 4; console.log(Object.keys(o).join());"}
+ {:id :keyorder-readd :group :keyorder :step :S6 :source "const o = {a: 1, b: 2}; delete o.a; o.a = 3; console.log(Object.keys(o).join());"}
+ {:id :keyorder-redefine :group :keyorder :step :S6 :source "const o = {a: 1, b: 2, c: 3}; Object.defineProperty(o, 'a', {value: 9}); o.b = 8; console.log(Object.keys(o).join(), o.a, o.b);"}
+ {:id :keyorder-symbols :group :keyorder :step :S6 :source "const s = Symbol('s'); const o = {a: 1}; o[s] = 2; o.b = 3; console.log(Object.keys(o).join(), Object.getOwnPropertySymbols(o).length, Object.getOwnPropertyNames(o).join());"}
+ {:id :keyorder-values-entries :group :keyorder :step :S6 :source "const o = {z: 1, 3: 2, y: 3, 1: 4}; console.log(Object.values(o).join(), Object.entries(o).join(';'));"}
+ {:id :keyorder-assign :group :keyorder :step :S6 :source "const t = Object.assign({q: 0}, {b: 1, 2: 2}, null, {a: 3}); console.log(Object.keys(t).join(), t.a);"}
+ {:id :identity-objects :group :identity :step :S6 :source "const a = {}; const b = {}; console.log(a === a, a === b, [] === [], Symbol('a') === Symbol('a'), [NaN].includes(NaN), [NaN].indexOf(NaN));"}
+ {:id :identity-roundtrip :group :identity :step :S6 :source "const o = {}; const a = [o]; const p = {k: a}; console.log(a[0] === o, p.k === a, p.k[0] === o);"}
+ {:id :identity-key-order :group :identity :step :S6 :source "const log = []; const k = {toString: function () { log.push('k'); return 'p'; }}; const o = {}; o[k] = (log.push('v'), 1); console.log(log.join());"}
+ {:id :forin-basic :group :forin :step :S6 :source "const o = {b: 1, 2: 1, a: 1, 1: 1}; let t = ''; for (const k in o) t += k + ','; console.log(t);"}
+ {:id :forin-inherited :group :forin :step :S6 :source "const p = {a: 0, c: 0}; const o = Object.create(p); o.b = 1; o[2] = 1; o.a = 1; o[1] = 1; let t = ''; for (const k in o) t += k + ','; console.log(t);"}
+ {:id :forin-nonenum-shadow :group :forin :step :S6 :source "const p = {x: 1}; const o = Object.create(p); Object.defineProperty(o, 'x', {value: 1, enumerable: false}); o.a = 1; let t = ''; for (var k in o) t += k; console.log(t);"}
+ {:id :forin-delete-own :group :forin :step :S6 :source "const p = {b: 'inherited'}; const o = Object.create(p); o.a = 1; o.b = 2; let t = ''; for (const k in o) { t += k; delete o.b; } console.log(t);"}
+ {:id :forin-delete-later :group :forin :step :S6 :source "const o = {a: 1, b: 2, c: 3}; let t = ''; for (const k in o) { t += k; delete o.b; } console.log(t);"}
+ {:id :forin-add-during :group :forin :step :S6 :source "const o = {a: 1}; let t = ''; for (const k in o) { o.z = 1; t += k; } console.log(t);"}
+ {:id :forin-symbol-skipped :group :forin :step :S6 :source "const o = {a: 1}; o[Symbol('s')] = 2; let t = ''; for (const k in o) t += k; console.log(t);"}
+ {:id :forin-string :group :forin :step :S6 :source "let t = ''; for (const k in 'ab') t += k + ','; console.log(t);"}
+ {:id :forin-array :group :forin :step :S6 :source "let t = ''; for (const k in [5, 6, 7]) t += k + typeof k + ','; console.log(t);"}
+ {:id :forin-nothing :group :forin :step :S6 :source "let t = 'none'; for (const k in null) t = k; for (const k in undefined) t = k; for (const k in 5) t = k; console.log(t);"}
+ {:id :forin-break-continue :group :forin :step :S6 :source "const o = {a: 1, b: 2, c: 3}; let t = ''; for (const k in o) { if (k === 'a') continue; if (k === 'c') break; t += k; } console.log(t);"}
+ {:id :forin-labelled :group :forin :step :S6 :source "const o = {a: 1, b: 2}; let t = ''; outer: for (const i in o) { for (const j in o) { if (j === 'b') continue outer; t += i + j + ','; } } console.log(t);"}
+ {:id :forin-closure-let :group :forin :step :S6 :source "const o = {a: 1, b: 2}; const fs = {}; for (const k in o) fs[k] = () => k; console.log(fs.a(), fs.b());"}
+ {:id :forin-closure-var :group :forin :step :S6 :source "const o = {a: 1, b: 2}; const fs = []; for (var k in o) fs.push(() => k); console.log(fs[0](), fs[1]());"}
+ {:id :forin-identifier-head :group :forin :step :S6 :source "const o = {a: 1, b: 2}; let k; for (k in o); console.log(k);"}
+ {:id :forin-member-head :group :forin :step :S6 :source "const o = {a: 1, b: 2}; const t = {}; for (t.last in o); console.log(t.last);"}
+ {:id :delete-basic :group :delete :step :S6 :source "const o = {a: 1}; console.log(delete o.a, delete o.a, 'a' in o, delete o.zz);"}
+ {:id :delete-nonconfigurable :group :delete :step :S6 :source "const o = Object.defineProperty({}, 'k', {value: 1}); try { delete o.k; } catch (e) { console.log(e.name); } console.log(o.k);"}
+ {:id :delete-array-hole :group :delete :step :S6 :source "const a = [1, 2, 3]; console.log(delete a[1], a.length, 1 in a, a.join());"}
+ {:id :delete-frozen :group :delete :step :S6 :source "const o = Object.freeze({a: 1}); try { delete o.a; } catch (e) { console.log(e.name); } console.log(o.a);"}
+ {:id :delete-computed :group :delete :step :S6 :source "const o = {a: 1, b: 2}; const k = 'b'; console.log(delete o[k], Object.keys(o).join());"}
+ {:id :in-basic :group :delete :step :S6 :source "const o = {a: 1}; console.log('a' in o, 'b' in o, 'toString' in o, 0 in [1], 1 in [1]);"}
+ {:id :in-nonobject :group :delete :step :S6 :source "try { 'a' in 'abc'; } catch (e) { console.log(e.name); } try { 'a' in 1; } catch (e) { console.log(e.name); }"}
+ {:id :accessors-literal-pair :group :accessors :step :S6b :source "let n = 0; const o = {get x() { n++; return 10; }, set x(v) { n += v; }}; o.x = 5; console.log(o.x, n);"}
+ {:id :accessors-getter-only :group :accessors :step :S6b :source "const o = {get x() { return 1; }}; try { o.x = 2; } catch (e) { console.log(e.name); } console.log(o.x);"}
+ {:id :accessors-defineproperty :group :accessors :step :S6 :source "const o = {}; Object.defineProperty(o, 'x', {get: function () { return 42; }, enumerable: false, configurable: true}); console.log(o.x, Object.keys(o).length);"}
+ {:id :accessors-inherited-receiver :group :accessors :step :S6 :source "const p = {}; Object.defineProperty(p, 'who', {get: function () { return this.name; }}); const c = Object.create(p); c.name = 'child'; console.log(c.who);"}
+ {:id :accessors-assign-copies-value :group :accessors :step :S6 :source "let n = 0; const s = {}; Object.defineProperty(s, 'g', {get: function () { n++; return 7; }, enumerable: true}); const t = Object.assign({}, s); console.log(t.g, n, Object.getOwnPropertyDescriptor(t, 'g').writable);"}
+ {:id :descriptors-defaults :group :descriptors :step :S6 :source "const o = {}; Object.defineProperty(o, 'k', {value: 1}); const d = Object.getOwnPropertyDescriptor(o, 'k'); console.log(d.writable, d.enumerable, d.configurable, Object.keys(o).length);"}
+ {:id :descriptors-freeze :group :descriptors :step :S6 :source "const o = Object.freeze({a: 1}); console.log(Object.isFrozen(o), Object.isSealed(o), Object.isExtensible(o)); try { o.a = 2; } catch (e) { console.log(e.name); } try { o.b = 2; } catch (e) { console.log(e.name); }"}
+ {:id :descriptors-seal :group :descriptors :step :S6 :source "const o = Object.seal({a: 1}); o.a = 5; console.log(o.a, Object.isSealed(o), Object.isFrozen(o)); try { delete o.a; } catch (e) { console.log(e.name); }"}
+ {:id :descriptors-prevent-ext :group :descriptors :step :S6 :source "const o = Object.preventExtensions({a: 1}); try { o.b = 1; } catch (e) { console.log(e.name); } console.log(Object.isExtensible(o), Object.isFrozen(Object.preventExtensions({})));"}
+ {:id :descriptors-redefine-error :group :descriptors :step :S6 :source "const o = Object.defineProperty({}, 'k', {value: 1}); try { Object.defineProperty(o, 'k', {value: 2}); } catch (e) { console.log(e.name); } Object.defineProperty(o, 'k', {value: 1}); console.log(o.k);"}
+ {:id :descriptors-define-properties :group :descriptors :step :S6 :source "const o = Object.defineProperties({}, {a: {value: 1, enumerable: true}, b: {value: 2}}); console.log(Object.keys(o).join(), o.b, Object.keys(Object.getOwnPropertyDescriptors(o)).join());"}
+ {:id :descriptors-array-frozen :group :descriptors :step :S6 :source "const a = Object.freeze([1, 2]); try { a.push(3); } catch (e) { console.log(e.name); } console.log(Object.isFrozen(a), a.length);"}
+ {:id :arrays-literal-holes :group :arrays :step :S6 :source "const a = [1, , 3]; console.log(a.length, a[1], 1 in a, [,,1,2,,].length, [1, 2,].length, [].length);"}
+ {:id :arrays-length-assign :group :arrays :step :S6 :source "const a = [1, 2, 3, 4]; a.length = 2; console.log(a.join(), a.length); a.length = 4; console.log(a.join(), a[3]);"}
+ {:id :arrays-write-gap :group :arrays :step :S6 :source "const a = [1]; a[3] = 9; console.log(a.length, a.join(), 2 in a);"}
+ {:id :arrays-push-pop :group :arrays :step :S6 :source "const a = []; console.log(a.push(1, 2, 3), a.pop(), a.shift(), a.unshift(0, 5), a.join());"}
+ {:id :arrays-slice-concat :group :arrays :step :S6 :source "const a = [1, 2, 3, 4]; console.log(a.slice(1, 3).join(), a.slice(-2).join(), a.slice(5).length, a.concat([5], 6, [[7]]).length, [].concat(a).join());"}
+ {:id :arrays-index-includes :group :arrays :step :S6 :source "const a = [1, 2, NaN, 2]; console.log(a.indexOf(2), a.indexOf(2, 2), a.indexOf(NaN), a.includes(NaN), a.includes(3), a.at(-1), a.at(9));"}
+ {:id :arrays-join-nested :group :arrays :step :S6 :source "console.log([1, [2, [3, null]], undefined, 'x'].join('-'), String([1, [2, 3]]), [null].join(), [undefined, 1].join());"}
+ {:id :arrays-iteration :group :arrays :step :S6 :source "const a = [1, 2, 3]; console.log(a.map(x => x * 2).join(), a.filter(x => x % 2).join(), a.reduce((s, x) => s + x), a.reduce((s, x) => s + x, 10), a.find(x => x > 1), a.findIndex(x => x > 5), a.some(x => x > 2), a.every(x => x > 2));"}
+ {:id :arrays-callback-args :group :arrays :step :S6 :source "const a = ['p', 'q']; a.forEach((x, i, arr) => console.log(x, i, arr === a, arr.length));"}
+ {:id :arrays-holes-skipped :group :arrays :step :S6 :source "let n = 0; [1, , 3].forEach(() => n++); console.log(n, [1, , 3].map(x => x * 2).length, [1, , 3].filter(() => true).length, [1, , 3].reduce((s, x) => s + x));"}
+ {:id :arrays-reduce-empty :group :arrays :step :S6 :source "try { [].reduce((a, b) => a + b); } catch (e) { console.log(e.name); } console.log([].reduce((a, b) => a + b, 'init'));"}
+ {:id :arrays-reverse :group :arrays :step :S6 :source "const a = [1, 2, 3]; console.log(a.reverse() === a, a.join());"}
+ {:id :arrays-as-objects :group :arrays :step :S6 :source "const a = [1, 2]; a.x = 'p'; console.log(Object.keys(a).join(), a.length, Array.isArray(a), Array.isArray({length: 0}), typeof a);"}
+ {:id :arrays-constructor :group :arrays :step :S6 :source "console.log(Array(3).length, (new Array(2)).join('-'), Array(1, 2).join(), Array.of(7).length, Array.of(3).join());"}
+ {:id :arrays-constructor-range :group :arrays :step :S6 :source "try { Array(-1); } catch (e) { console.log(e.name); } try { new Array(1.5); } catch (e) { console.log(e.name); }"}
+ {:id :arrays-length-snapshot :group :arrays :step :S6 :source "const a = [1, 2, 3]; let seen = 0; a.forEach((x) => { seen++; if (seen === 1) a.push(99); }); console.log(seen, a.length);"}
+ {:id :arrays-sort-default :group :arrays :step :S5b :source "console.log([10, 9, 1, undefined, 'b', 'a'].sort().join());"}
+ {:id :arrays-sort-compare :group :arrays :step :S5b :source "console.log([3, 1, 2].sort((a, b) => b - a).join(), [{k: 1, v: 'a'}, {k: 0, v: 'b'}, {k: 1, v: 'c'}].sort((x, y) => x.k - y.k).map(o => o.v).join(''));"}
+ {:id :arrays-splice :group :arrays :step :S5b :source "const a = [1, 2, 3, 4]; console.log(a.splice(1, 2).join(), a.join(), a.splice(1, 0, 'x', 'y').length, a.join(), a.splice(-1).join(), a.join());"}
+ {:id :arrays-fill-flat :group :arrays :step :S5b :source "console.log(Array(3).fill(0).join(), [1, [2, [3]]].flat().length, [1, [2, [3]]].flat(Infinity).join(), [1, 2, 3].lastIndexOf(3), [1, 2, 3].reduceRight((s, x) => s + x, ''));"}
+ {:id :arrays-from :group :arrays :step :S5b :source "console.log(Array.from('ab').join(), Array.from({length: 2, 0: 'x', 1: 'y'}).join(), Array.from([1, 2], x => x * 2).join());"}
+ {:id :objectstar-basics :group :objectstar :step :S6 :source "const o = {a: 1, b: 2}; console.log(Object.keys(o).join(), Object.values(o).join(), Object.entries(o).join(';'), Object.hasOwn(o, 'a'), Object.hasOwn(o, 'z'));"}
+ {:id :objectstar-create-props :group :objectstar :step :S6 :source "const o = Object.create({p: 1}, {own: {value: 2, enumerable: true}}); console.log(o.p, o.own, Object.keys(o).join());"}
+ {:id :objectstar-from-entries :group :objectstar :step :S6 :source "const o = Object.fromEntries([['a', 1], ['b', 2]]); console.log(Object.keys(o).join(), o.b);"}
+ {:id :objectstar-strings :group :objectstar :step :S6 :source "console.log(Object.keys('ab').join(), Object.getOwnPropertyNames('ab').join(), Object.hasOwn('ab', 1), Object.hasOwn('ab', 2));"}
+ {:id :objectstar-getownpropertynames-array :group :objectstar :step :S6 :source "console.log(Object.getOwnPropertyNames([7, 8]).join(), Object.getOwnPropertyNames(function f(a, b) {}).join());"}
+ {:id :objectstar-tostring-tags :group :objectstar :step :S6 :source "const t = Object.prototype.toString; console.log(t.call([]), t.call({}), t.call(null), t.call(undefined), t.call(1), t.call('s'), t.call(true), t.call(function () {}));"}
+ {:id :units-key :group :units :step :S6 :source "const o = {}; o['\\uD800'] = 1; o['a'] = 2; const ks = Object.keys(o); console.log(ks.length, ks[0].length, ks[0].charCodeAt(0), '\\uD800' in o, o['\\uD800'], o.a);"}
+ {:id :units-pair-same-key :group :units :step :S6 :source "const o = {}; o['\\uD800' + '\\uDC00'] = 1; console.log(o['\\u{10000}'], Object.keys(o).length);"}
+ {:id :wrappers-primitive-reads :group :wrappers :step :S6 :source "console.log('abc'.length, 'abc'[1], (5).toString(), true.toString(), 'abc'.toString(), 'abc'.valueOf());"}
+ {:id :wrappers-receiver-typeof :group :wrappers :step :S6 :source "Object.defineProperty(Number.prototype, 'kind', {get: function () { return typeof this; }, configurable: true}); console.log((1).kind);"}
+ {:id :wrappers-new-string-departure :group :wrappers :step :S6 :departure {:out ["TypeError"] :reason "L-T2-3: no wrapper objects; new String(x) is a TypeError"} :source "try { const s = new String('x'); console.log(typeof s); } catch (e) { console.log(e.name); }"}
+ {:id :wrappers-new-number-departure :group :wrappers :step :S6 :departure {:out ["TypeError"] :reason "L-T2-3: no wrapper objects; new Number(x) is a TypeError"} :source "try { const s = new Number(1); console.log(typeof s); } catch (e) { console.log(e.name); }"}
+ {:id :wrappers-object-prim-departure :group :wrappers :step :S6 :departure {:out ["TypeError"] :reason "L-T2-3: Object(1) would allocate a wrapper"} :source "try { console.log(typeof Object(1)); } catch (e) { console.log(e.name); }"}
+ {:id :json-stringify-basic :group :json :step :S8 :source "console.log(JSON.stringify({a: 1, b: [1, 'x', null], c: undefined, d: function () {}}), JSON.stringify('q\"'), JSON.stringify(undefined), JSON.stringify(NaN));"}
+ {:id :json-stringify-space :group :json :step :S8 :source "console.log(JSON.stringify({a: [1, {b: 2}]}, null, 2));"}
+ {:id :json-stringify-replacer :group :json :step :S8 :source "console.log(JSON.stringify({a: 1, b: 2, c: 3}, ['a', 'c']), JSON.stringify({a: 1, b: 2}, (k, v) => typeof v === 'number' ? v * 2 : v));"}
+ {:id :json-stringify-tojson :group :json :step :S8 :source "console.log(JSON.stringify({x: {toJSON() { return 'J'; }}}), JSON.stringify([undefined, function () {}, Symbol('s')]));"}
+ {:id :json-stringify-lone-surrogate :group :json :step :S8 :source "console.log(JSON.stringify('\\uD800'), JSON.stringify('\\uDC00'), JSON.stringify('\\uD83D\\uDE00').length, JSON.stringify('\\n\\u0001'));"}
+ {:id :json-stringify-errors :group :json :step :S8 :source "const c = {}; c.self = c; try { JSON.stringify(c); } catch (e) { console.log(e.name); } try { JSON.stringify(1n); } catch (e) { console.log(e.name); }"}
+ {:id :json-parse-basic :group :json :step :S8 :source "const o = JSON.parse('{\"a\": [1, 2.5, true, null, \"s\"], \"b\": {\"c\": -0}}'); console.log(o.a.join(), o.b.c, Object.keys(o).join());"}
+ {:id :json-parse-errors :group :json :step :S8 :source "const t = (s) => { try { JSON.parse(s); } catch (e) { console.log(e.name); } }; t('{'); t('[1,]'); t(\"{'a':1}\"); t(''); t('nul');"}
+ {:id :json-parse-dup-proto :group :json :step :S8 :source "const o = JSON.parse('{\"a\": 1, \"b\": 2, \"a\": 3, \"__proto__\": 5}'); console.log(Object.keys(o).join(), o.a, Object.getPrototypeOf(o) === Object.prototype);"}
+ {:id :json-parse-surrogate :group :json :step :S8 :source "const s = JSON.parse('\"\\\\ud800\"'); console.log(s.length, s.charCodeAt(0), JSON.stringify(s));"}
+ {:id :identity-object-is :group :identity :step :G-is :source "console.log(Object.is(NaN, NaN), Object.is(0, -0), Object.is('a', 'a'));"}
+ {:id :new-member-call :group :prototypes :step :G-new :source "console.log(new Array(2).join('-'));"}
+]

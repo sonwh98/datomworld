@@ -1,0 +1,122 @@
+{:header {:node "v25.6.1", :generated "2026-10-26", :generator "src/dev/yang_ts_oracle.clj"}
+ :entries [
+{:id :proto-shadow-delete, :out ["2" "1 true false"], :exit 0}
+{:id :proto-null-chain, :out ["false 2"], :exit 0}
+{:id :proto-cycle, :out ["TypeError"], :exit 0}
+{:id :proto-ctor, :out ["1 true true"], :exit 0}
+{:id :proto-new-this, :out ["4 x true"], :exit 0}
+{:id :proto-ctor-return-object, :out ["1 object true"], :exit 0}
+{:id :proto-literal-proto, :out ["1 2 true y"], :exit 0}
+{:id :proto-literal-computed-proto, :out ["__proto__ true"], :exit 0}
+{:id :proto-literal-null, :out ["null false"], :exit 0}
+{:id :proto-isprototypeof, :out ["true false true"], :exit 0}
+{:id :proto-readonly-inherited, :out ["TypeError" "1"], :exit 0}
+{:id :proto-string-prototype, :out ["98"], :exit 0}
+{:id :proto-getprototypeof-prim, :out ["true true true"], :exit 0}
+{:id :proto-proto-accessor, :out ["1 true"], :exit 0}
+{:id :this-bare-call, :out ["true"], :exit 0}
+{:id :this-method-call, :out ["3"], :exit 0}
+{:id :this-detached, :out ["1" "TypeError"], :exit 0}
+{:id :this-arrow, :out ["7"], :exit 0}
+{:id :this-arrow-arrow, :out ["8"], :exit 0}
+{:id :this-call-apply, :out ["o,1,2 o,3,4 o,, o,z,"], :exit 0}
+{:id :this-call-primitive, :out ["number string undefined object"], :exit 0}
+{:id :this-bind, :out ["x,1,2 bound f 1"], :exit 0}
+{:id :this-bind-new, :out ["9 true"], :exit 0}
+{:id :this-bind-bound, :out ["1 bound bound f"], :exit 0}
+{:id :this-callback-undefined, :out ["true"], :exit 0}
+{:id :this-thisarg, :out ["T1" "T2" "T"], :exit 0}
+{:id :this-getter-setter, :out ["10"], :exit 0}
+{:id :this-method-shorthand, :out ["1"], :exit 0}
+{:id :keyorder-ints, :out ["1,2,b,a"], :exit 0}
+{:id :keyorder-one-key, :out ["0,1,NaN c"], :exit 0}
+{:id :keyorder-string-ints, :out ["5,4294967294,01,4294967295"], :exit 0}
+{:id :keyorder-readd, :out ["b,a"], :exit 0}
+{:id :keyorder-redefine, :out ["a,b,c 9 8"], :exit 0}
+{:id :keyorder-symbols, :out ["a,b 1 a,b"], :exit 0}
+{:id :keyorder-values-entries, :out ["4,2,1,3 1,4;3,2;z,1;y,3"], :exit 0}
+{:id :keyorder-assign, :out ["2,q,b,a 3"], :exit 0}
+{:id :identity-objects, :out ["true false false false true -1"], :exit 0}
+{:id :identity-roundtrip, :out ["true true true"], :exit 0}
+{:id :identity-key-order, :out ["v,k"], :exit 0}
+{:id :forin-basic, :out ["1,2,b,a,"], :exit 0}
+{:id :forin-inherited, :out ["1,2,b,a,c,"], :exit 0}
+{:id :forin-nonenum-shadow, :out ["a"], :exit 0}
+{:id :forin-delete-own, :out ["ab"], :exit 0}
+{:id :forin-delete-later, :out ["ac"], :exit 0}
+{:id :forin-add-during, :out ["a"], :exit 0}
+{:id :forin-symbol-skipped, :out ["a"], :exit 0}
+{:id :forin-string, :out ["0,1,"], :exit 0}
+{:id :forin-array, :out ["0string,1string,2string,"], :exit 0}
+{:id :forin-nothing, :out ["none"], :exit 0}
+{:id :forin-break-continue, :out ["b"], :exit 0}
+{:id :forin-labelled, :out ["aa,ba,"], :exit 0}
+{:id :forin-closure-let, :out ["a b"], :exit 0}
+{:id :forin-closure-var, :out ["b b"], :exit 0}
+{:id :forin-identifier-head, :out ["b"], :exit 0}
+{:id :forin-member-head, :out ["b"], :exit 0}
+{:id :delete-basic, :out ["true true false true"], :exit 0}
+{:id :delete-nonconfigurable, :out ["TypeError" "1"], :exit 0}
+{:id :delete-array-hole, :out ["true 3 false 1,,3"], :exit 0}
+{:id :delete-frozen, :out ["TypeError" "1"], :exit 0}
+{:id :delete-computed, :out ["true a"], :exit 0}
+{:id :in-basic, :out ["true false true true false"], :exit 0}
+{:id :in-nonobject, :out ["TypeError" "TypeError"], :exit 0}
+{:id :accessors-literal-pair, :out ["10 6"], :exit 0}
+{:id :accessors-getter-only, :out ["TypeError" "1"], :exit 0}
+{:id :accessors-defineproperty, :out ["42 0"], :exit 0}
+{:id :accessors-inherited-receiver, :out ["child"], :exit 0}
+{:id :accessors-assign-copies-value, :out ["7 1 true"], :exit 0}
+{:id :descriptors-defaults, :out ["false false false 0"], :exit 0}
+{:id :descriptors-freeze, :out ["true true false" "TypeError" "TypeError"], :exit 0}
+{:id :descriptors-seal, :out ["5 true false" "TypeError"], :exit 0}
+{:id :descriptors-prevent-ext, :out ["TypeError" "false true"], :exit 0}
+{:id :descriptors-redefine-error, :out ["TypeError" "1"], :exit 0}
+{:id :descriptors-define-properties, :out ["a 2 a,b"], :exit 0}
+{:id :descriptors-array-frozen, :out ["TypeError" "true 2"], :exit 0}
+{:id :arrays-literal-holes, :out ["3 undefined false 5 2 0"], :exit 0}
+{:id :arrays-length-assign, :out ["1,2 2" "1,2,, undefined"], :exit 0}
+{:id :arrays-write-gap, :out ["4 1,,,9 false"], :exit 0}
+{:id :arrays-push-pop, :out ["3 3 1 3 0,5,2"], :exit 0}
+{:id :arrays-slice-concat, :out ["2,3 3,4 0 7 1,2,3,4"], :exit 0}
+{:id :arrays-index-includes, :out ["1 3 -1 true false 2 undefined"], :exit 0}
+{:id :arrays-join-nested, :out ["1-2,3,--x 1,2,3  ,1"], :exit 0}
+{:id :arrays-iteration, :out ["2,4,6 1,3 6 16 2 -1 true false"], :exit 0}
+{:id :arrays-callback-args, :out ["p 0 true 2" "q 1 true 2"], :exit 0}
+{:id :arrays-holes-skipped, :out ["2 3 2 4"], :exit 0}
+{:id :arrays-reduce-empty, :out ["TypeError" "init"], :exit 0}
+{:id :arrays-reverse, :out ["true 3,2,1"], :exit 0}
+{:id :arrays-as-objects, :out ["0,1,x 2 true false object"], :exit 0}
+{:id :arrays-constructor, :out ["3 - 1,2 1 3"], :exit 0}
+{:id :arrays-constructor-range, :out ["RangeError" "RangeError"], :exit 0}
+{:id :arrays-length-snapshot, :out ["3 4"], :exit 0}
+{:id :arrays-sort-default, :out ["1,10,9,a,b,"], :exit 0}
+{:id :arrays-sort-compare, :out ["3,2,1 bac"], :exit 0}
+{:id :arrays-splice, :out ["2,3 1,4 0 1,x,y,4 4 1,x,y"], :exit 0}
+{:id :arrays-fill-flat, :out ["0,0,0 3 1,2,3 2 321"], :exit 0}
+{:id :arrays-from, :out ["a,b x,y 2,4"], :exit 0}
+{:id :objectstar-basics, :out ["a,b 1,2 a,1;b,2 true false"], :exit 0}
+{:id :objectstar-create-props, :out ["1 2 own"], :exit 0}
+{:id :objectstar-from-entries, :out ["a,b 2"], :exit 0}
+{:id :objectstar-strings, :out ["0,1 0,1,length true false"], :exit 0}
+{:id :objectstar-getownpropertynames-array, :out ["0,1,length length,name,prototype"], :exit 0}
+{:id :objectstar-tostring-tags, :out ["[object Array] [object Object] [object Null] [object Undefined] [object Number] [object String] [object Boolean] [object Function]"], :exit 0}
+{:id :units-key, :out ["2 1 55296 true 1 2"], :exit 0}
+{:id :units-pair-same-key, :out ["1 1"], :exit 0}
+{:id :wrappers-primitive-reads, :out ["3 b 5 true abc abc"], :exit 0}
+{:id :wrappers-receiver-typeof, :out ["number"], :exit 0}
+{:id :wrappers-new-string-departure, :out ["object"], :exit 0}
+{:id :wrappers-new-number-departure, :out ["object"], :exit 0}
+{:id :wrappers-object-prim-departure, :out ["object"], :exit 0}
+{:id :json-stringify-basic, :out ["{\"a\":1,\"b\":[1,\"x\",null]} \"q\\\"\" undefined null"], :exit 0}
+{:id :json-stringify-space, :out ["{" "  \"a\": [" "    1," "    {" "      \"b\": 2" "    }" "  ]" "}"], :exit 0}
+{:id :json-stringify-replacer, :out ["{\"a\":1,\"c\":3} {\"a\":2,\"b\":4}"], :exit 0}
+{:id :json-stringify-tojson, :out ["{\"x\":\"J\"} [null,null,null]"], :exit 0}
+{:id :json-stringify-lone-surrogate, :out ["\"\\ud800\" \"\\udc00\" 4 \"\\n\\u0001\""], :exit 0}
+{:id :json-stringify-errors, :out ["TypeError" "TypeError"], :exit 0}
+{:id :json-parse-basic, :out ["1,2.5,true,,s -0 a,b"], :exit 0}
+{:id :json-parse-errors, :out ["SyntaxError" "SyntaxError" "SyntaxError" "SyntaxError" "SyntaxError"], :exit 0}
+{:id :json-parse-dup-proto, :out ["a,b,__proto__ 3 true"], :exit 0}
+{:id :json-parse-surrogate, :out ["1 55296 \"\\ud800\""], :exit 0}
+{:id :identity-object-is, :out ["true false true"], :exit 0}
+{:id :new-member-call, :out ["-"], :exit 0}]}
