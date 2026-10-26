@@ -119,7 +119,10 @@
 ;; `included` (run, fast and ^:slow alike) or below in `excluded` with a
 ;; reason, the missing capability and its owner. Zero unexplained skips.
 (def excluded
-  [{:ns "yin.repl.shell-session-test" :reason "JVM process corpus runs on JVM lane; bb test:jolt-shell runs both hosts" :capability "JVM subprocess harness" :owner "J3"}
+  [{:ns "dao.stream.http-test"
+    :reason "loads dao.stream.http.jvm, the JVM http-kit adapter (b55fdfe1, dao.star Mode 1); jolt has no http-kit, so the namespace cannot load (J4d probe: load failure on org.httpkit.server)"
+    :capability "JVM HTTP server (http-kit)" :owner "dao.star"}
+   {:ns "yin.repl.shell-session-test" :reason "JVM process corpus runs on JVM lane; bb test:jolt-shell runs both hosts" :capability "JVM subprocess harness" :owner "J3"}
    {:ns "yin.repl.python-antlr-test" :reason "Python parser fixture" :capability "Python parser" :owner "J5"}
    {:ns "yin.repl.dht-test" :reason "UDP + durable store fixture" :capability "UDP + durable store" :owner "J7"}
    {:ns "yin.repl.dht-head-test" :reason "WebSocket + durable store fixture" :capability "WebSocket + durable store" :owner "J6/J7"}
