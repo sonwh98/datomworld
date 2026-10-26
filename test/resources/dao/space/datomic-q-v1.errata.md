@@ -159,6 +159,43 @@ instead of reading as empty. Pinned in `dao.space.query-aggregates-test`; no
 corpus case, because the harness builds sources only through the fixture
 DSL.
 
+## E16 — Phase 3 rule semantics: tabling, required-bound heads, negation
+
+Frozen DaoSpace-side behavior (every case is `oracle` pending; Client rule
+behavior is unmeasured):
+
+- **Least fixed point.** Positive recursion is evaluated by an immutable
+  naive fixed point per call key: a repeated call (same rule, same argument
+  content) reads the head tuples tabled so far and records the hit, and its
+  leader re-runs the pass until a pass finds nothing new. Left, right,
+  both-sided and mutual recursion, cycles, several definitions and a fully
+  unbound entry call are complete. The earlier active-call guard returned
+  nothing for a repeated key and lost answers under left recursion (it was
+  not a completeness proof). A rule that never re-enters itself still costs
+  one pass. Kind-distinct numerics are distinct call keys (content identity).
+- **Required-bound heads** `(r [?x ?y] ?z)`: one leading vector of symbols
+  names the variables a call must already have bound; the call is flat
+  `(r 2 3 ?z)`. A required position that is unbound at the call (a variable
+  with no binding, or `_`) throws "Rule required-bound variable is not
+  bound at the call" naming the variable, evaluated with the bindings at the
+  call (a later clause does not rescue it). A vector inside a call is
+  refused ("rule call arguments are flat"); a vector anywhere but the head's
+  leading position is a malformed head. Datomic's own diagnostics are
+  unmeasured.
+- **Recursion through negation** (a rule that, directly or through other
+  rules, calls inside `not` / `not-join` a rule from which it is reachable,
+  itself included) is refused before any evaluation: core ex-info with
+  reason `:recursion-through-negation`, adapter `:unsupported`. Negating a
+  recursive rule from outside its cycle is stratified and allowed.
+- **Divergence.** Fresh-value recursion has no fixed point; the Phase 4 work
+  budget is the backstop and a bounded call exhausts structurally (adapter:
+  `:step-budget-exhausted`). An unbounded call on a divergent rule does not
+  terminate, as before.
+- **Not claimed.** Cost: the naive iteration re-runs whole passes and can be
+  far from optimal on deep recursion (no semi-naive delta). First-witness
+  demand is preserved: negation over a recursive rule stops at its first
+  tuple.
+
 ## E15 — Phase 2 aggregate conventions and their limits
 
 Frozen DaoSpace-side conventions (Client behavior is unmeasured; every case
@@ -199,7 +236,16 @@ is `oracle` pending):
   (`agg.median-tied-kinds`), refused explicitly on `cljs`
   (`agg.median-tied-kinds-carrier-refused`), and the odd-count
   `agg.median-tied-kinds-odd` (no arithmetic) runs on every host.
-- `rand` and `sample` remain excluded ("Unknown aggregate").
+- `rand` and `sample` remain excluded, at both layers: the core throws
+  "Unknown aggregate in :find", and the Datomic adapter refuses them first as
+  `:unsupported` ("randomized aggregates are excluded from the profile").
+- `(max n ?x)` tie order: among values that tie numerically the order is the
+  reverse of the ascending order, so a float64 precedes the exact operand
+  (`[2.0 1.0 1]`, where `(min n ?x)` gives `[1 1.0 2.0]`).
+- An aggregate argument must be a query variable: `(count [1 2])` and other
+  non-variable arguments are refused ("aggregate argument must be a query
+  variable"). Earlier phases parsed them and projected nil at grouping; the
+  stricter refusal was chosen over an explicit laxness note.
 
 ## E14 — Syntax depth is bounded by a documented constant
 

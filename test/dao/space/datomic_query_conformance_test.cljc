@@ -94,10 +94,10 @@
 
 (def resource-blake3
   "BLAKE3 of datomic-q-v1.json's bytes, frozen at corpus review."
-  "17b53dd3edcc6d9c2760ce2cec49166fa1abe7d900b4465bb468aaaa813dc6cb")
+  "862e20421ed2e03a8581fbf23b2038f4b232f79dea7a3ad9f02c299afa9ddf8b")
 
 
-(def expected-case-count 101)
+(def expected-case-count 112)
 
 
 ;; ==========================================================================
@@ -320,11 +320,30 @@
   (cond
     (and (cbor/numeric? a) (cbor/numeric? b)) (zero? (cbor/num-compare a b))
     (and (set? a) (set? b))
+    ;; a BIJECTION, not mere coverage: each element of a consumes one distinct
+    ;; element of b (the relation is an equivalence, so greedy matching is
+    ;; exact). "every a has some match in b" would accept #{1 1.0} for #{1 2}.
     (and (= (count a) (count b))
-         (every? (fn [x] (some #(cell-same? x %) b)) a))
+         (loop [as (seq a)
+                bs (vec b)]
+           (if-not as
+             true
+             (let [i (first (keep-indexed (fn [i y] (when (cell-same? (first as) y) i)) bs))]
+               (and i (recur (next as) (into (subvec bs 0 i) (subvec bs (inc i)))))))))
     (and (sequential? a) (sequential? b))
     (and (= (count a) (count b)) (every? true? (map cell-same? a b)))
     :else (= a b)))
+
+
+(deftest numeric-value-set-agreement-is-a-bijection
+  (testing "two elements of one set may not both match the same element of the other"
+    (is (not (cell-same? (set [1 (cbor/float64 1)]) #{1 2}))))
+  (testing "a genuine bijection across kinds agrees"
+    (is (cell-same? #{1 2} (set [(cbor/float64 2) (cbor/float64 1)]))))
+  (testing "sequences and nested sets stay structural"
+    (is (cell-same? [#{1 2} 3] [#{2 1} (cbor/float64 3)]))
+    (is (not (cell-same? [#{1 2}] [#{1 3}])))
+    (is (not (cell-same? #{1} #{1 2})))))
 
 
 (defn- same?

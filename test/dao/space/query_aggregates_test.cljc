@@ -145,6 +145,15 @@
     (is (re-find #"Unknown aggregate" (refusal #(qq '[:find (sample 2 ?v) :where [?e :s/v ?v]] scores))))))
 
 
+(deftest an-aggregate-argument-must-be-a-query-variable
+  (doseq [form ['[:find (count [1 2]) :where [?e :s/v ?v]]
+                '[:find (median 3) :where [?e :s/v ?v]]
+                '[:find (min 2 [1]) :where [?e :s/v ?v]]
+                '[:find (distinct "x") :where [?e :s/v ?v]]]]
+    (is (refused-with? #(qq form scores) #"aggregate argument must be a query variable")
+        (pr-str form))))
+
+
 (deftest aggregates-over-empty-input-produce-no-row
   (doseq [agg '[median variance stddev distinct]]
     (is (= #{} (qq [:find (list agg '?v) :where '[?e :s/none ?v]] scores)) (str agg)))

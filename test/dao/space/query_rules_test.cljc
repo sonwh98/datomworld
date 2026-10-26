@@ -160,7 +160,7 @@
            (qq '[:find ?a ?b :in $ % :where (near ?a ?b)] (graph) rules)))))
 
 
-(deftest a-rule-used_twice_in_one_query-is-independent-per-call
+(deftest a-rule-used-twice-in-one-query-is-independent-per-call
   (let [q '[:find ?x ?y :in $ % :where (path 1 ?x) (path 5 ?y)]
         expect (set (for [[x] #{[2] [3] [1] [4]} [y] #{[6]}] [x y]))]
     (is (= expect (qq q (graph) left-rules)))))
