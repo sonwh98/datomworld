@@ -271,8 +271,25 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
 10. **Verify what landed.** Compare the commit's diff with the reviewed staged
     diff (or the diff the user explicitly authorized, if committed without
     review). If hooks or formatters changed what landed, review that delta and
-    rerun its affected checks. A failure means the work is not ready; do not
-    amend, revert, or otherwise rewrite history without user authorization.
+    rerun its affected checks — the pre-commit formatter hook can stage files
+    you never added (observed 2026-10-26: an untracked in-flight file of
+    another track was swept into a ledger commit; caught only by reading the
+    post-commit `--stat` against intent). A failure means the work is not
+    ready; do not amend, revert, or otherwise rewrite history without user
+    authorization.
+    **Shared append-only ledgers (`docs/agents/known-gaps.md`) have a merge
+    rule** (2026-10-26, after merge 4d6fd818 silently dropped ~66 rows by
+    replacing the file with a rewritten 16-row variant): never resolve a
+    ledger conflict by taking one side's file, and never land a rewritten or
+    reformatted ledger inside a feature merge. The ledger is append-only
+    ROW-WISE: the only correct resolution is the union of both sides' rows
+    under the existing column schema; a schema change is a proposal to the
+    work log, agreed by seats, executed as a row-wise migration. Before
+    pushing any commit or merge that touches the ledger, count rows on both
+    parents and on the result — the result must be at least max(parents):
+    `git show <rev>:docs/agents/known-gaps.md | grep -c '^|'`. A smaller
+    number means you just dropped another seat's rows; restore per the union
+    rule before pushing.
 11. **Archive completed-task artifacts.** When collaboration artifacts are no
     longer needed for active collaboration (their task is committed or its
     track is otherwise closed), move prompts, findings, and logs from
