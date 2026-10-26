@@ -22,6 +22,8 @@
     jolt_file_realpath;
     jolt_file_rename;
     jolt_file_sync_dir;
+    jolt_file_open_private;
+    jolt_file_eexist;
   local:
     *;
 };
