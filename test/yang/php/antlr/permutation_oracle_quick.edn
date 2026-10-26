@@ -1,0 +1,4262 @@
+{[:flat "AA"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "AAC"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "AB"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(3)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "AC"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ACE"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "AD"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "AE"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "AG"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "AGA"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "AGCD"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "AL"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(3)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ALGT"]
+ {:out
+  "int(0)\nNULL\nNULL\narray(1) {\n  [0]=>\n  int(7)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "AN"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "AT"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "AU"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "AW"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "AWN"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  int(2)\n  [1]=>\n  int(9)\n}\nNULL\nint(3)\nNULL\n",
+  :diag [[2 "Undefined variable $q"] [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "AX"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "AXD"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "AZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "BA"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(3)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "BB"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "BBG"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(7)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "BBN"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "BBXUC"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:flat "BC"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "BCW"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(2)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(2)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(2)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "BD"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "BDGG"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(7)\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "BE"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "BG"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(7)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "BL"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:flat "BLEN"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nint(9)\n",
+  :diag [[2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:flat "BN"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "BT"]
+ {:out
+  "int(0)\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "BU"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nNULL\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:flat "BULZC"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:flat "BW"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [1]=>\n  &int(9)\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "BWZUZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [1]=>\n  &int(9)\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:flat "BX"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "BXCB"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "BZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "CA"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "CAL"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [0]=>\n  &int(3)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "CB"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "CC"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "CCZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "CD"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "CE"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "CG"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "CL"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "CN"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag [[2 "Undefined variable $q"] [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "CT"]
+ {:out
+  "int(0)\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "CU"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "CW"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(2)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(2)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(2)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "CWZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(2)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(2)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(2)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "CX"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "CXNT"]
+ {:out
+  "int(0)\narray(1) {\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag [[2 "Undefined variable $q"] [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "CXUB"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nNULL\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:flat "CZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "CZA"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "DA"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "DAU"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "DB"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "DBBU"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nNULL\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:flat "DC"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "DD"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "DE"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "DG"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "DL"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "DLEUB"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:flat "DLZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "DN"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "DNWWA"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "DNXE"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "DT"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "DTEC"]
+ {:out "int(0)\nint(0)\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "DTN"]
+ {:out
+  "int(0)\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "DU"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "DW"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "DX"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "DZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "EA"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "EB"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "EC"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ECX"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ED"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "EDZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "EE"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "EEEC"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "EG"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "EL"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "EN"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ET"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ETA"]
+ {:out "",
+  :diag [],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:flat "ETUGG"]
+ {:out "",
+  :diag [],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:flat "EU"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "EW"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "EWW"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "EX"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "EXB"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "EZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "EZWZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "GA"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "GAUDX"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "GB"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(7)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "GC"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "GD"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "GE"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "GG"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "GGU"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "GGZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "GL"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(7)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "GN"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "GT"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "GTWWU"]
+ {:out
+  "int(0)\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "GU"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "GUE"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "GW"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "GX"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "GXL"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(7)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "GZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "LA"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(3)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "LB"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:flat "LC"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "LCTGC"]
+ {:out "",
+  :diag [],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:flat "LD"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "LE"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "LELZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "LG"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(7)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "LGDZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(7)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "LL"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "LN"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "LT"]
+ {:out
+  "int(0)\nNULL\nNULL\narray(1) {\n  [0]=>\n  int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "LTU"]
+ {:out
+  "int(0)\nNULL\nNULL\narray(1) {\n  [0]=>\n  int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "LU"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "LW"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "LX"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "LXE"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "LXNLX"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "LZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "LZE"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "NA"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "NATLD"]
+ {:out
+  "int(0)\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\narray(1) {\n  [0]=>\n  int(3)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "NB"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $b"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "NBZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $b"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "NC"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "NCLL"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  int(9)\n}\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ND"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "NE"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "NG"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "NL"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "NLWCL"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  int(9)\n}\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "NN"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "NNDUE"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "NNXDL"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "NNZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "NT"]
+ {:out
+  "int(0)\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "NTGN"]
+ {:out "",
+  :diag [[2 "Undefined variable $b"]],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:flat "NU"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "NW"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "NX"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "NXAD"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "NXLEL"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "NZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "TA"]
+ {:out "",
+  :diag [],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:flat "TANUX"]
+ {:out "",
+  :diag [],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:flat "TAWAA"]
+ {:out "",
+  :diag [],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:flat "TB"]
+ {:out
+  "int(0)\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "TBXT"]
+ {:out
+  "int(0)\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "TC"]
+ {:out "int(0)\nint(0)\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "TD"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "TE"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "TECW"]
+ {:out "",
+  :diag [],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:flat "TG"]
+ {:out "",
+  :diag [],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:flat "TL"]
+ {:out
+  "int(0)\nNULL\nNULL\narray(1) {\n  [0]=>\n  int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "TN"]
+ {:out
+  "int(0)\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "TT"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "TU"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "TUD"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "TW"]
+ {:out
+  "int(0)\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "TWZ"]
+ {:out
+  "int(0)\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "TX"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "TZ"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "TZU"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "UA"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "UADBD"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:flat "UB"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nNULL\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:flat "UBEWL"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [1]=>\n  &int(9)\n  [0]=>\n  int(2)\n}\nNULL\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:flat "UC"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "UD"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "UE"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "UEA"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "UG"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "UL"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ULWL"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "UN"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "UT"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "UU"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "UW"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "UX"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "UXCT"]
+ {:out
+  "int(0)\narray(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "UXNT"]
+ {:out
+  "int(0)\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "UZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "UZN"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "WA"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "WB"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  int(2)\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "WC"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "WCDAZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "WD"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "WDCUC"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "WE"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "WG"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "WL"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "WN"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  int(2)\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag [[2 "Undefined variable $q"] [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "WT"]
+ {:out
+  "int(0)\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "WTA"]
+ {:out "",
+  :diag [],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:flat "WU"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "WW"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "WX"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(0) {\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "WZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "XA"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "XB"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "XC"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "XD"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "XE"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "XET"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "XG"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "XGTU"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "XL"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "XN"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "XT"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "XU"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "XW"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "XWCNZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "XX"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "XXX"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "XZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ZA"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ZB"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "ZC"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ZD"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ZDB"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [1]=>\n  &int(9)\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:flat "ZDLD"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ZE"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ZEANG"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ZEL"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ZG"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ZL"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ZLLWL"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ZN"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\narray(1) {\n  [1]=>\n  int(9)\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ZT"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ZTWC"]
+ {:out "int(0)\nint(0)\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ZU"]
+ {:out
+  "array(2) {\n  [0]=>\n  int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ZW"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ZWA"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(3)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ZWLGW"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(7)\n  [1]=>\n  int(2)\n}\narray(1) {\n  [0]=>\n  int(2)\n}\nNULL\narray(1) {\n  [0]=>\n  &int(7)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ZX"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:flat "ZZ"]
+ {:out
+  "array(2) {\n  [0]=>\n  &int(1)\n  [1]=>\n  int(2)\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "AA"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "AAC"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "AB"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(3)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "AC"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ACE"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "AD"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "AE"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "AG"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "AGA"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "AGCD"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "AL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(3)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ALGT"]
+ {:out
+  "int(0)\nNULL\nNULL\narray(1) {\n  [0]=>\n  int(7)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "AN"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "AT"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "AU"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "AW"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "AWN"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(2)\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(3)\nNULL\n",
+  :diag [[2 "Undefined variable $q"] [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "AX"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "AXD"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "AZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "BA"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(3)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "BB"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "BBG"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(7)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "BBN"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "BBXUC"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:nested "BC"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "BCW"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(2)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(2)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(2)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "BD"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "BDGG"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(7)\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "BE"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "BG"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(7)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "BL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:nested "BLEN"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nint(9)\n",
+  :diag [[2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:nested "BN"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "BT"]
+ {:out
+  "int(0)\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "BU"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nNULL\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:nested "BULZC"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:nested "BW"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [1]=>\n    &int(9)\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "BWZUZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [1]=>\n    &int(9)\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:nested "BX"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "BXCB"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "BZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "CA"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "CAL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [0]=>\n  &int(3)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "CB"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "CC"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "CCZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "CD"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "CE"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "CG"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "CL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "CN"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag [[2 "Undefined variable $q"] [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "CT"]
+ {:out
+  "int(0)\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "CU"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "CW"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(2)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(2)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(2)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "CWZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(2)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(2)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(2)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "CX"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "CXNT"]
+ {:out
+  "int(0)\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag [[2 "Undefined variable $q"] [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "CXUB"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nNULL\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:nested "CZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "CZA"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "DA"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "DAU"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "DB"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "DBBU"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nNULL\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:nested "DC"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "DD"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "DE"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "DG"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "DL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "DLEUB"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:nested "DLZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "DN"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "DNWWA"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "DNXE"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "DT"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "DTEC"]
+ {:out "int(0)\nint(0)\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "DTN"]
+ {:out
+  "int(0)\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "DU"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "DW"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "DX"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "DZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "EA"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "EB"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "EC"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ECX"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ED"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "EDZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "EE"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "EEEC"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "EG"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "EL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "EN"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ET"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ETA"]
+ {:out "",
+  :diag [],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:nested "ETUGG"]
+ {:out "",
+  :diag [],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:nested "EU"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "EW"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "EWW"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "EX"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "EXB"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "EZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "EZWZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "GA"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "GAUDX"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "GB"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(7)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "GC"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "GD"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "GE"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "GG"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "GGU"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "GGZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "GL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(7)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "GN"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "GT"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "GTWWU"]
+ {:out
+  "int(0)\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "GU"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "GUE"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "GW"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "GX"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "GXL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(7)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "GZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "LA"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(3)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "LB"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:nested "LC"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "LCTGC"]
+ {:out "",
+  :diag [],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:nested "LD"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "LE"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "LELZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "LG"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(7)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "LGDZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(7)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "LL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "LN"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "LT"]
+ {:out
+  "int(0)\nNULL\nNULL\narray(1) {\n  [0]=>\n  int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "LTU"]
+ {:out
+  "int(0)\nNULL\nNULL\narray(1) {\n  [0]=>\n  int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "LU"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "LW"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "LX"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "LXE"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "LXNLX"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "LZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "LZE"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "NA"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "NATLD"]
+ {:out
+  "int(0)\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\narray(1) {\n  [0]=>\n  int(3)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "NB"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $b"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "NBZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $b"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "NC"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "NCLL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ND"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "NE"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "NG"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "NL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "NLWCL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "NN"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "NNDUE"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "NNXDL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "NNZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "NT"]
+ {:out
+  "int(0)\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "NTGN"]
+ {:out "",
+  :diag [[2 "Undefined variable $b"]],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:nested "NU"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "NW"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "NX"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "NXAD"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "NXLEL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "NZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "TA"]
+ {:out "",
+  :diag [],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:nested "TANUX"]
+ {:out "",
+  :diag [],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:nested "TAWAA"]
+ {:out "",
+  :diag [],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:nested "TB"]
+ {:out
+  "int(0)\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "TBXT"]
+ {:out
+  "int(0)\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "TC"]
+ {:out "int(0)\nint(0)\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "TD"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "TE"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "TECW"]
+ {:out "",
+  :diag [],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:nested "TG"]
+ {:out "",
+  :diag [],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:nested "TL"]
+ {:out
+  "int(0)\nNULL\nNULL\narray(1) {\n  [0]=>\n  int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "TN"]
+ {:out
+  "int(0)\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "TT"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "TU"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "TUD"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "TW"]
+ {:out
+  "int(0)\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "TWZ"]
+ {:out
+  "int(0)\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "TX"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "TZ"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "TZU"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "UA"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "UADBD"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:nested "UB"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nNULL\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:nested "UBEWL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [1]=>\n    &int(9)\n    [0]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $r"]],
+  :uncaught nil},
+ [:nested "UC"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "UD"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "UE"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "UEA"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "UG"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "UL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ULWL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "UN"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "UT"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "UU"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "UW"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "UX"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "UXCT"]
+ {:out
+  "int(0)\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "UXNT"]
+ {:out
+  "int(0)\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "UZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "UZN"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "WA"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "WB"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(2)\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "WC"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "WCDAZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "WD"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "WDCUC"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "WE"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "WG"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "WL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "WN"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(2)\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag [[2 "Undefined variable $q"] [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "WT"]
+ {:out
+  "int(0)\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "WTA"]
+ {:out "",
+  :diag [],
+  :uncaught
+  {:class "Error", :message "Cannot use a scalar value as an array"}},
+ [:nested "WU"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "WW"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "WX"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(0) {\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "WZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "XA"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "XB"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "XC"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "XD"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "XE"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "XET"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "XG"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "XGTU"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "XL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "XN"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "XT"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "XU"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "XW"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "XWCNZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "XX"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "XXX"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "XZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ZA"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ZB"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "ZC"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ZD"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ZDB"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    &int(9)\n  }\n}\nNULL\nNULL\nint(1)\nint(9)\n",
+  :diag [[2 "Undefined variable $c"] [2 "Undefined variable $q"]],
+  :uncaught nil},
+ [:nested "ZDLD"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ZE"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ZEANG"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ZEL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ZG"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(7)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ZL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\narray(1) {\n  [0]=>\n  &int(1)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ZLLWL"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [0]=>\n  NULL\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ZN"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [1]=>\n    int(9)\n  }\n}\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ZT"]
+ {:out "int(0)\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ZTWC"]
+ {:out "int(0)\nint(0)\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ZU"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ZW"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ZWA"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(3)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\nNULL\nint(3)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ZWLGW"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(7)\n    [1]=>\n    int(2)\n  }\n}\narray(1) {\n  [\"x\"]=>\n  array(1) {\n    [0]=>\n    int(2)\n  }\n}\nNULL\narray(1) {\n  [0]=>\n  &int(7)\n}\nNULL\nNULL\n",
+  :diag
+  [[2 "Undefined variable $c"]
+   [2 "Undefined variable $r"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ZX"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil},
+ [:nested "ZZ"]
+ {:out
+  "array(1) {\n  [\"x\"]=>\n  array(2) {\n    [0]=>\n    &int(1)\n    [1]=>\n    int(2)\n  }\n}\nNULL\nNULL\nNULL\nint(1)\nNULL\n",
+  :diag
+  [[2 "Undefined variable $b"]
+   [2 "Undefined variable $c"]
+   [2 "Undefined variable $q"]
+   [2 "Undefined variable $s"]],
+  :uncaught nil}}
