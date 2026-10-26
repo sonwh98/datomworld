@@ -230,10 +230,7 @@
     :capability "file lock (tryLock)" :owner "J4"}
    {:ns "yin.vm.ucf.compose-test"
     :reason "durable journal fixture requires FileChannel.tryLock"
-    :capability "file lock (tryLock)" :owner "J4"}
-   {:ns "dao.space.store.fs-test"
-    :reason "UTF-8 decoder fails and dangling symlink returns absence instead of refusal"
-    :capability "UTF-8 decoder + symlink refusal" :owner "J4"}])
+    :capability "file lock (tryLock)" :owner "J4"}])
 
 
 ;; Dependency order (the max rank of each suite's source requires), so a low
@@ -271,6 +268,7 @@
    "yin.vm.module-test" "yin.vm.pipeline-test" "yin.vm.semantic.code-test"
    "yin.vm.semantic.load-paths-test" "dao.space.query-test"
    "dao.space.stigmergy-test" ; rejoined (J4a)
+   "dao.space.store.fs-test" ; rejoined (J4b)
    ;; Listed 2026-10-25: added by 3d77ed52 without a manifest entry, which
    ;; made check-manifest! refuse every lane mode; 17 tests, 57 assertions,
    ;; 0 failures on jolt (macOS).

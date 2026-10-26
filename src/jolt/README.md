@@ -25,7 +25,7 @@ The `.jolt` extension keeps these files out of JVM, ClojureScript and Dart
 tooling (clj-kondo does not lint them as `.cljc`); `.cljstyle` lists `jolt`
 among its extensions so the formatter still checks them.
 
-Contents (J0c–J4a):
+Contents (J0c–J4b):
 - `dao/host/{integer,bytes,text,float,number}.jolt`: the primitive profile
   (docs/design/dao.stream.host-boundary.md §4.2, table A) over Chez's exact
   integers, flonums, strings and jolt byte arrays.
@@ -76,7 +76,19 @@ Contents (J0c–J4a):
   probe:jolt-file` (JVM-identical frame bytes, F2 prefixes, strict reads,
   injected transfers, corrupt-open byte identity, idempotent close, no fd or
   native-memory leak, GC during a `:blocking` call, missing/wrong wrapper,
-  export allowlist). No lock operations yet (J4b).
+  export allowlist).
+  J4b (layout 2, 22 exports): `dao.space.store.fs`'s `:jolt` arms reach
+  the same namespace for the directory lock (a whole-file `fcntl(F_SETLK)`
+  write lock, close-on-exec, released by its one close; the `held` registry
+  stays in `fs.cljc`), `realpath`, the HEAD replacement (O_EXCL temp at
+  0666 & ~umask, write-all, fsync, checked close, rename, directory
+  open+fsync+close), and bounded reads (classify by lstat/stat, an
+  O_NONBLOCK open rechecked by fstat, strict UTF-8 through `text.jolt`).
+  `directory-sync-supported?` is true on jolt. `bb probe:jolt-file` also
+  gates jolt<->jolt, jolt<->JVM and jolt<->Dart lock contention, SIGKILL
+  recovery, O_CLOEXEC in an exec'd child, the HEAD cut matrix and the
+  bounded-read refusals. Mixed Node/OS-lock ownership is the known-gaps P2
+  row: not claimed.
 
 The toolchain pins the owner's fork, `https://github.com/sonwh98/jolt`, at
 `697b91eefabf3e964acea787cbc9cb1b6b85a28c` (`jolt-toolchain.edn`). Fork PR

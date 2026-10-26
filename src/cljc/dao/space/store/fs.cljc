@@ -49,7 +49,9 @@
    currently owns.  On Node each worker thread has its own `held`; across
    workers the claim entries decide."
   (:require #?@(:cljd [["dart:convert" :as convert]
-                       ["dart:io" :as dart-io]])
+                       ["dart:io" :as dart-io]]
+                :jolt [[dao.host.text :as text]
+                       [dao.posix.file :as posix-file]])
             [clojure.string :as str])
   #?@(:cljd [(:import ["dart:typed_data" Uint8List])]))
 
@@ -77,6 +79,14 @@
   #?(:cljd (let [f (dart-io/File. path)]
              (when (.existsSync f)
                (str/trim (.readAsStringSync f))))
+     ;; a descriptor read, strictly decoded: absence is nil; a permission or
+     ;; I/O error, or an entry that is not a regular file, throws
+     :jolt (let [bs (posix-file/read-all path)]
+             (case bs
+               :absent nil
+               :not-regular (throw (ex-info (str path " is not a regular file")
+                                            {:path path}))
+               (str/trim (text/utf8-decode bs))))
      :clj (let [f (java.io.File. ^String path)]
             (when (.exists f) (str/trim (slurp f))))
      :cljs (let [fs (js/require "fs")]
@@ -173,6 +183,7 @@
    holdings, so two spellings of one directory are one owner."
   [dir]
   #?(:cljd (.resolveSymbolicLinksSync (dart-io/Directory. dir))
+     :jolt (posix-file/realpath dir)
      :clj (.getCanonicalPath (java.io.File. ^String dir))
      :cljs (.realpathSync ^js (js/require "fs") dir)))
 
@@ -205,6 +216,14 @@
                (catch Object _
                  (try (.closeSync raf) (catch Object _ nil))
                  (refuse-locked dir))))
+     ;; the JVM's FileChannel.tryLock in the same family: a whole-file
+     ;; fcntl(F_SETLK) write lock, close-on-exec; held elsewhere refuses after
+     ;; closing this handle only, and the release is that one close
+     :jolt (let [h (posix-file/lock-file! path)]
+             (if (= :held h)
+               (refuse-locked dir)
+               (fn []
+                 (try (posix-file/close! h) (catch Throwable _ nil)))))
      :clj (let [f (java.io.RandomAccessFile. ^String path "rw")]
             (try
               (let [fl (try (.tryLock (.getChannel f))
@@ -268,6 +287,7 @@
    sync, and Dart's core has no directory sync at all."
   []
   #?(:cljd false
+     :jolt true ; macOS and Linux only (the qualified jolt platforms)
      :clj (not (str/starts-with? (str (System/getProperty "os.name"))
                                  "Windows"))
      :cljs (not= "win32" (.-platform js/process))))
@@ -297,6 +317,16 @@
 
 
 #?(:cljd nil
+   :jolt
+   (defn- sync-directory!
+     "Sync the directory entry itself (open, fsync, close): the rename is
+      durable, not merely visible.  A failure throws; it never turns the
+      host into one without directory sync."
+     [dir]
+     (when (directory-sync-supported?)
+       (try (posix-file/sync-dir! dir)
+            (catch Throwable e
+              (throw (sync-failure dir e))))))
    :clj
    (defn- sync-directory!
      "Sync the directory entry itself where the host supports it — the
@@ -353,6 +383,16 @@
                    (when before-rename (before-rename temp))
                    (.renameSync (dart-io/File. temp) target)
                    (catch Object e
+                     (throw (ex-info (str "cannot replace " target ": " e)
+                                     {:dir dir :target target}
+                                     e))))
+        ;; temp (O_CREAT | O_EXCL, 0666 under the umask) -> write-all ->
+        ;; fsync -> close -> before-rename -> rename -> directory sync
+        :jolt (try (posix-file/write-new-synced! temp (text/utf8-encode text))
+                   (when before-rename (before-rename temp))
+                   (posix-file/rename! temp target)
+                   (sync-directory! dir)
+                   (catch Throwable e
                      (throw (ex-info (str "cannot replace " target ": " e)
                                      {:dir dir :target target}
                                      e))))
@@ -414,8 +454,8 @@
   ;; the open.  Accepted (Architect, H3 round 3): the swap needs write
   ;; access to this node's own locked store directory, which can already
   ;; replace HEAD, and the worst outcome is a startup that blocks, never
-  ;; a wrong head.  Node opens non-blocking and checks the opened
-  ;; descriptor, so it is not exposed.
+  ;; a wrong head.  Node and jolt open non-blocking and check the opened
+  ;; descriptor, so they are not exposed.
   #?(:cljd (let [t (.-type (.statSync (dart-io/File. path)))]
              (cond
                (= t dart-io/FileSystemEntityType.notFound)
@@ -430,6 +470,13 @@
                (let [raf (.openSync (dart-io/File. path))]
                  (try (.readSync raf (inc limit))
                       (finally (.closeSync raf))))))
+     :jolt (let [bs (posix-file/read-bounded path limit)]
+             ;; classify (lstat, stat), then a non-blocking open rechecked
+             ;; by fstat: a FIFO swapped in never blocks
+             (case bs
+               :absent nil
+               :not-regular (throw (not-regular))
+               bs))
      :clj (let [p (java.nio.file.Paths/get path (make-array String 0))]
             (cond
               (java.nio.file.Files/notExists
@@ -485,6 +532,7 @@
   ;; Dart's `utf8` codec does not allow malformed input: it throws a
   ;; FormatException
   #?(:cljd (.decode convert/utf8 ^Uint8List bs)
+     :jolt (text/utf8-decode bs)
      :clj (str (.decode (doto (.newDecoder java.nio.charset.StandardCharsets/UTF_8)
                           (.onMalformedInput
                             java.nio.charset.CodingErrorAction/REPORT)
