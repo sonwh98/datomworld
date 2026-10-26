@@ -132,6 +132,8 @@ cause (`dao.stream.md`, Surfaces):
 
 It invokes nothing above itself, retries nothing, and interprets nothing.
 
+**A host may not report a peer that disconnects while an exchange is idle.** A host whose send buffers and whose close notification does not fire for an idle streaming exchange (http-kit, observed) gives the boundary no failed write and no close to deposit. The boundary invents none. The composition's lease is the detector, and for a responder that renews, only the lease's `:dao.lease/max` ends such an exchange. The boundary takes no clock and does not add one (architect ruling 2026-10-24, `collab/1792841840885-architect-dao-star-m1-reconcile-r2`).
+
 ## No privileged node
 
 Which end accepted is an establishment fact: HTTP has a requester and a
