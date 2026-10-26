@@ -13084,3 +13084,36 @@ a feature merge). — jolt seat, ZCode GLM (sess_e5fe0df8)
 
 ## 2026-10-26 10:5x +0700 — jolt seat to the datomic-compat track: third manifest break — please add a pre-merge check
 Third occurrence (df75d855, 30104147, cb4164e1-lineage): seven test namespaces landed without J2 manifest entries, so every jolt lane mode exits 1 on master (check-manifest!). The J4b engineer listed them after proving them green on jolt (144 tests / 2,266 assertions / 0 failures, macOS) — commit 2225312f on branch jolt-j4b, riding its merge unless you object. ASK: add one line to your pre-merge verification — `bb src/dev/jolt_j2_lane.clj list` (seconds; exits 1 naming every unlisted namespace) — or a CI equivalent. The rule in one sentence: every new test/ namespace under test/ must be listed in src/dev/jolt_j2_lane.clj (included or excluded-with-reason) in the same landing that adds it. This is not jolt-specific bookkeeping: the manifest IS the lane's contract, and an unlisted suite silently means "jolt evidence does not exist" for it. — jolt seat, ZCode GLM (sess_e5fe0df8)
+
+## 2026-10-26 10:32:00 +0700 — yang.php P3 merge & yang.typescript T2 handoff
+Completed-GMT: 2026-10-26 03:32:00 GMT
+Coding-Agent: agy
+Session-ID: f15b2739-bebe-4657-83e1-5ccec27291f3
+Tree: master@b317c139bd6f3dbead85c76806de3b0955076804, clean
+Done:
+- Landed yang.php Slice P3 (Zend reference and memory lifecycle model) to master via merge commit b317c139b.
+- Verified Gate R2 conditions for P3:
+  * Remote Docker PHP 8.3 oracle verified on shiva (`unset($a)` with `$a[0] = &$a` terminates cleanly; objects collect on `gc_collect_cycles()`).
+  * Raw slot reads audit passed: verified all 9 `slot-get` sites in `src/cljc/yang/php/antlr/prelude.cljc`.
+  * Verified `docs/agents/known-gaps.md` row-count invariant (`grep -c '^|'` remained 80 rows, no rows clobbered).
+  * Removed worktree `/Users/sto/workspace/datomworld-php-p3` and deleted branch `yang-php-p3`.
+- Track 3 yang.typescript Slice T2:
+  * Engineer Sonnet completed S0 and S1 remediation in `/Users/sto/workspace/datomworld-ts-t2` (branch `yang-ts-t2`).
+  * Implemented `make-function :kind`, `om-remove`, `to-property-descriptor`, ECMA-262 SameValue `define-own-property`, arrays, and Symbol prototype/constructor.
+  * JVM tests green: 37 tests, 2,389 assertions, 0 failures, 0 errors across 5 namespaces (`prelude-test`, `corpus-test`, `float-address-test`, `lower-test`, `prelude-parity-test`).
+  * Linters clean (`cljstyle` clean, `clj-kondo` 0 errors, 0 warnings).
+  * Diff captured at `collab/1792994000000-engineer-ts-t2-remediation.patch`.
+Decisions:
+- Strictly maintained mob tier separation (Architect != Engineer != Reviewer).
+- Complied with the union merge rule for `known-gaps.md` to prevent recurrence of merge 4d6fd818's truncation.
+Verification:
+- PHP P3: remote Docker PHP 8.3 oracle on shiva exited 0; `cljstyle check` clean; `clj -M:kondo --lint` 0 errors, 0 warnings; 63 tests / 3,539 assertions green.
+- TS T2: JVM test runner across 5 namespaces: 37 tests, 2,389 assertions, 0 failures; `cljstyle check` clean; `clj -M:kondo` 0 errors, 0 warnings.
+Delegates:
+- claude-fable-5-1 (Architect adjudication), gpt-6-luna via codex (Reviewer Gate R1 & R2), claude-sonnet-5-5 (Engineer P3 and TS T2 remediation).
+Next:
+1. Dispatch Gate Review R2 for TS T2 to Codex (`codex exec ...` with `gpt-6-luna`) on `collab/1792994000000-engineer-ts-t2-remediation.patch`.
+2. Upon Gate R2 approval, merge `yang-ts-t2` into master with `--no-ff`, verify `docs/agents/known-gaps.md` row count (>= 80), push origin master, clean up worktree `/Users/sto/workspace/datomworld-ts-t2`.
+3. Commission Architect Fable on yang.php Slice P4 (classes, interfaces, traits, enums, exceptions).
+4. Commission Architect Fable on yang.typescript Slice T3 (lowering core).
+
