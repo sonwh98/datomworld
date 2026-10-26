@@ -188,3 +188,25 @@ Any author from one family must be reviewed by a model from a different family.
 Routine review applies only when independent; architectural or security review
 is mandatory when the role or risk requires it. For operational procedures, see
 the [`Lead Engineering Orchestrator`](./roles/orchestrator.md).
+
+**Reviewer bench and parallel-lane scheduling** (2026-10-26 owner ruling,
+after the jolt lane's throughput review):
+
+- **The standing reviewer bench** is wider than the implementation bench:
+  `cmd` (flat, any model through it — routine slice reviews at trivial cost)
+  and `muse` (metered, reserve for high-stakes reviews) join the families
+  above as standing review destinations. The independence rule is unchanged:
+  the reviewer must be a different model family from the author.
+- **Parallel-lane scheduling**: when slice N lands on its branch, slice N+1's
+  implementation dispatches immediately and slice N's review runs
+  concurrently. Gate: review N must complete **before slice N+1 merges** — a
+  defect found in N's review must still be fixable without N+1 having built
+  on it. Judgment is required on what N+1 actually built on; tightly-coupled
+  slices serialize.
+- **Shared ledgers scale with concurrency**: the pre-push row-count check on
+  append-only ledgers (`docs/agents/known-gaps.md`; orchestrator.md Workflow
+  step 10) is more important under parallel review, not less — parallel
+  review means parallel merges (the 2026-10-25 corruption precedent:
+  merge 4d6fd818 silently dropped ~66 ledger rows by replacing the file).
+- Never relax the independence rule or skip reviews on small slices; the fix
+  for throughput is more reviewers, not fewer reviews.
