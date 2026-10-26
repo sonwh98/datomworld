@@ -3,11 +3,58 @@
 Status: Designed 2026-10-17. Slices P1 and P2 (section 15) are implemented on
 the `yang.php.antlr` route (P2: arrays, key coercion, `foreach` by value, the
 core array builtins and sorting, oracle-verified against `php-8.3.35`, section
-17.3); later slices are unstarted, and the legacy `yang/php.cljc` frontend is
-still the installed one. Design by Fable (Lead
+17.3). P3 landed in two parts: P3-a (the counted-cell substrate and the
+prelude-level reference model, merged earlier) and P3-b (the program-level
+lowering, see "P3-b landing status" below); later slices are unstarted, and the
+legacy `yang/php.cljc` frontend is still the installed one. Design by Fable (Lead
 System Architect seat); adversarial review by codex (gpt-6.1-sol) over a
 nine-round design loop that ended READY with sign-off granted. Section 20
 ("Design provenance") cites the loop.
+
+**P3-b landing status.** The program-level lowering of the P3 plan (steps S2 to
+S12) lands on branch `yang-php-p3b`; the oracle is the pinned `php-8.3.35`
+(`php:8.3-cli` on shiva, banner `php-8.3.35 shiva 2026-10-25`).
+
+- Lowered and oracle-pinned: references (`=&` in every location form,
+  `[&$x]` array items), `global`, `static` binding to a persistent slot,
+  by-reference parameters, variadics, named arguments and spread, dynamic
+  calls, closures with `use` and `use (&)`, arrow functions, `foreach` by
+  reference, the array-pointer builtins, destructuring (`[...]`, `list(...)`,
+  keyed, nested, one level of `&`), `try`/`catch`/`finally`, `throw`, `match`,
+  `Closure::bind` and `bindTo`, the temporary list, and the typed-reference
+  machinery at prelude level (rows 41 to 45; syntax stays P4).
+- Fixtures: 71 program-level fixtures are enabled and run on the AST walker,
+  on the semantic, stack and register VMs, and parserless from checked-in CST
+  packets on Node; 83 oracle results are pinned in `programs_p3b`
+  (`recorded`), 13 further oracle-only sources record texts and the cyclic
+  release evidence (R2 condition (a): `gc_collect_cycles()` collects the
+  cycle, the engine only terminates, section 17.2 draft D6). The permutation
+  corpus (13-letter alphabet, flat and nested) runs 518 programs in the quick
+  tier and about 5,900 in the slow tier; the php-src `.phpt` selection tool is
+  in place and its list is generated on shiva.
+- Open with the architect: `:closure-call-invoke` (PHP warns that a closure
+  cannot be bound to an internal class), `:call-dynamic-dim` (the grammar reads
+  `[fn($x) => ...]` as a key/value pair), `:foreach-key-and-destructure` (no
+  `as $k => [$x, $y]` in the grammar), and the row 43 increment text (PHP 8.3
+  says "Cannot increment a reference held by property C::$p of type int past
+  its maximal value").
+- Not in this landing: the per-table iterator registry of rows 25, 26 and 60
+  (by-reference `foreach` keeps an ordinal), `*RECURSION*` output, and
+  `strict_types` (the seam is `ref-write!`'s `strict` argument).
+
+**Draft departures introduced by P3-b (unratified; the architect gate
+ratifies and numbers them).**
+
+| Draft | Engine behaviour | Here | Status |
+| --- | --- | --- | --- |
+| D1 variadic by reference | `function f(&...$xs)` is valid | refused as `:variadic-reference` | refused; P9 |
+| D2 spread of string keys | `f(...['a' => 1])` passes a named argument | the values are passed positionally | restricted |
+| D3 by-reference `foreach` iterator | per-table iterator records (rows 25, 26, 60) | an ordinal re-read each iteration; unset and append behave as the fixtures pin, rebuilding builtins during the loop are not repositioned | restricted |
+| D4 grammar limits | arrow function as an array item; `as $k => [$x, $y]` | parse reads a pair / fails to parse; sources avoid them, variants pinned | refused by grammar |
+| D5 method seam | classes and methods | `getMessage`, `getCode`, `getPrevious`, `bindTo`, `__invoke` on Throwable and Closure values only; `bindTo` shares statics | restricted until P4 |
+| D6 cycle release | the collector frees `$a[0] = &$a` | counted reference cycles are not collected; unset terminates | none (unobservable without destructors) |
+| D7 `*RECURSION*` | `var_dump` of a self-referencing array prints it | not implemented | restricted until P4 |
+| D8 `strict_types` for typed references | declare directive | coercive mode always | restricted until P4 |
 
 Parent design: [`yang.antlr.md`](yang.antlr.md). This document makes concrete
 its section 8.6 (Object-oriented and web: PHP, mixed text and ordered maps),

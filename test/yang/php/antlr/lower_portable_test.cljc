@@ -131,10 +131,7 @@
         (is (= (:diag r) (vec (:diag f))) (name (:id f)))
         (is (= (:uncaught r) (:uncaught f)) (name (:id f)))))
     (testing "only the escalated and not-yet-recorded fixtures are still pending"
-      (is (= #{:closure-call-invoke :foreach-destructure :try-catch-message :try-finally-runs-on-return
-               :try-unmatched-catch-propagates :try-finally-runs-on-error :throw-rethrows-caught
-               :catch-multi-type :match-first-arm :match-default :match-is-strict
-               :match-unhandled-message :closure-bind-to-null}
-             (set (map :id (filter #(and (= :pending (:oracle %)) (not= :typed-ref-candidates (:group %))) all)))))
+      (is (= #{:closure-call-invoke :typed-ref-row43-increment-past-max}
+             (set (map :id (filter #(= :pending (:oracle %)) all)))))
       (is (= 10 (count (filter #(= :typed-ref-candidates (:group %)) all)))
-          "the S9 text candidates await the next shiva pass"))))
+          "the S9 text candidates are recorded, bar the escalated row 43 text"))))

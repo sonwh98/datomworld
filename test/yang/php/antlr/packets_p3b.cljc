@@ -646,6 +646,103 @@
           [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$g"]]]]]]]
          ["SemiColon" ";"]]]]]
      ["EOF" "<EOF>"]],
+    :throw-rethrows-caught
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:tryCatchFinally
+         ["Try" "try"]
+         [:blockStatement
+          ["OpenCurlyBracket" "{"]
+          [:innerStatementList
+           [:innerStatement
+            [:statement
+             [:tryCatchFinally
+              ["Try" "try"]
+              [:blockStatement
+               ["OpenCurlyBracket" "{"]
+               [:innerStatementList
+                [:innerStatement
+                 [:statement
+                  [:expressionStatement
+                   [:expression
+                    [:chain
+                     [:chainOrigin
+                      [:functionCall
+                       [:functionCallName
+                        [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "nope"]]]]]
+                       [:actualArguments
+                        [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]
+                   ["SemiColon" ";"]]]]]
+               ["CloseCurlyBracket" "}"]]
+              [:catchClause
+               ["Catch" "catch"]
+               ["OpenRoundBracket" "("]
+               [:qualifiedStaticTypeRef
+                [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "Error"]]]]]
+               ["VarName" "$e"]
+               ["CloseRoundBracket" ")"]
+               [:blockStatement
+                ["OpenCurlyBracket" "{"]
+                [:innerStatementList
+                 [:innerStatement
+                  [:statement
+                   [:expressionStatement
+                    [:expression
+                     ["Throw" "throw"]
+                     [:expression
+                      [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$e"]]]]]]]
+                    ["SemiColon" ";"]]]]]
+                ["CloseCurlyBracket" "}"]]]]]]]
+          ["CloseCurlyBracket" "}"]]
+         [:catchClause
+          ["Catch" "catch"]
+          ["OpenRoundBracket" "("]
+          [:qualifiedStaticTypeRef
+           [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "Error"]]]]]
+          ["VarName" "$x"]
+          ["CloseRoundBracket" ")"]
+          [:blockStatement
+           ["OpenCurlyBracket" "{"]
+           [:innerStatementList
+            [:innerStatement
+             [:statement
+              [:echoStatement
+               ["Echo" "echo"]
+               [:expressionList [:expression [:string ["SingleQuoteString" "'re'"]]]]
+               ["SemiColon" ";"]]]]]
+           ["CloseCurlyBracket" "}"]]]]]]]
+     ["EOF" "<EOF>"]],
+    :match-default
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression
+           [:matchExpr
+            ["Match_" "match"]
+            ["OpenRoundBracket" "("]
+            [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "5"]]]]]
+            ["CloseRoundBracket" ")"]
+            ["OpenCurlyBracket" "{"]
+            [:matchItem
+             [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]
+             ["DoubleArrow" "=>"]
+             [:expression [:string ["SingleQuoteString" "'x'"]]]]
+            ["Comma" ","]
+            [:matchItem
+             [:expression
+              [:constant
+               [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Default" "default"]]]]]]
+             ["DoubleArrow" "=>"]
+             [:expression [:string ["SingleQuoteString" "'d'"]]]]
+            ["CloseCurlyBracket" "}"]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
     :closure-use-by-value
     [:htmlDocument
      [:phpBlock
@@ -1105,6 +1202,64 @@
               [:actualArguments [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
          ["SemiColon" ";"]]]]]
      ["EOF" "<EOF>"]],
+    :match-first-arm
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression
+           [:matchExpr
+            ["Match_" "match"]
+            ["OpenRoundBracket" "("]
+            [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]
+            ["CloseRoundBracket" ")"]
+            ["OpenCurlyBracket" "{"]
+            [:matchItem
+             [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]
+             ["Comma" ","]
+             [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]
+             ["DoubleArrow" "=>"]
+             [:expression [:string ["SingleQuoteString" "'a'"]]]]
+            ["Comma" ","]
+            [:matchItem
+             [:expression
+              [:constant
+               [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Default" "default"]]]]]]
+             ["DoubleArrow" "=>"]
+             [:expression [:string ["SingleQuoteString" "'b'"]]]]
+            ["CloseCurlyBracket" "}"]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :match-is-strict
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression
+           [:matchExpr
+            ["Match_" "match"]
+            ["OpenRoundBracket" "("]
+            [:expression [:string ["SingleQuoteString" "'1'"]]]
+            ["CloseRoundBracket" ")"]
+            ["OpenCurlyBracket" "{"]
+            [:matchItem
+             [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]
+             ["DoubleArrow" "=>"]
+             [:expression [:string ["SingleQuoteString" "'int'"]]]]
+            ["Comma" ","]
+            [:matchItem
+             [:expression [:string ["SingleQuoteString" "'1'"]]]
+             ["DoubleArrow" "=>"]
+             [:expression [:string ["SingleQuoteString" "'str'"]]]]
+            ["CloseCurlyBracket" "}"]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
     :ref-self-assign
     [:htmlDocument
      [:phpBlock
@@ -1140,6 +1295,67 @@
          [:expressionList
           [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$x"]]]]]]]
          ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :foreach-destructure
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:foreachStatement
+         ["Foreach" "foreach"]
+         ["OpenRoundBracket" "("]
+         [:expression
+          [:arrayCreation
+           ["OpenSquareBracket" "["]
+           [:arrayItemList
+            [:arrayItem
+             [:expression
+              [:arrayCreation
+               ["OpenSquareBracket" "["]
+               [:arrayItemList
+                [:arrayItem
+                 [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
+                ["Comma" ","]
+                [:arrayItem
+                 [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "2"]]]]]]]
+               ["CloseSquareBracket" "]"]]]]
+            ["Comma" ","]
+            [:arrayItem
+             [:expression
+              [:arrayCreation
+               ["OpenSquareBracket" "["]
+               [:arrayItemList
+                [:arrayItem
+                 [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "3"]]]]]]
+                ["Comma" ","]
+                [:arrayItem
+                 [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "4"]]]]]]]
+               ["CloseSquareBracket" "]"]]]]]
+           ["CloseSquareBracket" "]"]]]
+         ["As" "as"]
+         [:arrayDestructuring
+          ["OpenSquareBracket" "["]
+          [:indexedDestructItem
+           [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$x"]]]]]]
+          ["Comma" ","]
+          [:indexedDestructItem
+           [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$y"]]]]]]
+          ["CloseSquareBracket" "]"]]
+         ["CloseRoundBracket" ")"]
+         [:statement
+          [:blockStatement
+           ["OpenCurlyBracket" "{"]
+           [:innerStatementList
+            [:innerStatement
+             [:statement
+              [:echoStatement
+               ["Echo" "echo"]
+               [:expressionList
+                [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$x"]]]]]]
+                ["Comma" ","]
+                [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$y"]]]]]]]
+               ["SemiColon" ";"]]]]]
+           ["CloseCurlyBracket" "}"]]]]]]]
      ["EOF" "<EOF>"]],
     :foreach-ref-unset-current
     [:htmlDocument
@@ -1472,6 +1688,104 @@
          ["Echo" "echo"]
          [:expressionList
           [:expression [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$x"]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :catch-multi-type
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:tryCatchFinally
+         ["Try" "try"]
+         [:blockStatement
+          ["OpenCurlyBracket" "{"]
+          [:innerStatementList
+           [:innerStatement
+            [:statement
+             [:expressionStatement
+              [:expression
+               [:chain
+                [:chainOrigin
+                 [:functionCall
+                  [:functionCallName
+                   [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "nope"]]]]]
+                  [:actualArguments
+                   [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]
+              ["SemiColon" ";"]]]]]
+          ["CloseCurlyBracket" "}"]]
+         [:catchClause
+          ["Catch" "catch"]
+          ["OpenRoundBracket" "("]
+          [:qualifiedStaticTypeRef
+           [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "TypeError"]]]]]
+          ["Pipe" "|"]
+          [:qualifiedStaticTypeRef
+           [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "Error"]]]]]
+          ["VarName" "$e"]
+          ["CloseRoundBracket" ")"]
+          [:blockStatement
+           ["OpenCurlyBracket" "{"]
+           [:innerStatementList
+            [:innerStatement
+             [:statement
+              [:echoStatement
+               ["Echo" "echo"]
+               [:expressionList [:expression [:string ["SingleQuoteString" "'multi'"]]]]
+               ["SemiColon" ";"]]]]]
+           ["CloseCurlyBracket" "}"]]]]]]]
+     ["EOF" "<EOF>"]],
+    :try-finally-runs-on-return
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:functionDeclaration
+        ["Function_" "function"]
+        [:identifier ["Label" "f"]]
+        ["OpenRoundBracket" "("]
+        [:formalParameterList]
+        ["CloseRoundBracket" ")"]
+        [:blockStatement
+         ["OpenCurlyBracket" "{"]
+         [:innerStatementList
+          [:innerStatement
+           [:statement
+            [:tryCatchFinally
+             ["Try" "try"]
+             [:blockStatement
+              ["OpenCurlyBracket" "{"]
+              [:innerStatementList
+               [:innerStatement
+                [:statement
+                 [:returnStatement
+                  ["Return" "return"]
+                  [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]
+                  ["SemiColon" ";"]]]]]
+              ["CloseCurlyBracket" "}"]]
+             [:finallyStatement
+              ["Finally" "finally"]
+              [:blockStatement
+               ["OpenCurlyBracket" "{"]
+               [:innerStatementList
+                [:innerStatement
+                 [:statement
+                  [:echoStatement
+                   ["Echo" "echo"]
+                   [:expressionList [:expression [:string ["SingleQuoteString" "'F'"]]]]
+                   ["SemiColon" ";"]]]]]
+               ["CloseCurlyBracket" "}"]]]]]]]
+         ["CloseCurlyBracket" "}"]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression
+           [:chain
+            [:chainOrigin
+             [:functionCall
+              [:functionCallName
+               [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "f"]]]]]
+              [:actualArguments [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
          ["SemiColon" ";"]]]]]
      ["EOF" "<EOF>"]],
     :ref-vivify-by-reference
@@ -3119,6 +3433,116 @@
                 ["CloseRoundBracket" ")"]]]]]]]]
          ["SemiColon" ";"]]]]]
      ["EOF" "<EOF>"]],
+    :try-finally-runs-on-error
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:tryCatchFinally
+         ["Try" "try"]
+         [:blockStatement
+          ["OpenCurlyBracket" "{"]
+          [:innerStatementList
+           [:innerStatement
+            [:statement
+             [:tryCatchFinally
+              ["Try" "try"]
+              [:blockStatement
+               ["OpenCurlyBracket" "{"]
+               [:innerStatementList
+                [:innerStatement
+                 [:statement
+                  [:expressionStatement
+                   [:expression
+                    [:chain
+                     [:chainOrigin
+                      [:functionCall
+                       [:functionCallName
+                        [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "nope"]]]]]
+                       [:actualArguments
+                        [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]
+                   ["SemiColon" ";"]]]]]
+               ["CloseCurlyBracket" "}"]]
+              [:finallyStatement
+               ["Finally" "finally"]
+               [:blockStatement
+                ["OpenCurlyBracket" "{"]
+                [:innerStatementList
+                 [:innerStatement
+                  [:statement
+                   [:echoStatement
+                    ["Echo" "echo"]
+                    [:expressionList [:expression [:string ["SingleQuoteString" "'F'"]]]]
+                    ["SemiColon" ";"]]]]]
+                ["CloseCurlyBracket" "}"]]]]]]]
+          ["CloseCurlyBracket" "}"]]
+         [:catchClause
+          ["Catch" "catch"]
+          ["OpenRoundBracket" "("]
+          [:qualifiedStaticTypeRef
+           [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "Error"]]]]]
+          ["VarName" "$e"]
+          ["CloseRoundBracket" ")"]
+          [:blockStatement
+           ["OpenCurlyBracket" "{"]
+           [:innerStatementList
+            [:innerStatement
+             [:statement
+              [:echoStatement
+               ["Echo" "echo"]
+               [:expressionList [:expression [:string ["SingleQuoteString" "'C'"]]]]
+               ["SemiColon" ";"]]]]]
+           ["CloseCurlyBracket" "}"]]]]]]]
+     ["EOF" "<EOF>"]],
+    :try-catch-message
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:tryCatchFinally
+         ["Try" "try"]
+         [:blockStatement
+          ["OpenCurlyBracket" "{"]
+          [:innerStatementList
+           [:innerStatement
+            [:statement
+             [:expressionStatement
+              [:expression
+               [:chain
+                [:chainOrigin
+                 [:functionCall
+                  [:functionCallName
+                   [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "nope"]]]]]
+                  [:actualArguments
+                   [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]
+              ["SemiColon" ";"]]]]]
+          ["CloseCurlyBracket" "}"]]
+         [:catchClause
+          ["Catch" "catch"]
+          ["OpenRoundBracket" "("]
+          [:qualifiedStaticTypeRef
+           [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "Error"]]]]]
+          ["VarName" "$e"]
+          ["CloseRoundBracket" ")"]
+          [:blockStatement
+           ["OpenCurlyBracket" "{"]
+           [:innerStatementList
+            [:innerStatement
+             [:statement
+              [:echoStatement
+               ["Echo" "echo"]
+               [:expressionList
+                [:expression
+                 [:chain
+                  [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$e"]]]]
+                  [:memberAccess
+                   ["ObjectOperator" "->"]
+                   [:keyedFieldName [:keyedSimpleFieldName [:identifier ["Label" "getMessage"]]]]
+                   [:actualArguments
+                    [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]
+               ["SemiColon" ";"]]]]]
+           ["CloseCurlyBracket" "}"]]]]]]]
+     ["EOF" "<EOF>"]],
     :closure-static-per-object
     [:htmlDocument
      [:phpBlock
@@ -3308,6 +3732,63 @@
                 [:actualArgument
                  [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]]
                 ["CloseRoundBracket" ")"]]]]]]]]
+         ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :closure-bind-to-null
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$f"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression
+           [:lambdaFunctionExpr
+            ["Function_" "function"]
+            ["OpenRoundBracket" "("]
+            [:formalParameterList]
+            ["CloseRoundBracket" ")"]
+            [:blockStatement
+             ["OpenCurlyBracket" "{"]
+             [:innerStatementList
+              [:innerStatement
+               [:statement
+                [:returnStatement
+                 ["Return" "return"]
+                 [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "7"]]]]]
+                 ["SemiColon" ";"]]]]]
+             ["CloseCurlyBracket" "}"]]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:expressionStatement
+         [:expression
+          [:assignable [:chain [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$g"]]]]]]
+          [:assignmentOperator ["Eq" "="]]
+          [:expression
+           [:chain
+            [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$f"]]]]
+            [:memberAccess
+             ["ObjectOperator" "->"]
+             [:keyedFieldName [:keyedSimpleFieldName [:identifier ["Label" "bindTo"]]]]
+             [:actualArguments
+              [:arguments
+               ["OpenRoundBracket" "("]
+               [:actualArgument [:expression [:constant ["Null" "null"]]]]
+               ["CloseRoundBracket" ")"]]]]]]]
+         ["SemiColon" ";"]]]]
+      [:topStatement
+       [:statement
+        [:echoStatement
+         ["Echo" "echo"]
+         [:expressionList
+          [:expression
+           [:chain
+            [:chainOrigin
+             [:functionCall
+              [:functionCallName [:chainBase [:keyedVariable ["VarName" "$g"]]]]
+              [:actualArguments [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]]
          ["SemiColon" ";"]]]]]
      ["EOF" "<EOF>"]],
     :ref-element-unwrapped-after-unset
@@ -3690,6 +4171,128 @@
                 [:actualArgument [:expression [:string ["SingleQuoteString" "'abc'"]]]]
                 ["CloseRoundBracket" ")"]]]]]]]]
          ["SemiColon" ";"]]]]]
+     ["EOF" "<EOF>"]],
+    :match-unhandled-message
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:tryCatchFinally
+         ["Try" "try"]
+         [:blockStatement
+          ["OpenCurlyBracket" "{"]
+          [:innerStatementList
+           [:innerStatement
+            [:statement
+             [:echoStatement
+              ["Echo" "echo"]
+              [:expressionList
+               [:expression
+                [:matchExpr
+                 ["Match_" "match"]
+                 ["OpenRoundBracket" "("]
+                 [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "5"]]]]]
+                 ["CloseRoundBracket" ")"]
+                 ["OpenCurlyBracket" "{"]
+                 [:matchItem
+                  [:expression [:constant [:literalConstant [:numericConstant ["Decimal" "1"]]]]]
+                  ["DoubleArrow" "=>"]
+                  [:expression [:string ["SingleQuoteString" "'x'"]]]]
+                 ["CloseCurlyBracket" "}"]]]]
+              ["SemiColon" ";"]]]]]
+          ["CloseCurlyBracket" "}"]]
+         [:catchClause
+          ["Catch" "catch"]
+          ["OpenRoundBracket" "("]
+          [:qualifiedStaticTypeRef
+           [:qualifiedNamespaceName
+            [:namespaceNameList [:identifier ["Label" "UnhandledMatchError"]]]]]
+          ["VarName" "$e"]
+          ["CloseRoundBracket" ")"]
+          [:blockStatement
+           ["OpenCurlyBracket" "{"]
+           [:innerStatementList
+            [:innerStatement
+             [:statement
+              [:echoStatement
+               ["Echo" "echo"]
+               [:expressionList
+                [:expression
+                 [:chain
+                  [:chainOrigin [:chainBase [:keyedVariable ["VarName" "$e"]]]]
+                  [:memberAccess
+                   ["ObjectOperator" "->"]
+                   [:keyedFieldName [:keyedSimpleFieldName [:identifier ["Label" "getMessage"]]]]
+                   [:actualArguments
+                    [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]
+               ["SemiColon" ";"]]]]]
+           ["CloseCurlyBracket" "}"]]]]]]]
+     ["EOF" "<EOF>"]],
+    :try-unmatched-catch-propagates
+    [:htmlDocument
+     [:phpBlock
+      [:topStatement
+       [:statement
+        [:tryCatchFinally
+         ["Try" "try"]
+         [:blockStatement
+          ["OpenCurlyBracket" "{"]
+          [:innerStatementList
+           [:innerStatement
+            [:statement
+             [:tryCatchFinally
+              ["Try" "try"]
+              [:blockStatement
+               ["OpenCurlyBracket" "{"]
+               [:innerStatementList
+                [:innerStatement
+                 [:statement
+                  [:expressionStatement
+                   [:expression
+                    [:chain
+                     [:chainOrigin
+                      [:functionCall
+                       [:functionCallName
+                        [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "nope"]]]]]
+                       [:actualArguments
+                        [:arguments ["OpenRoundBracket" "("] ["CloseRoundBracket" ")"]]]]]]]
+                   ["SemiColon" ";"]]]]]
+               ["CloseCurlyBracket" "}"]]
+              [:catchClause
+               ["Catch" "catch"]
+               ["OpenRoundBracket" "("]
+               [:qualifiedStaticTypeRef
+                [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "TypeError"]]]]]
+               ["VarName" "$e"]
+               ["CloseRoundBracket" ")"]
+               [:blockStatement
+                ["OpenCurlyBracket" "{"]
+                [:innerStatementList
+                 [:innerStatement
+                  [:statement
+                   [:echoStatement
+                    ["Echo" "echo"]
+                    [:expressionList [:expression [:string ["SingleQuoteString" "'inner'"]]]]
+                    ["SemiColon" ";"]]]]]
+                ["CloseCurlyBracket" "}"]]]]]]]
+          ["CloseCurlyBracket" "}"]]
+         [:catchClause
+          ["Catch" "catch"]
+          ["OpenRoundBracket" "("]
+          [:qualifiedStaticTypeRef
+           [:qualifiedNamespaceName [:namespaceNameList [:identifier ["Label" "Error"]]]]]
+          ["VarName" "$e"]
+          ["CloseRoundBracket" ")"]
+          [:blockStatement
+           ["OpenCurlyBracket" "{"]
+           [:innerStatementList
+            [:innerStatement
+             [:statement
+              [:echoStatement
+               ["Echo" "echo"]
+               [:expressionList [:expression [:string ["SingleQuoteString" "'outer'"]]]]
+               ["SemiColon" ";"]]]]]
+           ["CloseCurlyBracket" "}"]]]]]]]
      ["EOF" "<EOF>"]],
     :arrow-nested-transitive-capture
     [:htmlDocument

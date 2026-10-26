@@ -119,7 +119,7 @@
        ;; error here. Escalated; `:foreach-destructure` is the supported form.
        "<?php foreach ([[1, 2], [3, 4]] as $k => [$x, $y]) { echo $k, $x, $y; }"
        "012134")
-   (fx :foreach-destructure :iteration-v1 [28] #{:s7 :s8 :oracle-record}
+   (fx :foreach-destructure :iteration-v1 [28] #{:s7 :s8}
        "<?php foreach ([[1, 2], [3, 4]] as [$x, $y]) { echo $x, $y; }"
        "1234")
    (fx :array-pointer-reset-end :iteration-v1 [55] #{:s7}
@@ -319,7 +319,28 @@
    :call-dynamic-dim-paren {:out "2", :diag [], :uncaught nil}
    :call-too-few-named-uncaught {:out "", :diag [], :uncaught {:class "ArgumentCountError", :message "f(): Argument #1 ($a) not passed"}}
    :call-unknown-named-uncaught {:out "", :diag [], :uncaught {:class "Error", :message "Unknown named parameter $z"}}
-   :ref-cycle-count {:out "11", :diag [], :uncaught nil}})
+   :ref-cycle-count {:out "11", :diag [], :uncaught nil}
+   :foreach-destructure {:out "1234", :diag [], :uncaught nil}
+   :try-catch-message {:out "Call to undefined function nope()", :diag [], :uncaught nil}
+   :try-finally-runs-on-return {:out "F1", :diag [], :uncaught nil}
+   :try-unmatched-catch-propagates {:out "outer", :diag [], :uncaught nil}
+   :try-finally-runs-on-error {:out "FC", :diag [], :uncaught nil}
+   :throw-rethrows-caught {:out "re", :diag [], :uncaught nil}
+   :catch-multi-type {:out "multi", :diag [], :uncaught nil}
+   :match-first-arm {:out "a", :diag [], :uncaught nil}
+   :match-default {:out "d", :diag [], :uncaught nil}
+   :match-is-strict {:out "str", :diag [], :uncaught nil}
+   :match-unhandled-message {:out "Unhandled match case 5", :diag [], :uncaught nil}
+   :closure-bind-to-null {:out "7", :diag [], :uncaught nil}
+   :typed-ref-row42-assign-string {:out "Cannot assign string to reference held by property C::$p of type int", :diag [], :uncaught nil}
+   :typed-ref-row42-assign-null {:out "Cannot assign null to reference held by property C::$p of type int", :diag [], :uncaught nil}
+   :typed-ref-row42-coerces-numeric-string {:out "int(7)\n", :diag [], :uncaught nil}
+   :typed-ref-row45-second-source-mismatch {:out "Cannot assign int to property D::$q of type array", :diag [], :uncaught nil}
+   :typed-ref-row45-first-failing-source {:out "", :diag [], :uncaught {:class "TypeError", :message "Reference with value of type int held by property D::$q of type int is not compatible with property E::$b of type bool"}}
+   :typed-ref-row41-uninitialized-non-nullable {:out "Cannot access uninitialized non-nullable property C::$u by reference", :diag [], :uncaught nil}
+   :typed-ref-row41-uninitialized-nullable {:out "NULL\n", :diag [], :uncaught nil}
+   :typed-ref-row41-readonly-initialized {:out "Cannot modify readonly property C::$ro", :diag [], :uncaught nil}
+   :typed-ref-row44-unset-uninitializes {:out "Typed property C::$p must not be accessed before initialization", :diag [], :uncaught nil}})
 
 
 (def banner "php-8.3.35 shiva 2026-10-25")
@@ -343,38 +364,38 @@
    unwinding; the language semantics). Sources and expectations are written
    from PHP's documented behaviour; every one waits for the shiva recording
    (`:oracle-record`) before it is enabled."
-  [(fx :try-catch-message :control-v1 [39] #{:s6 :oracle-record}
+  [(fx :try-catch-message :control-v1 [39] #{:s6}
        "<?php try { nope(); } catch (Error $e) { echo $e->getMessage(); }"
        "Call to undefined function nope()")
-   (fx :try-finally-runs-on-return :control-v1 [16 39] #{:s6 :oracle-record}
+   (fx :try-finally-runs-on-return :control-v1 [16 39] #{:s6}
        "<?php function f() { try { return 1; } finally { echo 'F'; } } echo f();"
        "F1")
-   (fx :try-unmatched-catch-propagates :control-v1 [39] #{:s6 :oracle-record}
+   (fx :try-unmatched-catch-propagates :control-v1 [39] #{:s6}
        (str "<?php try { try { nope(); } catch (TypeError $e) { echo 'inner'; } }"
             " catch (Error $e) { echo 'outer'; }")
        "outer")
-   (fx :try-finally-runs-on-error :control-v1 [39] #{:s6 :oracle-record}
+   (fx :try-finally-runs-on-error :control-v1 [39] #{:s6}
        (str "<?php try { try { nope(); } finally { echo 'F'; } }"
             " catch (Error $e) { echo 'C'; }")
        "FC")
-   (fx :throw-rethrows-caught :control-v1 [39] #{:s6 :oracle-record}
+   (fx :throw-rethrows-caught :control-v1 [39] #{:s6}
        (str "<?php try { try { nope(); } catch (Error $e) { throw $e; } }"
             " catch (Error $x) { echo 're'; }")
        "re")
-   (fx :catch-multi-type :control-v1 [39] #{:s6 :oracle-record}
+   (fx :catch-multi-type :control-v1 [39] #{:s6}
        "<?php try { nope(); } catch (TypeError | Error $e) { echo 'multi'; }"
        "multi")
-   (fx :match-first-arm :control-v1 [] #{:s6 :oracle-record}
+   (fx :match-first-arm :control-v1 [] #{:s6}
        "<?php echo match (2) { 1, 2 => 'a', default => 'b' };" "a")
-   (fx :match-default :control-v1 [] #{:s6 :oracle-record}
+   (fx :match-default :control-v1 [] #{:s6}
        "<?php echo match (5) { 1 => 'x', default => 'd' };" "d")
-   (fx :match-is-strict :control-v1 [] #{:s6 :oracle-record}
+   (fx :match-is-strict :control-v1 [] #{:s6}
        "<?php echo match ('1') { 1 => 'int', '1' => 'str' };" "str")
-   (fx :match-unhandled-message :control-v1 [] #{:s6 :oracle-record}
+   (fx :match-unhandled-message :control-v1 [] #{:s6}
        (str "<?php try { echo match (5) { 1 => 'x' }; }"
             " catch (UnhandledMatchError $e) { echo $e->getMessage(); }")
        "Unhandled match case 5")
-   (fx :closure-bind-to-null :control-v1 [] #{:s6 :oracle-record}
+   (fx :closure-bind-to-null :control-v1 [] #{:s6}
        "<?php $f = function () { return 7; }; $g = $f->bindTo(null); echo $g();" "7")])
 
 
@@ -398,7 +419,7 @@
         "prelude: int(7)")
      (c :typed-ref-row43-increment-past-max [43]
         (str "<?php " cls "$c = new C; $c->p = PHP_INT_MAX; $r = &$c->p; try { $r++; } catch (TypeError $e) { echo $e->getMessage(); }")
-        "prelude: Cannot increment property C::$p of type int past its maximal value")
+        "oracle-vs-design: PHP 8.3 says \"Cannot increment a reference held by property C::$p of type int past its maximal value\", the design row 43 and the prelude say \"Cannot increment property C::$p of type int past its maximal value\"; left pending for architect escalation")
      (c :typed-ref-row45-second-source-mismatch [45]
         (str "<?php class D { public array $q = []; } " cls
              "$c = new C; $d = new D; $r = &$c->p; try { $d->q = &$c->p; } catch (TypeError $e) { echo $e->getMessage(); }")
@@ -406,7 +427,7 @@
      (c :typed-ref-row45-first-failing-source [45]
         (str "<?php class D { public int $q = 1; } class E { public bool $b = true; } "
              "$d = new D; $e = new E; $r = &$d->q; $e->b = &$d->q; try { $r = [1]; } catch (TypeError $x) { echo $x->getMessage(); }")
-        "prelude: names the first failing source (D::$q of type int)")
+        "recorded: the `=&` acquisition itself throws (\"Reference with value of type int held by property D::$q of type int is not compatible with property E::$b of type bool\"); the prelude's ref-add-source text differs and PHP does not coerce int to bool across sources (row 45 follow-up)")
      (c :typed-ref-row41-uninitialized-non-nullable [41]
         (str "<?php " cls "$c = new C; try { $r = &$c->u; } catch (Error $e) { echo $e->getMessage(); }")
         "design text: Cannot access uninitialized non-nullable property C::$u by reference")
