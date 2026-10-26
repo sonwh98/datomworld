@@ -13,7 +13,9 @@
   (:require #?(:cljd [clojure.edn :as edn]
                :clj [clojure.edn :as edn]
                :cljs [cljs.reader :as reader])
-            #?@(:cljd [["dart:io" :as dart-io]])
+            #?@(:cljd [["dart:io" :as dart-io]]
+                :jolt [[dao.host.text :as text]
+                       [dao.posix.file :as posix-file]])
             [clojure.string :as str]
             [dao.space.store.fs :as fs]
             [yin.vm.linker.sign :as sign]))
@@ -230,6 +232,17 @@
                     (when (or (not (contains? #{2 3} code))
                               (.existsSync (dart-io/Link. path)))
                       (throw e)))))
+     ;; lstat decides absence; a dangling link (an entry whose target is
+     ;; missing), a non-regular entry, an unreadable file or invalid UTF-8
+     ;; all throw
+     :jolt (when-not (= :absent (posix-file/classify path false))
+             (let [bs (posix-file/read-all path)]
+               (case bs
+                 :absent (throw (ex-info (str path " is a dangling symlink")
+                                         {:path path}))
+                 :not-regular (throw (ex-info (str path " is not a regular file")
+                                              {:path path}))
+                 (text/utf8-decode bs))))
      :clj (when-not (java.nio.file.Files/notExists
                       (java.nio.file.Paths/get path (make-array String 0))
                       (into-array java.nio.file.LinkOption

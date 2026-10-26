@@ -49,12 +49,6 @@
    directory are refused here — with the supported forms named — so the
    arguments parser can refuse a bad flag before anything composes."
   [value]
-  #?(:jolt
-     (when (and (string? value)
-                (or (str/starts-with? value file-scheme)
-                    (str/starts-with? value dht-scheme)))
-       (throw (ex-info "durable index stores arrive at J4 (dht: J7) on jolt"
-                       {:value value}))))
   (cond
     (nil? value)
     (throw (ex-info "--index-store needs a value: mem, file:<dir> or dht:<dir>"
@@ -155,9 +149,13 @@
    filled in; see yin.repl.dht.  Anything else is refused with the
    supported forms named."
   [spec]
+  ;; jolt: a :file store opens since J4; a :dht store needs J7's UDP
+  ;; transport, so it is refused here, where a spec is checked for
+  ;; composition, after every flag has been parsed and validated as on the
+  ;; other hosts
   #?(:jolt
-     (when (and (map? spec) (#{:file :dht} (:type spec)))
-       (throw (ex-info "durable index stores arrive at J4 (dht: J7) on jolt"
+     (when (and (map? spec) (= :dht (:type spec)))
+       (throw (ex-info "the dht: index store arrives at J7 on jolt"
                        {:spec spec}))))
   (cond
     (nil? spec) :mem
