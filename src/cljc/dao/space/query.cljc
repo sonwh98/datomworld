@@ -1950,6 +1950,139 @@
                                              [st sa])))))))))
 
 
+(defn- rule-head
+  "Parse a rule head `(name args...)`. Datomic's required-bound form
+   `(name [?a ?b] ?c)` declares in ONE leading vector the variables a call
+   must already have bound; the call itself is flat: `(name 1 2 ?c)`.
+   Returns {:vars (all head variables, required first) :required n}."
+  [head]
+  (let [args (vec (rest head))
+        req (when (and (seq args) (vector? (first args))) (first args))
+        others (if req (subvec args 1) args)]
+    (when (or (some vector? others)
+              (not (every? symbol? req)))
+      (throw (ex-info "malformed rule head: required-bound variables are one leading vector of symbols"
+                      {:head head})))
+    {:vars (vec (concat req others)), :required (count req)}))
+
+
+(defn- note-hit
+  "Record, in the threaded state, that a repeated call read the table of
+   call-key (the recursion signal the leader's fixed point waits on)."
+  [st call-key]
+  (if (exec/terminal? st) st (update st ::hits (fnil conj #{}) call-key)))
+
+
+(defn- clear-hit
+  [st call-key]
+  (if (exec/terminal? st) st (update st ::hits (fnil disj #{}) call-key)))
+
+
+(defn- hit?
+  [st call-key]
+  (contains? (::hits st #{}) call-key))
+
+
+(defn- unify-call
+  "The caller's binding extended by unifying each call argument with the
+   matching value of a head tuple, or nil."
+  [binding call-args tuple]
+  (reduce (fn [b [arg v]] (and-then b #(unify % arg v)))
+          binding
+          (map vector call-args tuple)))
+
+
+(defn- read-table
+  "A repeated call (its key is being evaluated further up this path) reads
+   the tuples tabled so far, one accounted candidate each, and records the
+   hit. Complete answers arrive because the leader re-runs until nothing new
+   appears."
+  [st ctx table binding call-args call-key acc k]
+  (each-st (note-hit st call-key) acc (:tuples table)
+           (fn [st acc tuple]
+             (let [st (spend st ctx :candidate)]
+               (if (exec/terminal? st)
+                 [st acc]
+                 (if-let [b' (unify-call binding call-args tuple)]
+                   (k st acc b')
+                   [st acc]))))))
+
+
+(defn- rule-iteration
+  "One pass over every definition of the rule, with the tuples tabled so far
+   visible to repeated calls. Each NEW head tuple (content-distinct across
+   all passes) is handed to k at once; a2 is {:seen :new :acc}."
+  [st ctx table defs rule-name call-args arg-vals binding call-key a2 k]
+  (let [body-ctx (assoc ctx ::tables (assoc (::tables ctx {}) call-key table))]
+    (each-st
+      st a2 defs
+      (fn [st a2 [head & body]]
+        (let [{:keys [vars required]} (rule-head head)]
+          (when (not= (count vars) (count arg-vals))
+            (throw (ex-info "Rule invoked with wrong arity"
+                            {:rule rule-name, :head head, :args (vec call-args)})))
+          (doseq [i (range required)]
+            (when (= FREE (nth arg-vals i))
+              (throw (ex-info "Rule required-bound variable is not bound at the call"
+                              {:rule rule-name, :var (nth vars i)}))))
+          (let [seed (reduce (fn [b [hv av]]
+                               (if (= FREE av) b (and-then b #(unify % hv av))))
+                             (select-keys binding [::dbs '%])
+                             (map vector vars arg-vals))]
+            (if-not seed
+              [st a2]
+              (eval-where*
+                st body-ctx (vec body) [seed] a2
+                (fn [st a2 res]
+                  (let [tuple (mapv (fn [hv]
+                                      (let [v (get res hv FREE)]
+                                        (when (= FREE v)
+                                          (throw (ex-info "Rule head var not bound by rule body"
+                                                          {:rule rule-name, :var hv})))
+                                        v))
+                                    vars)
+                        tk (binding-key tuple)]
+                    (if (contains? (:seen a2) tk)
+                      [st a2]
+                      (let [a2' (-> a2 (update :seen conj tk) (update :new conj tuple))]
+                        (if-let [b' (unify-call binding call-args tuple)]
+                          (bind (bounce (fn [] (k st (:acc a2') b')))
+                                (fn [[st acc']]
+                                  (if (reduced? acc')
+                                    [st (reduced (assoc a2' :acc @acc'))]
+                                    [st (assoc a2' :acc acc')])))
+                          [st a2'])))))))))))))
+
+
+(defn- rule-fixpoint
+  "Evaluate a call whose key is not being evaluated above it: the LEADER of
+   its own (possibly recursive) call. Naive fixed point over immutable
+   tables: pass i sees the tuples of passes < i; another pass runs only when
+   this pass both found new tuples AND a repeated call actually read this
+   key's table (so non-recursive and right-recursive-over-new-keys rules cost
+   one pass, exactly as before). The least fixed point is reached when a
+   pass finds nothing new; the work budget is the backstop when fresh values
+   keep generating new tuples. A pass's progress is the state it returns."
+  [st ctx binding rule-name call-args arg-vals call-key defs acc k]
+  (let [run (fn run [st table acc]
+              (let [st (clear-hit st call-key)
+                    a2 {:seen (:seen table), :new [], :acc acc}]
+                (bind (bounce (fn []
+                                (rule-iteration st ctx table defs rule-name call-args
+                                                arg-vals binding call-key a2 k)))
+                      (fn [[st a2]]
+                        (let [stopped? (reduced? a2)
+                              a2 (unreduced a2)
+                              acc' (:acc a2)]
+                          (cond
+                            stopped? [st (reduced acc')]
+                            (exec/terminal? st) [st acc']
+                            (and (seq (:new a2)) (hit? st call-key))
+                            (run st {:tuples (into (:tuples table) (:new a2)), :seen (:seen a2)} acc')
+                            :else [(clear-hit st call-key) acc']))))))]
+    (run st {:tuples [], :seen #{}} acc)))
+
+
 (defn- emit-rule
   [st ctx clause binding acc k]
   (let [[rule-name & call-args] clause
@@ -1969,55 +2102,11 @@
                 ;; keyed by content, so a call on 1.00M is not taken for a
                 ;; repeat of the call on 1.0M
                 call-key [rule-name (binding-key arg-vals)]
-                active (::active-rules ctx #{})]
-            (if (contains? active call-key)
-              [st acc]
-              ;; the body runs in an extended lexical scope; the caller's
-              ;; ctx (and so its active-rule path) is untouched on return,
-              ;; while the state returned by the body is what continues
-              (let [body-ctx (assoc ctx ::active-rules (conj active call-key))]
-                (run-dedup
-                  st acc k
-                  (fn [st sa dk]
-                    (each-st
-                      st sa defs
-                      (fn [st sa [head & body]]
-                        (let [head-vars (vec (rest head))]
-                          (when (some vector? head-vars)
-                            (throw
-                              (ex-info
-                                "Required-bound rule vars ([?a ...] in the head) are not implemented"
-                                {:head head})))
-                          (when (not= (count head-vars) (count arg-vals))
-                            (throw (ex-info "Rule invoked with wrong arity"
-                                            {:rule rule-name,
-                                             :head head,
-                                             :args (vec call-args)})))
-                          (let [seed (reduce (fn [b [hv av]]
-                                               (if (= FREE av)
-                                                 b
-                                                 (and-then b #(unify % hv av))))
-                                             (select-keys binding [::dbs '%])
-                                             (map vector head-vars arg-vals))]
-                            (if-not seed
-                              [st sa]
-                              (eval-where*
-                                st body-ctx (vec body) [seed] sa
-                                (fn [st sa res]
-                                  (let [b' (reduce
-                                             (fn [b [arg hv]]
-                                               (let [v (get res hv FREE)]
-                                                 (when (= FREE v)
-                                                   (throw
-                                                     (ex-info
-                                                       "Rule head var not bound by rule body"
-                                                       {:rule rule-name, :var hv})))
-                                                 (and-then b #(unify % arg v))))
-                                             binding
-                                             (map vector call-args head-vars))]
-                                    (if b'
-                                      (dk st sa b')
-                                      [st sa])))))))))))))))))))
+                table (get (::tables ctx) call-key)]
+            (if table
+              (read-table st ctx table binding call-args call-key acc k)
+              (rule-fixpoint st ctx binding rule-name call-args arg-vals call-key
+                             defs acc k))))))))
 
 
 (defn- emit-clause
@@ -2097,7 +2186,12 @@
             (doseq [b branches] (validate-clauses! (branch-clauses b))))
           (= 'and h) (validate-clauses! (rest clause))
           (= 'not h) (validate-clauses! (rest clause))
-          (= 'not-join h) (validate-clauses! (drop 2 clause)))))))
+          (= 'not-join h) (validate-clauses! (drop 2 clause))
+          ;; a rule call: its arguments are variables, constants or _.
+          ;; Required-bound variables are declared in the rule HEAD only.
+          :else (when (some vector? (rest clause))
+                  (throw (ex-info "rule call arguments are flat; a vector is not an argument form (required-bound variables are declared in the rule head)"
+                                  {:clause (pr-str clause)}))))))))
 
 
 (defn- walk
@@ -2277,6 +2371,9 @@
       (when (and (seq? arg) (= 'pull (first arg)))
         (throw (ex-info "pull cannot be used as an aggregate argument"
                         {:element el})))
+      (when-not (symbol? arg)
+        (throw (ex-info "aggregate argument must be a query variable"
+                        {:aggregate agg-sym})))
       (doseq [p params]
         (when-not (and (integer? p) (pos? p))
           (throw (ex-info "aggregate parameter must be a positive integer"
@@ -2398,7 +2495,10 @@
             (= 'or h) (mapcat #(mapcat clause-bound-vars (branch-clauses %)) (rest clause))
             (= 'or-join h) (filter query-var-symbol? (nth clause 1))
             (= 'and h) (mapcat clause-bound-vars (rest clause))
-            :else (filter query-var-symbol? (rest clause))))
+            ;; a rule call: variables among its arguments (vectors included,
+            ;; so a misplaced required-bound vector reaches the flat-call
+            ;; refusal instead of reading as an unbound find variable)
+            :else (filter query-var-symbol? (tree-seq coll? seq (rest clause)))))
     :else nil))
 
 
@@ -2419,6 +2519,62 @@
       (when-not (contains? bound v)
         (throw (ex-info (str "Find variable is not bound by :in or :where: " v)
                         {:var v}))))))
+
+
+(defn- collect-rule-calls
+  "[name negated?] pairs of the rule calls inside clauses; negated? is true
+   inside not / not-join at any depth."
+  [clauses negated?]
+  (mapcat
+    (fn [clause]
+      (if-not (seq? clause)
+        nil
+        (let [h (first clause)]
+          (cond
+            (= 'not h) (collect-rule-calls (rest clause) true)
+            (= 'not-join h) (collect-rule-calls (drop 2 clause) true)
+            (= 'and h) (collect-rule-calls (rest clause) negated?)
+            (= 'or h) (mapcat #(collect-rule-calls (branch-clauses %) negated?) (rest clause))
+            (= 'or-join h) (mapcat #(collect-rule-calls (branch-clauses %) negated?)
+                                   (drop 2 clause))
+            (symbol? h) [[h negated?]]
+            :else nil))))
+    clauses))
+
+
+(defn- check-rules-stratified!
+  "Refuse, before any evaluation, recursion THROUGH negation: a rule that
+   calls (inside not / not-join) a rule from which it is reachable, itself
+   included. Positive recursion is evaluated to its least fixed point;
+   negation inside a cycle has no such meaning here and is refused."
+  [rules]
+  (when (sequential? rules)
+    (let [named (filter #(and (sequential? %) (seq? (first %))) rules)
+          calls (reduce (fn [m rule]
+                          (update m (first (first rule)) (fnil into [])
+                                  (collect-rule-calls (rest rule) false)))
+                        {}
+                        named)
+          reach (fn [start]
+                  (loop [seen #{start}
+                         frontier [start]]
+                    (if (empty? frontier)
+                      seen
+                      (let [nxt (->> frontier
+                                     (mapcat #(map first (get calls %)))
+                                     (remove seen)
+                                     distinct)]
+                        (recur (into seen nxt) (vec nxt))))))]
+      (doseq [[rule-name edges] calls
+              [callee negated?] edges
+              :when negated?]
+        (when (contains? (reach callee) rule-name)
+          (throw (ex-info (str "recursion through negation is not supported: rule "
+                               rule-name " reaches itself through a negated call to "
+                               callee)
+                          {:reason :recursion-through-negation
+                           :rule rule-name
+                           :through callee})))))))
 
 
 (defn- project-element-st
@@ -2544,6 +2700,8 @@
             (throw (ex-info "query input arity must match :in"
                             {:expected (count in-patterns),
                              :actual (count bind-inputs)})))
+        _ (doseq [[p v] (map vector in-patterns bind-inputs)]
+            (when (= '% p) (check-rules-stratified! v)))
         ctx (assoc ctx
                    :fns (if (false? (:builtins opts))
                           (or (:fns opts) {})

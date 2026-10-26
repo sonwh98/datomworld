@@ -570,6 +570,9 @@
       ;; original (cursor validation error, missing or corrupt segment) is
       ;; the cause; no address, descriptor or handle is copied
       (fail :source-failed "source read failed" {} (or (ex-cause e) e))
+      (= :recursion-through-negation (:reason data))
+      (fail :unsupported "recursion through negation is not supported"
+            {:reason :recursion-through-negation})
       (= :checked-source-fallback (:reason data))
       (fail :unsupported "this clause needs an eager fallback a checked source does not offer"
             {:reason :checked-source-fallback})
