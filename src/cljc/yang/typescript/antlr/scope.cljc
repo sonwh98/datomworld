@@ -150,9 +150,10 @@
   [pk n]
   (case (:rule n)
     "functionDeclaration" (param-entries pk (rule-child pk n "callSignature"))
-    "anonymousFunction" (if-let [l (rule-child pk n "formalParameterList")]
-                          (param-entries pk l)
-                          [])
+    ("anonymousFunction" "generatorMethod" "getAccessor" "setAccessor")
+    (if-let [l (rule-child pk n "formalParameterList")]
+      (param-entries pk l)
+      [])
     "arrowFunctionDeclaration"
     (let [ps (rule-child pk n "arrowFunctionParameters")]
       (if (p/has-token? pk ps "(")
@@ -274,6 +275,16 @@
                       (case kind
                         :var (declare-var! (:scope env) d nm)
                         (declare-lexical! (:scope env) d nm kind)))))))
+            (for-head-declaration!
+              [d kind env]
+              (when-let [nm (declaration-name pk d)]
+                (when (declaration-initializer pk d)
+                  (early-error! "for-in loop variable declaration may not have an initializer"
+                                d
+                                {:name nm}))
+                (if (= :var kind)
+                  (declare-var! (:scope env) d nm)
+                  (declare-lexical! (:scope env) d nm kind))))
             (walk-children
               [n env]
               (run! #(walk % env) (p/children pk n)))
@@ -318,6 +329,9 @@
                   "arrowFunctionDeclaration"
                   (let [env' (function-scope n :arrow env)]
                     (walk-children n env'))
+                  ("generatorMethod" "getAccessor" "setAccessor")
+                  (let [env' (function-scope n :function env)]
+                    (walk-children n env'))
                   "block" (let [id (open! n :block (:scope env))]
                             (walk-children n (assoc env :scope id)))
                   "caseBlock" (let [id (open! n :block (:scope env))]
@@ -336,13 +350,22 @@
                   (let [lst (rule-child pk n "variableDeclarationList")
                         kind (declaration-kind pk
                                                (rule-child pk n "varModifier"))
+                        vd (rule-child pk n "variableDeclaration")
                         loop-env (assoc env :loop? true)]
-                    (if (and lst (contains? #{:let :const} kind))
+                    (cond
+                      (and lst (contains? #{:let :const} kind))
                       (let [id (open! n :for (:scope env))
                             env' (assoc loop-env :scope id :for-head true)]
                         (variable-statement n env')
                         (walk-children n (assoc env' :for-head false)))
+                      (and vd (contains? #{:let :const} kind))
+                      (let [id (open! n :for (:scope env))
+                            env' (assoc loop-env :scope id)]
+                        (for-head-declaration! vd kind env')
+                        (walk-children n env'))
+                      :else
                       (do (when lst (variable-statement n env))
+                          (when vd (for-head-declaration! vd :var env))
                           (walk-children n loop-env))))
                   "labelledStatement"
                   (let [chain (loop [m n, acc []]

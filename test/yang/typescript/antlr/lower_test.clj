@@ -278,10 +278,9 @@
 
 (deftest out-of-slice-refusals-test
   (doseq [[src construct slice]
-          [["var o = {};" "object literal" :T2]
-           ["var a = [1];" "array literal" :T2]
+          [["var o = {*g() {}};" "generator function" :T5]
+           ["var a = [...b];" "spread element" :T4]
            ["class A {}" "class" :T3]
-           ["for (var k in {}) {}" "for-in" :T2]
            ["for (const x of y) {}" "for-of" :T5]
            ["function* g() {}" "generator function" :T5]
            ["async function f() {}" "async function" :T6]
@@ -297,10 +296,7 @@
            ["f(...a);" "spread argument" :T4]
            ["a ?? b;" "nullish coalescing" :T4]
            ["a?.b;" "optional chaining" :T4]
-           ["a.b = 1;" "property write" :T2]
-           ["delete a;" "delete" :T2]
            ["a instanceof B;" "instanceof" :T3]
-           ["'a' in b;" "in operator" :T2]
            ["tag`x`;" "tagged template" :T5]
            ["/ab/;" "regular expression literal" :never]]]
     (testing src

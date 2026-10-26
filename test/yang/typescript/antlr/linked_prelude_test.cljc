@@ -88,6 +88,13 @@
   (is (empty? (filter #(contains? vm/primitives %) hooks/module-exports))))
 
 
+(deftest js-module-exports-stage0-entry-points-test
+  (testing "the lowering's literal, for-in and JSON entry points are exported"
+    (is (every? #(contains? prelude/module-exports %)
+                '[new-object new-array literal-proto! for-in-start for-in-next
+                  install-json! define-accessor-half! json-stringify json-parse]))))
+
+
 (deftest jssp-module-spec-test
   (let [spec (hooks/module-spec (h/registry) :test/js-address)]
     (is (= 'jssp (:name spec) hooks/module-name))
