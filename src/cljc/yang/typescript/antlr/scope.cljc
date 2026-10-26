@@ -150,9 +150,10 @@
   [pk n]
   (case (:rule n)
     "functionDeclaration" (param-entries pk (rule-child pk n "callSignature"))
-    "anonymousFunction" (if-let [l (rule-child pk n "formalParameterList")]
-                          (param-entries pk l)
-                          [])
+    ("anonymousFunction" "generatorMethod" "getAccessor" "setAccessor")
+    (if-let [l (rule-child pk n "formalParameterList")]
+      (param-entries pk l)
+      [])
     "arrowFunctionDeclaration"
     (let [ps (rule-child pk n "arrowFunctionParameters")]
       (if (p/has-token? pk ps "(")
@@ -327,6 +328,9 @@
                               (walk-children n env'))))
                   "arrowFunctionDeclaration"
                   (let [env' (function-scope n :arrow env)]
+                    (walk-children n env'))
+                  ("generatorMethod" "getAccessor" "setAccessor")
+                  (let [env' (function-scope n :function env)]
                     (walk-children n env'))
                   "block" (let [id (open! n :block (:scope env))]
                             (walk-children n (assoc env :scope id)))

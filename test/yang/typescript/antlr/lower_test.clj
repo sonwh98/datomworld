@@ -278,7 +278,7 @@
 
 (deftest out-of-slice-refusals-test
   (doseq [[src construct slice]
-          [["var o = {m() {}};" "object method or accessor" :T2]
+          [["var o = {*g() {}};" "generator function" :T5]
            ["var a = [...b];" "spread element" :T4]
            ["class A {}" "class" :T3]
            ["for (const x of y) {}" "for-of" :T5]

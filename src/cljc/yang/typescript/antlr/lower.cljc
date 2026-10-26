@@ -667,6 +667,12 @@
         (check-consumed! ctx n)
         {:plist (first (rules ctx n "formalParameterList")),
          :body (first (rules ctx n "functionBody"))})
+    ("generatorMethod" "getAccessor" "setAccessor")
+    (do (when (token-kid ctx n "async") (refuse! n "async function" :T6))
+        (when (token-kid ctx n "*") (refuse! n "generator function" :T5))
+        (check-consumed! ctx n)
+        {:plist (first (rules ctx n "formalParameterList")),
+         :body (first (rules ctx n "functionBody"))})
     "arrowFunctionDeclaration"
     (let [params (first (rules ctx n "arrowFunctionParameters"))
           body (first (rules ctx n "arrowFunctionBody"))]
@@ -725,7 +731,12 @@
                     (u/lit (jstr fname))
                     (u/lit (count params))
                     (u/lit (if arrow? :lexical :strict))
-                    (u/lit (if arrow? :arrow :normal))
+                    (u/lit (cond
+                             arrow? :arrow
+                             (= "generatorMethod" (:rule n)) :method
+                             (contains? #{"getAccessor" "setAccessor"} (:rule n))
+                             :accessor
+                             :else :normal))
                     code)]
     (if-let [self (:self s)]
       (let [cell-sym (symbol self)]
@@ -1114,10 +1125,22 @@
       (let [t (text-of ctx c)]
         (app* 'js/create-data-prop! (u/v o) (u/lit (jstr t)) (read-name ctx t)))
       (p/rule? c "restParameter") (refuse! pa "destructuring" :T4)
-      (or (p/rule? c "getAccessor")
-          (p/rule? c "setAccessor")
-          (p/rule? c "generatorMethod"))
-      (refuse! pa "object method or accessor" :T2)
+      (p/rule? c "generatorMethod")
+      (let [{:keys [key hint]} (property-key ctx (first (rules ctx c "propertyName")))]
+        (app* 'js/create-data-prop! (u/v o) key (function-value ctx c c (or hint ""))))
+      (or (p/rule? c "getAccessor") (p/rule? c "setAccessor"))
+      (let [get? (p/rule? c "getAccessor")
+            half (first (rules ctx c (if get? "getter" "setter")))
+            cen (first (rules ctx half "classElementName"))]
+        (when-not (first (rules ctx cen "propertyName"))
+          (refuse! cen "private name" :T3))
+        (let [{:keys [key hint]} (property-key ctx (first (rules ctx cen "propertyName")))]
+          (app* 'js/define-accessor-half!
+                (u/v o)
+                key
+                (u/lit (if get? :get :set))
+                (function-value ctx c c (str (if get? "get " "set ") (or hint "")))
+                (u/lit true))))
       :else (refuse! pa "spread property" :T4))))
 
 

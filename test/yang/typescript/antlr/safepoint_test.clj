@@ -42,6 +42,9 @@
 
 (def ^:private programs
   {:while-true "while (true) { }",
+   :for-in (str "const o = {a: 1, b: 2}; let t = ''; "
+                "for (const k in o) { t += k; } console.log(t);"),
+   :for-in-forever "const o = {a: 1}; while (true) { for (const k in o) { } }",
    :caught "try { while (true) { } } catch (e) { console.log('caught'); }",
    :def-and-while (str "function f(n) { return n + 1; } var i = 0; "
                        "while (i < 5) { i = f(i); } console.log(i);")})
@@ -154,6 +157,15 @@
                                               hooks/profile)))))))))
 
 
+(deftest for-in-loop-site-test
+  (let [{:keys [projected]} (derive* (parse (:for-in programs)) hooks/profile)
+        marks (map #(nth % 4)
+                   (filter #(= :yang/site (nth % 3))
+                           (:yin/frontend-metadata projected)))
+        kinds (frequencies (map #(if (vector? %) (first %) %) marks))]
+    (is (= 1 (:loop kinds)) "the for-in loop lambda carries one :loop site")))
+
+
 (deftest insertion-is-deterministic-test
   (let [pk (parse (:def-and-while programs))]
     (is (= (derive* pk hooks/profile) (derive* pk hooks/profile)))))
@@ -188,6 +200,20 @@
                                         (derived-ast (parse (:def-and-while programs))
                                                      hooks/profile))
                          (with-signals [])))))
+
+
+(defn- for-in-interrupt
+  []
+  (testing "an interrupt inside a for-in loop ends Interrupt, uncaught"
+    (every= [true false {:js/out [], :js/uncaught "Interrupt: interrupted"}]
+            (on-every-vm (hooks/program hooks/uast
+                                        (derived-ast (parse (:for-in-forever programs))
+                                                     hooks/profile))
+                         (with-signals [2])))))
+
+
+(deftest ^:slow for-in-interrupt-test
+  (slow/guard "for-in-interrupt-test" for-in-interrupt))
 
 
 (deftest ^:slow no-park-test

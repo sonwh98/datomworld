@@ -2945,12 +2945,581 @@
     [js/array-is-array
      (fn [this args] (js/array? (js/arg args 0)))]
     [js/array-of (fn [this args] (js/list->array args))]
+    ;; --- S5 leftovers: sort (stable merge), splice, fill, flat, lastIndexOf,
+    ;; reduceRight, Array.from
+    [js/sort-compare
+     (fn [cmp a b]
+       (if (= a :js/undefined)
+         (if (= b :js/undefined) 0 1)
+         (if (= b :js/undefined)
+           -1
+           (if (= cmp :js/undefined)
+             (js/str-compare (js/to-string a) (js/to-string b))
+             (let [x (data/float-value
+                       (js/to-number (js/call cmp :js/undefined (js/pair a b))))]
+               (if (<= x x) (if (< x 0) -1 (if (> x 0) 1 0)) 0))))))]
+    [js/merge-runs
+     (fn [cmp l r i j acc]
+       (if (< i (data/count l))
+         (if (< j (data/count r))
+           (if (<= (js/sort-compare cmp (get l i) (get r j)) 0)
+             (js/merge-runs cmp l r (+ i 1) j (conj acc (get l i)))
+             (js/merge-runs cmp l r i (+ j 1) (conj acc (get r j))))
+           (js/merge-runs cmp l r (+ i 1) j (conj acc (get l i))))
+         (if (< j (data/count r))
+           (js/merge-runs cmp l r i (+ j 1) (conj acc (get r j)))
+           acc)))]
+    [js/msort
+     (fn [cmp v]
+       (let [n (data/count v)]
+         (if (< n 2)
+           v
+           (let [h (get (integer/floor-div-mod n 2) 0)]
+             (js/merge-runs cmp
+                            (js/msort cmp (data/subvec v 0 h))
+                            (js/msort cmp (data/subvec v h))
+                            0
+                            0
+                            [])))))]
+    [js/present-items
+     (fn [items i acc]
+       (if (< i (data/count items))
+         (js/present-items items
+                           (+ i 1)
+                           (if (= (get items i) :js/hole) acc (conj acc (get items i))))
+         acc))]
+    [js/holes-pad
+     (fn [v n] (if (< (data/count v) n) (js/holes-pad (conj v :js/hole) n) v))]
+    [js/array-sort
+     (fn [this args]
+       (let [items (js/this-items this)
+             cmp (js/arg args 0)]
+         (do (if (js/callable-or-undefined? cmp)
+               :js/undefined
+               (js/throw-type-error
+                 {:js/str "The comparison function must be either a function or undefined"}))
+             (js/check-open! this)
+             (js/array-set-items!
+               this
+               (js/holes-pad (js/msort cmp (js/present-items items 0 []))
+                             (data/count items)))
+             this)))]
+    [js/array-splice
+     (fn [this args]
+       (let [items (js/this-items this)
+             n (data/count items)
+             start (js/rel-clamp (js/to-integer (js/arg args 0)) n)
+             dc (if (= (data/count args) 0)
+                  0
+                  (if (= (data/count args) 1)
+                    (- n start)
+                    (js/imin (js/imax (js/to-integer (js/arg args 1)) 0)
+                             (- n start))))]
+         (do (js/check-open! this)
+             (js/array-set-items!
+               this
+               (data/into (data/into (data/subvec items 0 start)
+                                     (js/args-rest args 2))
+                          (data/subvec items (+ start dc))))
+             (js/list->array (data/subvec items start (+ start dc))))))]
+    [js/fill-range
+     (fn [items v i end]
+       (if (< i end)
+         (js/fill-range (js/items-put items i v) v (+ i 1) end)
+         items))]
+    [js/array-fill
+     (fn [this args]
+       (let [items (js/this-items this)
+             n (data/count items)
+             from (js/rel-clamp (js/to-integer (js/arg args 1)) n)
+             e (js/arg args 2)
+             to (if (= e :js/undefined) n (js/rel-clamp (js/to-integer e) n))]
+         (do (js/check-open! this)
+             (js/array-set-items! this (js/fill-range items (js/arg args 0) from to))
+             this)))]
+    [js/flat-into
+     (fn [acc items d i]
+       (if (< i (data/count items))
+         (let [it (get items i)]
+           (js/flat-into
+             (if (= it :js/hole)
+               acc
+               (if (if (js/array? it) (< 0 d) false)
+                 (js/flat-into acc (get (cell/get it) :items) (- d 1) 0)
+                 (conj acc it)))
+             items
+             d
+             (+ i 1)))
+         acc))]
+    [js/array-flat
+     (fn [this args]
+       (let [items (js/this-items this)
+             d (js/arg args 0)]
+         (js/list->array
+           (js/flat-into [] items (if (= d :js/undefined) 1 (js/to-integer d)) 0))))]
+    [js/last-index-search
+     (fn [items x i]
+       (if (< i 0)
+         -1
+         (let [it (get items i)]
+           (if (if (= it :js/hole) false (js/strict-eq it x))
+             i
+             (js/last-index-search items x (- i 1))))))]
+    [js/array-last-index-of
+     (fn [this args]
+       (let [items (js/this-items this)
+             n (data/count items)
+             k (if (< 1 (data/count args)) (js/to-integer (js/arg args 1)) (- n 1))
+             start (if (< k 0) (+ n k) (js/imin k (- n 1)))]
+         (data/float64 (js/last-index-search items (js/arg args 0) start))))]
+    [js/reduce-right-step
+     (fn [a f acc i]
+       (if (<= 0 i)
+         (let [items (get (cell/get a) :items)]
+           (js/reduce-right-step
+             a
+             f
+             (if (if (< i (data/count items)) (not (= (get items i) :js/hole)) false)
+               (js/call f
+                        :js/undefined
+                        (js/vconj (js/vconj (js/vconj (js/vconj [] acc) (get items i))
+                                            (js/mknum i))
+                                  a))
+               acc)
+             (- i 1)))
+         acc))]
+    [js/last-present
+     (fn [items i]
+       (if (< i 0)
+         -1
+         (if (= (get items i) :js/hole) (js/last-present items (- i 1)) i)))]
+    [js/array-reduce-right
+     (fn [this args]
+       (let [f (js/this-fn (js/arg args 0))
+             items (js/this-items this)
+             n (data/count items)]
+         (if (< 1 (data/count args))
+           (js/reduce-right-step this f (js/arg args 1) (- n 1))
+           (let [i (js/last-present items (- n 1))]
+             (if (< i 0)
+               (js/throw-type-error {:js/str "Reduce of empty array with no initial value"})
+               (js/reduce-right-step this f (get items i) (- i 1)))))))]
+    [js/string-chars
+     ;; the elements Array.from makes of a string: code points, a lone
+     ;; surrogate on its own
+     (fn [s]
+       (if (nil? (get s :js/str))
+         (js/units-chars (get s :js/units) 0 [])
+         (js/cps-chars (data/str->code-points (get s :js/str)) 0 [])))]
+    [js/cps-chars
+     (fn [cps i acc]
+       (if (< i (data/count cps))
+         (js/cps-chars cps
+                       (+ i 1)
+                       (conj acc
+                             (assoc {} :js/str (data/code-points->str (conj [] (get cps i))))))
+         acc))]
+    [js/units-chars
+     (fn [us i acc]
+       (if (< i (data/count us))
+         (js/units-chars us (+ i 1) (conj acc (js/mk-str (conj [] (get us i)))))
+         acc))]
+    [js/from-map
+     (fn [f t items i acc]
+       (if (< i (data/count items))
+         (js/from-map f
+                      t
+                      items
+                      (+ i 1)
+                      (conj acc
+                            (js/call f
+                                     t
+                                     (js/pair (js/item-val (get items i))
+                                              (js/mknum i)))))
+         acc))]
+    [js/array-from
+     (fn [this args]
+       (let [src (js/arg args 0)
+             f (js/arg args 1)
+             items (if (= (js/kind-of src) :string)
+                     (js/string-chars src)
+                     (if (js/object? src)
+                       (js/array-like-args src 0 (js/length-of src) [])
+                       (if (if (= src :js/undefined) true (= src :js/null))
+                         (js/throw-type-error
+                           {:js/str "undefined is not iterable"})
+                         [])))]
+         (js/list->array
+           (if (= f :js/undefined)
+             items
+             (js/from-map (js/this-fn f) (js/arg args 2) items 0 [])))))]
     [js/install-array!
      (fn []
        (let [f (js/install-ctor! "Array" 1 js/array-fn js.rt/array-proto true)]
          (do (js/def-method! f "isArray" 1 js/array-is-array)
              (js/def-method! f "of" 0 js/array-of)
+             (js/def-method! f "from" 1 js/array-from)
              :js/undefined)))]])
+
+
+(defquoted ^:private json-definitions
+  "Stage 0 S8: JSON.stringify (replacer function and array, space, toJSON,
+   cycles, BigInt, well-formed output for lone surrogates) and JSON.parse
+   (no reviver, ledger L-T2-6)."
+  '[[js/hex-digit (fn [d] (if (< d 10) (+ 48 d) (+ 87 d)))]
+    [js/hex4-units
+     (fn [u]
+       (let [a (integer/floor-div-mod u 16)
+             b (integer/floor-div-mod (get a 0) 16)
+             c (integer/floor-div-mod (get b 0) 16)
+             d (integer/floor-div-mod (get c 0) 16)]
+         (js/vconj (js/vconj (js/vconj (js/vconj (js/vconj (js/vconj [] 92) 117)
+                                                 (js/hex-digit (get d 1)))
+                                       (js/hex-digit (get c 1)))
+                             (js/hex-digit (get b 1)))
+                   (js/hex-digit (get a 1)))))]
+    [js/quote-units
+     (fn [us i acc]
+       (if (< i (data/count us))
+         (let [u (get us i)]
+           (if (= u 34)
+             (js/quote-units us (+ i 1) (data/into acc [92 34]))
+             (if (= u 92)
+               (js/quote-units us (+ i 1) (data/into acc [92 92]))
+               (if (= u 8)
+                 (js/quote-units us (+ i 1) (data/into acc [92 98]))
+                 (if (= u 9)
+                   (js/quote-units us (+ i 1) (data/into acc [92 116]))
+                   (if (= u 10)
+                     (js/quote-units us (+ i 1) (data/into acc [92 110]))
+                     (if (= u 12)
+                       (js/quote-units us (+ i 1) (data/into acc [92 102]))
+                       (if (= u 13)
+                         (js/quote-units us (+ i 1) (data/into acc [92 114]))
+                         (if (< u 32)
+                           (js/quote-units us (+ i 1) (data/into acc (js/hex4-units u)))
+                           (if (if (<= 55296 u) (<= u 56319) false)
+                             (let [nx (get us (+ i 1))]
+                               (if (if (nil? nx) false (if (<= 56320 nx) (<= nx 57343) false))
+                                 (js/quote-units us (+ i 2) (conj (conj acc u) nx))
+                                 (js/quote-units us (+ i 1) (data/into acc (js/hex4-units u)))))
+                             (if (if (<= 56320 u) (<= u 57343) false)
+                               (js/quote-units us (+ i 1) (data/into acc (js/hex4-units u)))
+                               (js/quote-units us (+ i 1) (conj acc u)))))))))))))
+         (conj acc 34)))]
+    [js/json-quote (fn [s] (js/mk-str (js/quote-units (js/units-of s) 0 [34])))]
+    [js/json-spaces
+     (fn [n acc]
+       (if (<= n 0) acc (js/json-spaces (- n 1) (js/str-concat acc {:js/str " "}))))]
+    [js/json-gap
+     (fn [sp]
+       (let [k (js/kind-of sp)]
+         (if (= k :number)
+           (js/json-spaces (js/imin 10 (js/to-integer sp)) {:js/str ""})
+           (if (= k :string)
+             (js/str-slice sp 0 (js/imin 10 (js/str-unit-length sp)))
+             {:js/str ""}))))]
+    [js/json-plist
+     (fn [items i acc]
+       (if (< i (data/count items))
+         (let [it (js/item-val (get items i))
+               k (js/kind-of it)
+               s (if (= k :string)
+                   it
+                   (if (= k :number) (js/to-string it) nil))]
+           (js/json-plist items
+                          (+ i 1)
+                          (if (nil? s)
+                            acc
+                            (if (<= 0 (js/vec-index-of acc s 0)) acc (conj acc s)))))
+         acc))]
+    [js/json-enter!
+     (fn [st v]
+       (let [stack (get st :stack)]
+         (if (<= 0 (js/vec-index-of (cell/get stack) v 0))
+           (js/throw-type-error
+             {:js/str "Converting circular structure to JSON"})
+           (cell/set! stack (conj (cell/get stack) v)))))]
+    [js/json-leave!
+     (fn [st]
+       (let [stack (get st :stack)
+             cur (cell/get stack)]
+         (cell/set! stack (data/subvec cur 0 (- (data/count cur) 1)))))]
+    [js/json-join
+     (fn [members sep] (js/join-items members sep 0 {:js/str ""}))]
+    [js/json-wrap
+     (fn [members open close gap indent inner]
+       (if (= (data/count members) 0)
+         (js/str-concat open close)
+         (if (= gap {:js/str ""})
+           (js/str-concat open
+                          (js/str-concat (js/json-join members {:js/str ","}) close))
+           (js/str-concat
+             open
+             (js/str-concat
+               {:js/str "\n"}
+               (js/str-concat
+                 inner
+                 (js/str-concat
+                   (js/json-join members
+                                 (js/str-concat {:js/str ",\n"} inner))
+                   (js/str-concat {:js/str "\n"}
+                                  (js/str-concat indent close)))))))))]
+    [js/json-members
+     (fn [st o keys i inner acc]
+       (if (< i (data/count keys))
+         (let [key (get keys i)
+               s (js/json-prop st o key inner)]
+           (js/json-members
+             st
+             o
+             keys
+             (+ i 1)
+             inner
+             (if (= s :js/undefined)
+               acc
+               (conj acc
+                     (js/str-concat
+                       (js/json-quote key)
+                       (js/str-concat
+                         {:js/str ":"}
+                         (js/str-concat
+                           (if (= (get st :gap) {:js/str ""}) {:js/str ""} {:js/str " "})
+                           s)))))))
+         acc))]
+    [js/json-elements
+     (fn [st a i n inner acc]
+       (if (< i n)
+         (let [s (js/json-prop st a (js/number->string (js/mknum i)) inner)]
+           (js/json-elements st a (+ i 1) n inner
+                             (conj acc (if (= s :js/undefined) {:js/str "null"} s))))
+         acc))]
+    [js/json-object
+     (fn [st o indent]
+       (do (js/json-enter! st o)
+           (let [inner (js/str-concat indent (get st :gap))
+                 pl (get st :plist)
+                 keys (if (= pl :js/undefined) (js/own-enumerable-string-keys o) pl)
+                 r (js/json-wrap (js/json-members st o keys 0 inner [])
+                                 {:js/str "{"}
+                                 {:js/str "}"}
+                                 (get st :gap)
+                                 indent
+                                 inner)]
+             (do (js/json-leave! st) r))))]
+    [js/json-array
+     (fn [st a indent]
+       (do (js/json-enter! st a)
+           (let [inner (js/str-concat indent (get st :gap))
+                 r (js/json-wrap (js/json-elements st a 0 (js/length-of a) inner [])
+                                 {:js/str "["}
+                                 {:js/str "]"}
+                                 (get st :gap)
+                                 indent
+                                 inner)]
+             (do (js/json-leave! st) r))))]
+    [js/json-value
+     (fn [st v indent]
+       (let [k (js/kind-of v)]
+         (if (= k :null)
+           {:js/str "null"}
+           (if (= k :boolean)
+             (if v {:js/str "true"} {:js/str "false"})
+             (if (= k :string)
+               (js/json-quote v)
+               (if (= k :number)
+                 (if (js/finite? (js/fval v))
+                   (js/number->string v)
+                   {:js/str "null"})
+                 (if (= k :bigint)
+                   (js/throw-type-error
+                     {:js/str "Do not know how to serialize a BigInt"})
+                   (if (= k :object)
+                     (if (js/array? v)
+                       (js/json-array st v indent)
+                       (js/json-object st v indent))
+                     :js/undefined))))))))]
+    [js/json-prop
+     (fn [st holder key indent]
+       (let [v0 (js/get-value holder key)
+             v1 (if (if (js/object? v0) true (= (js/kind-of v0) :bigint))
+                  (let [tj (js/get-value v0 {:js/str "toJSON"})]
+                    (if (js/callable? tj) (js/call tj v0 (js/vconj [] key)) v0))
+                  v0)
+             rep (get st :replacer)
+             v2 (if (js/callable? rep) (js/call rep holder (js/pair key v1)) v1)]
+         (js/json-value st v2 indent)))]
+    [js/json-stringify
+     (fn [this args]
+       (let [rep (js/arg args 1)
+             st (assoc (assoc (assoc (assoc {} :gap (js/json-gap (js/arg args 2)))
+                                     :replacer
+                                     rep)
+                              :plist
+                              (if (js/array? rep)
+                                (js/json-plist (get (cell/get rep) :items) 0 [])
+                                :js/undefined))
+                       :stack
+                       (cell/new []))
+             w (js/make-object js.rt/obj-proto)]
+         (do (js/create-data-prop! w {:js/str ""} (js/arg args 0))
+             (js/json-prop st w {:js/str ""} {:js/str ""}))))]
+    ;; ------------------------------------------------------------- parse
+    [js/json-error
+     (fn [] (js/throw-syntax-error {:js/str "Unexpected token in JSON"}))]
+    [js/json-skip-ws
+     (fn [us i]
+       (if (< i (data/count us))
+         (let [c (get us i)]
+           (if (if (= c 32) true (if (= c 9) true (if (= c 10) true (= c 13))))
+             (js/json-skip-ws us (+ i 1))
+             i))
+         i))]
+    [js/json-hex4
+     (fn [us i]
+       (if (<= (+ i 4) (data/count us))
+         (let [a (js/digit-value (get us i))
+               b (js/digit-value (get us (+ i 1)))
+               c (js/digit-value (get us (+ i 2)))
+               d (js/digit-value (get us (+ i 3)))]
+           (if (if (<= 0 a) (if (< a 16) (if (<= 0 b) (if (< b 16) (if (<= 0 c) (if (< c 16) (if (<= 0 d) (< d 16) false) false) false) false) false) false) false)
+             (+ (* a 4096) (+ (* b 256) (+ (* c 16) d)))
+             -1))
+         -1))]
+    [js/json-escape-unit
+     (fn [e]
+       (if (= e 34) 34
+           (if (= e 92) 92
+               (if (= e 47) 47
+                   (if (= e 98) 8
+                       (if (= e 102) 12
+                           (if (= e 110) 10
+                               (if (= e 114) 13 (if (= e 116) 9 -1)))))))))]
+    [js/json-parse-string
+     (fn [us i acc]
+       (if (< i (data/count us))
+         (let [c (get us i)]
+           (if (= c 34)
+             (js/pair (js/mk-str acc) (+ i 1))
+             (if (= c 92)
+               (let [e (get us (+ i 1))]
+                 (if (= e 117)
+                   (let [h (js/json-hex4 us (+ i 2))]
+                     (if (< h 0)
+                       (js/json-error)
+                       (js/json-parse-string us (+ i 6) (conj acc h))))
+                   (let [m (if (nil? e) -1 (js/json-escape-unit e))]
+                     (if (< m 0)
+                       (js/json-error)
+                       (js/json-parse-string us (+ i 2) (conj acc m))))))
+               (if (< c 32)
+                 (js/json-error)
+                 (js/json-parse-string us (+ i 1) (conj acc c))))))
+         (js/json-error)))]
+    [js/json-digits-after
+     ;; one or more digits at i: the index past them, error when none
+     (fn [us i]
+       (let [j (js/scan-digits us i (data/count us))]
+         (if (< i j) j (js/json-error))))]
+    [js/json-parse-number
+     (fn [us start]
+       (let [n (data/count us)
+             i (if (< start n) (if (= (get us start) 45) (+ start 1) start) start)
+             c (if (< i n) (get us i) 0)
+             j (if (= c 48)
+                 (+ i 1)
+                 (if (if (<= 49 c) (<= c 57) false)
+                   (js/scan-digits us i n)
+                   (js/json-error)))
+             k (if (if (< j n) (= (get us j) 46) false)
+                 (js/json-digits-after us (+ j 1))
+                 j)
+             m (if (if (< k n) (if (= (get us k) 101) true (= (get us k) 69)) false)
+                 (let [s (if (< (+ k 1) n)
+                           (if (if (= (get us (+ k 1)) 43) true (= (get us (+ k 1)) 45))
+                             (+ k 2)
+                             (+ k 1))
+                           (+ k 1))]
+                   (js/json-digits-after us s))
+                 k)]
+         (js/pair (js/string->number (js/mk-str (data/subvec us start m))) m)))]
+    [js/json-literal
+     (fn [us i word v]
+       (if (js/units-match? us word i 0)
+         (js/pair v (+ i (data/count word)))
+         (js/json-error)))]
+    [js/json-parse-value
+     (fn [us i]
+       (let [j (js/json-skip-ws us i)]
+         (if (< j (data/count us))
+           (let [c (get us j)]
+             (if (= c 123)
+               (js/json-parse-object us (+ j 1))
+               (if (= c 91)
+                 (js/json-parse-array us (+ j 1) [])
+                 (if (= c 34)
+                   (js/json-parse-string us (+ j 1) [])
+                   (if (= c 116)
+                     (js/json-literal us j [116 114 117 101] true)
+                     (if (= c 102)
+                       (js/json-literal us j [102 97 108 115 101] false)
+                       (if (= c 110)
+                         (js/json-literal us j [110 117 108 108] :js/null)
+                         (js/json-parse-number us j))))))))
+           (js/json-error))))]
+    [js/json-parse-array
+     (fn [us i acc]
+       (let [j (js/json-skip-ws us i)]
+         (if (if (< j (data/count us)) (= (get us j) 93) false)
+           (if (= (data/count acc) 0)
+             (js/pair (js/list->array acc) (+ j 1))
+             (js/json-error))
+           (let [r (js/json-parse-value us j)
+                 k (js/json-skip-ws us (get r 1))
+                 acc2 (conj acc (get r 0))
+                 c (if (< k (data/count us)) (get us k) 0)]
+             (if (= c 44)
+               (js/json-parse-array us (+ k 1) acc2)
+               (if (= c 93)
+                 (js/pair (js/list->array acc2) (+ k 1))
+                 (js/json-error)))))))]
+    [js/json-parse-members
+     (fn [us i o]
+       (let [j (js/json-skip-ws us i)]
+         (if (if (< j (data/count us)) (= (get us j) 34) false)
+           (let [kr (js/json-parse-string us (+ j 1) [])
+                 c1 (js/json-skip-ws us (get kr 1))]
+             (if (if (< c1 (data/count us)) (= (get us c1) 58) false)
+               (let [vr (js/json-parse-value us (+ c1 1))
+                     k (js/json-skip-ws us (get vr 1))
+                     c (if (< k (data/count us)) (get us k) 0)]
+                 (do (js/create-data-prop! o (get kr 0) (get vr 0))
+                     (if (= c 44)
+                       (js/json-parse-members us (+ k 1) o)
+                       (if (= c 125)
+                         (js/pair o (+ k 1))
+                         (js/json-error)))))
+               (js/json-error)))
+           (js/json-error))))]
+    [js/json-parse-object
+     (fn [us i]
+       (let [j (js/json-skip-ws us i)
+             o (js/make-object js.rt/obj-proto)]
+         (if (if (< j (data/count us)) (= (get us j) 125) false)
+           (js/pair o (+ j 1))
+           (js/json-parse-members us j o))))]
+    [js/json-parse
+     (fn [this args]
+       (let [us (js/units-of (js/to-string (js/arg args 0)))
+             r (js/json-parse-value us 0)
+             j (js/json-skip-ws us (get r 1))]
+         (if (< j (data/count us)) (js/json-error) (get r 0))))]
+    [js/install-json!
+     (fn []
+       (let [j (js/make-object js.rt/obj-proto)]
+         (do (js/def-method! j "stringify" 3 js/json-stringify)
+             (js/def-method! j "parse" 2 js/json-parse)
+             (js/define-global! "JSON" j))))]])
 
 
 (def ^:private define core/define)
@@ -2990,7 +3559,11 @@
      ["forEach" 1 'js/array-for-each] ["map" 1 'js/array-map]
      ["filter" 1 'js/array-filter] ["reduce" 1 'js/array-reduce]
      ["find" 1 'js/array-find] ["findIndex" 1 'js/array-find-index]
-     ["some" 1 'js/array-some] ["every" 1 'js/array-every]]]
+     ["some" 1 'js/array-some] ["every" 1 'js/array-every]
+     ["sort" 1 'js/array-sort] ["splice" 2 'js/array-splice]
+     ["fill" 1 'js/array-fill] ["flat" 0 'js/array-flat]
+     ["lastIndexOf" 1 'js/array-last-index-of]
+     ["reduceRight" 1 'js/array-reduce-right]]]
    ['js.rt/fn-proto
     [["call" 1 'js/function-call] ["apply" 2 'js/function-apply]
      ["bind" 1 'js/function-bind]]]
@@ -3084,6 +3657,7 @@
                 (js/define-global! "Symbol" f)))
          '(js/install-object!)
          '(js/install-array!)
+         '(js/install-json!)
          '(js/define-own! js.rt/global
                           {:js/str "undefined"}
                           (js/slot :js/undefined false false false))
@@ -3106,7 +3680,8 @@
   "The single definition list, `[store-key form]` in definition order:
    every prelude function, the literal state slot, then `js/init!`.
    Defining them runs nothing."
-  (into (into (into core-definitions object-definitions) array-definitions)
+  (into (into (into (into core-definitions object-definitions) array-definitions)
+              json-definitions)
         [['js.rt/state :js/uninit] ['js/init! (init-form)]]))
 
 
