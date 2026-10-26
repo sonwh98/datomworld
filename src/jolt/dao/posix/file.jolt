@@ -215,7 +215,9 @@
     (let [fd (path-bytes! native-path c-open)]
       (when (neg? fd)
         (throw (io-error {:path path} "open" (- fd) {})))
-      {:fd fd, :path path, :released (atom false)})))
+      ;; :failed is the content log's fail-closed state (review F3): nil, or
+      ;; the operation whose failure left the file's tail uncertain
+      {:fd fd, :path path, :released (atom false), :failed (atom nil)})))
 
 
 (defn length
@@ -294,21 +296,46 @@
                                    {:offset offset, :wanted n, :written done}))))))))
 
 
+(defn- refuse-if-failed!
+  "Throw when this handle is fail-closed (review F3): a previous append or
+   fsync failed, so the end of the file is uncertain and nothing more may be
+   appended through this descriptor until it is closed and the file reopened
+   (where dao.jing.file's validated recovery decides what stands)."
+  [handle]
+  (when-let [operation (some-> (:failed handle) deref)]
+    (throw (ex-info (str "dao.jing.file " (:path handle) " refuses further appends: a "
+                         "previous " operation " failed on this descriptor; close and "
+                         "reopen the file to recover")
+                    {:path (:path handle), :operation operation,
+                     :dao.posix.file/fail-closed true}))))
+
+
+(defn- fail-closed!
+  "Record operation's failure on the handle (first failure wins)."
+  [handle operation]
+  (when-let [failed (:failed handle)]
+    (compare-and-set! failed nil operation)))
+
+
 (defn append-frame!
   "Write the length-prefixed frame at the current end of the file (fstat):
    the s32BE length (packed by the wrapper, review F2), then the frame bytes,
    as one copied buffer. The caller holds the handle lock (dao.jing.file's
    make-put), which is what makes end-of-file stable here.
 
-   Fail-closed intent (review F3, J4c's slice, not implemented here): a
-   failure part-way through this write leaves a torn frame at the end of the
-   file, and appending a later valid frame behind it would make the next open
-   refuse or, if the torn bytes happen to parse, truncate acknowledged data.
-   The descriptor-owned state that lands in J4c records the failure on this
-   handle: further puts throw naming the path and the failed operation, get
-   keeps serving the in-memory map, close still closes once. Today the
-   exception propagates and the shared put never acknowledges the frame."
+   Fail-closed (review F3, J4c): a failure part-way through this write can
+   leave a torn frame at the end of the file, and appending a later valid
+   frame behind it would make the next open refuse or, if the torn bytes
+   happen to parse, truncate acknowledged data. So the failure is recorded on
+   this descriptor (private to the handle, never shared state): every later
+   append or sync through it throws, naming the path and the failed
+   operation; dao.jing.file's get keeps serving its in-memory map (nothing
+   here touches it); close still closes once. Reopening the file runs the
+   shared validated recovery, which drops a torn tail. This is a jolt-only
+   divergence: the JVM, Node and Dart handles stay usable after a failed
+   write (spec §5, Files row)."
   [handle frame]
+  (refuse-if-failed! handle)
   (let [len (alength frame)
         total (+ 4 len)
         end (length handle)]
@@ -316,7 +343,10 @@
       (fn [buf]
         (c-s32be-put buf 0 len)
         (when (pos? len) (ffi/write-array buf :int8 frame 4))
-        (write-from! handle buf end total)))
+        (try (write-from! handle buf end total)
+             (catch Throwable t
+               (fail-closed! handle "pwrite")
+               (throw t)))))
     nil))
 
 
@@ -324,15 +354,19 @@
   "fsync: a full sync of the descriptor, not a port flush and not
    fdatasync. A put is acknowledged only after it.
 
-   Fail-closed intent (review F3, J4c's slice): a failed fsync is not
-   retried, here or by the caller. On Linux the kernel may drop the dirty
-   pages after reporting the error, so a retry that answers success would
-   not mean the frame is durable. J4c's descriptor-owned state makes the
-   handle refuse further puts after this failure; today the exception
-   propagates and the put is not acknowledged."
+   A failed fsync is never retried, here or by the caller, and it makes the
+   handle fail-closed like a failed append (review F3). The reason a retry
+   is unsafe: on Linux a failed fsync may already have dropped the dirty
+   pages it could not write (marking them clean), so a second fsync can
+   answer success while the frame never reached storage. Only a reopen,
+   whose validated recovery reads what the file actually holds, can say
+   which frames stand."
   [handle]
+  (refuse-if-failed! handle)
   (let [r (fsync-once (fd-of handle))]
-    (when (neg? r) (throw (io-error handle "fsync" (- r) {})))
+    (when (neg? r)
+      (fail-closed! handle "fsync")
+      (throw (io-error handle "fsync" (- r) {})))
     nil))
 
 

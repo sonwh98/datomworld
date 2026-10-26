@@ -379,32 +379,46 @@
 
 
 ;; ==========================================================================
-;; JVM only: a real process killed mid-append
+;; JVM and jolt: a real process killed mid-append (on jolt the child is a
+;; fresh jolt runtime, J4c: a JVM child would not exercise the jolt file
+;; backend)
 ;; ==========================================================================
 
 #?(:cljd nil
    :clj
    (deftest a-process-killed-mid-append-leaves-a-dense-prefix
      (let [dir (temp-dir)
-           command ["java" "-cp" (System/getProperty "java.class.path")
-                    "clojure.main" "-e"
-                    (str "(require '[dao.stream :as s]"
-                         " '[dao.stream.journal :as j]"
-                         " '[dao.stream.journal.file :as f])"
-                         "(let [b (:dao.stream.journal.file/backend"
-                         " (f/backend! " (pr-str dir) "))"
-                         " h (:dao.stream/handle (j/open! b))]"
-                         " (loop [i 0]"
-                         "  (s/append! h i) (println i) (recur (inc i))))")]
+           program (str "(require '[dao.stream :as s]"
+                        " '[dao.stream.journal :as j]"
+                        " '[dao.stream.journal.file :as f])"
+                        "(let [b (:dao.stream.journal.file/backend"
+                        " (f/backend! " (pr-str dir) "))"
+                        " h (:dao.stream/handle (j/open! b))]"
+                        " (loop [i 0]"
+                        "  (s/append! h i) (println i)"
+                        #?(:jolt " (flush)" :default "")
+                        " (recur (inc i))))")
+           command #?(:jolt ["sh" "-c"
+                             (str ". build/tools/jolt-env.sh && exec"
+                                  " \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt -e \"$1\"")
+                             "jolt" program]
+                      :default ["java" "-cp" (System/getProperty "java.class.path")
+                                "clojure.main" "-e" program])
            child (.start (doto (ProcessBuilder. ^java.util.List command)
-                           (.redirectErrorStream true)))
+                           (.redirectErrorStream true)
+                           ;; the jolt launcher runs from its own root: start
+                           ;; the child where this runtime's user.dir is
+                           #?@(:jolt [(.directory (java.io.File.
+                                                    ^String (System/getProperty "user.dir")))])))
            acked (atom -1)
            other (atom [])]
        (try
          (with-open [rdr (java.io.BufferedReader.
                            (java.io.InputStreamReader.
                              (.getInputStream ^Process child)))]
-           (let [deadline (+ (System/currentTimeMillis) 60000)]
+           (let [deadline (+ (System/currentTimeMillis)
+                             ;; a jolt child starts from source (~10-20 s)
+                             #?(:jolt 180000 :default 60000))]
              (loop []
                (when (and (< @acked 50)
                           (< (System/currentTimeMillis) deadline))

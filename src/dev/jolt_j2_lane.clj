@@ -212,25 +212,7 @@
     :capability "udp datagram host seam" :owner "J6/J7"}
    {:ns "yin.vm.linker.head-follow-test"
     :reason "socket behaviour on jolt is unproven; deferred to J6/J7"
-    :capability "udp datagram host seam" :owner "J6/J7"}
-   {:ns "dao.stream.journal.file-test"
-    :reason "durable journal fixture requires FileChannel.tryLock"
-    :capability "file lock (tryLock)" :owner "J4"}
-   {:ns "yin.vm.ucf.durability-test"
-    :reason "durable journal fixture requires FileChannel.tryLock"
-    :capability "file lock (tryLock)" :owner "J4"}
-   {:ns "yin.vm.ucf.stage-e-rows-test"
-    :reason "durable journal fixture requires FileChannel.tryLock"
-    :capability "file lock (tryLock)" :owner "J4"}
-   {:ns "yin.vm.ucf.ledger-fixture-test"
-    :reason "durable journal fixture requires FileChannel.tryLock"
-    :capability "file lock (tryLock)" :owner "J4"}
-   {:ns "yin.vm.ucf.compose-rows-test"
-    :reason "durable journal fixture requires FileChannel.tryLock"
-    :capability "file lock (tryLock)" :owner "J4"}
-   {:ns "yin.vm.ucf.compose-test"
-    :reason "durable journal fixture requires FileChannel.tryLock"
-    :capability "file lock (tryLock)" :owner "J4"}])
+    :capability "udp datagram host seam" :owner "J6/J7"}])
 
 
 ;; Dependency order (the max rank of each suite's source requires), so a low
@@ -252,7 +234,9 @@
    "dao.stream.remote-pair-test" "dao.stream.remote-test" "dao.stream.rpc-test"
    "dao.jing-test" "dao.jing.cbor-conformance-test" corpus-suite-name
    "dao.jing.cbor-test" "dao.jing.hash-registry-contract-test" "dao.stream.base64-test"
-   "dao.stream.journal-test" "dao.data.btree-durability-test" "dao.host.hash-test"
+   "dao.stream.journal-test"
+   "dao.stream.journal.file-test" ; rejoined (J4c)
+   "dao.data.btree-durability-test" "dao.host.hash-test"
    "dao.jing.content.step-test" "dao.jing.dht-test"
    "dao.jing.mem-test"
    ;; Rejoined (J4a): excluded with capability "file random access
@@ -319,7 +303,13 @@
    "yin.vm.linker.admission-doc-test" "yin.vm.semantic.derive-test"
    "yin.vm.ucf.holder.export-test" "yin.vm.ucf.authority.grant-test"
    "yin.vm.ucf.authority.completion-fold-test" "yin.vm.ucf.authority.reclaim-test"
-   "yin.vm.ucf.crash-cut-test" "yin.vm.ucf.custody-test"
+   "yin.vm.ucf.crash-cut-test"
+   ;; Rejoined (J4c): excluded with capability "file lock (tryLock)" (owner
+   ;; J4) until the journal's lock and content log reached native/jolt-file
+   ;; (J4b's fcntl arms, J4a's content-log arms, J4c's fail-closed state).
+   "yin.vm.ucf.durability-test" "yin.vm.ucf.stage-e-rows-test"
+   "yin.vm.ucf.ledger-fixture-test" "yin.vm.ucf.compose-rows-test"
+   "yin.vm.ucf.compose-test" "yin.vm.ucf.custody-test"
    "yin.vm.ucf.ledger-test" "yin.vm.ucf.authority-test"
    "yin.vm.ucf.authority.admission-test" "yin.vm.ucf.authority.completion-test"
    "yin.vm.ucf.authority.inherited-test" "yin.vm.ucf.authority.input-test"

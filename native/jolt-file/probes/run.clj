@@ -1,4 +1,4 @@
-;; bb probe:jolt-file — the J4a and J4b gates for native/jolt-file, the jolt
+;; bb probe:jolt-file — the J4a, J4b and J4c gates for native/jolt-file, the jolt
 ;; branch of dao.jing.file and dao.space.store.fs (collab/1792769713135-architect-j4-file-seams-design §5,
 ;; J4a row; review F2), each in a child process so a refusal or an abort
 ;; cannot erase the report:
@@ -39,6 +39,12 @@
 ;;     (dev+inode, positive control, child refused, parent still holds);
 ;;   - gates 5-6 and the hygiene re-run in process (probes/j4b/fs_gates.clj),
 ;;     and the HEAD's mode checked against 0666 & ~umask (review F4).
+;;
+;; J4c (probes/j4c/fail_closed.clj): after a torn append or a failed fsync
+;; the content-log handle refuses every later append naming the path and the
+;; operation, appends nothing more, keeps serving get, closes once, and a
+;; reopen recovers the acknowledged prefix; the file journal poisons, reopens
+;; to its dense acknowledged prefix and continues with the same identity.
 ;;
 ;; Needs bb bootstrap:jolt and bb build:jolt-native. Prints PASS/FAIL per
 ;; gate and RECORD per observation; exits nonzero on any FAIL. Scratch roots
@@ -485,6 +491,20 @@
     (doseq [proc @live]
       (when (.isAlive ^java.lang.Process (:proc proc))
         (.destroyForcibly ^java.lang.Process (:proc proc))))))
+
+
+;; =============================================================================
+;; J4c: the fail-closed handle state (review F3), in process
+;; (probes/j4c/fail_closed.clj); the real kill-mid-append of a jolt journal
+;; writer is dao.stream.journal.file-test's own jolt leg, on the lane
+;; =============================================================================
+
+(fs/delete-tree (fs/path root "build/j4c-probe"))
+
+
+(let [r (jolt root (str probes "/j4c/fail_closed.clj"))]
+  (relay r)
+  (check "J4c fail-closed gates: child exited 0" (zero? (:exit r)) {:exit (:exit r)}))
 
 
 (when (seq @partials)

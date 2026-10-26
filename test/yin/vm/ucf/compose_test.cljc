@@ -1104,11 +1104,19 @@
                             "  (println \"REPL-NAMESPACES\"\n"
                             "           (pr-str (vec (sort (filter #(re-find #\"^yin\\\\.repl\" (str %))\n"
                             "                                      (map str (loaded-libs))))))))\n")))
-           command [(str (System/getProperty "java.home") "/bin/java")
-                    "-cp" (System/getProperty "java.class.path")
-                    "clojure.main" (.getAbsolutePath script)]
+           ;; on jolt the fresh process is a jolt runtime (J4c: a JVM child
+           ;; would not test the jolt composition), started where this
+           ;; runtime's user.dir is, since the jolt launcher runs from its root
+           command #?(:jolt ["sh" "-c"
+                             (str ". build/tools/jolt-env.sh && exec"
+                                  " \"$JOLT_HOME/bin/jolt\" -Srepro -M:jolt:jolt-test \"$1\"")
+                             "jolt" (.getAbsolutePath script)]
+                      :default [(str (System/getProperty "java.home") "/bin/java")
+                                "-cp" (System/getProperty "java.class.path")
+                                "clojure.main" (.getAbsolutePath script)])
            process (let [pb (doto (ProcessBuilder. ^java.util.List command)
-                              (.redirectErrorStream true))]
+                              (.redirectErrorStream true)
+                              #?@(:jolt [(.directory (io/file (System/getProperty "user.dir")))]))]
                      (.start pb))
            output (with-open [r (io/reader (.getInputStream process))]
                     (doall (line-seq r)))
