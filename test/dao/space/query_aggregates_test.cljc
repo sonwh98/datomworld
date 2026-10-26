@@ -58,6 +58,16 @@
          (or (ex-message e) (str e)))))
 
 
+(defn- refused-with?
+  "True when f throws and its message matches pattern. A boolean-valued
+   helper on purpose: on ClojureScript, `(is (re-find re (str (f))))` reads the
+   wrong value inside the cljs.test macro expansion (observed on Node), so a
+   call is never wrapped in `str` inside an assertion form."
+  [f pattern]
+  (let [m (refusal f)]
+    (boolean (and m (re-find pattern m)))))
+
+
 (defn- same-content-vec?
   [a b]
   (and (= (count a) (count b)) (every? true? (map cbor/content= a b))))
@@ -174,7 +184,14 @@
     (let [[[hi]] (seq (qq '[:find (max 3 ?v) :with ?e :where [?e :k/v ?v]] ties))]
       (is (same-content-vec? [(cbor/float64 2) (cbor/float64 1) 1] hi))))
   (testing "median over [1 1 1.0 2.0] is the double mean of the middle pair (1 and 1.0)"
-    (is (= #{[1.0]} (qq '[:find (median ?v) :with ?e :where [?e :k/v ?v]] ties))))
+    ;; an even count needs arithmetic on the middle pair. 1.0 is a float64
+    ;; CARRIER on JavaScript only (a Dart double and a JVM Double are native
+    ;; numbers), so JavaScript refuses explicitly, exactly as every host does
+    ;; for decimals
+    (let [even-median #(qq '[:find (median ?v) :with ?e :where [?e :k/v ?v]] ties)]
+      #?(:cljd (is (= #{[1.0]} (even-median)))
+         :clj (is (= #{[1.0]} (even-median)))
+         :cljs (is (re-find #"does not accept a numeric carrier" (refusal even-median))))))
   (testing "distinct keeps the tied-but-content-distinct members apart where the host set can"
     (let [[[s]] (seq (qq '[:find (distinct ?v) :where [?e :k/v ?v]] ties))]
       (is (= 3 (count s)) "1, 1.0 and 2.0 are three values")))
@@ -184,7 +201,8 @@
       (is (cbor/content= (cbor/float64 1) m)))))
 
 
-#?(:clj
+#?(:cljd nil
+   :clj
    (deftest the-jvm-set-collapse-of-tied-decimals-is-the-documented-limitation
      ;; E1 applies to a distinct set exactly as to the result set: 1.0M and
      ;; 1.00M are content-distinct but host-= on the JVM.
@@ -210,18 +228,25 @@
       (is (same-content-vec? [(cbor/decimal -1 10) (cbor/decimal 0 3)] lo)))))
 
 
+(defn carrier-refusals
+  "On a host where decimals are carriers, arithmetic aggregates over them are
+   explicit refusals. Public so the JVM reading of this file, which does not
+   call it, has no unused-var noise."
+  [variance even-median]
+  (testing "this host has decimals only as carriers: arithmetic is an explicit refusal"
+    (is (re-find #"does not accept a numeric carrier" (refusal variance)))
+    (is (re-find #"does not accept a numeric carrier" (refusal even-median)))))
+
+
 (deftest carriers-in-arithmetic-aggregates
   (let [variance #(qq '[:find (variance ?v) :where [?e :d/v ?v]] decimals)
         even-median #(qq '[:find (median ?v) :with ?e :where [?e :d/v ?v]]
                          (conj decimals [4 :d/v (cbor/decimal 0 7)]))]
-    #?(:clj (do
-              (testing "the JVM evaluates decimals as host numbers"
-                (is (= #{[2.6666666666666665]} (variance)))
-                (is (= #{[4.0]} (even-median)) "mean of the middle pair 3 and 5")))
-       :default (do
-                  (testing "this host has decimals only as carriers: arithmetic is an explicit refusal"
-                    (is (re-find #"does not accept a numeric carrier" (refusal variance)))
-                    (is (re-find #"does not accept a numeric carrier" (refusal even-median))))))))
+    #?(:cljd (carrier-refusals variance even-median)
+       :clj (testing "the JVM evaluates decimals as host numbers"
+              (is (= #{[2.6666666666666665]} (variance)))
+              (is (= #{[4.0]} (even-median)) "mean of the middle pair 3 and 5"))
+       :cljs (carrier-refusals variance even-median))))
 
 
 ;; ---------------------------------------------------------------------------
@@ -235,14 +260,14 @@
                         "pull variable" '[:find (pull ?z [:s/v]) :where [?e :s/v ?v]]
                         "tuple find" '[:find [?v ?z] :where [?e :s/v ?v]]
                         "only inside a not" '[:find ?w :where [?e :s/v ?v] (not-join [?e] [?e :s/g ?w])]}]
-    (is (re-find #"not bound" (str (refusal #(qq form scores)))) label))
+    (is (refused-with? #(qq form scores) #"not bound") label))
   (testing "refused with no evaluation: a function that would throw is never called"
     (let [called (volatile! false)]
-      (is (re-find #"not bound"
-                   (str (refusal #(query/collect
-                                    (query/q '[:find ?z :where [?e :s/v ?v] [(boom ?v)]]
-                                             (db scores)
-                                             {:fns {'boom (fn [_] (vreset! called true) true)}}))))))
+      (is (refused-with? #(query/collect
+                            (query/q '[:find ?z :where [?e :s/v ?v] [(boom ?v)]]
+                                     (db scores)
+                                     {:fns {'boom (fn [_] (vreset! called true) true)}}))
+                         #"not bound"))
       (is (false? @called))))
   (testing "variables bound by :in, by patterns, by function outputs and by rule calls are fine"
     (is (= #{[1 "x"]}

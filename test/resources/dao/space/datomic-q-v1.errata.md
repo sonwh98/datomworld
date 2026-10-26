@@ -192,7 +192,13 @@ is `oracle` pending):
   `median` refuse explicitly ("does not accept a numeric carrier",
   `agg.variance-carrier-refused`, hosts `cljs` and `cljd`). The JVM evaluates
   BigDecimal as a host number. Order statistics (odd `median`, `min`/`max`
-  with n) never do arithmetic and work with carriers everywhere.
+  with n) never do arithmetic and work with carriers everywhere. A float64
+  is a carrier on JavaScript only; a Dart double and a JVM Double are native
+  numbers. Decimals are carriers on both JavaScript and Dart. So an
+  even-count `median` over tied kinds is evaluated on `clj` and `cljd`
+  (`agg.median-tied-kinds`), refused explicitly on `cljs`
+  (`agg.median-tied-kinds-carrier-refused`), and the odd-count
+  `agg.median-tied-kinds-odd` (no arithmetic) runs on every host.
 - `rand` and `sample` remain excluded ("Unknown aggregate").
 
 ## E14 — Syntax depth is bounded by a documented constant

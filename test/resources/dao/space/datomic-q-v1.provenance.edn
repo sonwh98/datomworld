@@ -7,13 +7,13 @@
  ;; BLAKE3 of the resource bytes (the file is pure ASCII). Equals
  ;; resource-blake3 in the conformance test.
  :digest {:algorithm :blake3
-          :hex "73f92822b0db7abdd8933c9bb83adf5159e9938f75da48184e68088b875da456"}
- :cases {:total 99 :executable 47 :difference 9 :refusal 13 :pending 30}
+          :hex "17b53dd3edcc6d9c2760ce2cec49166fa1abe7d900b4465bb468aaaa813dc6cb"}
+ :cases {:total 101 :executable 48 :difference 9 :refusal 14 :pending 30}
  :points 28
  :fixtures 11
  :baseline-revision "f6856bbc"
  :contract "docs/design/dao.space.query.datomic-compat.md"
- :authored "2026-10-24, phase 0 engineer slice (claude-opus-5-5 lane); revised after glm-5.3 reviews (pull-option re-encode; list-form pull case added; previous digest 109f88d7 superseded; Phase 4a timeout/admission case added, previous digest 3b20589f superseded; bounds.published-source-refused note updated for the Phase 4b admission profile, previous digest a4983d69 superseded; Phase 2: aggregate, unbound-variable and fixture cases promoted/added and numeric-value comparison introduced, previous digest a1c99136 superseded)"
+ :authored "2026-10-24, phase 0 engineer slice (claude-opus-5-5 lane); revised after glm-5.3 reviews (pull-option re-encode; list-form pull case added; previous digest 109f88d7 superseded; Phase 4a timeout/admission case added, previous digest 3b20589f superseded; bounds.published-source-refused note updated for the Phase 4b admission profile, previous digest a4983d69 superseded; Phase 2: aggregate, unbound-variable and fixture cases promoted/added and numeric-value comparison introduced, previous digest a1c99136 superseded; tied-kind even median host-scoped (arithmetic needs a float64 CARRIER, which only JavaScript has), refusal and odd-count cases added, previous digest 73f92822 superseded)"
  :reviewed-by nil
  :inspected-artifacts
  [{:coordinate com.datomic/client-api
