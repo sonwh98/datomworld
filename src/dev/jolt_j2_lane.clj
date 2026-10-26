@@ -251,6 +251,9 @@
    "yin.vm.linker-authority-ingestion-test" "yin.vm.parity-test" "yin.vm.ast-walker-test"
    "yin.vm.module-test" "yin.vm.pipeline-test" "yin.vm.semantic.code-test"
    "yin.vm.semantic.load-paths-test" "dao.space.query-test"
+   ;; Listed 2026-10-26 (Phase 2 merge note, argon sign-off condition):
+   ;; the portable aggregate/E3/E13 suite — pure logic, no sockets/fs.
+   "dao.space.query-aggregates-test"
    "dao.space.stigmergy-test" ; rejoined (J4a)
    "dao.space.store.fs-test" ; rejoined (J4b)
    ;; Listed 2026-10-25: added by 3d77ed52 without a manifest entry, which
