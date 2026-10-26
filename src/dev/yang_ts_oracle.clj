@@ -20,9 +20,7 @@
 
 
 (def dir "test/resources/yang/typescript/")
-(def corpus-path (str dir "t1_corpus.edn"))
-(def oracle-path (str dir "t1_oracle.edn"))
-(def packets-path (str dir "t1_packets.edn"))
+
 (def preload-path "src/dev/yang_ts_oracle_preload.cjs")
 
 
@@ -55,9 +53,24 @@
              "]}\n")))
 
 
+(declare generate!)
+
+
 (defn -main
-  [& _]
-  (let [corpus (edn/read-string (slurp corpus-path))
+  "`clojure -M:dev -m yang-ts-oracle [corpus-name ...]`: each corpus name
+   (default `t1`) reads `<name>_corpus.edn` and writes `<name>_oracle.edn`
+   and `<name>_packets.edn`."
+  [& names]
+  (run! generate! (or (seq names) ["t1"]))
+  (shutdown-agents))
+
+
+(defn generate!
+  [nm]
+  (let [corpus-path (str dir nm "_corpus.edn")
+        oracle-path (str dir nm "_oracle.edn")
+        packets-path (str dir nm "_packets.edn")
+        corpus (edn/read-string (slurp corpus-path))
         header {:node (node-version),
                 :generated (str (java.time.LocalDate/now)),
                 :generator "src/dev/yang_ts_oracle.clj"}
@@ -77,5 +90,4 @@
     (doseq [{:keys [id err exit]} results
             :when (or (not (zero? exit)) (not (str/blank? err)))]
       (println "NODE" id "exit" exit (str/trim err)))
-    (println "wrote" (count corpus) "entries")
-    (shutdown-agents)))
+    (println "wrote" nm (count corpus) "entries")))
