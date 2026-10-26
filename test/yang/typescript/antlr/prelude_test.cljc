@@ -21,13 +21,17 @@
 
 
 (defn- unqualify
-  "`form` with the `clojure.core/` a syntax-quote adds taken off and every
+  "`form` with the `clojure.core/` (`cljs.core/`, `cljd.core/`) a syntax-quote
+   adds taken off and every
    result vector literal built element by element (a vector literal in a
    program is data, not a vector of values)."
   [form]
   (walk/postwalk
     (fn [x]
-      (cond (and (symbol? x) (= (namespace x) "clojure.core")) (symbol (name x))
+      (cond (and (symbol? x)
+                 (contains? #{"clojure.core" "cljs.core" "cljd.core"}
+                            (namespace x)))
+            (symbol (name x))
             (result-vector? x) (reduce (fn [acc a] (list 'js/vconj acc a)) [] x)
             :else x))
     form))
