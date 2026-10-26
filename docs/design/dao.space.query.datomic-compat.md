@@ -229,7 +229,7 @@ domain. It does not mean oracle verification has already occurred.
 | Four-/five-position Datomic history patterns | Refused/deferred | DaoSpace `[e a v t m]` is not automatically Datomic `[e a v tx added]`. |
 | Multiple sources and input binding forms | Exact target | Core presence verified; differential fixtures required. |
 | Negation/disjunction | Exact target for declared supported forms | Binding, scope and error behavior require conformance. |
-| Required-bound rule heads | Exact target, implementation pending | Core currently refuses them. |
+| Required-bound rule heads | Implemented (Phase 3) | `(r [?x] ?y)` heads with flat calls `(r 1 ?y)`; an unbound required argument fails at the call. |
 | Finite positive recursive rules | Exact target after conformance | Current active-call guard is not a completeness proof. Work budget provides an execution backstop. |
 | Numeric identity/arithmetic | Documented difference | Preserve the ratified CBOR identity policy and explicit unsupported-carrier refusals. |
 | `get-else`, `missing?` | Exact target on supported fact sources | Already index-aware special forms; edge semantics pending oracle cases. |
@@ -506,7 +506,9 @@ execution frames.
 Query-controlled loops must return progress, including loops that reject
 every candidate or produce no binding. Lazy evaluator chains that capture
 stale execution state are not permitted. Adapter preprocessing and final
-output work participate in the same invocation state.
+output work participate in the same invocation state. Query-layer diagnostic
+keys (for example `:dao.space.query/hits`) may ride the invocation state's
+terminal value.
 
 Existing selective index access and planning-never-forces behavior remain
 regression requirements for unbounded calls. This rewrite does not

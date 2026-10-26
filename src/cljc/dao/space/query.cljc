@@ -2549,7 +2549,7 @@
    negation inside a cycle has no such meaning here and is refused."
   [rules]
   (when (sequential? rules)
-    (let [named (filter #(and (sequential? %) (seq? (first %))) rules)
+    (let [named (filter #(and (sequential? %) (sequential? (first %))) rules)
           calls (reduce (fn [m rule]
                           (update m (first (first rule)) (fnil into [])
                                   (collect-rule-calls (rest rule) false)))

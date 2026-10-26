@@ -7,8 +7,8 @@
  ;; BLAKE3 of the resource bytes (the file is pure ASCII). Equals
  ;; resource-blake3 in the conformance test.
  :digest {:algorithm :blake3
-          :hex "862e20421ed2e03a8581fbf23b2038f4b232f79dea7a3ad9f02c299afa9ddf8b"}
- :cases {:total 112 :executable 56 :difference 9 :refusal 18 :pending 29}
+          :hex "51e021815d94ea0f9e4a9af119590c19af2a7450b20db7c7e918c0a0c7bb128c"}
+ :cases {:total 113 :executable 56 :difference 9 :refusal 19 :pending 29}
  :points 28
  :fixtures 12
  :baseline-revision "f6856bbc"

@@ -257,6 +257,18 @@
       (is (false? @called) (str label ": nothing was evaluated")))))
 
 
+(deftest vector-head-rules-are-stratified-too
+  (doseq [[label rules]
+          {"vector self" '[[[p ?x] [?x :e _] (not (p ?x))]]
+           "vector mutual" '[[[a ?x] [?x :e _] (not (b ?x))]
+                             [[b ?x] [?x :e _] (a ?x)]]}]
+    (is (refused-with? (fn [] (query/collect
+                          (query/q '[:find ?x :in $ % :where (p ?x) (a ?x)]
+                                   (graph) rules)))
+                       #"recursion through negation")
+        label)))
+
+
 (deftest negation-outside-the-cycle-is-fine
   (testing "a stratified rule set: a negates b, b is recursive but never reaches a"
     (let [rules '[[(path ?a ?b) [?a :e ?b]]
