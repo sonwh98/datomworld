@@ -56,24 +56,27 @@ Concretely:
 ## Coordination contract
 
 The orchestrator owns scope, authorization, verification, consensus, and
-readiness — see Workflow below for the full sequence. Never stage or commit
-without user instruction; when authorized, stage only requested files and
-commit only staged changes. Step 6 (local verification) passing alone is
-never grounds to commit: commit only once independent review (step 7) has
-completed and its findings are reconciled, or the user explicitly instructs
-a commit without waiting for review (2026-09-23 owner ruling, superseding
-the commit-then-review rule introduced the same day). An unauthorized
-pre-review commit gets undone — soft-reset if local, unpushed, and
-unmerged — never reviewed after the fact.
+readiness; the Workflow section owns the sequence.
 
-Commit message format (subject syntax, valid types, no `Co-Authored-By`) is a
-repository-wide convention, not orchestrator-specific — see
-[`format.md`](../format.md#git-commit-messages).
+**Commit authority** (2026-10-26 owner ruling). Staging, committing, merging
+to master, and pushing are authorized by exactly one of:
 
-Delegated claims are untrusted — verify artifacts, files, and test results
-locally (Workflow step 6, [`build-n-test.md`](../build-n-test.md)); don't
-force later reviewers to rerun passing suites unless security review
-requires it.
+- **An Architect sign-off** ([`architect.md`](architect.md)) on completed
+  work whose step 7 review has finished and whose findings are reconciled.
+  The sign-off covers exactly the signed-off work, never unrelated changes
+  that happen to be in the tree.
+- **An explicit user instruction.** Only the user can waive step 7 review
+  (2026-09-23 owner ruling).
+- **The trivial-edit exemption.** A trivial direct edit as defined in Scope
+  of judgment (a typo fix, a mechanical rename, a doc cross-reference
+  update: no choice between approaches, no behavior change) needs neither
+  review nor sign-off.
+
+Local verification (step 6) is never a substitute for any of these. History
+rewrites (amend, revert, reset) are outside all three, with one exception: an
+unauthorized pre-review commit that is local, unpushed, and unmerged is
+soft-reset and the work goes through review, never reviewed after the fact.
+Any other rewrite needs the user.
 
 For cost constraints and CLI routing caveats, see [`team.md`](../team.md)'s
 **Available Subscriptions & Cost Constraints** table. For current, session-
@@ -104,19 +107,13 @@ Implementers:
 ```
 
 Every report starts with the same header fields. Use actual timestamps; never fabricate them.
-See [Session continuity](../delegate-invocation-reference.md#session-continuity) for strict rules on
-generating, capturing, and resuming Session-IDs.
 
 `collab/` is append-only and never staged or committed while its artifacts
 are in flight, and must never be added to `.gitignore` or
 `.git/info/exclude` so its files stay visible and chronologically sorted in the user's Magit untracked
-view. ("Append-only" governs the in-flight workspace: an artifact's exit
-from `collab/` is the archive step — Workflow step 11, which moves retired
-artifacts to the git-tracked top-level `archive/` and commits them. It is
-not a license to delete, and never a destination like `collab/archive/`.)
-Never delete or truncate prompts or findings. Promote final responses to
-`.findings.md`; `.stdout.log`
-is only an intermediate capture.
+view. Artifacts leave `collab/` only through the archive step (Workflow
+step 11). Promote final responses to `.findings.md`; `.stdout.log` is only
+an intermediate capture.
 
 On reassignment, append history inside `Implementers:`; never rewrite an earlier `Status:` line:
 
@@ -138,8 +135,15 @@ explicit disjoint ownership. Only one process owns the CLJD lane because
 their own reference copies of prompts/findings in a local `collab/`. Before
 removing a worktree, diff its `collab/` against the main tree's and copy
 over anything unique — a worktree merge moves only committed content, so
-untracked `collab/` files are otherwise lost with the worktree. Never merge
-or delete worktrees or branches without user authority.
+untracked `collab/` files are otherwise lost with the worktree. Merging
+follows the commit authority in the coordination contract. A worktree or
+branch may be deleted once its work has landed on master under that
+authority, or on user instruction, and only after copying out unique
+`collab/` files and confirming that every other uncommitted file in it is
+either landed or deliberately discarded. Never run `git checkout --` or
+`git clean` on a worktree just to make it removable: that destroys
+in-flight work (observed 2026-10-26, when P3 oracle fixtures were lost this
+way).
 
 Batch complete briefs, reuse sessions for related follow-ups, start new sessions for unrelated work, and never rely on CLI `--last` flags. Session-ID generation, capture, and resume rules for
 every delegate CLI live in
@@ -164,7 +168,7 @@ them), then state what `git log` alone cannot re-derive:
 ```text
 ## <YYYY-MM-DD HH:MM:SS local-timezone-name> — <task name>
 Completed-GMT: <YYYY-MM-DD HH:MM:SS GMT>
-Coding-Agent: <claude|claude-cloud (claude-api lane)|codex|agy|glm|cmd|muse|deepseek|interactive>
+Coding-Agent: <one of the values in the prompt header above>
 Session-ID: <exact Session-ID | not-applicable (interactive seat)>
 Tree: <branch>@<short-sha>, <committed | uncommitted changes: <files>>
 Done: <what changed and why, with paths>
@@ -215,12 +219,8 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
 4. **Choose execution and review routes.** Follow the role selection and reviewer independence rules in
    [`team.md`](../team.md). Implement simple, low-risk work directly when delegation would cost more in
    coordination, tokens, or review. Otherwise, assign a specialized implementation role to the optimal
-   model. When OpenAI seats are available for the task, route bounded high-volume work to Luna, balanced
-   daily engineering to Terra, difficult professional work or high-stakes review to Sol, and the hardest
-   end-to-end architecture, security, research, or coding work to Astra. The cost-constraint table takes
-   precedence: under the current policy, codex/OpenAI seats are reserved for Architectural Review and must
-   not receive implementation tasks. Treat that reservation as an operational constraint rather than a claim
-   about model capability. Add Architect or Security review when the role or risk requires it.
+   model per `team.md`'s model tables; its cost-constraint table takes precedence over model fit. Add
+   Architect or Security review when the role or risk requires it.
 5. **Brief and execute.** When delegating, use the selected role's delegation
    prompt template — [`team.md`](../team.md)'s Roster table links each role
    name to its template file under `docs/agents/roles/`; do not improvise a
@@ -253,30 +253,26 @@ commit message format is defined in [`format.md`](../format.md#git-commit-messag
    [`build-n-test.md`](../build-n-test.md), section "Remote agent execution"
    (the laptop-unload rule: bookkeeping locally, execution remotely).
 7. **Review and reconcile.** Give the verified diff to an independent reviewer
-   before committing, unless the user has explicitly instructed a commit
-   without waiting for review. Weigh findings on their merits, fix accepted
+   before committing (exceptions: the coordination contract's user waiver and
+   trivial-edit exemption). Weigh findings on their merits, fix accepted
    defects, and resume the same reviewer to confirm the correction. Preserve
    every round.
 8. **Report readiness.** Report exact commands, assertion counts, reviewer
    sign-off, unrun checks, unreviewed changes, unresolved risks, and any tool or
    hook noise. Do not let the summary outrun the evidence. Append the unit's
    entry to `docs/orchestrator-log.md` in the same terms.
-9. **Stage and commit only when explicitly authorized.** Stage only requested
-   files and commit only the staged diff. Inspect that staged diff immediately
-   before committing. Do not commit on step 6 alone: work that gets an
-   independent review (step 7) is not ready to commit until that review has
-   completed and its findings are reconciled, unless the user explicitly
-   instructed a commit without waiting for review. Use the commit message
-   format in [`format.md`](../format.md#git-commit-messages).
-10. **Verify what landed.** Compare the commit's diff with the reviewed staged
-    diff (or the diff the user explicitly authorized, if committed without
-    review). If hooks or formatters changed what landed, review that delta and
+9. **Stage, commit, and merge only when authorized** under the coordination
+   contract's commit authority. Stage only the authorized work, inspect the
+   staged diff immediately before committing, and commit only that diff.
+   Use the commit message format in
+   [`format.md`](../format.md#git-commit-messages).
+10. **Verify what landed.** Compare the commit's diff with the authorized
+    staged diff. If hooks or formatters changed what landed, review that delta and
     rerun its affected checks — the pre-commit formatter hook can stage files
     you never added (observed 2026-10-26: an untracked in-flight file of
     another track was swept into a ledger commit; caught only by reading the
     post-commit `--stat` against intent). A failure means the work is not
-    ready; do not amend, revert, or otherwise rewrite history without user
-    authorization.
+    ready; rewrite history only as the coordination contract allows.
     **Shared append-only ledgers (`docs/agents/known-gaps.md`) have a merge
     rule** (2026-10-26, after merge 4d6fd818 silently dropped ~66 rows by
     replacing the file with a rewritten 16-row variant): never resolve a
@@ -358,7 +354,8 @@ Required workflow:
 - Follow `docs/agents/roles/orchestrator.md#workflow` in order.
 - Run <focused-test-command> and <lint-command> locally.
 
-Do not broaden scope, stage or commit without explicit user instruction, trust
+Do not broaden scope; do not stage, commit, or merge without an Architect
+sign-off or explicit user instruction; do not trust
 delegated test claims without local evidence, or terminate a healthy agent
 merely because it is slow or temporarily quiet.
 

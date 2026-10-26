@@ -10,7 +10,11 @@ description: Lead System Architect role definition for datom.world
 - Subsystem boundaries, interpreters, host isolation, and explicit causality
 - Cross-platform architecture, migration strategy, and compatibility boundaries
 - ADR coherence, domain vocabulary, and theoretical grounding where useful
-- Architecture review and sign-off for high-risk or cross-cutting changes
+- Architecture review for high-risk or cross-cutting changes
+- Commit sign-off: the sign-off on completed, review-reconciled work that
+  authorizes the orchestrator to stage, commit, merge, and push it
+  (trivial direct edits are exempt; see
+  [`orchestrator.md`](orchestrator.md#coordination-contract))
 
 This role owns no permanent file list. Each task defines the artifacts it may
 inspect or change and any permitted expansion.
