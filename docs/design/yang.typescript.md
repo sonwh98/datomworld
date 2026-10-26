@@ -1,7 +1,11 @@
 # yang.typescript: the TypeScript and JavaScript frontend
 
-Status: Designed 2026-10-17. Implementation pending: no part of this frontend
-is built, and every slice in section 16 is unstarted. Design by Fable (Lead
+Status: Designed 2026-10-17. In implementation: T1 (lowering core) landed
+c7ced161; T2 (object core) landed 4fea5d02; Stage 0 (the T2 remainder:
+constructibility, prototypes, call/apply/bind, Object statics,
+Array.prototype methods, the for-in/delete/in runtime, JSON) landed on
+branch yang-ts-t2b, merge <Stage 0 merge>. The remaining section 16 slices
+(T3 onward) are unstarted. Design by Fable (Lead
 System Architect seat); adversarial review by codex (gpt-6.1-sol) over a
 nine-round design loop that ended READY with sign-off granted. Section 21
 ("Design provenance") cites the loop.
@@ -1577,6 +1581,17 @@ recorded deviation):
   the specification's latitude);
 - `console.log` formatting is Node's only over the corpus fixture set;
 - `Error.prototype.stack` is derived from position side tables, not V8's text;
+- the T2 Stage 0 recorded departures (ledger rows L-T2-1 to L-T2-12 in
+  `docs/agents/known-gaps.md`): array index slots are always default data
+  slots; sparse growth beyond a 2^20-hole gap throws `RangeError`; no
+  wrapper objects (`new String(x)` and siblings are `TypeError` under R9d);
+  sparse arrays are dense storage with explicit holes; well-known symbols
+  and `Symbol.for` are outside the T2 surface; `Object.assign` semantics
+  via `[[Set]]` as specified; the accessor-half installation seam;
+  `Object.is` and `:G-new`/`:G-is` grammar escalations hold for T3's
+  ts-g4-2 patch; the array-method rebuild behaviors recorded where they
+  depart from V8 ordinals; `delete` on arrays renumbers like V8 within the
+  tested fragment; `JSON` ordering follows insertion order.
 - no stack-depth `RangeError` by default (a profile-pinned depth is
   available);
 - the safepoint interrupt `js.rt/Interrupt` is not catchable by default;
