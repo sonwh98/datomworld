@@ -14,7 +14,8 @@
     [clojure.java.io :as io]
     [clojure.java.shell :as sh]
     [clojure.string :as str]
-    [yang.php.antlr.programs :as programs])
+    [yang.php.antlr.programs :as programs]
+    [yang.php.antlr.programs-p3b :as p3b])
   (:import
     (java.nio.charset
       StandardCharsets)
@@ -175,7 +176,7 @@
   (let [dir (.toFile (Files/createTempDirectory "yang-php-oracle-"
                                                 (make-array FileAttribute 0)))]
     (try
-      (-> (mapv #(check-fixture dir %) programs/fixtures)
+      (-> (mapv #(check-fixture dir %) (concat programs/fixtures p3b/all-fixtures))
           (conj (check-matrix dir))
           (conj (check-floats dir)))
       (finally
@@ -186,9 +187,12 @@
 (defn -main
   [& _args]
   (let [results (run-all)
-        failures (remove :pass? results)]
+        recorded (filter #(= :pending (:oracle %)) results)
+        failures (remove #(or (:pass? %) (= :pending (:oracle %))) results)]
     (println "Banner:" banner)
     (println "Checked:" (count results) "targets; failures:" (count failures))
+    (doseq [f recorded]
+      (println "RECORD" (:id f) (pr-str (:actual f)) "matches-pinned-out:" (boolean (:pass? f))))
     (doseq [f failures]
       (println "FAIL" (:id f))
       (println "  expected:" (pr-str (:expected f)))
