@@ -2010,9 +2010,103 @@
            f)))]
     [php/call
      (fn [f args] ((get (cell/get f) :code) f args))]
-    [php/callable-fn
-     ;; the function cell of a string callable (closures are P3)
-     (fn [h] (php/resolve-fn (php/lc h) h))]
+    [php/make-closure
+     ;; a Closure value (an object, `kind` :obj) around the function cell
+     (fn [f] (assoc (assoc {} :php/type :closure) :php/closure f))]
+    [php/callable-of
+     ;; the function cell of a callable value: a name or a Closure
+     (fn [v]
+       (if (= (php/kind v) :string)
+         (php/resolve-fn (php/lc v) v)
+         (if (= (get v :php/type) :closure)
+           (get v :php/closure)
+           (php/throw-error "Error" "Value not callable"))))]
+    [php/callable-fn (fn [h] (php/callable-of h))]
+    [php/call-value (fn [v args] (php/call (php/callable-of v) args))]
+    [php/args-spread
+     ;; `f(...$xs)`: the values of `xs` appended to the argument vector
+     (fn [acc xs]
+       (if (= (php/kind xs) :array)
+         (php/spread-args acc xs 0 (php/array-count xs))
+         (php/throw-error "Error" "Only arrays and Traversables can be unpacked")))]
+    [php/spread-args
+     (fn [acc xs i n]
+       (if (< i n)
+         (php/spread-args (php/vconj acc (php/array-get xs (get (php/array-order xs) i))) xs (+ i 1) n)
+         acc))]
+    [php/name-index
+     (fn [names name i n]
+       (if (< i n)
+         (if (= (get names i) name) i (php/name-index names name (+ i 1) n))
+         nil))]
+    [php/pad-args
+     (fn [args n]
+       (if (< (data/count args) n) (php/pad-args (php/vconj args :php/undef) n) args))]
+    [php/call-named
+     ;; `f(pos..., name: v ...)`: named values land at their parameter's
+     ;; position, holes stay :php/undef; unknown names go to a variadic
+     ;; parameter's string keys, else they are an Error
+     (fn [f pos named]
+       (let [spec (get (cell/get f) :spec)]
+         (if (nil? (get spec :names))
+           (php/throw-error "Error" "Named arguments are not supported for this function")
+           (php/call f (php/place-named f spec pos named 0 (data/count named) (php/empty-array))))))]
+    [php/place-named
+     (fn [f spec pos named i n extras]
+       (if (< i n)
+         (let [nm (get (get named i) 0)
+               v (get (get named i) 1)
+               names (get spec :names)
+               idx (php/name-index names nm 0 (data/count names))]
+           (if (nil? idx)
+             (if (get spec :variadic)
+               (php/place-named f spec pos named (+ i 1) n (php/array-put extras nm v))
+               (php/throw-error "Error" (data/str-concat "Unknown named parameter $" nm)))
+             (if (if (< idx (data/count pos)) (not (= (get pos idx) :php/undef)) false)
+               (php/throw-error "Error"
+                                (data/str-concat "Named parameter $" nm
+                                                 " overwrites previous argument"))
+               (php/place-named f spec (assoc (php/pad-args pos (+ idx 1)) idx v) named (+ i 1) n
+                                extras))))
+         (if (> (php/array-count extras) 0)
+           (php/vconj (php/pad-args pos (data/count (get spec :names)))
+                      (assoc (assoc {} :php/type :extra) :php/pairs extras))
+           pos)))]
+    [php/gather-variadic
+     (fn [args i]
+       (let [n (data/count args)
+             last (if (> n 0) (get args (- n 1)) :php/null)
+             extra (= (get last :php/type) :extra)
+             m (if extra (- n 1) n)]
+         (php/gather-loop args i m
+                          (if extra (get last :php/pairs) (php/empty-array))
+                          extra)))]
+    [php/gather-loop
+     (fn [args i m extras extra?]
+       (php/gather-fill args i m (php/empty-array) extras extra? 0 (php/array-count extras)))]
+    [php/gather-fill
+     (fn [args i m acc extras extra? j nx]
+       (if (< i m)
+         (php/gather-fill args (+ i 1) m (php/array-append acc (get args i)) extras extra? j nx)
+         (if (< j nx)
+           (let [k (get (php/array-order extras) j)]
+             (php/gather-fill args i m (php/array-put acc k (php/array-get extras k))
+                              extras extra? (+ j 1) nx))
+           acc)))]
+    [php/not-passed
+     (fn [written idx pname passed required exact]
+       (if (< (- idx 1) passed)
+         (php/throw-error "ArgumentCountError"
+                          (data/str-concat written "(): Argument #" (integer/format idx) " ($"
+                                           pname ") not passed"))
+         (php/too-few written passed required exact)))]
+    [php/copy-capture
+     (fn [v] (if (= v :php/undef) v (php/addref v)))]
+    [php/local-capture
+     ;; an arrow function's by-value capture: an unset variable stays unset
+     (fn [c] (let [v (cell/get c)] (if (= v :php/undef) v (php/deref v))))]
+    [php/global-capture
+     (fn [name] (let [v (php/global-slot name)] (if (nil? v) :php/undef (php/deref v))))]
     [php/arg (fn [args i] (get args i))]
     [php/arity-error
      (fn [name want args]

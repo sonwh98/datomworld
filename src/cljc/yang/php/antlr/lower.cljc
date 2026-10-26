@@ -96,7 +96,6 @@
    "enumDeclaration" :enum,
    "importStatement" :import,
    "newExpr" :new,
-   "lambdaFunctionExpr" :closure,
    "matchExpr" :match,
    "yieldExpression" :yield,
    "scriptText" :inline-script,
@@ -462,7 +461,7 @@
 ;; Expressions
 ;; =============================================================================
 
-(declare lower lower-assign-value)
+(declare lower lower-assign-value lower-lambda)
 
 
 (def ^:private binary-ops
@@ -877,22 +876,48 @@
 
 
 (defn- lower-arguments
-  "The nodes of a call's `arguments` rule: positional expressions only. A
+  "`[positional-node named-node]` of a call's `arguments` rule. Positional
+   values and `...` spreads fold left to right into one vector; `name: e`
+   arguments collect as `[name value]` pairs (nil when there are none). A
    position in `refs` (a by-reference parameter of a unit function) that holds
    a variable or element sends the reference marker."
   ([ctx args] (lower-arguments ctx args nil))
   ([ctx args refs]
-   (vec (map-indexed
-          (fn [i a]
-            (let [ks (core/kids ctx a)]
-              (when (or (p/token? (first ks)) (not= 1 (count ks)))
-                (unsupported! a :argument-form))
-              (let [chain (when (some #{i} refs)
-                            (first (core/rules ctx (first ks) "chain")))]
-                (if (and chain (chain-location ctx chain))
-                  (ref-source ctx a chain)
-                  (lower ctx (first ks))))))
-          (core/rules ctx args "actualArgument")))))
+   (let [items (core/rules ctx args "actualArgument")
+         [pos named]
+         (reduce
+           (fn [[pos named] [i a]]
+             (let [ks (core/kids ctx a)
+                   an (first (filter #(p/rule? % "argumentName") ks))
+                   spread? (boolean (some #(p/token? % "...") ks))
+                   e (first (core/rules ctx a "expression"))]
+               (when (or (nil? e) (p/token? (first ks) "&")) (unsupported! a :argument-form))
+               (cond
+                 an [pos (conj named
+                               (args-vector [(u/lit (:text (first (core/kids ctx (first (core/kids ctx an))))))
+                                             (lower ctx e)]))]
+                 spread? [(app* 'php/args-spread pos (lower ctx e)) named]
+                 :else
+                 (let [chain (when (some #{i} refs) (first (core/rules ctx e "chain")))]
+                   [(app* 'php/vconj
+                          pos
+                          (if (and chain (chain-location ctx chain))
+                            (ref-source ctx a chain)
+                            (lower ctx e)))
+                    named]))))
+           [(u/lit []) []]
+           (map-indexed vector items))]
+     [pos (when (seq named) (args-vector named))])))
+
+
+(defn- call-node
+  "Call function cell node `f` with the arguments of `arguments`."
+  [ctx f arguments refs]
+  (let [[pos named] (lower-arguments ctx arguments refs)]
+    (core/site :call
+               (if named
+                 (app* 'php/call-named f pos named)
+                 (app* 'php/call f pos)))))
 
 
 (defn- argument-chains
@@ -1008,31 +1033,74 @@
                   (reverse (keep identity temps))))))))
 
 
+(defn- base-location
+  "The location of a `chainBase` that is one variable and its offsets."
+  [ctx base]
+  (let [bks (core/kids ctx base)]
+    (when (and (= 1 (count bks)) (p/rule? (first bks) "keyedVariable"))
+      (let [[v & offsets] (core/kids ctx (first bks))]
+        (when (and (p/token? v) (= "VarName" (:type v)))
+          {:var (:text v),
+           :path (mapv (fn [sq] (or (first (core/rules ctx sq "expression")) :php/append))
+                       offsets)})))))
+
+
+(defn- callee-value
+  "The node of a dynamic callee: a variable or element, or a parenthesised
+   expression."
+  [ctx n fname]
+  (let [k (first (core/kids ctx fname))]
+    (cond
+      (p/rule? k "chainBase")
+      (let [loc (or (base-location ctx k) (unsupported! n :dynamic-call))]
+        (checked-var n (:var loc))
+        (forbid-append! n loc "Cannot use [] for reading")
+        (read-loc ctx (lower-path ctx loc)))
+      (p/rule? k "parentheses") (lower ctx k)
+      :else (unsupported! n :dynamic-call))))
+
+
 (defn- lower-call
   [ctx n call]
   (let [[fname args] (core/rule-kids ctx call)
-        [lc written] (function-name ctx fname)
-        arguments (first (core/rules ctx args "arguments"))]
-    (when (not= 1 (count (core/rules ctx args "arguments")))
-      (unsupported! n :dynamic-call))
-    (case lc
-      "isset" (lower-isset ctx n (argument-chains ctx n arguments))
-      "unset" (lower-unset ctx n (argument-chains ctx n arguments))
-      "empty" (let [cs (argument-chains ctx n arguments)]
-                (when (not= 1 (count cs)) (unsupported! n :argument-form))
-                (lower-empty ctx n (first cs)))
-      (let [f (core/gen "f" n)
-            by-ref (when-not (contains? (:declared ctx) lc)
-                     (:by-ref (get builtins/supported lc)))]
-        (note-unknown-builtin! ctx n lc written)
-        (u/let1 f
-                (app* 'php/resolve-fn (u/lit lc) (u/lit written))
-                (if by-ref
-                  (lower-by-ref-call ctx n f by-ref arguments)
-                  (core/site :call
-                             (app* 'php/call (u/v f)
-                                   (args-vector (lower-arguments ctx arguments
-                                                                 (get (:declared ctx) lc)))))))))))
+        groups (core/rules ctx args "arguments")
+        static? (let [ks (core/kids ctx fname)]
+                  (and (= 1 (count ks)) (p/rule? (first ks) "qualifiedNamespaceName")))
+        [lc written] (when static? (function-name ctx fname))
+        arguments (first groups)
+        chain-dynamic (fn [callee-node more]
+                        (reduce (fn [acc g]
+                                  (let [f (core/gen "f" g)]
+                                    (u/let1 f
+                                            (app* 'php/callable-of acc)
+                                            (call-node ctx (u/v f) g nil))))
+                                callee-node
+                                more))]
+    (when-not (seq groups) (unsupported! n :dynamic-call))
+    (if-not static?
+      (let [f (core/gen "f" n)]
+        (chain-dynamic
+          (u/let1 f
+                  (app* 'php/callable-of (callee-value ctx n fname))
+                  (call-node ctx (u/v f) arguments nil))
+          (rest groups)))
+      (chain-dynamic
+        (case lc
+          "isset" (lower-isset ctx n (argument-chains ctx n arguments))
+          "unset" (lower-unset ctx n (argument-chains ctx n arguments))
+          "empty" (let [cs (argument-chains ctx n arguments)]
+                    (when (not= 1 (count cs)) (unsupported! n :argument-form))
+                    (lower-empty ctx n (first cs)))
+          (let [f (core/gen "f" n)
+                by-ref (when-not (contains? (:declared ctx) lc)
+                         (:by-ref (get builtins/supported lc)))]
+            (note-unknown-builtin! ctx n lc written)
+            (u/let1 f
+                    (app* 'php/resolve-fn (u/lit lc) (u/lit written))
+                    (if by-ref
+                      (lower-by-ref-call ctx n f by-ref arguments)
+                      (call-node ctx (u/v f) arguments (get (:declared ctx) lc))))))
+        (rest groups)))))
 
 
 (defn- lower-chain
@@ -1113,6 +1181,7 @@
         "constant" (lower ctx k0)
         "string" (string-node ctx k0)
         "arrayCreation" (lower-array ctx k0)
+        "lambdaFunctionExpr" (lower-lambda ctx k0)
         "parentheses" (lower ctx (first (core/rule-kids ctx k0)))
         (core/default-arm diagnostic-ns "PHP" unsupported-rules k0))
       (and (= 1 cnt) (p/token? k0)) (constant-node n (:text k0))
@@ -1543,7 +1612,6 @@
               (cond
                 (p/rule? k "typeHint") :type-declaration
                 (p/token? k "?") :type-declaration
-                (p/token? k "...") :variadic
                 (p/rule? k "attributes") :attribute
                 (p/rule? k "memberModifier") :promoted-parameter))
             (core/kids ctx fp))
@@ -1551,17 +1619,20 @@
 
 
 (defn- formal-params
-  "`[{:name :default}]` of a function's parameters; `:default` is the
-   `constantInitializer` node or nil."
+  "`[{:name :default :ref? :variadic?}]` of a function's parameters; `:default`
+   is the `constantInitializer` node or nil."
   [ctx n]
   (mapv (fn [fp]
           (let [all (core/kids ctx fp)
                 ref? (boolean (some #(p/token? % "&") all))
-                ks (remove #(p/token? % "&") all)]
+                variadic? (boolean (some #(p/token? % "...") all))
+                ks (remove #(or (p/token? % "&") (p/token? % "...")) all)]
             (when (not= 1 (count ks)) (unsupported! fp (parameter-refusal ctx fp)))
+            (when (and ref? variadic?) (unsupported! fp :variadic-reference))
             (let [vks (core/kids ctx (first ks))]
               {:name (:text (first vks)),
                :ref? ref?,
+               :variadic? variadic?,
                :default (when (> (count vks) 1) (nth vks 2))})))
         (core/rules ctx (first (core/rules ctx n "formalParameterList")) "formalParameter")))
 
@@ -1636,50 +1707,69 @@
 
 (defn- param-binding
   "The cell of parameter `i`: the argument when passed, else the default
-   (evaluated here, in the callee), else an `ArgumentCountError`."
-  [ctx written required exact? i {:keys [default ref?]}]
-  (app* 'cell/new
-        (u/if-node (app* '< (u/lit i) (app* 'data/count (u/v '%args)))
-                   (cond
-                     ref? (app* 'php/param-ref (app* 'get (u/v '%args) (u/lit i)))
-                     (:counted ctx) (app* 'php/addref (app* 'get (u/v '%args) (u/lit i)))
-                     :else (app* 'get (u/v '%args) (u/lit i)))
-                   (if default
-                     (lower-initializer ctx default)
-                     (app* 'php/too-few
-                           (u/lit written)
-                           (app* 'data/count (u/v '%args))
-                           (u/lit required)
-                           (u/lit exact?))))))
+   (evaluated here, in the callee), else an `ArgumentCountError`. A hole left
+   by named arguments is `:php/undef`; a variadic parameter gathers the rest."
+  [ctx n written required exact? i {:keys [name default ref? variadic?]}]
+  (if variadic?
+    (app* 'cell/new (app* 'php/gather-variadic (u/v '%args) (u/lit i)))
+    (let [a (core/gen (str "a" i) n)
+          count-node (app* 'data/count (u/v '%args))]
+      (app* 'cell/new
+            (u/let1 a
+                    (u/if-node (app* '< (u/lit i) count-node)
+                               (app* 'get (u/v '%args) (u/lit i))
+                               (u/lit :php/undef))
+                    (u/if-node (app* '= (u/v a) (u/lit :php/undef))
+                               (if default
+                                 (lower-initializer ctx default)
+                                 (app* 'php/not-passed
+                                       (u/lit written)
+                                       (u/lit (inc i))
+                                       (u/lit (bare name))
+                                       count-node
+                                       (u/lit required)
+                                       (u/lit exact?)))
+                               (cond
+                                 ref? (app* 'php/param-ref (u/v a))
+                                 (:counted ctx) (app* 'php/addref (u/v a))
+                                 :else (u/v a))))))))
 
 
-(defn- lower-function
-  [ctx n]
+(defn- function-lam
+  "`[lam spec]` for the function node `n`. `captures` is a vector of
+   `{:name :ref? :sym}` bound before the parameters (closures); `arrow?`
+   makes the body the value of an expression."
+  [ctx n written {:keys [captures arrow?]}]
   (let [ks (core/kids ctx n)
         _ (when (some #(p/token? % ":") ks) (unsupported! n :return-type))
-        _ (when (some #(p/token? % "&") ks) (unsupported! n :reference))
+        _ (when (some #(p/token? % "&") (take-while #(not (p/token? % "(")) ks))
+            (unsupported! n :reference))
         _ (when (seq (core/rules ctx n "attributes")) (unsupported! n :attribute))
         _ (when (seq (core/rules ctx n "typeParameterListInBrackets"))
             (unsupported! n :generics))
-        written (function-written ctx n)
-        lc (str/lower-case written)
         params (formal-params ctx n)
         scope (get-in (:analysis ctx) [:scopes (:id n)])
         param-names (set (map :name params))
+        capture-names (set (map :name captures))
         static-names (set (:statics scope))
         static-names-v (vec (:statics scope))
-        locals (remove #(or (contains? param-names %) (contains? static-names %) (= "$this" %))
+        locals (remove #(or (contains? param-names %) (contains? static-names %)
+                            (contains? capture-names %) (= "$this" %))
                        (:vars scope))
         block (first (core/rules ctx n "blockStatement"))
-        has-return? (core/contains-rule? ctx
-                                         block
-                                         "returnStatement"
-                                         #{"functionDeclaration" "lambdaFunctionExpr"})
-        counted? (boolean (or (mentions-reference? ctx n) (seq (:statics scope))))
+        has-return? (and block
+                         (core/contains-rule? ctx
+                                              block
+                                              "returnStatement"
+                                              #{"functionDeclaration" "lambdaFunctionExpr"}))
+        counted? (boolean (or (mentions-reference? ctx n) (seq (:statics scope))
+                              (some :ref? captures)))
         fctx (assoc ctx :fn true :loops [] :ret (when has-return? '%ret) :counted counted?)
-        body (u/then (lower fctx block) (u/lit :php/null))
+        body (if arrow?
+               (lower fctx (last (core/rules ctx n "expression")))
+               (u/then (lower fctx block) (u/lit :php/null)))
         body (if has-return? (app* 'php/call-ec (u/lam ['%ret] body)) body)
-        cvs (concat (map :name params) static-names-v locals)
+        cvs (concat (map :name params) (map :name captures) static-names-v locals)
         body (if counted?
                (app* 'php/try-finally
                      (u/lam [] body)
@@ -1689,26 +1779,88 @@
                                   (u/lit 0)
                                   (u/lit (count cvs)))))
                body)
-        total (count params)
-        required (inc (or (last (keep-indexed (fn [i p] (when-not (:default p) i)) params)) -1))
+        variadic? (boolean (some :variadic? params))
+        fixed (remove :variadic? params)
+        total (count fixed)
+        required (inc (or (last (keep-indexed (fn [i p] (when-not (:default p) i)) fixed)) -1))
         bindings (concat
                    (map-indexed (fn [i p]
                                   [(symbol (:name p))
-                                   (param-binding fctx written required (= required total) i p)])
+                                   (param-binding fctx n written required (= required total) i p)])
                                 params)
+                   (map (fn [c]
+                          [(symbol (:name c))
+                           (app* 'cell/new
+                                 (app* (if (:ref? c) 'php/param-ref 'php/copy-capture)
+                                       (u/v (:sym c))))])
+                        captures)
                    (map (fn [nm] [(symbol nm) (app* 'cell/new (u/lit :php/undef))])
                         (:statics scope))
                    (map (fn [nm] [(symbol nm) (app* 'cell/new (u/lit :php/undef))]) locals))
         wrapped (reduce (fn [inner [sym value]] (u/let1 sym value inner))
                         body
                         (reverse bindings))]
+    [(u/lam ['%fn '%args] wrapped)
+     {:required required,
+      :total total,
+      :variadic variadic?,
+      :names (mapv #(bare (:name %)) fixed)}
+     (mapv bare (:statics scope))]))
+
+
+(defn- lower-function
+  [ctx n]
+  (let [written (function-written ctx n)
+        [lam spec statics] (function-lam ctx n written {})]
     (app* 'php/declare-function!
-          (u/lit lc)
-          (app* 'php/make-function
-                (u/lit written)
-                (u/lit {:required required, :total total})
-                (u/lam ['%fn '%args] wrapped)
-                (u/lit (mapv bare (:statics scope)))))))
+          (u/lit (str/lower-case written))
+          (app* 'php/make-function (u/lit written) (u/lit spec) lam (u/lit statics)))))
+
+
+(defn- use-vars
+  "`[{:name :ref?}]` of a closure's `use` clause."
+  [ctx n]
+  (vec (mapcat (fn [uvs]
+                 (map (fn [uv]
+                        (let [ks (core/kids ctx uv)]
+                          {:name (:text (last ks)), :ref? (boolean (some #(p/token? % "&") ks))}))
+                      (core/rules ctx uvs "lambdaFunctionUseVar")))
+               (core/rules ctx n "lambdaFunctionUseVars"))))
+
+
+(defn- capture-source
+  "The node that produces the captured value or marker, in the enclosing scope."
+  [ctx {:keys [name ref? arrow?]}]
+  (cond
+    ref? (app* 'php/addref (make-ref-var ctx name))
+    arrow? (if (:fn ctx)
+             (app* 'php/local-capture (u/v (symbol name)))
+             (app* 'php/global-capture (u/lit (bare name))))
+    :else (app* 'php/addref (read-var ctx name))))
+
+
+(defn- lower-lambda
+  "A `function (...) use (...) {...}` closure or an `fn (...) => e` arrow
+   function: a function cell made at run time over its captured values,
+   wrapped as a Closure value."
+  [ctx n]
+  (let [arrow? (boolean (some #(and (p/token? %) (= "LambdaFn" (:type %))) (core/kids ctx n)))
+        scope (get-in (:analysis ctx) [:scopes (:id n)])
+        params (formal-params ctx n)
+        pnames (set (map :name params))
+        caps (if arrow?
+               (->> (:vars scope)
+                    (remove #(or (contains? pnames %) (= "$this" %)))
+                    (mapv (fn [nm] {:name nm, :ref? false, :arrow? true})))
+               (mapv #(assoc % :arrow? false) (use-vars ctx n)))
+        caps (mapv #(assoc % :sym (symbol (str "%cap" (subs (:name %) 1) (:id n)))) caps)
+        _ (doseq [c caps] (checked-var n (:name c)))
+        [lam spec statics] (function-lam ctx n "{closure}" {:captures caps, :arrow? arrow?})
+        make (app* 'php/make-closure
+                   (app* 'php/make-function (u/lit "{closure}") (u/lit spec) lam (u/lit statics)))]
+    (reduce (fn [inner c] (u/let1 (:sym c) (capture-source ctx c) inner))
+            make
+            (reverse caps))))
 
 
 (defn- lower

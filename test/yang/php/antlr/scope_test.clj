@@ -68,3 +68,22 @@
 (deftest array-spread-is-a-read-test
   (let [a (analysis "<?php $a = [1]; $b = [...$a, ...$c];")]
     (is (= ["$a" "$b"] (get-in a [:unit :assigned])))))
+
+
+(deftest closure-use-folds-into-the-enclosing-scope-test
+  (let [a (analysis "<?php function f() { $g = function ($p) use ($x, &$y) { return $x; }; }")
+        scopes (vals (:scopes a))
+        outer (first (filter #(= [] (:params %)) scopes))
+        closure (first (filter #(= ["$p"] (:params %)) scopes))]
+    (is (= 2 (count scopes)) "the declaration and the closure each open a scope")
+    (is (some #{"$x"} (:vars closure)))
+    (is (every? (set (:vars outer)) ["$x" "$y"]))
+    (is (some #{"$y"} (:assigned outer)))))
+
+
+(deftest arrow-captures-fold-transitively-test
+  (let [a (analysis "<?php function f() { $h = fn($x) => fn($y) => $x + $y + $z; }")
+        outer (first (filter #(= [] (:params %)) (vals (:scopes a))))]
+    (is (= 3 (count (:scopes a))))
+    (is (some #{"$z"} (:vars outer)) "the free variable of the nested arrow reaches the function")
+    (is (not-any? #{"$x" "$y"} (:vars outer)) "its own parameters do not escape")))

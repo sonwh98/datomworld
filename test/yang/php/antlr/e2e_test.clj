@@ -88,7 +88,7 @@
            ["<?php [$a, $b] = $c;" :list]
            ["<?php function f(int $a) {}" :type-declaration]
            ["<?php function f(): int {}" :return-type]
-           ["<?php function f(...$a) {}" :variadic]
+           ["<?php function f(&...$a) {}" :variadic-reference]
            ["<?php foreach ($a as &$b) {}" :reference]
            ["<?php foreach ($a as [$b, $c]) {}" :list]
            ["<?php static $a = 1;" :static]

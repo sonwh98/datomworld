@@ -27,7 +27,7 @@
    substrate (b317c139); S2 to S5 (marker-aware variables, write/unset fetches, `=&`, `global`,
    `static` binding, by-reference parameters, marker-preserving sorts) are
    confirmed by the parser run."
-  #{:s1 :s2 :s3 :s4 :s5})
+  #{:s1 :s2 :s3 :s4 :s5 :s6})
 
 
 (defn- fx
@@ -127,8 +127,14 @@
 (def calls-v1
   [(fx :call-dynamic-variable :calls-v1 [53] #{:s6}
        "<?php $f = 'strlen'; echo $f('abc');" "3")
-   (fx :call-dynamic-dim :calls-v1 [53] #{:s6}
+   (fx :call-dynamic-dim :calls-v1 [53] #{:s6 :grammar-arrow-in-array}
+       ;; oracle-vs-design: the ANTLR grammar reads `[fn($x) => $x + 1]` as the
+       ;; pair `fn($x) => ($x + 1)` (a call as key); PHP parses an arrow
+       ;; function. Escalated to the architect; the parenthesised variant below
+       ;; is what runs.
        "<?php $a = [fn($x) => $x + 1]; echo $a[0](1);" "2")
+   (fx :call-dynamic-dim-paren :calls-v1 [53] #{:s6 :oracle-record}
+       "<?php $a = [(fn($x) => $x + 1)]; echo $a[0](1);" "2")
    (fx :call-dynamic-chained :calls-v1 [53] #{:s6}
        "<?php $mk = fn($x) => fn($y) => $x + $y; echo $mk(1)(2);" "3")
    (fx :call-named-arguments-reorder :calls-v1 [57 63] #{:s6}
@@ -150,6 +156,13 @@
        (str "<?php function f($a) { return $a; } try { f(1, z: 2); }"
             " catch (Error $e) { echo $e->getMessage(); }")
        "Unknown named parameter $z")
+   ;; added after the oracle pass: need a shiva recording before they run
+   (assoc (fx :call-too-few-named-uncaught :calls-v1 [63] #{:s6 :oracle-record}
+              "<?php function f($a, $b) { return $a; } f(b: 1);" "")
+          :uncaught {:class "ArgumentCountError", :message "f(): Argument #1 ($a) not passed"})
+   (assoc (fx :call-unknown-named-uncaught :calls-v1 [65] #{:s6 :oracle-record}
+              "<?php function f($a) { return $a; } f(1, z: 2);" "")
+          :uncaught {:class "Error", :message "Unknown named parameter $z"})
    (fx :call-return-owned-temp-released :calls-v1 [36 37] #{:s6}
        "<?php function mk() { return [1, 2, 3]; } echo count(mk()), count(mk());" "33")])
 

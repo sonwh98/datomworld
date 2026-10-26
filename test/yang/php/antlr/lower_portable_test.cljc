@@ -130,5 +130,7 @@
         (is (= (:out r) (:out f)) (name (:id f)))
         (is (= (:diag r) (vec (:diag f))) (name (:id f)))
         (is (= (:uncaught r) (:uncaught f)) (name (:id f)))))
-    (testing "only the escalated fixture is still pending"
-      (is (= [:closure-call-invoke] (mapv :id (filter #(= :pending (:oracle %)) all)))))))
+    (testing "only the escalated and not-yet-recorded fixtures are still pending"
+      (is (= #{:closure-call-invoke :call-dynamic-dim-paren :call-too-few-named-uncaught
+               :call-unknown-named-uncaught}
+             (set (map :id (filter #(= :pending (:oracle %)) all))))))))
