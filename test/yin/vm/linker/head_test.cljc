@@ -371,55 +371,51 @@
 
 
 (deftest seq-of-across-head-moves
-  ;; J4 durable store: a :file index store is refused on jolt until J4
-  ;; (jolt-applicability.edn); the JVM runs the body unchanged.
-  #?(:jolt nil
-     :default
-     (let [dir (temp-store-dir)
-           heads (atom [])
-           key (sign/generate)]
-       (try
-         (let [opened (store/open {:type :file :dir dir})
-               state (evaluate (repl.frontends/create-state
-                                 {:index-store (recording opened heads)})
-                               ["(def a 1)" "(def b 2)"])
-               _ (testing "each round moves HEAD once, one t above the last"
-                   (is (= [0 1] (seqs opened @heads))))
-               signed [(publish/assertion key {:name 'lib :seq 1
-                                               :manifest (first @heads)})]
-               state (assoc state :indexer
-                            (repl.index/commit-names (:indexer state) signed 3))
-               _ (testing "a name transaction raises it"
-                   (is (= [0 1 2] (seqs opened @heads))))
-               [state message] (repl/eval-input state "(reset)")
-               _ (is (str/ends-with? message "reset"))
-               state (evaluate state ["(def c 3)"])
-               _ (testing "(reset) continues t; the next round raises it"
-                   (is (= [0 1 2 3] (seqs opened @heads))))
-               before (head/seq-of (index/read-datoms
-                                     opened
-                                     (get-in state [:indexer :manifest-address])))]
-           (store/close! opened)
-           (let [reopened (store/open {:type :file :dir dir})]
-             (try
-               (let [recovery (:recovery reopened)
-                     state (repl.frontends/create-state
-                             {:index-store (recording reopened heads)})]
-                 (testing "a rehydrated index has the sequence it had"
-                   (is (= (last @heads) (:manifest recovery)))
-                   (is (= before (head/seq-of (:datoms recovery))))
-                   (is (= before (head/seq-of
-                                   (index/read-datoms reopened
-                                                      (:manifest recovery))))))
-                 (evaluate state ["(def d 4)"])
-                 (testing "a further round after the restart raises it"
-                   (is (= [0 1 2 3 4] (seqs reopened @heads))))
-                 (testing "no two HEAD writes of the directory share a sequence"
-                   (is (= 5 (count @heads)))
-                   (is (strictly-increasing? (seqs reopened @heads)))))
-               (finally (store/close! reopened)))))
-         (finally
-           (cleanup-store-dir! dir))))))
+  (let [dir (temp-store-dir)
+        heads (atom [])
+        key (sign/generate)]
+    (try
+      (let [opened (store/open {:type :file :dir dir})
+            state (evaluate (repl.frontends/create-state
+                              {:index-store (recording opened heads)})
+                            ["(def a 1)" "(def b 2)"])
+            _ (testing "each round moves HEAD once, one t above the last"
+                (is (= [0 1] (seqs opened @heads))))
+            signed [(publish/assertion key {:name 'lib :seq 1
+                                            :manifest (first @heads)})]
+            state (assoc state :indexer
+                         (repl.index/commit-names (:indexer state) signed 3))
+            _ (testing "a name transaction raises it"
+                (is (= [0 1 2] (seqs opened @heads))))
+            [state message] (repl/eval-input state "(reset)")
+            _ (is (str/ends-with? message "reset"))
+            state (evaluate state ["(def c 3)"])
+            _ (testing "(reset) continues t; the next round raises it"
+                (is (= [0 1 2 3] (seqs opened @heads))))
+            before (head/seq-of (index/read-datoms
+                                  opened
+                                  (get-in state [:indexer :manifest-address])))]
+        (store/close! opened)
+        (let [reopened (store/open {:type :file :dir dir})]
+          (try
+            (let [recovery (:recovery reopened)
+                  state (repl.frontends/create-state
+                          {:index-store (recording reopened heads)})]
+              (testing "a rehydrated index has the sequence it had"
+                (is (= (last @heads) (:manifest recovery)))
+                (is (= before (head/seq-of (:datoms recovery))))
+                (is (= before (head/seq-of
+                                (index/read-datoms reopened
+                                                   (:manifest recovery))))))
+              (evaluate state ["(def d 4)"])
+              (testing "a further round after the restart raises it"
+                (is (= [0 1 2 3 4] (seqs reopened @heads))))
+              (testing "no two HEAD writes of the directory share a sequence"
+                (is (= 5 (count @heads)))
+                (is (strictly-increasing? (seqs reopened @heads)))))
+            (finally (store/close! reopened)))))
+      (finally
+        (cleanup-store-dir! dir)))))
 
 
 (deftest seq-of-across-the-unwritten-row-recovery

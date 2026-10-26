@@ -25,7 +25,7 @@ The `.jolt` extension keeps these files out of JVM, ClojureScript and Dart
 tooling (clj-kondo does not lint them as `.cljc`); `.cljstyle` lists `jolt`
 among its extensions so the formatter still checks them.
 
-Contents (J0c–J4c):
+Contents (J0c–J4d):
 - `dao/host/{integer,bytes,text,float,number}.jolt`: the primitive profile
   (docs/design/dao.stream.host-boundary.md §4.2, table A) over Chez's exact
   integers, flonums, strings and jolt byte arrays.
@@ -96,6 +96,14 @@ Contents (J0c–J4c):
   recovery decides what stands. A failed fsync is never retried. The file
   journal and the UCF suites run over it unchanged; the kill-mid-append and
   the composition's no-yin.repl tests gain a jolt-child leg.
+  J4d (layout 3, 24 exports): `jolt_file_open_private` creates a key file
+  O_EXCL at mode 0600 (`write-new-private!`, answering `:exists` and writing
+  nothing for an existing file), used by `yin.repl.main`'s keygen arm;
+  `yin.repl.state`'s state-file read and the jolt `-main`'s saved flags run
+  over the same namespace. `bb probe:jolt-file` adds the key file's mode and
+  overwrite refusal, saved state through the real jolt `-main`, and
+  cross-host reopen of a `file:` store (JVM, Node and Dart write, jolt
+  replays and appends, the original host reopens).
 
 The toolchain pins the owner's fork, `https://github.com/sonwh98/jolt`, at
 `697b91eefabf3e964acea787cbc9cb1b6b85a28c` (`jolt-toolchain.edn`). Fork PR
@@ -145,8 +153,8 @@ line without newline blocks that owner until newline. Ctrl-C exits without a
 graceful drain, as on the JVM. There is no line editor.
 
 The J3 catalog installs Clojure and PHP. Python refuses explicitly until J5;
-file:/dht: stores refuse before composition until J4/J7. Saved CLI state is
-not enabled by the Jolt entry point until J4. Networking has no host adapter
+file: stores open since J4 (J4d); dht: stores refuse at composition until J7.
+Saved CLI state is enabled by the Jolt entry point since J4d. Networking has no host adapter
 until J6/J7. Source startup is measured by the transcript runner; no speed
 gate is applied. The same corpus has a JVM process test. Capability-only
 cases identify their host in the corpus, rather than binding a JVM socket or

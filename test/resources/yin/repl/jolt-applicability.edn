@@ -1,139 +1,41 @@
-;; J3 per-deftest exclusions. The JVM runs each original body unchanged.
+;; Per-deftest exclusions on jolt (J3, amended by J4d: no J4-owned entry
+;; remains; each J7 entry composes a dht: store). The JVM runs each original
+;; body unchanged.
 ;; Namespace exclusions live in src/dev/jolt_j2_lane.clj.
-{:test-exclusions [{:ns "yin.vm.linker.head-test" :test "seq-of-across-head-moves"
-                    :reason "J4 durable store capability unavailable on jolt (a :file index store is refused)" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.frontend-catalog-test" :test "the-standard-languages-select-by-id-test"
+{:test-exclusions [{:ns "yin.repl.frontend-catalog-test" :test "the-standard-languages-select-by-id-test"
                     :reason "J5 Python capability unavailable in J3" :capability "J5 Python" :owner "J5"}
                    {:ns "yin.repl.frontend-catalog-test" :test "the-antlr-id-is-installed-on-every-host-test"
                     :reason "J5 Python capability unavailable in J3" :capability "J5 Python" :owner "J5"}
-                   {:ns "yin.repl.store-test" :test "the-flag-value-parses-to-a-spec-or-refuses-its-reason"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "an-embedder-spec-is-checked-the-same-way"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-host-without-file-support-is-refused-not-fallen-back"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "an-unopenable-directory-is-refused-with-its-reason"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-file-store-opens-content-jing-and-receives-publications"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-durable-store-carries-its-lock-head-and-recovery"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-second-owner-of-the-directory-is-refused-and-the-first-is-unaffected"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-real-second-jvm-process-is-refused-and-its-death-releases"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-live-foreign-owner-is-refused-and-a-dead-ones-lock-is-replaced"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-concurrent-takeover-of-a-dead-owners-lock-leaves-one-owner"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-takeover-that-crashed-midway-does-not-brick-the-directory"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "two-worker-threads-of-one-process-never-both-own-the-directory"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-short-write-never-becomes-a-partial-head"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-failed-directory-sync-fails-the-head-replacement"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-round-whose-head-cannot-be-made-durable-is-not-published"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "an-unreadable-node-in-any-index-refuses-startup"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-failing-content-close-still-releases-the-lock"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-real-second-dart-process-is-refused-and-its-death-releases"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "head-replacement-is-a-rename-of-a-synced-temp-never-a-partial-head"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-publication-interrupted-before-the-rename-reopens-the-previous-snapshot"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-published-head-recovers-and-a-new-round-replaces-it"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-crash-before-the-rename-keeps-the-previous-snapshot"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-malformed-head-refuses-startup-and-leaks-no-lock"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-missing-manifest-refuses-startup"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "an-unreadable-index-node-refuses-startup"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-corrupt-content-log-refuses-startup"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "an-unreferenced-blob-after-a-crash-is-harmless"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-restarted-durable-shell-answers-q-with-the-previous-runs-facts"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "a-restart-restores-every-transaction-group-history-row-and-retraction"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.store-test" :test "vm-selection-says-what-it-keeps"
-                    :reason "J4 durable store capability unavailable in J3" :capability "J4 durable store" :owner "J4"}
-                   {:ns "yin.repl.main-test" :test "the-index-store-flag-parses-on-every-hosts-arguments"
-                    :reason "J4/J7 durable CLI capability unavailable in J3" :capability "J4/J7 durable CLI" :owner "J4/J7"}
-                   {:ns "yin.repl.main-test" :test "startup-composes-or-refuses-before-any-shell-or-server"
-                    :reason "J4/J7 durable CLI capability unavailable in J3" :capability "J4/J7 durable CLI" :owner "J4/J7"}
                    {:ns "yin.repl.main-test" :test "the-interactive-composition-holds-every-standard-language"
                     :reason "J5 Python capability unavailable in J3" :capability "J5 Python" :owner "J5"}
                    {:ns "yin.repl.main-test" :test "a-key-file-loads-the-stable-key-or-refuses-startup-with-its-reason"
-                    :reason "J4/J7 durable CLI capability unavailable in J3" :capability "J4/J7 durable CLI" :owner "J4/J7"}
-                   {:ns "yin.repl.main-test" :test "keygen-writes-a-new-key-file-and-never-overwrites-one"
-                    :reason "J4/J7 durable CLI capability unavailable in J3" :capability "J4/J7 durable CLI" :owner "J4/J7"}
+                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "declared-principals-are-strict-hex-and-reach-the-composition"
-                    :reason "J4/J7 durable CLI capability unavailable in J3" :capability "J4/J7 durable CLI" :owner "J4/J7"}
+                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "trusted-principals-are-strict-and-apart-from-declared-ones"
-                    :reason "J4/J7 durable CLI capability unavailable in J3" :capability "J4/J7 durable CLI" :owner "J4/J7"}
+                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "dht-join-expands-a-token-to-peer-principal-and-follow"
-                    :reason "J4/J7 durable CLI capability unavailable in J3" :capability "J4/J7 durable CLI" :owner "J4/J7"}
+                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "a-printed-join-token-is-what-join-parses"
-                    :reason "J4/J7 durable CLI capability unavailable in J3" :capability "J4/J7 durable CLI" :owner "J4/J7"}
-                   {:ns "yin.repl.main-test" :test "a-token-with-a-third-part-is-refused-with-the-pin-message"
-                    :reason "J4/J7 durable CLI capability unavailable in J3" :capability "J4/J7 durable CLI" :owner "J4/J7"}
-                   {:ns "yin.repl.main-test" :test "dht-follow-parses-a-principal-at-a-loopback-address"
-                    :reason "J4/J7 durable CLI capability unavailable in J3" :capability "J4/J7 durable CLI" :owner "J4/J7"}
+                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "dht-follow-of-an-undeclared-principal-refuses-startup"
-                    :reason "J4/J7 durable CLI capability unavailable in J3" :capability "J4/J7 durable CLI" :owner "J4/J7"}
+                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "dht-manifest-suspends-following-for-the-run"
-                    :reason "J4/J7 durable CLI capability unavailable in J3" :capability "J4/J7 durable CLI" :owner "J4/J7"}
+                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "dht-init-publishes-with-a-key-and-localhost-peer"
-                    :reason "J4/J7 durable CLI capability unavailable in J3" :capability "J4/J7 durable CLI" :owner "J4/J7"}
+                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "dht-serve-fetches-only"
-                    :reason "J4/J7 durable CLI capability unavailable in J3" :capability "J4/J7 durable CLI" :owner "J4/J7"}
+                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "codec-flag-selects-the-served-wire-profile"
                     :reason "J6 Transit capability unavailable in J3" :capability "J6 Transit" :owner "J6"}
-                   {:ns "yin.repl.main-test" :test "an-oversized-number-is-a-refusal-on-every-numeric-flag"
-                    :reason "J4/J7 durable CLI capability unavailable in J3" :capability "J4/J7 durable CLI" :owner "J4/J7"}
                    {:ns "yin.repl.main-test" :test "with-the-dht-store-still-hydrating-a-renewal-and-a-pending-release-are-still-sent-test"
-                    :reason "J4/J7 durable CLI capability unavailable in J3" :capability "J4/J7 durable CLI" :owner "J4/J7"}
-                   {:ns "yin.repl.main-test" :test "a-release-held-back-for-the-whole-drain-stays-durable-and-a-restart-sends-it-test"
-                    :reason "J4/J7 durable CLI capability unavailable in J3" :capability "J4/J7 durable CLI" :owner "J4/J7"}
-                   {:ns "yin.repl.main-test" :test "the-exit-path-closes-the-custody-journals-before-the-host-exits-test"
-                    :reason "J4/J7 durable CLI capability unavailable in J3" :capability "J4/J7 durable CLI" :owner "J4/J7"}
+                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl-test" :test "language-and-compile-commands-behave-as-they-do-in-v1"
                     :reason "J5 Python capability unavailable in J3" :capability "J5 Python" :owner "J5"}
                    {:ns "yin.repl-test" :test "a-python-submission-cannot-see-a-clojure-defined-name"
                     :reason "J5 Python capability unavailable in J3" :capability "J5 Python" :owner "J5"}
-                   {:ns "yin.repl.state-test" :test "state-round-trips-through-its-file"
-                    :reason "J4 durable state capability unavailable in J3" :capability "J4 durable state" :owner "J4"}
-                   {:ns "yin.repl.state-test" :test "an-unreadable-state-file-is-refused-not-skipped"
-                    :reason "J4 durable state capability unavailable in J3" :capability "J4 durable state" :owner "J4"}
-                   {:ns "yin.repl.state-test" :test "a-state-path-that-cannot-be-read-is-refused-naming-the-file"
-                    :reason "J4 durable state capability unavailable in J3" :capability "J4 durable state" :owner "J4"}
-                   {:ns "yin.repl.state-test" :test "a-dangling-symlink-is-an-entry-so-it-is-refused-not-skipped"
-                    :reason "J4 durable state capability unavailable in J3" :capability "J4 durable state" :owner "J4"}
-                   {:ns "yin.repl.state-test" :test "a-bare-start-resumes-the-last-state-and-the-command-line-changes-it"
-                    :reason "J4 durable state capability unavailable in J3" :capability "J4 durable state" :owner "J4"}
-                   {:ns "yin.repl.state-test" :test "a-bad-saved-state-or-a-clashing-flag-refuses-startup"
-                    :reason "J4 durable state capability unavailable in J3" :capability "J4 durable state" :owner "J4"}
-                   {:ns "yin.repl.state-test" :test "a-missing-value-never-starts-with-the-saved-one"
-                    :reason "J4 durable state capability unavailable in J3" :capability "J4 durable state" :owner "J4"}
                    {:ns "yin.repl.state-test" :test "dht-join-saves-its-follow-and-a-bare-start-resumes-it"
-                    :reason "J4 durable state capability unavailable in J3" :capability "J4 durable state" :owner "J4"}
-                   {:ns "yin.repl.index-test" :test "a-durable-round-writes-head-only-after-the-manifest-read-back"
-                    :reason "J4 durable index capability unavailable in J3" :capability "J4 durable index" :owner "J4"}
-                   {:ns "yin.repl.main-test" :test "the-drain-enters-on-an-endpoint-or-owed-custody-and-ends-only-when-both-are-done-test"
-                    :reason "J4 file-backed authority journal capability unavailable in J3" :capability "J4 file-backed authority journal" :owner "J4"}
-                   {:ns "yin.repl.main-test" :test "the-bounded-drain-calls-custody-control-every-tick-delivers-the-release-and-runs-no-program-test"
-                    :reason "J4 file-backed authority journal capability unavailable in J3" :capability "J4 file-backed authority journal" :owner "J4"}
-                   {:ns "yin.repl.main-test" :test "moved?-is-true-while-custody-owes-a-control-plane-write-test"
-                    :reason "J4 file-backed authority journal capability unavailable in J3" :capability "J4 file-backed authority journal" :owner "J4"}
+                    :reason "composes a dht: index store, which needs the UDP transport (J4d run: fails only at that refusal)" :capability "J7 DHT transport" :owner "J7"}
                    {:ns "yin.repl.main-test" :test "a-dart-client-attaches-to-this-jvm-server"
                     :reason "JVM socket fixture; portable injected endpoints remain active" :capability "JVM WebSocket peers" :owner "J6"}
                    {:ns "yin.repl.main-test" :test "killing-the-connection-is-observable-and-requests-are-lost"
@@ -147,7 +49,7 @@
                    {:ns "yin.repl.main-test" :test "a-typed-quit-exits-without-waiting-for-end-of-input"
                     :reason "JVM subprocess fixture; held-pipe process corpus covers jolt" :capability "JVM subprocess" :owner "J3"}
                    {:ns "yin.repl.main-test" :test "the-jvm-loop-drains-custody-without-an-endpoint-and-closes-its-journals-test"
-                    :reason "JVM wrapper and file-backed custody fixture" :capability "JVM loop / durable journals" :owner "J3/J4"}]
+                    :reason "JVM poll loop; its durable-journal half runs on jolt in the-exit-path-closes-the-custody-journals-before-the-host-exits-test (J4d)" :capability "JVM loop" :owner "J3"}]
  :host-expectations [{:ns "yin.repl-test" :test "host-command-names-the-runtime" :owner "J3"}
                      {:ns "yin.repl.main-test" :test "booting-yields-one-shell-one-input-medium-and-one-cursor" :owner "J3/J6"}
                      {:ns "yin.repl.driver-test" :test "the-default-host-is-ready-for-a-real-connection" :owner "J6"}]

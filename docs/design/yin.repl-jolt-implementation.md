@@ -445,9 +445,15 @@ paths and helper sources from production and test classpaths.
 |                                | JVM/Node/Dart interop, tamper and malformed-length cases. Domain separation, constant-time provider verification,       |             |
 |                                | fail-closed, key-file validation; OS randomness failure is an error; restricted key-file creation. No handwritten       |             |
 |                                | Ed25519, no non-crypto PRNG, no secrets in argv.                                                                        |             |
+|                                | J4d: on jolt a key file is created by one O_CREAT+O_EXCL open at mode 0600 (native/jolt-file layout 3), written whole,  |             |
+|                                | fsynced and closed checked; an existing file is refused byte-identical; load-key's strict read refuses an absent,       |             |
+|                                | malformed or mismatched file naming the path and never the seed.                                                        |             |
 +--------------------------------+-------------------------------------------------------------------------------------------------------------------------+-------------+
 | Main, wait/wake, stdin         | One state owner. Reader/signal mechanisms deposit data and nudge cadence; nothing evaluates from a callback. Exits,     | J3-J4       |
 |                                | monotonic wakes, graceful shutdown, EOF while pending, custody flush.                                                   |             |
+|                                | J4d: the jolt -main persists its flags in <node dir>/state.edn like the JVM (a bare start resumes, --reset forgets,     |             |
+|                                | --no-state neither reads nor writes); a state file that cannot be read, a dangling link or invalid UTF-8 refuses        |             |
+|                                | startup; custody journals close on the exit path.                                                                       |             |
 +--------------------------------+-------------------------------------------------------------------------------------------------------------------------+-------------+
 | Sockets                        | Native POSIX sockets through `jolt.socket.native` FFI and `jolt.io-poller` directly (UDP: S on macOS, J0b; TCP: R).    | J0b, J6, J7 |
 |                                | The `jolt.socket` java.net shim is not a substrate for either transport (ruling 2, §13.4).                              |             |
@@ -1420,9 +1426,12 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 |                                             | query             |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J4: persistence and authority               | File/store FS,    | Existing file/B-tree/store crash, recovery and lock fixtures and RFC/envelope/signature vectors     |
-| not started                                 | Ed25519 keygen    | pass; cross-host reopen and two-way signing; no security stubs; local storage options and shutdown  |
-|                                             | and key files,    | work.                                                                                               |
-|                                             | lifecycle cleanup |                                                                                                     |
+| J4a-J4c landed                              | Ed25519 keygen    | pass; cross-host reopen and two-way signing; no security stubs; local storage options and shutdown  |
+| (890dc68f,                                  | and key files,    | work. J4d: the file: store opens on jolt (only dht: refuses, at composition, J7); saved flags       |
+| 9c4ce1df,                                   | lifecycle cleanup | persist through the jolt -main (--reset, --no-state); key files are created O_EXCL at 0600 and      |
+| f5397a15); J4d on                           |                   | never overwritten; no J4-owned entry remains in jolt-applicability.edn or the J2 lane; cross-host   |
+| jolt-j4d, review                            |                   | reopen JVM, Node and Dart <-> jolt.                                                                 |
+| pending                                     |                   |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J5: complete standard frontends             | The selected      | §7.8 J5 gate. Standard catalog loads and `(lang :yang/python)` works;                               |
 | not started                                 | in-process C++    | frontend_catalog/python_antlr/main suites; synchronous probe sequences equal the JVM's;             |
