@@ -17,7 +17,7 @@
      `js/mk-str` does at run time. A BigInt is the bare exact integer.
    - Every call is `(js/call f this args)`, every construct
      `(js/construct F args)`; a function is
-     `(js/make-function name length this-mode (lam [this args] body))`. A
+     `(js/make-function name length this-mode kind (lam [this args] body))`. A
      function with a `return` runs its body under `js/call-ec`.
    - Loops are self-applied lambdas marked as `:loop` safepoint sites;
      `break` and `continue` are escapes through `js/call-ec`, bound only
@@ -725,6 +725,7 @@
                     (u/lit (jstr fname))
                     (u/lit (count params))
                     (u/lit (if arrow? :lexical :strict))
+                    (u/lit (if arrow? :arrow :normal))
                     code)]
     (if-let [self (:self s)]
       (let [cell-sym (symbol self)]

@@ -95,6 +95,13 @@
   "Pure definitions: lambdas only, so defining them runs nothing."
   '[;; ----------------------------------------------------------------- kinds
     [js/cell? (fn [x] (= (get x :type) :cell-ref))]
+    [js/symbol?
+     (fn [x]
+       (if (js/cell? x) (= (get (cell/get x) :js/type) :symbol) false))]
+    [js/object? (fn [x] (if (js/cell? x) (not (js/symbol? x)) false))]
+    [js/make-symbol
+     (fn [description]
+       (cell/new (assoc (assoc {} :js/type :symbol) :description description)))]
     [js/str?
      (fn [x]
        (if (nil? (get x :js/str)) (not (nil? (get x :js/units))) true))]
@@ -122,11 +129,16 @@
                    (if (js/cell? x)
                      (if (= (get (cell/get x) :js/type) :function)
                        :function
-                       :object)
+                       (if (= (get (cell/get x) :js/type) :symbol)
+                         :symbol
+                         :object))
                      :number))))))))]
     [js/ty (fn [k] (if (= k :function) :object k))]
     [js/prim-type?
-     (fn [t] (if (= t :string) true (if (= t :number) true (= t :bigint))))]
+     (fn [t]
+       (if (= t :string)
+         true
+         (if (= t :number) true (if (= t :symbol) true (= t :bigint)))))]
     [js/callable?
      (fn [x]
        (if (js/cell? x) (= (get (cell/get x) :js/type) :function) false))]
@@ -268,7 +280,8 @@
              :boolean {:js/str "boolean"},
              :number {:js/str "number"},
              :bigint {:js/str "bigint"},
-             :string {:js/str "string"}}
+             :string {:js/str "string"},
+             :symbol {:js/str "symbol"}}
             k))]
     [js/typeof
      (fn [v]
@@ -293,8 +306,14 @@
                    {:js/str "undefined"}
                    (if (= k :null)
                      {:js/str "null"}
-                     (js/to-string (js/to-primitive v :string))))))))))]
-    [js/to-property-key (fn [v] (js/to-string (js/to-primitive v :string)))]
+                     (if (= k :symbol)
+                       (js/throw-type-error
+                         {:js/str "Cannot convert a Symbol value to a string"})
+                       (js/to-string (js/to-primitive v :string)))))))))))]
+    [js/to-property-key
+     (fn [v]
+       (let [p (js/to-primitive v :string)]
+         (if (js/symbol? p) p (js/to-string p))))]
     [js/to-boolean
      (fn [v]
        (let [k (js/kind-of v)]
@@ -869,12 +888,12 @@
 
     ;; ------------------------------------------------------------ coercion
     [js/to-primitive
-     (fn [v hint] (if (js/cell? v) (js/ordinary-to-primitive v hint) v))]
+     (fn [v hint] (if (js/object? v) (js/ordinary-to-primitive v hint) v))]
     [js/prim-try
      (fn [o name k]
        (let [m (js/get-prop o name)]
          (if (js/callable? m)
-           (let [r (js/call m o [])] (if (js/cell? r) (k) r))
+           (let [r (js/call m o [])] (if (js/object? r) (k) r))
            (k))))]
     [js/ordinary-to-primitive
      (fn [o hint]
@@ -922,7 +941,7 @@
            -1)))]
     [js/index-key-value
      (fn [key]
-       (if (nil? (get key :js/str))
+       (if (if (js/symbol? key) true (nil? (get key :js/str)))
          -1
          (js/index-text (data/str->code-points (get key :js/str)))))]
     [js/ints-splice
@@ -940,9 +959,11 @@
        (let [om2 (assoc om :index (assoc (get om :index) key sl))]
          (if (nil? (get (get om :index) key))
            (let [i (js/index-key-value key)]
-             (if (<= 0 i)
-               (assoc om2 :ints (js/ints-insert (get om2 :ints) key i 0))
-               (assoc om2 :strs (conj (get om2 :strs) key))))
+             (if (js/symbol? key)
+               (assoc om2 :syms (conj (get om2 :syms) key))
+               (if (<= 0 i)
+                 (assoc om2 :ints (js/ints-insert (get om2 :ints) key i 0))
+                 (assoc om2 :strs (conj (get om2 :strs) key)))))
            om2)))]
     [js/om-keys
      (fn [om]
@@ -962,16 +983,533 @@
      (fn [o key sl]
        (let [c (cell/get o)]
          (cell/set! o (assoc c :props (js/om-put (get c :props) key sl)))))]
-    [js/get-own
-     (fn [o key] (js/om-get (get (cell/get o) :props) key))]
-    [js/get-prop
-     ;; [[Get]] over data descriptors and the prototype chain
-     (fn [o key]
+    [js/get-own (fn [o key] (js/own-slot o key))]
+    [js/get-prop-r
+     ;; [[Get]] over the prototype chain with an explicit receiver. An
+     ;; accessor slot is told by the presence of :get (R1); the walk is a
+     ;; tail call, so a long chain runs in constant stack
+     (fn [o key receiver]
        (let [sl (js/get-own o key)]
          (if (nil? sl)
            (let [p (get (cell/get o) :proto)]
-             (if (= p :js/null) :js/undefined (js/get-prop p key)))
-           (get sl :value))))]
+             (if (= p :js/null) :js/undefined (js/get-prop-r p key receiver)))
+           (if (nil? (get sl :get))
+             (get sl :value)
+             (let [g (get sl :get)]
+               (if (= g :js/undefined) :js/undefined (js/call g receiver [])))))))]
+    [js/get-prop (fn [o key] (js/get-prop-r o key o))]
+    [js/has-own-field?
+     (fn [d k] (not (nil? (get d k))))]
+    [js/accessor-desc?
+     (fn [d]
+       (if (js/has-own-field? d :get) true (js/has-own-field? d :set)))]
+    [js/data-desc?
+     (fn [d]
+       (if (js/has-own-field? d :value) true (js/has-own-field? d :writable)))]
+    [js/validate-descriptor
+     ;; ValidateAndApplyPropertyDescriptor's checks: may `desc` (a map with
+     ;; any of :value :writable :get :set :enumerable :configurable) replace
+     ;; the slot `cur` (nil when absent) of an object that is `extensible?`
+     (fn [extensible? cur desc]
+       (if (nil? cur)
+         extensible?
+         (if (get cur :configurable)
+           true
+           (if (= (get desc :configurable) true)
+             false
+             (if (if (js/has-own-field? desc :enumerable)
+                   (not (= (get desc :enumerable) (get cur :enumerable)))
+                   false)
+               false
+               (if (if (js/accessor-desc? desc) false (not (js/data-desc? desc)))
+                 true
+                 (if (nil? (get cur :get))
+                   (if (js/accessor-desc? desc)
+                     false
+                     (if (get cur :writable)
+                       true
+                       (if (= (get desc :writable) true)
+                         false
+                         (if (js/has-own-field? desc :value)
+                           (js/same-value (get desc :value) (get cur :value))
+                           true))))
+                   (if (js/data-desc? desc)
+                     false
+                     (if (if (js/has-own-field? desc :get)
+                           (not (js/same-value (get desc :get) (get cur :get)))
+                           false)
+                       false
+                       (if (js/has-own-field? desc :set)
+                         (js/same-value (get desc :set) (get cur :set))
+                         true))))))))))]
+    [js/pick
+     (fn [d k dflt] (if (js/has-own-field? d k) (get d k) dflt))]
+    [js/mk-accessor-slot
+     (fn [g s e c]
+       (assoc (assoc (assoc (assoc {} :get g) :set s) :enumerable e)
+              :configurable c))]
+    [js/accessor-slot? (fn [sl] (not (nil? (get sl :get))))]
+    [js/vec-index-of
+     (fn [v key i]
+       (if (< i (data/count v))
+         (if (= (get v i) key) i (js/vec-index-of v key (+ i 1)))
+         -1))]
+    [js/vec-remove
+     ;; `v` without its first element equal to `key`, order kept
+     (fn [v key]
+       (let [i (js/vec-index-of v key 0)]
+         (if (< i 0)
+           v
+           (data/into (data/subvec v 0 i) (data/subvec v (+ i 1))))))]
+    [js/om-remove
+     ;; drop an own key: the rest keep their order and a later re-add goes
+     ;; last in its partition (a removed index entry is a nil tombstone)
+     (fn [om key]
+       (if (nil? (get (get om :index) key))
+         om
+         (let [om2 (assoc om :index (assoc (get om :index) key nil))]
+           (if (js/symbol? key)
+             (assoc om2 :syms (js/vec-remove (get om2 :syms) key))
+             (if (<= 0 (js/index-key-value key))
+               (assoc om2 :ints (js/vec-remove (get om2 :ints) key))
+               (assoc om2 :strs (js/vec-remove (get om2 :strs) key)))))))]
+
+    ;; ------------------------------------------------------------- arrays
+    ;; {:js/type :array :proto :props om :items [v|:js/hole ..]
+    ;; :extensible? :items-mode :open|:sealed|:frozen :length-writable?};
+    ;; index keys and "length" are virtual slots over :items, and the item
+    ;; view is always a default data slot (per-element descriptors are the
+    ;; ledger gap L-T2-1)
+    [js/make-array
+     (fn [proto items]
+       (cell/new (assoc (assoc (assoc (assoc (assoc (assoc {} :js/type :array)
+                                                    :proto proto)
+                                             :props (js/om-new))
+                                      :items items)
+                               :extensible? true)
+                        :items-mode :open)))]
+    [js/array?
+     (fn [x]
+       (if (js/cell? x) (= (get (cell/get x) :js/type) :array) false))]
+    [js/array-item-slot
+     (fn [c i]
+       (let [items (get c :items)]
+         (if (< i (data/count items))
+           (let [it (get items i)]
+             (if (= it :js/hole)
+               nil
+               (js/slot it
+                        (not (= (get c :items-mode) :frozen))
+                        true
+                        (= (get c :items-mode) :open))))
+           nil)))]
+    [js/array-length-slot
+     (fn [c]
+       (js/slot (data/float64 (data/count (get c :items)))
+                (not (= (get c :length-writable?) false))
+                false
+                false))]
+    [js/own-slot
+     (fn [o key]
+       (let [c (cell/get o)]
+         (if (= (get c :js/type) :array)
+           (let [i (js/index-key-value key)]
+             (if (<= 0 i)
+               (js/array-item-slot c i)
+               (if (= key {:js/str "length"})
+                 (js/array-length-slot c)
+                 (js/om-get (get c :props) key))))
+           (js/om-get (get c :props) key))))]
+    [js/items-pad
+     (fn [items n]
+       (if (< (data/count items) n)
+         (js/items-pad (conj items :js/hole) n)
+         items))]
+    [js/items-put
+     ;; `items` with slot i set to v, holes filling any gap
+     (fn [items i v]
+       (if (< i (data/count items))
+         (data/into (conj (data/subvec items 0 i) v)
+                    (data/subvec items (+ i 1)))
+         (conj (js/items-pad items i) v)))]
+    [js/array-set-items!
+     (fn [o items]
+       (cell/set! o (assoc (cell/get o) :items items)))]
+    [js/check-sparse
+     (fn [cnt n]
+       (if (< 1048576 (- n cnt))
+         (js/throw-range-error {:js/str "Invalid array length"})
+         true))]
+    [js/shrink-items
+     ;; the length a shrink to n stops at: holes drop, an element of a
+     ;; non-open array does not
+     (fn [items len n mode]
+       (if (<= len n)
+         len
+         (if (if (= (get items (- len 1)) :js/hole) true (= mode :open))
+           (js/shrink-items items (- len 1) n mode)
+           len)))]
+    [js/array-set-length!
+     ;; ArraySetLength's truncate/extend half: false when a kept element stops it
+     (fn [o n]
+       (let [c (cell/get o)
+             items (get c :items)
+             cnt (data/count items)]
+         (if (<= cnt n)
+           (do (js/check-sparse cnt n)
+               (js/array-set-items! o (js/items-pad items n))
+               true)
+           (let [m (js/shrink-items items cnt n (get c :items-mode))]
+             (do (js/array-set-items! o (data/subvec items 0 m)) (= m n))))))]
+    [js/array-length-value
+     (fn [v]
+       (let [n (js/to-number v)
+             u (js/uint32-bare (data/float-value n))]
+         (if (js/same-value-zero (data/float64 u) n)
+           u
+           (js/throw-range-error {:js/str "Invalid array length"}))))]
+    [js/array-define-length
+     (fn [o desc]
+       (let [c (cell/get o)
+             cnt (data/count (get c :items))
+             w? (not (= (get c :length-writable?) false))]
+         (if (if (js/accessor-desc? desc)
+               true
+               (if (= (get desc :configurable) true)
+                 true
+                 (= (get desc :enumerable) true)))
+           false
+           (let [n (if (js/has-own-field? desc :value)
+                     (js/array-length-value (get desc :value))
+                     cnt)]
+             (if (if w? false (= (get desc :writable) true))
+               false
+               (if (if w? false (not (= n cnt)))
+                 false
+                 (let [ok (js/array-set-length! o n)]
+                   (do (if (= (get desc :writable) false)
+                         (cell/set! o
+                                    (assoc (cell/get o) :length-writable? false))
+                         :js/undefined)
+                       ok))))))))]
+    [js/attr-agrees?
+     ;; a present attribute of `desc` equals the one of the item view `cur`
+     (fn [desc cur k]
+       (if (js/has-own-field? desc k) (= (get desc k) (get cur k)) true))]
+    [js/array-define-index
+     (fn [o i desc]
+       (let [c (cell/get o)
+             cnt (data/count (get c :items))
+             cur (js/array-item-slot c i)
+             w? (not (= (get c :length-writable?) false))]
+         (if (nil? cur)
+           (if (if (<= cnt i) (not w?) false)
+             false
+             (if (not (get c :extensible?))
+               false
+               (if (if (js/accessor-desc? desc)
+                     true
+                     (if (= (get desc :writable) true)
+                       (if (= (get desc :enumerable) true)
+                         (not (= (get desc :configurable) true))
+                         true)
+                       true))
+                 false
+                 (do (js/check-sparse cnt i)
+                     (js/array-set-items!
+                       o
+                       (js/items-put (get c :items)
+                                     i
+                                     (js/pick desc :value :js/undefined)))
+                     true))))
+           (if (js/validate-descriptor (get c :extensible?) cur desc)
+             (if (if (js/accessor-desc? desc)
+                   true
+                   (if (js/attr-agrees? desc cur :enumerable)
+                     (if (js/attr-agrees? desc cur :configurable)
+                       (not (js/attr-agrees? desc cur :writable))
+                       true)
+                     true))
+               false
+               (do (if (js/has-own-field? desc :value)
+                     (js/array-set-items! o
+                                          (js/items-put (get c :items)
+                                                        i
+                                                        (get desc :value)))
+                     :js/undefined)
+                   true))
+             false))))]
+
+    ;; ------------------------------------------------------------ defining
+    [js/merge-slot
+     ;; the slot `desc` makes of `cur` (nil when absent): absent attributes
+     ;; default to false/undefined on a new slot and keep on an existing
+     ;; one; a kind switch keeps enumerable and configurable only
+     (fn [cur desc]
+       (let [acc? (if (nil? cur) false (js/accessor-slot? cur))
+             dat? (if (nil? cur) false (not acc?))
+             e (js/pick desc :enumerable (if (nil? cur) false (get cur :enumerable)))
+             c (js/pick desc
+                        :configurable
+                        (if (nil? cur) false (get cur :configurable)))]
+         (if (js/accessor-desc? desc)
+           (js/mk-accessor-slot
+             (js/pick desc :get (if acc? (get cur :get) :js/undefined))
+             (js/pick desc :set (if acc? (get cur :set) :js/undefined))
+             e
+             c)
+           (if (js/data-desc? desc)
+             (js/slot (js/pick desc :value (if dat? (get cur :value) :js/undefined))
+                      (js/pick desc :writable (if dat? (get cur :writable) false))
+                      e
+                      c)
+             (if acc?
+               (js/mk-accessor-slot (get cur :get) (get cur :set) e c)
+               (js/slot (if dat? (get cur :value) :js/undefined)
+                        (if dat? (get cur :writable) false)
+                        e
+                        c))))))]
+    [js/ordinary-define
+     (fn [o key desc]
+       (let [cur (js/own-slot o key)]
+         (if (js/validate-descriptor (get (cell/get o) :extensible?) cur desc)
+           (do (js/define-own! o key (js/merge-slot cur desc)) true)
+           false)))]
+    [js/define-own-property
+     ;; [[DefineOwnProperty]]: ValidateAndApplyPropertyDescriptor, with the
+     ;; array exotic arms; a boolean
+     (fn [o key desc]
+       (if (js/array? o)
+         (let [i (js/index-key-value key)]
+           (if (<= 0 i)
+             (js/array-define-index o i desc)
+             (if (= key {:js/str "length"})
+               (js/array-define-length o desc)
+               (js/ordinary-define o key desc))))
+         (js/ordinary-define o key desc)))]
+    [js/create-data-prop!
+     (fn [o key v]
+       (js/define-own-property
+         o
+         key
+         (assoc (assoc (assoc (assoc {} :value v) :writable true)
+                       :enumerable
+                       true)
+                :configurable
+                true)))]
+    [js/define-property-or-throw
+     (fn [o key desc]
+       (if (js/define-own-property o key desc)
+         true
+         (js/throw-type-error
+           (js/str-concat {:js/str "Cannot redefine property: "}
+                          (js/key-text key)))))]
+    [js/desc-field
+     (fn [d obj name k bool?]
+       (if (js/has-property obj name)
+         (let [v (js/get-prop obj name)]
+           (assoc d k (if bool? (js/to-boolean v) v)))
+         d))]
+    [js/callable-or-undefined?
+     (fn [f] (if (= f :js/undefined) true (js/callable? f)))]
+    [js/to-property-descriptor
+     ;; a guest object's partial descriptor: only the fields it supplies
+     (fn [obj]
+       (if (js/object? obj)
+         (let [d (js/desc-field
+                   (js/desc-field
+                     (js/desc-field
+                       (js/desc-field
+                         (js/desc-field
+                           (js/desc-field {} obj {:js/str "enumerable"} :enumerable true)
+                           obj
+                           {:js/str "configurable"}
+                           :configurable
+                           true)
+                         obj
+                         {:js/str "value"}
+                         :value
+                         false)
+                       obj
+                       {:js/str "writable"}
+                       :writable
+                       true)
+                     obj
+                     {:js/str "get"}
+                     :get
+                     false)
+                   obj
+                   {:js/str "set"}
+                   :set
+                   false)]
+           (if (if (js/has-own-field? d :get)
+                 (not (js/callable-or-undefined? (get d :get)))
+                 false)
+             (js/throw-type-error {:js/str "Getter must be a function"})
+             (if (if (js/has-own-field? d :set)
+                   (not (js/callable-or-undefined? (get d :set)))
+                   false)
+               (js/throw-type-error {:js/str "Setter must be a function"})
+               (if (if (js/accessor-desc? d) (js/data-desc? d) false)
+                 (js/throw-type-error
+                   {:js/str
+                    "Invalid property descriptor. Cannot both specify accessors and a value or writable attribute"})
+                 d))))
+         (js/throw-type-error
+           {:js/str "Property description must be an object"})))]
+    [js/from-property-descriptor
+     (fn [sl]
+       (if (nil? sl)
+         :js/undefined
+         (let [o (js/make-object js.rt/obj-proto)
+               dp (fn [k v] (js/create-data-prop! o (assoc {} :js/str k) v))]
+           (do (if (js/accessor-slot? sl)
+                 (do (dp "get" (get sl :get)) (dp "set" (get sl :set)))
+                 (do (dp "value" (get sl :value))
+                     (dp "writable" (get sl :writable))))
+               (dp "enumerable" (get sl :enumerable))
+               (dp "configurable" (get sl :configurable))
+               o))))]
+
+    ;; ------------------------------------------------- [[Set]] and friends
+    [js/set-on-receiver
+     ;; OrdinarySet's tail once an inherited or absent data slot allows it
+     (fn [receiver key v]
+       (if (js/object? receiver)
+         (let [ex (js/get-own receiver key)]
+           (if (nil? ex)
+             (js/create-data-prop! receiver key v)
+             (if (js/accessor-slot? ex)
+               false
+               (if (get ex :writable)
+                 (js/define-own-property receiver key (assoc {} :value v))
+                 false))))
+         false))]
+    [js/set-prop
+     ;; [[Set]] with an explicit receiver; a boolean, the chain walk a tail call
+     (fn [o key v receiver]
+       (let [sl (js/get-own o key)]
+         (if (nil? sl)
+           (let [p (get (cell/get o) :proto)]
+             (if (= p :js/null)
+               (js/set-on-receiver receiver key v)
+               (js/set-prop p key v receiver)))
+           (if (js/accessor-slot? sl)
+             (let [s (get sl :set)]
+               (if (= s :js/undefined)
+                 false
+                 (do (js/call s receiver (js/vconj [] v)) true)))
+             (if (get sl :writable) (js/set-on-receiver receiver key v) false)))))]
+    [js/symbol-descriptive-string
+     (fn [s]
+       (let [d (get (cell/get s) :description)]
+         (js/str-concat
+           {:js/str "Symbol("}
+           (js/str-concat (if (= d :js/undefined) {:js/str ""} d)
+                          {:js/str ")"}))))]
+    [js/key-text
+     (fn [key]
+       (if (js/symbol? key) (js/symbol-descriptive-string key) key))]
+    [js/proto-of-primitive
+     (fn [v]
+       (let [k (js/kind-of v)]
+         (if (= k :string)
+           js.rt/str-proto
+           (if (= k :number)
+             js.rt/num-proto
+             (if (= k :boolean)
+               js.rt/bool-proto
+               (if (= k :bigint) js.rt/bigint-proto js.rt/symbol-proto))))))]
+    [js/put-value
+     ;; the strict assignment front door: a false [[Set]] is a TypeError
+     (fn [base key v]
+       (let [k (js/kind-of base)]
+         (if (if (= k :undefined) true (= k :null))
+           (js/throw-type-error
+             (js/str-concat {:js/str "Cannot set properties of "}
+                            (js/str-concat (js/to-string base)
+                                           (js/str-concat {:js/str " (setting '"}
+                                                          (js/str-concat (js/key-text key)
+                                                                         {:js/str "')"})))))
+           (if (if (js/callable? base) true (js/object? base))
+             (if (js/set-prop base key v base)
+               v
+               (js/throw-type-error
+                 (js/str-concat {:js/str "Cannot assign to read only property '"}
+                                (js/str-concat (js/key-text key) {:js/str "'"}))))
+             (if (js/set-prop (js/proto-of-primitive base) key v base)
+               v
+               (js/throw-type-error
+                 (js/str-concat {:js/str "Cannot create property '"}
+                                (js/str-concat (js/key-text key)
+                                               {:js/str "' on a primitive"}))))))))]
+    [js/in-op
+     (fn [key o]
+       (if (js/object? o)
+         (js/has-property o (js/to-property-key key))
+         (js/throw-type-error
+           {:js/str "Cannot use 'in' operator to search for a key in a non-object"})))]
+    [js/delete-prop
+     ;; [[Delete]]: absent and removed are true, non-configurable is false
+     (fn [o key]
+       (let [sl (js/get-own o key)]
+         (if (nil? sl)
+           true
+           (if (get sl :configurable)
+             (if (if (js/array? o) (<= 0 (js/index-key-value key)) false)
+               (do (js/array-set-items!
+                     o
+                     (js/items-put (get (cell/get o) :items)
+                                   (js/index-key-value key)
+                                   :js/hole))
+                   true)
+               (do (cell/set! o
+                              (assoc (cell/get o)
+                                     :props
+                                     (js/om-remove (get (cell/get o) :props) key)))
+                   true))
+             false))))]
+    [js/delete-value
+     (fn [base key]
+       (let [k (js/kind-of base)]
+         (if (if (= k :undefined) true (= k :null))
+           (js/throw-type-error
+             {:js/str "Cannot convert undefined or null to object"})
+           (if (if (js/callable? base) true (js/object? base))
+             (if (js/delete-prop base key)
+               true
+               (js/throw-type-error
+                 (js/str-concat {:js/str "Cannot delete property '"}
+                                (js/str-concat (js/key-text key) {:js/str "'"}))))
+             (if (= k :string)
+               (if (if (= key {:js/str "length"})
+                     true
+                     (let [i (js/index-key-value key)]
+                       (if (<= 0 i) (< i (js/str-unit-length base)) false)))
+                 (js/throw-type-error
+                   (js/str-concat {:js/str "Cannot delete property '"}
+                                  (js/str-concat (js/key-text key) {:js/str "'"})))
+                 true)
+               true)))))]
+    [js/own-keys
+     ;; [[OwnKeys]]: array indices, "length", then ints, strs, syms
+     (fn [o]
+       (let [c (cell/get o)]
+         (if (= (get c :js/type) :array)
+           (data/into (js/array-index-keys (get c :items) 0 [])
+                      (data/into [{:js/str "length"}]
+                                 (js/om-keys (get c :props))))
+           (js/om-keys (get c :props)))))]
+    [js/array-index-keys
+     (fn [items i acc]
+       (if (< i (data/count items))
+         (js/array-index-keys
+           items
+           (+ i 1)
+           (if (= (get items i) :js/hole)
+             acc
+             (conj acc (js/number->string (data/float64 i)))))
+         acc))]
     [js/has-property
      (fn [o key]
        (if (nil? (js/get-own o key))
@@ -1000,33 +1538,37 @@
                  (js/get-prop js.rt/bool-proto key)
                  (if (= k :bigint)
                    (js/get-prop js.rt/bigint-proto key)
-                   (js/throw-type-error
-                     (js/str-concat
-                       {:js/str "Cannot read properties of "}
+                   (if (= k :symbol)
+                     (js/get-prop-r js.rt/symbol-proto key v)
+                     (js/throw-type-error
                        (js/str-concat
-                         (js/to-string v)
+                         {:js/str "Cannot read properties of "}
                          (js/str-concat
-                           {:js/str " (reading '"}
-                           (js/str-concat (js/to-string key)
-                                          {:js/str "')"}))))))))))))]
+                           (js/to-string v)
+                           (js/str-concat
+                             {:js/str " (reading '"}
+                             (js/str-concat (js/to-string key)
+                                            {:js/str "')"})))))))))))))]
 
     ;; ------------------------------------------------------------ functions
     ;; A function cell holds {:js/type :function :code (fn [this args] ..)
     ;; :this-mode :strict|:lexical :name s :length n :props om :proto ref
     ;; :extensible? true}; every call is (js/call f this args).
     [js/make-function
-     (fn [name length this-mode code]
+     (fn [name length this-mode kind code]
        (let [f (cell/new
-                 (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc {}
-                                                                         :js/type
-                                                                         :function)
-                                                                  :code code)
-                                                           :this-mode this-mode)
-                                                    :name name)
-                                             :length length)
-                                      :props (js/om-new))
-                               :proto js.rt/fn-proto)
-                        :extensible? true))]
+                 (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc (assoc {}
+                                                                                :js/type
+                                                                                :function)
+                                                                         :code code)
+                                                                  :this-mode this-mode)
+                                                           :name name)
+                                                    :length length)
+                                             :props (js/om-new))
+                                      :proto js.rt/fn-proto)
+                               :extensible? true)
+                        :kind
+                        kind))]
          (do (js/define-own! f
                              {:js/str "length"}
                              (js/slot (data/float64 length) false false true))
@@ -1047,9 +1589,9 @@
            (if (= (get c :this-mode) :lexical)
              (js/throw-type-error {:js/str "value is not a constructor"})
              (let [pr (js/get-prop f {:js/str "prototype"})
-                   o (js/make-object (if (js/cell? pr) pr js.rt/obj-proto))
+                   o (js/make-object (if (js/object? pr) pr js.rt/obj-proto))
                    r ((get c :code) o args)]
-               (if (js/cell? r) r o))))
+               (if (js/object? r) r o))))
          (js/throw-type-error {:js/str "value is not a constructor"})))]
 
     ;; ---------------------------------------------------------- escapes
@@ -1153,7 +1695,7 @@
      (fn [msg] (js/throw-error js.rt/syntax-error-proto msg))]
     [js/error-to-string
      (fn [this _args]
-       (if (js/cell? this)
+       (if (js/object? this)
          (let [n (js/get-prop this {:js/str "name"})
                m (js/get-prop this {:js/str "message"})
                nm (if (= n :js/undefined) {:js/str "Error"} (js/to-string n))
@@ -1214,7 +1756,7 @@
            :js/undefined))]
     [js/uncaught
      (fn [e]
-       (if (js/cell? e)
+       (if (js/object? e)
          (if (= (get (cell/get e) :js/class) :error)
            (assoc (assoc {} :name (js/to-string (js/get-prop e {:js/str "name"})))
                   :message
@@ -1373,7 +1915,25 @@
     [js/console-log (fn [this args] (js/log! args))]
     [js/string-fn
      (fn [this args]
-       (if (= (data/count args) 0) {:js/str ""} (js/to-string (get args 0))))]
+       (if (= (data/count args) 0)
+         {:js/str ""}
+         (if (js/symbol? (get args 0))
+           (js/symbol-descriptive-string (get args 0))
+           (js/to-string (get args 0)))))]
+    [js/symbol-fn
+     (fn [this args]
+       (let [d (js/arg args 0)]
+         (js/make-symbol (if (= d :js/undefined) d (js/to-string d)))))]
+    [js/this-symbol
+     (fn [this]
+       (if (js/symbol? this)
+         this
+         (js/throw-type-error {:js/str "not a symbol"})))]
+    [js/symbol-to-string
+     (fn [this args] (js/symbol-descriptive-string (js/this-symbol this)))]
+    [js/symbol-value-of (fn [this args] (js/this-symbol this))]
+    [js/symbol-description
+     (fn [this args] (get (cell/get (js/this-symbol this)) :description))]
     [js/big->number
      (fn [b] (js/int->float b))]
     [js/number-fn
@@ -1430,7 +1990,7 @@
        (js/define-own!
          o
          (assoc {} :js/str name)
-         (js/slot (js/make-function (assoc {} :js/str name) length :strict code)
+         (js/slot (js/make-function (assoc {} :js/str name) length :strict :normal code)
                   true
                   false
                   true)))]
@@ -1442,7 +2002,7 @@
     [js/install-ctor!
      ;; a constructor function cell wired to its prototype both ways
      (fn [name length code proto]
-       (let [f (js/make-function (assoc {} :js/str name) length :strict code)]
+       (let [f (js/make-function (assoc {} :js/str name) length :strict :normal code)]
          (do (js/define-own! f
                              {:js/str "prototype"}
                              (js/slot proto false false false))
@@ -1488,7 +2048,9 @@
     [["toString" 0 'js/boolean-to-string] ["valueOf" 0 'js/boolean-value-of]]]
    ['js.rt/bigint-proto
     [["toString" 0 'js/bigint-to-string] ["valueOf" 0 'js/bigint-value-of]]]
-   ['js.rt/error-proto [["toString" 0 'js/error-to-string]]]])
+   ['js.rt/error-proto [["toString" 0 'js/error-to-string]]]
+   ['js.rt/symbol-proto
+    [["toString" 0 'js/symbol-to-string] ["valueOf" 0 'js/symbol-value-of]]]])
 
 
 (defn- init-form
@@ -1515,6 +2077,7 @@
               (rest error-classes))
         (mapv (fn [[key _ _]] (define key '(js/make-object js.rt/obj-proto)))
               primitive-protos)
+        [(define 'js.rt/symbol-proto '(js/make-object js.rt/obj-proto))]
         (mapcat (fn [[proto ms]]
                   (mapv (fn [[nm n code]]
                           (list 'js/def-method! proto nm n code))
@@ -1540,7 +2103,26 @@
         (mapv (fn [[key nm code]]
                 (list 'js/install-ctor! nm 1 code key))
               primitive-protos)
-        ['(js/define-own! js.rt/global
+        ['(let [f (js/make-function {:js/str "Symbol"} 0 :lexical :normal js/symbol-fn)]
+            (do (js/define-own! f
+                                {:js/str "prototype"}
+                                (js/slot js.rt/symbol-proto false false false))
+                (js/define-own! js.rt/symbol-proto
+                                {:js/str "constructor"}
+                                (js/slot f true false true))
+                (js/define-own! js.rt/symbol-proto
+                                {:js/str "description"}
+                                (js/mk-accessor-slot
+                                  (js/make-function {:js/str "get description"}
+                                                    0
+                                                    :strict
+                                                    :getter
+                                                    js/symbol-description)
+                                  :js/undefined
+                                  false
+                                  true))
+                (js/define-global! "Symbol" f)))
+         '(js/define-own! js.rt/global
                           {:js/str "undefined"}
                           (js/slot :js/undefined false false false))
          '(js/define-own! js.rt/global
@@ -1596,7 +2178,7 @@
   "Every key `js/init!` allocates, the ready flag aside, sorted."
   (vec (sort-by str
                 (concat '[js.rt/ctx js.rt/out js.rt/global js.rt/obj-proto
-                          js.rt/fn-proto]
+                          js.rt/fn-proto js.rt/symbol-proto]
                         (map second error-classes)
                         (map first primitive-protos)))))
 
