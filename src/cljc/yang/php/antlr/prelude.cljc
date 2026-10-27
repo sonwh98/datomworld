@@ -1336,12 +1336,22 @@
                    (php/delref (php/ref-value x))))
              (if (= k :obj-handle) (php/destroy-obj x) :php/null)))))]
     [php/destroy-obj
-     ;; the mechanism only: release the properties; P4 adds finalization
+     ;; DESTROY: run the destructor once (pinned), then free unless resurrected
+     (fn [x]
+       (let [st (cell/get (get x :php/obj))]
+         (if (get st :released?)
+           :php/null
+           (if (if (get st :destructed?)
+                 false
+                 (not (nil? (php/class-method (php/class-lookup (get st :class)) "__destruct"))))
+             (php/finalize! x)
+             (php/free-obj x)))))]
+    [php/free-obj
      (fn [x]
        (let [c (get x :php/obj)
              st (cell/get c)
              props (get st :props)]
-         (if (get st :destructed?)
+         (if (get st :released?)
            :php/null
            (do (cell/set! c (assoc (assoc st :destructed? true) :released? true))
                (php/drop-sources props (get st :id) 0 (php/array-count props))
@@ -1521,7 +1531,7 @@
      (fn [cvs i n]
        (if (< i n)
          (do (php/unset-cv (get cvs i)) (php/release-cvs cvs (+ i 1) n))
-         :php/null))]
+         (php/flush-pending!)))]
     ;; test-only invariant checker: a vector of violation messages
     [php/check-value
      (fn [v errs seen]
@@ -1827,11 +1837,13 @@
      ;; [container' marker] for `&$c[ks...]`; vivifies, separates, reuses a marker
      (fn [c ks i]
        (let [kind (php/kind c)]
-         (if (= kind :array)
-           (php/ref-into c ks i)
-           (if (= kind :null)
-             (php/ref-into (php/empty-array) ks i)
-             (php/throw-error "Error" "Cannot use a scalar value as an array")))))]
+         (if (php/prop-key? (get ks i))
+           (php/ref-prop-path c ks i)
+           (if (= kind :array)
+             (php/ref-into c ks i)
+             (if (= kind :null)
+               (php/ref-into (php/empty-array) ks i)
+               (php/throw-error "Error" "Cannot use a scalar value as an array"))))))]
     [php/ref-into
      (fn [arr ks i]
        (let [a (php/separate arr)
@@ -1911,7 +1923,10 @@
        (let [cur (php/global-slot name)]
          (if (= (php/slot-kind cur) :ref-marker)
            (php/ref-write! cur v)
-           (do (php/global-store! name v) (php/release-unless-same cur v) v))))]
+           (do (php/global-store! name v)
+               (php/release-unless-same cur v)
+               (php/flush-pending!)
+               v))))]
     [php/release-unless-same
      ;; DELREF `old` after a store of `v`, except when `v` is that very cell
      ;; (a builtin that mutated the array in place and answered it)
@@ -1946,6 +1961,7 @@
                                (php/vec-remove (get g :order) name 0
                                                (data/count (get g :order)) [])))
              (php/delref cur)
+             (php/flush-pending!)
              :php/null)))]
     [php/local-peek
      (fn [c] (let [v (cell/get c)] (if (= v :php/undef) :php/null (php/deref v))))]
@@ -1961,13 +1977,16 @@
        (let [cur (cell/get c)]
          (if (= (php/slot-kind cur) :ref-marker)
            (php/ref-write! cur v)
-           (do (cell/set! c v) (if (= cur :php/undef) :php/null (php/release-unless-same cur v)) v))))]
+           (do (cell/set! c v)
+               (if (= cur :php/undef) :php/null (php/release-unless-same cur v))
+               (php/flush-pending!)
+               v))))]
     [php/local-put!
      (fn [c v]
        (let [cur (cell/get c)]
          (do (if (= (php/slot-kind cur) :ref-marker) (php/ref-set! cur v) (cell/set! c v)) v)))]
     [php/local-isset? (fn [c] (not (= (php/local-peek c) :php/null)))]
-    [php/local-unset! (fn [c] (do (php/unset-cv c) :php/null))]
+    [php/local-unset! (fn [c] (do (php/unset-cv c) (php/flush-pending!) :php/null))]
 
     ;; ---------------------------------------------------------------- ++ and --
     [php/lower-cp (fn [c] (if (>= c 65) (if (<= c 90) (+ c 32) c) c))]
@@ -2973,7 +2992,9 @@
              r (php/prop-find c name ctx)
              kind (get r :kind)]
          (if (= kind :ok)
-           (php/prop-store! o (get (get r :entry) :id) v)
+           (if (= (get (get r :entry) :readonly?) true)
+             (php/ro-write o (get r :entry) ctx v)
+             (php/prop-store! o (get (get r :entry) :id) v))
            (if (if (= kind :none) (not (nil? (php/slot-get (get st :props) name))) false)
              (php/prop-store! o name v)
              (if (nil? (php/class-method c "__set"))
@@ -2992,7 +3013,11 @@
            (php/denied-error o (get r :entry) name)
            (let [id (if (= kind :ok) (get (get r :entry) :id) name)
                  cur (php/array-get (get st :props) id)]
-             (php/pair id (if (nil? cur) :php/null cur))))))]
+             (if (if (= kind :ok) (if (= (get (get r :entry) :readonly?) true) (not (nil? cur)) false) false)
+               (php/throw-error "Error"
+                                (data/str-concat "Cannot modify readonly property "
+                                                 (get (get r :entry) :declaring) "::$" name))
+               (php/pair id (if (nil? cur) :php/null cur)))))))]
     [php/assign-prop-path
      (fn [c ks i v]
        (let [pk (get ks i)
@@ -3018,7 +3043,9 @@
              r (php/prop-find c name ctx)
              kind (get r :kind)]
          (if (= kind :ok)
-           (php/obj-unset-prop o (get (get r :entry) :id))
+           (if (= (get (get r :entry) :readonly?) true)
+             (php/ro-unset o (get r :entry) ctx)
+             (php/obj-unset-prop o (get (get r :entry) :id)))
            (if (if (= kind :none) (not (nil? (php/slot-get (get st :props) name))) false)
              (php/obj-unset-prop o name)
              (if (nil? (php/class-method c "__unset"))
@@ -3062,9 +3089,11 @@
          props))]
     [php/instantiate
      (fn [c]
-       (php/new-obj (get c :name)
-                    (php/init-props (php/empty-array) (get c :props-decl) 0
-                                    (data/count (get c :props-decl)))))]
+       (php/register-final!
+         (php/new-obj (get c :name)
+                      (php/init-props (php/empty-array) (get c :props-decl) 0
+                                      (data/count (get c :props-decl))))
+         c))]
     [php/new-check
      (fn [c]
        (let [k (php/or-default (get c :kind) :class)]
@@ -3077,18 +3106,23 @@
      ;; the object, rc 1, held by the statement's temporary list
      (fn [c line]
        (let [o (php/instantiate (php/new-check c))]
-         (do (if (php/class-is? (get c :name) "throwable")
+         (do (cell/set! (get o :php/obj) (assoc (php/obj-state o) :destructed? true))
+             (if (php/class-is? (get c :name) "throwable")
                (php/obj-set-props! o (php/table-set (get (php/obj-state o) :props) "line" line))
                :php/null)
              (php/tmp! o))))]
+    [php/ctor-done!
+     ;; the constructor returned: the object may be destructed from now on
+     (fn [o]
+       (do (cell/set! (get o :php/obj) (assoc (php/obj-state o) :destructed? false)) o))]
     [php/new-finish
      (fn [o args ctx]
        (let [c (php/obj-class o)
              m (php/class-method c "__construct")]
          (if (nil? m)
-           o
+           (php/ctor-done! o)
            (if (php/visible? (get m :vis) (get m :declaring) ctx)
-             (do (php/invoke m o (get c :name) args) o)
+             (do (php/invoke m o (get c :name) args) (php/ctor-done! o))
              (php/throw-error
                "Error"
                (data/str-concat "Call to " (php/vis-word (get m :vis)) " " (get c :name)
@@ -3181,6 +3215,208 @@
        (if (= (php/kind (get args 0)) :obj)
          (get (php/obj-state (get args 0)) :class)
          (php/throw-error "TypeError" "get_class(): Argument #1 ($object) must be of type object")))]
+    ;; ---- finalization (rows 48 to 51), clone (row 52), shutdown (row 22)
+    [php/fin-remove
+     (fn [x]
+       (cell/set! php.rt/finalizable
+                  (php/fin-without (cell/get php.rt/finalizable) (get (php/obj-state x) :id) 0 [])))]
+    [php/fin-without
+     (fn [v id i acc]
+       (if (< i (data/count v))
+         (php/fin-without v id (+ i 1)
+                          (if (= (get (php/obj-state (get v i)) :id) id) acc (php/vconj acc (get v i))))
+         acc))]
+    [php/register-final!
+     ;; a class with `__destruct` registers its objects in creation order
+     (fn [o c]
+       (if (nil? (php/class-method c "__destruct"))
+         o
+         (do (cell/set! php.rt/finalizable (php/vconj (cell/get php.rt/finalizable) o)) o)))]
+    [php/pending-add!
+     ;; the chaining rule: a destructor exception replaces the pending one,
+     ;; which becomes its `previous`
+     (fn [e]
+       (let [p (cell/get php.rt/pending-exc)]
+         (do (if (= p :php/null)
+               :php/null
+               (php/obj-set-props!
+                 e
+                 (php/table-set (get (php/obj-state e) :props)
+                                (if (php/class-is? (get (php/obj-state e) :class) "exception")
+                                  "Exception::previous"
+                                  "Error::previous")
+                                p)))
+             (cell/set! php.rt/pending-exc e))))]
+    [php/flush-pending!
+     ;; the releasing operation has finished its releases: propagate
+     (fn []
+       (let [p (cell/get php.rt/pending-exc)]
+         (if (= p :php/null)
+           :php/null
+           (do (cell/set! php.rt/pending-exc :php/null) (php/raise p)))))]
+    [php/run-destructor
+     (fn [x]
+       (let [m (php/class-method (php/obj-class x) "__destruct")
+             e (php/try (fn [] (do (php/invoke m x (get (php/obj-state x) :class) []) :php/null))
+                        (fn [e] e)
+                        (fn [] :php/null))]
+         (if (= e :php/null) :php/null (php/pending-add! e))))]
+    [php/finalize!
+     ;; DESTROY: pin, run the destructor, unpin; resurrected when still held
+     (fn [x]
+       (let [c (get x :php/obj)]
+         (do (cell/set! c (assoc (assoc (cell/get c) :destructed? true) :rc 1))
+             (php/fin-remove x)
+             (php/run-destructor x)
+             (let [st (cell/get c)
+                   n (- (get st :rc) 1)]
+               (do (cell/set! c (assoc st :rc n))
+                   (if (> n 0) :php/null (php/free-obj x)))))))]
+    [php/shutdown-pass
+     ;; one reverse walk of the globals: an object held only there is released
+     (fn [order i]
+       (if (< i 0)
+         :php/null
+         (let [k (get order i)
+               cur (php/global-slot k)]
+           (do (if (nil? cur)
+                 :php/null
+                 (if (= (php/slot-kind cur) :obj-handle)
+                   (if (= (php/rc-of cur) 1) (php/global-unset! k) :php/null)
+                   :php/null))
+               (php/shutdown-pass order (- i 1))))))]
+    [php/shutdown-globals
+     (fn []
+       (let [before (data/count (get (cell/get php.rt/globals) :order))]
+         (do (php/shutdown-pass (get (cell/get php.rt/globals) :order) (- before 1))
+             (if (= before (data/count (get (cell/get php.rt/globals) :order)))
+               :php/null
+               (php/shutdown-globals)))))]
+    [php/shutdown-finalizable
+     (fn [objs i]
+       (if (< i (data/count objs))
+         (let [x (get objs i)]
+           (do (if (get (php/obj-state x) :destructed?)
+                 :php/null
+                 (do (cell/set! (get x :php/obj) (assoc (php/obj-state x) :destructed? true))
+                     (php/fin-remove x)
+                     (php/run-destructor x)))
+               (php/shutdown-finalizable objs (+ i 1))))
+         :php/null))]
+    [php/shutdown!
+     ;; row 22, destructor phase; a destructor's exception ends it
+     (fn []
+       (do (php/shutdown-globals)
+           (php/shutdown-finalizable (cell/get php.rt/finalizable) 0)
+           (php/flush-pending!)))]
+    [php/clone-members
+     ;; the properties of the copy: DUP semantics for an instance table
+     (fn [props]
+       (if (= (php/slot-kind props) :arr-handle) (php/dup props) props))]
+    [php/readonly-ids
+     (fn [decls i acc]
+       (if (< i (data/count decls))
+         (php/readonly-ids decls (+ i 1)
+                           (if (= (get (get decls i) :readonly?) true)
+                             (php/vconj acc (get (get decls i) :id))
+                             acc))
+         acc))]
+    [php/clone-obj
+     (fn [o ctx]
+       (if (= (php/kind o) :obj)
+         (if (nil? (get o :php/obj))
+           (php/throw-error "Error" "Trying to clone an uncloneable object")
+           (let [c (php/obj-class o)
+                 m (php/class-method c "__clone")]
+             (if (if (nil? m) false (not (php/visible? (get m :vis) (get m :declaring) ctx)))
+               (php/throw-error "Error"
+                                (data/str-concat "Call to " (php/vis-word (get m :vis)) " " (get c :name)
+                                                 "::__clone() from " (php/scope-text ctx)))
+               (let [n (php/register-final! (php/new-obj (get c :name)
+                                                         (php/clone-members (get (php/obj-state o) :props)))
+                                            c)]
+                 (do (if (nil? m)
+                       :php/null
+                       (php/try-finally
+                         (fn []
+                           (do (cell/set! (get n :php/obj)
+                                          (assoc (php/obj-state n) :reinit
+                                                 (php/readonly-ids (get c :props-decl) 0 [])))
+                               (php/invoke m n (get c :name) [])))
+                         (fn [x] (cell/set! (get n :php/obj) (assoc (php/obj-state n) :reinit [])))))
+                     (php/tmp! n))))))
+         (php/throw-error "Error" "__clone method called on non-object")))]
+    [php/reinit?
+     (fn [st id] (php/vhas (php/or-default (get st :reinit) []) id 0))]
+    [php/reinit-clear!
+     (fn [o id]
+       (let [st (php/obj-state o)]
+         (cell/set! (get o :php/obj)
+                    (assoc st :reinit (php/vec-remove (php/or-default (get st :reinit) []) id 0
+                                                      (data/count (php/or-default (get st :reinit) []))
+                                                      [])))))]
+    [php/ro-in-scope?
+     (fn [e ctx] (if (= ctx :php/null) false (= (php/lc ctx) (php/lc (get e :declaring)))))]
+    [php/ro-write
+     (fn [o e ctx v]
+       (let [st (php/obj-state o)
+             id (get e :id)
+             cur (php/array-get (get st :props) id)]
+         (if (nil? cur)
+           (if (php/ro-in-scope? e ctx)
+             (do (php/reinit-clear! o id) (php/prop-store! o id v))
+             (php/throw-error "Error"
+                              (data/str-concat "Cannot initialize readonly property " (get e :declaring)
+                                               "::$" (get e :name) " from " (php/scope-text ctx))))
+           (if (php/reinit? st id)
+             (do (php/reinit-clear! o id) (php/prop-store! o id v))
+             (php/throw-error "Error"
+                              (data/str-concat "Cannot modify readonly property " (get e :declaring)
+                                               "::$" (get e :name)))))))]
+    [php/ro-unset
+     (fn [o e ctx]
+       (let [st (php/obj-state o)
+             id (get e :id)
+             cur (php/array-get (get st :props) id)
+             what (data/str-concat "Cannot unset readonly property " (get e :declaring) "::$" (get e :name))]
+         (if (php/ro-in-scope? e ctx)
+           (if (nil? cur)
+             (do (php/reinit-clear! o id) :php/null)
+             (if (php/reinit? st id)
+               (do (php/reinit-clear! o id) (php/obj-unset-prop o id))
+               (php/throw-error "Error" what)))
+           (php/throw-error "Error" (data/str-concat what " from " (php/scope-text ctx))))))]
+    [php/ref-prop-path
+     (fn [c ks i]
+       (let [pk (get ks i)
+             name (get pk :php/prop)
+             ctx (get pk :ctx)]
+         (if (= (php/kind c) :obj)
+           (let [r (php/prop-find (php/obj-class c) name ctx)
+                 kind (get r :kind)]
+             (if (= kind :denied)
+               (php/denied-error c (get r :entry) name)
+               (let [e (get r :entry)
+                     id (if (= kind :ok) (get e :id) name)
+                     cur (php/array-get (get (php/obj-state c) :props) id)]
+                 (if (if (= kind :ok) (= (get e :readonly?) true) false)
+                   (php/throw-error
+                     "Error"
+                     (data/str-concat (if (nil? cur)
+                                        "Cannot indirectly modify readonly property "
+                                        "Cannot modify readonly property ")
+                                      (get e :declaring) "::$" (get e :name)))
+                   (if (= (+ i 1) (data/count ks))
+                     (let [m (php/make-ref (get (php/obj-state c) :props) id)]
+                       (do (php/obj-set-props! c (get m 0)) (php/pair c (get m 1))))
+                     (let [rr (php/path-ref-at (if (nil? cur) :php/null cur) ks (+ i 1))]
+                       (do (if (= (php/kind (get rr 0)) :obj)
+                             :php/null
+                             (php/obj-set-props! c (php/store (get (php/obj-state c) :props) id (get rr 0))))
+                           (php/pair c (get rr 1)))))))))
+           (php/throw-error "Error"
+                            (data/str-concat "Attempt to assign property \"" name "\" on "
+                                             (php/type-name (php/kind c)))))))]
     ;; ---- Throwable natives: seeded method entries carry `:native`, bound lazily
     [php/prop-raw
      (fn [o id] (let [v (php/array-get (get (php/obj-state o) :props) id)] (if (nil? v) :php/null v)))]
@@ -3238,7 +3474,7 @@
     [php/throw-value
      (fn [v]
        (if (php/throwable? v)
-         (php/raise v)
+         (php/raise (php/addref v))
          (php/throw-error "Error" "Can only throw objects")))]
     [php/match-repr
      (fn [v]
@@ -3316,7 +3552,7 @@
          (if (> n mark)
            (do (cell/set! php.rt/tmps (php/tmp-prefix ts 0 mark []))
                (php/release-tmp-range ts n mark)
-               :php/null)
+               (php/flush-pending!))
            :php/null)))]
     [php/release-tmp-range
      (fn [ts i mark]
@@ -3834,9 +4070,13 @@
      (fn [body]
        (do (cell/set! php.rt/out [[]])
            (cell/set! php.rt/ctx (php/ctx nil 0 0 nil))
-           (let [exc (php/try (fn [] (do (body) :php/null))
-                              (fn [e] e)
-                              (fn [] :php/null))]
+           (let [exc1 (php/try (fn [] (do (body) :php/null))
+                               (fn [e] e)
+                               (fn [] :php/null))
+                 exc2 (php/try (fn [] (do (php/shutdown!) :php/null))
+                               (fn [e] e)
+                               (fn [] :php/null))
+                 exc (if (= exc1 :php/null) exc2 exc1)]
              (assoc (assoc (assoc {} :php/out
                                   (data/str-join "" (get (cell/get php.rt/out) 0)))
                            :php/diag (cell/get php.rt/diag))
@@ -3961,6 +4201,8 @@
                    (list 'cell/new
                          (into {} (map (fn [nm] [(str/lower-case nm) nm])) (keys seed-table))))
                  (define 'php.rt/next-ord '(cell/new 1))
+                 (define 'php.rt/finalizable '(cell/new []))
+                 (define 'php.rt/pending-exc '(cell/new :php/null))
                  (define 'php.rt/cmp-depth '(cell/new 0))
                  (define 'php.rt/tmps '(cell/new []))
                  (define 'php.rt/next-cell '(cell/new 1))
@@ -4012,6 +4254,7 @@
 (def runtime-keys
   "Every key `php/init!` allocates, the ready flag aside, sorted."
   '[php.rt/class-index php.rt/classes php.rt/cmp-depth php.rt/ctx php.rt/diag php.rt/error-handler
+    php.rt/finalizable php.rt/pending-exc
     php.rt/error-reporting php.rt/functions php.rt/globals php.rt/int-max
     php.rt/int-min php.rt/next-cell php.rt/next-ord
     php.rt/out php.rt/tmps])

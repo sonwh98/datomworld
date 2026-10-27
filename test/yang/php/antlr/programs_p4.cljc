@@ -15,7 +15,7 @@
 (def completed-steps
   "P4 steps that have landed: S1 (descriptors) and S2 (objects, methods,
    visibility). A fixture whose :requires name a later step stays disabled."
-  #{:p4-s1 :p4-s2})
+  #{:p4-s1 :p4-s2 :p4-s3})
 
 
 (defn- fx
@@ -213,41 +213,127 @@
 
 
 (def readonly-v1
-  [(fx :ro-init-once :readonly-v1 [66] #{:p4-s3 :p4-s5}
-       "<?php class C { public readonly int $v; function __construct() { $this->v = 1; } } echo (new C)->v;"
+  [(fx :ro-init-once :readonly-v1 [66] #{:p4-s3}
+       "<?php class C { public readonly int $v; function __construct() { $this->v = 1; } } $c = new C; echo $c->v;"
        "1")
-   (fx :ro-modify-throws :readonly-v1 [66] #{:p4-s3 :p4-s5}
-       (str "<?php class C { function __construct(public readonly int $v) {} }"
+   (fx :ro-modify-throws :readonly-v1 [66] #{:p4-s3}
+       (str "<?php class C { public readonly int $v; function __construct($v) { $this->v = $v; } }"
             " $c = new C(1); try { $c->v = 2; } catch (Error $e) { echo $e->getMessage(); }")
        "Cannot modify readonly property C::$v")
-   (fx :ro-init-outside-scope :readonly-v1 [66] #{:p4-s3 :p4-s5}
+   (fx :ro-init-outside-scope :readonly-v1 [66] #{:p4-s3}
        (str "<?php class C { public readonly int $v; }"
             " $c = new C; try { $c->v = 2; } catch (Error $e) { echo $e->getMessage(); }")
        "Cannot initialize readonly property C::$v from global scope")
-   (fx :ro-unset-uninitialized-in-scope :readonly-v1 [67] #{:p4-s3 :p4-s5}
+   (fx :ro-unset-uninitialized-in-scope :readonly-v1 [67] #{:p4-s3}
        (str "<?php class C { public readonly int $v; function __construct() { unset($this->v); $this->v = 5; } }"
-            " echo (new C)->v;")
+            " $c = new C; echo $c->v;")
        "5")
-   (fx :ro-unset-initialized :readonly-v1 [67] #{:p4-s3 :p4-s5}
-       (str "<?php class C { function __construct(public readonly int $v) {} function u() { unset($this->v); } }"
-            " try { (new C(1))->u(); } catch (Error $e) { echo $e->getMessage(); }")
+   (fx :ro-unset-initialized :readonly-v1 [67] #{:p4-s3}
+       (str "<?php class C { public readonly int $v; function __construct($v) { $this->v = $v; }"
+            " function u() { unset($this->v); } }"
+            " $c = new C(1); try { $c->u(); } catch (Error $e) { echo $e->getMessage(); }")
        "Cannot unset readonly property C::$v")
-   (fx :ro-increment :readonly-v1 [68] #{:p4-s3 :p4-s5}
-       (str "<?php class C { function __construct(public readonly int $v) {} function i() { $this->v++; } }"
-            " try { (new C(1))->i(); } catch (Error $e) { echo $e->getMessage(); }")
+   (fx :ro-unset-outside-scope :readonly-v1 [67] #{:p4-s3}
+       (str "<?php class C { public readonly int $v; }"
+            " $c = new C; try { unset($c->v); } catch (Error $e) { echo $e->getMessage(); }")
+       "Cannot unset readonly property C::$v from global scope")
+   (fx :ro-increment :readonly-v1 [68] #{:p4-s3}
+       (str "<?php class C { public readonly int $v; function __construct($v) { $this->v = $v; }"
+            " function i() { $this->v++; } }"
+            " $c = new C(1); try { $c->i(); } catch (Error $e) { echo $e->getMessage(); }")
        "Cannot modify readonly property C::$v")
-   (fx :ro-reference-refused :readonly-v1 [41 66] #{:p4-s3 :p4-s5}
-       (str "<?php class C { function __construct(public readonly int $v) {} }"
+   (fx :ro-reference-refused :readonly-v1 [41 68] #{:p4-s3}
+       (str "<?php class C { public readonly int $v; function __construct($v) { $this->v = $v; } }"
             " $c = new C(1); try { $r = &$c->v; } catch (Error $e) { echo $e->getMessage(); }")
        "Cannot modify readonly property C::$v")
-   (fx :ro-clone-keeps-value :readonly-v1 [52 66] #{:p4-s3 :p4-s5}
-       "<?php class C { function __construct(public readonly int $v) {} } $c = new C(3); $d = clone $c; echo $d->v;"
-       "3")])
+   (fx :ro-clone-keeps-value :readonly-v1 [52 66] #{:p4-s3}
+       (str "<?php class C { public readonly int $v; function __construct($v) { $this->v = $v; } }"
+            " $c = new C(3); $d = clone $c; echo $d->v;")
+       "3")
+   (fx :ro-clone-reinit-in-clone :readonly-v1 [52 66] #{:p4-s3}
+       (str "<?php class C { public readonly int $v; function __construct($v) { $this->v = $v; }"
+            " function __clone() { $this->v = $this->v + 1; } }"
+            " $c = new C(1); $d = clone $c; echo $c->v, $d->v;")
+       "12")
+   (fx :ro-clone-flag-clears :readonly-v1 [52 66] #{:p4-s3}
+       (str "<?php class C { public readonly int $v; function __construct($v) { $this->v = $v; }"
+            " function __clone() { $this->v = 9; } function again() { $this->v = 1; } }"
+            " $c = new C(1); $d = clone $c; try { $d->again(); } catch (Error $e) { echo $e->getMessage(); }")
+       "Cannot modify readonly property C::$v")])
+
+
+(def f3-v1
+  [(fx :f3-unset-destructs :f3-v1 [48] #{:p4-s3}
+       "<?php class A { function __destruct() { echo 'D'; } } $a = new A; unset($a); echo 'x';"
+       "Dx")
+   (fx :f3-reassign-destructs :f3-v1 [48] #{:p4-s3}
+       "<?php class A { function __destruct() { echo 'D'; } } $a = new A; $a = null; echo 'x';"
+       "Dx")
+   (fx :f3-temporary-destructs-at-statement-end :f3-v1 [48 37] #{:p4-s3}
+       "<?php class A { function __destruct() { echo 'D'; } } new A; echo 'x';"
+       "Dx")
+   (fx :f3-scope-exit-destructs :f3-v1 [48] #{:p4-s3}
+       (str "<?php class A { function __destruct() { echo 'D'; } }"
+            " function f() { $a = new A; echo 'in'; } f(); echo 'out';")
+       "inDout")
+   (fx :f3-last-holder :f3-v1 [48] #{:p4-s3}
+       (str "<?php class A { function __destruct() { echo 'D'; } }"
+            " $a = new A; $b = $a; unset($a); echo 'x'; unset($b); echo 'y';")
+       "xDy")
+   (fx :f3-resurrection-destructs-once :f3-v1 [49] #{:p4-s3}
+       (str "<?php class A { function __destruct() { global $keep; $keep = $this; echo 'D'; } }"
+            " $a = new A; $a = null; echo 'x'; $keep = null; echo 'y';")
+       "Dxy")
+   (fx :f3-destructor-throws-propagates :f3-v1 [50] #{:p4-s3}
+       (str "<?php class A { function __destruct() { throw new Exception('d'); } }"
+            " $a = new A; try { unset($a); } catch (Exception $e) { echo $e->getMessage(); } echo 'z';")
+       "dz")
+   (fx :f3-destructor-throw-completes-releases :f3-v1 [50] #{:p4-s3}
+       (str "<?php class A { function __destruct() { echo 'A'; throw new Exception('d'); } }"
+            " class B { function __destruct() { echo 'B'; } }"
+            " function f() { $a = new A; $b = new B; } try { f(); } catch (Exception $e) { echo $e->getMessage(); }")
+       "ABd")
+   (fx :f3-shutdown-order :f3-v1 [22] #{:p4-s3}
+       (str "<?php class A { public $n; function __construct($n) { $this->n = $n; }"
+            " function __destruct() { echo $this->n; } }"
+            " $a = new A(1); $b = new A(2); echo 'x';")
+       "x21")
+   (fx :f3-shutdown-shared-object-ord-order :f3-v1 [22] #{:p4-s3}
+       (str "<?php class A { public $n; function __construct($n) { $this->n = $n; }"
+            " function __destruct() { echo $this->n; } }"
+            " $a = new A(1); $b = new A(2); $c = $b; echo 'x';")
+       "x12")
+   (fx :f3-clone-copies-properties :f3-v1 [52] #{:p4-s3}
+       "<?php class A { public $v = 0; } $a = new A; $a->v = 1; $b = clone $a; $b->v = 2; echo $a->v, $b->v;"
+       "12")
+   (fx :f3-clone-is-shallow :f3-v1 [52] #{:p4-s3}
+       (str "<?php class A { public $o; } $a = new A; $a->o = new stdClass; $a->o->x = 1;"
+            " $b = clone $a; $b->o->x = 2; echo $a->o->x;")
+       "2")
+   (fx :f3-clone-runs-clone-method :f3-v1 [52] #{:p4-s3}
+       (str "<?php class A { public $v = 1; function __clone() { echo 'C'; $this->v = 5; } }"
+            " $a = new A; $b = clone $a; echo $a->v, $b->v;")
+       "C15")
+   (fx :f3-clone-destructs-both :f3-v1 [48 52] #{:p4-s3}
+       (str "<?php class A { function __destruct() { echo 'D'; } }"
+            " $a = new A; $b = clone $a; unset($a); echo 'x'; unset($b); echo 'y';")
+       "DxDy")
+   (fx :f3-clone-non-object :f3-v1 [52] #{:p4-s3}
+       "<?php try { $x = clone 5; } catch (Error $e) { echo $e->getMessage(); }"
+       "__clone method called on non-object")
+   (fx :f3-exception-caught-var-owns :f3-v1 [48] #{:p4-s3}
+       (str "<?php class E extends Exception { function __destruct() { echo 'D'; } }"
+            " try { throw new E('m'); } catch (E $e) { echo 'c'; } echo 'x'; unset($e); echo 'y';")
+       "cxDy")
+   (fx :f3-exception-without-variable-destructs :f3-v1 [48] #{:p4-s3}
+       (str "<?php class E extends Exception { function __destruct() { echo 'D'; } }"
+            " try { throw new E('m'); } catch (E) { echo 'c'; } echo 'x';")
+       "cDx")])
 
 
 (def all-fixtures
   "Unconditional registry; the oracle iterates it regardless of activation."
-  (vec (concat classes-v1 constructor-v1 exceptions-v1 readonly-v1)))
+  (vec (concat classes-v1 constructor-v1 exceptions-v1 readonly-v1 f3-v1)))
 
 
 (defn enabled?

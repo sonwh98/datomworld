@@ -583,7 +583,8 @@
           [ident & offsets] (when (and simple (p/rule? simple "keyedSimpleFieldName"))
                               (core/kids ctx simple))]
       (when (and ident (p/rule? ident "identifier"))
-        (into [{:prop-step (leftmost-token-text ctx ident)}] (offset-keys ctx offsets))))))
+        (into [{:prop-step (leftmost-token-text ctx ident), :id (:id ma)}]
+              (offset-keys ctx offsets))))))
 
 
 (defn- chain-location
@@ -847,6 +848,7 @@
                       (u/lit 1))
       "OpenRoundBracket" (lower-cast ctx n ks)
       "Throw" (app* 'php/throw-value (lower ctx operand))
+      "Clone" (app* 'php/clone-obj (lower ctx operand) (cc-node ctx))
       "List" (lower-destructure ctx n
                                 (pattern-of ctx n (first (core/rules ctx n "assignmentList")))
                                 (last ks))
@@ -1403,7 +1405,9 @@
                      types)
         body (lower ctx (first (core/rules ctx clause "blockStatement")))]
     (u/if-node test
-               (u/then (if var (write-var ctx var e) (u/lit :php/null)) body)
+               (if var
+                 (u/then (write-var ctx var e) body)
+                 (u/then body (app* 'php/delref e)))
                rest)))
 
 
@@ -1711,11 +1715,20 @@
     (app* 'php/echo (u/lit (byte-string (apply str (texts n)))))))
 
 
+(defn- contains-token?
+  "True when a token of type `t` occurs below `n`."
+  [ctx n t]
+  (boolean
+    (some (fn [k] (if (p/rule? k) (contains-token? ctx k t) (= t (:type k))))
+          (core/kids ctx n))))
+
+
 (defn- with-temps
   "`node` followed by the release of the temporaries it registered, when the
    statement `n` holds a call that can leave one (row 37)."
   [ctx n node]
-  (if (some #(core/contains-rule? ctx n % #{}) ["functionCall" "newExpr" "memberAccess"])
+  (if (or (some #(core/contains-rule? ctx n % #{}) ["functionCall" "newExpr" "memberAccess"])
+          (contains-token? ctx n "Clone"))
     (let [mark (core/gen "tm" n)]
       (u/let1 mark (app* 'php/tmp-mark) (u/then node (app* 'php/release-tmps (u/v mark)))))
     node))
@@ -2536,12 +2549,14 @@
   [ctx cname st]
   (let [pm (first (core/rules ctx st "propertyModifiers"))
         mods (member-mods ctx pm)]
-    (when (seq (core/rules ctx st "typeHint")) (unsupported! st :type-declaration))
+    ;; types are recorded as `typed` (uninitialized until written), not yet enforced (S5)
     (mapv (fn [vi]
             (let [[v _ init] (core/kids ctx vi)]
               (spec-node (cond-> {:name (u/lit (bare (:text v))),
                                   :vis (u/lit (member-vis mods)),
-                                  :static? (u/lit (boolean (:static mods)))}
+                                  :static? (u/lit (boolean (:static mods))),
+                                  :readonly? (u/lit (boolean (:readonly mods))),
+                                  :typed? (u/lit (boolean (seq (core/rules ctx st "typeHint"))))}
                            init (assoc :thunk (class-thunk ctx cname init))))))
           (core/rules ctx st "variableInitializer"))))
 
