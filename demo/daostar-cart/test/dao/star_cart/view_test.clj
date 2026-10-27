@@ -54,7 +54,7 @@
       (is (str/ends-with? sse "\n\n"))
       (is (str/includes? sse "Alpha &lt;b&gt;"))
       (is (str/includes? sse "<img src=\"/images/a%20b.png\""))
-      (is (str/includes? sse "@post('/k/TOK')"))
+      (is (str/includes? sse "@post('/k/'+$tok)"))
       (is (str/includes? sse "Catalog as of last page load."))))
   (testing "cart: names, unit prices, quantities and a computed total; zero lines dropped"
     (let [sse (v/shop-project catalog "TOK" {:page "cart" :cart {"a" 2 "b" 3 "gone" 4 "x" 0}})]
@@ -70,9 +70,10 @@
                  {:sel "a" :status "saving" :msg ""}
                  {:sel "a" :status "rejected" :msg "bad <price>"}]]
     (let [sse (grid-view/grid-project catalog "TOK" model)
-          urls (map second (re-seq #"@(?:get|post)\('([^']+)'\)" sse))]
+          urls (map second (re-seq #"@(?:get|post)\('([^']*)'" sse))]
       (is (seq urls))
       (is (every? #(str/starts-with? % "/grid/") urls) (pr-str urls))
+      (is (str/includes? sse "@post('/grid/k/'+$tok)") "the actions post to the live token")
       (is (not (str/includes? sse "bad <price>")) "escaped"))))
 
 
@@ -106,7 +107,7 @@
   (testing "the tagory row renders All and one chip per tagory"
     (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "" :tagory ""})]
       (is (str/includes? sse "class=\"tagories\""))
-      (is (str/includes? sse "$act=&#39;tagory&#39;; $arg=&#39;&#39;; @post('/k/TOK')"))
+      (is (str/includes? sse "$act=&#39;tagory&#39;; $arg=&#39;&#39;; @post('/k/'+$tok)"))
       (is (str/includes? sse ">t</button>"))
       (is (str/includes? sse ">other</button>"))))
   (testing "a selected tagory is highlighted and filters the grid"

@@ -69,14 +69,15 @@
   [catalog token model]
   (let [sel (:sel model)
         item (when sel ((:item catalog) sel))]
-    (v/sse-elements
-      (str "<div id=\"app\"><header><h1>Catalog grid</h1><a href=\"/\">Shop</a></header>"
-           "<p class=\"warn\">No authentication: anyone who can reach this port can edit.</p>"
-           (status model)
-           "<div class=\"cols\"><ul class=\"items\">"
-           (apply str (map #(row token sel %) ((:items catalog))))
-           "</ul>" (if item (editor token item) (new-item-form token))
-           "</div></div>"))))
+    (str (v/sse-signals (str "{\"tok\":" (v/json-lit token) "}"))
+         (v/sse-elements
+           (str "<div id=\"app\"><header><h1>Catalog grid</h1><a href=\"/\">Shop</a></header>"
+                "<p class=\"warn\">No authentication: anyone who can reach this port can edit.</p>"
+                (status model)
+                "<div class=\"cols\"><ul class=\"items\">"
+                (apply str (map #(row token sel %) ((:items catalog))))
+                "</ul>" (if item (editor token item) (new-item-form token))
+                "</div></div>")))))
 
 
 (defn grid-begin

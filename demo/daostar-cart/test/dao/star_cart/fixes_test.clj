@@ -140,13 +140,13 @@
   (is (not (re-find #"[\r\n  ]" (v/js-lit nasty))))
   (let [catalog {:items (fn [] [{:key "k" :name nasty :price 5 :description nasty :images [] :tagories [nasty]}])
                  :item (fn [_] {:key "k" :name nasty :price 5 :description nasty :images [] :tagories [nasty]})}]
-    (doseq [[sse nl] [[(grid-view/grid-project catalog "T" {:sel "k" :status "" :msg ""}) 3]
-                      [(grid-view/grid-project catalog "T" {:sel "k" :status "rejected" :msg nasty}) 3]
+    (doseq [[sse nl] [[(grid-view/grid-project catalog "T" {:sel "k" :status "" :msg ""}) 6]
+                      [(grid-view/grid-project catalog "T" {:sel "k" :status "rejected" :msg nasty}) 6]
                       [(v/shop-project (assoc catalog :tagories (fn [] ["t"])) "T" {:page "item" :item "k" :cart {}}) 6]
                       [(v/shop-project (assoc catalog :tagories (fn [] ["t"])) "T" {:page "cart" :cart {"k" 1}}) 6]]]
       (is (not (str/includes? sse "\r")) "no raw CR")
       (is (= nl (count (re-seq #"\n" sse)))
-          "only the framing newlines (the shop's second event is the tok signals patch)")
+          "only the framing newlines (both faces open with the tok signals patch)")
       (is (str/ends-with? sse "\n\n")))))
 
 

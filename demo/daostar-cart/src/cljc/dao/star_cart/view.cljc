@@ -88,12 +88,15 @@
 
 
 (defn act
-  "A click action: set the `act`/`arg` signals and post to the occurrence token.
-   `prefix` is \"\" for the shop and \"/grid\" for the grid."
-  ([prefix token a] (act prefix token a nil))
-  ([prefix token a arg]
+  "A click action: set the `act`/`arg` signals and post to /k/ + the `tok`
+   signal — the CURRENT occurrence, which every projection keeps updated.
+   Baking a token into the attribute would go stale after the first consumed
+   action (the reviewer's HIGH finding).  `prefix` is \"\" for the shop and
+   \"/grid\" for the grid."
+  ([prefix _token a] (act prefix _token a nil))
+  ([prefix _token a arg]
    (str "$act=" (js-lit a) "; $arg=" (js-lit (or arg "")) "; @post('"
-        prefix "/k/" (esc token) "')")))
+        prefix "/k/'+$tok)")))
 
 
 (defn button
@@ -224,7 +227,7 @@
        (apply str (for [tg tagories]
                     (str "<button type=\"button\" class=\"tbtn"
                          (when (= tg tagory) " on")
-                         "\" data-on:click=\"$act='tagory'; $arg='" (js-lit tg) "'; $menu=false; @post('/k/'+$tok)\">"
+                         "\" data-on:click=\"$act='tagory'; $arg=" (js-lit tg) "; $menu=false; @post('/k/'+$tok)\">"
                          (esc tg) "</button>")))
        "</div></nav>"))
 
