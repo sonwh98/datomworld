@@ -960,6 +960,41 @@ above the bound. Bracket counting alone does not bound every recursion path;
 reviewed guards go before unsafe recursion where needed. If safe enforcement
 cannot be shown, feasibility fails and goes back to the owner.
 
+Enforced (J5, known-gaps row 59, glm-5.3 ruling `1793096000000` §2). The C++
+wrapper refuses before any ANTLR object exists, at the top of
+`jolt_parser_export` (`native/jolt-parser/jolt_parser.cpp`, "THE BUDGET"):
+
+- input: more than 4 MiB of source is status -6 (`input <measured> <bound>`);
+  `yang.antlr.cst` mirrors the check before the FFI call;
+- nesting: one flat O(bytes), O(1)-space prescan charges each recursive
+  carrier of the pinned grammar one level and refuses when the worst
+  simultaneous sum exceeds the depth bound, status -7
+  (`nesting <measured> <bound>`). Strings and comments are skipped; explicit
+  line joins are followed.
+
+| carrier | counted                                                            |
+|---------|--------------------------------------------------------------------|
+| bracket | `(` `[` `{` open depth                                             |
+| unary   | a run of `-` `+` `~` `not` in operand position                     |
+| power   | `**` per logical line                                              |
+| ternary | `if` after an operand, per logical line                            |
+| lambda  | `lambda` per logical line                                          |
+| indent  | INDENT levels from leading whitespace (tabs to 8), counted, never inferred from size |
+
+Derivation: the shallowest r5 crash bracket on the 512 KiB macOS jolt thread
+is 512 levels (call, unary; parens/list 544), about 1 KiB a level at the
+worst per-level cost, which every carrier is charged. `N_depth` = 256 is a 2x
+margin under it at the 512 KiB basis; a thread with a smaller stack (the
+production `pthread_get_stacksize_np`/`pthread_getattr_np` read) clamps the
+bound down in proportion, never up. Time is derived, not interrupted: the
+worst at-bound legal parse on macOS arm64 is unary at 256 (about 3.5 s; 4 MiB
+of comment 1.6 s), Linux in the J5 findings. A refusal is operational:
+`{:diagnostic :parser-budget :axis :input|:nesting :bound n :measured m
+:lang :yang/python}` through the `:unavailable-parser` channel, thrown at the
+parse stage, never a syntax error, no partial packet, the session survives.
+The JVM, Node and Dart parsers have no such bound: an above-bound source the
+JVM parses is refused on jolt (a recorded divergence, not a parity pin).
+
 Blast radius. Catches contain catchable C++ exceptions only. An access
 violation, abort, stack exhaustion or fatal runtime/parser bug takes down the
 whole jolt process. A timeout does not make native termination safe, stack
@@ -1424,7 +1459,7 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J3: local shell and demo                    | Jolt main/stdin/w | API and CLI from tracked roots; demo = 5050; EOF/quit; no duplicate eval; cadence/wake/pending      |
 | implemented; gates open                     | ake/banner, local | semantics; all VM modes; published code index without workaround. Clojure/PHP explicit; Python      |
-|                                             | catalog, shell    | unavailable until J5.                                                                               |
+|                                             | catalog, shell    | selectable since J5 (the native C++ parser, §7.6 budget).                                           |
 |                                             | driver, index,    |                                                                                                     |
 |                                             | query             |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
@@ -1437,11 +1472,11 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 | both APPROVE                                |                   |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J5: complete standard frontends             | The selected      | §7.8 J5 gate. Standard catalog loads and `(lang :yang/python)` works;                               |
-| not started                                 | in-process C++    | frontend_catalog/python_antlr/main suites; synchronous probe sequences equal the JVM's;             |
+| landed on jolt-j5, review pending           | in-process C++    | frontend_catalog/python_antlr/main suites; synchronous probe sequences equal the JVM's;             |
 |                                             | parser, standard  | local-build-only packaging. **Local REPL milestone**, native C++ parser library disclosed; no       |
 |                                             | catalog, complete | process crash isolation claimed.                                                                    |
-|                                             | ness-probe        |                                                                                                     |
-|                                             | integration       |                                                                                                     |
+|                                             | ness-probe        | Amended (row 59): enforced input/nesting budget, stage-owned worker lifecycle and the               |
+|                                             | integration       | unavailable-helper answer (§7.6); bb probe:jolt-j5, bb test:jolt-j5 on both platforms.              |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J6: native WebSocket and network REPL peers | RFC 6455 host     | Preconditions: C0-C4 on master; the Autobahn release, case list and exception list pinned in the    |
 | not started                                 | adapter on the    | brief (§9.5). §9.6 on both platforms, including the frame-too-large matrix (ruling 3, A4 wording).  |
@@ -1507,8 +1542,9 @@ capability-qualified reporting so a slow exclusion, an unsupported host
 capability and a failure are distinguishable.
 
 J3 implementation note (2026-10-22; macOS only, Linux unrun): the tracked
-local CLI selects a Clojure/PHP catalog, refuses Python until J5 and durable
-stores until J4/J7, and runs one plain-thread owner through `run-owner!`.
+local CLI selects a Clojure/PHP catalog, refuses Python until J5 (J5 lifts
+it: the standard catalog installs Python when the native parser loads) and
+durable stores until J4/J7, and runs one plain-thread owner through `run-owner!`.
 The wake implementation multiplexes stdin and a self-pipe using jolt's existing
 native `poll` binding: `io-poller/wait-ready` accepts one fd only. It uses
 poller monotonic deadlines and checks Chez buffered input before fd readiness.

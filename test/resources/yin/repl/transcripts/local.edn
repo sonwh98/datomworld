@@ -32,9 +32,11 @@
  {:id :open-stdin-quit :in [] :out [] :exit 0 :quit :typed}
  {:id :python
   :in ["(lang :yang/python)"]
-  :out [{:jolt "Error: unavailable-parser: Yin REPL language :yang/python is not in the frontend catalog; installed: :clojure :php (ids :yang/clojure :yang/php)"
-         :jvm "Switched to :yang/python"}]
-  :capability {:owner :J5 :reason "Python parser not installed on jolt"}
+  :out ["Switched to :yang/python"]
+  :exit 0 :quit :typed}
+ {:id :python-eval
+  :in ["(lang :yang/python)" "1 + 2" "x = 40" "x + 2" "print(\"h\u00e9llo\")"]
+  :out ["Switched to :yang/python" "3" "" "42" "h\u00e9llo"]
   :exit 0 :quit :typed}
  {:id :bigint-reader :in ["(quote 5N)"]
   :out [{:jvm "5N" :jolt "5"}]
