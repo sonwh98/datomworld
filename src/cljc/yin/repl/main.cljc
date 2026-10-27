@@ -14,6 +14,7 @@
                        ["dart:io" :as io]]
                 :jolt [[dao.host.text :as text]
                        [dao.posix.file :as posix-file]
+                       [yang.python.antlr.parser :as python.antlr.parser]
                        [yin.repl.host.common :as host-common]])
             [clojure.string :as str]
             [dao.space.store.fs :as fs]
@@ -974,7 +975,15 @@
       (conj (str "dht: no --dht-key: (yin.link/publish ...) is refused; names"
                  " are still read, resolved, loaded and linked"))
       #?(:cljd false :jolt true :default false)
-      (into [shell/host-text "python: not installed on this host until J5"]))))
+      (into [shell/host-text
+             ;; J5: the native parser is disclosed; with no usable library
+             ;; Python is left out of the catalog and the reason is printed
+             #?(:jolt (if (python.antlr.parser/available?)
+                        (str "python: the native C++ ANTLR4 parser"
+                             " (native/jolt-parser), in process; no process"
+                             " crash isolation")
+                        "python: unavailable-parser (the native parser library is missing or incompatible; bb build:jolt-native)")
+                :default nil)]))))
 
 
 (defn- exit-with!
