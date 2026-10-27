@@ -46,7 +46,7 @@ build host or ask the owner (they are also in the running demo container).
 
 ```sh
 cd demo/daostar
-sh bin/vendor-datastar.sh   (from the repo root)   # once: vendor datastar.js (network)
+sh bin/vendor-datastar.sh   # once: vendor datastar.js (network)
 clj -M -m dao.star-cart.main                    # or: bb cart from the repo root
 ```
 
