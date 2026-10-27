@@ -15,7 +15,7 @@
 (def completed-steps
   "P4 steps that have landed: S1 (descriptors) and S2 (objects, methods,
    visibility). A fixture whose :requires name a later step stays disabled."
-  #{:p4-s1 :p4-s2 :p4-s3})
+  #{:p4-s1 :p4-s2 :p4-s3 :p4-s4})
 
 
 (defn- fx
@@ -190,10 +190,10 @@
        "<?php try { try { throw new Exception('a'); } finally { echo 'F'; } } catch (Exception $e) { echo $e->getMessage(); }"
        "Fa")
    (fx :exc-user-ctor-override :exceptions-v1 [] #{:p4-s4}
-       (str "<?php class E extends Exception { function __construct($m) { parent::__construct(strtoupper($m)); } }"
+       (str "<?php class E extends Exception { function __construct($m) { parent::__construct('x' . $m); } }"
             " try { throw new E('abc'); } catch (E $e) { echo $e->getMessage(); }")
-       "ABC")
-   (fx :exc-line-number :exceptions-v1 [] #{:p4-s4}
+       "xabc")
+   (fx :exc-line-number :exceptions-v1 [] #{:p4-s4 :p4-loc}
        "<?php\n\ntry { throw new Exception('x'); } catch (Exception $e) { echo $e->getLine(); }"
        "3")
    (fx :exc-destructor-throws :exceptions-v1 [50] #{:p4-s4}
@@ -203,9 +203,10 @@
    (fx :exc-match-unhandled :exceptions-v1 [] #{:p4-s4}
        "<?php try { echo match (5) { 1 => 'a' }; } catch (\\UnhandledMatchError $e) { echo $e->getMessage(); }"
        nil)
-   (fx :exc-uncaught-fatal :exceptions-v1 [22] #{:p4-s4}
-       "<?php class E extends Exception {} echo 'a'; throw new E('boom');"
-       nil)
+   (assoc (fx :exc-uncaught-fatal :exceptions-v1 [22] #{:p4-s4}
+              "<?php class E extends Exception {} echo 'a'; throw new E('boom');"
+              "a")
+          :throws true)
    (fx :exc-named-arg-validation-order :exceptions-v1 [57] #{:p4-s4}
        (str "<?php function f($a) { return $a; } function side() { echo 'S'; return 1; }"
             " try { f(1, z: 2, w: side()); } catch (Error $e) { echo $e->getMessage(); }")

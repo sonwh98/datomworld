@@ -3484,7 +3484,10 @@
                  (if (= k :bool) (if v "true" "false")
                      (if (= k :null) "NULL"
                          (if (= k :float) (php/to-string v)
-                             (data/str-concat "of type " (php/type-name k)))))))))]
+                             (data/str-concat "of type "
+                                              (if (nil? (get v :php/obj))
+                                                (php/type-name k)
+                                                (get (php/obj-state v) :class))))))))))]
     [php/unhandled-match
      (fn [v]
        (php/throw-error "UnhandledMatchError"

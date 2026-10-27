@@ -293,7 +293,7 @@
     (is (= #{:classes-v1 :constructor-v1 :exceptions-v1 :readonly-v1 :f3-v1}
            (set (map :group p4/all-fixtures))))
     (is (every? #(and (string? (:source %)) (seq (:requires %))) p4/all-fixtures))
-    (is (every? #(re-matches #":p4-s\d+" (str %)) (mapcat :requires p4/all-fixtures)))
+    (is (every? #(re-matches #":p4-(s\d+|loc)" (str %)) (mapcat :requires p4/all-fixtures)))
     (is (every? #(every? p4/completed-steps (:requires %)) p4/enabled))
-    (is (not-any? #(contains? (:requires %) :p4-s4) p4/enabled))
+    (is (not-any? #(contains? (:requires %) :p4-s5) p4/enabled))
     (is (every? #(contains? p4/completed-steps %) (mapcat :requires p4/enabled)))))

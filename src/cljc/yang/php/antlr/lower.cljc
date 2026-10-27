@@ -1389,7 +1389,9 @@
 (defn- leftmost-token-text
   "The text of the first token under `n`."
   [ctx n]
-  (if (p/token? n) (:text n) (leftmost-token-text ctx (first (core/kids ctx n)))))
+  (if (p/token? n)
+    (when-not (= "\\" (:text n)) (:text n))
+    (some #(leftmost-token-text ctx %) (core/kids ctx n))))
 
 
 (defn- catch-clause-node

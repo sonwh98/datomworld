@@ -26,9 +26,9 @@
 
 
 (deftest enabled-p4-fixtures-test
-  (doseq [{:keys [id source] expected :out} p4/enabled]
+  (doseq [{:keys [id source throws] expected :out} p4/enabled]
     (let [r (h/run-raw source)]
-      (is (nil? (:php/uncaught r)) (name id))
+      (when-not throws (is (nil? (:php/uncaught r)) (name id)))
       (when expected
         (is (= expected (:php/out r)) (name id))))))
 
