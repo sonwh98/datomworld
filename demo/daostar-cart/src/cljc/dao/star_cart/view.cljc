@@ -114,7 +114,7 @@
        "<link rel=\"preconnect\" href=\"https://fonts.googleapis.com\">"
        "<link rel=\"preconnect\" href=\"https://fonts.gstatic.com\" crossorigin>"
        "<link href=\"https://fonts.googleapis.com/css2?family=Inter:wght@400;600&family=Rajdhani:wght@600;700&display=swap\" rel=\"stylesheet\">"
-       "<link rel=\"stylesheet\" href=\"/css/cart.css?v=3\">"
+       "<link rel=\"stylesheet\" href=\"/css/cart.css?v=4\">"
        "<script type=\"module\" src=\"/js/datastar.js\"></script></head>"
        "<body data-signals=\"" (esc signals) "\" data-init=\"@get('" prefix "/s/" (esc root) "',{retry:'always'})\">"
        pre
@@ -212,7 +212,7 @@
    each tab's action prepends $menu=false); on desktop a media query keeps
    the strip visible regardless."
   [_token cart-count]
-  (str "<nav class=\"tabs\" data-show=\"$menu\">"
+  (str "<nav class=\"tabs\" data-class:open=\"$menu\">"
        "<button type=\"button\" data-on:click=\"$act='nav'; $arg='catalog'; $menu=false; @post('/k/'+$tok)\">All Products</button>"
        "<button type=\"button\" data-on:click=\"$act='nav'; $arg='cart'; $menu=false; @post('/k/'+$tok)\">"
        "Cart (" cart-count ")</button>"

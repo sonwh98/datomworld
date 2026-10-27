@@ -361,7 +361,7 @@ header.top .icon {
     background: var(--bg-secondary); border-bottom: 1px solid var(--border-card);
     box-shadow: var(--shadow-card); padding: 16px; backdrop-filter: blur(20px);
   }
-  nav.tabs[data-show] { display: none; }
+  nav.tabs.open { display: flex; }
   .menu-toggle { display: inline-flex; }
   header.top .search { display: none; }
   header.top { padding: 12px 16px; gap: 12px; }
