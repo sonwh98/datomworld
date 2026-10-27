@@ -13539,3 +13539,14 @@ Done: Owner: "vendor-datastar.sh should be in the bin under the demo/daostar". M
 Decisions: work done directly on master (worktree stays a synced checkout) — the detached-HEAD failure mode of the previous rounds is avoided by not committing in the worktree at all.
 Verification: script executed from demo/daostar/bin; output byte-identical; branch and worktree re-anchored at a67ae0ab.
 Next: owner browser check.
+
+## 2026-10-27 13:20:00 +0700 — dao.star cart: library pinned to a datomworld GitHub commit; Dockerfile at daostar root, docker optional (owner requests)
+Completed-GMT: 2026-10-27 06:20:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 13ec8693 (pushed); dao-star-demo = master; worktree detached at master; shiva deploy moved to fresh clone ds3
+Done: Owner asked whether demo/daostar/deps.edn can reference the datomworld GitHub master hash, then requested it. deps.edn now declares datomworld/datomworld as a git dep pinned to bc6a32ea5e1b76dc4ac1f031f1dd71fe3e9878fd (master as of 2026-10-27 noon) with :deps/root "demo/daostar" — the manifest inside the checkout whose paths reach the library sources; the trimmed five mvn deps remain; root :paths are the demo's own src/resources only. Self-reference (the pinned manifest IS this file at the pinned sha — the pre-pin version) resolves cleanly. Verified: clj -P resolves from GitHub (public repo, no auth); clj -M:test 39/550/0 from a clean resolution. Consequences: the demo's behavior is frozen to the pinned commit; a library change requires a deliberate sha bump; the main-repo demo/daostar needs the gitignored images copied locally for tests (done; one stray nested dir cleaned). Second owner request: Dockerfile moved to the daostar root (docker build -t dao-star-cart . from demo/daostar), the nested docker/ dir deleted, README keeps the plain-JVM run as the primary path and docker as optional; docker instructions exist in exactly one README. Redeployed on shiva from a fresh clone ds3 at 13ec8693: shop/grid/ASCII image/CJK image all 200, the persisted probe item still on the volume.
+Decisions: pin over follow-master (reproducibility; sha bumps are deliberate). The pinned manifest's ../ paths emit tools.deps deprecation warnings (external-to-project paths) — works today at the pinned sha; recorded as the known cost. Two more cwd slips (tests run from main repo without images → 280 bogus failures; a relative-path git add) — both caught by verification; all git ops now -C or absolute.
+Verification: clj -P + clj -M:test 39/550/0 (worktree and main repo after image copy); shiva redeploy verified per curl line above; InvalidPathException count not re-checked this boot (locale fix is in the image).
+Delegates: none (orchestrator-direct).
+Next: owner browser check; sha-bump procedure is: update :git/sha, clj -P, clj -M:test, redeploy.
