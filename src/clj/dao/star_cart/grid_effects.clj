@@ -217,6 +217,6 @@
           ;; a create emits {:new {...}} as that argument, so unwrap it here.
           (let [effect (:edit model)]
             (cond
-              (:new effect) (confirm! driver s (apply-new! store (:new effect)))
+              (:new effect) (confirm! driver s (apply-new! store effect))
               (map? effect) (confirm! driver s (apply-edit! store asset-root effect)))))
         fx))))
