@@ -13889,3 +13889,68 @@ Decisions: browser-first debugging (performance entries + inline style reads) ov
 Verification: browser: Add click → Cart (0) → Cart (1) live; cart page renders the line; mobile drawer opens with 13 tagories, selection closes the drawer and filters; desktop strip scrolls via the right navigator (scrollLeft 245.5). Suite: 43/588/0; kondo clean; deployed.
 Delegates: none (orchestrator-direct).
 Next: owner browser pass at both widths; codex confirm of the tok-signal fix on request.
+
+## 2026-10-28 00:46:38 Asia/Ho_Chi_Minh — Yin CIC kernel architecture review
+Completed-GMT: 2026-10-27 17:46:38 GMT
+Coding-Agent: codex
+Session-ID: not-applicable (interactive seat)
+Tree: master@eafe53f8, uncommitted changes including docs/yin.cic-kernel.md (untracked), docs/orchestrator-log.md and unrelated work
+Done: GPT-6 Astra reviewed the working-tree CIC kernel design read-only; four design-contract findings recorded.
+Decisions: Review only; no design fixes or commits authorized or performed.
+Verification: Inspected the cited design, engine resolution, host module and tri-host gate passages; no test commands run for this design review.
+Delegates: Lead System Architect / gpt-6-astra, collab/1793123084489-architect-yin-cic-kernel-review.prompt.md and collab/1793123084489-architect-yin-cic-kernel-review.gpt-6-astra.findings.md, collaboration agent /root/cic_architect (provider UUID unavailable).
+Next: Owner may decide whether to commission corrections; findings remain unreconciled.
+
+## 2026-10-28 00:51:43 Asia/Ho_Chi_Minh — Yin CIC kernel fixes blocked
+Completed-GMT: 2026-10-27 17:51:43 GMT
+Coding-Agent: codex
+Session-ID: not-applicable (interactive seat)
+Tree: working tree with untracked docs/yin.cic-kernel.md and unrelated work; no design edits made by this unit
+Done: Prepared GLM-5.3 brief collab/1793123297823-architect-yin-cic-kernel-fixes.prompt.md; session fe676d07-df5e-4e5f-94d4-63a1332fa30c failed with ENOTFOUND in sandbox; retry with network access was rejected by automatic approval review for sensitive repository content egress to external GLM.
+Decisions: No substitution or bypass; requested model remains required.
+Verification: Examined CLI output collab/1793123297823-architect-yin-cic-kernel-fixes.glm-5.3.stdout.log; no tests run.
+Delegates: glm-5.3, session fe676d07-df5e-4e5f-94d4-63a1332fa30c, failed to reach API.
+Next: Obtain explicit authorization for the precise repository payload and external GLM destination before retrying; then review the changes.
+
+## 2026-10-28 00:57:32 Asia/Ho_Chi_Minh — Yin CIC kernel findings fixed and reviewed
+Completed-GMT: 2026-10-27 17:57:32 GMT
+Coding-Agent: codex
+Session-ID: not-applicable (interactive seat)
+Tree: master@eafe53f8, uncommitted docs/yin.cic-kernel.md (untracked), docs/orchestrator-log.md and unrelated changes
+Done: GLM-5.3 revised the CIC plan for all four Astra findings; Astra confirmed each resolved at plan level and reported no blocking defect. The predicative Prop identity example inhabits U₁ under usual max-Pi rules; Gate S must specify precise rules and admission.
+Decisions: Gate S and trust composition specified; no implementation, commit, or assertion that gates have passed.
+Verification: Inspected the changed plan and Astra confirmation; no tests run (design-only work).
+Delegates: glm-5.3 session 014e0876-cfa1-4bf9-a3f6-1d72a6185b57, collab/1793123297823-architect-yin-cic-kernel-fixes.prompt.md and collab/1793123297823-architect-yin-cic-kernel-fixes.glm-5.3.findings.md; gpt-6-astra /root/cic_architect (provider UUID unavailable), collab/1793123297823-architect-yin-cic-kernel-fixes-review.gpt-6-astra.findings.md.
+Next: Write and review Gate S specification before typing implementation; verify host capability and implement the stated trust and cache contracts.
+## 2026-10-28 01:10:16 +07 — yin.cic-kernel.md architect review (cmd/qwen3.8-max)
+Completed-GMT: 2026-10-27 18:10:16 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@eafe53f8, uncommitted changes: docs/orchestrator-log.md, collab/ artifacts
+Done: Dispatched a read-only architect review of docs/yin.cic-kernel.md via the cmd lane (qwen/qwen3.8-max, --plan) per the architect.md template. No blocking architectural defect; prior round's four findings (Gate S, runtime trust identity, cache keys, portability evidence) remain resolved. Findings: 3 Medium (resource budget absent from checking-configuration identity :56/:111-116/:263; Gate S freeze list omits recursion/termination policy for transparent defs :166-167 vs :362; freeze enforcement seam unnamed vs resolve-var/require runtime mutability :121-122), 5 Minor (closed open-question :358; src/yin/cic layout should be src/cljc/yin/cic :281-292; stale yang.clojure audit baseline :75; imax in illustrative grammar :142 vs :170; vague interned-node restriction :140), 2 Info (Phase 6 UCF dependency unnamed :261-267; typo :14).
+Decisions: Routed architect review to cmd/qwen3.8-max — cmd is the lane for external models and qwen3.8-max's profile covers large-scale design review; flat destination. Findings not yet reconciled or fixed: review-only dispatch, no fix authorized.
+Verification: Exit 0; result subtype success, stopReason end_turn; finalText promoted verbatim to the findings file (33 lines); sessionId captured (no caller ID supported by cmd).
+Delegates: architect / qwen-qwen3.8-max (via cmd), collab/1793124120273-architect-yin-cic-kernel-review.prompt.md and collab/1793124120273-architect-yin-cic-kernel-review.qwen-qwen3.8-max.findings.md, session dd464579-4592-4e6f-a4f6-c5f8d94f61ae.
+Next: Owner decision on whether to reconcile the 3 Medium findings into yin.cic-kernel.md (route back to an Architect delegate or implement as doc edits); resume session dd464579 for follow-ups.
+
+## 2026-10-28 — P4 recon landed (65f6f210 + the missed-cst 56b622ad); the third path-glob miss; oracle pass 7 running
+Completed-GMT: 2026-10-28
+Coding-Agent: glm (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: yang-php-p4 @ 56b622ad (pushed; worktree CLEAN - verified); all nine namespaces green on shiva at the tip; oracle pass 7 in flight on shiva
+Done: (1) The checkpoint-A recon delivered: the 77 pass-6 pins folded; the readonly nested-object fix; shutdown functions + the shutdown sequence; the activation record corrected; the boundary-derived line table (the stream-fallback risk flagged); the bounded foreach-ref source ready for pass 7. Local 99/4204/0. (2) A seat misread caught and reverted: "SUnknown" looked like a typo; it is the C28 departure's observable artifact (side() echoes 'S' before the rejection because the engine runs later args first, PHP does not) - the expectation was correct; the failed sed was reverted and re-verified. LESSON: an impl-out that contradicts the oracle is a departure candidate, not a typo - check the fixture source before "fixing". (3) The THIRD path-glob commit miss: the recon's line-table change lives in src/clj/yang/php/antlr/cst.clj (JVM-only path), outside the seat's src/cljc glob - locally green on the dirty tree, shiva red on the tip (exc-line-number getLine 0). Committed as 56b622ad; shiva green at the tip. RULE (now standing, third strike): stage from git status against the brief's file list, NEVER from path patterns. (4) Oracle pass 7 launched on shiva (the new readonly-nested + shutdown fixtures, the bounded foreach source, the C28 texts).
+Decisions: none beyond the standing rules above.
+Verification: shiva nine-namespace run 0 failures at 56b622ad; objects-test isolated green.
+Delegates: recon complete; codex checkpoint-A re-confirm QUEUED on pass 7's records; fable P5 reconciliation queued on this landing; T3 S4 and the cross-host parse plan in flight.
+Next: pass 7 records -> fold -> codex re-confirm (checkpoint A closes) -> fable P5 reconciliation -> P5 dispatch. T3 S4 -> verify -> commit. Cross-host parse plan -> review.
+
+## 2026-10-28 01:50:00 +0700 — dao.star cart: the section title tracks the filters (owner report)
+Completed-GMT: 2026-10-27 18:50:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 70a7ede8 (pushed); deployed on shiva from dsg
+Done: Owner: "It shouldn't say All Products when it's only showing the selected tagory". The production behavior implemented: the section h2 shows the search query when searching, the selected tagory when one is, All Products otherwise (section-title, escaped); the count badge already tracked the filtered set. Verified live in the browser: selecting PS4 console in the mobile drawer renders the h2 "PS4 CONSOLE" with "7 items".
+Decisions: orchestrator-direct (mechanical). Two of my own test assertions were wrong on first write (expected escaped text in element content that renders plain; a negative assertion that tripped over the drawer's legitimate All Products button) — fixed by asserting the h2 exactly.
+Verification: 43 tests / 591 assertions / 0 failures; kondo clean; browser-verified per above; deployed.
+Delegates: none (orchestrator-direct).
+Next: owner browser pass.
