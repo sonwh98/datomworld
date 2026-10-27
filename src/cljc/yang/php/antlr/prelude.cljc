@@ -69,6 +69,7 @@
   #?(:cljs (:require-macros [yang.php.antlr.prelude :refer [defquoted]]))
   (:require
     #?(:cljd [clojure.edn :as edn])
+    [clojure.string :as str]
     [yang.core.prelude :as core]
     [yang.core.uast :as u]
     [yang.php.antlr.builtins :as builtins]
@@ -2389,6 +2390,362 @@
                :php/null)
              (php/obj-set-props! o (php/unset-dim (get st :props) prop))
              :php/null)))]
+    ;; ---------------------------------------------------------------- class model (P4 S1)
+    ;; A descriptor is a class cell (section 3.7): vectors keep declaration order,
+    ;; entries are looked up by a key field. Property identity: a private
+    ;; property's `:id` is "Declaring::name", every other one is its name, so a
+    ;; subclass's `$p` never collides with a parent's private `$p`.
+    [php/vhas
+     (fn [v x i]
+       (if (< i (data/count v)) (if (= (get v i) x) true (php/vhas v x (+ i 1))) false))]
+    [php/vunion
+     (fn [a b i]
+       (if (< i (data/count b))
+         (php/vunion (if (php/vhas a (get b i) 0) a (php/vconj a (get b i))) b (+ i 1))
+         a))]
+    [php/vindex
+     (fn [v k val i]
+       (if (< i (data/count v))
+         (if (= (get (get v i) k) val) i (php/vindex v k val (+ i 1)))
+         -1))]
+    [php/vfind
+     (fn [v k val i]
+       (let [j (php/vindex v k val i)] (if (< j 0) nil (get v j))))]
+    [php/vput
+     (fn [v k entry]
+       (let [i (php/vindex v k (get entry k) 0)]
+         (if (< i 0) (php/vconj v entry) (assoc v i entry))))]
+    [php/vfold
+     (fn [f acc v i]
+       (if (< i (data/count v)) (php/vfold f (f acc (get v i)) v (+ i 1)) acc))]
+    [php/or-default (fn [x d] (if (nil? x) d x))]
+    [php/kind-word
+     (fn [k]
+       (if (= k :interface) "interface" (if (= k :trait) "trait" (if (= k :enum) "enum" "class"))))]
+    [php/class-lookup
+     (fn [name]
+       (let [n (get (cell/get php.rt/class-index) (php/lc name))]
+         (if (nil? n) nil (get (cell/get php.rt/classes) n))))]
+    [php/need-class
+     (fn [name what]
+       (let [c (php/class-lookup name)]
+         (if (nil? c)
+           (php/throw-error "Error" (data/str-concat what " \"" name "\" not found"))
+           c)))]
+    [php/class-declarable?
+     ;; hoisting: true when the parent, interfaces and traits of `spec` exist
+     (fn [spec]
+       (let [names (data/into (data/into (if (nil? (get spec :parent)) [] (php/vconj [] (get spec :parent)))
+                                         (php/or-default (get spec :interfaces) []))
+                              (php/or-default (get spec :traits) []))]
+         (php/vfold (fn [ok n] (if ok (not (nil? (php/class-lookup n))) false)) true names 0)))]
+    [php/prop-id
+     (fn [vis declaring name]
+       (if (= vis :private) (data/str-concat declaring "::" name) name))]
+    [php/make-const
+     (fn [declaring s]
+       (assoc {} :name (get s :name) :vis (php/or-default (get s :vis) :public)
+              :declaring declaring :final? (php/or-default (get s :final?) false)
+              :cell (cell/new (if (nil? (get s :thunk))
+                                (assoc {} :done true :value (get s :value))
+                                (assoc {} :done false :thunk (get s :thunk))))))]
+    [php/class-const
+     (fn [c name]
+       (let [e (php/vfind (get c :constants) :name name 0)]
+         (if (nil? e)
+           (php/throw-error "Error" (data/str-concat "Undefined constant " (get c :name) "::" name))
+           (let [st (cell/get (get e :cell))]
+             (if (= (get st :done) true)
+               (get st :value)
+               (let [v ((get st :thunk))]
+                 (do (cell/set! (get e :cell) (assoc {} :done true :value v)) v)))))))]
+    [php/make-prop
+     (fn [declaring s]
+       (let [vis (php/or-default (get s :vis) :public)]
+         (assoc s :vis vis :declaring declaring :id (php/prop-id vis declaring (get s :name)))))]
+    [php/make-static
+     (fn [declaring s]
+       (assoc s :vis (php/or-default (get s :vis) :public) :declaring declaring
+              :cell (cell/new (php/or-default (get s :default) :php/null))))]
+    [php/class-static-cell
+     (fn [c name]
+       (let [e (php/vfind (get c :static-props) :name name 0)]
+         (if (nil? e)
+           (php/throw-error "Error"
+                            (data/str-concat "Access to undeclared static property "
+                                             (get c :name) "::$" name))
+           (get e :cell))))]
+    [php/class-method
+     (fn [c lc] (php/vfind (get c :methods) :lc lc 0))]
+    [php/make-method
+     (fn [declaring s]
+       (assoc s :declaring declaring :lc (php/lc (get s :name))
+              :vis (php/or-default (get s :vis) :public)
+              :code (if (nil? (get s :make)) (get s :code) ((get s :make) declaring))))]
+    [php/put-method
+     ;; own and trait methods override inherited ones; a final one refuses; an
+     ;; abstract method never displaces a concrete one
+     (fn [methods m]
+       (let [e (php/vfind methods :lc (get m :lc) 0)]
+         (if (nil? e)
+           (php/vconj methods m)
+           (if (= (get e :final?) true)
+             (php/throw-error "Error"
+                              (data/str-concat "Cannot override final method "
+                                               (get e :declaring) "::" (get e :name) "()"))
+             (if (if (= (get m :abstract?) true) (not (= (get e :abstract?) true)) false)
+               methods
+               (php/vput methods :lc m))))))]
+    [php/decl-parent
+     (fn [spec]
+       (let [pn (get spec :parent)]
+         (if (nil? pn)
+           nil
+           (let [p (php/need-class pn "Class")
+                 k (php/or-default (get p :kind) :class)]
+             (if (= k :class)
+               (if (= (get p :final?) true)
+                 (php/throw-error "Error" (data/str-concat "Class " (get spec :name)
+                                                           " cannot extend final class " (get p :name)))
+                 p)
+               (php/throw-error "Error" (data/str-concat "Class " (get spec :name) " cannot extend "
+                                                         (php/kind-word k) " " (get p :name))))))))]
+    [php/decl-interfaces
+     (fn [spec]
+       (php/vfold
+         (fn [acc n]
+           (let [i (php/need-class n "Interface")]
+             (if (= (php/or-default (get i :kind) :class) :interface)
+               (php/vconj acc i)
+               (php/throw-error "Error" (data/str-concat (get spec :name) " cannot implement "
+                                                         (get i :name) " - it is not an interface")))))
+         []
+         (php/or-default (get spec :interfaces) [])
+         0))]
+    [php/decl-traits
+     (fn [spec]
+       (php/vfold
+         (fn [acc n]
+           (let [t (php/need-class n "Trait")]
+             (if (= (get t :kind) :trait)
+               (php/vconj acc t)
+               (php/throw-error "Error" (data/str-concat (get spec :name) " cannot use "
+                                                         (get t :name) " - it is not a trait")))))
+         []
+         (php/or-default (get spec :traits) [])
+         0))]
+    [php/inherit-interface
+     (fn [st i]
+       (assoc st
+              :consts (php/vfold (fn [acc e] (php/vput acc :name e)) (get st :consts) (get i :constants) 0)
+              :methods (php/vfold (fn [acc m]
+                                    (if (nil? (php/vfind acc :lc (get m :lc) 0)) (php/vconj acc m) acc))
+                                  (get st :methods) (get i :methods) 0)))]
+    [php/inherit-state
+     (fn [parent ifaces]
+       (php/vfold php/inherit-interface
+                  (if (nil? parent)
+                    (assoc {} :consts [] :props [] :statics [] :methods [])
+                    (assoc {} :consts (php/or-default (get parent :constants) [])
+                           :props (php/or-default (get parent :props-decl) [])
+                           :statics (php/or-default (get parent :static-props) [])
+                           :methods (php/or-default (get parent :methods) [])))
+                  ifaces 0))]
+    ;; ---- traits: copied into the class, methods specialized to the using class
+    [php/rule-excludes?
+     ;; an insteadof rule that drops `tlc::mlc`
+     (fn [rules tlc mlc]
+       (php/vfold
+         (fn [hit r]
+           (if hit
+             true
+             (if (= (php/lc (get r :method)) mlc)
+               (php/vfold (fn [h x] (if h true (= (php/lc x) tlc))) false (get r :excluded) 0)
+               false)))
+         false rules 0))]
+    [php/rule-vis
+     ;; the visibility an `as` rule without alias gives `tlc::mlc`, or nil
+     (fn [rules tlc mlc]
+       (php/vfold
+         (fn [v r]
+           (if (nil? v)
+             (if (nil? (get r :alias))
+               (if (= (php/lc (get r :method)) mlc)
+                 (if (if (nil? (get r :trait)) true (= (php/lc (get r :trait)) tlc)) (get r :vis) nil)
+                 nil)
+               nil)
+             v))
+         nil rules 0))]
+    [php/trait-method-add
+     ;; add trait method `tm` (from trait `t`) to the staged vector `tm-list`
+     (fn [tm-list cls t tm name]
+       (let [m (assoc (php/make-method cls tm) :from-trait (get t :name) :name name :lc (php/lc name))
+             prior (php/vfind tm-list :lc (get m :lc) 0)]
+         (if (nil? prior)
+           (php/vconj tm-list m)
+           (if (= (get prior :abstract?) true)
+             (php/vput tm-list :lc m)
+             (if (= (get m :abstract?) true)
+               tm-list
+               (php/throw-error
+                 "Error"
+                 (data/str-concat "Trait method " (get t :name) "::" (get tm :name)
+                                  " has not been applied as " cls "::" (get tm :name)
+                                  ", because of collision with " (get prior :from-trait) "::"
+                                  (get prior :name))))))))]
+    [php/apply-trait
+     (fn [cls rules]
+       (fn [tm-list t]
+         (php/vfold
+           (fn [acc tm]
+             (let [tlc (php/lc (get t :name))
+                   mlc (get tm :lc)
+                   dropped (php/rule-excludes? (php/or-default (get rules :insteadof) []) tlc mlc)
+                   acc1 (if dropped
+                          acc
+                          (let [vis (php/rule-vis (php/or-default (get rules :as) []) tlc mlc)
+                                tm2 (if (nil? vis) tm (assoc tm :vis vis))]
+                            (php/trait-method-add acc cls t tm2 (get tm :name))))]
+               (php/vfold
+                 (fn [a r]
+                   (if (if (nil? (get r :alias)) false (= (php/lc (get r :method)) mlc))
+                     (if (if (nil? (get r :trait)) true (= (php/lc (get r :trait)) tlc))
+                       (php/trait-method-add a cls t
+                                             (if (nil? (get r :vis)) tm (assoc tm :vis (get r :vis)))
+                                             (get r :alias))
+                       a)
+                     a))
+                 acc1 (php/or-default (get rules :as) []) 0)))
+           tm-list (get t :methods) 0)))]
+    [php/apply-traits
+     (fn [st cls traits rules]
+       (let [tms (php/vfold (php/apply-trait cls rules) [] traits 0)
+             consts (php/vfold
+                      (fn [acc t]
+                        (php/vfold (fn [a e] (php/vput a :name e)) acc (get t :constants) 0))
+                      (get st :consts) traits 0)
+             props (php/vfold
+                     (fn [acc t]
+                       (php/vfold (fn [a p] (php/vput a :id (php/make-prop cls p)))
+                                  acc (get t :props-decl) 0))
+                     (get st :props) traits 0)
+             statics (php/vfold
+                       (fn [acc t]
+                         (php/vfold (fn [a s] (php/vput a :name (php/make-static cls s)))
+                                    acc (get t :static-props) 0))
+                       (get st :statics) traits 0)]
+         (assoc st :consts consts :props props :statics statics
+                :methods (php/vfold php/put-method (get st :methods) tms 0))))]
+    [php/apply-own
+     (fn [st cls spec kind]
+       (let [consts (php/vfold (fn [acc s] (php/vput acc :name (php/make-const cls s)))
+                               (get st :consts) (php/or-default (get spec :consts) []) 0)
+             props (php/vfold
+                     (fn [acc p]
+                       (if (= (get p :static?) true) acc (php/vput acc :id (php/make-prop cls p))))
+                     (get st :props) (php/or-default (get spec :props) []) 0)
+             statics (php/vfold
+                       (fn [acc p]
+                         (if (= (get p :static?) true)
+                           (php/vput acc :name (php/make-static cls p))
+                           acc))
+                       (get st :statics) (php/or-default (get spec :props) []) 0)
+             methods (php/vfold
+                       (fn [acc s]
+                         (php/put-method
+                           acc
+                           (php/make-method cls (if (= kind :interface) (assoc s :abstract? true) s))))
+                       (get st :methods) (php/or-default (get spec :methods) []) 0)]
+         (assoc st :consts consts :props props :statics statics :methods methods)))]
+    [php/abstract-list
+     (fn [methods i acc]
+       (if (< i (data/count methods))
+         (php/abstract-list
+           methods (+ i 1)
+           (if (= (get (get methods i) :abstract?) true)
+             (php/vconj acc (data/str-concat (get (get methods i) :declaring) "::"
+                                             (get (get methods i) :name)))
+             acc))
+         acc))]
+    [php/check-abstract
+     (fn [name kind abstract? methods]
+       (let [abs (php/abstract-list methods 0 [])
+             n (data/count abs)]
+         (if (if (= n 0) true (if (= kind :class) abstract? (not (= kind :enum))))
+           :php/null
+           (php/throw-error
+             "Error"
+             (data/str-concat "Class " name " contains " (php/to-string n)
+                              (if (= n 1) " abstract method" " abstract methods")
+                              " and must therefore be declared abstract or implement the remaining methods ("
+                              (data/str-join ", " abs) ")")))))]
+    [php/make-ancestors
+     (fn [name parent ifaces kind backing]
+       (let [a1 (php/vconj [] (php/lc name))
+             a2 (if (nil? parent) a1 (php/vunion a1 (get parent :ancestors) 0))
+             a3 (php/vfold (fn [acc i] (php/vunion acc (get i :ancestors) 0)) a2 ifaces 0)
+             a4 (if (= kind :enum) (php/vconj a3 "unitenum") a3)]
+         (if (nil? backing) a4 (php/vconj a4 "backedenum"))))]
+    [php/enum-case-obj
+     (fn [cls case backing]
+       (php/new-obj cls
+                    (if (nil? backing)
+                      (php/table-set (php/empty-array) "name" (get case :name))
+                      (php/table-set (php/table-set (php/empty-array) "name" (get case :name))
+                                     "value" (get case :value)))))]
+    [php/enum-state
+     (fn [st name spec]
+       (php/vfold
+         (fn [s case]
+           (assoc s :consts
+                  (php/vput (get s :consts) :name
+                            (php/make-const name (assoc {} :name (get case :name)
+                                                        :value (php/enum-case-obj name case (get spec :backing)))))))
+         st (php/or-default (get spec :cases) []) 0))]
+    [php/finish-class
+     (fn [spec name kind parent ifaces traits st]
+       (assoc {} :php/type :class :name name :kind kind
+              :parent (if (nil? parent) :php/null (get parent :name))
+              :interfaces (php/vfold (fn [acc i] (php/vconj acc (get i :name))) [] ifaces 0)
+              :traits (php/vfold (fn [acc t] (php/vconj acc (get t :name))) [] traits 0)
+              :ancestors (php/make-ancestors name parent ifaces kind (get spec :backing))
+              :abstract? (php/or-default (get spec :abstract?) false)
+              :final? (if (= kind :enum) true (php/or-default (get spec :final?) false))
+              :readonly? (php/or-default (get spec :readonly?) false)
+              :constants (get st :consts) :props-decl (get st :props)
+              :static-props (get st :statics) :methods (get st :methods)
+              :backing (get spec :backing)
+              :cases (php/vfold (fn [acc c] (php/vconj acc (get c :name))) []
+                                (php/or-default (get spec :cases) []) 0)
+              :attrs (php/or-default (get spec :attrs) [])))]
+    [php/declare-class!
+     ;; registers the descriptor `spec` describes and answers it. A spec:
+     ;; {:name :kind (:class :interface :trait :enum) :parent name :interfaces
+     ;;  [name] :traits [name] :trait-rules {:insteadof [{:trait :method :excluded}]
+     ;;  :as [{:trait :method :alias :vis}]} :abstract? :final? :consts [{:name
+     ;;  :value | :thunk}] :props [{:name :vis :static? :default :type :readonly?}]
+     ;;  :methods [{:name :code | :make (fn [class] code) :vis :static? :abstract?
+     ;;  :final?}] :cases [{:name :value}] :backing nil|:int|:string :attrs}
+     (fn [spec]
+       (let [name (get spec :name)
+             kind (php/or-default (get spec :kind) :class)]
+         (if (nil? (php/class-lookup name))
+           (let [parent (php/decl-parent spec)
+                 ifaces (php/decl-interfaces spec)
+                 traits (php/decl-traits spec)
+                 st0 (php/inherit-state parent ifaces)
+                 st1 (php/apply-traits st0 name traits (php/or-default (get spec :trait-rules) {}))
+                 st2 (php/apply-own st1 name spec kind)
+                 st3 (php/enum-state st2 name spec)
+                 chk (php/check-abstract name kind (php/or-default (get spec :abstract?) false)
+                                         (get st3 :methods))
+                 c (php/finish-class spec name kind parent ifaces traits st3)]
+             (do (cell/set! php.rt/classes (assoc (cell/get php.rt/classes) name c))
+                 (cell/set! php.rt/class-index (assoc (cell/get php.rt/class-index) (php/lc name) name))
+                 c))
+           (php/throw-error "Error"
+                            (data/str-concat "Cannot declare " (php/kind-word kind) " " name
+                                             ", because the name is already in use")))))]
     ;; ---------------------------------------------------------------- throwables, match, methods
     [php/class-is?
      (fn [name lc]
@@ -2399,9 +2756,17 @@
            (let [c (get (cell/get php.rt/classes) name)]
              (if (nil? c)
                false
-               (if (= (get c :parent) :php/null) false (php/class-is? (get c :parent) lc)))))))]
+               (if (nil? (get c :ancestors))
+                 (if (= (get c :parent) :php/null) false (php/class-is? (get c :parent) lc))
+                 (php/vhas (get c :ancestors) lc 0)))))))]
     [php/instance-of
-     (fn [v lc] (if (= (php/kind v) :obj) (php/class-is? (get v :class) lc) false))]
+     (fn [v lc]
+       (if (= (php/kind v) :obj)
+         (php/class-is? (if (nil? (get v :php/obj))
+                          (get v :class)
+                          (get (cell/get (get v :php/obj)) :class))
+                        lc)
+         false))]
     [php/throwable? (fn [v] (php/instance-of v "throwable"))]
     [php/throw-value
      (fn [v]
@@ -3016,12 +3381,61 @@
   (set (map first builtins)))
 
 
-(def ^:private error-classes
-  "The Throwable hierarchy P1 raises, data only (P4 owns the class model)."
-  [["Throwable" nil] ["Exception" "Throwable"] ["Error" "Throwable"]
-   ["TypeError" "Error"] ["ValueError" "Error"] ["ArithmeticError" "Error"]
-   ["DivisionByZeroError" "ArithmeticError"] ["ArgumentCountError" "TypeError"]
-   ["UnhandledMatchError" "Error"]])
+(def ^:private seed-classes
+  "The builtin classes and interfaces `php/init!` seeds: [name kind parent
+   interfaces final?], parents before children (P4 owns the rest of the
+   builtin descriptor skeletons)."
+  [["Traversable" :interface nil []] ["Iterator" :interface nil ["Traversable"]]
+   ["IteratorAggregate" :interface nil ["Traversable"]] ["ArrayAccess" :interface nil []]
+   ["Countable" :interface nil []] ["Stringable" :interface nil []]
+   ["JsonSerializable" :interface nil []] ["UnitEnum" :interface nil []]
+   ["BackedEnum" :interface nil ["UnitEnum"]] ["Throwable" :interface nil ["Stringable"]]
+   ["stdClass" :class nil []] ["Closure" :class nil [] true]
+   ["Generator" :class nil ["Iterator"] true]
+   ["Exception" :class nil ["Throwable"]] ["Error" :class nil ["Throwable"]]
+   ["ErrorException" :class "Exception" []] ["JsonException" :class "Exception" []]
+   ["RuntimeException" :class "Exception" []] ["LogicException" :class "Exception" []]
+   ["TypeError" :class "Error" []] ["ValueError" :class "Error" []]
+   ["ArithmeticError" :class "Error" []] ["DivisionByZeroError" :class "ArithmeticError" []]
+   ["ArgumentCountError" :class "TypeError" []] ["UnhandledMatchError" :class "Error" []]
+   ["InvalidArgumentException" :class "LogicException" []]
+   ["DomainException" :class "LogicException" []] ["LengthException" :class "LogicException" []]
+   ["OutOfRangeException" :class "LogicException" []]
+   ["BadFunctionCallException" :class "LogicException" []]
+   ["BadMethodCallException" :class "BadFunctionCallException" []]
+   ["OutOfBoundsException" :class "RuntimeException" []]
+   ["RangeException" :class "RuntimeException" []]
+   ["OverflowException" :class "RuntimeException" []]
+   ["UnderflowException" :class "RuntimeException" []]
+   ["UnexpectedValueException" :class "RuntimeException" []]])
+
+
+(def ^:private seed-table
+  "Name to descriptor skeleton (no members yet), with the lower-cased
+   `:ancestors` the declaration code reads."
+  (reduce (fn [table [nm kind parent ifaces final?]]
+            (let [lc (str/lower-case nm)
+                  anc (reduce (fn [acc x] (into acc (remove (set acc)) (:ancestors (get table x))))
+                              [lc]
+                              (concat (when parent [parent]) ifaces))]
+              (assoc table
+                     nm {:php/type :class,
+                         :name nm,
+                         :kind kind,
+                         :parent (or parent :php/null),
+                         :interfaces ifaces,
+                         :traits [],
+                         :ancestors anc,
+                         :abstract? false,
+                         :final? (boolean final?),
+                         :constants [],
+                         :props-decl [],
+                         :static-props [],
+                         :methods [],
+                         :cases [],
+                         :attrs []})))
+          {}
+          seed-classes))
 
 
 (def ^:private define core/define)
@@ -3040,14 +3454,10 @@
                  (define 'php.rt/globals
                    '(cell/new (php/empty-array)))
                  (define 'php.rt/functions '(cell/new {}))
-                 (define 'php.rt/classes
+                 (define 'php.rt/classes (list 'cell/new seed-table))
+                 (define 'php.rt/class-index
                    (list 'cell/new
-                         (into {}
-                               (map (fn [[nm parent]]
-                                      [nm {:php/type :class,
-                                           :name nm,
-                                           :parent (or parent :php/null)}]))
-                               error-classes)))
+                         (into {} (map (fn [nm] [(str/lower-case nm) nm])) (keys seed-table))))
                  (define 'php.rt/next-ord '(cell/new 1))
                  (define 'php.rt/cmp-depth '(cell/new 0))
                  (define 'php.rt/tmps '(cell/new []))
@@ -3099,7 +3509,7 @@
 
 (def runtime-keys
   "Every key `php/init!` allocates, the ready flag aside, sorted."
-  '[php.rt/classes php.rt/cmp-depth php.rt/ctx php.rt/diag php.rt/error-handler
+  '[php.rt/class-index php.rt/classes php.rt/cmp-depth php.rt/ctx php.rt/diag php.rt/error-handler
     php.rt/error-reporting php.rt/functions php.rt/globals php.rt/int-max
     php.rt/int-min php.rt/next-cell php.rt/next-ord
     php.rt/out php.rt/tmps])

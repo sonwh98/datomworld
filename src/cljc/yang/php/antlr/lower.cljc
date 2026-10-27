@@ -2301,6 +2301,9 @@
     "functionDeclaration" (lower-function ctx n)
     "constant" (lower-constant ctx n)
     "arrayCreation" (lower-array ctx n)
+    "newExpr" (if (some #(seq (core/rules ctx % "anonymousClass")) (core/rules ctx n "typeRef"))
+                (unsupported! n :anonymous-class)
+                (core/default-arm diagnostic-ns "PHP" unsupported-rules n))
     (core/default-arm diagnostic-ns "PHP" unsupported-rules n)))
 
 

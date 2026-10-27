@@ -15,7 +15,8 @@
     [clojure.java.shell :as sh]
     [clojure.string :as str]
     [yang.php.antlr.programs :as programs]
-    [yang.php.antlr.programs-p3b :as p3b])
+    [yang.php.antlr.programs-p3b :as p3b]
+    [yang.php.antlr.programs-p4 :as p4])
   (:import
     (java.nio.charset
       StandardCharsets)
@@ -176,7 +177,7 @@
   (let [dir (.toFile (Files/createTempDirectory "yang-php-oracle-"
                                                 (make-array FileAttribute 0)))]
     (try
-      (-> (mapv #(check-fixture dir %) (concat programs/fixtures p3b/all-fixtures))
+      (-> (mapv #(check-fixture dir %) (concat programs/fixtures p3b/all-fixtures p4/all-fixtures))
           (conj (check-matrix dir))
           (conj (check-floats dir)))
       (finally

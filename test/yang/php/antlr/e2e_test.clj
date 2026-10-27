@@ -99,7 +99,9 @@
            ["<?php echo \"a$b[0]\";" :interpolation]
            ["<?php echo \"a$b->c\";" :interpolation]
            ["<?php echo isset($a->b);" :isset-target]
-           ["<?php echo (array)1;" :cast/array]]
+           ["<?php echo (array)1;" :cast/array]
+           ["<?php $o = new class { public $x = 1; };" :anonymous-class]
+           ["<?php $o = new A;" :new]]
           :when construct]
     (let [{:keys [diagnostics]} (h/run-php source)
           d (first diagnostics)]
