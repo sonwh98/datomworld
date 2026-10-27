@@ -9,7 +9,8 @@
    escalated to the architect and never fixed by editing :out.
 
    `all-fixtures` is unconditional (the oracle iterates it). `enabled` is the
-   subset whose :requires have all landed in `completed-steps`.")
+   subset whose :requires have all landed in `completed-steps`."
+  (:require [yang.php.antlr.programs-p3b :as p3b]))
 
 
 (def completed-steps
@@ -212,7 +213,11 @@
               (str "<?php function f($a) { return $a; } function side() { echo 'S'; return 1; }"
                    " try { f(1, z: 2, w: side()); } catch (Error $e) { echo $e->getMessage(); }")
               nil)
-          :departure :call-unknown-named-later-arg-runs
+          :departure (some (fn [f]
+                             (when (= :call-unknown-named-later-arg-runs
+                                      (:id f))
+                               f))
+                           p3b/all-fixtures)
           :impl-out "SUnknown named parameter $z")])
 
 
