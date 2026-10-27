@@ -3,17 +3,17 @@
 ;; The library it composes (dao.stream, dao.star, dao.space, dao.lease,
 ;; dao.await, yin.vm) is not a path dependency: it is pinned to one datomworld
 ;; master commit and resolved from GitHub, so this demo builds and runs
-;; reproducibly from a clean checkout.  `:deps/root "demo/daostar"` points
+;; reproducibly from a clean checkout.  `:deps/root "src"` points
 ;; tools.deps at the manifest inside that checkout whose :paths reach the
 ;; library sources; this file's own :paths shadow the demo sources locally.
 ;;
 ;; Bump :git/sha deliberately: the demo freezes the design it showcases.
 
-{:paths ["src" "resources"]
+{:paths ["src/clj" "src/cljc" "resources"]
  :deps {datomworld/datomworld
         {:git/url "https://github.com/sonwh98/datomworld.git"
-         :git/sha "bc6a32ea5e1b76dc4ac1f031f1dd71fe3e9878fd"
-         :deps/root "demo/daostar"}
+         :git/sha "fce91d22303f6246c38560ee2f9066f2b2a0fdf9"
+         :deps/root "src"}
         org.clojure/clojure {:mvn/version "1.12.0"}
         org.clojure/core.async {:mvn/version "1.8.741"}
         org.clojure/data.json {:mvn/version "2.5.0"}
