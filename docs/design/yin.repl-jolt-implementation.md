@@ -1426,12 +1426,12 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 |                                             | query             |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J4: persistence and authority               | File/store FS,    | Existing file/B-tree/store crash, recovery and lock fixtures and RFC/envelope/signature vectors     |
-| J4a-J4c landed                              | Ed25519 keygen    | pass; cross-host reopen and two-way signing; no security stubs; local storage options and shutdown  |
-| (890dc68f,                                  | and key files,    | work. J4d: the file: store opens on jolt (only dht: refuses, at composition, J7); saved flags       |
-| 9c4ce1df,                                   | lifecycle cleanup | persist through the jolt -main (--reset, --no-state); key files are created O_EXCL at 0600 and      |
-| f5397a15); J4d on                           |                   | never overwritten; no J4-owned entry remains in jolt-applicability.edn or the J2 lane; cross-host   |
-| jolt-j4d, review                            |                   | reopen JVM, Node and Dart <-> jolt.                                                                 |
-| pending                                     |                   |                                                                                                     |
+| J4a-J4d landed                              | Ed25519 keygen    | pass; cross-host reopen and two-way signing; no security stubs; local storage options and shutdown  |
+| (890dc68f, 9c4ce1df,                        | and key files,    | work. J4d: the file: store opens on jolt (only dht: refuses, at composition, J7); saved flags       |
+| f5397a15, J4d merge);                       | lifecycle cleanup | persist through the jolt -main (--reset, --no-state); key files are created O_EXCL at 0600 and      |
+| J4 closed 2026-10-28;                       |                   | never overwritten; no J4-owned entry remains in jolt-applicability.edn or the J2 lane; cross-host   |
+| reviews fable + codex/astra,                |                   | reopen JVM, Node and Dart <-> jolt.                                                                 |
+| both APPROVE                                |                   |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
 | J5: complete standard frontends             | The selected      | §7.8 J5 gate. Standard catalog loads and `(lang :yang/python)` works;                               |
 | not started                                 | in-process C++    | frontend_catalog/python_antlr/main suites; synchronous probe sequences equal the JVM's;             |
