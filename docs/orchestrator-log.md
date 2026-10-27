@@ -13550,3 +13550,12 @@ Decisions: pin over follow-master (reproducibility; sha bumps are deliberate). T
 Verification: clj -P + clj -M:test 39/550/0 (worktree and main repo after image copy); shiva redeploy verified per curl line above; InvalidPathException count not re-checked this boot (locale fix is in the image).
 Delegates: none (orchestrator-direct).
 Next: owner browser check; sha-bump procedure is: update :git/sha, clj -P, clj -M:test, redeploy.
+
+## 2026-10-27 12:55:00 +0700 — demo: bin/vendor-datastar.sh renamed bin/datastar.sh (owner request)
+Completed-GMT: 2026-10-27 05:55:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 28cc9e6b (pushed); dao-star-demo = master; worktree re-anchored, images intact
+Done: Owner: "vendor-datastar.sh should simply be datastar.sh". Renamed demo/daostar/bin/vendor-datastar.sh -> bin/datastar.sh (git mv); README run line updated; executed from the new name (30732 bytes, sha c9c8b997 — identical). Worktree re-anchored after clearing stale untracked duplicates.
+Verification: script run + sha match; branch/worktree at 28cc9e6b.
+Next: owner browser check.
