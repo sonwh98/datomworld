@@ -75,6 +75,50 @@
       (map? form)))
 
 
+(defn constant-form?
+  "True when compiling `form` yields a fixed value independent of the
+   environment: scalars, quoted forms, and collections built entirely from
+   constants. A symbol is never constant (it is a variable reference). A
+   `quote` counts as constant only at the top level: nested inside a
+   collection it must reach compile-form so the quote is stripped and the
+   inner form evaluated as data."
+  ([form] (constant-form? form true))
+  ([form top-level?]
+   (cond
+     (or (nil? form) (number? form) (string? form)
+         (true? form) (false? form) (keyword? form)) true
+     (and (seq? form) (empty? form)) true
+     (seq? form) (and top-level? (= 2 (count form)) (= 'quote (first form)))
+     (or (vector? form) (set? form)) (every? #(constant-form? % false) form)
+     (map? form) (and (every? #(constant-form? % false) (keys form))
+                      (every? #(constant-form? % false) (vals form)))
+     :else false)))
+
+
+(defn- compile-constructed-collection
+  "Lower a collection literal with dynamic elements to constructor calls over
+   existing portable primitives, so unquoted vectors/maps/sets evaluate their
+   elements like Clojure. Constant collections stay :literal nodes.
+
+   [e1 e2 ...]  => (conj [] e1 e2 ...)
+   #{e1 e2 ...} => (conj #{} e1 e2 ...)
+   {k1 v1 ...}  => (assoc {} k1 v1 k2 v2 ...)"
+  [form tail? env macro-env]
+  (let [ctor (cond
+               (vector? form) ['conj []]
+               (set? form) ['conj #{}]
+               :else ['assoc {}])
+        [op seed] ctor
+        args (if (map? form)
+               (into [] (interleave (keys form) (vals form)))
+               (vec form))
+        call {:type :application,
+              :operator {:type :variable, :name op},
+              :operands (into [{:type :literal, :value seed}]
+                              (map #(compile-form % false env macro-env) args))}]
+    (cond-> call tail? (assoc :tail? true))))
+
+
 (def initial-macro-env
   "Compile-time map of macro names known before any defmacro: none. The
    standard forms live in the expander's store, not here."
@@ -219,13 +263,19 @@
   AST: {:type :if
         :test <compiled-test>
         :consequent <compiled-consequent>
-        :alternate <compiled-alternate>}"
-  ([test consequent alternate env tail?] (compile-if test consequent alternate env tail? initial-macro-env))
-  ([test consequent alternate env tail? macro-env]
+        :alternate <compiled-alternate>}
+
+  An explicit `false` alternate is a value, not an absence: `alternate-present?`
+  distinguishes (if t c) from (if t c false)."
+  ([test consequent alternate env tail?]
+   (compile-if test consequent alternate true env tail? initial-macro-env))
+  ([test consequent alternate alt-present? env tail?]
+   (compile-if test consequent alternate alt-present? env tail? initial-macro-env))
+  ([test consequent alternate alt-present? env tail? macro-env]
    (cond-> {:type :if,
             :test (compile-form test false env macro-env),
             :consequent (compile-form consequent tail? env macro-env),
-            :alternate (if alternate
+            :alternate (if alt-present?
                          (compile-form alternate tail? env macro-env)
                          (compile-literal nil tail?))}
      tail? (assoc :tail? true))))
@@ -303,8 +353,14 @@
   ordinary application; macro-env only stops the native defn lowering."
   [form tail? env macro-env]
   (cond
-    ;; Literals
-    (literal? form) (compile-literal form tail?)
+    ;; Literals: constants self-evaluate; collections with dynamic elements
+    ;; lower to constructor calls so their elements evaluate like Clojure
+    (literal? form)
+    (if (constant-form? form)
+      (compile-literal form tail?)
+      (compile-constructed-collection form tail? env macro-env))
+    ;; The empty list is self-evaluating data, not an application
+    (and (seq? form) (empty? form)) (compile-literal form tail?)
     ;; Variables (symbols)
     (symbol? form) (compile-variable form tail?)
     ;; Special forms and function application
@@ -333,7 +389,7 @@
                (compile-lambda params body-expr env tail? macro-env))
           ;; Conditional: (if test consequent alternate?)
           if (let [[test consequent alternate] operands]
-               (compile-if test consequent alternate env tail? macro-env))
+               (compile-if test consequent alternate (> (count operands) 2) env tail? macro-env))
           ;; Let binding: (let [bindings] body)
           let (let [[bindings & body] operands
                     body-expr (if (= 1 (count body)) (first body) (cons 'do body))]

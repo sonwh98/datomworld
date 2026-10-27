@@ -30,7 +30,13 @@
                            :main-opts ["-m" "btree-bench"]}
            :test {:extra-paths ["test"]
                   :extra-deps {io.github.cognitect-labs/test-runner
-                               {:git/tag "v0.5.1" :git/sha "dfb30dd"}}
+                               {:git/tag "v0.5.1" :git/sha "dfb30dd"}
+                               ;; latte-kernel: the LaTTe proof assistant's kernel,
+                               ;; the differential oracle for the yang.clojure gap
+                               ;; program (pinned; MIT; dependency-free)
+                               latte-kernel/latte-kernel
+                               {:git/url "https://github.com/latte-central/latte-kernel"
+                                :git/sha "86fca0d1d054af005cb37395eae04500d45e6279"}}
                   :main-opts ["-m" "cognitect.test-runner"]
                   :exec-fn cognitect.test-runner.api/test}
            :nREPL {:extra-paths ["test"]

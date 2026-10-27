@@ -175,12 +175,12 @@
   (let [cx (seeded)]
     (testing "one body form"
       (let [out (m/expand (batch [(call 'defn {:type :variable, :name 'f}
-                                        (c '[x]) (c '(+ x 1)))])
+                                        (c '(quote [x])) (c '(+ x 1)))])
                           cx)]
         (is (same-tree? (expected (c '(def f (fn [x] (+ x 1))))) out))))
     (testing "several body forms lower through the reference do"
       (let [out (m/expand (batch [(call 'defn {:type :variable, :name 'g}
-                                        (c '[x]) (c '(print x)) (c '(+ x 1)))])
+                                        (c '(quote [x])) (c '(print x)) (c '(+ x 1)))])
                           cx)]
         (is (same-tree? (expected (c '(def g (fn [x] (do (print x) (+ x 1))))))
                         out))))
@@ -307,7 +307,7 @@
 (deftest outermost-first-binders
   (let [cx (seeded transformers)
         out (m/expand (batch [(call 'defn {:type :variable, :name 'f}
-                                    (c '[twice]) (c '(twice 1)))])
+                                    (c '(quote [twice])) (c '(twice 1)))])
                       cx)]
     (is (same-tree? (expected (c '(def f (fn [twice] (twice 1))))) out)
         "defn establishes the parameter before its body is inspected")))
@@ -735,7 +735,7 @@
         "positions 0 and 1 are invalid")
     (is (same-tree? (m/ast->packet (c '(fn [a b] (+ a b))))
                     (m/invoke (lam '(fn [p b] (yin/make-lambda p b)))
-                              [(m/ast->packet (c '[a b])) (m/ast->packet (c '(+ a b)))]
+                              [(m/ast->packet (c '(quote [a b]))) (m/ast->packet (c '(+ a b)))]
                               cx)))))
 
 
@@ -761,7 +761,7 @@
   (let [program {:type :application,
                  :operator {:type :lambda, :params '[_], :body (c '(inc1 41))},
                  :operands [(call 'defn {:type :variable, :name 'inc1}
-                                  (c '[x]) (c '(+ x 1)))]}
+                                  (c '(quote [x])) (c '(+ x 1)))]}
         tree (m/expand (batch [program]) (seeded))
         vm (vm/run (ast-walker/vm-load-rows (tu/create-vm)
                                             (m/packet->row-set tree)

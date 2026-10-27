@@ -181,7 +181,42 @@
     (testing "If without alternate"
       (let [ast (yang/compile '(if true 1))]
         (is (= :if (:type ast)))
-        (is (= {:type :literal, :value nil} (:alternate ast)))))))
+        (is (= {:type :literal, :value nil} (:alternate ast)))))
+    (testing "Explicit false alternate is a value, not an absence"
+      (let [ast (yang/compile '(if true 1 false))]
+        (is (= {:type :literal, :value false} (:alternate ast))))
+      (is (false? (compile-and-run '(if false 1 false)))))))
+
+
+(deftest test-dynamic-collection-literals
+  ;; unquoted collections evaluate their elements like Clojure; constant
+  ;; collections stay literal nodes; quoted collections stay data
+  (testing "Constant collections stay literals"
+    (is (= {:type :literal, :value [1 2]} (yang/compile '[1 2])))
+    (is (= {:type :literal, :value '(1 x 2)} (yang/compile '(quote (1 x 2))))))
+  (testing "Dynamic vectors lower to conj over []"
+    (let [ast (yang/compile '(let [x 7] [x 2]))]
+      (is (= :application (:type ast)))
+      (is (= 'conj (get-in ast [:operator :body :operator :name])))
+      (is (= {:type :literal, :value []} (first (get-in ast [:operator :body :operands])))))
+    (is (= [7 2] (compile-and-run '(let [x 7] [x 2])))))
+  (testing "Dynamic sets lower to conj over #{}"
+    (is (= #{7 2} (compile-and-run '(let [x 7] #{x 2})))))
+  (testing "Dynamic maps evaluate keys and values"
+    (is (= {7 8} (compile-and-run '(let [x 7] {x (+ x 1)})))
+        "map keys are evaluated, not taken as data"))
+  (testing "Nested collections evaluate recursively"
+    (is (= [7 [8] {:k #{9}}]
+           (compile-and-run '(let [x 7] [x [(+ x 1)] {:k #{(+ x 2)}}])))))
+  (testing "Quoted dynamic collections remain data"
+    (is (= '[x y] (compile-and-run '(quote [x y])))))
+  (testing "Empty lists are self-evaluating data, constant or nested"
+    (is (= [()] (compile-and-run '[()])))
+    (is (= [() 1] (compile-and-run '(let [x 1] [() x])))))
+  (testing "Nested quote is stripped and the inner form evaluated"
+    ;; (quote x) counts as constant only at top level; nested inside a
+    ;; collection it must reach compile-form so the quote is stripped
+    (is (= '[x] (compile-and-run (list 'let '[x 7] ['(quote x)]))))))
 
 
 (deftest test-compile-let
