@@ -213,7 +213,10 @@
         (swap! fx assoc-in [:cursors s] (:cursor r))
         (doseq [model (:values r)
                 :when (map? model)]
-          (cond
-            (:edit model) (confirm! driver s (apply-edit! store asset-root (:edit model)))
-            (:new model) (confirm! driver s (apply-new! store (:new model))))))
-        fx)))
+          ;; The grid emit's fourth argument lands on the model under :edit;
+          ;; a create emits {:new {...}} as that argument, so unwrap it here.
+          (let [effect (:edit model)]
+            (cond
+              (:new effect) (confirm! driver s (apply-new! store (:new effect)))
+              (map? effect) (confirm! driver s (apply-edit! store asset-root effect)))))
+        fx))))
