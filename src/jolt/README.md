@@ -35,6 +35,13 @@ Contents (J0c–J4d):
 - `yang/antlr/cst.jolt` (J0c round 2): the native-library facade over the
   ANTLR4 C++ Python3 parser (§7.3). Its contract is the JVM oracle corpus in
   `src/dev/jolt_j0c_parity.clj`.
+  J5 (known-gaps row 59): the library loads on first use and a refusal is
+  retried by the next selection (`available?`); the wrapper refuses before
+  parsing an input over 4 MiB (status -6) or nesting deeper than 256
+  (status -7, clamped down on a smaller stack), by a flat prescan of the
+  grammar's recursive carriers, answered as the qualified `:parser-budget`
+  diagnostic; convenience calls dispose their workers and the parser stage
+  owns its own (`close-stage`, `reset-stage`). Gates: `bb probe:jolt-j5`.
 - `dao/host/{hash,sign}.jolt` (J1b): BLAKE3, SHA-256 and Ed25519 over
   `native/jolt-crypto` (§6.2-6.3), built by `bb build:jolt-native` from the
   pinned BLAKE3 C reference and the declared system libcrypto. Contract: the
@@ -152,7 +159,9 @@ deadline. Chez's buffered stdin is checked before waiting on fd 0. A partial
 line without newline blocks that owner until newline. Ctrl-C exits without a
 graceful drain, as on the JVM. There is no line editor.
 
-The J3 catalog installs Clojure and PHP. Python refuses explicitly until J5;
+The standard catalog installs Clojure, PHP and (since J5) Python over the
+native C++ parser; with no usable parser library Python is left out and
+`(lang :yang/python)` answers unavailable-parser, never another parser;
 file: stores open since J4 (J4d); dht: stores refuse at composition until J7.
 Saved CLI state is enabled by the Jolt entry point since J4d. Networking has no host adapter
 until J6/J7. Source startup is measured by the transcript runner; no speed
