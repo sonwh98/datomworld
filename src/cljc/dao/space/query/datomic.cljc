@@ -37,7 +37,8 @@
    randomized aggregates (rand, sample), unvalidated pull syntax (recursion,
    reverse attributes, dynamic or source-qualified patterns). Aggregates are
    count, count-distinct, sum, avg, distinct, median, variance, stddev and
-   min/max, optionally with the positive integer n (Phase 2); arity and
+   min/max, optionally with the integer n (Phase 2; n <= 0 yields an empty
+   vector, matching the Datomic Local oracle, Phase 5); arity and
    parameters are validated before evaluation.
 
    Numeric limitation (corpus errata E1): core builds its final result set
@@ -429,8 +430,8 @@
           (fail :invalid-request "aggregate arity does not match its definition"
                 {:variable (fragment el)})
           (and (= 3 (count el))
-               (not (and (integer? (second el)) (pos? (second el)))))
-          (fail :invalid-request "aggregate parameter must be a positive integer"
+               (not (integer? (second el))))
+          (fail :invalid-request "aggregate parameter must be an integer"
                 {:variable (fragment el)}))))))
 
 
