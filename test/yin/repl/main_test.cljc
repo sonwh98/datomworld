@@ -218,7 +218,8 @@
     #?(:jolt (is (nil? (:host state)))
        :default (is (host-common/adapter? (:host state))))
     (is (true? (:running? state)))
-    #?(:jolt (is (= [shell/host-text "python: not installed on this host until J5"]
+    #?(:jolt (is (= [shell/host-text
+                     "python: the native C++ ANTLR4 parser (native/jolt-parser), in process; no process crash isolation"]
                     (repl/banner (repl/parse-args []))))
        :default (is (empty? (repl/banner (repl/parse-args [])))))
     (testing "the composition is drivable without any host loop"
@@ -331,38 +332,37 @@
       out)))
 
 
-#?(:jolt nil ; J5 Python: capability unavailable in J3; cljd takes :default.
-   :default (deftest the-interactive-composition-holds-every-standard-language
-              (let [t (transcript ["(host)"
-                                   "(lang :yang/python)"
-                                   "1 + 2"
-                                   "[x * x for x in range(4)]"
-                                   "'a' + 'b'"
-                                   "(lang :python)"
-                                   "1 + 2"
-                                   "(lang :yang/php)"
-                                   "1 + 2;"
-                                   "(lang :yang/clojure)"
-                                   "1 + 2"
-                                   "(+ 1 2)"])]
-                (is (str/starts-with? (first (get-in t [0 1])) "Host: "))
-                (is (= "Switched to :yang/python" (first (get-in t [1 1]))))
-                (is (= ["3"] (get-in t [2 1])))
-                (is (= ["[0, 1, 4, 9]"] (get-in t [3 1])))
-                (is (= ["'ab'"] (get-in t [4 1])))
-                (testing "a language keyword is not a selector: the refusal names what
+(deftest the-interactive-composition-holds-every-standard-language
+  (let [t (transcript ["(host)"
+                       "(lang :yang/python)"
+                       "1 + 2"
+                       "[x * x for x in range(4)]"
+                       "'a' + 'b'"
+                       "(lang :python)"
+                       "1 + 2"
+                       "(lang :yang/php)"
+                       "1 + 2;"
+                       "(lang :yang/clojure)"
+                       "1 + 2"
+                       "(+ 1 2)"])]
+    (is (str/starts-with? (first (get-in t [0 1])) "Host: "))
+    (is (= "Switched to :yang/python" (first (get-in t [1 1]))))
+    (is (= ["3"] (get-in t [2 1])))
+    (is (= ["[0, 1, 4, 9]"] (get-in t [3 1])))
+    (is (= ["'ab'"] (get-in t [4 1])))
+    (testing "a language keyword is not a selector: the refusal names what
               is installed, and the session keeps its frontend"
-                  (is (= [(str "Error: unavailable-parser: Yin REPL language :python"
-                               " is not in the frontend catalog; installed: :clojure :php"
-                               " :python (ids :yang/clojure :yang/php :yang/python)")]
-                         (get-in t [5 1])))
-                  (is (= ["3"] (get-in t [6 1]))))
-                (is (= "Switched to :yang/php" (first (get-in t [7 1]))))
-                (is (= ["3"] (get-in t [8 1])))
-                (is (= "Switched to :yang/clojure" (first (get-in t [9 1]))))
-                (testing "Clojure reads `1 + 2` as three forms; the last value prints"
-                  (is (= ["2"] (get-in t [10 1]))))
-                (is (= ["3"] (get-in t [11 1]))))))
+      (is (= [(str "Error: unavailable-parser: Yin REPL language :python"
+                   " is not in the frontend catalog; installed: :clojure :php"
+                   " :python (ids :yang/clojure :yang/php :yang/python)")]
+             (get-in t [5 1])))
+      (is (= ["3"] (get-in t [6 1]))))
+    (is (= "Switched to :yang/php" (first (get-in t [7 1]))))
+    (is (= ["3"] (get-in t [8 1])))
+    (is (= "Switched to :yang/clojure" (first (get-in t [9 1]))))
+    (testing "Clojure reads `1 + 2` as three forms; the last value prints"
+      (is (= ["2"] (get-in t [10 1]))))
+    (is (= ["3"] (get-in t [11 1])))))
 
 
 ;; =============================================================================
