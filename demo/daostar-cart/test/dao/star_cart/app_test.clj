@@ -133,7 +133,7 @@
         old-price (str "$" (quot (:price a) 100) "." (format "%02d" (rem (:price a) 100)))
         grid (subscribed "/grid")]
     (testing "the spreadsheet lists every item"
-      (is (= 249 (sup/count-matches #"<tr><td class=\"th-img\">" (sse-text grid)))))
+      (is (sup/wait-for 15000 #(= 249 (sup/count-matches #"<tr><td class=\"th-img\">" (sse-text grid)))) "all 249 rows streamed")))
     (testing "a cell edit saves on change, then saved after the transact"
       ;; every consumed input (the cell AND the interpreter's confirmation)
       ;; advances the occurrence, so each post goes to the CURRENT token,
@@ -158,7 +158,8 @@
         (is (sup/wait-for 8000 #(str/includes? (sse-text grid) "rejected: price must be a whole number")))
         (is (= 4242 (:price (store/item (:store *site*) (:key a)))))))
     (testing "the tagories cell applies the whole set (add and remove)"
-      (let [_ (sup/input! (port) "/grid" (sup/token-of (sse-text grid))
+      (let [_ (spit "/tmp/grid-tg.txt" (sse-text grid))
+            _ (sup/input! (port) "/grid" (sup/token-of (sse-text grid))
                           {:act "cell" :arg (str (:key a) "|tagories") :val "Alpha Tag, Beta Tag"})]
         (is (sup/wait-for 8000 #(str/includes? (sse-text grid) "class=\"status saved\"")))
         (is (= ["Alpha Tag" "Beta Tag"] (:tagories (store/item (:store *site*) (:key a)))))))
