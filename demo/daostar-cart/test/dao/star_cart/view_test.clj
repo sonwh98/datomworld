@@ -50,7 +50,7 @@
     (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {}})]
       (is (str/starts-with? sse "event: datastar-patch-signals\ndata: signals {\"tok\":\"TOK\"}\n\n"))
       (is (str/includes? sse "event: datastar-patch-elements\ndata: elements <div id=\"app-body\">"))
-      (is (not (str/includes? sse "type=\"search\""))) "the search input is never patched"
+      (is (not (str/includes? sse "type=\"search\"")) "the search input is never patched")
       (is (str/ends-with? sse "\n\n"))
       (is (str/includes? sse "Alpha &lt;b&gt;"))
       (is (str/includes? sse "<img src=\"/images/a%20b.png\""))
