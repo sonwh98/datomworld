@@ -517,6 +517,163 @@
     (k "TypeError")]])
 
 
+;; ------------------------------------------------------------------- S4
+
+(defn- derived-of
+  "A form for a class D whose default derived constructor forwards to the
+   constructor `parent-form` evaluates to."
+  [parent-form]
+  (list 'let
+        ['dcell '(cell/new :js/undefined)
+         'pp parent-form]
+        '(let [d (js/make-class {:js/str "D"} 0 true pp
+                                (js/make-object (js/get-prop pp {:js/str "prototype"}))
+                                (fn [this args nt]
+                                  (let [thisc (cell/new :js/tdz)]
+                                    (do (js/super-call (cell/get dcell) nt thisc args)
+                                        (js/derived-result thisc :js/undefined)))))]
+           (do (cell/set! dcell d) d))))
+
+
+(defn- with-d
+  "`body` with D bound to the derived class of `parent-form`."
+  [parent-form body]
+  (list 'let ['d (derived-of parent-form)] body))
+
+
+(defn- global
+  [nm]
+  (list 'js/global-get {:js/str nm}))
+
+
+(def ^:private instanceof-cases
+  [['(let [mk (fn [par]
+                (js/make-class {:js/str "C"} 0 false js.rt/fn-proto
+                               (js/make-object par)
+                               (fn [this args nt] this)))
+           a (mk js.rt/obj-proto)
+           b (mk (js/get-prop a {:js/str "prototype"}))
+           o (js/construct b [])]
+       [(js/instanceof o b) (js/instanceof o a) (js/instanceof o (js/global-get {:js/str "Object"}))
+        (js/instanceof (js/construct a []) b)])
+    [true true true false]]
+   ['[(js/instanceof {:n 1} (js/global-get {:js/str "Object"}))
+      (js/instanceof :js/null (js/global-get {:js/str "Object"}))
+      (js/instanceof {:js/str "x"} (js/global-get {:js/str "Object"}))]
+    [false false false]]
+   [(throws '(js/instanceof (js/make-object js.rt/obj-proto) {:n 5})) (k "TypeError")]
+   [(throws '(js/instanceof (js/make-object js.rt/obj-proto) (js/make-object js.rt/obj-proto)))
+    (k "TypeError")]
+   [(throws '(let [f (js/make-function {:js/str "F"} 0 :strict :normal (fn [t a] t))]
+               (do (js/define-own! f {:js/str "prototype"} (js/slot :js/null true false false))
+                   (js/instanceof (js/make-object js.rt/obj-proto) f))))
+    (k "TypeError")]
+   ;; a bound function delegates to its target
+   ['(let [f (js/make-function {:js/str "F"} 0 :strict :normal (fn [t a] t))
+           b (js/call (js/get-prop f {:js/str "bind"}) f (js/vconj [] :js/undefined))
+           o (js/construct f [])]
+       [(js/instanceof o b) (js/instanceof (js/make-object js.rt/obj-proto) b)])
+    [true false]]
+   ;; arrays and functions against the intrinsics
+   ['(let [arr (js/new-array [])
+           fn1 (js/make-function {:js/str "g"} 0 :strict :normal (fn [t a] t))]
+       [(js/instanceof arr (js/global-get {:js/str "Array"}))
+        (js/instanceof arr (js/global-get {:js/str "Object"}))
+        (js/instanceof fn1 (js/global-get {:js/str "Object"}))
+        (js/instanceof (js/make-object js.rt/obj-proto) (js/global-get {:js/str "Array"}))])
+    [true true true false]]])
+
+
+(def ^:private error-cases
+  [['(let [e (js/construct (js/global-get {:js/str "Error"}) (js/vconj [] {:js/str "m"}))
+           sl (js/get-own e {:js/str "message"})]
+       [(js/get-prop e {:js/str "message"}) (get sl :writable) (get sl :enumerable)
+        (get sl :configurable)
+        (= (get (cell/get e) :js/class) :error)
+        (js/instanceof e (js/global-get {:js/str "Error"}))
+        (js/instanceof e (js/global-get {:js/str "TypeError"}))
+        (nil? (js/get-own e {:js/str "cause"}))])
+    [(k "m") true false true true true false true]]
+   ;; without new, the constructor allocates from its own prototype
+   ['(let [e (js/call (js/global-get {:js/str "TypeError"}) :js/undefined
+                      (js/vconj [] {:js/str "x"}))]
+       [(js/instanceof e (js/global-get {:js/str "TypeError"}))
+        (js/instanceof e (js/global-get {:js/str "Error"}))
+        (js/get-prop e {:js/str "message"})])
+    [true true (k "x")]]
+   ;; no message argument: no own message
+   ['(nil? (js/get-own (js/construct (js/global-get {:js/str "Error"}) []) {:js/str "message"}))
+    true]
+   ;; cause from the options object
+   ['(let [c (js/make-object js.rt/obj-proto)
+           opts (js/make-object js.rt/obj-proto)]
+       (do (js/define-own! opts {:js/str "cause"} (js/slot c true true true))
+           (let [e (js/construct (js/global-get {:js/str "Error"})
+                                 (js/vconj (js/vconj [] {:js/str "o"}) opts))
+                 sl (js/get-own e {:js/str "cause"})]
+             [(= (get sl :value) c) (get sl :enumerable) (get sl :writable)])))
+    [true false true]]
+   ;; the new classes exist and chain to Error
+   ['(let [e (js/construct (js/global-get {:js/str "URIError"}) [])
+           v (js/construct (js/global-get {:js/str "EvalError"}) [])]
+       [(js/instanceof e (js/global-get {:js/str "Error"}))
+        (js/instanceof v (js/global-get {:js/str "Error"}))
+        (js/instanceof e (js/global-get {:js/str "EvalError"}))])
+    [true true false]]
+   ;; subclassing: the instance is allocated from new.target.prototype
+   [(with-d (global "Error")
+      '(let [e (js/construct d (js/vconj [] {:js/str "sub"}))]
+         [(js/instanceof e d) (js/instanceof e (js/global-get {:js/str "Error"}))
+          (js/instanceof e (js/global-get {:js/str "TypeError"}))
+          (js/get-prop e {:js/str "message"})
+          (= (get (cell/get e) :js/class) :error)
+          (js/object-to-string e)]))
+    [true true false (k "sub") true (k "[object Error]")]]
+   [(with-d (global "RangeError")
+      '(let [e (js/construct d [])]
+         [(js/instanceof e (js/global-get {:js/str "RangeError"}))
+          (js/instanceof e (js/global-get {:js/str "Error"}))]))
+    [true true]]
+   ;; the stack departure: no stack property
+   ['(js/has-property (js/construct (js/global-get {:js/str "Error"}) []) {:js/str "stack"})
+    false]])
+
+
+(def ^:private builtin-subclass-cases
+  [[(with-d (global "Array")
+      '(let [a (js/construct d (js/vconj (js/vconj [] {:n 1}) {:n 2}))]
+         [(js/array? a) (js/instanceof a d) (js/instanceof a (js/global-get {:js/str "Array"}))
+          (= (get (cell/get a) :proto) (js/get-prop d {:js/str "prototype"}))
+          (js/get-prop a {:js/str "length"})]))
+    [true true true true {:n 2}]]
+   [(with-d (global "Array")
+      '(let [a (js/construct d (js/vconj [] {:n 3}))]
+         [(js/array? a) (js/get-prop a {:js/str "length"})]))
+    [true {:n 3}]]
+   ;; direct construction is unchanged
+   ['(let [a (js/construct (js/global-get {:js/str "Array"}) (js/vconj [] {:n 1}))]
+       [(js/array? a) (= (get (cell/get a) :proto) js.rt/array-proto)])
+    [true true]]
+   [(with-d (global "Object")
+      '(let [o (js/construct d [])]
+         [(js/instanceof o d) (js/instanceof o (js/global-get {:js/str "Object"}))
+          (= (get (cell/get o) :proto) (js/get-prop d {:js/str "prototype"}))]))
+    [true true true]]
+   ;; Object stays itself when constructed directly
+   ['(let [o (js/make-object js.rt/obj-proto)]
+       (= (js/construct (js/global-get {:js/str "Object"}) (js/vconj [] o)) o))
+    true]])
+
+
+(deftest instanceof-test (check instanceof-cases))
+
+
+(deftest error-family-test (check error-cases))
+
+
+(deftest builtin-subclass-test (check builtin-subclass-cases))
+
+
 (deftest constructor-kinds-test (check kind-cases))
 
 

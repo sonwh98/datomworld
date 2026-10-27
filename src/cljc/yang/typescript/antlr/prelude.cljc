@@ -2047,10 +2047,24 @@
                        (assoc {} :js/str name)
                        (js/slot value true false true)))]
     [js/install-ctor!
-     ;; a constructor function cell wired to its prototype both ways
      (fn [name length code proto ctor?]
-       (let [f (js/make-function (assoc {} :js/str name) length :strict :builtin code)]
-         (do (cell/set! f (assoc (cell/get f) :ctor? ctor?))
+       (js/install-ctor-nt! name length code proto ctor? false))]
+    [js/install-ctor-nt!
+     ;; a constructor function cell wired to its prototype both ways; `nt?`
+     ;; means the code takes the new.target as a third argument. :ctor-id
+     ;; names the builtin so its code can tell a direct `new Object(..)`
+     ;; from a subclass construction
+     (fn [name length code proto ctor? nt?]
+       (let [f (js/make-function-nt (assoc {} :js/str name)
+                                    length
+                                    :strict
+                                    :builtin
+                                    code
+                                    nt?)]
+         (do (cell/set! f
+                        (assoc (assoc (cell/get f) :ctor? ctor?)
+                               :ctor-id
+                               (assoc {} :js/str name)))
              (js/define-own! f
                              {:js/str "prototype"}
                              (js/slot proto false false false))
@@ -2356,14 +2370,20 @@
 
     ;; ------------------------------------------------------------ Object
     [js/object-fn
-     (fn [this args]
-       (let [v (js/arg args 0)]
-         (if (js/object? v)
-           v
-           (if (if (= v :js/undefined) true (= v :js/null))
-             (js/make-object js.rt/obj-proto)
-             (js/throw-type-error
-               {:js/str "Object(value) of a primitive is not supported (no wrapper objects)"})))))]
+     ;; nt is the new.target: a subclass construction (`extends Object`)
+     ;; keeps the `this` allocated from nt.prototype
+     (fn [this args nt]
+       (if (if (= nt :js/undefined)
+             true
+             (= (get (cell/get nt) :ctor-id) {:js/str "Object"}))
+         (let [v (js/arg args 0)]
+           (if (js/object? v)
+             v
+             (if (if (= v :js/undefined) true (= v :js/null))
+               (js/make-object js.rt/obj-proto)
+               (js/throw-type-error
+                 {:js/str "Object(value) of a primitive is not supported (no wrapper objects)"}))))
+         this))]
     [js/object-keys
      (fn [this args]
        (js/list->array
@@ -2646,7 +2666,7 @@
              {:js/str "Object.fromEntries accepts arrays only (iterables are T5)"}))))]
     [js/install-object!
      (fn []
-       (let [f (js/install-ctor! "Object" 1 js/object-fn js.rt/obj-proto true)]
+       (let [f (js/install-ctor-nt! "Object" 1 js/object-fn js.rt/obj-proto true true)]
          (do (js/def-method! f "keys" 1 js/object-keys)
              (js/def-method! f "values" 1 js/object-values)
              (js/def-method! f "entries" 1 js/object-entries)
@@ -2967,14 +2987,23 @@
              (js/some-step a f t (+ i 1) n want)))
          (not want)))]
     [js/array-fn
-     (fn [this args]
+     ;; a subclass construction (nt.prototype an object) re-parents the new
+     ;; array exotic cell onto nt.prototype
+     (fn [this args nt]
        (let [n (data/count args)
-             a0 (js/arg args 0)]
-         (if (if (= n 1) (= (js/kind-of a0) :number) false)
-           (let [len (js/array-length-value a0)]
-             (do (js/check-sparse 0 len)
-                 (js/list->array (js/items-pad [] len))))
-           (js/list->array args))))]
+             a0 (js/arg args 0)
+             a (if (if (= n 1) (= (js/kind-of a0) :number) false)
+                 (let [len (js/array-length-value a0)]
+                   (do (js/check-sparse 0 len)
+                       (js/list->array (js/items-pad [] len))))
+                 (js/list->array args))]
+         (if (= nt :js/undefined)
+           a
+           (let [pr (js/get-prop nt {:js/str "prototype"})]
+             (do (if (js/object? pr)
+                   (cell/set! a (assoc (cell/get a) :proto pr))
+                   :js/undefined)
+                 a)))))]
     [js/array-is-array
      (fn [this args] (js/array? (js/arg args 0)))]
     [js/array-of (fn [this args] (js/list->array args))]
@@ -3188,7 +3217,7 @@
              (js/from-map (js/this-fn f) (js/arg args 2) items 0 [])))))]
     [js/install-array!
      (fn []
-       (let [f (js/install-ctor! "Array" 1 js/array-fn js.rt/array-proto true)]
+       (let [f (js/install-ctor-nt! "Array" 1 js/array-fn js.rt/array-proto true true)]
          (do (js/def-method! f "isArray" 1 js/array-is-array)
              (js/def-method! f "of" 0 js/array-of)
              (js/def-method! f "from" 1 js/array-from)
@@ -3245,6 +3274,55 @@
                              {:js/str "constructor"}
                              (js/slot f true false true))
              f)))]
+
+    ;; ------------------------------------------------------ instanceof
+    [js/instanceof
+     ;; OrdinaryHasInstance (Symbol.hasInstance is deferred, L-T3-7)
+     (fn [v f]
+       (if (js/callable? f)
+         (let [c (cell/get f)]
+           (if (nil? (get c :bound-target))
+             (if (js/object? v)
+               (let [pr (js/get-prop f {:js/str "prototype"})]
+                 (if (js/object? pr)
+                   (js/proto-chain-has? (get (cell/get v) :proto) pr)
+                   (js/throw-type-error
+                     {:js/str "Function has non-object prototype in instanceof check"})))
+               false)
+             (js/instanceof v (get c :bound-target))))
+         (js/throw-type-error
+           {:js/str "Right-hand side of 'instanceof' is not callable"})))]
+
+    ;; ------------------------------------------------------ errors
+    [js/error-init!
+     ;; message (when supplied) and cause (when the options object has one)
+     ;; on the error object `e`
+     (fn [e args]
+       (let [msg (js/arg args 0)
+             opts (js/arg args 1)]
+         (do (cell/set! e (assoc (cell/get e) :js/class :error))
+             (if (= msg :js/undefined)
+               :js/undefined
+               (js/define-own! e
+                               {:js/str "message"}
+                               (js/slot (js/to-string msg) true false true)))
+             (if (if (js/object? opts) (js/has-property opts {:js/str "cause"}) false)
+               (js/define-own! e
+                               {:js/str "cause"}
+                               (js/slot (js/get-prop opts {:js/str "cause"})
+                                        true
+                                        false
+                                        true))
+               :js/undefined)
+             e)))]
+    [js/error-construct
+     ;; called without new, an error constructor allocates from its own
+     ;; prototype; constructed, it initializes the `this` allocated from
+     ;; new.target.prototype
+     (fn [proto this args nt]
+       (if (= nt :js/undefined)
+         (js/error-init! (js/make-object proto) args)
+         (js/error-init! this args)))]
 
     ;; ------------------------------------------------------ elements
     [js/def-class-method!
@@ -3843,7 +3921,9 @@
    ["TypeError" 'js.rt/type-error-proto 'js.rt/error-proto]
    ["ReferenceError" 'js.rt/reference-error-proto 'js.rt/error-proto]
    ["RangeError" 'js.rt/range-error-proto 'js.rt/error-proto]
-   ["SyntaxError" 'js.rt/syntax-error-proto 'js.rt/error-proto]])
+   ["SyntaxError" 'js.rt/syntax-error-proto 'js.rt/error-proto]
+   ["EvalError" 'js.rt/eval-error-proto 'js.rt/error-proto]
+   ["URIError" 'js.rt/uri-error-proto 'js.rt/error-proto]])
 
 
 (def ^:private primitive-protos
@@ -3936,13 +4016,14 @@
                          key
                          {:js/str "message"}
                          (list 'js/slot {:js/str ""} true false true))
-                   (list 'js/install-ctor!
+                   (list 'js/install-ctor-nt!
                          nm
                          1
                          (list 'fn
-                               '[this args]
-                               (list 'js/make-error key '(js/arg args 0)))
+                               '[this args nt]
+                               (list 'js/error-construct key 'this 'args 'nt))
                          key
+                         true
                          true)])
                 error-classes)
         (mapv (fn [[key nm code]]
