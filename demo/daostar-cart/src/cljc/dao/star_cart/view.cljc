@@ -171,7 +171,7 @@
    `__debounce`) and posts to `/k/` + the `tok` signal, which every
    projection updates to the CURRENT occurrence — so the input never posts
    to the long-consumed root token."
-  [root]
+  [_root]
   (str "<section class=\"search\"><input type=\"search\" placeholder=\"Search products…\""
        " data-bind:search"
        " data-on:input__debounce.150ms=\"$act='search'; $arg=$search; @post('/k/'+$tok)\""

@@ -90,7 +90,7 @@
     (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "alp"})]
       (is (str/includes? sse "Alpha &lt;b&gt;"))
       (is (not (str/includes? sse "Bravo")))
-      (is (not (str/includes? sse "type=\"search\""))))
+      (is (not (str/includes? sse "type=\"search\"")) "the search input is never patched"))
     (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "ALP"})]
       (is (str/includes? sse "Alpha &lt;b&gt;"))
       (is (not (str/includes? sse "Bravo")))))
