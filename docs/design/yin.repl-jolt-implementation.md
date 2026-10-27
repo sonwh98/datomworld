@@ -1445,7 +1445,7 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 |                                             | native socket +   | Native deployment only. ws:// only (owner-settled). The adapter's closure contains                  |
 |                                             | poller substrate  | `jolt.socket.native`, `jolt.io-poller` and `jolt.ffi` and not `jolt.socket` (ruling 2); `send!`     |
 |                                             |                   | never waits; `:queued-bytes` is exact and drains on readiness.                                      |
-|                                             | (§9.3), full §9.2 |                                                                                                     |
+|                                             | (§9.3), full §9.2 | **2026-10-27 proposal, owner ruling pending:** pinned harness/case policy; see note below.             |
 |                                             | contract, CBOR    |                                                                                                     |
 |                                             | subprotocol only  |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
@@ -1463,6 +1463,19 @@ landings and J0c's probe do not discharge J2b or J5 acceptance.
 |                                             | benchmark         |                                                                                                     |
 |                                             | reporting         |                                                                                                     |
 +---------------------------------------------+-------------------+-----------------------------------------------------------------------------------------------------+
+
+**J6 harness amendment proposal (2026-10-27; not an adopted gate change).**
+The [Autobahn prep and proposed gate](../../tools/jolt-autobahn/README.md#5-proposed-j6-amendment-for-owner-ruling)
+pins official 25.10.1 by image digest and inventories 517 exact cases: 299
+must-pass, two assertion-constrained informational cases, 216 compression
+cases not applicable without extension negotiation. The proposed gate runs
+301 cases in each native testee role on both platforms, zero unlisted
+non-strict outcomes, with raw evidence retained; all existing §9.6 and real
+jolt↔JVM/Node/Dart peer gates remain. The included jolt echo stub verifies
+harness plumbing only and makes no RFC 6455 or J6 conformance claim. Owner
+approval is required for the case/exception policy. This proposal does not
+transfer the J7 UDP no-`full` policy to WebSocket or change WS backpressure.
+
 
 ### 10.2 Order, dependencies and platforms
 

@@ -1,0 +1,50 @@
+{
+  "exceptions": [
+    {
+      "case": "7.13.1",
+      "equals": {
+        "behavior": "INFORMATIONAL",
+        "behaviorClose": "INFORMATIONAL",
+        "remoteCloseCode": 1002
+      },
+      "proposal": "2026-10-27 J6 gate proposal; owner approval pending",
+      "reason": "Upstream case marks both behaviors INFORMATIONAL regardless of response; constrain the actual invalid-close-code response instead. No FAILED waiver.",
+      "role": "client"
+    },
+    {
+      "case": "7.13.1",
+      "equals": {
+        "behavior": "INFORMATIONAL",
+        "behaviorClose": "INFORMATIONAL",
+        "remoteCloseCode": 1002
+      },
+      "proposal": "2026-10-27 J6 gate proposal; owner approval pending",
+      "reason": "Upstream case marks both behaviors INFORMATIONAL regardless of response; constrain the actual invalid-close-code response instead. No FAILED waiver.",
+      "role": "server"
+    },
+    {
+      "case": "7.13.2",
+      "equals": {
+        "behavior": "INFORMATIONAL",
+        "behaviorClose": "INFORMATIONAL",
+        "remoteCloseCode": 1002
+      },
+      "proposal": "2026-10-27 J6 gate proposal; owner approval pending",
+      "reason": "Upstream case marks both behaviors INFORMATIONAL regardless of response; constrain the actual invalid-close-code response instead. No FAILED waiver.",
+      "role": "client"
+    },
+    {
+      "case": "7.13.2",
+      "equals": {
+        "behavior": "INFORMATIONAL",
+        "behaviorClose": "INFORMATIONAL",
+        "remoteCloseCode": 1002
+      },
+      "proposal": "2026-10-27 J6 gate proposal; owner approval pending",
+      "reason": "Upstream case marks both behaviors INFORMATIONAL regardless of response; constrain the actual invalid-close-code response instead. No FAILED waiver.",
+      "role": "server"
+    }
+  ],
+  "schema": 1,
+  "status": "proposal, owner approval required"
+}
