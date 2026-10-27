@@ -54,7 +54,7 @@
 (def ^:private enabled-steps
   "The steps whose corpus entries run (R14): an entry with a `:step` outside
    this set is pending its step; an entry without one always runs."
-  #{:S6 :S5b :S6b :S8})
+  #{:S6 :S5b :S6b :S8 :G-new :G-is})
 
 
 (def ^:private fixtures*

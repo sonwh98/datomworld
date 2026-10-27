@@ -421,7 +421,7 @@
                         (early-error! "Illegal return statement" n {}))
                       (walk-children n env))
                   "functionBody" (walk-children n (assoc env :fn? true))
-                  "singleExpression"
+                  ("singleExpression" "newOperand")
                   (do (when (and (= 1 (count (p/children pk n)))
                                  (p/token? (first (p/children pk n)) "this"))
                         (mark-this! (:scope env)))

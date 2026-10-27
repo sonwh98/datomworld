@@ -278,3 +278,95 @@
     (let [a (shapes (parse "x satisfies Y") "singleExpression")
           b (shapes (parse "x satisfies Y") "singleExpression")]
       (is (= a b)))))
+
+
+;; ts-g4-2 (T3): class grammar fixtures, one per rule (a)-(f) plus new.target.
+
+(deftest static-block-test
+  (let [pk (parse "class A { static {} static { x = 1; } }")]
+    (is (= [["static" "{" "}"] ["static" "{" "statementList" "}"]]
+           (shapes pk "staticBlock")))
+    (is (empty? (shapes pk "propertyMemberDeclaration")))))
+
+
+(deftest class-heritage-test
+  (testing "expression heritage"
+    (doseq [src ["class B extends null {}" "class B extends mixin(A) {}"
+                 "class B extends (f(), A) {}" "class B extends a.b.C {}"]]
+      (is (= [["extends" "singleExpression"]]
+             (shapes (parse src) "classExtendsClause"))
+          src)))
+  (testing "generic heritage keeps typeGeneric for the :T8 refusal"
+    (doseq [src ["class B extends A<T> {}" "class B extends A<T> implements I {}"]]
+      (is (= [["extends" "singleExpression" "typeGeneric"]]
+             (shapes (parse src) "classExtendsClause"))
+          src))))
+
+
+(deftest class-field-shape-test
+  (testing "public and private fields, with and without semicolons"
+    (doseq [src ["class A { x = 1; #y = 2; z; }"
+                 "class A { x = 1\n #y = 2\n z }"
+                 "class A { x = 1; #y; z }"]]
+      (let [pk (parse src)
+            fields (shapes pk "propertyMemberDeclaration")]
+        (is (= 3 (count fields)) src)
+        (is (every? #(some #{"eos"} %) fields) src)
+        (is (empty? (shapes pk "expressionStatement")) src)))
+    (is (= [["propertyMemberBase" "classElementName" "initializer" "eos"]]
+           (shapes (parse "class A { static #s = 1; }")
+                   "propertyMemberDeclaration"))))
+  (testing "annotated fields still carry typeAnnotation"
+    (is (= [["propertyMemberBase" "classElementName" "typeAnnotation" "eos"]]
+           (shapes (parse "class A { x: number; }")
+                   "propertyMemberDeclaration")))))
+
+
+(deftest class-member-shape-test
+  (testing "methods and accessors, public and private, are not fields"
+    (doseq [[src n] [["class A { m(o) { return o; } }" 1]
+                     ["class A { #m(o) {} }" 1]
+                     ["class A { get a() { return 1; } set a(v) {} }" 2]
+                     ["class A { get #g() { return 1; } static set #g(v) {} }" 2]]]
+      (is (= n (count (shapes (parse src) "propertyMemberDeclaration"))) src)
+      (is (empty? (shapes (parse src) "expressionStatement")) src))
+    (is (= [["propertyMemberBase" "getAccessor"]]
+           (shapes (parse "class A { get a() {} }")
+                   "propertyMemberDeclaration")))
+    (is (= [["propertyMemberBase" "classElementName" "callSignature" "{"
+             "functionBody" "}"]]
+           (shapes (parse "class A { #m() {} }") "propertyMemberDeclaration")))))
+
+
+(deftest private-brand-check-test
+  (doseq [src ["#x in o;" "class A { #x; m(o) { return #x in o; } }"
+               "class A { #x; m(o) { return (#x in o) && o; } }"]]
+    (is (some #{["privateIdentifier" "in" "singleExpression"]}
+              (shapes (parse src) "singleExpression"))
+        src)))
+
+
+(deftest new-target-test
+  (is (= [["new" "." "target"]]
+         (shapes (parse "function f() { return new.target; }")
+                 "singleExpression"))))
+
+
+(deftest new-operand-test
+  (testing "new binds a member expression, then its arguments (:G-new)"
+    (let [ss (shapes (parse "new X(a).m();") "singleExpression")]
+      (is (some #{["new" "newOperand" "arguments"]} ss))
+      (is (some #{["singleExpression" "." "identifierName"]} ss)
+          "the member is read off the new-expression"))
+    (is (= [["newOperand" "." "identifierName"] ["identifierName"]]
+           (shapes (parse "new a.b;") "newOperand")))
+    (is (some #{["new" "newOperand" "arguments"]}
+              (shapes (parse "new new X()();") "newOperand")))
+    (is (some #{["new" "newOperand" "typeArguments" "arguments"]}
+              (shapes (parse "new X<T>(1);") "singleExpression")))))
+
+
+(deftest is-property-name-test
+  (testing "`is` is a property name (:G-is)"
+    (is (= [["is"]] (shapes (parse "Object.is(a, b);") "keyword")))
+    (is (= [["is"]] (shapes (parse "x = { is: 1 };") "keyword")))))

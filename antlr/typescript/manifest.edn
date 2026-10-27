@@ -69,7 +69,27 @@
      ["    | identifierName singleExpression?                                # IdentifierExpression\n"
       "    | identifierName                                                  # IdentifierExpression\n"]
      ["    | singleExpression As asExpression                                # CastAsExpression\n"
-      "    | singleExpression As asExpression                                # CastAsExpression\n    | singleExpression {this.n(\"satisfies\")}? Identifier type_ # SatisfiesExpression\n"]],
+      "    | singleExpression As asExpression                                # CastAsExpression\n    | singleExpression {this.n(\"satisfies\")}? Identifier type_ # SatisfiesExpression\n"]
+     ;; ts-g4-2 (T3): classes. (a) static blocks, (b) expression heritage,
+     ;; (c) private brand checks, (d) semicolon-less fields with private names,
+     ;; (e) new-operand precedence, (f) `is` as a property name; plus new.target.
+     ["classElement\n    : constructorDeclaration\n"
+      "classElement\n    : staticBlock\n    | constructorDeclaration\n"]
+     ;; The field alternative ends in `eos`, whose predicates ANTLR treats as true
+     ;; in lookahead, so it must come last: an earlier field alternative would win
+     ;; every `name (` and `get name` ambiguity.
+     ["propertyMemberDeclaration\n    : propertyMemberBase propertyName '?'? typeAnnotation? initializer? SemiColon        # PropertyDeclarationExpression\n    | propertyMemberBase propertyName callSignature (('{' functionBody '}') | SemiColon) # MethodDeclarationExpression\n    | propertyMemberBase (getAccessor | setAccessor)                                     # GetterSetterDeclarationExpression\n"
+      "staticBlock\n    : Static '{' statementList? '}'\n    ;\n\npropertyMemberDeclaration\n    : propertyMemberBase (getAccessor | setAccessor)                                     # GetterSetterDeclarationExpression\n    | propertyMemberBase classElementName callSignature (('{' functionBody '}') | SemiColon) # MethodDeclarationExpression\n    | propertyMemberBase classElementName '?'? typeAnnotation? initializer? eos          # PropertyDeclarationExpression\n"]
+     ["    : Extends typeReference\n"
+      "    : Extends singleExpression typeGeneric?\n"]
+     ["    | singleExpression In singleExpression                            # InExpression\n"
+      "    | privateIdentifier In singleExpression                           # InExpression\n    | singleExpression In singleExpression                            # InExpression\n"]
+     ["    | New singleExpression typeArguments? arguments                   # NewExpression\n    | New singleExpression typeArguments?                             # NewExpression\n"
+      "    | New '.' {this.n(\"target\")}? Identifier                          # NewTargetExpression\n    | New newOperand typeArguments? arguments                         # NewExpression\n    | New newOperand typeArguments?                                   # NewExpression\n"]
+     ["asExpression\n    : predefinedType"
+      "newOperand\n    : newOperand '[' expressionSequence ']'\n    | newOperand '.' '#'? identifierName\n    | New newOperand typeArguments? arguments\n    | anonymousFunction\n    | Class identifier? typeParameters? classHeritage classTail\n    | This\n    | Super\n    | identifierName\n    | literal\n    | arrayLiteral\n    | objectLiteral\n    | '(' expressionSequence ')'\n    ;\n\nasExpression\n    : predefinedType"]
+     ["    | Module\n    ;\n"
+      "    | Module\n    | Is\n    ;\n"]],
     "Java/TypeScriptParserBase.java"
     [
      ["    protected boolean closeBrace() {\n"
@@ -79,7 +99,7 @@
                "TypeScriptLexerBase.java"
                "52a83e87672e55a30f465a54e19d1ee90ea081328d682f2f2e9b35cd4d48329f",
                "TypeScriptParser.java"
-               "8b515887aa520b25a8be6632b96f33c2340393bbdcaf87e0224404d451225993",
+               "0827f769c12bf749745231eb7fff5eb24ca8eb72ac7e251f28eaf831f532c894",
                "TypeScriptParserBase.java"
                "0b0016e2dddcfde087050479e1dfc6dc6f27a1df219be1b3c330a51a5f74da3b"}}},
  ;; yang.typescript.md section 5.1 license review. The two Java helpers carry

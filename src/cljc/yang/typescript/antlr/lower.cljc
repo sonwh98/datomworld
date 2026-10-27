@@ -953,7 +953,8 @@
   [ctx n]
   (let [ks (kids ctx n)]
     (and (< 2 (count ks))
-         (p/rule? (first ks) "singleExpression")
+         (or (p/rule? (first ks) "singleExpression")
+             (p/rule? (first ks) "newOperand"))
          (or (and (some #(p/token? % ".") ks)
                   (contains? #{"identifierName" "typeGeneric"} (:rule (peek ks))))
              (and (p/token? (peek ks) "]")
@@ -1187,6 +1188,8 @@
       (p/token? k0 "class") (refuse! n "class" :T3)
       (p/rule? k0 "typeArguments") (refuse! n "type syntax" :T8)
       (and (= c 3) (p/token? k0 "(")) (lower-seq ctx k1)
+      (and (p/token? k0 "new") (= c 3) (p/token? k1 "."))
+      (refuse! n "new.target" :T3)
       (p/token? k0 "new") (lower-new ctx n)
       (and (= c 2) (p/token? k0)) (lower-prefix ctx n (:text k0) k1)
       (and (= c 2) (p/rule? k1 "arguments")) (lower-call ctx n)
