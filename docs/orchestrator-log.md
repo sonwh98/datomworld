@@ -13954,3 +13954,23 @@ Decisions: orchestrator-direct (mechanical). Two of my own test assertions were 
 Verification: 43 tests / 591 assertions / 0 failures; kondo clean; browser-verified per above; deployed.
 Delegates: none (orchestrator-direct).
 Next: owner browser pass.
+## 2026-10-28 01:28:21 +07 — CIC oracle-methodology architect consult (codex/astra)
+Completed-GMT: 2026-10-27 18:28:21 GMT
+Coding-Agent: interactive
+Session-ID: not-applicable (interactive seat)
+Tree: master@eafe53f8, uncommitted changes: docs/orchestrator-log.md, collab/ artifacts
+Done: Owner asked whether the yang-style oracle methodology (pinned reference, corner fixtures, per-slice landing gates) can validate yin.cic-kernel against the Lean 4 kernel. Routed to codex/gpt-6-astra as a read-only architect consult. Verdict: YES, the methodology transfers with a precisely specified comparison boundary — it establishes measured behavioral agreement with a pinned Lean kernel on a declared fragment, not full Lean compatibility or soundness. Key decisions: (1) v1 predicative theory is a DIFFERENT theory, not Lean-minus-constructors — the identity statement (P : Sort 0) → P → P sorts differently (T : Sort 1 in v1, Sort 0 in Lean), so a blanket identity translation is invalid; judgment-preserving common fragment vs one-way embedding must be versioned comparison profiles. (2) The oracle is a pinned kernel driver on Lean's checked declaration-admission path (e.g. addDeclCore), not CLI exit status; .olean imports are input artifacts not fresh evidence; elaboration failure ≠ kernel rejection; infer-routine shortcuts forbidden. (3) Fixture = explicit judgment with environment (8-component contract: scope, logical inputs, conversion inputs, provenance, expectations, execution evidence), three task forms (admission, typing, conversion). (4) Unknown is an execution outcome, never a third truth value; harness failures are never negative fixtures. (5) Landing gate: every claimed equivalence fixture matches the pinned oracle; Yin's frozen spec governs Yin correctness — Lean disagreement may be intentional theory difference, not a defect. (6) Corner enumeration follows PHP §4.6: upstream regressions over elaborated dependency closures, one minimal witness per rule, mutations run through the oracle as candidates. Doc deltas: 3 High (:170 comparison profiles + identity-sort boundary fixture; :227 define supported fragment at judgment level; :69 execution contract for "external oracle"), 3 Medium, 1 Low, 1 Clarification (Lean stays outside deployed TCB).
+Decisions: Consult-only dispatch (read-only, no doc edits); deltas are proposals pending owner authorization to reconcile into yin.cic-kernel.md. Also answered the owner's cljc-portability question directly from the doc (kernel is cljc by design, axiom :9 "deliberately restricted subset of Clojure, preferably portable .cljc", tri-host Gate 0 matrix; usable as a regular Clojure library via the direct reference execution of axiom :69) — no new dispatch needed.
+Verification: Exit 0; thread 01a17e99-0c34-7160-ba2c-c89eebed4350, 4 agent messages, final (item_22) promoted verbatim to the findings file (168 lines). No tests run (design-only consult).
+Delegates: architect / gpt-6-astra (via codex), collab/1793125298405-architect-cic-oracle-methodology.prompt.md and collab/1793125298405-architect-cic-oracle-methodology.gpt-6-astra.findings.md, session 01a17e99-0c34-7160-ba2c-c89eebed4350.
+Next: Owner decision on the 8 doc deltas (3 High first) — reconciliation is an Architect-level doc edit, not orchestrator-owned. Gate S specification still absent (noted by both this consult and the qwen3.8-max review).
+
+## 2026-10-28 01:40:00 +0700 — dao.star cart: desktop tagories as rectangular uniform-height tabs (owner report)
+Completed-GMT: 2026-10-27 18:40:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 3c4c1b00 (pushed); deployed on shiva from dsg
+Done: Owner: "on large screen, the tabs should be rectangular with uniform height". The strip restyled to the production .tab look: 40px uniform height (verified: all 14 buttons exactly 40px, radius 6px), inline-flex centered, nowrap, display font, cyan-glow active state; the pill chip styling is gone on desktop. The mobile drawer tagories keep their stacked list styling (verified unchanged). css bumped to v6.
+Verification: browser computed styles (heights [40], radii ["6px"]) + screenshots at 1440 and 390; suite 43/591/0; kondo clean; deployed.
+Delegates: none (orchestrator-direct).
+Next: owner browser pass.
