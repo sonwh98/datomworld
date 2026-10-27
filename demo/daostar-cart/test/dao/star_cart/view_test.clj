@@ -37,7 +37,7 @@
   (let [page (v/shop-begin "ROOT")]
     (is (str/starts-with? page "<!doctype html>"))
     (is (str/includes? page "src=\"/js/datastar.js\""))
-    (is (str/includes? page "href=\"/css/cart.css?v=4\""))
+    (is (str/includes? page "href=\"/css/cart.css?v=5\""))
     (is (str/includes? page "data-init=\"@get('/s/ROOT',{retry:'always'})\""))
     (is (str/includes? (grid-view/grid-begin "ROOT") "data-init=\"@get('/grid/s/ROOT',{retry:'always'})\""))
     (is (str/includes? page "type=\"search\""))

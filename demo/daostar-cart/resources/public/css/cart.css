@@ -404,8 +404,8 @@ html:has(.landing-page), body:has(.landing-page) { overflow: hidden; }
    hamburger drawer */
 .tagstrip { display: flex; align-items: stretch; gap: 6px; margin: 14px 0 20px; }
 .tagories {
-  display: flex; gap: 6px; overflow-x: auto; scroll-behavior: smooth;
-  scrollbar-width: none; flex: 1; min-width: 0;
+  display: flex; flex-wrap: nowrap; gap: 6px; overflow-x: auto;
+  scroll-behavior: smooth; scrollbar-width: none; flex: 1; min-width: 0;
 }
 .tagories::-webkit-scrollbar { display: none; }
 .tarr {
