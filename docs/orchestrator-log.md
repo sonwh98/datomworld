@@ -13475,3 +13475,13 @@ Verification: orchestrator-run from worktree root: 39 tests / 550 assertions / 0
 Owner relay recorded: claude, codex, glm, cmd models all available (2026-10-27).
 Delegates: none (orchestrator-direct).
 Next: owner browser check at http://192.168.1.2:3004/ (shop; /grid editor, no auth). Reviewer confirmation of the two new features available on request.
+
+## 2026-10-27 11:45:00 +0700 — dao.star cart restructured into the self-contained demo/ project (owner request)
+Completed-GMT: 2026-10-27 04:45:00 GMT
+Coding-Agent: claude (ZCode interactive orchestrator seat)
+Session-ID: not-applicable (interactive seat)
+Tree: master 9fd907fd (pushed); dao-star-demo pushed; worktree kept
+Done: Owner: "the source code to the demo should be in project subdir called demo". Moved (git mv) demo/src/clj/dao/star_cart, demo/src/cljc/dao/star_cart, demo/test/dao/star_cart, demo/resources/dao_star_cart, demo/docker/dao-star-cart; images moved untracked; demo/deps.edn is now the project's (trimmed five deps + relative library paths + a :test alias); root bb cart task shells into demo/; root src/ has no demo code. Tests run self-contained from demo/ (clj -M:test, 39/550/0, kondo clean). Dockerfile: build context stays the repo root, final WORKDIR /app/demo so the deps.edn's ../src library paths resolve (first deploy attempt failed on the classpath — the workdir fix, commits 9683b507 + the workdir fix; shell-cwd mishap sent one commit to the wrong tree, caught and redone).
+Decisions: demo/ is self-contained by relative paths, not a git submodule or local/root dep — one repo, one source of truth for the library; the root lanes no longer see demo tests (root bb test unchanged).
+Verification: demo/ clj -M:test 39/550/0; kondo clean on demo/src+demo/test; shiva redeployed from master 9fd907fd: shop 200, grid 200, image 200, datastar.js 200, the persisted "Dao Star Probe" creation still in the volume (1 hit).
+Next: none pending on this track; browser check remains the owner's.
