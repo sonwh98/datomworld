@@ -379,7 +379,7 @@
   (is (= "2,1,1,1"
          (run (nums '(php/array-count (php/new-arr (php/array-append (php/array-append (php/empty-array) 1) 2) {}))
                     '(php/array-get (php/new-arr (php/array-append (php/empty-array) 1) {}) 0)
-                    '(php/array-get (php/array-put (php/empty-array) 0 (php/new-ref 1)) 0)
+                    '(php/array-get (php/table-set (php/empty-array) 0 (php/new-ref 1)) 0)
                     '(if (php/array-has? (php/new-arr (php/array-append (php/empty-array) 1) {}) 0) 1 0)))))
   (testing "slot-get answers the marker, array-get the value"
     (is (= "1,0"
@@ -389,6 +389,275 @@
                       '(let [m (php/new-ref 7)
                              t (php/array-put (php/empty-array) 0 m)]
                          (if (= (php/slot-kind (php/array-get t 0)) :ref-marker) 1 0))))))))
+
+
+(deftest s2-s4-global-reference-forms-test
+  (testing "$y = &$x; $y = 2 writes $x (rows 2, 4)"
+    (is (= "2"
+           (run '(do (php/global-set! "x" 1)
+                     (php/global-bind! "y" (php/global-make-ref! "x"))
+                     (php/global-set! "y" 2)
+                     (php/echo (php/to-string (php/global-get "x"))))))))
+  (testing "unset($y) breaks the binding (row 8)"
+    (is (= "15"
+           (run '(do (php/global-set! "x" 1)
+                     (php/global-bind! "y" (php/global-make-ref! "x"))
+                     (php/global-unset! "y")
+                     (php/global-set! "y" 5)
+                     (php/echo (data/str-concat (php/to-string (php/global-get "x"))
+                                                (php/to-string (php/global-get "y")))))))))
+  (testing "$x = &$x is a no-op binding"
+    (is (= "3"
+           (run '(do (php/global-set! "x" 1)
+                     (php/global-bind! "x" (php/global-make-ref! "x"))
+                     (php/global-set! "x" 3)
+                     (php/echo (php/to-string (php/global-get "x")))))))))
+
+
+(deftest s2-s4-element-reference-forms-test
+  (testing "a reference element survives the copy (rows 1, 6): $r = &$a[0]; $b = $a; $b[0] = 9"
+    (is (= "9"
+           (run '(do (php/global-set! "a" (php/array-append (php/array-append (php/empty-array) 1) 2))
+                     (let [p (php/path-ref (php/global-peek "a") [0])]
+                       (do (php/global-put! "a" (get p 0))
+                           (php/global-bind! "r" (get p 1))))
+                     (php/global-set! "b" (php/addref (php/global-peek "a")))
+                     (php/global-put! "b" (php/path-assign (php/global-peek "b") [0] 9))
+                     (php/echo (php/to-string (php/dim-get (php/global-peek "a") 0))))))))
+  (testing "after unset($r) the copy unwraps the rc-1 reference (rows 1, 6, 8)"
+    (is (= "1"
+           (run '(do (php/global-set! "a" (php/array-append (php/empty-array) 1))
+                     (let [p (php/path-ref (php/global-peek "a") [0])]
+                       (do (php/global-put! "a" (get p 0))
+                           (php/global-bind! "r" (get p 1))))
+                     (php/global-unset! "r")
+                     (php/global-set! "b" (php/addref (php/global-peek "a")))
+                     (php/global-put! "b" (php/path-assign (php/global-peek "b") [0] 9))
+                     (php/echo (php/to-string (php/dim-get (php/global-peek "a") 0))))))))
+  (testing "$a[0] = &$x then $a[0] = 4 writes $x (row 5)"
+    (is (= "4"
+           (run '(do (php/global-set! "x" 1)
+                     (php/global-put! "a" (php/path-bind (php/empty-array) [0]
+                                                         (php/global-make-ref! "x")))
+                     (php/global-put! "a" (php/path-assign (php/global-peek "a") [0] 4))
+                     (php/echo (php/to-string (php/global-get "x"))))))))
+  (testing "[&$x] literal element, then $a[0] = 2 (row 3)"
+    (is (= "2"
+           (run '(do (php/global-set! "x" 1)
+                     (php/global-set! "a" (php/array-append-ref (php/empty-array)
+                                                                (php/global-make-ref! "x")))
+                     (php/global-put! "a" (php/path-assign (php/global-peek "a") [0] 2))
+                     (php/echo (php/to-string (php/global-get "x"))))))))
+  (testing "a nested path vivifies and shares: $r = &$a['x'][0]; $r = 7"
+    (is (= "7"
+           (run '(do (php/global-set! "a" (php/array-put (php/empty-array) "x"
+                                                         (php/array-append (php/empty-array) 1)))
+                     (let [p (php/path-ref (php/global-peek "a") ["x" 0])]
+                       (do (php/global-put! "a" (get p 0))
+                           (php/global-bind! "r" (get p 1))))
+                     (php/global-set! "r" 7)
+                     (php/echo (php/to-string (php/dim-get (php/dim-get (php/global-peek "a") "x") 0))))))))
+  (testing "$r = &$a['k'] on an unset $a vivifies"
+    (is (= "5"
+           (run '(let [p (php/path-ref (php/global-peek "a") ["k"])]
+                   (do (php/global-put! "a" (get p 0))
+                       (php/global-bind! "r" (get p 1))
+                       (php/global-set! "r" 5)
+                       (php/echo (php/to-string (php/dim-get (php/global-peek "a") "k"))))))))))
+
+
+(deftest s2-s4-local-cells-and-path-unset-test
+  (testing "local cells: bind, write through, unset"
+    (is (= "2,2,5"
+           (run '(let [x (cell/new 1)
+                       y (cell/new :php/undef)
+                       _ (php/bind-marker y (php/make-ref-cv x))
+                       _ (php/local-set! y 2)
+                       a (php/to-string (php/local-get x))
+                       _ (php/local-unset! y)
+                       _ (php/local-set! y 5)]
+                   (php/echo (data/str-concat a "," (php/to-string (php/local-get x)) ","
+                                              (php/to-string (php/local-get y)))))))))
+  (testing "unset through a path separates and writes through markers"
+    (is (= "1,0"
+           (run '(do (php/global-set! "a" (php/array-append (php/array-append (php/empty-array) 1) 2))
+                     (let [p (php/path-ref (php/global-peek "a") [0])]
+                       (php/global-put! "a" (get p 0)))
+                     (php/global-put! "a" (php/path-unset (php/global-peek "a") [1]))
+                     (php/echo (data/str-concat (php/to-string (php/array-count (php/global-peek "a")))
+                                                ","
+                                                (if (php/array-has? (php/global-peek "a") 1) "1" "0"))))))))
+  (testing "check-invariants holds after the reference operations"
+    (is (= "0"
+           (run '(do (php/global-set! "a" (php/array-append (php/empty-array) 1))
+                     (let [p (php/path-ref (php/global-peek "a") [0])]
+                       (do (php/global-put! "a" (get p 0))
+                           (php/global-bind! "r" (get p 1))))
+                     (php/echo (php/to-string (data/count (php/check-invariants (php/global-peek "a")))))))))))
+
+
+(deftest s5-borrowed-elements-are-addrefed-test
+  (testing "a rebuild that copies a counted element ADDREFs it and upgrades the table"
+    (is (= "2,2,0"
+           (run (nums '(let [m (php/new-ref 7)
+                             src (php/store (php/empty-array) 0 m)
+                             dst (php/array-set (php/empty-array) 0 (php/slot-get src 0))]
+                         (php/rc-of m))
+                      '(let [h (php/new-arr (php/empty-array) {})
+                             t (php/array-append (php/empty-array) h)]
+                         (php/rc-of h))
+                      '(data/count (php/check-invariants
+                                     (php/array-append (php/empty-array) (php/new-arr (php/empty-array) {})))))))))
+  (testing "scalars keep a plain table"
+    (is (= "1"
+           (run (nums (slot-kind-is '(php/array-append (php/empty-array) 3) :plain)))))))
+
+
+(defn- uncaught-message
+  [form]
+  (let [r (run-raw form)]
+    (str (get-in r [:php/uncaught :class]) ": " (get-in r [:php/uncaught :message]))))
+
+
+(deftest s9-typed-reference-rows-41-to-47-test
+  (testing "row 41: a reference to an initialized typed property carries the source"
+    (is (= "1,1"
+           (run (nums '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 5)
+                                                  (assoc {} "p" {:type {:t :int}}))
+                             m (php/obj-prop-ref o "p")]
+                         (data/count (php/ref-sources m)))
+                      '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 5)
+                                                  (assoc {} "p" {:type {:t :int}}))
+                             m (php/obj-prop-ref o "p")]
+                         (if (= (php/ref-value m) 5) 1 0)))))))
+  (testing "row 41: uninitialized nullable becomes null; non-nullable is an Error"
+    (is (= "null"
+           (run '(let [o (php/new-typed-obj "C" (php/empty-array)
+                                            (assoc {} "p" {:type {:t :union :of [{:t :int} {:t :null}]}}))
+                       m (php/obj-prop-ref o "p")]
+                   (php/echo (php/type-name (php/kind (php/ref-value m))))))))
+    (is (= "Error: Cannot access uninitialized non-nullable property C::$p by reference"
+           (uncaught-message
+             '(php/obj-prop-ref (php/new-typed-obj "C" (php/empty-array)
+                                                   (assoc {} "p" {:type {:t :int}}))
+                                "p")))))
+  (testing "row 41: readonly is an Error in every state"
+    (is (= "Error: Cannot modify readonly property C::$p"
+           (uncaught-message
+             '(php/obj-prop-ref (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 1)
+                                                   (assoc {} "p" {:type {:t :int} :readonly true}))
+                                "p"))))
+    (is (= "Error: Cannot indirectly modify readonly property C::$p"
+           (uncaught-message
+             '(php/obj-prop-ref (php/new-typed-obj "C" (php/empty-array)
+                                                   (assoc {} "p" {:type {:t :int} :readonly true}))
+                                "p")))))
+  (testing "row 42: the assigned value is verified and coerced once"
+    (is (= "TypeError: Cannot assign string to reference held by property C::$p of type int"
+           (uncaught-message
+             '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 5)
+                                         (assoc {} "p" {:type {:t :int}}))
+                    m (php/obj-prop-ref o "p")]
+                (php/ref-write! m "abc")))))
+    (is (= "7,int"
+           (run '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 5)
+                                            (assoc {} "p" {:type {:t :int}}))
+                       m (php/obj-prop-ref o "p")]
+                   (do (php/ref-write! m "7")
+                       (php/echo (data/str-concat (php/to-string (php/ref-value m)) ","
+                                                  (php/type-name (php/kind (php/ref-value m))))))))))
+    (is (= "TypeError: Cannot assign null to reference held by property C::$p of type int"
+           (uncaught-message
+             '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 5)
+                                         (assoc {} "p" {:type {:t :int}}))]
+                (php/ref-write! (php/obj-prop-ref o "p") :php/null)))))
+    (is (= "float"
+           (run '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 1.5)
+                                            (assoc {} "p" {:type {:t :float}}))
+                       m (php/obj-prop-ref o "p")]
+                   (do (php/ref-write! m 3)
+                       (php/echo (php/type-name (php/kind (php/ref-value m))))))))))
+  (testing "row 42: an assignment through an untyped reference is unchanged"
+    (is (= "x"
+           (run '(let [m (php/new-ref 1)] (do (php/ref-write! m "x") (php/echo (php/ref-value m))))))))
+  (testing "row 43: an int property incremented past its maximum"
+    (is (= "TypeError: Cannot increment a reference held by property C::$p of type int past its maximal value"
+           (uncaught-message
+             '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" php.rt/int-max)
+                                         (assoc {} "p" {:type {:t :int}}))]
+                (php/typed-inc (php/obj-prop-ref o "p")))))))
+  (testing "row 44: unset removes the source and uninitializes; object free drops sources"
+    (is (= "0,1"
+           (run (nums '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 5)
+                                                  (assoc {} "p" {:type {:t :int}}))
+                             m (php/obj-prop-ref o "p")]
+                         (do (php/obj-unset-prop o "p")
+                             (data/count (php/ref-sources m))))
+                      '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 5)
+                                                  (assoc {} "p" {:type {:t :int}}))
+                             m (php/addref (php/obj-prop-ref o "p"))]
+                         (do (php/delref o)
+                             (+ 1 (data/count (php/ref-sources m))))))))))
+  (testing "row 45: a second source must accept the current value, then both bind"
+    (is (= "TypeError: Cannot assign string to property D::$q of type int"
+           (uncaught-message
+             '(let [m (php/new-ref "abc")]
+                (php/ref-add-source m {:obj 1 :class "D" :prop "q" :type {:t :int}})))))
+    (is (= "TypeError: Reference with value of type int held by property C::$p of type int is not compatible with property D::$q of type bool"
+           (uncaught-message
+             '(let [m (php/new-ref "5")]
+                (do (php/ref-add-source m {:obj 1 :class "C" :prop "p" :type {:t :int}})
+                    (php/ref-add-source m {:obj 2 :class "D" :prop "q" :type {:t :int}})
+                    (php/ref-add-source m {:obj 3 :class "D" :prop "q" :type {:t :bool}}))))))
+    (is (= "5,int"
+           (run '(let [m (php/new-ref "5")]
+                   (do (php/ref-add-source m {:obj 1 :class "C" :prop "p" :type {:t :int}})
+                       (php/echo (data/str-concat (php/to-string (php/ref-value m)) ","
+                                                  (php/type-name (php/kind (php/ref-value m))))))))))
+    (is (= "TypeError: Cannot assign string to reference held by property C::$p of type int"
+           (uncaught-message
+             '(let [m (php/new-ref 5)]
+                (do (php/ref-add-source m {:obj 1 :class "C" :prop "p" :type {:t :int}})
+                    (php/ref-add-source m {:obj 2 :class "D" :prop "q" :type {:t :int}})
+                    (php/ref-write! m "x")))))))
+  (testing "check-invariants still holds with sources on a marker"
+    (is (= "0"
+           (run '(let [o (php/new-typed-obj "C" (php/table-set (php/empty-array) "p" 5)
+                                            (assoc {} "p" {:type {:t :int}}))
+                       m (php/obj-prop-ref o "p")]
+                   (php/echo (php/to-string (data/count (php/check-invariants o))))))))))
+
+
+(deftest s6-temp-list-test
+  (testing "tmp! registers a counted value, release-tmps drops it above the mark"
+    (is (= "2,1,0"
+           (run (nums '(let [h (php/new-arr (php/empty-array) {})
+                             mark (php/tmp-mark)]
+                         (do (php/addref h) (php/tmp! h) (php/rc-of h)))
+                      '(let [h (php/new-arr (php/empty-array) {})
+                             mark (php/tmp-mark)]
+                         (do (php/addref h) (php/tmp! h) (php/release-tmps mark) (php/rc-of h)))
+                      '(let [h (php/new-arr (php/empty-array) {})
+                             mark (php/tmp-mark)]
+                         (do (php/tmp! h) (php/release-tmps mark) (php/rc-of h))))))))
+  (testing "scalars are never registered"
+    (is (= "0"
+           (run (nums '(do (php/tmp! 5) (php/tmp! "s") (php/tmp-mark))))))))
+
+
+(deftest s6-throwables-and-match-test
+  (testing "instance-of walks the Throwable hierarchy"
+    (is (= "1,1,0"
+           (run (nums '(if (php/instance-of (php/make-error "ArgumentCountError" "m") "error") 1 0)
+                      '(if (php/instance-of (php/make-error "TypeError" "m") "throwable") 1 0)
+                      '(if (php/instance-of (php/make-error "Error" "m") "typeerror") 1 0))))))
+  (testing "throw-value refuses a non-object"
+    (is (= "Error: Can only throw objects"
+           (uncaught-message '(php/throw-value 5)))))
+  (testing "match repr"
+    (is (= "5,'a',true,NULL"
+           (run '(php/echo (data/str-concat (php/match-repr 5) "," (php/match-repr "a") ","
+                                            (php/match-repr true) "," (php/match-repr :php/null))))))))
 
 
 (deftest anchor-5-one-reference-rc-3-no-nesting-test
@@ -503,7 +772,7 @@
            (run (nums '(let [inner (php/new-arr (php/empty-array) {})
                              outer (php/store (php/new-arr (php/empty-array) {}) 0 inner)]
                          (do (php/delref outer) (php/rc-of inner)))
-                      '(let [o (php/new-obj "C" (php/array-put (php/empty-array) "p" (php/new-arr (php/empty-array) {})))
+                      '(let [o (php/new-obj "C" (php/table-set (php/empty-array) "p" (php/new-arr (php/empty-array) {})))
                              p (php/slot-get (get (cell/get (get o :php/obj)) :props) "p")]
                          (do (php/delref o) (php/rc-of p))))))))
   (testing "unwrap on dup: an rc-1 marker becomes its value; the source is unchanged"
@@ -531,11 +800,11 @@
     (is (= "0"
            (run (nums '(data/count
                          (php/check-invariants
-                           (php/new-arr (php/array-put (php/empty-array) 0 (php/new-ref 1)) {0 true})))))))
+                           (php/new-arr (php/table-set (php/empty-array) 0 (php/new-ref 1)) {0 true})))))))
     (is (= "1"
            (run (nums '(data/count
                          (php/check-invariants
-                           (php/array-put (php/empty-array) 0 (php/new-ref 1))))))))))
+                           (php/table-set (php/empty-array) 0 (php/new-ref 1))))))))))
 
 
 (def ^:private row18
@@ -552,6 +821,25 @@
   (walk/postwalk-replace {'FIX form} tmpl))
 
 
+(deftest gate-cycle-guard-test
+  (testing "var_dump of a self-referencing array terminates with *RECURSION*"
+    (is (= "array(1) {\n  [0]=>\n  *RECURSION*\n}\n"
+           (run (with-fix '(php/var-dump FIX) row18)))))
+  (testing "array comparison of a cycle is a nesting Error, not a host crash"
+    (is (= "Error: Nesting level too deep - recursive dependency?"
+           (uncaught-message (with-fix '(php/loose-eq FIX FIX) row18))))
+    (is (= "Error: Nesting level too deep - recursive dependency?"
+           (uncaught-message (with-fix '(php/identical FIX FIX) row18))))))
+
+
+(deftest gate-spread-string-keys-refused-test
+  (is (= "[1,2]"
+         (run '(php/echo (data/str-concat "[" (php/to-string (get (php/args-spread [] (php/array-append (php/array-append (php/empty-array) 1) 2)) 0))
+                                          "," (php/to-string (get (php/args-spread [] (php/array-append (php/array-append (php/empty-array) 1) 2)) 1)) "]")))))
+  (is (= "Error: spread with string keys is not supported yet (yang.php known gap G-spread-string-keys)"
+         (uncaught-message '(php/args-spread [] (php/array-put (php/empty-array) "a" 1))))))
+
+
 (deftest cycle-release-test
   (testing "row 18: releasing the last reference terminates, nothing goes negative"
     (is (= "1,0,0"
@@ -565,7 +853,7 @@
                                    (do (php/delref o) (if (php/released? t) 1 0)))
                         row18)
                       (with-fix '(let [t FIX
-                                       o (php/new-obj "C" (php/array-put (php/empty-array) "p" t))]
+                                       o (php/new-obj "C" (php/table-set (php/empty-array) "p" t))]
                                    (do (php/delref o) (if (php/released? t) 1 0)))
                         row18))))))
   (testing "a two-member cycle: A's marker holds B, B's marker holds A"

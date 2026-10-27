@@ -85,10 +85,7 @@
 
 (def unsupported-rules
   "Grammar rules P1 does not lower, with the construct each names."
-  {"globalStatement" :global,
-   "tryCatchFinally" :try,
-   "throwStatement" :throw,
-   "gotoStatement" :goto,
+  {"gotoStatement" :goto,
    "declareStatement" :declare,
    "classDeclaration" :class,
    "useDeclaration" :use,
@@ -97,8 +94,6 @@
    "enumDeclaration" :enum,
    "importStatement" :import,
    "newExpr" :new,
-   "lambdaFunctionExpr" :closure,
-   "matchExpr" :match,
    "yieldExpression" :yield,
    "scriptText" :inline-script,
    "classConstant" :class-constant,
@@ -115,7 +110,6 @@
    "IncludeOnce" :include,
    "Require" :include,
    "RequireOnce" :include,
-   "Throw" :throw,
    "Yield" :yield,
    "List" :list})
 
@@ -355,6 +349,31 @@
     (app* 'php/global-set! (u/lit (bare name)) node)))
 
 
+(defn- put-var
+  "Write back a container the variable already owns: through a marker, with
+   no counting."
+  [ctx name node]
+  (if (:fn ctx)
+    (app* 'php/local-put! (u/v (symbol name)) node)
+    (app* 'php/global-put! (u/lit (bare name)) node)))
+
+
+(defn- make-ref-var
+  "The reference marker of the variable, made on first use."
+  [ctx name]
+  (if (:fn ctx)
+    (app* 'php/make-ref-cv (u/v (symbol name)))
+    (app* 'php/global-make-ref! (u/lit (bare name)))))
+
+
+(defn- bind-var
+  "Bind the variable to the marker `m` (`$x =& ...`)."
+  [ctx name m]
+  (if (:fn ctx)
+    (app* 'php/bind-marker (u/v (symbol name)) m)
+    (app* 'php/global-bind! (u/lit (bare name)) m)))
+
+
 (defn- isset-var
   [ctx name]
   (if (:fn ctx)
@@ -438,7 +457,7 @@
 ;; Expressions
 ;; =============================================================================
 
-(declare lower)
+(declare lower lower-assign-value lower-assign-target lower-lambda lower-destructure pattern-of)
 
 
 (def ^:private binary-ops
@@ -579,12 +598,12 @@
     (let [w (core/gen "w" n)]
       (u/let1 w
               node
-              (u/then (write-var ctx
-                                 (:var loc)
-                                 (app* 'php/path-assign
-                                       (peek-var ctx (:var loc))
-                                       (path-node (:path loc))
-                                       (u/v w)))
+              (u/then (put-var ctx
+                               (:var loc)
+                               (app* 'php/path-assign
+                                     (peek-var ctx (:var loc))
+                                     (path-node (:path loc))
+                                     (u/v w)))
                       (u/v w))))))
 
 
@@ -606,7 +625,7 @@
       (u/let1 o
               (read-var ctx (:var loc))
               (u/if-node (app* 'php/array? (u/v o))
-                         (write-var ctx (:var loc) pruned)
+                         (put-var ctx (:var loc) pruned)
                          pruned)))))
 
 
@@ -728,6 +747,10 @@
       "Print" (u/then (app* 'php/echo (app* 'php/to-string (lower ctx operand)))
                       (u/lit 1))
       "OpenRoundBracket" (lower-cast ctx n ks)
+      "Throw" (app* 'php/throw-value (lower ctx operand))
+      "List" (lower-destructure ctx n
+                                (pattern-of ctx n (first (core/rules ctx n "assignmentList")))
+                                (last ks))
       (if-let [construct (get prefix-refusals t)]
         (unsupported! n construct)
         (unsupported! n (keyword (str/lower-case t)))))))
@@ -748,13 +771,242 @@
    "XorEqual" 'php/bit-xor})
 
 
+(defn- fresh-value?
+  "True when expression `e` is syntactically a literal or constant, so the
+   value it answers is not another holder's (no ADDREF needed)."
+  [ctx e]
+  (let [ks (core/kids ctx e)]
+    (and (= 1 (count ks))
+         (p/rule? (first ks))
+         (contains? #{"constant" "string" "arrayCreation"} (:rule (first ks))))))
+
+
+(defn- acquired
+  "The lowered `e`, ADDREFed unless it is syntactically fresh."
+  [ctx e]
+  (if (fresh-value? ctx e) (lower ctx e) (app* 'php/addref (lower ctx e))))
+
+
+(defn- ref-source-loc
+  "A node that answers the reference marker of location `l` (keys already
+   lowered), made on first use."
+  [ctx n l]
+  (if (empty? (:path l))
+    (make-ref-var ctx (:var l))
+    (let [p (core/gen "p" n)]
+      (u/let1 p
+              (app* 'php/path-ref (peek-var ctx (:var l)) (path-node (:path l)))
+              (u/then (put-var ctx (:var l) (app* 'get (u/v p) (u/lit 0)))
+                      (app* 'get (u/v p) (u/lit 1)))))))
+
+
+(defn- ref-source
+  "A node that answers the reference marker of the location `chain`, made on
+   first use: a variable's own, or the slot's after the path is fetched for
+   writing (separated, vivified, upgraded) and written back."
+  [ctx n chain]
+  (let [loc (chain-loc ctx n chain :reference-source)]
+    (with-keys ctx loc (fn [l] (ref-source-loc ctx n l)))))
+
+
+;; -----------------------------------------------------------------------------
+;; Destructuring
+;; -----------------------------------------------------------------------------
+;; `[$a, $b] = e`, `list($a, , $c) = e`, `['k' => $v] = e`, nested, and one
+;; level of `&` targets. A pattern is a vector of entries `{:key expr-or-nil
+;; :idx n :ref? bool :target chain-or-pattern}`; holes only advance `:idx`.
+;; The source is evaluated once; a missing key warns and assigns null, a
+;; non-array source assigns null silently. The expression's value is the
+;; source.
+
+(declare pattern-of)
+
+
+(defn- destructure-target
+  "A chain node, or the nested pattern of an array literal / `list(...)`."
+  [ctx n e ref?]
+  (let [e (if (p/rule? e "expression")
+            (let [ks (core/kids ctx e)]
+              (if (and (= 1 (count ks)) (p/rule? (first ks) "chain")) (first ks) e))
+            e)]
+    (cond
+      (p/rule? e "chain") e
+      ref? (unsupported! n :list)
+      :else
+      (let [ks (core/kids ctx e)
+            inner (first ks)]
+        (if (and (= 1 (count ks)) (p/rule? inner "arrayCreation"))
+          (pattern-of ctx n inner)
+          (unsupported! n :list))))))
+
+
+(defn- sequence-entries
+  "Entries from a stream of `[:item x]` / `:comma` events: a comma that does
+   not follow an item is a hole; trailing holes are dropped."
+  [events]
+  (let [[out _ _]
+        (reduce (fn [[out idx pending?] ev]
+                  (if (= ev :comma)
+                    (if pending? [out idx false] [(conj out nil) (inc idx) false])
+                    [(conj out ev) (inc idx) true]))
+                [[] 0 false]
+                events)
+        trimmed (loop [v out] (if (and (seq v) (nil? (peek v))) (recur (pop v)) v))]
+    (vec (keep-indexed (fn [i e] (when e (assoc e :idx i))) trimmed))))
+
+
+(defn- pattern-of
+  "The pattern of an `arrayDestructuring`, `arrayCreation` or `assignmentList`."
+  [ctx n node]
+  (let [entry (fn [key ref? target] {:key key, :ref? ref?, :target target})]
+    (sequence-entries
+      (case (:rule node)
+        "arrayDestructuring"
+        (mapcat (fn [k]
+                  (cond
+                    (p/token? k ",") [:comma]
+                    (p/rule? k "indexedDestructItem")
+                    (let [ref? (boolean (some #(p/token? % "&") (core/kids ctx k)))]
+                      [(entry nil ref? (destructure-target ctx n (first (core/rules ctx k "chain")) ref?))])
+                    (p/rule? k "keyedDestructItem")
+                    (let [ref? (boolean (some #(p/token? % "&") (core/kids ctx k)))]
+                      [(entry (first (core/rules ctx k "expression")) ref?
+                              (destructure-target ctx n (first (core/rules ctx k "chain")) ref?))])
+                    :else []))
+                (core/kids ctx node))
+        "arrayCreation"
+        (mapcat (fn [k]
+                  (cond
+                    (p/token? k ",") [:comma]
+                    (p/rule? k "arrayItem")
+                    (let [kids (core/kids ctx k)
+                          ref? (boolean (some #(p/token? % "&") kids))
+                          exprs (core/rules ctx k "expression")
+                          keyed? (boolean (some #(p/token? % "=>") kids))
+                          key (when keyed? (first exprs))
+                          target (if ref? (first (core/rules ctx k "chain")) (last exprs))]
+                      [(entry key ref? (destructure-target ctx n target ref?))])
+                    :else []))
+                (mapcat #(core/kids ctx %) (core/rules ctx node "arrayItemList")))
+        "assignmentList"
+        (mapcat (fn [k]
+                  (cond
+                    (p/token? k ",") [:comma]
+                    (p/rule? k "assignmentListElement")
+                    (let [kids (core/kids ctx k)
+                          c (first kids)]
+                      (cond
+                        (p/rule? c "chain") [(entry nil false c)]
+                        (p/rule? c "arrayItem")
+                        (let [ref? (boolean (some #(p/token? % "&") (core/kids ctx c)))
+                              exprs (core/rules ctx c "expression")
+                              keyed? (boolean (some #(p/token? % "=>") (core/kids ctx c)))
+                              target (if ref? (first (core/rules ctx c "chain")) (last exprs))]
+                          [(entry (when keyed? (first exprs)) ref?
+                                  (destructure-target ctx n target ref?))])
+                        :else [(entry nil false (pattern-of ctx n (first (core/rules ctx k "assignmentList"))))]))
+                    :else []))
+                (core/kids ctx node))))))
+
+
+(defn- destructure-nodes
+  "Statements storing each entry of `pattern` from the value bound to `src-sym`.
+   `src-loc` is the source location (keys lowered) when it is one, so a
+   by-reference entry can bind the slot."
+  [ctx n pattern src-sym src-loc]
+  (mapv
+    (fn [{:keys [key idx ref? target]}]
+      (let [keynode (if key (lower ctx key) (u/lit idx))]
+        (cond
+          ref?
+          (do (when-not src-loc (compile-error! n "Cannot assign reference to non referenceable value"))
+              (when (vector? target) (unsupported! n :nested-destructure-by-ref))
+              (let [loc (chain-loc ctx n target :assignment-target)
+                    k (core/gen "dk" n)]
+                (u/let1 k
+                        keynode
+                        (bind-var ctx (:var loc)
+                                  (ref-source-loc ctx n (update src-loc :path conj (u/v k)))))))
+          (vector? target)
+          (let [t (core/gen "dt" n)]
+            (u/let1 t
+                    (app* 'php/addref (app* 'php/list-get (u/v src-sym) keynode))
+                    (u/seq-nodes (destructure-nodes ctx n target t nil))))
+          :else
+          (let [loc (chain-loc ctx n target :assignment-target)]
+            (with-keys ctx loc
+              (fn [l]
+                (write-loc ctx n l (app* 'php/addref (app* 'php/list-get (u/v src-sym) keynode)))))))))
+    pattern))
+
+
+(defn- lower-destructure
+  "Lower `pattern-node-or-pattern = rhs`."
+  [ctx n pattern rhs]
+  (let [src (core/gen "ds" n)
+        rhs-chain (when (p/rule? rhs "expression")
+                    (let [ks (core/kids ctx rhs)]
+                      (when (and (= 1 (count ks)) (p/rule? (first ks) "chain")) (first ks))))
+        src-loc (when rhs-chain (chain-location ctx rhs-chain))
+        body (fn [sl]
+               (u/let1 src
+                       (lower ctx rhs)
+                       (u/then (u/seq-nodes (destructure-nodes ctx n pattern src sl))
+                               (u/v src))))]
+    (if (and src-loc (some :ref? pattern))
+      (with-keys ctx (lower-path ctx src-loc) body)
+      (body nil))))
+
+
+(defn- lower-assign-ref
+  "`$x =& $y`, `$x =& $a[k]`, `$a[k] =& $y`: the source's marker first (its
+   keys, then the fetch), then the target's keys, then the binding."
+  [ctx n target src]
+  (let [chain (first (core/kids ctx target))
+        loc (if (p/rule? chain "chain")
+              (chain-loc ctx n chain :assignment-target)
+              (unsupported! n :list))
+        _ (when-not (p/rule? src "chain") (unsupported! n :reference))
+        m (core/gen "m" n)]
+    (u/let1 m
+            (ref-source ctx n src)
+            (with-keys ctx
+              loc
+              (fn [l]
+                (if (empty? (:path l))
+                  (u/then (bind-var ctx (:var l) (u/v m)) (app* 'php/ref-value (u/v m)))
+                  (let [p (core/gen "p" n)]
+                    (u/let1 p
+                            (app* 'php/path-bind
+                                  (peek-var ctx (:var l))
+                                  (path-node (:path l))
+                                  (u/v m))
+                            (u/then (put-var ctx (:var l) (u/v p))
+                                    (app* 'php/ref-value (u/v m)))))))))))
+
+
 (defn- lower-assign
   "`$x = e`, `$a[k] = e`, `$x op= e`, `$x ??= e`. The keys run first, left to
    right and once, then the right side, as in PHP; a compound assignment then
    reads the location."
   [ctx n [target op :as ks]]
+  (if (and (p/token? op) (= 4 (count ks)) (p/token? (nth ks 2) "&"))
+    (lower-assign-ref ctx n target (nth ks 3))
+    (lower-assign-value ctx n ks)))
+
+
+(defn- lower-assign-value
+  [ctx n [target op :as ks]]
   (when (p/token? op) (unsupported! n :reference))
   (when (not= 3 (count ks)) (unsupported! n :attribute))
+  (if (and (p/rule? (first (core/kids ctx target)) "arrayCreation")
+           (= "Eq" (:type (first (core/kids ctx op)))))
+    (lower-destructure ctx n (pattern-of ctx n (first (core/kids ctx target))) (nth ks 2))
+    (lower-assign-target ctx n ks)))
+
+
+(defn- lower-assign-target
+  [ctx n [target op :as ks]]
   (let [chain (first (core/kids ctx target))
         loc (if (p/rule? chain "chain")
               (chain-loc ctx n chain :assignment-target)
@@ -767,7 +1019,7 @@
       loc
       (fn [l]
         (case optype
-          "Eq" (write-loc ctx n l (lower ctx rhs))
+          "Eq" (write-loc ctx n l (acquired ctx rhs))
           "NullCoalescingEqual"
           (let [t (core/gen "t" n)]
             (u/let1 t
@@ -784,14 +1036,48 @@
 
 
 (defn- lower-arguments
-  "The nodes of a call's `arguments` rule: positional expressions only."
-  [ctx args]
-  (mapv (fn [a]
-          (let [ks (core/kids ctx a)]
-            (when (or (p/token? (first ks)) (not= 1 (count ks)))
-              (unsupported! a :argument-form))
-            (lower ctx (first ks))))
-        (core/rules ctx args "actualArgument")))
+  "`[positional-node named-node]` of a call's `arguments` rule. Positional
+   values and `...` spreads fold left to right into one vector; `name: e`
+   arguments collect as `[name value]` pairs (nil when there are none). A
+   position in `refs` (a by-reference parameter of a unit function) that holds
+   a variable or element sends the reference marker."
+  ([ctx args] (lower-arguments ctx args nil))
+  ([ctx args refs]
+   (let [items (core/rules ctx args "actualArgument")
+         [pos named]
+         (reduce
+           (fn [[pos named] [i a]]
+             (let [ks (core/kids ctx a)
+                   an (first (filter #(p/rule? % "argumentName") ks))
+                   spread? (boolean (some #(p/token? % "...") ks))
+                   e (first (core/rules ctx a "expression"))]
+               (when (or (nil? e) (p/token? (first ks) "&")) (unsupported! a :argument-form))
+               (cond
+                 an [pos (conj named
+                               (args-vector [(u/lit (:text (first (core/kids ctx (first (core/kids ctx an))))))
+                                             (lower ctx e)]))]
+                 spread? [(app* 'php/args-spread pos (lower ctx e)) named]
+                 :else
+                 (let [chain (when (some #{i} refs) (first (core/rules ctx e "chain")))]
+                   [(app* 'php/vconj
+                          pos
+                          (if (and chain (chain-location ctx chain))
+                            (ref-source ctx a chain)
+                            (lower ctx e)))
+                    named]))))
+           [(u/lit []) []]
+           (map-indexed vector items))]
+     [pos (when (seq named) (args-vector named))])))
+
+
+(defn- call-node
+  "Call function cell node `f` with the arguments of `arguments`."
+  [ctx f arguments refs]
+  (let [[pos named] (lower-arguments ctx arguments refs)]
+    (core/site :call
+               (if named
+                 (app* 'php/call-named f pos named)
+                 (app* 'php/call f pos)))))
 
 
 (defn- argument-chains
@@ -907,47 +1193,231 @@
                   (reverse (keep identity temps))))))))
 
 
-(defn- lower-call
+(defn- base-location
+  "The location of a `chainBase` that is one variable and its offsets."
+  [ctx base]
+  (let [bks (core/kids ctx base)]
+    (when (and (= 1 (count bks)) (p/rule? (first bks) "keyedVariable"))
+      (let [[v & offsets] (core/kids ctx (first bks))]
+        (when (and (p/token? v) (= "VarName" (:type v)))
+          {:var (:text v),
+           :path (mapv (fn [sq] (or (first (core/rules ctx sq "expression")) :php/append))
+                       offsets)})))))
+
+
+(defn- callee-value
+  "The node of a dynamic callee: a variable or element, or a parenthesised
+   expression."
+  [ctx n fname]
+  (let [k (first (core/kids ctx fname))]
+    (cond
+      (p/rule? k "chainBase")
+      (let [loc (or (base-location ctx k) (unsupported! n :dynamic-call))]
+        (checked-var n (:var loc))
+        (forbid-append! n loc "Cannot use [] for reading")
+        (read-loc ctx (lower-path ctx loc)))
+      (p/rule? k "parentheses") (lower ctx k)
+      :else (unsupported! n :dynamic-call))))
+
+
+(defn- lower-call-plain
   [ctx n call]
   (let [[fname args] (core/rule-kids ctx call)
-        [lc written] (function-name ctx fname)
-        arguments (first (core/rules ctx args "arguments"))]
-    (when (not= 1 (count (core/rules ctx args "arguments")))
-      (unsupported! n :dynamic-call))
-    (case lc
-      "isset" (lower-isset ctx n (argument-chains ctx n arguments))
-      "unset" (lower-unset ctx n (argument-chains ctx n arguments))
-      "empty" (let [cs (argument-chains ctx n arguments)]
-                (when (not= 1 (count cs)) (unsupported! n :argument-form))
-                (lower-empty ctx n (first cs)))
-      (let [f (core/gen "f" n)
-            by-ref (when-not (contains? (:declared ctx) lc)
-                     (:by-ref (get builtins/supported lc)))]
-        (note-unknown-builtin! ctx n lc written)
-        (u/let1 f
-                (app* 'php/resolve-fn (u/lit lc) (u/lit written))
-                (if by-ref
-                  (lower-by-ref-call ctx n f by-ref arguments)
-                  (core/site :call
-                             (app* 'php/call (u/v f)
-                                   (args-vector (lower-arguments ctx arguments))))))))))
+        groups (core/rules ctx args "arguments")
+        static? (let [ks (core/kids ctx fname)]
+                  (and (= 1 (count ks)) (p/rule? (first ks) "qualifiedNamespaceName")))
+        [lc written] (when static? (function-name ctx fname))
+        arguments (first groups)
+        chain-dynamic (fn [callee-node more]
+                        (reduce (fn [acc g]
+                                  (let [f (core/gen "f" g)]
+                                    (u/let1 f
+                                            (app* 'php/callable-of acc)
+                                            (call-node ctx (u/v f) g nil))))
+                                callee-node
+                                more))]
+    (when-not (seq groups) (unsupported! n :dynamic-call))
+    (if-not static?
+      (let [f (core/gen "f" n)]
+        (chain-dynamic
+          (u/let1 f
+                  (app* 'php/callable-of (callee-value ctx n fname))
+                  (app* 'php/tmp! (call-node ctx (u/v f) arguments nil)))
+          (rest groups)))
+      (chain-dynamic
+        (case lc
+          "isset" (lower-isset ctx n (argument-chains ctx n arguments))
+          "unset" (lower-unset ctx n (argument-chains ctx n arguments))
+          "empty" (let [cs (argument-chains ctx n arguments)]
+                    (when (not= 1 (count cs)) (unsupported! n :argument-form))
+                    (lower-empty ctx n (first cs)))
+          (let [f (core/gen "f" n)
+                by-ref (when-not (contains? (:declared ctx) lc)
+                         (:by-ref (get builtins/supported lc)))]
+            (note-unknown-builtin! ctx n lc written)
+            (u/let1 f
+                    (app* 'php/resolve-fn (u/lit lc) (u/lit written))
+                    (if by-ref
+                      (lower-by-ref-call ctx n f by-ref arguments)
+                      (let [call (call-node ctx (u/v f) arguments (get (:declared ctx) lc))]
+                        (if (contains? (:declared ctx) lc) (app* 'php/tmp! call) call))))))
+        (rest groups)))))
+
+
+;; -----------------------------------------------------------------------------
+;; try, throw, match, member calls
+;; -----------------------------------------------------------------------------
+
+(defn- leftmost-token-text
+  "The text of the first token under `n`."
+  [ctx n]
+  (if (p/token? n) (:text n) (leftmost-token-text ctx (first (core/kids ctx n)))))
+
+
+(defn- catch-clause-node
+  "`(if matches (do bind body) rest)` for one `catch` clause over error `e`."
+  [ctx e clause rest]
+  (let [types (mapv #(str/lower-case (leftmost-token-text ctx %))
+                    (core/rules ctx clause "qualifiedStaticTypeRef"))
+        var (some #(when (and (p/token? %) (= "VarName" (:type %))) (:text %))
+                  (core/kids ctx clause))
+        test (reduce (fn [acc t]
+                       (u/if-node acc (u/lit true) (app* 'php/instance-of e (u/lit t))))
+                     (u/lit false)
+                     types)
+        body (lower ctx (first (core/rules ctx clause "blockStatement")))]
+    (u/if-node test
+               (u/then (if var (write-var ctx var e) (u/lit :php/null)) body)
+               rest)))
+
+
+(defn- lower-try
+  "`try { } catch (T $e) { } finally { }`: `php/try` delivers the error to the
+   catch clauses in order, an unmatched one is raised again; `php/try-finally`
+   runs the finally block on every exit, escapes and errors included."
+  [ctx n]
+  (let [block (first (core/rules ctx n "blockStatement"))
+        clauses (core/rules ctx n "catchClause")
+        fin (first (core/rules ctx n "finallyStatement"))
+        e (core/gen "e" n)
+        mark (core/gen "mk" n)
+        body (lower ctx block)
+        guarded (if (seq clauses)
+                  (u/let1 mark
+                          (app* 'php/tmp-mark)
+                          (app* 'php/try
+                                (u/lam [] body)
+                                (u/lam [e]
+                                       (u/then (app* 'php/release-tmps (u/v mark))
+                                               (reduce (fn [rest clause]
+                                                         (catch-clause-node ctx (u/v e) clause rest))
+                                                       (app* 'php/raise (u/v e))
+                                                       (reverse clauses))))
+                                (u/lam [] (u/lit :php/null))))
+                  body)]
+    (u/then (if fin
+              (app* 'php/try-finally
+                    (u/lam [] guarded)
+                    (u/lam [(core/gen "x" n)]
+                           (lower ctx (first (core/rules ctx fin "blockStatement")))))
+              guarded)
+            (u/lit :php/null))))
+
+
+(defn- lower-match
+  "`match (e) { a, b => r, default => d }`: strict comparison in order, the
+   default last, else `UnhandledMatchError`."
+  [ctx n]
+  (let [subject (first (core/rules ctx n "expression"))
+        m (core/gen "m" n)
+        items (core/rules ctx n "matchItem")
+        default? (fn [item]
+                   (let [es (core/rules ctx item "expression")]
+                     (and (= 2 (count es))
+                          (= "default" (str/lower-case (leftmost-token-text ctx (first es)))))))
+        default-item (first (filter default? items))
+        arms (remove default? items)]
+    (u/let1 m
+            (lower ctx subject)
+            (reduce (fn [rest item]
+                      (let [es (core/rules ctx item "expression")
+                            conds (butlast es)
+                            result (last es)]
+                        (u/if-node (reduce (fn [acc c]
+                                             (u/if-node acc
+                                                        (u/lit true)
+                                                        (app* 'php/identical (u/v m) (lower ctx c))))
+                                           (u/lit false)
+                                           conds)
+                                   (lower ctx result)
+                                   rest)))
+                    (if default-item
+                      (lower ctx (last (core/rules ctx default-item "expression")))
+                      (app* 'php/unhandled-match (u/v m)))
+                    (reverse arms)))))
+
+
+(defn- member-call
+  "Fold one `memberAccess` (`->name(args)`) over the object node `o`."
+  [ctx n o ma]
+  (let [fname (first (core/rules ctx ma "keyedFieldName"))
+        simple (when fname (first (core/kids ctx fname)))
+        ident (when (and simple (p/rule? simple "keyedSimpleFieldName"))
+                (first (core/kids ctx simple)))
+        args (first (core/rules ctx (first (core/rules ctx ma "actualArguments")) "arguments"))]
+    (when-not (and ident (p/rule? ident "identifier") args)
+      (unsupported! n :member-access))
+    (let [recv (core/gen "o" n)
+          [pos _] (lower-arguments ctx args)]
+      (u/let1 recv o
+              (app* 'php/tmp!
+                    (app* 'php/method-call (u/v recv)
+                          (u/lit (leftmost-token-text ctx ident)) pos))))))
+
+
+(defn- closure-static
+  "[\"Closure\" method] when `fname` is `Closure::method`, else nil."
+  [ctx fname]
+  (let [cc (first (core/kids ctx fname))]
+    (when (p/rule? cc "classConstant")
+      (let [ks (core/kids ctx cc)
+            ref (first ks)
+            ident (last ks)]
+        (when (and (p/rule? ref "qualifiedStaticTypeRef")
+                   (p/rule? ident "identifier")
+                   (= "closure" (str/lower-case (leftmost-token-text ctx ref))))
+          ["Closure" (leftmost-token-text ctx ident)])))))
+
+
+(defn- lower-call
+  [ctx n call]
+  (let [[fname args] (core/rule-kids ctx call)]
+    (if-let [[_ m] (closure-static ctx fname)]
+      (let [[pos _] (lower-arguments ctx (first (core/rules ctx args "arguments")))]
+        (app* 'php/closure-static (u/lit (str/lower-case m)) (u/lit m) pos))
+      (lower-call-plain ctx n call))))
 
 
 (defn- lower-chain
   [ctx n]
   (let [ks (core/kids ctx n)
-        origin (first ks)]
-    (when (> (count ks) 1) (unsupported! n :member-access))
-    (let [o (first (core/kids ctx origin))]
-      (cond
-        (p/rule? o "functionCall") (lower-call ctx n o)
-        (p/rule? o "chainBase")
-        (if-let [loc (chain-location ctx n)]
-          (do (checked-var n (:var loc))
-              (forbid-append! n loc "Cannot use [] for reading")
-              (read-loc ctx (lower-path ctx loc)))
-          (unsupported! n :variable))
-        :else (unsupported! n :new)))))
+        origin (first ks)
+        o (first (core/kids ctx origin))
+        base (cond
+               (p/rule? o "functionCall") (lower-call ctx n o)
+               (p/rule? o "chainBase")
+               (if-let [loc (base-location ctx o)]
+                 (do (checked-var n (:var loc))
+                     (forbid-append! n loc "Cannot use [] for reading")
+                     (read-loc ctx (lower-path ctx loc)))
+                 (unsupported! n :variable))
+               :else (unsupported! n :new))]
+    (reduce (fn [acc ma]
+              (if (p/rule? ma "memberAccess")
+                (member-call ctx n acc ma)
+                (unsupported! n :member-access)))
+            base
+            (rest ks))))
 
 
 (defn- lower-constant
@@ -980,11 +1450,16 @@
   [ctx n]
   (let [items (mapcat #(core/rules ctx % "arrayItem") (core/rules ctx n "arrayItemList"))
         arr (reduce (fn [acc item]
-                      (when (some #(p/token? % "&") (core/kids ctx item))
-                        (unsupported! item :reference))
-                      (let [[k v] (core/rules ctx item "expression")]
+                      (let [kids (core/kids ctx item)
+                            [k v] (core/rules ctx item "expression")]
                         (cond
-                          (p/token? (first (core/kids ctx item)) "...")
+                          (some #(p/token? % "&") kids)
+                          (let [src (first (core/rules ctx item "chain"))
+                                m (ref-source ctx item src)]
+                            (if k
+                              (app* 'php/array-put-ref acc (lower ctx k) m)
+                              (app* 'php/array-append-ref acc m)))
+                          (p/token? (first kids) "...")
                           (app* 'php/array-spread acc (lower ctx k))
                           v (app* 'php/array-put acc (lower ctx k) (lower ctx v))
                           :else (app* 'php/array-append acc (lower ctx k)))))
@@ -1006,12 +1481,15 @@
         "constant" (lower ctx k0)
         "string" (string-node ctx k0)
         "arrayCreation" (lower-array ctx k0)
+        "lambdaFunctionExpr" (lower-lambda ctx k0)
+        "matchExpr" (lower-match ctx k0)
         "parentheses" (lower ctx (first (core/rule-kids ctx k0)))
         (core/default-arm diagnostic-ns "PHP" unsupported-rules k0))
       (and (= 1 cnt) (p/token? k0)) (constant-node n (:text k0))
       (p/token? k0) (lower-prefix ctx n ks)
       (p/rule? k0 "assignable") (lower-assign ctx n ks)
-      (p/rule? k0 "arrayDestructuring") (unsupported! n :list)
+      (p/rule? k0 "arrayDestructuring")
+      (lower-destructure ctx n (pattern-of ctx n k0) (nth ks 2))
       (p/rule? k0 "chain") (lower-incdec ctx n k0 (:type (second ks)) false)
       (p/rule? k0 "stringConstant") (unsupported! n :index)
       (and (p/rule? k0 "expression") (p/token? (second ks) "?"))
@@ -1039,6 +1517,16 @@
             (mapcat (fn [k] (if (p/rule? k) (texts k) [(:text k)]))
                     (core/kids ctx x)))]
     (app* 'php/echo (u/lit (byte-string (apply str (texts n)))))))
+
+
+(defn- with-temps
+  "`node` followed by the release of the temporaries it registered, when the
+   statement `n` holds a call that can leave one (row 37)."
+  [ctx n node]
+  (if (core/contains-rule? ctx n "functionCall" #{})
+    (let [mark (core/gen "tm" n)]
+      (u/let1 mark (app* 'php/tmp-mark) (u/then node (app* 'php/release-tmps (u/v mark)))))
+    node))
 
 
 (defn- block-nodes
@@ -1240,47 +1728,120 @@
   (with-keys ctx loc (fn [loc'] (write-loc ctx n loc' node))))
 
 
-(defn- lower-foreach
+(defn- lower-foreach-ref
+  "`foreach ($a as &$v)` / `as $k => &$v`: each iteration re-reads the array
+   at its location, binds `$v` to the marker of the current slot (the array is
+   separated and upgraded by the fetch) and resumes after the current key, so
+   appends are visited and an unset element is skipped. The iterator is the
+   ordinal `i`; nothing is registered, so `break` and exceptions leave nothing
+   to free."
+  [ctx n kids]
+  (let [chains (filter #(p/rule? % "chain") kids)
+        arrow? (boolean (some #(p/token? % "=>") kids))
+        src-chain (first chains)
+        src-loc (chain-loc ctx n src-chain :foreach-source)
+        assignable (first (filter #(p/rule? % "assignable") kids))
+        v-node (if arrow? (last chains) assignable)
+        k-loc (when arrow? (foreach-target ctx n assignable))
+        v-loc (foreach-target ctx n v-node)
+        _ (when (seq (:path v-loc)) (unsupported! n :reference))
+        fr (loop-frame n false)
+        [tbl w i key m] (map #(core/gen % n) ["tbl" "w" "i" "key" "m"])
+        body (wrap-escape fr :cont (lower (push-frame ctx fr) (body-of ctx n)))]
+    (with-keys
+      ctx
+      (lower-path ctx src-loc)
+      (fn [sl]
+        (let [elem (update sl :path conj (u/v key))
+              iteration
+              (u/let1 key
+                      (app* 'php/fe-key (u/v tbl) (u/v i))
+                      (u/let1 m
+                              (ref-source-loc ctx n elem)
+                              (u/then (bind-var ctx (:var v-loc) (u/v m))
+                                      (u/then (if k-loc
+                                                (foreach-store ctx n k-loc (u/v key))
+                                                (u/lit :php/null))
+                                              (u/then body
+                                                      (u/app (u/v w) (u/v w)
+                                                             (app* 'php/fe-next
+                                                                   (peek-loc ctx sl)
+                                                                   (u/v key)
+                                                                   (u/v i))))))))]
+          (u/then
+            (app* 'php/foreach-array (peek-loc ctx sl))
+            (wrap-escape
+              fr
+              :brk
+              (u/let1 w
+                      (core/site :loop
+                                 (u/lam [w i]
+                                        (u/let1 tbl
+                                                (peek-loc ctx sl)
+                                                (u/if-node (app* 'php/fe-has-next (u/v tbl) (u/v i))
+                                                           iteration
+                                                           (u/lit :php/null)))))
+                      (u/app (u/v w) (u/v w) (u/lit 0))))))))))
+
+
+(defn- lower-foreach-value
   "`foreach (e as $v)` / `as $k => $v`: the operand is evaluated once and
    `php/foreach-array` answers an array (a snapshot, since arrays are values)
    or warns and answers the empty one. The loop walks `php/array-keys`."
   [ctx n]
+  (let [kids (core/kids ctx n)
+        pattern (cond
+                  (some #(p/rule? % "arrayDestructuring") kids)
+                  (pattern-of ctx n (first (filter #(p/rule? % "arrayDestructuring") kids)))
+                  (some #(p/token? % "List") kids)
+                  (pattern-of ctx n (first (filter #(p/rule? % "assignmentList") kids))))
+        src (first (filter #(or (p/rule? % "expression") (p/rule? % "chain")) kids))
+        [t1 t2] (concat (filter #(p/rule? % "assignable") kids)
+                        (filter #(p/rule? % "chain") (rest (drop-while #(not (p/token? % "=>")) kids))))
+        [k-loc v-loc] (cond
+                        pattern [nil nil]
+                        (some #(p/token? % "=>") kids)
+                        [(foreach-target ctx n t1) (foreach-target ctx n t2)]
+                        :else [nil (foreach-target ctx n t1)])
+        fr (loop-frame n false)
+        [arr ord w i key] (map #(core/gen % n) ["arr" "ord" "w" "i" "key"])
+        body (wrap-escape fr :cont (lower (push-frame ctx fr) (body-of ctx n)))
+        node (if (p/rule? src "chain") (lower-chain ctx src) (lower ctx src))
+        dsym (core/gen "fd" n)
+        stores (cond-> [(if pattern
+                          (u/let1 dsym
+                                  (app* 'php/addref (app* 'php/array-get (u/v arr) (u/v key)))
+                                  (u/seq-nodes (destructure-nodes ctx n pattern dsym nil)))
+                          (foreach-store ctx n v-loc
+                                         (app* 'php/array-get (u/v arr) (u/v key))))]
+                 k-loc (conj (foreach-store ctx n k-loc (u/v key))))
+        iteration (u/let1 key
+                          (app* 'get (u/v ord) (u/v i))
+                          (u/then (u/seq-nodes stores)
+                                  (u/then body
+                                          (u/app (u/v w) (u/v w) (app* '+ (u/v i) (u/lit 1))))))]
+    (u/let1 arr
+            (app* 'php/foreach-array node)
+            (u/let1 ord
+                    (app* 'php/array-keys (u/v arr))
+                    (wrap-escape
+                      fr
+                      :brk
+                      (u/let1 w
+                              (core/site :loop
+                                         (u/lam [w i]
+                                                (u/if-node (app* '< (u/v i) (app* 'data/count (u/v ord)))
+                                                           iteration
+                                                           (u/lit :php/null))))
+                              (u/app (u/v w) (u/v w) (u/lit 0))))))))
+
+
+(defn- lower-foreach
+  [ctx n]
   (let [kids (core/kids ctx n)]
-    (when (some #(p/token? % "&") kids) (unsupported! n :reference))
-    (when (or (some #(p/token? % "List") kids) (some #(p/rule? % "arrayDestructuring") kids))
-      (unsupported! n :list))
-    (let [src (first (filter #(or (p/rule? % "expression") (p/rule? % "chain")) kids))
-          [t1 t2] (concat (filter #(p/rule? % "assignable") kids)
-                          (filter #(p/rule? % "chain") (rest (drop-while #(not (p/token? % "=>")) kids))))
-          [k-loc v-loc] (if (some #(p/token? % "=>") kids)
-                          [(foreach-target ctx n t1) (foreach-target ctx n t2)]
-                          [nil (foreach-target ctx n t1)])
-          fr (loop-frame n false)
-          [arr ord w i key] (map #(core/gen % n) ["arr" "ord" "w" "i" "key"])
-          body (wrap-escape fr :cont (lower (push-frame ctx fr) (body-of ctx n)))
-          node (if (p/rule? src "chain") (lower-chain ctx src) (lower ctx src))
-          stores (cond-> [(foreach-store ctx n v-loc
-                                         (app* 'php/array-get (u/v arr) (u/v key)))]
-                   k-loc (conj (foreach-store ctx n k-loc (u/v key))))
-          iteration (u/let1 key
-                            (app* 'get (u/v ord) (u/v i))
-                            (u/then (u/seq-nodes stores)
-                                    (u/then body
-                                            (u/app (u/v w) (u/v w) (app* '+ (u/v i) (u/lit 1))))))]
-      (u/let1 arr
-              (app* 'php/foreach-array node)
-              (u/let1 ord
-                      (app* 'php/array-keys (u/v arr))
-                      (wrap-escape
-                        fr
-                        :brk
-                        (u/let1 w
-                                (core/site :loop
-                                           (u/lam [w i]
-                                                  (u/if-node (app* '< (u/v i) (app* 'data/count (u/v ord)))
-                                                             iteration
-                                                             (u/lit :php/null))))
-                                (u/app (u/v w) (u/v w) (u/lit 0)))))))))
+    (if (some #(p/token? % "&") kids)
+      (lower-foreach-ref ctx n kids)
+      (lower-foreach-value ctx n))))
 
 
 ;; -----------------------------------------------------------------------------
@@ -1436,8 +1997,6 @@
               (cond
                 (p/rule? k "typeHint") :type-declaration
                 (p/token? k "?") :type-declaration
-                (p/token? k "&") :reference
-                (p/token? k "...") :variadic
                 (p/rule? k "attributes") :attribute
                 (p/rule? k "memberModifier") :promoted-parameter))
             (core/kids ctx fp))
@@ -1445,14 +2004,21 @@
 
 
 (defn- formal-params
-  "`[{:name :default}]` of a function's parameters; `:default` is the
-   `constantInitializer` node or nil."
+  "`[{:name :default :ref? :variadic?}]` of a function's parameters; `:default`
+   is the `constantInitializer` node or nil."
   [ctx n]
   (mapv (fn [fp]
-          (let [ks (core/kids ctx fp)]
+          (let [all (core/kids ctx fp)
+                ref? (boolean (some #(p/token? % "&") all))
+                variadic? (boolean (some #(p/token? % "...") all))
+                ks (remove #(or (p/token? % "&") (p/token? % "...")) all)]
             (when (not= 1 (count ks)) (unsupported! fp (parameter-refusal ctx fp)))
+            (when (and ref? variadic?) (unsupported! fp :variadic-reference))
             (let [vks (core/kids ctx (first ks))]
-              {:name (:text (first vks)), :default (when (> (count vks) 1) (nth vks 2))})))
+              {:name (:text (first vks)),
+               :ref? ref?,
+               :variadic? variadic?,
+               :default (when (> (count vks) 1) (nth vks 2))})))
         (core/rules ctx (first (core/rules ctx n "formalParameterList")) "formalParameter")))
 
 
@@ -1482,80 +2048,214 @@
     (mapv (fn [vi]
             (let [vks (core/kids ctx vi)
                   init (if (> (count vks) 1) (lower ctx (nth vks 2)) (u/lit :php/null))]
-              (app* 'php/static-init!
+              (app* 'php/static-bind!
                     (u/v '%fn)
                     (u/lit (bare (:text (first vks))))
+                    (u/v (symbol (:text (first vks))))
                     (u/lam [] init))))
           (core/rules ctx n "staticInitializer"))))
+
+
+(defn- lower-global
+  "`global $x;`: inside a function the CV binds to the global's marker (made
+   on first use, null); at the top level it is the same variable, a no-op."
+  [ctx n]
+  (sequence-node
+    (mapv (fn [gv]
+            (let [v (first (core/kids ctx gv))]
+              (when-not (and (p/token? v) (= "VarName" (:type v)))
+                (unsupported! gv :variable-variable))
+              (if (:fn ctx)
+                (app* 'php/bind-marker
+                      (u/v (symbol (:text v)))
+                      (app* 'php/global-make-ref! (u/lit (bare (:text v)))))
+                (u/lit :php/null))))
+          (core/rules ctx n "globalVar"))))
 
 
 (defn- lower-return
   [ctx n]
   (when-not (:ret ctx) (unsupported! n :return))
   (let [e (first (core/rules ctx n "expression"))]
-    (u/app (u/v (:ret ctx)) (if e (lower ctx e) (u/lit :php/null)))))
+    (u/app (u/v (:ret ctx))
+           (if e
+             (app* 'php/addref (lower ctx e))
+             (u/lit :php/null)))))
+
+
+(defn- mentions-reference?
+  "True when the subtree of `n` holds a `&` token (a reference construct)."
+  [ctx n]
+  (some (fn [k] (if (p/token? k) (p/token? k "&") (mentions-reference? ctx k)))
+        (core/kids ctx n)))
 
 
 (defn- param-binding
   "The cell of parameter `i`: the argument when passed, else the default
-   (evaluated here, in the callee), else an `ArgumentCountError`."
-  [ctx written required exact? i {:keys [default]}]
-  (app* 'cell/new
-        (u/if-node (app* '< (u/lit i) (app* 'data/count (u/v '%args)))
-                   (app* 'get (u/v '%args) (u/lit i))
-                   (if default
-                     (lower-initializer ctx default)
-                     (app* 'php/too-few
-                           (u/lit written)
-                           (app* 'data/count (u/v '%args))
-                           (u/lit required)
-                           (u/lit exact?))))))
+   (evaluated here, in the callee), else an `ArgumentCountError`. A hole left
+   by named arguments is `:php/undef`; a variadic parameter gathers the rest."
+  [ctx n written required exact? i {:keys [name default ref? variadic?]}]
+  (if variadic?
+    (app* 'cell/new (app* 'php/gather-variadic (u/v '%args) (u/lit i)))
+    (let [a (core/gen (str "a" i) n)
+          count-node (app* 'data/count (u/v '%args))]
+      (app* 'cell/new
+            (u/let1 a
+                    (u/if-node (app* '< (u/lit i) count-node)
+                               (app* 'get (u/v '%args) (u/lit i))
+                               (u/lit :php/undef))
+                    (u/if-node (app* '= (u/v a) (u/lit :php/undef))
+                               (if default
+                                 (lower-initializer ctx default)
+                                 (app* 'php/not-passed
+                                       (u/lit written)
+                                       (u/lit (inc i))
+                                       (u/lit (bare name))
+                                       count-node
+                                       (u/lit required)
+                                       (u/lit exact?)))
+                               (cond
+                                 ref? (app* 'php/param-ref (u/v a))
+                                 :else (app* 'php/addref (u/v a)))))))))
 
 
-(defn- lower-function
-  [ctx n]
+(defn- function-lam
+  "`[lam spec]` for the function node `n`. `captures` is a vector of
+   `{:name :ref? :sym}` bound before the parameters (closures); `arrow?`
+   makes the body the value of an expression."
+  [ctx n written {:keys [captures arrow?]}]
   (let [ks (core/kids ctx n)
         _ (when (some #(p/token? % ":") ks) (unsupported! n :return-type))
-        _ (when (some #(p/token? % "&") ks) (unsupported! n :reference))
+        _ (when (some #(p/token? % "&") (take-while #(not (p/token? % "(")) ks))
+            (unsupported! n :reference))
         _ (when (seq (core/rules ctx n "attributes")) (unsupported! n :attribute))
         _ (when (seq (core/rules ctx n "typeParameterListInBrackets"))
             (unsupported! n :generics))
-        written (function-written ctx n)
-        lc (str/lower-case written)
         params (formal-params ctx n)
         scope (get-in (:analysis ctx) [:scopes (:id n)])
         param-names (set (map :name params))
+        capture-names (set (map :name captures))
         static-names (set (:statics scope))
-        locals (remove #(or (contains? param-names %) (contains? static-names %) (= "$this" %))
+        static-names-v (vec (:statics scope))
+        locals (remove #(or (contains? param-names %) (contains? static-names %)
+                            (contains? capture-names %) (= "$this" %))
                        (:vars scope))
         block (first (core/rules ctx n "blockStatement"))
-        has-return? (core/contains-rule? ctx
-                                         block
-                                         "returnStatement"
-                                         #{"functionDeclaration" "lambdaFunctionExpr"})
-        fctx (assoc ctx :fn true :loops [] :ret (when has-return? '%ret))
-        body (u/then (lower fctx block) (u/lit :php/null))
+        has-return? (and block
+                         (core/contains-rule? ctx
+                                              block
+                                              "returnStatement"
+                                              #{"functionDeclaration" "lambdaFunctionExpr"}))
+        counted? (boolean (or (mentions-reference? ctx n) (seq (:statics scope))
+                              (some :ref? captures)))
+        fctx (assoc ctx :fn true :loops [] :ret (when has-return? '%ret) :counted counted?)
+        body (if arrow?
+               (lower fctx (last (core/rules ctx n "expression")))
+               (u/then (lower fctx block) (u/lit :php/null)))
         body (if has-return? (app* 'php/call-ec (u/lam ['%ret] body)) body)
-        total (count params)
-        required (inc (or (last (keep-indexed (fn [i p] (when-not (:default p) i)) params)) -1))
+        cvs (concat (map :name params) (map :name captures) static-names-v locals)
+        body (if counted?
+               (app* 'php/try-finally
+                     (u/lam [] body)
+                     (u/lam ['%x]
+                            (app* 'php/release-cvs
+                                  (args-vector (map #(u/v (symbol %)) cvs))
+                                  (u/lit 0)
+                                  (u/lit (count cvs)))))
+               (if (seq cvs)
+                 ;; no references or statics: release on the normal exit only (an
+                 ;; error leaves the counts high, which is safe)
+                 (let [rv (core/gen "rv" n)]
+                   (u/let1 rv
+                           body
+                           (u/then (app* 'php/release-cvs
+                                         (args-vector (map #(u/v (symbol %)) cvs))
+                                         (u/lit 0)
+                                         (u/lit (count cvs)))
+                                   (u/v rv))))
+                 body))
+        variadic? (boolean (some :variadic? params))
+        fixed (remove :variadic? params)
+        total (count fixed)
+        required (inc (or (last (keep-indexed (fn [i p] (when-not (:default p) i)) fixed)) -1))
         bindings (concat
                    (map-indexed (fn [i p]
                                   [(symbol (:name p))
-                                   (param-binding fctx written required (= required total) i p)])
+                                   (param-binding fctx n written required (= required total) i p)])
                                 params)
-                   (map (fn [nm] [(symbol nm) (app* 'php/static-slot (u/v '%fn) (u/lit (bare nm)))])
+                   (map (fn [c]
+                          [(symbol (:name c))
+                           (app* 'cell/new
+                                 (app* (if (:ref? c) 'php/param-ref 'php/copy-capture)
+                                       (u/v (:sym c))))])
+                        captures)
+                   (map (fn [nm] [(symbol nm) (app* 'cell/new (u/lit :php/undef))])
                         (:statics scope))
                    (map (fn [nm] [(symbol nm) (app* 'cell/new (u/lit :php/undef))]) locals))
         wrapped (reduce (fn [inner [sym value]] (u/let1 sym value inner))
                         body
                         (reverse bindings))]
+    [(u/lam ['%fn '%args] wrapped)
+     {:required required,
+      :total total,
+      :variadic variadic?,
+      :names (mapv #(bare (:name %)) fixed)}
+     (mapv bare (:statics scope))]))
+
+
+(defn- lower-function
+  [ctx n]
+  (let [written (function-written ctx n)
+        [lam spec statics] (function-lam ctx n written {})]
     (app* 'php/declare-function!
-          (u/lit lc)
-          (app* 'php/make-function
-                (u/lit written)
-                (u/lit {:required required, :total total})
-                (u/lam ['%fn '%args] wrapped)
-                (u/lit (mapv bare (:statics scope)))))))
+          (u/lit (str/lower-case written))
+          (app* 'php/make-function (u/lit written) (u/lit spec) lam (u/lit statics)))))
+
+
+(defn- use-vars
+  "`[{:name :ref?}]` of a closure's `use` clause."
+  [ctx n]
+  (vec (mapcat (fn [uvs]
+                 (map (fn [uv]
+                        (let [ks (core/kids ctx uv)]
+                          {:name (:text (last ks)), :ref? (boolean (some #(p/token? % "&") ks))}))
+                      (core/rules ctx uvs "lambdaFunctionUseVar")))
+               (core/rules ctx n "lambdaFunctionUseVars"))))
+
+
+(defn- capture-source
+  "The node that produces the captured value or marker, in the enclosing scope."
+  [ctx {:keys [name ref? arrow?]}]
+  (cond
+    ref? (app* 'php/addref (make-ref-var ctx name))
+    arrow? (if (:fn ctx)
+             (app* 'php/local-capture (u/v (symbol name)))
+             (app* 'php/global-capture (u/lit (bare name))))
+    :else (app* 'php/addref (read-var ctx name))))
+
+
+(defn- lower-lambda
+  "A `function (...) use (...) {...}` closure or an `fn (...) => e` arrow
+   function: a function cell made at run time over its captured values,
+   wrapped as a Closure value."
+  [ctx n]
+  (let [arrow? (boolean (some #(and (p/token? %) (= "LambdaFn" (:type %))) (core/kids ctx n)))
+        scope (get-in (:analysis ctx) [:scopes (:id n)])
+        params (formal-params ctx n)
+        pnames (set (map :name params))
+        caps (if arrow?
+               (->> (:vars scope)
+                    (remove #(or (contains? pnames %) (= "$this" %)))
+                    (mapv (fn [nm] {:name nm, :ref? false, :arrow? true})))
+               (mapv #(assoc % :arrow? false) (use-vars ctx n)))
+        caps (mapv #(assoc % :sym (symbol (str "%cap" (subs (:name %) 1) (:id n)))) caps)
+        _ (doseq [c caps] (checked-var n (:name c)))
+        [lam spec statics] (function-lam ctx n "{closure}" {:captures caps, :arrow? arrow?})
+        make (app* 'php/make-closure
+                   (app* 'php/make-function (u/lit "{closure}") (u/lit spec) lam (u/lit statics)))]
+    (reduce (fn [inner c] (u/let1 (:sym c) (capture-source ctx c) inner))
+            make
+            (reverse caps))))
 
 
 (defn- lower
@@ -1566,8 +2266,9 @@
     "phpBlock" (sequence-node (block-nodes ctx n))
     ("topStatement" "innerStatement" "statement")
     (lower ctx (first (core/rule-kids ctx n)))
-    "echoStatement" (sequence-node (echo-nodes ctx (first (core/rules ctx n "expressionList"))))
-    "expressionStatement" (lower ctx (first (core/rules ctx n "expression")))
+    "echoStatement" (with-temps ctx n
+                      (sequence-node (echo-nodes ctx (first (core/rules ctx n "expressionList")))))
+    "expressionStatement" (with-temps ctx n (lower ctx (first (core/rules ctx n "expression"))))
     "emptyStatement_" (u/lit :php/null)
     "inlineHtmlStatement" (sequence-node (block-nodes ctx n))
     "blockStatement" (lower ctx (first (core/rules ctx n "innerStatementList")))
@@ -1583,7 +2284,10 @@
     "breakStatement" (lower-escape ctx n :break)
     "continueStatement" (lower-escape ctx n :continue)
     "returnStatement" (lower-return ctx n)
+    "tryCatchFinally" (lower-try ctx n)
+    "throwStatement" (app* 'php/throw-value (lower ctx (first (core/rules ctx n "expression"))))
     "staticVariableStatement" (lower-static ctx n)
+    "globalStatement" (lower-global ctx n)
     "unsetStatement" (lower-unset ctx n (core/rules ctx (first (core/rules ctx n "chainList")) "chain"))
     "functionDeclaration" (lower-function ctx n)
     "constant" (lower-constant ctx n)
@@ -1616,13 +2320,20 @@
 
 
 (defn- declared-functions
-  "The lower-cased names of every function the unit declares."
+  "Every function the unit declares: lower-cased name to the vector of its
+   by-reference parameter positions."
   [ctx]
-  (letfn [(walk
+  (letfn [(refs
+            [n]
+            (let [fps (core/rules ctx (first (core/rules ctx n "formalParameterList"))
+                                  "formalParameter")]
+              (vec (keep-indexed (fn [i fp] (when (some #(p/token? % "&") (core/kids ctx fp)) i))
+                                 fps))))
+          (walk
             [n]
             (into (if (p/rule? n "functionDeclaration")
-                    #{(str/lower-case (function-written ctx n))}
-                    #{})
+                    {(str/lower-case (function-written ctx n)) (refs n)}
+                    {})
                   (mapcat walk)
                   (core/rule-kids ctx n)))]
     (walk (p/root (:pk ctx)))))

@@ -26,7 +26,7 @@
 
 
 (def ^:private scope-rules
-  #{"functionDeclaration"})
+  #{"functionDeclaration" "lambdaFunctionExpr"})
 
 
 (defn- empty-scope
@@ -93,6 +93,25 @@
 (declare analyze-fn)
 
 
+(defn- fold-closure
+  "The enclosing `scope` plus what a closure takes from it: the `use`
+   variables (assigned when by reference), or, for an arrow function, every
+   variable its body mentions that is not its own parameter."
+  [pk k inner scope]
+  (if (some #(and (p/token? %) (= "LambdaFn" (:type %))) (p/children pk k))
+    (reduce #(note-name %1 :vars %2)
+            scope
+            (remove (set (:params inner)) (:vars inner)))
+    (reduce (fn [sc uv]
+              (let [kids (p/children pk uv)
+                    nm (:text (last kids))
+                    sc (note-name sc :vars nm)]
+                (if (some #(p/token? % "&") kids) (note-name sc :assigned nm) sc)))
+            scope
+            (mapcat #(p/child-rules pk % "lambdaFunctionUseVar")
+                    (p/child-rules pk k "lambdaFunctionUseVars")))))
+
+
 (defn- walk
   "Add the bindings below `n` to `scope`; a nested scope-opening rule is
    recorded in `scopes` and not walked into."
@@ -104,7 +123,10 @@
                             [(note-name scope :vars (:text k)) scopes]
                             acc)
         (contains? scope-rules (:rule k)) (let [[s ss] (analyze-fn pk k scopes)]
-                                            [scope (assoc ss (:id k) s)])
+                                            [(if (= "lambdaFunctionExpr" (:rule k))
+                                               (fold-closure pk k s scope)
+                                               scope)
+                                             (assoc ss (:id k) s)])
         :else
         (let [scope (case (:rule k)
                       "staticVariableStatement"

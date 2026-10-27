@@ -3,11 +3,45 @@
 Status: Designed 2026-10-17. Slices P1 and P2 (section 15) are implemented on
 the `yang.php.antlr` route (P2: arrays, key coercion, `foreach` by value, the
 core array builtins and sorting, oracle-verified against `php-8.3.35`, section
-17.3); later slices are unstarted, and the legacy `yang/php.cljc` frontend is
-still the installed one. Design by Fable (Lead
+17.3). P3 landed in two parts: P3-a (the counted-cell substrate and the
+prelude-level reference model, merged earlier) and P3-b (the program-level
+lowering, see "P3-b landing status" below); later slices are unstarted, and the
+legacy `yang/php.cljc` frontend is still the installed one. Design by Fable (Lead
 System Architect seat); adversarial review by codex (gpt-6.1-sol) over a
 nine-round design loop that ended READY with sign-off granted. Section 20
 ("Design provenance") cites the loop.
+
+**P3-b landing status.** The program-level lowering of the P3 plan (steps S2 to
+S12) lands on branch `yang-php-p3b`; the oracle is the pinned `php-8.3.35`
+(`php:8.3-cli` on shiva, banner `php-8.3.35 shiva 2026-10-25`).
+
+- Lowered and oracle-pinned: references (`=&` in every location form,
+  `[&$x]` array items), `global`, `static` binding to a persistent slot,
+  by-reference parameters, variadics, named arguments and spread, dynamic
+  calls, closures with `use` and `use (&)`, arrow functions, `foreach` by
+  reference, the array-pointer builtins, destructuring (`[...]`, `list(...)`,
+  keyed, nested, one level of `&`), `try`/`catch`/`finally`, `throw`, `match`,
+  `Closure::bind` and `bindTo`, the temporary list, and the typed-reference
+  machinery at prelude level (rows 41 to 45; syntax stays P4).
+- Fixtures: 72 program-level fixtures are enabled and run on the AST walker,
+  on the semantic, stack and register VMs, and parserless from checked-in CST
+  packets on Node; 91 oracle results are pinned in `programs_p3b`
+  (`recorded`), 13 further oracle-only sources record texts and the cyclic
+  release evidence (R2 condition (a): `gc_collect_cycles()` collects the
+  cycle, the engine only terminates, closed as a known gap in C1). The permutation
+  corpus (13-letter alphabet, flat and nested) runs 518 programs in the quick
+  tier and about 5,900 in the slow tier; the php-src `.phpt` selection tool is
+  in place and its list is generated on shiva.
+- Held: `:call-dynamic-dim` and `:foreach-key-and-destructure` (grammar corner
+  C27); the user-class closure call `:closure-call-user-class` waits for P4.
+- Not in this landing: the per-table iterator registry (C26, slice P3-c), the
+  php-src selection, the full permutation corpus and the linked profile (P4
+  seam).
+
+**Departures introduced by P3-b** are ratified as corners C24 to C29 (section
+17.2) and recorded in `docs/agents/known-gaps.md`. `declare` is refused, so
+`strict_types` for typed references has no program path; `ref-write!`'s
+`strict` argument is the seam P4 wires when `declare` lowers.
 
 Parent design: [`yang.antlr.md`](yang.antlr.md). This document makes concrete
 its section 8.6 (Object-oriented and web: PHP, mixed text and ordered maps),
@@ -1009,7 +1043,7 @@ assignment through it is verified against all of them
 | 43 | `$r++`, `$r .= ...`, `$r += ...`   | the result is verified as in row   |
 |    | through a sourced reference        | 42; an `int` property incremented  |
 |    | (`PRE_INC`, `ASSIGN_OP`)           | past `PHP_INT_MAX` is `TypeError:  |
-|    |                                    | Cannot increment property C::$p of |
+|    |                                    | Cannot increment a reference held by property C::$p of |
 |    |                                    | type int past its maximal value`   |
 +----+------------------------------------+------------------------------------+
 | 44 | source removal                     | `unset($o->p)`: `sources -= [o p]` |
@@ -1026,11 +1060,21 @@ assignment through it is verified against all of them
 |    |                                    | property                           |
 +----+------------------------------------+------------------------------------+
 | 45 | two sources of different types on  | the acquisition is checked: the    |
-|    | one reference                      | current value must satisfy the new |
-|    |                                    | source, else `TypeError` at `=&`;  |
-|    |                                    | thereafter row 42 requires both,   |
-|    |                                    | and a coercion that satisfies one  |
-|    |                                    | and not the other fails            |
+|    | one reference                      | current value must be assignable   |
+|    |                                    | to the new source's type, else     |
+|    |                                    | `TypeError: Cannot assign int to   |
+|    |                                    | property D::$q of type array`; a   |
+|    |                                    | reference that already has sources |
+|    |                                    | additionally needs the value to be |
+|    |                                    | an exact member of the new type,   |
+|    |                                    | else `TypeError: Reference with    |
+|    |                                    | value of type int held by property |
+|    |                                    | D::$q of type int is not           |
+|    |                                    | compatible with property E::$b of  |
+|    |                                    | type bool` (no coercion across     |
+|    |                                    | sources); a reference without      |
+|    |                                    | sources takes the coerced value;   |
+|    |                                    | thereafter row 42 requires both    |
 +----+------------------------------------+------------------------------------+
 | 46 | typed static properties            | the same sources, keyed `[class    |
 |    |                                    | prop]`                             |
@@ -1950,18 +1994,32 @@ claimed row's fixtures must equal the oracle before its slice lands (section
 |       | (C15)                            |                                   |
 +-------+----------------------------------+-----------------------------------+
 | P3    | references and the section 4     | `ref-lifecycle-v1`,               |
-|       | model: rows 1 to 47 and 53 to 65 | `iteration-v1`, `temps-v1`,       |
-|       | (plain and instance arrays,      | `calls-v1` and                    |
-|       | markers, `RELEASE_CVS`,          | `oracle-2026-10-17` F1 and F2     |
-|       | iterators with per-table         | equal to the oracle; the anchor   |
-|       | records, unset fetches,          | programs of section 4.5; the      |
-|       | temporaries and pending calls,   | php-src selection; the            |
-|       | named arguments, typed-property  | permutation corpus (sample in the |
-|       | references), `global`, `static`, | quick tier, full in the slow      |
-|       | closures with `use` and `use     | tier); the `foreach` by-reference |
-|       | (&)`, arrow functions,           | leftover binding and the          |
-|       | destructuring, by-reference      | second-loop overwrite             |
-|       | parameters                       |                                   |
+|       | model. Program level: rows 1 to  | `iteration-v1`, `calls-v1` and    |
+|       | 18, 21, 24 to 40, 55 to 57 and   | `closures-v1` equal to the        |
+|       | 63 to 64; prelude level: rows 19 | oracle (91 pinned results); the   |
+|       | and 41 to 47 (plain and instance | anchor programs of section 4.5    |
+|       | arrays, markers, `RELEASE_CVS`,  | at prelude level; the quick       |
+|       | unset fetches, temporaries and   | permutation corpus compared       |
+|       | the integrated call protocol,    | with the oracle; the `foreach`    |
+|       | named arguments, `global`,       | by-reference leftover binding     |
+|       | `static`, closures with `use` and | and second-loop overwrite;        |
+|       | `use (&)`, arrow functions,      | departure sources for C25, C26    |
+|       | destructuring, by-reference      | and C28. The php-src selection,   |
+|       | parameters), `foreach` by        | the full corpus and the linked    |
+|       | reference with an ordinal        | profile move to the P4 seam       |
+|       | iterator (the same-table clause  |                                   |
+|       | of rows 25 and 26; rows 54, 60,  |                                   |
+|       | 61 and the migration and rebuild |                                   |
+|       | clauses move to P3-c), the       |                                   |
+|       | array-pointer builtins, `try`,   |                                   |
+|       | `catch`, `finally`, `throw` and  |                                   |
+|       | `match`. Row 65 is out (C25)     |                                   |
++-------+----------------------------------+-----------------------------------+
+| P3-c  | iterator registry: per-table     | closes corner C26: rows 25, 26,   |
+|       | iterator records, migration,     | 54, 60 and 61 and the two         |
+|       | rebuild repositioning (the P3    | departure sources of C26          |
+|       | plan's S7.2 and S7.3); lands     |                                   |
+|       | before P4-b row 29               |                                   |
 +-------+----------------------------------+-----------------------------------+
 | P4    | classes, interfaces, traits,     | classes and exceptions groups; a  |
 |       | enums, `match`, exceptions,      | `TypeError` for `f("x")` with     |
@@ -2087,6 +2145,13 @@ decision B8.11).
 |                     | `gc_collect_cycles()` returns 0;    |                  |
 |                     | `gc_enable` and `gc_disable` are    |                  |
 |                     | no-ops                              |                  |
+|                     | Evidence: the oracle-only fixtures  |                  |
+|                     | `:oracle-cycle-release-gc`          |                  |
+|                     | (collected), `:oracle-cycle-        |                  |
+|                     | release-memory` (leaks) and `:ref-  |                  |
+|                     | cycle-unset-terminates` (done)      |                  |
+|                     | close the P4 plan's R2 condition    |                  |
+|                     | (a) as a known gap.                 |                  |
 +---------------------+-------------------------------------+------------------+
 | C2 object id reuse  | Engine: `spl_object_id` and `#n`    | restricted; none |
 |                     | ids are reused after free. Here:    | planned          |
@@ -2236,6 +2301,64 @@ decision B8.11).
 +---------------------+-------------------------------------+------------------+
 | C23 string          | Engine: unobservable. Here: no      | none             |
 | interning and `===` | deviation                           |                  |
++---------------------+-------------------------------------+------------------+
+| C24 variadic by     | Engine: `function f(&...$xs)` binds | unsupported; P9  |
+| reference           | each extra argument by reference.   |                  |
+|                     | Here: refused at lowering as        |                  |
+|                     | `:variadic-reference`; by-value     |                  |
+|                     | variadics, named extras and spread  |                  |
+|                     | work                                |                  |
++---------------------+-------------------------------------+------------------+
+| C25 spread with     | Engine: `f(...['a' => 1])` passes   | unsupported;     |
+| string keys         | named arguments. Here: refused at   | closes in P4     |
+|                     | run time with `Error` naming        | with `pcall-arg- |
+|                     | `G-spread-string-keys`; row 65 is   | named`           |
+|                     | not claimed at program level;       |                  |
+|                     | fixture `:call-spread-string-key-   |                  |
+|                     | gap`                                |                  |
++---------------------+-------------------------------------+------------------+
+| C26 by-reference    | Engine: per-table iterator records  | restricted;      |
+| foreach iterator    | (rows 25, 26, 60). Here: an ordinal | slice P3-c       |
+|                     | re-read each iteration; the same-   | before P4-b      |
+|                     | table clause holds, the copy-hit    |                  |
+|                     | and unrelated clauses of row 25,    |                  |
+|                     | the rebuild clause of row 26 and    |                  |
+|                     | rows 54, 60, 61 do not; fixtures    |                  |
+|                     | `:foreach-ref-sort-inside-loop`,    |                  |
+|                     | `:foreach-ref-array-reassigned-in-  |                  |
+|                     | loop`                               |                  |
++---------------------+-------------------------------------+------------------+
+| C27 grammar: arrow  | Engine: `[fn($x) => ...]` is an     | unsupported by   |
+| function item,      | arrow function and `foreach ($a as  | grammar;         |
+| keyed destructuring | $k => [$x, $y])` parses. Here: the  | manifest-patch   |
+| foreach             | vendored grammar (byte-identical to | slice before or  |
+|                     | upstream) reads a key/value pair    | inside P4 S0     |
+|                     | and rejects the foreach; held       |                  |
+|                     | fixtures `:call-dynamic-dim`,       |                  |
+|                     | `:foreach-key-and-destructure` keep |                  |
+|                     | their oracle values                 |                  |
++---------------------+-------------------------------------+------------------+
+| C28 method seam and | Engine: classes, methods, and `f(1, | restricted; P4   |
+| call validation     | z: 2, w: side())` stops at the send | S2 and S4        |
+| order               | of `z`. Here: `php/method-call`     |                  |
+|                     | serves Throwable (`getMessage`,     |                  |
+|                     | `getCode`, `getPrevious`) and       |                  |
+|                     | Closure (`bindTo`, `__invoke`)      |                  |
+|                     | only, `bindTo` shares statics, and  |                  |
+|                     | a named argument is validated at    |                  |
+|                     | call entry so `side()` runs;        |                  |
+|                     | fixture `:call-unknown-named-later- |                  |
+|                     | arg-runs`                           |                  |
++---------------------+-------------------------------------+------------------+
+| C29 cyclic var_dump | Engine: `var_dump` prints           | restricted;      |
+| and comparison      | `*RECURSION*`; `==` on a cyclic     | texts recorded   |
+|                     | array is a nesting error. Here: a   | in oracle pass 5 |
+|                     | visited path of instance-array ids  |                  |
+|                     | prints `*RECURSION*`, and           |                  |
+|                     | `==`/`===` raise `Error` after a    |                  |
+|                     | depth of 100; texts recorded by     |                  |
+|                     | `:ref-cycle-var-dump`, `:ref-cycle- |                  |
+|                     | compare`                            |                  |
 +---------------------+-------------------------------------+------------------+
 
 ### 17.3 Convergence and the blocking rule
