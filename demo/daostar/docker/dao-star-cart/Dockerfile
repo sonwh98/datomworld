@@ -26,7 +26,10 @@ COPY --from=build /app /app
 WORKDIR /app/demo/daostar
 ENV PORT=3004 \
     CATALOG_PATH=/data/catalog.edn \
-    ASSET_ROOT=/app/demo/daostar/resources/dao_star_cart/public
+    ASSET_ROOT=/app/demo/daostar/resources/dao_star_cart/public \
+    LANG=C.UTF-8
+# LANG=C.UTF-8 sets sun.jnu.encoding so the static edge can serve the
+# catalog's non-ASCII image filenames (e.g. Joycon小手柄.jpg)
 VOLUME /data
 EXPOSE 3004
 CMD ["clj", "-M", "-m", "dao.star-cart.main"]
