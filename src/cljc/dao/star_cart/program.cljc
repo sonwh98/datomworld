@@ -13,28 +13,30 @@
 (def shop-forms
   '[(let [ic (await/cursor in)]
       (do
-        (def emit (fn [page item cart]
-                    (await/>! out (assoc (assoc (assoc {} :page page) :item item) :cart cart))))
-        (def lp (fn [page item cart]
+        (def emit (fn [page item cart search]
+                    (await/>! out (assoc (assoc (assoc (assoc {} :page page) :item item) :cart cart) :search search))))
+        (def lp (fn [page item cart search]
                   (let [x (await/<! ic)
                         s (get x :signals)
                         a (get s :act)
                         arg (get s :arg)]
                     (if (= a "nav")
-                      (do (emit arg nil cart) (lp arg nil cart))
+                      (do (emit arg nil cart search) (lp arg nil cart search))
                       (if (= a "item")
-                        (do (emit "item" arg cart) (lp "item" arg cart))
+                        (do (emit "item" arg cart search) (lp "item" arg cart search))
                         (if (= a "add")
                           (let [c (assoc cart arg (+ 1 (get cart arg 0)))]
-                            (do (emit page item c) (lp page item c)))
+                            (do (emit page item c search) (lp page item c search)))
                           (if (= a "remove")
                             (let [c (assoc cart arg (- (get cart arg 0) 1))]
-                              (do (emit page item c) (lp page item c)))
+                              (do (emit page item c search) (lp page item c search)))
                             (if (= a "checkout")
-                              (do (emit "checkout" nil {}) (lp "checkout" nil {}))
-                              (do (emit page item cart) (lp page item cart))))))))))
-        (emit "catalog" nil {})
-        (lp "catalog" nil {})))])
+                              (do (emit "checkout" nil {} search) (lp "checkout" nil {} search))
+                              (if (= a "search")
+                                (do (emit "catalog" nil cart arg) (lp "catalog" nil cart arg))
+                                (do (emit page item cart search) (lp page item cart search)))))))))))
+        (emit "catalog" nil {} "")
+        (lp "catalog" nil {} "")))])
 
 
 (def shop-program

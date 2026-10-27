@@ -68,3 +68,26 @@
       (is (seq urls))
       (is (every? #(str/starts-with? % "/grid/") urls) (pr-str urls))
       (is (not (str/includes? sse "bad <price>")) "escaped"))))
+
+(deftest the-catalog-search-field-filters-items
+  (testing "the field renders on the catalog with the act protocol and no value initially"
+    (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search ""})]
+      (is (str/includes? sse "type=\"search\""))
+      (is (str/includes? sse "$act='search'; $arg=event.target.value; @post('/k/TOK')"))
+      (is (str/includes? sse "value=\"\"")))
+    (let [page (v/shop-project catalog "TOK" {:page "catalog" :cart {}})]
+      (is (str/includes? page "type=\"search\"")) "the field also renders when the model predates :search"))
+  (testing "a query keeps its text in the field and filters case-insensitively by name"
+    (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "alp"})]
+      (is (str/includes? sse "value=\"alp\""))
+      (is (str/includes? sse "Alpha &lt;b&gt;"))
+      (is (not (str/includes? sse "Bravo"))))
+    (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "ALP"})]
+      (is (str/includes? sse "Alpha &lt;b&gt;"))
+      (is (not (str/includes? sse "Bravo")))))
+  (testing "whitespace-only and empty queries match everything"
+    (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {} :search "   "})]
+      (is (str/includes? sse "Alpha &lt;b&gt;"))
+      (is (str/includes? sse "Bravo")))
+    (let [sse (v/shop-project catalog "TOK" {:page "catalog" :cart {}})]
+      (is (str/includes? sse "Bravo")))))

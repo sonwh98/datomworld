@@ -144,9 +144,34 @@
        (button "" token "Add" "add" (:key item)) "</div></article>"))
 
 
+(defn- search-box
+  "The catalog's search field.  Typing sets the signals and posts to the
+   occurrence token; `value` keeps the field's text across re-projections."
+  [token q]
+  (str "<section class=\"search\"><input type=\"search\" placeholder=\"Search products…\""
+       " value=\"" (esc (or q "")) "\""
+       " data-on:input=\"$act='search'; $arg=event.target.value; @post('/k/" (esc token) "')\""
+       " autocomplete=\"off\"></section>"))
+
+
+(defn- matches?
+  "Case-insensitive substring match of `q` against the item's name.
+   An empty query matches everything."
+  [q item]
+  (let [t (str/trim (str q))]
+    (or (empty? t)
+        (str/includes? (str/lower-case (str (:name item)))
+                       (str/lower-case t)))))
+
+
 (defn- catalog-page
-  [catalog token]
-  (str "<section class=\"grid\">" (apply str (map #(card token %) (remove #(empty? (str/trim (str (:name %)))) ((:items catalog))))) "</section>"))
+  [catalog token q]
+  (str (search-box token q)
+       "<section class=\"grid\">"
+       (apply str (map #(card token %)
+                       (filter #(matches? q %)
+                               (remove #(empty? (str/trim (str (:name %)))) ((:items catalog))))))
+       "</section>"))
 
 
 (defn- item-page
@@ -195,7 +220,7 @@
              "item" (item-page catalog token (:item model))
              "cart" (cart-page catalog token cart)
              "checkout" "<section class=\"cart\"><h2>Order received</h2><p>This is a demo: no payment was taken.</p></section>"
-             (catalog-page catalog token))
+             (catalog-page catalog token (:search model)))
            "</main><footer>Catalog as of last page load.</footer></div>"))))
 
 
